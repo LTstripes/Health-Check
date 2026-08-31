@@ -9,7 +9,7 @@ Google Health / Fitbit -> Google Health adapter -----> Canonical Health Store
                                                      /
 Xiaomi S400 ------------> openScale / import ------/
                                                     \
-Life context notes ---------------------------------> Context Store
+Life context (Telegram/dashboard) -----------------> Context Store
 
 Canonical Health Store + Context Store
             |
@@ -26,6 +26,10 @@ Deterministic Analytics Engine
             |
             v
 Reports + Query API + Dashboard + read-only AI/MCP layer
+            |
+            +--> local dashboard
+            +--> email delivery
+            +--> Telegram delivery/context capture
 ```
 
 ## Data ingestion
@@ -40,6 +44,8 @@ Reasons:
 - supports historical backfill;
 - already proven by multiple reference projects;
 - avoids depending on approval for Garmin's official partner/developer APIs.
+
+Primary known device: **Garmin Vivoactive 5**.
 
 Store both normalized measurements and source/raw payloads when practical.
 
@@ -74,12 +80,12 @@ Goals:
 Primary target path:
 
 ```text
-Xiaomi S400 -> BLE -> openScale -> openScale-sync -> webhook and/or Health Connect -> Healh-Check
+Xiaomi S400 -> BLE -> openScale -> openScale-sync -> webhook and/or Health Connect -> Health-Check
 ```
 
 The S400 is currently listed by openScale as supported with body metrics through `MiScaleS400Handler`.
 
-Important: openScale/openScale-sync are GPLv3. Prefer to run them as separate applications and integrate through documented boundaries (webhook/Health Connect) rather than copying GPL code into Healh-Check.
+Important: openScale/openScale-sync are GPLv3. Prefer to run them as separate applications and integrate through documented boundaries (webhook/Health Connect) rather than copying GPL code into Health-Check.
 
 #### Photo/screenshot fallback
 
@@ -99,14 +105,27 @@ Do not silently write vision/OCR results directly into the canonical store.
 
 Support free-text dated notes rather than mandatory daily ratings.
 
+Primary MVP capture paths:
+
+- Telegram bot/message flow;
+- dashboard quick-entry flow.
+
 A context event should minimally contain:
 
 - event time/date or date range;
 - free-text note;
 - optional tags inferred or confirmed later;
-- provenance (`manual`, `chat`, `dashboard`, etc.).
+- provenance (`telegram`, `dashboard`, `manual_import`, etc.).
 
 Raw user wording should be preserved. Structured tags may be derived separately.
+
+#### Obsidian
+
+Obsidian is **not** the canonical event store in MVP. It may later be integrated as an optional import/reference source for selected folders or structured notes, but the core system should not depend on nightly parsing of a general-purpose vault.
+
+### Nutrition
+
+No dedicated calorie/macronutrient ingestion in the first releases. Food/alcohol remain contextual events when analytically relevant. A future optional summary import from the user's existing ChatGPT food diary may be evaluated separately.
 
 ## Canonical health store
 
@@ -227,6 +246,12 @@ Target automated cadence:
 
 Routine sync and analytics recalculation should happen automatically without user intervention.
 
+Every periodic report should:
+
+1. be persisted/viewable in the local dashboard;
+2. be proactively delivered through email;
+3. be proactively delivered through Telegram.
+
 Do not prioritize a daily morning report in MVP.
 
 ## Interfaces
@@ -242,7 +267,22 @@ The dashboard should support:
 - activity/session comparisons;
 - anomaly/event overlays;
 - data coverage indicators;
-- drill-down from report findings.
+- drill-down from report findings;
+- quick free-text context entry;
+- report history.
+
+### Telegram
+
+Telegram should support at least:
+
+- delivery of weekly/monthly/yearly report summaries;
+- links or pointers to deeper local dashboard views where practical;
+- quick free-text context/event capture;
+- optional future lightweight commands/queries.
+
+### Email
+
+Email is a proactive report-delivery channel, not a primary data-entry channel. Exact provider/SMTP implementation should be chosen during implementation based on simplicity and reliability.
 
 ### AI / LLM
 
@@ -260,17 +300,22 @@ The AI surface should be read-only with respect to imported health data except f
 
 ## Privacy and security
 
-Health data is sensitive.
+Local-first is primarily a product/engineering choice for simplicity, ownership and reproducibility, not a strict requirement that all health data remain offline.
 
 Principles:
 
-- local-first runtime;
+- local-first runtime and canonical database;
 - no personal DB, raw health payloads, lab results, tokens or screenshots in Git;
 - provider credentials/tokens stored outside the repository;
-- explicit outbound LLM configuration;
+- external LLM use is allowed when useful;
+- prefer sending query-sized/derived datasets instead of huge raw exports when possible;
 - read-only machine/AI access where possible;
 - backups and schema migrations from early versions;
 - provenance and auditability for manual/AI-assisted imports.
+
+## Timezone/travel handling
+
+Preserve source timestamps and timezone metadata where practical. Sophisticated rules for travel, cross-timezone sleeps and report-day boundaries are deliberately deferred to a later backlog unless real data exposes a concrete issue sooner.
 
 ## Future lab/medical-data layer
 
@@ -284,5 +329,7 @@ Preferred workflow:
 4. store normalized values plus source-document provenance;
 5. keep reference ranges supplied by that laboratory where available;
 6. allow longitudinal comparisons and links to wearable/body-composition timelines.
+
+Selected or full source documents may be sent to an external LLM when the user explicitly wants analysis; a local-only document-processing mode is not required for MVP.
 
 LLM interpretation can add context and questions to investigate, but should not convert laboratory data into unsupported diagnoses.
