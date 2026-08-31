@@ -41,14 +41,14 @@
 
 ### Hardware / sources
 
-- Garmin wearable: worn concurrently with Fitbit; exact Garmin model still to record.
+- **Garmin Vivoactive 5**: worn concurrently with Fitbit.
 - **Google Fitbit Air**: worn concurrently with Garmin.
 - **Xiaomi Body Composition Scale S400**.
 - Garmin expected to provide most wearable/training data.
 - Fitbit is a candidate primary sleep source, pending a real Garmin-vs-Fitbit comparison.
 - Both sources should remain visible regardless of canonical-source choice.
 - Periodic statistical comparison between devices is desired.
-- Garmin proprietary scores (Body Battery, Training Readiness, Stress, etc.) should be retained as informative signals.
+- Garmin proprietary scores (Body Battery, Training Readiness, Stress, etc.) should be retained as informative signals when available for the device/account.
 
 ### Xiaomi workflow
 
@@ -85,14 +85,13 @@
 
 These do not block the documentation/bootstrap phase but should be resolved before or during R00/R01.
 
-1. **Exact Garmin watch model(s).** This affects available metrics and should be part of provider/device metadata.
-2. **Report delivery channel.** Where should Sunday/month-end/year-end reports proactively appear: local dashboard only, Telegram, email, ChatGPT workflow, or a combination?
-3. **Life-context capture UX.** Preferred first path: quick field in the dashboard, Telegram/chat message into the local service, or both?
-4. **External LLM privacy boundary.** Is it acceptable for selected health metrics/derived analytics to be sent to OpenAI when the user asks Lera/ChatGPT to analyze them, while the complete raw database remains local? Or should a local-model-only mode be a hard requirement from v1?
-5. **Nutrition scope.** For the first releases, should food/alcohol remain free-text context only ("late dinner", "three days drinking"), with no calorie/macronutrient tracking?
-6. **Future lab-data boundary.** Should full source documents remain local by default with only normalized/selected values sent to an external LLM, or is sending an explicitly selected full document to the LLM acceptable?
-7. **Travel/timezone semantics.** For long-term reports, should calendar-day boundaries follow the user's local timezone at the measurement/event, or a fixed home timezone? Sleep crossing timezones needs an explicit rule eventually.
-8. **Repository/project name.** Current GitHub repository is named `Healh-Check` (missing the second `t` in `Health`). Decide whether to rename before implementation or keep it intentionally.
+1. **Report delivery channel.** Where should Sunday/month-end/year-end reports proactively appear: local dashboard only, Telegram, email, ChatGPT workflow, or a combination?
+2. **Life-context capture UX.** Preferred first path: quick field in the dashboard, Telegram/chat message into the local service, or both?
+3. **External LLM privacy boundary.** Is it acceptable for selected health metrics/derived analytics to be sent to OpenAI when the user asks Lera/ChatGPT to analyze them, while the complete raw database remains local? Or should a local-model-only mode be a hard requirement from v1?
+4. **Nutrition scope.** For the first releases, should food/alcohol remain free-text context only ("late dinner", "three days drinking"), with no calorie/macronutrient tracking?
+5. **Future lab-data boundary.** Should full source documents remain local by default with only normalized/selected values sent to an external LLM, or is sending an explicitly selected full document to the LLM acceptable?
+6. **Travel/timezone semantics.** For long-term reports, should calendar-day boundaries follow the user's local timezone at the measurement/event, or a fixed home timezone? Sleep crossing timezones needs an explicit rule eventually.
+7. **Repository/project name.** Current GitHub repository is named `Healh-Check` (missing the second `t` in `Health`). Decide whether to rename before implementation or keep it intentionally.
 
 ## Default proposals if not otherwise decided
 
