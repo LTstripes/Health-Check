@@ -10,12 +10,13 @@
 - Dashboard and AI/LLM are equally important interfaces.
 - Support automatic periodic reports and arbitrary ad-hoc analysis.
 
-### Report cadence
+### Report cadence and delivery
 
 - Weekly: Sunday.
 - Monthly: last calendar day of the month.
 - Annual: year end.
 - No dedicated daily briefing in MVP.
+- Automatic reports should be available in the local dashboard and proactively delivered through **email and Telegram**.
 
 ### Advice
 
@@ -60,7 +61,16 @@
 
 - No mandatory structured daily energy/mood/stress diary.
 - Do support spontaneous free-text life events and observations.
+- Preferred capture channels: **Telegram + dashboard**.
 - Analytics should be able to relate these events to health changes and recurring patterns.
+- Obsidian is not a canonical health-event store in MVP. It may later be used as an optional import/reference source if that proves useful, but Health-Check should not depend on nightly parsing of Obsidian notes.
+
+### Nutrition
+
+- Detailed nutrition/calorie/macronutrient tracking is outside the first releases.
+- The user already keeps a food diary in a ChatGPT project; Health-Check does not need to duplicate that workflow now.
+- Food/alcohol can still appear as lightweight context events (for example: "large late dinners" or "three days drinking").
+- A future optional weekly summary import from the existing food diary may be considered only if it adds useful analytical signal.
 
 ### History
 
@@ -73,25 +83,43 @@
 
 - Sync should happen automatically.
 - Analytics/baselines should recalculate automatically.
-- Periodic reports should generate automatically.
+- Periodic reports should generate automatically and be delivered without manual action.
 
-### Future direction
+### External LLM / privacy boundary
+
+- Local-first is an architectural preference for simplicity, control, reproducibility and direct ownership of the data; it is **not** a requirement to keep all health information away from external AI services.
+- Selected raw data, normalized metrics, derived analytics and explicitly selected documents may be sent to OpenAI or another external LLM when useful for analysis.
+- Avoid sending unnecessarily large raw datasets when a smaller derived/query result is sufficient, primarily for efficiency and clarity rather than secrecy.
+- Real personal health data, screenshots, databases, provider tokens and lab documents must still never be committed to Git.
+
+### Future lab / medical data
 
 - Later expand beyond wearables into laboratory tests and other personal health documents.
 - Possible inputs include bloodwork, vitamin/mineral results and other lab/medical reports.
-- Preserve source documents outside Git, normalize extracted values, retain lab ranges/units and require confirmation for uncertain extraction.
+- Store normalized values with analyte/result/unit/reference range/date and source provenance.
+- Full PDFs/images may be analyzed by an external LLM when explicitly useful; strict local-only document handling is not required.
+- Human confirmation remains important for uncertain extraction.
 
-## Open questions before implementation
+### Travel/timezone semantics
 
-These do not block the documentation/bootstrap phase but should be resolved before or during R00/R01.
+- Correct timezone semantics are valuable but **not an early-release blocker**.
+- Preserve source timestamps/timezone metadata where practical from the beginning.
+- Sophisticated travel/day-boundary/sleep-crossing-timezone logic belongs in the distant backlog unless real data exposes a concrete problem earlier.
 
-1. **Report delivery channel.** Where should Sunday/month-end/year-end reports proactively appear: local dashboard only, Telegram, email, ChatGPT workflow, or a combination?
-2. **Life-context capture UX.** Preferred first path: quick field in the dashboard, Telegram/chat message into the local service, or both?
-3. **External LLM privacy boundary.** Is it acceptable for selected health metrics/derived analytics to be sent to OpenAI when the user asks Lera/ChatGPT to analyze them, while the complete raw database remains local? Or should a local-model-only mode be a hard requirement from v1?
-4. **Nutrition scope.** For the first releases, should food/alcohol remain free-text context only ("late dinner", "three days drinking"), with no calorie/macronutrient tracking?
-5. **Future lab-data boundary.** Should full source documents remain local by default with only normalized/selected values sent to an external LLM, or is sending an explicitly selected full document to the LLM acceptable?
-6. **Travel/timezone semantics.** For long-term reports, should calendar-day boundaries follow the user's local timezone at the measurement/event, or a fixed home timezone? Sleep crossing timezones needs an explicit rule eventually.
-7. **Repository/project name.** Current GitHub repository is named `Healh-Check` (missing the second `t` in `Health`). Decide whether to rename before implementation or keep it intentionally.
+### Repository name
+
+- Canonical repository/project name is **Health-Check**.
+- The earlier `Healh-Check` spelling was an accidental typo and should not be retained in code or documentation.
+
+## Remaining open questions before implementation
+
+These do not block R00 unless the technical audit reveals that they affect the base architecture.
+
+1. **Email implementation.** Which delivery route should the local service use first: SMTP/application password, a provider API, or another simple local-friendly mechanism?
+2. **Telegram implementation.** Reuse Telegram patterns from `garmin_ai`, use a simple bot directly, or isolate notifications behind a generic notifier interface from day one?
+3. **Context-event grammar.** How much automatic extraction should happen from free text (date range, tags such as alcohol/travel/illness/activity) before asking for confirmation?
+4. **LLM access path.** What is the simplest robust route for ChatGPT/Lera to query the local analytics layer later: remote read-only MCP/API, exported report/context bundles, or another secure bridge?
+5. **Lab schema depth.** When lab ingestion begins, decide whether to model only analytes/results or also laboratory, specimen, fasting state, method and physician/context metadata.
 
 ## Default proposals if not otherwise decided
 
@@ -100,5 +128,7 @@ These do not block the documentation/bootstrap phase but should be resolved befo
 - Use versioned canonical-source rules instead of destructive normalization.
 - Present AI findings as: observation -> evidence -> likely interpretation -> suggestion -> confidence/caveat.
 - Keep nutrition as free-text context initially.
-- Use external LLMs only on explicit user action/reports and send the minimum data needed for the question.
+- Use Telegram + dashboard as the first context-capture paths.
+- Use dashboard + email + Telegram for periodic report delivery.
+- Keep Obsidian optional/non-canonical rather than making Health-Check depend on note parsing.
 - Never place real health data or source documents in Git.

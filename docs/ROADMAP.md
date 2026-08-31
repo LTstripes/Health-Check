@@ -48,7 +48,7 @@ Goal: make Garmin the first complete automated source.
 
 Scope:
 
-- authentication/token handling;
+- Garmin Vivoactive 5 / Garmin Connect authentication and token handling;
 - incremental sync;
 - maximum reliable historical backfill;
 - daily health metrics;
@@ -65,7 +65,7 @@ Goal: automate weight/body composition.
 Primary experiment:
 
 ```text
-S400 -> openScale -> openScale-sync -> webhook/Health Connect -> Healh-Check
+S400 -> openScale -> openScale-sync -> webhook/Health Connect -> Health-Check
 ```
 
 Also implement:
@@ -130,7 +130,7 @@ Scope:
 - longer-term sleep/recovery/fitness trends;
 - data-quality-aware conclusions.
 
-## R08 — Dashboard and reports
+## R08 — Dashboard, reports and proactive delivery
 
 Scope:
 
@@ -141,7 +141,10 @@ Scope:
 - context-event overlays;
 - weekly automatic report (Sunday);
 - month-end automatic report;
-- annual review.
+- annual review;
+- report history in the local dashboard;
+- proactive email delivery;
+- proactive Telegram delivery.
 
 ## R09 — AI / LLM analytics interface
 
@@ -154,6 +157,7 @@ Scope:
 - explanation and practical suggestions;
 - citations/provenance back to calculated metrics/source coverage where practical;
 - explicit confidence/caveat handling;
+- external LLM use allowed when useful;
 - no unrestricted mutation of health data.
 
 ## R10 — Context capture workflow
@@ -162,11 +166,13 @@ Goal: make life context useful without becoming a chore.
 
 Scope:
 
-- quick free-text event entry via dashboard and/or chat;
+- quick free-text event entry via **Telegram and dashboard**;
 - date/range extraction;
 - human-correctable tags;
 - analytics around repeated context patterns;
 - no mandatory daily mood/energy questionnaire.
+
+Obsidian is not a dependency or canonical event store. Optional selected-note/folder import may be evaluated later if it adds useful context without turning the system into a general vault parser.
 
 ## R11+ — Broader personal health record
 
@@ -178,15 +184,18 @@ Future, after wearable/body composition product is stable:
 - vitamin/mineral tracking;
 - longitudinal lab trends;
 - combined lab + wearable + body-composition research;
-- optional doctor-visit summaries/export.
+- optional doctor-visit summaries/export;
+- use of external LLMs for selected or full source documents when explicitly useful.
 
 ## Later / maybe
 
 - native mobile app;
-- richer notification channels;
 - additional wearable providers;
-- nutrition integration if the user later wants it;
-- remote secure read-only access for ChatGPT/other assistants.
+- optional Obsidian import for selected health-context notes;
+- optional periodic summary import from the existing ChatGPT food diary if it proves analytically useful;
+- remote secure read-only access for ChatGPT/other assistants;
+- richer timezone/travel-day semantics;
+- additional notification/query channels beyond dashboard/email/Telegram.
 
 ## Explicitly not an MVP priority
 
@@ -195,4 +204,6 @@ Future, after wearable/body composition product is stable:
 - multi-user accounts/workspaces;
 - SaaS/cloud platform architecture;
 - Kubernetes/Redis/Postgres without demonstrated need;
-- mandatory subjective daily journaling.
+- mandatory subjective daily journaling;
+- detailed nutrition/calorie/macronutrient tracking;
+- sophisticated timezone handling.

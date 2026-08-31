@@ -4,7 +4,7 @@ This document tracks external projects that may reduce implementation work. Lice
 
 ## Summary
 
-| Project | Primary value to Healh-Check | License / reuse stance | Current recommendation |
+| Project | Primary value to Health-Check | License / reuse stance | Current recommendation |
 |---|---|---|---|
 | [TolmachevKirill/garmin_ai](https://github.com/TolmachevKirill/garmin_ai) | Garmin collectors, raw/local cache, Windows packaging, reports, MCP/Telegram patterns | Repository describes itself as open source, but no root LICENSE was identified during the initial review | Study and potentially reuse ideas; **do not copy code until license is clarified** |
 | [dandwhelan/garmin-stats-ai](https://github.com/dandwhelan/garmin-stats-ai) | Garmin ingestion plus personal baselines, trends, anomalies, correlations, deterministic analytics and dashboard patterns | MIT (bundled garmin-grafana module retains BSD-3-Clause) | High-priority code/architecture donor candidate |
@@ -93,12 +93,12 @@ The openScale supported-scale documentation currently lists **Xiaomi Body Compos
 Potential integration:
 
 ```text
-Xiaomi S400 -> openScale -> openScale-sync -> generic webhook or Health Connect -> Healh-Check
+Xiaomi S400 -> openScale -> openScale-sync -> generic webhook or Health Connect -> Health-Check
 ```
 
 This is preferable to image-only ingestion if it proves stable on the user's phone.
 
-Because both projects use GPLv3, keep them outside the Healh-Check codebase and integrate over external interfaces.
+Because both projects use GPLv3, keep them outside the Health-Check codebase and integrate over external interfaces.
 
 **Decision:** primary Xiaomi ingestion experiment; retain screenshot/photo import as fallback and historical-data path.
 
@@ -153,7 +153,7 @@ Audit fields:
 - local security model;
 - packaging/deployment;
 - reusable files/modules;
-- changes required for Healh-Check.
+- changes required for Health-Check.
 
 Initial audit priority:
 
