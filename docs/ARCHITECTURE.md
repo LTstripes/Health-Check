@@ -280,8 +280,7 @@ No Health-Check Recovery Score is currently justified. Preserve Garmin/Fitbit si
 - Use typed access capabilities: read, ingest, context/import write, and admin are distinct.
 - openScale/openScale-sync remain external GPL programs; do not claim this eliminates every legal obligation for every distribution arrangement.
 - AGPL VitaSync and unlicensed `garmin_ai` are reference-only.
-- MIT donor code is reused only selectively with license/copyright notice and exact-source attribution.
-- Health-Check currently has no LICENSE; choose and add one before incorporating donor code.
+- Health-Check is licensed under MIT. Donor code is reused only selectively with the attribution, copyright notices, and other obligations required by its source license and exact reused commit.
 
 ## 15. Architecture invariants
 
