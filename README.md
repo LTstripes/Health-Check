@@ -40,9 +40,31 @@ raw evidence -> typed source records -> versioned canonical selection
 
 ## Current status
 
-R00 architecture is consolidated. No application code exists yet. The approved next vertical slice is **R01 — Weight & Body Composition**, which builds the small reusable core, imports historical Xiaomi screenshots with confirmation, accepts the openScale-sync webhook contract, computes conservative weight/body-composition analytics, and provides a minimal dashboard.
+The R01 bootstrap runtime is in place. Domain features are intentionally added in later task branches. The approved vertical slice is **R01 — Weight & Body Composition**, which will build the reusable core, import historical Xiaomi screenshots with confirmation, accept the openScale-sync webhook contract, compute conservative weight/body-composition analytics, and provide a minimal dashboard.
 
 R01 deliberately excludes Garmin ingestion, Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery.
+
+## Local bootstrap
+
+Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+From a clean checkout, run:
+
+```powershell
+uv sync
+uv run ruff check .
+uv run pytest
+```
+
+The canonical Windows launcher prepares the external runtime, initializes the empty SQLite database with WAL/foreign-key pragmas, and starts the loopback listener on `127.0.0.1:8000`:
+
+```powershell
+.\scripts\start.ps1
+```
+
+Use `-DataDir C:\Temp\Health-Check` for a temporary runtime directory. Set `-EnableIngest` to start the separate liveness-only ingest listener on `-IngestHost`/`-IngestPort`; it has no UI, import, settings, or product routes. The same operations are directly callable with `uv run python -m healthcheck.cli prepare-runtime`, `migrate`, or `serve --app ui|ingest`.
+
+Runtime state defaults to `%LOCALAPPDATA%\Health-Check` and can be overridden with `HEALTHCHECK_DATA_DIR`. No health data, provider credentials, payloads, images, logs, database, or generated reports belong in the repository.
 
 ## Canonical product documentation
 
