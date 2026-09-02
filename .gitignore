@@ -1,0 +1,38 @@
+# Python and local tooling
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.pytest-tmp/
+.ruff_cache/
+.venv/
+.uv-cache/
+dist/
+build/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.toml
+*.secret
+*.token
+
+# Health-Check runtime state (must remain outside the checkout in normal use)
+healthcheck.db
+healthcheck.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+artifacts/
+payloads/
+photos/
+logs/
+reports/
+runtime/
+data/
+
+# Generated reports and generic local exports
+*.pdf
+*.html
