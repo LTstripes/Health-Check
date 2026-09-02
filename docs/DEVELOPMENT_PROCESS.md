@@ -64,9 +64,11 @@ Schema/migration/security/network/canonical-data tasks are treated conservativel
 
 GitHub is canonical. Local paths are execution/preview locations, not sources of truth.
 
+`D:\Garmin` is the owner-only parent root. It contains separate main and UAT checkouts; the parent directory itself is not a mutable Git checkout.
+
 ### Owner canonical checkout
 
-`D:\Garmin`
+`D:\Garmin\Garmin-Main`
 
 Purpose:
 
@@ -76,11 +78,9 @@ Purpose:
 
 Other coding agents must not access, branch-switch, reset or use this checkout.
 
-### Owner preview/UAT checkout — create before R01 implementation UAT
+### Owner preview/UAT checkout
 
-Recommended:
-
-`D:\Garmin-UAT`
+`D:\Garmin\Garmin-UAT`
 
 Purpose:
 
@@ -127,7 +127,7 @@ A worker may create only the task directory explicitly assigned below its client
 
 Workers must not:
 
-- inspect `D:\Garmin` or `D:\Garmin-UAT`;
+- inspect `D:\Garmin\Garmin-Main` or `D:\Garmin\Garmin-UAT`;
 - reuse another task directory;
 - create sibling roots elsewhere on disk;
 - link private owner runtime/data into a dev clone;
@@ -245,12 +245,12 @@ When all planned tasks for a release are integrated:
 
 1. Integrator reviews the complete integration diff against the release spec.
 2. Automated full release checks pass.
-3. Owner UAT/preview runs from `D:\Garmin-UAT`, using a separate private runtime profile.
+3. Owner UAT/preview runs from `D:\Garmin\Garmin-UAT`, using a separate private runtime profile.
 4. Live/provider/device probes required by that release are performed or explicitly remain `UNVERIFIED` if allowed by the spec.
 5. Integrator resolves findings in dedicated task branches, not by ad-hoc edits in UAT checkout.
 6. Integrator opens/reviews integration -> `main` PR.
 7. Accepted release is merged to `main`.
-8. `D:\Garmin` is fast-forwarded to canonical `main` by the owner when convenient; GitHub remains canonical.
+8. `D:\Garmin\Garmin-Main` is fast-forwarded to canonical `main` by the owner when convenient; GitHub remains canonical.
 9. Release documentation/history is synchronized.
 
 ## 11. Benchmark / A-B tasks
