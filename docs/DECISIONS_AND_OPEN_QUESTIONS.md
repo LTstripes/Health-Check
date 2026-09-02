@@ -89,10 +89,10 @@ R00 turns earlier hypotheses into decisions or explicit `UNVERIFIED` items. An i
 
 ### License
 
+- Health-Check uses the MIT License from this branch onward.
 - `python-garminconnect` is a direct MIT dependency.
-- MIT/BSD donor code is selective, attributed, and pinned.
+- MIT/BSD donor code is selective, attributed, and pinned; donor notices/copyright obligations remain applicable when code is incorporated.
 - openScale/openScale-sync are external GPL components; VitaSync is AGPL reference-only; unlicensed `garmin_ai` is reference-only.
-- Health-Check needs an owner-selected license before donor code is incorporated. R00 does not add one.
 
 ## `UNVERIFIED` live items
 
@@ -130,11 +130,10 @@ These are not architecture gaps; they are explicit acceptance probes for the own
 
 ## Deferred owner choices
 
-1. **Repository license.** R00 recommends a permissive license compatible with intended MIT/BSD reuse, but the owner must choose it before code incorporation.
-2. **Email transport.** Pick SMTP/application password or a provider API in R07 based on the owner's account and Windows reliability.
-3. **External AI provider/deployment.** The evidence-packet/tool contract is provider-neutral; select a model/provider when the AI release begins.
-4. **Recovery Score.** Decide only after R05+ data and a written unmet use case.
-5. **Advanced remote access.** Keep loopback/local by default; design remote MCP/API exposure only with an explicit threat model and need.
+1. **Email transport.** Pick SMTP/application password or a provider API in R07 based on the owner's account and Windows reliability.
+2. **External AI provider/deployment.** The evidence-packet/tool contract is provider-neutral; select a model/provider when the AI release begins.
+3. **Recovery Score.** Decide only after R05+ data and a written unmet use case.
+4. **Advanced remote access.** Keep loopback/local by default; design remote MCP/API exposure only with an explicit threat model and need.
 
 ## Change protocol
 
