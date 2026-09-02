@@ -2,6 +2,8 @@
 
 The roadmap follows usable vertical slices. Each release adds value on the Windows laptop without requiring enterprise infrastructure or discarding source evidence.
 
+Future ideas that are intentionally not committed to a release yet live in [Backlog Ideas](BACKLOG_IDEAS.md).
+
 ## R00 — Final architecture (complete in this branch)
 
 Outputs:
@@ -77,11 +79,16 @@ Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted A
 - Structured n-of-1 experiments.
 - Consider, but do not presume, a transparent Recovery Score only if accumulated data demonstrates an unmet need.
 
-## R09 — Laboratory and document data
+## R09 — Laboratory, medication, supplement, and document data
 
-- Original document provenance outside Git.
+- Original laboratory/medical document provenance outside Git.
 - Candidate extraction, human confirmation, normalized analytes/units/reference ranges, and longitudinal views.
-- Combined lab, wearable, context, and body-composition evidence without diagnosis.
+- Medication/vitamin/supplement exposure timeline with dose, unit, start/end/change events, provenance, and optional adherence observations without a mandatory daily diary.
+- Lab-guided interpretation that can relate confirmed analytes to medication/supplement periods and relevant wearable/body-composition trends.
+- Practical follow-up suggestions and questions to discuss with a clinician/pharmacist, without autonomous diagnosis or prescription changes.
+- Combined lab, medication/supplement, wearable, context, and body-composition evidence without causal overclaiming.
+
+If medication/supplement scope makes R09 too large, split it into a follow-up release while keeping the shared exposure/event model.
 
 ## R10 — Optional advanced work
 
