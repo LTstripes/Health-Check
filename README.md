@@ -1,52 +1,73 @@
 # Health-Check
 
-Single-user, local-first personal health observatory for long-term analysis across wearables, body composition, life context and (later) laboratory data.
+Health-Check is a single-user, local-first personal health observatory. It keeps source evidence from several devices, computes reproducible analytics on a Windows laptop, and exposes the same evidence through a local dashboard and an AI/LLM interface.
 
-> Status: **pre-implementation / architecture & source audit**. No production health data should be committed to this repository.
+It is not a SaaS product, workout planner, medical diagnostic system, or replacement for Garmin/Fitbit/Xiaomi daily apps.
 
-## Product direction
+## Product priorities
 
-Health-Check should automatically collect data, compute reproducible analytics, show long-term dashboards, produce weekly/monthly/yearly reviews, and support arbitrary natural-language questions through a read-only AI/LLM layer.
+1. Weight and body composition.
+2. Sleep.
+3. Physical activity and fitness, especially cycling.
+4. Recovery and general wellbeing.
 
-Current priority:
+Planned sources are Garmin Vivoactive 5, Google Fitbit Air through the applicable Google health-data interface, Xiaomi Body Composition Scale S400, and free-text life-context events. Laboratory results and other personal health documents are later work.
 
-1. weight and body composition;
-2. sleep;
-3. physical activity / fitness;
-4. general wellbeing / recovery.
+## Architecture in one minute
 
-Current sources:
+```text
+provider payloads / photos / context
+                |
+                v
+raw evidence -> typed source records -> versioned canonical selection
+                                      |
+                                      v
+                         deterministic analytics
+                                      |
+                                      v
+                  evidence packets and saved reports
+                         /                    \
+                  dashboard              read-only AI
+```
 
-- Garmin Vivoactive 5 / Garmin Connect (primary source for most wearable/training signals);
-- Google Fitbit Air / Google Health;
-- Xiaomi Body Composition Scale S400;
-- free-text life context/events captured primarily through Telegram and dashboard;
-- future: lab tests and other health documents.
+- Runtime: Python 3.12+, FastAPI, SQLite in WAL mode, and a small Windows-first local service.
+- Android: openScale and openScale-sync remain external GPL applications for the S400 path.
+- Source-specific values are retained even when another source becomes canonical.
+- Physical device, provider/input method, and measurement algorithm are separate identities.
+- Xiaomi-app and openScale body-composition values are not silently joined into one curve.
+- Analytics, coverage, and source agreement are calculated deterministically; every confidence value states whether it is rule-derived, model-reported, or human-confirmed and is never invented. The LLM explains compact structured evidence.
+- Weekly, month-end, and annual reports share one report model and are rendered for dashboard, Telegram, and email.
 
-Automatic reports should be available in the local dashboard and proactively delivered through **email and Telegram**.
+## Current status
 
-## Canonical documentation
+R00 architecture is consolidated. No application code exists yet. The approved next vertical slice is **R01 — Weight & Body Composition**, which builds the small reusable core, imports historical Xiaomi screenshots with confirmation, accepts the openScale-sync webhook contract, computes conservative weight/body-composition analytics, and provides a minimal dashboard.
+
+R01 deliberately excludes Garmin ingestion, Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery.
+
+## Canonical product documentation
 
 - [Product Vision](docs/PRODUCT_VISION.md)
-- [Target Architecture](docs/ARCHITECTURE.md)
+- [Final Architecture](docs/ARCHITECTURE.md)
+- [R00 Final Architecture Audit](docs/audits/R00_FINAL_ARCHITECTURE.md)
+- [R01 Implementation Spec](docs/R01_IMPLEMENTATION_SPEC.md)
 - [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)
-- [Provisional Roadmap](docs/ROADMAP.md)
+- [Roadmap](docs/ROADMAP.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
+- [Backlog Ideas](docs/BACKLOG_IDEAS.md)
 
-## Core engineering principles
+## Engineering workflow
 
-- Single user; avoid SaaS/multi-tenant complexity.
-- Local-first storage, initially favoring SQLite.
-- Local-first is mainly about simplicity/control/reproducibility, not a strict no-cloud privacy rule.
-- Preserve source-specific/raw data and provenance.
-- Canonical metrics must not erase original Garmin/Fitbit/Xiaomi values.
-- Deterministic Python/SQL/statistical code does the math; the LLM interprets and advises.
-- Dashboard and AI are equal product interfaces.
-- Automatic sync and periodic reports should work without manual exports.
-- Telegram + dashboard are the preferred MVP paths for free-text life context.
-- Obsidian is optional/non-canonical; detailed nutrition tracking remains outside the first releases.
-- Real personal health data, screenshots, lab reports, provider tokens and databases **must never be committed to Git**.
+All coding/review agents must start with [AGENTS.md](AGENTS.md).
 
-## Next step
+- [Development Process](docs/DEVELOPMENT_PROCESS.md) — owner/integrator/worker flow, integration branches, local workspace roots, review/UAT and logging.
+- [Model Routing](docs/MODEL_ROUTING.md) — task complexity and executor/reviewer recommendations.
+- [Execution History](docs/EXECUTION_HISTORY.md) — durable history of implementations, failures, decisions and model attribution for retrospectives.
+- Client-specific worker adapters live under `docs/agents/`.
 
-Run **R00 — source-level technical audit** before implementing the product. The audit should inspect the actual code and exact SHAs/tags of the candidate donor/reference projects, verify licenses, compare schemas/sync/test quality, and decide what to reuse versus write locally.
+## Safety and repository hygiene
+
+Real health data, screenshots, databases, provider responses, tokens, credentials, reports, and laboratory documents must never be committed. Consumer wearables and BIA scales are observational tools, not clinical instruments; Health-Check must expose uncertainty and must not present associations as diagnoses or causation.
+
+## License
+
+Health-Check is licensed under the [MIT License](LICENSE). Reused donor code must still retain any attribution/notices required by its own license and be reviewed at the exact reused source commit.
