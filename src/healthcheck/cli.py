@@ -8,7 +8,7 @@ from collections.abc import Sequence
 import uvicorn
 
 from healthcheck.config import Settings
-from healthcheck.db.engine import migrate_placeholder
+from healthcheck.db.engine import migrate_database
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.ingest_app import create_ingest_app
@@ -47,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     configure_logging(paths.logs, settings.log_level)
     if args.command == "migrate":
-        migrate_placeholder(paths)
+        migrate_database(paths)
         log_event("runtime_migration_ready", operation="migrate", status="ok")
         return 0
 
