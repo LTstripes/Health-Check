@@ -263,20 +263,9 @@ class IngestEvent(Base):
             name="event_type_allowed",
         ),
         Index(
-            "ux_ingest_events_source_fingerprint",
-            "acquisition_source_id",
-            "semantic_fingerprint",
+            "ux_ingest_events_deduplication_key",
+            "deduplication_key",
             unique=True,
-            sqlite_where=text("semantic_fingerprint IS NOT NULL"),
-        ),
-        Index(
-            "ux_ingest_events_source_external_id",
-            "acquisition_source_id",
-            "external_user_id",
-            "provider_stream",
-            "external_record_id",
-            unique=True,
-            sqlite_where=text("external_record_id IS NOT NULL"),
         ),
     )
 
@@ -294,6 +283,7 @@ class IngestEvent(Base):
     provider_stream: Mapped[str | None] = mapped_column(String(160), nullable=True)
     external_record_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     semantic_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    deduplication_key: Mapped[str] = mapped_column(String(128), nullable=False)
     event_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -460,6 +450,12 @@ class MeasurementSession(Base):
             unique=True,
             sqlite_where=text("confirmation_candidate_id IS NOT NULL"),
         ),
+        Index(
+            "ux_measurement_sessions_single_successor",
+            "supersedes_session_id",
+            unique=True,
+            sqlite_where=text("supersedes_session_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
@@ -519,6 +515,12 @@ class ScalarMeasurement(Base):
             "metric_code",
             unique=True,
             sqlite_where=text("import_candidate_id IS NOT NULL"),
+        ),
+        Index(
+            "ux_scalar_measurements_single_successor",
+            "supersedes_measurement_id",
+            unique=True,
+            sqlite_where=text("supersedes_measurement_id IS NOT NULL"),
         ),
         UniqueConstraint(
             "measurement_session_id", "metric_code", name="uq_scalar_measurements_session_metric"

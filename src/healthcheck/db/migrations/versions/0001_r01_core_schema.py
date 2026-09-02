@@ -189,6 +189,7 @@ def upgrade() -> None:
         sa.Column("provider_stream", sa.String(160), nullable=True),
         sa.Column("external_record_id", sa.String(255), nullable=True),
         sa.Column("semantic_fingerprint", sa.String(128), nullable=True),
+        sa.Column("deduplication_key", sa.String(128), nullable=False),
         sa.Column("event_type", sa.String(20), nullable=True),
         sa.Column(
             "received_at",
@@ -222,18 +223,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_ingest_events"),
     )
     op.create_index(
-        "ux_ingest_events_source_fingerprint",
+        "ux_ingest_events_deduplication_key",
         "ingest_events",
-        ["acquisition_source_id", "semantic_fingerprint"],
+        ["deduplication_key"],
         unique=True,
-        sqlite_where=sa.text("semantic_fingerprint IS NOT NULL"),
-    )
-    op.create_index(
-        "ux_ingest_events_source_external_id",
-        "ingest_events",
-        ["acquisition_source_id", "external_user_id", "provider_stream", "external_record_id"],
-        unique=True,
-        sqlite_where=sa.text("external_record_id IS NOT NULL"),
     )
     op.create_table(
         "import_candidates",
@@ -399,6 +392,13 @@ def upgrade() -> None:
         unique=True,
         sqlite_where=sa.text("confirmation_candidate_id IS NOT NULL"),
     )
+    op.create_index(
+        "ux_measurement_sessions_single_successor",
+        "measurement_sessions",
+        ["supersedes_session_id"],
+        unique=True,
+        sqlite_where=sa.text("supersedes_session_id IS NOT NULL"),
+    )
     op.create_table(
         "scalar_measurements",
         sa.Column("id", sa.String(36), nullable=False),
@@ -449,6 +449,13 @@ def upgrade() -> None:
         ["import_candidate_id", "metric_code"],
         unique=True,
         sqlite_where=sa.text("import_candidate_id IS NOT NULL"),
+    )
+    op.create_index(
+        "ux_scalar_measurements_single_successor",
+        "scalar_measurements",
+        ["supersedes_measurement_id"],
+        unique=True,
+        sqlite_where=sa.text("supersedes_measurement_id IS NOT NULL"),
     )
     op.create_table(
         "derived_measurements",
@@ -730,16 +737,81 @@ def upgrade() -> None:
             END
             """
         )
-        if table_name != "import_candidate_edits":
-            op.execute(
-                f"""
-                CREATE TRIGGER IF NOT EXISTS immutable_{table_name}_update
-                BEFORE UPDATE ON {table_name}
-                BEGIN
-                    SELECT RAISE(ABORT, '{table_name} are append-only');
-                END
-                """
-            )
+        op.execute(
+            f"""
+            CREATE TRIGGER IF NOT EXISTS immutable_{table_name}_update
+            BEFORE UPDATE ON {table_name}
+            BEGIN
+                SELECT RAISE(ABORT, '{table_name} are append-only');
+            END
+            """
+        )
+
+    op.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS immutable_terminal_import_candidates_update
+        BEFORE UPDATE ON import_candidates
+        WHEN OLD.user_decision <> 'pending'
+        BEGIN
+            SELECT CASE WHEN
+                NEW.ingest_event_id IS NOT OLD.ingest_event_id OR
+                NEW.candidate_set_key IS NOT OLD.candidate_set_key OR
+                NEW.measurement_group_key IS NOT OLD.measurement_group_key OR
+                NEW.metric_code IS NOT OLD.metric_code OR
+                NEW.proposed_value IS NOT OLD.proposed_value OR
+                NEW.proposed_unit IS NOT OLD.proposed_unit OR
+                NEW.proposed_source_timestamp IS NOT OLD.proposed_source_timestamp OR
+                NEW.proposed_source_local_date IS NOT OLD.proposed_source_local_date OR
+                NEW.temporal_precision IS NOT OLD.temporal_precision OR
+                NEW.source_text IS NOT OLD.source_text OR
+                NEW.extractor_name IS NOT OLD.extractor_name OR
+                NEW.extractor_version IS NOT OLD.extractor_version OR
+                NEW.model_name IS NOT OLD.model_name OR
+                NEW.model_version IS NOT OLD.model_version OR
+                NEW.prompt_version IS NOT OLD.prompt_version OR
+                NEW.schema_version IS NOT OLD.schema_version OR
+                NEW.confidence IS NOT OLD.confidence OR
+                NEW.evidence_region_json IS NOT OLD.evidence_region_json OR
+                NEW.edited_value IS NOT OLD.edited_value OR
+                NEW.edited_unit IS NOT OLD.edited_unit OR
+                NEW.edited_source_timestamp IS NOT OLD.edited_source_timestamp OR
+                NEW.edited_source_local_date IS NOT OLD.edited_source_local_date OR
+                NEW.user_decision IS NOT OLD.user_decision OR
+                NEW.decision_reason IS NOT OLD.decision_reason OR
+                NEW.decision_at IS NOT OLD.decision_at OR
+                NEW.created_at IS NOT OLD.created_at
+            THEN RAISE(ABORT, 'terminal import candidates are immutable') END;
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS immutable_terminal_canonical_selection_runs_update
+        BEFORE UPDATE ON canonical_selection_runs
+        WHEN OLD.status <> 'running'
+        BEGIN
+            SELECT CASE WHEN
+                NEW.scope_key IS NOT OLD.scope_key OR
+                NEW.requested_start_date IS NOT OLD.requested_start_date OR
+                NEW.requested_end_date IS NOT OLD.requested_end_date OR
+                NEW.rule_set_id IS NOT OLD.rule_set_id OR
+                NEW.rule_name IS NOT OLD.rule_name OR
+                NEW.rule_version IS NOT OLD.rule_version OR
+                NEW.rule_hash IS NOT OLD.rule_hash OR
+                NEW.input_snapshot_hash IS NOT OLD.input_snapshot_hash OR
+                NEW.scope_json IS NOT OLD.scope_json OR
+                NEW.software_version IS NOT OLD.software_version OR
+                NEW.build_version IS NOT OLD.build_version OR
+                NEW.started_at IS NOT OLD.started_at OR
+                NEW.completed_at IS NOT OLD.completed_at OR
+                NEW.status IS NOT OLD.status OR
+                NEW.selection_count IS NOT OLD.selection_count OR
+                NEW.failure_reason IS NOT OLD.failure_reason OR
+                NEW.supersedes_run_id IS NOT OLD.supersedes_run_id
+            THEN RAISE(ABORT, 'terminal canonical selection runs are immutable') END;
+        END
+        """
+    )
 
 
 def downgrade() -> None:
@@ -755,22 +827,24 @@ def downgrade() -> None:
         "import_candidate_edits",
     ):
         op.execute(f"DROP TRIGGER IF EXISTS immutable_{table_name}_delete")
-        if table_name != "import_candidate_edits":
-            op.execute(f"DROP TRIGGER IF EXISTS immutable_{table_name}_update")
+        op.execute(f"DROP TRIGGER IF EXISTS immutable_{table_name}_update")
+    op.execute("DROP TRIGGER IF EXISTS immutable_terminal_import_candidates_update")
+    op.execute("DROP TRIGGER IF EXISTS immutable_terminal_canonical_selection_runs_update")
 
     for index_name, table_name in (
         ("ux_sync_stream_state_with_source", "sync_stream_state"),
         ("ux_sync_stream_state_without_source", "sync_stream_state"),
         ("ux_canonical_successful_input", "canonical_selection_runs"),
         ("ux_scalar_measurements_import_candidate_metric", "scalar_measurements"),
+        ("ux_scalar_measurements_single_successor", "scalar_measurements"),
         ("ix_scalar_measurements_metric_session", "scalar_measurements"),
         ("ux_measurement_sessions_confirmation_candidate", "measurement_sessions"),
+        ("ux_measurement_sessions_single_successor", "measurement_sessions"),
         ("ux_measurement_sessions_source_fingerprint_revision", "measurement_sessions"),
         ("ux_measurement_sessions_source_record_revision", "measurement_sessions"),
         ("ux_measurement_sessions_semantic_revision", "measurement_sessions"),
         ("ix_measurement_sessions_source_identity", "measurement_sessions"),
-        ("ux_ingest_events_source_external_id", "ingest_events"),
-        ("ux_ingest_events_source_fingerprint", "ingest_events"),
+        ("ux_ingest_events_deduplication_key", "ingest_events"),
         ("ux_acquisition_sources_natural_identity", "acquisition_sources"),
         ("ux_acquisition_sources_sender_instance_id", "acquisition_sources"),
     ):

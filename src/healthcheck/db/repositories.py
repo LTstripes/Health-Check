@@ -16,7 +16,7 @@ from pathlib import Path, PureWindowsPath
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
@@ -42,6 +42,7 @@ from healthcheck.db.models import (
     SyncRun,
     SyncStreamState,
     TemporalPrecision,
+    new_id,
     utc_now,
 )
 
@@ -106,6 +107,71 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(UTC)
 
 
+def _datetime_key(value: datetime | None) -> datetime | None:
+    """Compare SQLite-reloaded UTC timestamps without losing exactness."""
+
+    if value is None:
+        return None
+    if value.tzinfo is not None and value.utcoffset() is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    # SQLite's built-in DateTime loader returns naive values even when the
+    # mapped column advertises timezone=True.  Persisted UTC values are still
+    # unambiguous, so treat a reloaded naive value as UTC for comparisons.
+    return value
+
+
+def _same_datetime(left: datetime | None, right: datetime | None) -> bool:
+    return _datetime_key(left) == _datetime_key(right)
+
+
+def _ingest_deduplication_key(
+    *,
+    acquisition_source_id: str,
+    external_user_id: str | None,
+    external_record_id: str | None,
+    event_type: str | None,
+    semantic_fingerprint: str | None,
+    raw_artifact_id: str | None,
+    source_timestamp: datetime | None,
+) -> str | None:
+    """Build a stable retry key without making logical source IDs unique.
+
+    ``provider_stream`` is deliberately absent: it is transport metadata, not
+    the openScale logical identity.  Event type and evidence fingerprint are
+    included so an ``update`` or reprocessed payload can coexist with the
+    original insert while its exact retry still converges.
+    """
+
+    if (
+        external_user_id is None
+        and external_record_id is None
+        and semantic_fingerprint is None
+        and raw_artifact_id is None
+        and source_timestamp is None
+    ):
+        # Without any stable source identity or evidence there is no honest
+        # basis for deduplicating two transport events.
+        return None
+    evidence = semantic_fingerprint
+    if evidence is None:
+        evidence = canonical_json(
+            {
+                "raw_artifact_id": raw_artifact_id,
+                "source_timestamp": (
+                    _as_utc(source_timestamp).isoformat() if source_timestamp is not None else None
+                ),
+            }
+        )
+    payload = {
+        "acquisition_source_id": acquisition_source_id,
+        "external_user_id": external_user_id,
+        "external_record_id": external_record_id,
+        "event_type": event_type,
+        "evidence": evidence.lower() if isinstance(evidence, str) else evidence,
+    }
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
 def _validate_relative_storage_path(value: str | Path) -> str:
     raw = str(value).strip()
     if not raw:
@@ -144,6 +210,80 @@ def _validate_temporal_precision(
     ):
         raise ValueError("minute evidence must not contain seconds or microseconds")
     return value.value
+
+
+def _effective_semantic_key(
+    semantic_key: str | None,
+    source_record_id: str | None,
+    source_fingerprint: str | None,
+) -> str | None:
+    return semantic_key or source_record_id or source_fingerprint
+
+
+def _session_matches_evidence(
+    existing: MeasurementSession,
+    *,
+    acquisition_source_id: str,
+    ingest_event_id: str | None,
+    raw_artifact_id: str | None,
+    confirmation_candidate_id: str | None,
+    semantic_key: str | None,
+    source_record_id: str | None,
+    source_fingerprint: str | None,
+    temporal_precision: str,
+    source_local_date: date,
+    source_timestamp_utc: datetime | None,
+    source_local_timestamp: datetime | None,
+    source_utc_offset_minutes: int | None,
+    source_timezone: str | None,
+) -> bool:
+    """Return whether an incoming session is an exact evidence replay."""
+
+    return (
+        existing.acquisition_source_id == acquisition_source_id
+        and existing.ingest_event_id == ingest_event_id
+        and existing.raw_artifact_id == raw_artifact_id
+        and existing.confirmation_candidate_id == confirmation_candidate_id
+        and existing.semantic_key == semantic_key
+        and existing.source_record_id == source_record_id
+        and existing.source_fingerprint == source_fingerprint
+        and existing.temporal_precision == temporal_precision
+        and existing.source_local_date == source_local_date
+        and _same_datetime(existing.source_timestamp_utc, source_timestamp_utc)
+        and _same_datetime(existing.source_local_timestamp, source_local_timestamp)
+        and existing.source_utc_offset_minutes == source_utc_offset_minutes
+        and existing.source_timezone == source_timezone
+    )
+
+
+def _scalar_matches_evidence(
+    existing: ScalarMeasurement,
+    *,
+    measurement_session_id: str,
+    import_candidate_id: str | None,
+    metric_code: str,
+    normalized_value: float,
+    normalized_unit: str,
+    measurement_algorithm_id: str,
+    original_value: str | None,
+    original_unit: str | None,
+    quality_status: str | None,
+    source_text: str | None,
+    supersedes_measurement_id: str | None,
+) -> bool:
+    return (
+        existing.measurement_session_id == measurement_session_id
+        and existing.import_candidate_id == import_candidate_id
+        and existing.metric_code == metric_code
+        and existing.normalized_value == normalized_value
+        and existing.normalized_unit == normalized_unit
+        and existing.measurement_algorithm_id == measurement_algorithm_id
+        and existing.original_value == original_value
+        and existing.original_unit == original_unit
+        and existing.quality_status == quality_status
+        and existing.source_text == source_text
+        and existing.supersedes_measurement_id == supersedes_measurement_id
+    )
 
 
 class ProviderRepository:
@@ -280,18 +420,38 @@ class MeasurementAlgorithmRepository:
         parameters: Any = None,
         verification_state: str = "unknown",
     ) -> MeasurementAlgorithm:
-        existing = self.get_by_code_version(code, version)
+        normalized_code = _required_text(code, "algorithm code")
+        normalized_version = _required_text(version, "algorithm version")
+        normalized_metric_family = _required_text(metric_family, "algorithm metric family")
+        normalized_producer = _required_text(producer, "algorithm producer")
+        normalized_compatibility_group = _required_text(
+            compatibility_group, "algorithm compatibility group"
+        )
+        normalized_parameters = _json_or_none(parameters)
+        existing = self.get_by_code_version(normalized_code, normalized_version)
         if existing is not None:
+            immutable_metadata = {
+                "metric_family": normalized_metric_family,
+                "producer": normalized_producer,
+                "compatibility_group": normalized_compatibility_group,
+                "parameters_json": normalized_parameters,
+            }
+            existing_metadata = {
+                field_name: getattr(existing, field_name) for field_name in immutable_metadata
+            }
+            if existing_metadata != immutable_metadata:
+                raise ValueError(
+                    "measurement algorithm immutable metadata conflicts with existing "
+                    f"{normalized_code}@{normalized_version}"
+                )
             return existing
         algorithm = MeasurementAlgorithm(
-            code=_required_text(code, "algorithm code"),
-            version=_required_text(version, "algorithm version"),
-            metric_family=_required_text(metric_family, "algorithm metric family"),
-            producer=_required_text(producer, "algorithm producer"),
-            compatibility_group=_required_text(
-                compatibility_group, "algorithm compatibility group"
-            ),
-            parameters_json=_json_or_none(parameters),
+            code=normalized_code,
+            version=normalized_version,
+            metric_family=normalized_metric_family,
+            producer=normalized_producer,
+            compatibility_group=normalized_compatibility_group,
+            parameters_json=normalized_parameters,
             verification_state=_required_text(verification_state, "algorithm verification state"),
         )
         self.session.add(algorithm)
@@ -385,25 +545,55 @@ class IngestEventRepository:
         provider_stream: str | None = None,
         external_record_id: str | None = None,
         semantic_fingerprint: str | None = None,
+        raw_artifact_id: str | None = None,
+        event_type: str | None = None,
+        source_timestamp: datetime | None = None,
     ) -> IngestEvent | None:
-        if external_record_id is not None:
-            event = self.session.scalar(
-                select(IngestEvent).where(
-                    IngestEvent.acquisition_source_id == acquisition_source_id,
-                    IngestEvent.external_user_id == external_user_id,
-                    IngestEvent.provider_stream == provider_stream,
-                    IngestEvent.external_record_id == external_record_id,
+        del provider_stream  # Transport metadata is not part of logical identity.
+        normalized_fingerprint = semantic_fingerprint.lower() if semantic_fingerprint else None
+        normalized_event_type = event_type.strip().lower() if event_type is not None else None
+        deduplication_key = _ingest_deduplication_key(
+            acquisition_source_id=acquisition_source_id,
+            external_user_id=external_user_id,
+            external_record_id=external_record_id,
+            event_type=normalized_event_type,
+            semantic_fingerprint=normalized_fingerprint,
+            raw_artifact_id=raw_artifact_id,
+            source_timestamp=source_timestamp,
+        )
+        if deduplication_key is None:
+            existing = None
+        else:
+            existing = self.session.scalar(
+                select(IngestEvent).where(IngestEvent.deduplication_key == deduplication_key)
+            )
+        if existing is not None:
+            return existing
+
+        # Some existing callers only have the logical external ID on a retry
+        # and omit transport/evidence fields.  Accept that as an exact retry
+        # only when the logical identity has one unambiguous event; once there
+        # are multiple updates, callers must provide an evidence fingerprint.
+        if (
+            external_record_id is not None
+            and normalized_fingerprint is None
+            and raw_artifact_id is None
+            and source_timestamp is None
+        ):
+            conditions = [
+                IngestEvent.acquisition_source_id == acquisition_source_id,
+                IngestEvent.external_user_id == external_user_id,
+                IngestEvent.external_record_id == external_record_id,
+            ]
+            if normalized_event_type is not None:
+                conditions.append(IngestEvent.event_type == normalized_event_type)
+            candidates = list(
+                self.session.scalars(
+                    select(IngestEvent).where(*conditions).order_by(IngestEvent.id)
                 )
             )
-            if event is not None:
-                return event
-        if semantic_fingerprint is not None:
-            return self.session.scalar(
-                select(IngestEvent).where(
-                    IngestEvent.acquisition_source_id == acquisition_source_id,
-                    IngestEvent.semantic_fingerprint == semantic_fingerprint.lower(),
-                )
-            )
+            if len(candidates) == 1:
+                return candidates[0]
         return None
 
     def get_or_create(
@@ -423,12 +613,29 @@ class IngestEventRepository:
         diagnostic_reason: str | None = None,
     ) -> IngestEvent:
         normalized_fingerprint = semantic_fingerprint.lower() if semantic_fingerprint else None
+        normalized_event_type = event_type.strip().lower() if event_type is not None else None
+        normalized_source_timestamp = _as_utc(source_timestamp)
+        deduplication_key = (
+            _ingest_deduplication_key(
+                acquisition_source_id=acquisition_source_id,
+                external_user_id=external_user_id,
+                external_record_id=external_record_id,
+                event_type=normalized_event_type,
+                semantic_fingerprint=normalized_fingerprint,
+                raw_artifact_id=raw_artifact_id,
+                source_timestamp=normalized_source_timestamp,
+            )
+            or new_id()
+        )
         existing = self.find_existing(
             acquisition_source_id=acquisition_source_id,
             external_user_id=external_user_id,
             provider_stream=provider_stream,
             external_record_id=external_record_id,
             semantic_fingerprint=normalized_fingerprint,
+            raw_artifact_id=raw_artifact_id,
+            event_type=normalized_event_type,
+            source_timestamp=normalized_source_timestamp,
         )
         if existing is not None:
             return existing
@@ -440,8 +647,9 @@ class IngestEventRepository:
             provider_stream=provider_stream,
             external_record_id=external_record_id,
             semantic_fingerprint=normalized_fingerprint,
-            event_type=event_type,
-            source_timestamp=_as_utc(source_timestamp),
+            deduplication_key=deduplication_key,
+            event_type=normalized_event_type,
+            source_timestamp=normalized_source_timestamp,
             status=status,
             diagnostic_code=diagnostic_code,
             diagnostic_reason=diagnostic_reason,
@@ -566,6 +774,42 @@ class ImportCandidateRepository:
             normalized_decision = CandidateDecision(str(decision)).value
         except ValueError as exc:
             raise ValueError("candidate decision must be pending, confirmed, or rejected") from exc
+
+        if candidate.user_decision != CandidateDecision.PENDING.value:
+            if normalized_decision != candidate.user_decision:
+                raise ValueError(
+                    "a terminal candidate decision cannot change; create a measurement revision"
+                )
+            normalized_source_timestamp = _as_utc(edited_source_timestamp)
+            if edited_value is not None and edited_value != candidate.edited_value:
+                raise ValueError(
+                    "a terminal candidate decision cannot be edited; create a measurement revision"
+                )
+            if edited_unit is not None and edited_unit != candidate.edited_unit:
+                raise ValueError(
+                    "a terminal candidate decision cannot be edited; create a measurement revision"
+                )
+            if edited_source_timestamp is not None and not _same_datetime(
+                normalized_source_timestamp, candidate.edited_source_timestamp
+            ):
+                raise ValueError(
+                    "a terminal candidate decision cannot be edited; create a measurement revision"
+                )
+            if (
+                edited_source_local_date is not None
+                and edited_source_local_date != candidate.edited_source_local_date
+            ):
+                raise ValueError(
+                    "a terminal candidate decision cannot be edited; create a measurement revision"
+                )
+            if decision_reason is not None and decision_reason != candidate.decision_reason:
+                raise ValueError(
+                    "a terminal candidate decision cannot be edited; create a measurement revision"
+                )
+            # An exact terminal replay is a no-op and must not append another
+            # audit row or rewrite the decision timestamp.
+            return candidate
+
         changed_fields: dict[str, Any] = {"user_decision": normalized_decision}
         if edited_value is not None:
             candidate.edited_value = edited_value
@@ -600,23 +844,37 @@ class MeasurementSessionRepository:
         semantic_key: str | None = None,
         confirmation_candidate_id: str | None = None,
     ) -> MeasurementSession | None:
-        conditions = [MeasurementSession.acquisition_source_id == acquisition_source_id]
         if confirmation_candidate_id is not None:
-            conditions.append(
-                MeasurementSession.confirmation_candidate_id == confirmation_candidate_id
+            exact_candidate = self.session.scalar(
+                select(MeasurementSession).where(
+                    MeasurementSession.acquisition_source_id == acquisition_source_id,
+                    MeasurementSession.confirmation_candidate_id == confirmation_candidate_id,
+                )
             )
-        elif source_record_id is not None:
-            conditions.append(MeasurementSession.source_record_id == source_record_id)
-        elif source_fingerprint is not None:
-            conditions.append(MeasurementSession.source_fingerprint == source_fingerprint.lower())
-        elif semantic_key is not None:
-            conditions.append(MeasurementSession.semantic_key == semantic_key)
-        else:
+            if exact_candidate is not None:
+                return exact_candidate
+
+        identity_conditions = []
+        if source_record_id is not None:
+            identity_conditions.append(MeasurementSession.source_record_id == source_record_id)
+        if source_fingerprint is not None:
+            identity_conditions.append(
+                MeasurementSession.source_fingerprint == source_fingerprint.lower()
+            )
+        if semantic_key is not None:
+            identity_conditions.append(MeasurementSession.semantic_key == semantic_key)
+        if not identity_conditions:
             return None
         return self.session.scalar(
             select(MeasurementSession)
-            .where(*conditions)
-            .order_by(MeasurementSession.revision_number.desc())
+            .where(
+                MeasurementSession.acquisition_source_id == acquisition_source_id,
+                or_(*identity_conditions),
+            )
+            .order_by(
+                MeasurementSession.revision_number.desc(),
+                MeasurementSession.created_at.desc(),
+            )
         )
 
     def create_confirmed(
@@ -647,36 +905,116 @@ class MeasurementSessionRepository:
         )
         normalized_source_timestamp = _as_utc(source_timestamp_utc)
         normalized_fingerprint = source_fingerprint.lower() if source_fingerprint else None
+        normalized_semantic_key = _effective_semantic_key(
+            semantic_key, source_record_id, normalized_fingerprint
+        )
         if idempotent and supersedes_session_id is None:
             existing = self.find_by_source_identity(
                 acquisition_source_id=acquisition_source_id,
                 source_record_id=source_record_id,
                 source_fingerprint=normalized_fingerprint,
-                semantic_key=semantic_key,
+                semantic_key=normalized_semantic_key,
                 confirmation_candidate_id=confirmation_candidate_id,
             )
             if existing is not None:
-                return existing
-        if revision_number is None:
-            if supersedes_session_id is not None:
-                previous = self.session.get(MeasurementSession, supersedes_session_id)
-                if previous is None:
-                    raise KeyError(f"unknown superseded session {supersedes_session_id}")
-                latest_revision = self.session.scalar(
-                    select(func.max(MeasurementSession.revision_number)).where(
-                        MeasurementSession.acquisition_source_id == previous.acquisition_source_id,
-                        MeasurementSession.semantic_key == previous.semantic_key,
+                if _session_matches_evidence(
+                    existing,
+                    acquisition_source_id=acquisition_source_id,
+                    ingest_event_id=ingest_event_id,
+                    raw_artifact_id=raw_artifact_id,
+                    confirmation_candidate_id=confirmation_candidate_id,
+                    semantic_key=normalized_semantic_key,
+                    source_record_id=source_record_id,
+                    source_fingerprint=normalized_fingerprint,
+                    temporal_precision=normalized_precision,
+                    source_local_date=source_local_date,
+                    source_timestamp_utc=normalized_source_timestamp,
+                    source_local_timestamp=source_local_timestamp,
+                    source_utc_offset_minutes=source_utc_offset_minutes,
+                    source_timezone=source_timezone,
+                ):
+                    return existing
+                if (
+                    confirmation_candidate_id is not None
+                    and existing.confirmation_candidate_id == confirmation_candidate_id
+                    and _session_matches_evidence(
+                        existing,
+                        acquisition_source_id=acquisition_source_id,
+                        ingest_event_id=ingest_event_id,
+                        raw_artifact_id=raw_artifact_id,
+                        confirmation_candidate_id=confirmation_candidate_id,
+                        semantic_key=existing.semantic_key,
+                        source_record_id=existing.source_record_id,
+                        source_fingerprint=existing.source_fingerprint,
+                        temporal_precision=normalized_precision,
+                        source_local_date=source_local_date,
+                        source_timestamp_utc=normalized_source_timestamp,
+                        source_local_timestamp=source_local_timestamp,
+                        source_utc_offset_minutes=source_utc_offset_minutes,
+                        source_timezone=source_timezone,
                     )
+                ):
+                    # The confirmation candidate is the durable evidence
+                    # identity.  A transport-specific source ID may differ
+                    # between exact confirmation retries.
+                    return existing
+                raise ValueError(
+                    "source identity already has different evidence; call create_revision"
                 )
-                revision_number = (latest_revision or previous.revision_number) + 1
-            else:
+        if supersedes_session_id is not None:
+            previous = self.session.get(MeasurementSession, supersedes_session_id)
+            if previous is None:
+                raise KeyError(f"unknown superseded session {supersedes_session_id}")
+            if previous.acquisition_source_id != acquisition_source_id:
+                raise ValueError("a session revision must keep its acquisition source")
+            if (
+                previous.semantic_key != normalized_semantic_key
+                or previous.source_record_id != source_record_id
+                or previous.source_fingerprint != normalized_fingerprint
+            ):
+                raise ValueError("a session revision must preserve its source identity")
+            expected_revision = previous.revision_number + 1
+            if revision_number is None:
+                revision_number = expected_revision
+            elif revision_number != expected_revision:
+                raise ValueError(
+                    f"session revision must be exactly {expected_revision} after the current head"
+                )
+            successor = self.session.scalar(
+                select(MeasurementSession).where(
+                    MeasurementSession.supersedes_session_id == previous.id
+                )
+            )
+            if successor is not None:
+                if _session_matches_evidence(
+                    successor,
+                    acquisition_source_id=acquisition_source_id,
+                    ingest_event_id=ingest_event_id,
+                    raw_artifact_id=raw_artifact_id,
+                    confirmation_candidate_id=confirmation_candidate_id,
+                    semantic_key=normalized_semantic_key,
+                    source_record_id=source_record_id,
+                    source_fingerprint=normalized_fingerprint,
+                    temporal_precision=normalized_precision,
+                    source_local_date=source_local_date,
+                    source_timestamp_utc=normalized_source_timestamp,
+                    source_local_timestamp=source_local_timestamp,
+                    source_utc_offset_minutes=source_utc_offset_minutes,
+                    source_timezone=source_timezone,
+                ):
+                    return successor
+                raise ValueError("superseded session already has a different successor")
+        else:
+            if revision_number is None:
                 revision_number = 1
+            elif revision_number != 1:
+                raise ValueError("an initial measurement session must have revision 1")
         session = MeasurementSession(
             acquisition_source_id=acquisition_source_id,
             ingest_event_id=ingest_event_id,
             raw_artifact_id=raw_artifact_id,
             confirmation_candidate_id=confirmation_candidate_id,
-            semantic_key=semantic_key or source_record_id or normalized_fingerprint,
+            semantic_key=normalized_semantic_key,
             source_record_id=source_record_id,
             source_fingerprint=normalized_fingerprint,
             temporal_precision=normalized_precision,
@@ -706,6 +1044,11 @@ class MeasurementSessionRepository:
         source_utc_offset_minutes: int | None = None,
         source_timezone: str | None = None,
         confirmation_candidate_id: str | None = None,
+        ingest_event_id: str | None = None,
+        raw_artifact_id: str | None = None,
+        source_record_id: str | None = None,
+        source_fingerprint: str | None = None,
+        semantic_key: str | None = None,
     ) -> MeasurementSession:
         previous = self.session.get(MeasurementSession, previous_session_id)
         if previous is None:
@@ -718,14 +1061,15 @@ class MeasurementSessionRepository:
             source_local_timestamp=source_local_timestamp,
             source_utc_offset_minutes=source_utc_offset_minutes,
             source_timezone=source_timezone,
-            ingest_event_id=previous.ingest_event_id,
-            raw_artifact_id=previous.raw_artifact_id,
-            confirmation_candidate_id=confirmation_candidate_id,
-            source_record_id=previous.source_record_id,
-            source_fingerprint=previous.source_fingerprint,
-            semantic_key=previous.semantic_key,
+            ingest_event_id=ingest_event_id or previous.ingest_event_id,
+            raw_artifact_id=raw_artifact_id or previous.raw_artifact_id,
+            confirmation_candidate_id=confirmation_candidate_id
+            or previous.confirmation_candidate_id,
+            source_record_id=source_record_id or previous.source_record_id,
+            source_fingerprint=source_fingerprint or previous.source_fingerprint,
+            semantic_key=semantic_key or previous.semantic_key,
             supersedes_session_id=previous.id,
-            idempotent=False,
+            idempotent=True,
         )
 
 
@@ -749,21 +1093,78 @@ class ScalarMeasurementRepository:
         supersedes_measurement_id: str | None = None,
         idempotent: bool = True,
     ) -> ScalarMeasurement:
-        if import_candidate_id is not None and idempotent and supersedes_measurement_id is None:
-            existing = self.session.scalar(
+        normalized_metric_code = _required_text(metric_code, "metric code")
+        normalized_unit = _required_text(normalized_unit, "normalized unit")
+        if supersedes_measurement_id is not None:
+            previous = self.session.get(ScalarMeasurement, supersedes_measurement_id)
+            if previous is None:
+                raise KeyError(f"unknown superseded measurement {supersedes_measurement_id}")
+            if previous.metric_code != normalized_metric_code:
+                raise ValueError("a measurement revision must keep its metric code")
+            successor = self.session.scalar(
                 select(ScalarMeasurement).where(
-                    ScalarMeasurement.import_candidate_id == import_candidate_id,
-                    ScalarMeasurement.metric_code == metric_code,
+                    ScalarMeasurement.supersedes_measurement_id == previous.id
                 )
             )
+            if successor is not None:
+                if _scalar_matches_evidence(
+                    successor,
+                    measurement_session_id=measurement_session_id,
+                    import_candidate_id=import_candidate_id,
+                    metric_code=normalized_metric_code,
+                    normalized_value=normalized_value,
+                    normalized_unit=normalized_unit,
+                    measurement_algorithm_id=measurement_algorithm_id,
+                    original_value=original_value,
+                    original_unit=original_unit,
+                    quality_status=quality_status,
+                    source_text=source_text,
+                    supersedes_measurement_id=previous.id,
+                ):
+                    return successor
+                raise ValueError("superseded measurement already has a different successor")
+        elif idempotent:
+            existing = None
+            if import_candidate_id is not None:
+                existing = self.session.scalar(
+                    select(ScalarMeasurement).where(
+                        ScalarMeasurement.import_candidate_id == import_candidate_id,
+                        ScalarMeasurement.metric_code == normalized_metric_code,
+                    )
+                )
+            if existing is None:
+                existing = self.session.scalar(
+                    select(ScalarMeasurement).where(
+                        ScalarMeasurement.measurement_session_id == measurement_session_id,
+                        ScalarMeasurement.metric_code == normalized_metric_code,
+                    )
+                )
             if existing is not None:
-                return existing
+                if _scalar_matches_evidence(
+                    existing,
+                    measurement_session_id=measurement_session_id,
+                    import_candidate_id=import_candidate_id,
+                    metric_code=normalized_metric_code,
+                    normalized_value=normalized_value,
+                    normalized_unit=normalized_unit,
+                    measurement_algorithm_id=measurement_algorithm_id,
+                    original_value=original_value,
+                    original_unit=original_unit,
+                    quality_status=quality_status,
+                    source_text=source_text,
+                    supersedes_measurement_id=None,
+                ):
+                    return existing
+                raise ValueError(
+                    "measurement identity already has different evidence; "
+                    "create a measurement revision"
+                )
         measurement = ScalarMeasurement(
             measurement_session_id=measurement_session_id,
             import_candidate_id=import_candidate_id,
-            metric_code=_required_text(metric_code, "metric code"),
+            metric_code=normalized_metric_code,
             normalized_value=normalized_value,
-            normalized_unit=_required_text(normalized_unit, "normalized unit"),
+            normalized_unit=normalized_unit,
             original_value=original_value,
             original_unit=original_unit,
             measurement_algorithm_id=measurement_algorithm_id,
@@ -783,6 +1184,7 @@ class ScalarMeasurementRepository:
         normalized_value: float,
         normalized_unit: str,
         measurement_algorithm_id: str,
+        import_candidate_id: str | None = None,
         original_value: str | None = None,
         original_unit: str | None = None,
         quality_status: str | None = None,
@@ -797,12 +1199,13 @@ class ScalarMeasurementRepository:
             normalized_value=normalized_value,
             normalized_unit=normalized_unit,
             measurement_algorithm_id=measurement_algorithm_id,
+            import_candidate_id=import_candidate_id,
             original_value=original_value,
             original_unit=original_unit,
             quality_status=quality_status,
             source_text=source_text,
             supersedes_measurement_id=previous.id,
-            idempotent=False,
+            idempotent=True,
         )
 
     def active_for_metric(self, metric_code: str) -> list[ScalarMeasurement]:
@@ -992,8 +1395,14 @@ class CanonicalSelectionRunRepository:
             raise ValueError("canonical run status must be running, succeeded, or failed") from exc
         if selection_count is not None and selection_count < 0:
             raise ValueError("selection_count must be nonnegative")
-        if run.status != RunStatus.RUNNING.value and run.status != normalized_status:
-            raise ValueError("a terminal canonical run cannot change status")
+        if run.status != RunStatus.RUNNING.value:
+            if run.status != normalized_status:
+                raise ValueError("a terminal canonical run cannot change status")
+            if run.selection_count != selection_count or run.failure_reason != failure_reason:
+                raise ValueError("a terminal canonical run is immutable")
+            # Replaying the same terminal completion is an idempotent no-op;
+            # in particular, do not rewrite completed_at.
+            return run
         run.status = normalized_status
         run.selection_count = selection_count
         run.failure_reason = failure_reason

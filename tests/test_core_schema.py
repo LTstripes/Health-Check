@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import func, inspect, select
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
@@ -14,6 +14,7 @@ from healthcheck.db.engine import (
 )
 from healthcheck.db.models import (
     ImportCandidateEdit,
+    IngestEvent,
     ScalarMeasurement,
 )
 from healthcheck.db.repositories import (
@@ -199,6 +200,239 @@ def test_repositories_retain_provenance_and_deduplicate_raw_and_ingest(e2e_datab
     )
     assert repeated_session.id == session_record.id
 
+    edit_count = session.scalar(
+        select(func.count(ImportCandidateEdit.id)).where(
+            ImportCandidateEdit.candidate_id == candidate.id
+        )
+    )
+    assert (
+        repositories.import_candidates.decide(
+            candidate.id,
+            "confirmed",
+            edited_value=72.3,
+            edited_unit="kg",
+        ).id
+        == candidate.id
+    )
+    assert (
+        session.scalar(
+            select(func.count(ImportCandidateEdit.id)).where(
+                ImportCandidateEdit.candidate_id == candidate.id
+            )
+        )
+        == edit_count
+    )
+    with pytest.raises(ValueError, match="terminal candidate decision"):
+        repositories.import_candidates.decide(candidate.id, "rejected")
+    with pytest.raises(ValueError, match="measurement revision"):
+        repositories.import_candidates.decide(candidate.id, "confirmed", edited_value=72.2)
+
+    audit_edit = session.scalar(
+        select(ImportCandidateEdit).where(ImportCandidateEdit.candidate_id == candidate.id)
+    )
+    assert audit_edit is not None
+    with pytest.raises(Exception):
+        with session.begin_nested():
+            audit_edit.actor = "tampered"
+            session.flush()
+    session.refresh(audit_edit)
+    assert audit_edit.actor == "owner"
+
+    with pytest.raises(Exception):
+        with session.begin_nested():
+            candidate.decision_reason = "tampered"
+            session.flush()
+    session.refresh(candidate)
+    assert candidate.user_decision == "confirmed"
+
+
+def test_photo_reprocessing_requires_a_session_revision(e2e_database):
+    repositories, _session = e2e_database
+    provider = repositories.providers.get_or_create("xiaomi-photo", "Xiaomi", "scale")
+    source = repositories.acquisition_sources.get_or_create(
+        provider_id=provider.id,
+        input_method="photo_import",
+    )
+    batch = repositories.ingest_batches.create(
+        acquisition_source_id=source.id,
+        batch_kind="photo",
+        extractor_name="synthetic-extractor",
+        extractor_version="1",
+    )
+    event = repositories.ingest_events.get_or_create(
+        ingest_batch_id=batch.id,
+        acquisition_source_id=source.id,
+        raw_artifact_id=None,
+        semantic_fingerprint="photo-envelope",
+        event_type="photo",
+    )
+    first_candidate = repositories.import_candidates.create_pending(
+        ingest_event_id=event.id,
+        candidate_set_key="extractor@1",
+        measurement_group_key="weigh-in-1",
+        metric_code="weight",
+        proposed_value=72.4,
+        proposed_unit="kg",
+        proposed_source_local_date=date(2026, 1, 2),
+        temporal_precision="date",
+    )
+    repositories.import_candidates.decide(first_candidate.id, "confirmed")
+    first_session = repositories.measurement_sessions.create_confirmed(
+        acquisition_source_id=source.id,
+        ingest_event_id=event.id,
+        confirmation_candidate_id=first_candidate.id,
+        source_record_id="photo-record-1",
+        source_local_date=date(2026, 1, 2),
+        temporal_precision="date",
+    )
+
+    reprocessed_candidate = repositories.import_candidates.create_pending(
+        ingest_event_id=event.id,
+        candidate_set_key="extractor@2",
+        measurement_group_key="weigh-in-1",
+        metric_code="weight",
+        proposed_value=72.1,
+        proposed_unit="kg",
+        proposed_source_local_date=date(2026, 1, 2),
+        temporal_precision="date",
+    )
+    repositories.import_candidates.decide(reprocessed_candidate.id, "confirmed")
+    with pytest.raises(ValueError, match="call create_revision"):
+        repositories.measurement_sessions.create_confirmed(
+            acquisition_source_id=source.id,
+            ingest_event_id=event.id,
+            confirmation_candidate_id=reprocessed_candidate.id,
+            source_record_id="photo-record-1",
+            source_local_date=date(2026, 1, 2),
+            temporal_precision="date",
+        )
+
+    revision = repositories.measurement_sessions.create_revision(
+        first_session.id,
+        confirmation_candidate_id=reprocessed_candidate.id,
+        source_local_date=date(2026, 1, 2),
+        temporal_precision="date",
+    )
+    assert revision.supersedes_session_id == first_session.id
+    assert revision.revision_number == 2
+    replayed_revision = repositories.measurement_sessions.create_revision(
+        first_session.id,
+        confirmation_candidate_id=reprocessed_candidate.id,
+        source_local_date=date(2026, 1, 2),
+        temporal_precision="date",
+    )
+    assert replayed_revision.id == revision.id
+    assert (
+        repositories.measurement_sessions.create_confirmed(
+            acquisition_source_id=source.id,
+            ingest_event_id=event.id,
+            confirmation_candidate_id=first_candidate.id,
+            source_record_id="photo-record-1",
+            source_local_date=date(2026, 1, 2),
+            temporal_precision="date",
+        ).id
+        == first_session.id
+    )
+
+
+def test_ingest_retry_identity_excludes_stream_and_allows_updates(e2e_database):
+    repositories, session = e2e_database
+    provider = repositories.providers.get_or_create("openscale-sync", "openScale", "webhook")
+    source = repositories.acquisition_sources.get_or_create(
+        provider_id=provider.id,
+        input_method="webhook",
+        source_instance_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+    batch = repositories.ingest_batches.create(
+        acquisition_source_id=source.id,
+        batch_kind="webhook",
+    )
+    insert = repositories.ingest_events.get_or_create(
+        ingest_batch_id=batch.id,
+        acquisition_source_id=source.id,
+        external_user_id="synthetic-user",
+        provider_stream=None,
+        external_record_id="source-record-1",
+        semantic_fingerprint="payload-insert",
+        event_type="insert",
+    )
+    exact_retry = repositories.ingest_events.get_or_create(
+        ingest_batch_id=batch.id,
+        acquisition_source_id=source.id,
+        external_user_id="synthetic-user",
+        provider_stream="measurements",
+        external_record_id="source-record-1",
+        semantic_fingerprint="PAYLOAD-INSERT",
+        event_type="insert",
+        status="failed",
+    )
+    assert exact_retry.id == insert.id
+
+    update = repositories.ingest_events.get_or_create(
+        ingest_batch_id=batch.id,
+        acquisition_source_id=source.id,
+        external_user_id="synthetic-user",
+        provider_stream="measurements",
+        external_record_id="source-record-1",
+        semantic_fingerprint="payload-update",
+        event_type="update",
+    )
+    update_retry = repositories.ingest_events.get_or_create(
+        ingest_batch_id=batch.id,
+        acquisition_source_id=source.id,
+        external_user_id="synthetic-user",
+        provider_stream=None,
+        external_record_id="source-record-1",
+        semantic_fingerprint="PAYLOAD-UPDATE",
+        event_type="update",
+    )
+    assert update.id != insert.id
+    assert update_retry.id == update.id
+
+    null_user = repositories.ingest_events.get_or_create(
+        ingest_batch_id=batch.id,
+        acquisition_source_id=source.id,
+        external_user_id=None,
+        provider_stream=None,
+        external_record_id="record-without-user",
+        semantic_fingerprint="payload-null-user",
+        event_type="insert",
+    )
+    assert (
+        repositories.ingest_events.get_or_create(
+            ingest_batch_id=batch.id,
+            acquisition_source_id=source.id,
+            external_user_id=None,
+            provider_stream="weight",
+            external_record_id="record-without-user",
+            semantic_fingerprint="PAYLOAD-NULL-USER",
+            event_type="insert",
+        ).id
+        == null_user.id
+    )
+    null_record = repositories.ingest_events.get_or_create(
+        ingest_batch_id=batch.id,
+        acquisition_source_id=source.id,
+        external_user_id="synthetic-user",
+        provider_stream=None,
+        external_record_id=None,
+        semantic_fingerprint="fallback-payload",
+        event_type="insert",
+    )
+    assert (
+        repositories.ingest_events.get_or_create(
+            ingest_batch_id=batch.id,
+            acquisition_source_id=source.id,
+            external_user_id="synthetic-user",
+            provider_stream="fallback",
+            external_record_id=None,
+            semantic_fingerprint="FALLBACK-PAYLOAD",
+            event_type="insert",
+        ).id
+        == null_record.id
+    )
+    assert session.scalar(select(func.count(IngestEvent.id))) == 4
+
 
 def test_date_precision_rejects_invented_timestamp_and_revisions_are_append_only(e2e_database):
     repositories, session = e2e_database
@@ -255,7 +489,50 @@ def test_date_precision_rejects_invented_timestamp_and_revisions_are_append_only
         normalized_unit="kg",
         measurement_algorithm_id=algorithm.id,
     )
+    assert (
+        repositories.measurement_sessions.create_revision(
+            first_session.id,
+            source_local_date=date(2026, 1, 2),
+            temporal_precision="instant",
+            source_timestamp_utc=datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
+        ).id
+        == revision_session.id
+    )
+    with pytest.raises(ValueError, match="different successor"):
+        repositories.measurement_sessions.create_revision(
+            first_session.id,
+            source_local_date=date(2026, 1, 2),
+            temporal_precision="instant",
+            source_timestamp_utc=datetime(2026, 1, 2, 8, 31, tzinfo=UTC),
+        )
+    assert (
+        repositories.scalar_measurements.create_revision(
+            first.id,
+            measurement_session_id=revision_session.id,
+            normalized_value=72.4,
+            normalized_unit="kg",
+            measurement_algorithm_id=algorithm.id,
+        ).id
+        == revision.id
+    )
+    with pytest.raises(ValueError, match="different successor"):
+        repositories.scalar_measurements.create_revision(
+            first.id,
+            measurement_session_id=revision_session.id,
+            normalized_value=72.3,
+            normalized_unit="kg",
+            measurement_algorithm_id=algorithm.id,
+        )
     session.expire_all()
+    assert (
+        repositories.measurement_sessions.create_revision(
+            first_session.id,
+            source_local_date=date(2026, 1, 2),
+            temporal_precision="instant",
+            source_timestamp_utc=datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
+        ).id
+        == revision_session.id
+    )
     assert session.get(ScalarMeasurement, first.id).normalized_value == pytest.approx(72.5)
     assert revision.supersedes_measurement_id == first.id
     assert repositories.scalar_measurements.active_for_metric("weight") == [revision]
@@ -279,7 +556,38 @@ def test_algorithms_canonical_runs_and_coverage_are_versioned(e2e_database):
         metric_family="body_composition",
         producer="xiaomi",
         compatibility_group="xiaomi-home-unknown",
+        parameters={"formula": "unknown", "unit": "kg"},
     )
+    assert (
+        repositories.measurement_algorithms.get_or_create(
+            code="xiaomi-home",
+            version="unknown",
+            metric_family="body_composition",
+            producer="xiaomi",
+            compatibility_group="xiaomi-home-unknown",
+            parameters={"unit": "kg", "formula": "unknown"},
+        ).id
+        == xiaomi_algorithm.id
+    )
+    for contradictory_metadata in (
+        {"metric_family": "weight"},
+        {"producer": "other-provider"},
+        {"compatibility_group": "other-group"},
+        {"parameters": {"formula": "different", "unit": "kg"}},
+    ):
+        algorithm_metadata = {
+            "metric_family": "body_composition",
+            "producer": "xiaomi",
+            "compatibility_group": "xiaomi-home-unknown",
+            "parameters": {"formula": "unknown", "unit": "kg"},
+        }
+        algorithm_metadata.update(contradictory_metadata)
+        with pytest.raises(ValueError, match="immutable metadata"):
+            repositories.measurement_algorithms.get_or_create(
+                code="xiaomi-home",
+                version="unknown",
+                **algorithm_metadata,
+            )
     openscale_algorithm = repositories.measurement_algorithms.get_or_create(
         code="openscale",
         version="2.0",
@@ -349,6 +657,28 @@ def test_algorithms_canonical_runs_and_coverage_are_versioned(e2e_database):
     repositories.canonical_selection_runs.finish(
         successful_run.id, status="succeeded", selection_count=1
     )
+    completed_at = successful_run.completed_at
+    assert (
+        repositories.canonical_selection_runs.finish(
+            successful_run.id,
+            status="succeeded",
+            selection_count=1,
+        ).id
+        == successful_run.id
+    )
+    assert successful_run.completed_at == completed_at
+    with pytest.raises(ValueError, match="immutable"):
+        repositories.canonical_selection_runs.finish(
+            successful_run.id,
+            status="succeeded",
+            selection_count=2,
+        )
+    with pytest.raises(Exception):
+        with session.begin_nested():
+            successful_run.selection_count = 2
+            session.flush()
+    session.refresh(successful_run)
+    assert successful_run.selection_count == 1
     existing_run, existing_created = repositories.canonical_selection_runs.start_or_get(
         scope_key="weight:2026-01",
         rule_set=rule,
