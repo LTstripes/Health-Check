@@ -53,9 +53,12 @@ R01 deliberately excludes Garmin ingestion, Fitbit ingestion, a custom Recovery 
 - [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
+- [Backlog Ideas](docs/BACKLOG_IDEAS.md)
 
 ## Safety and repository hygiene
 
 Real health data, screenshots, databases, provider responses, tokens, credentials, reports, and laboratory documents must never be committed. Consumer wearables and BIA scales are observational tools, not clinical instruments; Health-Check must expose uncertainty and must not present associations as diagnoses or causation.
 
-The repository currently has no project license. R00 recommends choosing one before incorporating donor code; R00 does not add a license.
+## License
+
+Health-Check is licensed under the [MIT License](LICENSE). Reused donor code must still retain any attribution/notices required by its own license and be reviewed at the exact reused source commit.
