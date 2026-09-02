@@ -1,209 +1,101 @@
-# Provisional Roadmap
+# Health-Check Roadmap
 
-This roadmap is intentionally **pre-implementation**. R00 may change the technical base and therefore later sequencing.
+The roadmap follows usable vertical slices. Each release adds value on the Windows laptop without requiring enterprise infrastructure or discarding source evidence.
 
-## R00 — Source-level technical audit
+## R00 — Final architecture (complete in this branch)
 
-Goal: determine what should be reused, adapted, integrated externally, or written ourselves.
+Outputs:
 
-Inspect at least:
+- pinned donor/source and license review;
+- final runtime, data, analytics, AI, and report boundaries;
+- device/API uncertainty called out rather than guessed;
+- exact R01 implementation and acceptance contract.
 
-- `garmin-stats-ai`;
-- `fettle`;
-- `garmin_ai`;
-- `HealthQuery`;
-- `openScale` / `openScale-sync`;
-- `open-wearables`;
-- VitaSync architecture selectively.
+No product code or production data is part of R00.
 
-Output:
+## R01 — Weight & Body Composition vertical slice
 
-- exact reviewed SHAs/tags;
-- per-module reuse matrix;
-- license compatibility notes;
-- recommended base repository strategy;
-- proposed canonical schema;
-- implementation plan updated from evidence.
+Deliver the first useful product and the reusable Health-Check core:
 
-**No production health data should be placed in any agent/development repository during this phase.**
+- Python/FastAPI local application, configuration, SQLite WAL, and migrations;
+- provider/device/input/algorithm provenance model;
+- raw artifact/import records, typed scalar measurements, canonical rule v1, and coverage v1;
+- batch Xiaomi screenshot/photo extraction into editable candidates with explicit confirmation;
+- openScale-sync-compatible authenticated webhook and idempotent ingestion;
+- raw weight, time-aware trend, robust rate, compatible body-composition series, estimated fat/lean mass, and recomposition view;
+- minimal local dashboard with provenance, coverage, import history, and algorithm-discontinuity warnings;
+- synthetic offline tests.
 
-## R01 — Local core and canonical schema
+Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted AI/SQL are excluded.
 
-Goal: establish the smallest reliable single-user local platform.
+## R02 — Garmin ingestion and backfill
 
-Likely scope:
+- Start from the R00-reviewed `python-garminconnect` `0.3.12`/SHA pin; change it only if the live account spike supplies contrary evidence recorded in the R02 decision/ADR.
+- User-assisted initial sign-in/MFA and durable token storage outside Git.
+- Raw/source records, typed daily/sleep/activity/intraday entities, incremental sync, trailing-window resync, backfill, idempotency, and stream coverage.
+- Preserve only metrics produced by this device/account; an available client method is not evidence of device capability.
 
-- SQLite database and migrations;
-- source measurement/provenance model;
-- canonical metric layer;
-- context events;
-- sync state/watermarks;
-- data-quality/coverage model;
-- local configuration and secret-storage conventions;
-- backup/export baseline.
+## R03 — Garmin analytics and activity comparison
 
-## R02 — Garmin ingestion + historical backfill
+- Personal baselines, trends, percentiles, anomalies, and lag semantics.
+- Cycling/session comparison with comparable fields and coverage.
+- Garmin-specific score presentation with provenance and no medical overclaim.
+- Expand dashboard and deterministic query service.
 
-Goal: make Garmin the first complete automated source.
+## R04 — Google Health / Fitbit ingestion
 
-Scope:
+- Complete the live API-access and OAuth verification checklist first.
+- Incremental sync/backfill for data types actually exposed to the account, preserving raw `list` source metadata separately from family reconcile/rollup results.
+- Raw/source preservation, typed sleep/HR/HRV/RHR/SpO2 data where available, coverage, and token-health diagnostics.
+- Record that proprietary Fitbit Sleep Score/Readiness is unavailable through the reviewed public API; if a future documented API exposes a provider-native score, keep it distinct from Health-Check/fettle-derived scores.
 
-- Garmin Vivoactive 5 / Garmin Connect authentication and token handling;
-- incremental sync;
-- maximum reliable historical backfill;
-- daily health metrics;
-- activities;
-- Garmin-specific scores;
-- raw/source payload retention where useful;
-- idempotency and retry behavior;
-- source coverage diagnostics.
+## R05 — Garmin/Fitbit agreement and canonical sleep
 
-## R03 — Xiaomi S400 ingestion
+- Pair nights by wake date and compare each comparable metric separately.
+- Bias, limits of agreement, MAE/RMSE, and secondary association statistics.
+- First exploratory report after the documented minimum; a canonical-source change only after the stronger gate and stability checks.
+- Versioned canonical sleep rule and visible per-source overlays.
 
-Goal: automate weight/body composition.
+## R06 — Context, Telegram, and read-only AI tools
 
-Primary experiment:
+- Low-friction free-text event/exposure capture through dashboard and Telegram.
+- Suggested vs confirmed dates/tags while preserving raw wording.
+- Typed, read-only analytic/MCP tools that return compact evidence packets.
+- Natural-language investigation over deterministic results; no direct database mutation or raw-series mathematics by the LLM.
 
-```text
-S400 -> openScale -> openScale-sync -> webhook/Health Connect -> Health-Check
-```
+## R07 — Saved reports and delivery
 
-Also implement:
+- One deterministic report/evidence model for Sunday, month-end, and annual reviews.
+- Dashboard archive and renderers.
+- Telegram and email notifier adapters with independent delivery retry/audit.
+- Coverage-aware conclusions and reproducible report revisions.
 
-- screenshot/photo historical import;
-- vision extraction with human confirmation;
-- import provenance;
-- duplicate detection;
-- historical six-month backfill from available screenshots/data.
+## R08 — Deeper personal analytics and experiments
 
-## R04 — Fitbit / Google Health ingestion
+- Event-aligned and matched-control context analysis.
+- Lagged comparisons and effect sizes with explicit sample/coverage gates.
+- Structured n-of-1 experiments.
+- Consider, but do not presume, a transparent Recovery Score only if accumulated data demonstrates an unmet need.
 
-Goal: automated second wearable source.
+## R09 — Laboratory and document data
 
-Scope:
+- Original document provenance outside Git.
+- Candidate extraction, human confirmation, normalized analytes/units/reference ranges, and longitudinal views.
+- Combined lab, wearable, context, and body-composition evidence without diagnosis.
 
-- current Google Health API OAuth;
-- incremental sync and backfill;
-- sleep, HR/HRV, RHR, SpO2 and other useful metrics;
-- source/provenance retention;
-- data coverage diagnostics.
+## R10 — Optional advanced work
 
-## R05 — Cross-device reconciliation
+- Richer timezone/travel semantics if real data requires it.
+- Additional providers or a mobile application only when they solve a demonstrated need.
+- Advanced AI workflows, secure remote access, or additional notification channels.
+- Optional Obsidian or food-diary summary import.
 
-Goal: retain both source truths while choosing useful canonical metrics.
+## Release gates that apply throughout
 
-Scope:
-
-- configurable source preference per metric;
-- Garmin vs Fitbit sleep comparison;
-- bias/agreement statistics;
-- source overlays in query results;
-- canonical selection rule versioning;
-- periodic device-comparison report.
-
-Do not choose Fitbit or Garmin as the canonical sleep source before this phase has real data.
-
-## R06 — Weight/body-composition analytics
-
-Goal: solve the current primary user problem first.
-
-Scope:
-
-- 7/30/90-day trends;
-- target progress;
-- fat-mass vs lean/muscle change;
-- recomposition detection at similar body weight;
-- measurement-noise handling;
-- relationship with sleep/activity/context;
-- confidence and coverage indicators.
-
-## R07 — General longitudinal analytics
-
-Scope:
-
-- personal baselines;
-- percentiles;
-- period comparison;
-- anomaly detection;
-- lagged associations/correlations;
-- activity/session comparison (e.g. cycling rides);
-- longer-term sleep/recovery/fitness trends;
-- data-quality-aware conclusions.
-
-## R08 — Dashboard, reports and proactive delivery
-
-Scope:
-
-- visual dashboard;
-- selectable periods and overlays;
-- weight/body-composition view;
-- sleep/recovery/activity views;
-- context-event overlays;
-- weekly automatic report (Sunday);
-- month-end automatic report;
-- annual review;
-- report history in the local dashboard;
-- proactive email delivery;
-- proactive Telegram delivery.
-
-## R09 — AI / LLM analytics interface
-
-Goal: arbitrary natural-language research over deterministic analytics.
-
-Scope:
-
-- read-only query/analytics API or MCP layer;
-- tool-oriented questions over arbitrary periods;
-- explanation and practical suggestions;
-- citations/provenance back to calculated metrics/source coverage where practical;
-- explicit confidence/caveat handling;
-- external LLM use allowed when useful;
-- no unrestricted mutation of health data.
-
-## R10 — Context capture workflow
-
-Goal: make life context useful without becoming a chore.
-
-Scope:
-
-- quick free-text event entry via **Telegram and dashboard**;
-- date/range extraction;
-- human-correctable tags;
-- analytics around repeated context patterns;
-- no mandatory daily mood/energy questionnaire.
-
-Obsidian is not a dependency or canonical event store. Optional selected-note/folder import may be evaluated later if it adds useful context without turning the system into a general vault parser.
-
-## R11+ — Broader personal health record
-
-Future, after wearable/body composition product is stable:
-
-- blood/lab result ingestion;
-- PDF/image extraction with confirmation;
-- normalized analytes, units and lab-provided reference ranges;
-- vitamin/mineral tracking;
-- longitudinal lab trends;
-- combined lab + wearable + body-composition research;
-- optional doctor-visit summaries/export;
-- use of external LLMs for selected or full source documents when explicitly useful.
-
-## Later / maybe
-
-- native mobile app;
-- additional wearable providers;
-- optional Obsidian import for selected health-context notes;
-- optional periodic summary import from the existing ChatGPT food diary if it proves analytically useful;
-- remote secure read-only access for ChatGPT/other assistants;
-- richer timezone/travel-day semantics;
-- additional notification/query channels beyond dashboard/email/Telegram.
-
-## Explicitly not an MVP priority
-
-- workout generation/scheduling;
-- replacing Garmin/Fitbit daily views;
-- multi-user accounts/workspaces;
-- SaaS/cloud platform architecture;
-- Kubernetes/Redis/Postgres without demonstrated need;
-- mandatory subjective daily journaling;
-- detailed nutrition/calorie/macronutrient tracking;
-- sophisticated timezone handling.
+- No real personal data, screenshots, tokens, or databases in Git or CI fixtures.
+- Every ingestion path is idempotent and reports coverage/failures.
+- Source values survive canonical selection and reprocessing.
+- Derived values name their algorithm/version and input provenance.
+- Missing values remain missing, not zero.
+- New donor code requires license review and attribution at the exact reused commit.
+- A release must work locally on Windows and its automated tests must run without live credentials.

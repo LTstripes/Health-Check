@@ -1,335 +1,312 @@
-# Target Architecture
+# Final Target Architecture
 
-## High-level shape
+This is the canonical implementation architecture after R00. Source verification and disputed findings are recorded in [the R00 audit](audits/R00_FINAL_ARCHITECTURE.md); the first vertical slice is specified in [R01](R01_IMPLEMENTATION_SPEC.md).
+
+## 1. System shape
 
 ```text
-Garmin Connect ---------> Garmin adapter -----------\
-                                                    \
-Google Health / Fitbit -> Google Health adapter -----> Canonical Health Store
-                                                     /
-Xiaomi S400 ------------> openScale / import ------/
-                                                    \
-Life context (Telegram/dashboard) -----------------> Context Store
-
-Canonical Health Store + Context Store
-            |
-            v
-Deterministic Analytics Engine
-            |
-            +--> baselines / rolling windows
-            +--> trends / period comparisons
-            +--> anomalies / confidence
-            +--> correlations / associations
-            +--> cross-device reconciliation
-            +--> body-composition decomposition
-            +--> data quality / coverage
-            |
-            v
-Reports + Query API + Dashboard + read-only AI/MCP layer
-            |
-            +--> local dashboard
-            +--> email delivery
-            +--> Telegram delivery/context capture
+Windows laptop
+┌────────────────────────────────────────────────────────────────────┐
+│ Windows Task Scheduler                                             │
+│          │ sync/report commands                                    │
+│          v                                                         │
+│ Health-Check Python runtime (shared deterministic services)        │
+│   ├── provider adapters / explicit import services                 │
+│   ├── typed analytics and canonical rules                          │
+│   ├── loopback dashboard/read/import listener                      │
+│   ├── optional separate private-LAN ingest-only listener           │
+│   ├── report builder -> renderer -> notifier interfaces            │
+│   └── SQLite WAL + local artifact store outside Git                │
+└────────────────────────────────────────────────────────────────────┘
+             ^                       ^                    |
+             |                       |                    v
+       Garmin Connect          Google Health API      external LLM
+                                                        via bounded
+Android phone                                           read tools
+┌──────────────────────────────────────────────┐
+│ Xiaomi S400 -> BLE -> openScale              │
+│                         -> openScale-sync     │
+│                         -> authenticated HTTP│
+└──────────────────────────────────────────────┘
 ```
 
-## Data ingestion
+One local codebase and database are enough. The loopback UI/read/import ASGI app and optional LAN ingest-only ASGI app run as separate listeners/processes so LAN binding cannot expose dashboard or write/admin routes; both reuse the same application services and SQLite WAL. Do not add Redis, Celery, Kafka, Postgres, containers, Kubernetes, multi-tenancy, or SaaS authentication without a measured need. Long sync/report jobs run as idempotent CLI/application-service commands invoked by Windows Task Scheduler.
+
+## 2. Runtime responsibilities
+
+### Windows laptop
+
+- Python 3.12+, FastAPI/Uvicorn, SQLAlchemy/Alembic, SQLite WAL.
+- Runtime state under `%LOCALAPPDATA%\Health-Check` (configurable), never inside the checkout.
+- Dashboard/read/import listener bound only to loopback.
+- Optional separate private-LAN ingest-only listener/port exposing only webhook plus non-sensitive liveness; stable sender UUID and rotatable credential are independent.
+- Prefer HTTPS or a trusted encrypted private overlay. Plain trusted-LAN HTTP requires explicit opt-in and a confidentiality warning; public exposure is unsupported.
+- Provider tokens/secrets outside Git, ultimately in Windows Credential Manager/DPAPI or an equivalently user-scoped secret store.
+- Source artifacts such as images, raw JSON, and FIT files in a content-addressed local artifact directory with database references.
+
+### Android phone
+
+- openScale performs S400 BLE collection.
+- openScale-sync forwards data through its generic webhook.
+- Both are external GPL applications; Health-Check communicates through their published data boundary and does not incorporate their code.
+- Health Connect is a future/secondary bridge, not the preferred S400 path, because it cannot represent the complete openScale record.
+
+No custom Health-Check Android application is required for R01–R05.
+
+## 3. End-to-end data pipeline
+
+```text
+immutable raw artifact / provider response
+                    |
+                    v
+typed source record with device/provider/algorithm provenance
+                    |
+                    v
+versioned canonical selection (references, never replaces, source data)
+                    |
+                    v
+deterministic analytics + coverage + disagreement
+                    |
+                    v
+versioned evidence packet / saved report
+                    |
+           dashboard and bounded AI tools
+```
+
+Raw, source-specific, canonical, derived, and narrative layers are different contracts. Reprocessing creates a new parser/algorithm/rule version while retaining the earlier evidence.
+
+## 4. Provider flows
+
+### Xiaomi S400
+
+Live path:
+
+```text
+S400 encrypted BLE broadcast
+  -> openScale on Android (MAC + bind key; openScale S400 calculation)
+  -> openScale-sync generic webhook
+  -> authenticated Health-Check ingest endpoint
+  -> raw request + typed measurement session
+```
+
+Historical/fallback path:
+
+```text
+Xiaomi-app screenshot/photo
+  -> immutable local image
+  -> versioned vision extraction
+  -> editable candidate fields
+  -> explicit human confirmation
+  -> typed source measurement
+```
+
+The physical scale, input provider/application, and body-composition algorithm are separate. Xiaomi-app body composition and openScale S400 composition are different, non-equivalent algorithm groups unless a future same-weigh-in overlap study proves and versions a calibration. Weight may remain one series when physical-device/unit identity is clear; algorithm-derived composition may not.
 
 ### Garmin
 
-Preferred initial route: direct personal Garmin Connect integration through the community `garminconnect` ecosystem.
+R02 uses the community `python-garminconnect` package as a pinned runtime dependency rather than building another private HTTP client. Initial sign-in/MFA is user-assisted; reusable auth state is stored outside Git. Each stream has explicit backfill and trailing-window reconciliation because unofficial endpoints and late provider updates do not provide a universal durable cursor.
 
-Reasons:
+Garmin payloads map into typed scalar, sleep, activity, and series entities. A library method only proves that a client endpoint exists; it does not prove that Vivoactive 5 produces the metric. Live account fixtures decide availability, and unknown/unsupported values remain unavailable.
 
-- preserves Garmin-specific metrics that may not appear in Health Connect;
-- supports historical backfill;
-- already proven by multiple reference projects;
-- avoids depending on approval for Garmin's official partner/developer APIs.
+### Google Fitbit / Google Health
 
-Primary known device: **Garmin Vivoactive 5**.
+R04 targets Google Health API v4 (`health.googleapis.com`), not a legacy Google Fit pipeline. It requests only the currently implemented read scopes and treats partial consent as a stream-level capability state.
 
-Store both normalized measurements and source/raw payloads when practical.
+Google Health source identity is explicit. The adapter preserves raw `list` records with their `dataSource` platform/device/recording-method metadata and stores reconciled/rollup results separately with the exact query/family. `google-wearables`, `google-sources`, and `all-sources` are different source families: an aggregate from `google-sources` or `all-sources` may include Health Connect, manual, or third-party data and must never be labelled as Fitbit-device evidence. Even a `google-wearables` aggregate is family-level unless returned metadata identifies the physical device. Garmin/Fitbit agreement uses only records attributable to the intended Fitbit device/source; otherwise label the evidence `google_wearables_family` and exclude it from a device-specific decision.
 
-Important Garmin-specific signals to retain include, where available:
+OAuth for one personal account:
 
-- Body Battery;
-- Stress;
-- Training Readiness;
-- Training Status;
-- Recovery Time;
-- HRV;
-- resting heart rate;
-- sleep metrics/stages;
-- VO2 max;
-- activities and detailed activity metrics.
+1. External Google Cloud project in **In production** status under the documented personal-use/unverified exception. Track the separate 100-user unverified-app audience cap; it is not the exception definition.
+2. Desktop OAuth client; system browser; random loopback callback on `127.0.0.1`.
+3. Authorization code flow with PKCE S256 and a unique one-use state that is persisted and validated.
+4. Offline access; securely retained refresh token; refresh on demand for scheduled jobs.
+5. `prompt=consent` only for initial refresh-token acquisition or deliberate reauthorization.
+6. When scopes change, reauthorize with the complete required set; do not assume installed-app incremental authorization.
+7. Surface token health and require manual reconnect on revocation/`invalid_grant`.
 
-These scores are useful signals, but the product should not treat proprietary Garmin scores as the sole truth.
+Testing status is unsuitable for automation because its offline refresh token is limited to seven days. A service account cannot replace the owner's consent. Verification/policy and live API access remain a release gate, not an excuse to switch to an unsafe token workflow.
 
-### Fitbit / Google Health
-
-Use the current Google Health API rather than legacy Fitbit Web API integrations.
-
-Goals:
-
-- automatic OAuth-based sync;
-- incremental backfill/sync;
-- retain source timestamps and quality/provenance;
-- make Fitbit sleep a candidate canonical sleep source only after a real comparison against Garmin.
-
-### Xiaomi Body Composition Scale S400
-
-Primary target path:
-
-```text
-Xiaomi S400 -> BLE -> openScale -> openScale-sync -> webhook and/or Health Connect -> Health-Check
-```
-
-The S400 is currently listed by openScale as supported with body metrics through `MiScaleS400Handler`.
-
-Important: openScale/openScale-sync are GPLv3. Prefer to run them as separate applications and integrate through documented boundaries (webhook/Health Connect) rather than copying GPL code into Health-Check.
-
-#### Photo/screenshot fallback
-
-Keep manual image import as a supported fallback and for historical measurements.
-
-Workflow:
-
-1. User uploads a photo/screenshot from the Xiaomi app.
-2. Vision extraction returns all relevant visible measurements.
-3. Parsed values are shown for human confirmation.
-4. Only confirmed values are written to the health store.
-5. Record `source=xiaomi_scale`, input method (for example `photo_import`) and image provenance/reference.
-
-Do not silently write vision/OCR results directly into the canonical store.
+Google Health sleep and physiological records are source data. A local `healthcheck_*` or adapted `fettle_*` score is a derived, versioned metric; it must not be named or displayed as an official Fitbit Sleep Score or Readiness value. The documented public interfaces reviewed by R00 did not expose those proprietary scores.
 
 ### Life context
 
-Support free-text dated notes rather than mandatory daily ratings.
+The canonical object is an event/exposure interval:
 
-Primary MVP capture paths:
+- original text;
+- start/end plus precision/timezone metadata;
+- capture source;
+- optional tags with `suggested`, `confirmed`, or `rejected` status;
+- parser/model version where structured suggestions were used.
 
-- Telegram bot/message flow;
-- dashboard quick-entry flow.
+Dashboard/Telegram saves clear text immediately. It asks for clarification only when the date/range or intended event is materially ambiguous. Analytics may use confirmed tags and may use suggested tags only when the lower evidence quality is explicit.
 
-A context event should minimally contain:
+## 5. Canonical logical data model
 
-- event time/date or date range;
-- free-text note;
-- optional tags inferred or confirmed later;
-- provenance (`telegram`, `dashboard`, `manual_import`, etc.).
+### Shared evidence/provenance
 
-Raw user wording should be preserved. Structured tags may be derived separately.
+- `providers`
+- `physical_devices`
+- `acquisition_sources` (provider + input method + application/configuration)
+- `measurement_algorithms` (producer, version, parameters, compatibility group)
+- `raw_artifacts` (content hash, type, local reference)
+- `ingest_batches` / `ingest_events`
+- `sync_runs` / `sync_stream_state`
 
-#### Obsidian
+### Typed source data
 
-Obsidian is **not** the canonical event store in MVP. It may later be integrated as an optional import/reference source for selected folders or structured notes, but the core system should not depend on nightly parsing of a general-purpose vault.
+- `measurement_sessions` and `scalar_measurements` for sparse scalar/vendor values;
+- `sleep_sessions` and `sleep_stage_intervals`;
+- `activities` plus FIT/raw-detail references;
+- `series_streams` and bounded time-series chunks/points for intraday data;
+- `context_events` and versioned tag interpretations;
+- later, typed lab documents/results.
 
-### Nutrition
+This is not one EAV table. A scalar metric registry is appropriate for scalar values; intervals, sessions, stages, activities, and high-frequency streams retain their own semantics and constraints.
 
-No dedicated calorie/macronutrient ingestion in the first releases. Food/alcohol remain contextual events when analytically relevant. A future optional summary import from the user's existing ChatGPT food diary may be evaluated separately.
+### Interpretation and output
 
-## Canonical health store
+- `derived_measurements` with algorithm/version and input references;
+- `canonical_rule_sets`, `canonical_selection_runs`, and `canonical_selections`;
+- `coverage_intervals`/calculated coverage summaries;
+- `report_runs`, evidence-packet snapshots, rendered artifacts, and `delivery_attempts`;
+- later, `experiments` and exposure/evaluation records.
 
-Initial storage preference: **SQLite**.
+Canonical selections point to immutable source or derived entities. They do not overwrite values. Corrections are append-only superseding revisions. A rule run records its exact input set/rule hash so historical output can be reproduced.
 
-The schema should separate source truth from canonical interpretation.
+## 6. Idempotency and synchronization
 
-Conceptually:
+Each provider/stream defines:
+
+- stable external ID when available;
+- semantic fingerprint fallback;
+- initial backfill interval;
+- incremental watermark/cursor;
+- explicit trailing reconciliation window;
+- retry/backoff and failure classification;
+- source coverage calculation.
+
+The raw transport event is persisted before or atomically with normalization. Duplicate retries link to the existing semantic record and succeed without duplicating measurements. Receive order never defines event order. A parser failure keeps replayable raw evidence and a sanitized status.
+
+Photo artifacts deduplicate by content hash; semantic measurement deduplication uses source/device/timestamp/metric/algorithm identity so separately transported copies of the same source event converge without conflating genuine equal-valued weigh-ins. For openScale-sync, a stable configured sender-instance UUID is independent of its rotatable bearer secret, so credential rotation cannot fork source identity.
+
+## 7. Coverage contract
+
+Coverage is returned with every non-trivial analytic/report result:
+
+- requested and actually covered interval;
+- observed versus expected days/nights/sessions when an expectation is meaningful;
+- freshness and longest gaps;
+- per-source/per-algorithm breakdown;
+- failed, unavailable, confirmed-empty, and unknown intervals;
+- rule version and exclusions.
+
+Sparse voluntary streams such as weekly weight use a configured cadence. Continuous streams use expected time/day coverage. Missing and zero are never interchangeable. Analytics has explicit minimum-count/span gates; an overall `HIGH/MEDIUM/LOW` label, if rendered, is secondary to these facts.
+
+## 8. Time and lag semantics
+
+- Persist a UTC instant when one exists, the source local timestamp, numeric offset, and zone identifier when available.
+- Preserve date-only precision rather than inventing a midnight instant.
+- A sleep session is keyed analytically to the local **wake date**.
+- `lag 0` means the same analytic date; `lag +1` means the next analytic date.
+- An exposure on evening X can align with the sleep session waking X+1 and morning HRV on X+1.
+- Travel/timezone policy remains a later feature, but retained offsets allow reprocessing.
+
+Lag direction is named in APIs and evidence packets; ambiguous `correlation(metric_a, metric_b, lag=1)` contracts are forbidden.
+
+## 9. Deterministic analytics
+
+Pure Python/SQL services calculate:
+
+- summaries, percentiles, baselines, and period comparisons;
+- coverage/freshness and exclusions;
+- trends and robust slopes;
+- anomalies with baseline/sample context;
+- activity/session comparisons;
+- lagged associations and effect sizes;
+- source disagreement/agreement;
+- versioned derived measurements.
+
+R01 weight defaults are fixed in its spec: 21-day-half-life time-aware EWMA for display and trailing-90-day Theil–Sen slope for rate, with minimum evidence gates. Composition derives same-session estimated fat and lean mass and never crosses algorithm groups. Kalman/LOESS/STL are not R01 defaults.
+
+Context analytics uses event-aligned windows and matched controls rather than a year-long boolean Pearson shortcut. Quantitative output includes event count, matching rules, coverage, effect size, and caveats. Structured n-of-1 experiments are a later extension of the same event model.
+
+## 10. Cross-device agreement
+
+Pair comparable metrics separately; do not compare proprietary vendor scores as if they were the same construct.
+
+- Preliminary exploratory report: at least 14 paired nights across at least two weeks.
+- Provisional canonical-source decision: at least 42 paired nights across at least six weeks, adequate coverage, and no known firmware/method break.
+
+These are engineering gates, not statistical guarantees. For sleep duration, stages, RHR, and HRV, report paired difference/systematic bias, MAE, RMSE, and Bland–Altman limits (or robust quantiles when assumptions fail). Correlation is secondary; Lin's CCC may supplement the stronger gate. A rule change remains reversible/versioned.
+
+## 11. AI and MCP boundary
+
+The default AI path is:
 
 ```text
-source_measurements
-- id
-- metric
-- value
-- unit
-- timestamp/start/end
-- source_provider
-- source_device
-- source_record_id
-- payload/provenance reference
-- quality metadata
-- imported_at
-
-canonical_measurements
-- metric
-- value
-- unit
-- timestamp/period
-- selected_source
-- selection_rule/version
-- confidence
-
-context_events
-- id
-- start/end
-- text
-- tags
-- provenance
-
-sync_state
-- provider
-- cursor/watermark
-- last_success
-- coverage metadata
+LLM -> typed bounded read tool -> application analytics service
+    -> compact versioned evidence packet
 ```
 
-Exact schema is still open and should be designed after the source-code audit.
+Tools expose period summary, coverage, provenance, weight progress, period comparison, activity comparison, source agreement, and context-event analysis. They use bounded date ranges and return counts/coverage/algorithm/rule versions. The MCP credential authorizes only read DTO endpoints; ingest, context write, import confirmation, settings, and admin routes use separate capabilities.
 
-## Source reconciliation
+The LLM does not receive provider credentials, database paths, unrestricted raw tables, or years of samples to calculate mathematics. It explains observations, alternatives, uncertainty, and practical suggestions without diagnosis.
 
-Rules:
+Generic SQL is not part of the normal interface. A later expert-only mode would require a separate SQLite `mode=ro` connection, `query_only`, an authorizer/progress deadline, one AST-validated `SELECT`, allowlisted analytic views/columns, required date/row/byte limits, and audit. Raw/config/secret/identity/schema tables remain invisible.
 
-1. Never destroy or overwrite source-specific measurements when selecting a canonical value.
-2. Preferred source may differ by metric.
-3. Source-selection rules must be versioned/configurable.
-4. The dashboard should be able to show both the canonical metric and per-device/source variants.
-5. The analytics engine should periodically quantify systematic differences between devices.
+## 12. Reports and delivery
 
-Initial working assumptions:
+```text
+deterministic report builder
+  -> persisted evidence packet + report revision
+  -> renderer interface
+       -> dashboard/archive
+       -> Telegram
+       -> email
+  -> independent delivery attempts/retries
+```
 
-- Garmin: primary for most wearable/training metrics.
-- Sleep: Garmin vs Fitbit comparison required before choosing a preferred source.
-- Xiaomi S400: primary for weight/body composition.
+Weekly, monthly, and annual reports use the same analytics contract. A report is computed once and rendered many ways. Delivery failure does not recompute the report; late-data reprocessing creates a new explicit revision. Every report carries coverage, source/algorithm/rule versions, and non-medical caveats.
 
-## Weight and body-composition analytics
+## 13. Recovery Score
 
-Focus on trend rather than single-day noise.
+No Health-Check Recovery Score is currently justified. Preserve Garmin/Fitbit signals with provenance and accumulate cross-source evidence first. A future score is allowed only after a documented user problem, sufficient personal baseline, and validation plan; it must be transparent, component-attributed, versioned, and non-medical.
 
-Priority metrics:
+## 14. Security and license boundaries
 
-- weight;
-- body-fat percentage and derived fat mass;
-- lean mass;
-- muscle mass where available;
-- visceral-fat metric;
-- body water;
-- BMI;
-- BMR.
+- Real data, payloads, documents, databases, and secrets never enter Git or synthetic fixtures.
+- Dashboard/read/import is loopback-only; the separate LAN ingest app has no product routes, uses a stable sender UUID plus independent high-entropy rotatable credential, and has an encrypted-overlay/HTTPS or explicitly warned trusted-private-LAN transport boundary.
+- Log identifiers/counts/status, not authorization material or raw health values by default.
+- Use typed access capabilities: read, ingest, context/import write, and admin are distinct.
+- openScale/openScale-sync remain external GPL programs; do not claim this eliminates every legal obligation for every distribution arrangement.
+- AGPL VitaSync and unlicensed `garmin_ai` are reference-only.
+- MIT donor code is reused only selectively with license/copyright notice and exact-source attribution.
+- Health-Check currently has no LICENSE; choose and add one before incorporating donor code.
 
-Vendor "body age", opaque overall body ratings, or other low-value proprietary scores are not core analytics inputs.
+## 15. Architecture invariants
 
-Expected analyses include:
+### MUST
 
-- 7/30/90-day trend;
-- rate of weight change;
-- fat-mass vs lean-mass change;
-- progress toward target weight;
-- recomposition at stable body weight;
-- relationship with sleep, activity and relevant context events.
+- Retain source provenance and practical raw evidence.
+- Preserve competing source values and historical revisions.
+- Separate physical device, provider/input method, and measurement algorithm.
+- Version parsers, derived algorithms, and canonical rules.
+- Distinguish Xiaomi-app S400 composition from openScale S400 composition.
+- Use typed entities for sessions/intervals/activities/series.
+- Calculate analytics deterministically and return coverage/exclusions.
+- Require explicit confirmation for uncertain image extraction.
+- Permit idempotent replay and historical reprocessing.
+- Keep provider-native and Health-Check-derived scores distinctly named.
+- Gate conclusions on actual device/account data rather than client method availability.
 
-## Analytics engine
+### MUST NOT
 
-Core calculations must be deterministic and reproducible.
-
-Candidate capabilities:
-
-- rolling baselines and percentiles;
-- trend detection;
-- period-over-period comparison;
-- outlier/anomaly detection;
-- data coverage/quality scoring;
-- Pearson/Spearman correlations where appropriate;
-- lagged associations (for example sleep today vs HRV tomorrow);
-- activity/session comparison;
-- cross-device bias/agreement analysis;
-- body-composition decomposition;
-- configurable confidence/strength labels.
-
-The LLM should request or interpret these results, not calculate them from thousands of raw rows.
-
-## Reports and automation
-
-Target automated cadence:
-
-- weekly report every Sunday;
-- monthly report on the last calendar day of the month;
-- annual report at year end.
-
-Routine sync and analytics recalculation should happen automatically without user intervention.
-
-Every periodic report should:
-
-1. be persisted/viewable in the local dashboard;
-2. be proactively delivered through email;
-3. be proactively delivered through Telegram.
-
-Do not prioritize a daily morning report in MVP.
-
-## Interfaces
-
-### Dashboard
-
-The dashboard should support:
-
-- long-term graphs;
-- selectable periods;
-- source overlay (Garmin vs Fitbit, etc.);
-- body composition and target progress;
-- activity/session comparisons;
-- anomaly/event overlays;
-- data coverage indicators;
-- drill-down from report findings;
-- quick free-text context entry;
-- report history.
-
-### Telegram
-
-Telegram should support at least:
-
-- delivery of weekly/monthly/yearly report summaries;
-- links or pointers to deeper local dashboard views where practical;
-- quick free-text context/event capture;
-- optional future lightweight commands/queries.
-
-### Email
-
-Email is a proactive report-delivery channel, not a primary data-entry channel. Exact provider/SMTP implementation should be chosen during implementation based on simplicity and reliability.
-
-### AI / LLM
-
-The AI interface must support arbitrary natural-language research questions and invoke read-only analytics/query tools.
-
-Examples:
-
-- compare arbitrary date ranges;
-- explain a detected change;
-- find recurring patterns around context events;
-- compare similar activities;
-- investigate relationships among multiple metrics.
-
-The AI surface should be read-only with respect to imported health data except for explicit user-authored context entries or confirmed manual imports.
-
-## Privacy and security
-
-Local-first is primarily a product/engineering choice for simplicity, ownership and reproducibility, not a strict requirement that all health data remain offline.
-
-Principles:
-
-- local-first runtime and canonical database;
-- no personal DB, raw health payloads, lab results, tokens or screenshots in Git;
-- provider credentials/tokens stored outside the repository;
-- external LLM use is allowed when useful;
-- prefer sending query-sized/derived datasets instead of huge raw exports when possible;
-- read-only machine/AI access where possible;
-- backups and schema migrations from early versions;
-- provenance and auditability for manual/AI-assisted imports.
-
-## Timezone/travel handling
-
-Preserve source timestamps and timezone metadata where practical. Sophisticated rules for travel, cross-timezone sleeps and report-day boundaries are deliberately deferred to a later backlog unless real data exposes a concrete issue sooner.
-
-## Future lab/medical-data layer
-
-Future ingestion may accept PDFs/images or structured exports from laboratory/medical sources.
-
-Preferred workflow:
-
-1. preserve the original document outside Git;
-2. extract analytes/results/reference ranges/units;
-3. show uncertain or ambiguous extraction for human confirmation;
-4. store normalized values plus source-document provenance;
-5. keep reference ranges supplied by that laboratory where available;
-6. allow longitudinal comparisons and links to wearable/body-composition timelines.
-
-Selected or full source documents may be sent to an external LLM when the user explicitly wants analysis; a local-only document-processing mode is not required for MVP.
-
-LLM interpretation can add context and questions to investigate, but should not convert laboratory data into unsupported diagnoses.
+- Silently merge incompatible body-composition algorithms.
+- Delete losing source values after canonical selection.
+- Treat missing, unknown, or unsupported measurements as zero.
+- Let an LLM calculate long raw time series or mutate the health store through a read credential.
+- Present a derived score as official Fitbit/Garmin output.
+- Treat endpoint existence as Vivoactive 5 feature support.
+- Copy unlicensed, GPL, or AGPL code into the core contrary to the chosen reuse boundary.
+- Require enterprise infrastructure for this personal application.
+- Present consumer BIA, wearable associations, or LLM interpretation as diagnosis or causation.
