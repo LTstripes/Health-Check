@@ -237,6 +237,11 @@ def test_repositories_retain_provenance_and_deduplicate_raw_and_ingest(e2e_datab
             session.flush()
     session.refresh(audit_edit)
     assert audit_edit.actor == "owner"
+    with pytest.raises(Exception):
+        with session.begin_nested():
+            session.delete(audit_edit)
+            session.flush()
+    assert session.get(ImportCandidateEdit, audit_edit.id) is not None
 
     with pytest.raises(Exception):
         with session.begin_nested():
