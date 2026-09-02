@@ -44,7 +44,7 @@ R00 architecture is consolidated. No application code exists yet. The approved n
 
 R01 deliberately excludes Garmin ingestion, Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery.
 
-## Canonical documentation
+## Canonical product documentation
 
 - [Product Vision](docs/PRODUCT_VISION.md)
 - [Final Architecture](docs/ARCHITECTURE.md)
@@ -54,6 +54,15 @@ R01 deliberately excludes Garmin ingestion, Fitbit ingestion, a custom Recovery 
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Backlog Ideas](docs/BACKLOG_IDEAS.md)
+
+## Engineering workflow
+
+All coding/review agents must start with [AGENTS.md](AGENTS.md).
+
+- [Development Process](docs/DEVELOPMENT_PROCESS.md) — owner/integrator/worker flow, integration branches, local workspace roots, review/UAT and logging.
+- [Model Routing](docs/MODEL_ROUTING.md) — task complexity and executor/reviewer recommendations.
+- [Execution History](docs/EXECUTION_HISTORY.md) — durable history of implementations, failures, decisions and model attribution for retrospectives.
+- Client-specific worker adapters live under `docs/agents/`.
 
 ## Safety and repository hygiene
 
