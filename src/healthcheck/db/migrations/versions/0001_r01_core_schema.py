@@ -714,6 +714,7 @@ def upgrade() -> None:
     # represented by a new row pointing to the superseded row.
     for table_name in (
         "raw_artifacts",
+        "canonical_rule_sets",
         "measurement_sessions",
         "scalar_measurements",
         "derived_measurements",
@@ -746,6 +747,7 @@ def downgrade() -> None:
 
     for table_name in (
         "raw_artifacts",
+        "canonical_rule_sets",
         "measurement_sessions",
         "scalar_measurements",
         "derived_measurements",
