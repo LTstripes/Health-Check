@@ -69,3 +69,28 @@ Do not put real health values, screenshots, credentials, private payloads or med
 - **Integrator review:** **ACCEPT**. Actual branch/commit/diff and key files were inspected rather than trusting the completion report. Candidate is exactly one commit ahead of its assigned baseline; scope is disciplined; runtime isolation, route isolation, safe logging, SQLite pragmas, tests and CI match issue #4. No blocking findings.
 - **Integration result:** PR #14 merged into `integration/r01-weight-core`; merge SHA `f5a71687cbf7f99f97ae3ee6a94e216183d7c3ae`.
 - **Retrospective note:** the first end-to-end worker → report → Integrator evidence review → task PR → integration flow worked as intended. The stale issue baseline showed why the launch prompt must carry an exact pinned SHA and why the Integrator should synchronize issue metadata immediately when a baseline changes.
+
+## 2026-09-02 — R01-02 — Core SQLite schema, migrations and provenance repositories
+
+- **Issue / PR:** #5 / PR #15.
+- **Complexity / routing:** C3 / Hard data semantics; executor Luna Max; independent reviewer required and assigned to Grok xHigh.
+- **Executor:** Codex, runtime-reported model Luna Max; no delegates/fallbacks reported.
+- **Reviewer:** Grok xHigh, reviewer-only; no repository writes.
+- **Role:** Luna Max worker; Grok xHigh independent reviewer/re-reviewer; ChatGPT/Lera Integrator.
+- **Baseline:** `7e84fc14a9909640f76263dd59b1c68a0c3b9a62`.
+- **Target integration:** `integration/r01-weight-core` at the same baseline SHA.
+- **Task branch / workspace:** `task/5-core-schema`; `D:\Codex\Garmin\workspaces\5-core-schema`.
+- **Initial candidate:** `0e18b3e35811759f3eb2a39cc27eae2011025808`.
+- **Final candidate:** `1376756559a31d400245062c7e1e24f9989963fe`.
+- **Objective:** establish the durable R01 SQLite/Alembic provenance, revision, canonical, sync and coverage persistence contracts before photo/webhook services depend on them.
+- **Initial result:** added the R01 migration/schema, 18 domain tables plus Alembic state, repository layer, WAL/FK readiness, provenance/dedup/revision/canonical/sync/coverage primitives and synthetic tests.
+- **Initial checks:** worker reported Ruff PASS, pytest 10 passed with one upstream warning, fresh/repeat migration PASS, WAL/FK/readiness PASS, `alembic check` clean, downgrade/re-upgrade PASS and `git diff --check` PASS. GitHub Actions push and PR runs were green on the reviewed SHA.
+- **Independent review round 1:** **BLOCKERS**. Grok xHigh found five durable-semantics defects invisible to the green tests: terminal candidate decisions could drift after measurement creation; exact replay vs reprocessing/source updates were conflated; ingest external-ID identity was nullable/stream-sensitive and could swallow real updates; supersession allowed multiple active heads; measurement-algorithm `(code, version)` reuse silently accepted contradictory immutable metadata.
+- **Integrator additions:** two further hardening requirements were added: terminal canonical runs must be immutable/idempotent after completion, and `import_candidate_edits` must be protected from both UPDATE and DELETE.
+- **Fix round:** Luna Max updated the same task branch rather than starting a new issue. The fix introduced terminal-decision guards/no-op replay, explicit revision requirements for new evidence, stream-independent ingest dedup keys while keeping genuine update evidence representable, single-successor indexes/checks, immutable algorithm metadata comparison, immutable terminal canonical completion, and full candidate-edit audit protection. Regression tests were added for all seven findings.
+- **Final checks:** worker reported Ruff PASS, pytest 12 passed with one upstream Starlette/httpx warning, fresh/repeat migration PASS, WAL/FK/readiness PASS, `alembic check` clean, downgrade/re-upgrade PASS and diff check PASS. Repository-side verification confirmed final PR CI `33677353644` succeeded on `1376756559a31d400245062c7e1e24f9989963fe`.
+- **Independent re-review:** **ACCEPT**. Grok xHigh re-reviewed only `0e18b3e...1376756`, reproduced the previous failure classes against throwaway SQLite databases, confirmed all seven invariants closed, and judged the resulting persistence contract suitable for later openScale ingestion when #10 always supplies `event_type` plus evidence identity/fingerprint for genuine successive updates.
+- **Non-blocking follow-up:** #10 must pass `event_type` and evidence fingerprint/artifact identity; successive updates without new evidence intentionally collapse as exact retries. Additional SQLite timezone/candidate-level SQL precision/natural-identity hardening remains future work unless a concrete R01 path needs it.
+- **Integrator review:** **FIXES REQUIRED → ACCEPT**. The initial implementation was structurally strong but not durable enough for downstream ingestion. The independent reviewer materially improved the design; the fixed candidate was inspected against the actual diff/CI before final acceptance.
+- **Integration result:** PR #15 merged into `integration/r01-weight-core`; merge SHA `3f86d13aeec4823b8ea74c859dcb8f4df5aba5f0`. Issue #5 closed completed.
+- **Retrospective note:** green tests plus a plausible schema are not sufficient for append-only health history. The highest-value review was adversarial scenario testing at repository/SQLite semantics: exact retry, real update, post-confirm edit, forked revision and algorithm identity. This validates the C3 rule that persistence/canonical semantics require an independent model reviewer before integration.
