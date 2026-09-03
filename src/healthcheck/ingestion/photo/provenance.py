@@ -14,24 +14,33 @@ XIAOMI_HOME_COMPOSITION_ALGORITHM = "xiaomi_home_s400_unknown_version"
 XIAOMI_UNKNOWN_APP_ALGORITHM = "xiaomi_s400_unknown_app_algorithm"
 
 
+def resolve_provider_code(provider_code: str | None) -> str:
+    """Map missing/unrecognized providers to unknown — never silently to Xiaomi Home."""
+
+    if provider_code == XIAOMI_HOME_PROVIDER:
+        return XIAOMI_HOME_PROVIDER
+    return XIAOMI_APP_UNKNOWN_PROVIDER
+
+
 def ensure_photo_acquisition_source(
     repositories: ProvenanceRepositories,
     *,
-    provider_code: str = XIAOMI_HOME_PROVIDER,
+    provider_code: str | None = None,
     physical_device_code: str = XIAOMI_S400_DEVICE,
     source_application: str | None = None,
     source_application_version: str | None = None,
 ) -> AcquisitionSource:
-    if provider_code == XIAOMI_APP_UNKNOWN_PROVIDER:
-        provider = repositories.providers.get_or_create(
-            XIAOMI_APP_UNKNOWN_PROVIDER, "Unknown Xiaomi app", "scale_app"
-        )
-        application = source_application
-    else:
+    resolved = resolve_provider_code(provider_code)
+    if resolved == XIAOMI_HOME_PROVIDER:
         provider = repositories.providers.get_or_create(
             XIAOMI_HOME_PROVIDER, "Xiaomi Home", "scale_app"
         )
         application = source_application or "Xiaomi Home"
+    else:
+        provider = repositories.providers.get_or_create(
+            XIAOMI_APP_UNKNOWN_PROVIDER, "Unknown Xiaomi app", "scale_app"
+        )
+        application = source_application
     device = repositories.physical_devices.get_or_create(
         physical_device_code,
         manufacturer="Xiaomi",
@@ -84,5 +93,5 @@ def provider_code_for_source(
 ) -> str:
     loaded = repositories.providers.get(acquisition_source.provider_id)
     if loaded is None:
-        return XIAOMI_HOME_PROVIDER
+        return XIAOMI_APP_UNKNOWN_PROVIDER
     return loaded.code

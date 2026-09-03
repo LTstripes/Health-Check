@@ -44,8 +44,21 @@ class NormalizedField:
     warnings: tuple[str, ...]
 
 
-def candidate_set_key(extractor_name: str, extractor_version: str, schema_version: str) -> str:
-    return f"{extractor_name}@{extractor_version}/{schema_version}"
+def candidate_set_key(
+    extractor_name: str,
+    extractor_version: str,
+    schema_version: str,
+    model_name: str | None = None,
+    model_version: str | None = None,
+    prompt_version: str | None = None,
+) -> str:
+    """Build extraction-set identity including model/prompt/schema metadata."""
+
+    return (
+        f"{extractor_name}@{extractor_version}/{schema_version}"
+        f"|model={model_name or '-'}@{model_version or '-'}"
+        f"|prompt={prompt_version or '-'}"
+    )
 
 
 def normalize_group(group: MeasurementGroup) -> tuple[NormalizedField, ...]:

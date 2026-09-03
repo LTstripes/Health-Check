@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
@@ -19,8 +20,9 @@ from healthcheck.db.models import (
     MeasurementSession,
     RawArtifact,
     ScalarMeasurement,
+    new_id,
 )
-from healthcheck.db.repositories import repositories_for
+from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.extractor import (
     DEFAULT_SCHEMA_VERSION,
@@ -30,18 +32,19 @@ from healthcheck.ingestion.photo.extractor import (
     ImageMeasurementExtractor,
 )
 from healthcheck.ingestion.photo.normalize import (
-    candidate_set_key as build_candidate_set_key,
-)
-from healthcheck.ingestion.photo.normalize import (
+    NormalizedField,
     field_warnings_from_candidate,
     normalize_confirmed_value,
     normalize_group,
 )
+from healthcheck.ingestion.photo.normalize import (
+    candidate_set_key as build_candidate_set_key,
+)
 from healthcheck.ingestion.photo.provenance import (
-    XIAOMI_HOME_PROVIDER,
     algorithm_for_metric,
     ensure_photo_acquisition_source,
     provider_code_for_source,
+    resolve_provider_code,
 )
 from healthcheck.ingestion.photo.store import (
     ContentAddressedPhotoStore,
@@ -53,6 +56,7 @@ from healthcheck.runtime import RuntimePaths
 
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 MAX_FILES = 100
+_ALLOWED_PRECISION = {"date", "instant", "minute"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +89,15 @@ class ImportBatchResult:
     items: list[PhotoItemResult]
 
 
+@dataclass(slots=True)
+class ReprocessResult:
+    candidates: list[ImportCandidate] = field(default_factory=list)
+    failed: bool = False
+    error_code: str | None = None
+    error_message: str | None = None
+    attempt_event_id: str | None = None
+
+
 class PhotoImportService:
     def __init__(
         self,
@@ -107,6 +120,28 @@ class PhotoImportService:
         schema_version: str = DEFAULT_SCHEMA_VERSION,
         provider_code: str | None = None,
     ) -> ImportBatchResult:
+        try:
+            return self._import_photos_inner(
+                uploads,
+                locale=locale,
+                timezone=timezone,
+                schema_version=schema_version,
+                provider_code=provider_code,
+            )
+        except PhotoImportError:
+            raise
+        except SQLAlchemyError:
+            raise PhotoImportError("persistence_error", "photo persistence failed") from None
+
+    def _import_photos_inner(
+        self,
+        uploads: Sequence[PhotoUpload],
+        *,
+        locale: str | None,
+        timezone: str | None,
+        schema_version: str,
+        provider_code: str | None,
+    ) -> ImportBatchResult:
         if not uploads:
             raise PhotoImportError("empty_upload", "at least one photo is required")
         if len(uploads) > MAX_FILES:
@@ -114,9 +149,7 @@ class PhotoImportService:
                 "too_many_files", f"at most {MAX_FILES} photos can be imported at once"
             )
 
-        source = ensure_photo_acquisition_source(
-            self.repos, provider_code=provider_code or XIAOMI_HOME_PROVIDER
-        )
+        source = ensure_photo_acquisition_source(self.repos, provider_code=provider_code)
         batch = self.repos.ingest_batches.create(
             acquisition_source_id=source.id,
             batch_kind="photo",
@@ -154,7 +187,14 @@ class PhotoImportService:
             )
         events = self.repos.ingest_events.list_for_batch(batch_id)
         candidates = self.repos.import_candidates.list_for_batch(batch_id)
-        return batch, events, candidates
+        referenced: list[ImportCandidate] = []
+        for event in events:
+            if event.duplicate_of_event_id is None:
+                continue
+            referenced.extend(
+                self.repos.import_candidates.list_for_event(event.duplicate_of_event_id)
+            )
+        return batch, events, candidates + referenced
 
     def get_event(self, event_id: str) -> tuple[IngestEvent, list[ImportCandidate]]:
         event = self.repos.ingest_events.get(event_id)
@@ -188,6 +228,9 @@ class PhotoImportService:
             "prompt_version": candidate.prompt_version,
             "schema_version": candidate.schema_version,
             "confidence": candidate.confidence,
+            "algorithm_code": candidate.algorithm_code,
+            "algorithm_version": candidate.algorithm_version,
+            "provider_code": candidate.provider_code,
             "edited_value": candidate.edited_value,
             "edited_unit": candidate.edited_unit,
             "edited_source_local_date": candidate.edited_source_local_date,
@@ -238,9 +281,11 @@ class PhotoImportService:
                 actor=actor,
             )
         except KeyError as exc:
-            raise PhotoImportError("unknown_candidate", str(exc), status_code=404) from exc
+            raise PhotoImportError("unknown_candidate", str(exc), status_code=404) from None
         except ValueError as exc:
-            raise _decision_error(exc) from exc
+            raise _decision_error(exc) from None
+        except SQLAlchemyError:
+            raise PhotoImportError("persistence_error", "photo persistence failed") from None
 
     def reject(
         self,
@@ -248,6 +293,20 @@ class PhotoImportService:
         *,
         reason: str | None = None,
         actor: str = "owner",
+    ) -> list[ImportCandidate]:
+        try:
+            return self._reject_inner(candidate_ids, reason=reason, actor=actor)
+        except PhotoImportError:
+            raise
+        except SQLAlchemyError:
+            raise PhotoImportError("persistence_error", "photo persistence failed") from None
+
+    def _reject_inner(
+        self,
+        candidate_ids: Sequence[str],
+        *,
+        reason: str | None,
+        actor: str,
     ) -> list[ImportCandidate]:
         if not candidate_ids:
             raise PhotoImportError("empty_selection", "at least one candidate id is required")
@@ -262,9 +321,9 @@ class PhotoImportService:
                     actor=actor,
                 )
             except KeyError as exc:
-                raise PhotoImportError("unknown_candidate", str(exc), status_code=404) from exc
+                raise PhotoImportError("unknown_candidate", str(exc), status_code=404) from None
             except ValueError as exc:
-                raise _decision_error(exc) from exc
+                raise _decision_error(exc) from None
             rejected.append(candidate)
             event_ids.add(candidate.ingest_event_id)
         for event_id in event_ids:
@@ -279,50 +338,65 @@ class PhotoImportService:
         edits: Mapping[str, Mapping[str, Any]] | None = None,
         actor: str = "owner",
     ) -> list[dict[str, Any]]:
+        try:
+            return self._confirm_inner(candidate_ids, edits=edits, actor=actor)
+        except PhotoImportError:
+            raise
+        except SQLAlchemyError:
+            raise PhotoImportError("persistence_error", "photo persistence failed") from None
+
+    def _confirm_inner(
+        self,
+        candidate_ids: Sequence[str],
+        *,
+        edits: Mapping[str, Mapping[str, Any]] | None,
+        actor: str,
+    ) -> list[dict[str, Any]]:
         if not candidate_ids:
             raise PhotoImportError("empty_selection", "at least one candidate id is required")
         selected = [self._load_candidate(candidate_id) for candidate_id in candidate_ids]
         edits = edits or {}
-        confirmed: list[ImportCandidate] = []
-        for candidate in selected:
-            payload = _edit_payload(edits.get(candidate.id) or {})
-            try:
-                confirmed.append(
-                    self.repos.import_candidates.decide(
-                        candidate.id,
-                        CandidateDecision.CONFIRMED.value,
-                        edited_value=payload.get("value", payload.get("edited_value")),
-                        edited_unit=payload.get("unit", payload.get("edited_unit")),
-                        edited_source_timestamp=payload.get(
-                            "source_timestamp", payload.get("edited_source_timestamp")
-                        ),
-                        edited_source_local_date=_as_date(
-                            payload.get(
-                                "source_local_date", payload.get("edited_source_local_date")
-                            )
-                        ),
-                        actor=actor,
-                    )
-                )
-            except ValueError as exc:
-                raise _decision_error(exc) from exc
-
-        results: list[dict[str, Any]] = []
         grouped: dict[tuple[str, str, str], list[ImportCandidate]] = {}
-        for candidate in confirmed:
+        for candidate in selected:
             key = (
                 candidate.ingest_event_id,
                 candidate.candidate_set_key,
                 candidate.measurement_group_key,
             )
             grouped.setdefault(key, []).append(candidate)
-        for (event_id, set_key, group_key), group in grouped.items():
-            results.extend(self._confirm_group(event_id, set_key, group_key, group))
-            self._refresh_event_status(event_id)
-        log_event("photo_confirm", operation="photo_confirm", status="ok", count=len(confirmed))
+        planned_times: dict[tuple[str, str, str], tuple[str, date, datetime | None]] = {}
+        for key, group in grouped.items():
+            payloads = {
+                candidate.id: _edit_payload(edits.get(candidate.id) or {}) for candidate in group
+            }
+            planned_times[key] = _validated_group_time(group, payloads)
+            self._assert_session_time_if_present(key[0], key[2], group, planned_times[key])
+        results: list[dict[str, Any]] = []
+        for key, group in grouped.items():
+            results.extend(
+                self._confirm_group(
+                    key[0],
+                    key[1],
+                    key[2],
+                    group,
+                    edits=edits,
+                    expected_time=planned_times[key],
+                    actor=actor,
+                )
+            )
+            self._refresh_event_status(key[0])
+        log_event("photo_confirm", operation="photo_confirm", status="ok", count=len(selected))
         return results
 
-    def reprocess_event(self, event_id: str) -> list[ImportCandidate]:
+    def reprocess_event(self, event_id: str) -> ReprocessResult:
+        try:
+            return self._reprocess_inner(event_id)
+        except PhotoImportError:
+            raise
+        except SQLAlchemyError:
+            raise PhotoImportError("persistence_error", "photo persistence failed") from None
+
+    def _reprocess_inner(self, event_id: str) -> ReprocessResult:
         event = self.repos.ingest_events.get(event_id)
         if event is None:
             raise PhotoImportError(
@@ -344,20 +418,30 @@ class PhotoImportService:
         )
         try:
             extracted = self.extractor.extract(request, image_bytes)
+            candidates = self._persist_candidates(event, artifact, extracted)
         except ExtractionFailure as exc:
-            self.repos.ingest_events.set_status(
-                event.id,
-                IngestStatus.FAILED.value,
-                diagnostic_code=exc.code,
-                diagnostic_reason=exc.message,
+            attempt = self._record_failed_attempt(event, artifact, exc.code)
+            log_event("photo_reprocess", operation="photo_reprocess", status="error", count=0)
+            return ReprocessResult(
+                failed=True,
+                error_code=exc.code,
+                error_message=exc.message,
+                attempt_event_id=attempt.id,
             )
-            raise PhotoImportError(exc.code, exc.message) from exc
-        candidates = self._persist_candidates(event, artifact, extracted)
+        except ValueError:
+            attempt = self._record_failed_attempt(event, artifact, "extractor_invalid_payload")
+            log_event("photo_reprocess", operation="photo_reprocess", status="error", count=0)
+            return ReprocessResult(
+                failed=True,
+                error_code="extractor_invalid_payload",
+                error_message="extraction result could not be persisted",
+                attempt_event_id=attempt.id,
+            )
         self._refresh_event_status(event.id)
         log_event(
             "photo_reprocess", operation="photo_reprocess", status="ok", count=len(candidates)
         )
-        return candidates
+        return ReprocessResult(candidates=candidates)
 
     def _import_one(
         self,
@@ -416,9 +500,7 @@ class PhotoImportService:
             timezone=timezone,
             schema_version=schema_version,
         )
-        set_key = build_candidate_set_key(
-            self.extractor.name, self.extractor.version, schema_version
-        )
+        set_key = _set_key_for(self.extractor, schema_version)
         if existing_event is not None:
             existing_candidates = [
                 candidate
@@ -426,6 +508,16 @@ class PhotoImportService:
                 if candidate.candidate_set_key == set_key
             ]
             if existing_candidates:
+                occurrence = self.repos.ingest_events.create_linked(
+                    ingest_batch_id=batch.id,
+                    acquisition_source_id=existing_event.acquisition_source_id,
+                    raw_artifact_id=artifact.id,
+                    duplicate_of_event_id=existing_event.id,
+                    status=IngestStatus.DUPLICATE.value,
+                    semantic_fingerprint=f"duplicate-occurrence:{batch.id}:{artifact.content_hash}",
+                    diagnostic_code="duplicate_artifact",
+                    diagnostic_reason="duplicate_artifact",
+                )
                 return PhotoItemResult(
                     filename=filename,
                     artifact_id=artifact.id,
@@ -433,20 +525,11 @@ class PhotoImportService:
                     media_type=media_type,
                     relative_storage_path=artifact.relative_storage_path,
                     duplicate_artifact=True,
-                    ingest_event_id=existing_event.id,
-                    ingest_batch_id=existing_event.ingest_batch_id,
-                    status=existing_event.status,
-                    candidate_ids=[
-                        candidate.id
-                        for candidate in sorted(
-                            existing_candidates,
-                            key=lambda item: (
-                                item.measurement_group_key,
-                                item.metric_code,
-                                item.id,
-                            ),
-                        )
-                    ],
+                    ingest_event_id=occurrence.id,
+                    ingest_batch_id=occurrence.ingest_batch_id,
+                    status=IngestStatus.DUPLICATE.value,
+                    diagnostic_code="duplicate_artifact",
+                    candidate_ids=_sorted_ids(existing_candidates),
                 )
 
         try:
@@ -465,7 +548,7 @@ class PhotoImportService:
 
         event_source = ensure_photo_acquisition_source(
             self.repos,
-            provider_code=extracted.provider_code or provider_code or XIAOMI_HOME_PROVIDER,
+            provider_code=resolve_provider_code(extracted.provider_code or provider_code),
             physical_device_code=extracted.physical_device_code,
             source_application=extracted.source_application,
             source_application_version=extracted.source_application_version,
@@ -480,7 +563,9 @@ class PhotoImportService:
         )
         try:
             candidates = self._persist_candidates(event, artifact, extracted)
-        except ValueError as exc:
+        except (ValueError, ExtractionFailure) as exc:
+            code = getattr(exc, "code", "extractor_invalid_payload")
+            reason = getattr(exc, "message", None) or "extraction result could not be persisted"
             return self._failed_item(
                 batch,
                 artifact,
@@ -488,8 +573,8 @@ class PhotoImportService:
                 media_type=media_type,
                 duplicate=duplicate,
                 existing_event=event,
-                code="extractor_invalid_payload",
-                reason=str(exc),
+                code=code,
+                reason=reason,
             )
         self._refresh_event_status(event.id)
         refreshed = self.repos.ingest_events.get(event.id)
@@ -507,13 +592,7 @@ class PhotoImportService:
             ingest_event_id=event.id,
             ingest_batch_id=event.ingest_batch_id,
             status=refreshed.status if refreshed is not None else event.status,
-            candidate_ids=[
-                candidate.id
-                for candidate in sorted(
-                    candidates,
-                    key=lambda item: (item.measurement_group_key, item.metric_code, item.id),
-                )
-            ],
+            candidate_ids=_sorted_ids(candidates),
             warnings=warnings,
         )
 
@@ -529,6 +608,25 @@ class PhotoImportService:
         code: str,
         reason: str,
     ) -> PhotoItemResult:
+        sanitized = code
+        if existing_event is not None and existing_event.status not in {
+            IngestStatus.FAILED.value,
+            IngestStatus.RECEIVED.value,
+        }:
+            attempt = self._record_failed_attempt(existing_event, artifact, code)
+            return PhotoItemResult(
+                filename=filename,
+                artifact_id=artifact.id,
+                content_hash=artifact.content_hash,
+                media_type=media_type,
+                relative_storage_path=artifact.relative_storage_path,
+                duplicate_artifact=duplicate,
+                ingest_event_id=attempt.id,
+                ingest_batch_id=attempt.ingest_batch_id,
+                status=IngestStatus.FAILED.value,
+                diagnostic_code=code,
+                diagnostic_reason=sanitized,
+            )
         event = existing_event or self.repos.ingest_events.get_or_create(
             ingest_batch_id=batch.id,
             acquisition_source_id=batch.acquisition_source_id,
@@ -537,10 +635,10 @@ class PhotoImportService:
             event_type="photo",
             status=IngestStatus.FAILED.value,
             diagnostic_code=code,
-            diagnostic_reason=reason,
+            diagnostic_reason=sanitized,
         )
         self.repos.ingest_events.set_status(
-            event.id, IngestStatus.FAILED.value, diagnostic_code=code, diagnostic_reason=reason
+            event.id, IngestStatus.FAILED.value, diagnostic_code=code, diagnostic_reason=sanitized
         )
         return PhotoItemResult(
             filename=filename,
@@ -553,8 +651,38 @@ class PhotoImportService:
             ingest_batch_id=event.ingest_batch_id,
             status=IngestStatus.FAILED.value,
             diagnostic_code=code,
-            diagnostic_reason=reason,
+            diagnostic_reason=sanitized,
         )
+
+    def _record_failed_attempt(
+        self, original: IngestEvent, artifact: RawArtifact | None, code: str
+    ) -> IngestEvent:
+        attempt_batch = self.repos.ingest_batches.create(
+            acquisition_source_id=original.acquisition_source_id,
+            batch_kind="photo",
+            extractor_name=getattr(self.extractor, "name", None),
+            extractor_version=getattr(self.extractor, "version", None),
+            status=IngestStatus.FAILED.value,
+        )
+        attempt = self.repos.ingest_events.create_linked(
+            ingest_batch_id=attempt_batch.id,
+            acquisition_source_id=original.acquisition_source_id,
+            raw_artifact_id=None if artifact is None else artifact.id,
+            duplicate_of_event_id=original.id,
+            status=IngestStatus.FAILED.value,
+            semantic_fingerprint=f"failed-reprocess:{original.id}:{new_id()}",
+            diagnostic_code=code,
+            diagnostic_reason=code,
+        )
+        self.repos.ingest_batches.update(
+            attempt_batch.id,
+            status=IngestStatus.FAILED.value,
+            received_count=1,
+            failed_count=1,
+            diagnostic_reason=code,
+            completed=True,
+        )
+        return attempt
 
     def _persist_candidates(
         self,
@@ -562,17 +690,33 @@ class PhotoImportService:
         artifact: RawArtifact,
         extracted: ExtractionResult,
     ) -> list[ImportCandidate]:
-        del artifact  # identity is already on the ingest event
+        del artifact
         set_key = build_candidate_set_key(
-            extracted.extractor_name, extracted.extractor_version, extracted.schema_version
+            extracted.extractor_name,
+            extracted.extractor_version,
+            extracted.schema_version,
+            extracted.model_name,
+            extracted.model_version,
+            extracted.prompt_version,
         )
-        created: list[ImportCandidate] = []
+        provider_code = resolve_provider_code(extracted.provider_code)
+        prepared: list[tuple[str, NormalizedField]] = []
         for group in extracted.groups:
             for normalized in normalize_group(group):
+                _validate_normalized_field(normalized)
+                prepared.append((group.key, normalized))
+        if not prepared:
+            raise ExtractionFailure(
+                "extractor_empty_result", "extractor returned no measurement groups"
+            )
+        created: list[ImportCandidate] = []
+        nested = self.session.begin_nested()
+        try:
+            for group_key, normalized in prepared:
                 created.append(
                     self.repos.import_candidates.create_pending(
                         ingest_event_id=event.id,
-                        measurement_group_key=group.key,
+                        measurement_group_key=group_key,
                         metric_code=normalized.metric_code,
                         candidate_set_key=set_key,
                         proposed_value=normalized.proposed_value,
@@ -589,10 +733,24 @@ class PhotoImportService:
                         schema_version=extracted.schema_version,
                         confidence=normalized.confidence,
                         evidence_region=normalized.evidence_region,
+                        algorithm_code=normalized.algorithm_code,
+                        algorithm_version=normalized.algorithm_version,
+                        provider_code=provider_code,
                     )
                 )
+            nested.commit()
+        except Exception:
+            nested.rollback()
+            raise
         if event.status != IngestStatus.PENDING_CONFIRMATION.value:
-            self.repos.ingest_events.set_status(event.id, IngestStatus.PENDING_CONFIRMATION.value)
+            pending_exists = any(
+                candidate.user_decision == CandidateDecision.PENDING.value
+                for candidate in self.repos.import_candidates.list_for_event(event.id)
+            )
+            if pending_exists:
+                self.repos.ingest_events.set_status(
+                    event.id, IngestStatus.PENDING_CONFIRMATION.value
+                )
         return created
 
     def _confirm_group(
@@ -601,6 +759,10 @@ class PhotoImportService:
         set_key: str,
         group_key: str,
         selected: Sequence[ImportCandidate],
+        *,
+        edits: Mapping[str, Mapping[str, Any]],
+        expected_time: tuple[str, date, datetime | None],
+        actor: str,
     ) -> list[dict[str, Any]]:
         event = self.repos.ingest_events.get(event_id)
         if event is None:
@@ -622,36 +784,85 @@ class PhotoImportService:
             if candidate.candidate_set_key == set_key
             and candidate.measurement_group_key == group_key
         ]
+        results: list[dict[str, Any]] = []
+        new_candidates: list[ImportCandidate] = []
+        for candidate in selected:
+            existing_measurement = self.repos.scalar_measurements.get_by_import_candidate(
+                candidate.id, candidate.metric_code
+            )
+            if existing_measurement is not None:
+                results.append(
+                    _measurement_row(
+                        candidate, existing_measurement, existing_measurement.measurement_session_id
+                    )
+                )
+            else:
+                new_candidates.append(candidate)
+        if not new_candidates:
+            return results
+        for candidate in new_candidates:
+            payload = _edit_payload(edits.get(candidate.id) or {})
+            try:
+                self.repos.import_candidates.decide(
+                    candidate.id,
+                    CandidateDecision.CONFIRMED.value,
+                    edited_value=payload.get("value", payload.get("edited_value")),
+                    edited_unit=payload.get("unit", payload.get("edited_unit")),
+                    edited_source_timestamp=payload.get(
+                        "source_timestamp", payload.get("edited_source_timestamp")
+                    ),
+                    edited_source_local_date=_as_date(
+                        payload.get("source_local_date", payload.get("edited_source_local_date"))
+                    ),
+                    actor=actor,
+                )
+            except ValueError as exc:
+                raise _decision_error(exc) from None
         session_record = self._session_for_group(
             event=event,
             artifact=artifact,
             group_key=group_key,
             set_key=set_key,
-            selected=selected,
+            selected=new_candidates,
             all_group=all_group,
+            expected_time=expected_time,
         )
-        acquisition_source = self.repos.acquisition_sources.get_by_id(event.acquisition_source_id)
-        if acquisition_source is None:
-            raise PhotoImportError(
-                "missing_source", "confirmed photo event is missing acquisition source"
+        for candidate in new_candidates:
+            loaded = self.repos.import_candidates.get(candidate.id)
+            assert loaded is not None
+            measurement = self._write_measurement(session_record, loaded)
+            results.append(_measurement_row(loaded, measurement, session_record.id))
+        return results
+
+    def _assert_session_time_if_present(
+        self,
+        event_id: str,
+        group_key: str,
+        group: Sequence[ImportCandidate],
+        expected_time: tuple[str, date, datetime | None],
+    ) -> None:
+        event = self.repos.ingest_events.get(event_id)
+        if event is None or not group:
+            return
+        set_key = group[0].candidate_set_key
+        siblings = [
+            candidate
+            for candidate in self.repos.import_candidates.list_for_event(event_id)
+            if candidate.candidate_set_key == set_key
+            and candidate.measurement_group_key == group_key
+        ]
+        for candidate in siblings:
+            existing = self.repos.measurement_sessions.find_by_source_identity(
+                acquisition_source_id=event.acquisition_source_id,
+                confirmation_candidate_id=candidate.id,
             )
-        provider_code = provider_code_for_source(self.repos, acquisition_source)
-        rows: list[dict[str, Any]] = []
-        for candidate in selected:
-            measurement = self._write_measurement(session_record, candidate, provider_code)
-            rows.append(
-                {
-                    "candidate_id": candidate.id,
-                    "measurement_session_id": session_record.id,
-                    "scalar_measurement_id": measurement.id,
-                    "metric_code": measurement.metric_code,
-                    "normalized_value": measurement.normalized_value,
-                    "normalized_unit": measurement.normalized_unit,
-                    "measurement_algorithm_id": measurement.measurement_algorithm_id,
-                    "idempotent": True,
-                }
-            )
-        return rows
+            if existing is None:
+                continue
+            if not _session_time_matches(existing, expected_time):
+                raise PhotoImportError(
+                    "temporal_conflict",
+                    "sequential confirmation must match the existing session date/time/precision",
+                )
 
     def _session_for_group(
         self,
@@ -662,20 +873,37 @@ class PhotoImportService:
         set_key: str,
         selected: Sequence[ImportCandidate],
         all_group: Sequence[ImportCandidate],
+        expected_time: tuple[str, date, datetime | None],
     ) -> MeasurementSession:
         source_record_id, semantic_key, source_fingerprint = _photo_source_identity(
             artifact.content_hash, group_key
         )
-        precision, local_date, timestamp = _group_time(selected)
+        precision, local_date, timestamp = expected_time
+        timestamp = restore_stored_utc(timestamp)
+        set_session = None
+        for candidate in all_group:
+            found = self.repos.measurement_sessions.find_by_source_identity(
+                acquisition_source_id=event.acquisition_source_id,
+                confirmation_candidate_id=candidate.id,
+            )
+            if found is not None:
+                set_session = found
+                break
+        if set_session is not None:
+            if not _session_time_matches(set_session, expected_time):
+                raise PhotoImportError(
+                    "temporal_conflict",
+                    "sequential confirmation must match the existing session date/time/precision",
+                )
+            return set_session
         confirmation_candidate = _representative(selected)
-        existing = self.repos.measurement_sessions.find_by_source_identity(
+        head = self.repos.measurement_sessions.find_by_source_identity(
             acquisition_source_id=event.acquisition_source_id,
             source_record_id=source_record_id,
             source_fingerprint=source_fingerprint,
             semantic_key=semantic_key,
-            confirmation_candidate_id=confirmation_candidate.id,
         )
-        if existing is None:
+        if head is None:
             return self.repos.measurement_sessions.create_confirmed(
                 acquisition_source_id=event.acquisition_source_id,
                 ingest_event_id=event.id,
@@ -689,15 +917,20 @@ class PhotoImportService:
                 source_timestamp_utc=timestamp,
             )
         existing_candidate = (
-            self.repos.import_candidates.get(existing.confirmation_candidate_id)
-            if existing.confirmation_candidate_id is not None
+            self.repos.import_candidates.get(head.confirmation_candidate_id)
+            if head.confirmation_candidate_id is not None
             else None
         )
         if existing_candidate is not None and existing_candidate.candidate_set_key == set_key:
-            return existing
+            if not _session_time_matches(head, expected_time):
+                raise PhotoImportError(
+                    "temporal_conflict",
+                    "sequential confirmation must match the existing session date/time/precision",
+                )
+            return head
         try:
             return self.repos.measurement_sessions.create_revision(
-                existing.id,
+                head.id,
                 source_local_date=local_date,
                 temporal_precision=precision,
                 source_timestamp_utc=timestamp,
@@ -709,13 +942,12 @@ class PhotoImportService:
                 semantic_key=semantic_key,
             )
         except ValueError as exc:
-            raise _decision_error(exc) from exc
+            raise _decision_error(exc) from None
 
     def _write_measurement(
         self,
         session_record: MeasurementSession,
         candidate: ImportCandidate,
-        provider_code: str,
     ) -> ScalarMeasurement:
         value = (
             candidate.edited_value
@@ -726,40 +958,43 @@ class PhotoImportService:
             candidate.edited_unit if candidate.edited_unit is not None else candidate.proposed_unit
         )
         if value is None:
-            raise PhotoImportError(
-                "missing_value", f"candidate {candidate.id} has no value to confirm"
-            )
+            raise PhotoImportError("missing_value", "candidate has no value to confirm")
         try:
             normalized_value, normalized_unit = normalize_confirmed_value(
                 candidate.metric_code, value, unit
             )
-        except ValueError as exc:
-            raise PhotoImportError("unnormalizable_value", str(exc)) from exc
+        except ValueError:
+            raise PhotoImportError(
+                "unnormalizable_value", "candidate unit cannot be normalized"
+            ) from None
+        provider_code = candidate.provider_code or XIAOMI_FALLBACK_PROVIDER
+        if not candidate.provider_code:
+            acquisition_source = self.repos.acquisition_sources.get_by_id(
+                session_record.acquisition_source_id
+            )
+            if acquisition_source is not None:
+                provider_code = provider_code_for_source(self.repos, acquisition_source)
         algorithm = algorithm_for_metric(
             self.repos,
             metric_code=candidate.metric_code,
             provider_code=provider_code,
+            algorithm_code=candidate.algorithm_code,
+            algorithm_version=candidate.algorithm_version,
         )
         existing = self.repos.scalar_measurements.get_by_import_candidate(
             candidate.id, candidate.metric_code
         )
         if existing is not None:
             return existing
-        previous = None
-        if session_record.supersedes_session_id is not None:
-            previous = next(
-                (
-                    measurement
-                    for measurement in self.repos.scalar_measurements.list_for_session(
-                        session_record.supersedes_session_id
-                    )
-                    if measurement.metric_code == candidate.metric_code
-                ),
-                None,
-            )
+        previous = self.repos.scalar_measurements.active_for_source_metric(
+            acquisition_source_id=session_record.acquisition_source_id,
+            metric_code=candidate.metric_code,
+            semantic_key=session_record.semantic_key,
+            source_record_id=session_record.source_record_id,
+        )
         original_value = candidate.source_text or str(value)
         try:
-            if previous is not None:
+            if previous is not None and previous.import_candidate_id != candidate.id:
                 return self.repos.scalar_measurements.create_revision(
                     previous.id,
                     measurement_session_id=session_record.id,
@@ -783,7 +1018,7 @@ class PhotoImportService:
                 source_text=candidate.source_text,
             )
         except ValueError as exc:
-            raise _decision_error(exc) from exc
+            raise _decision_error(exc) from None
 
     def _load_candidate(self, candidate_id: str) -> ImportCandidate:
         candidate = self.repos.import_candidates.get(candidate_id)
@@ -799,6 +1034,9 @@ class PhotoImportService:
             raise PhotoImportError(
                 "unknown_event", f"unknown import event {event_id}", status_code=404
             )
+        if event.duplicate_of_event_id is not None:
+            self._refresh_batch(event.ingest_batch_id)
+            return event
         candidates = self.repos.import_candidates.list_for_event(event_id)
         if not candidates:
             self._refresh_batch(event.ingest_batch_id)
@@ -858,7 +1096,7 @@ class PhotoImportService:
             status = IngestStatus.RECEIVED.value
         diagnostic = None
         if duplicate_items:
-            diagnostic = f"{duplicate_items} duplicate artifact(s) reused"
+            diagnostic = "duplicate_artifact"
         return self.repos.ingest_batches.update(
             batch_id,
             status=status,
@@ -869,6 +1107,34 @@ class PhotoImportService:
             diagnostic_reason=diagnostic,
             completed=completed,
         )
+
+
+XIAOMI_FALLBACK_PROVIDER = "xiaomi_app_unknown"
+
+
+def _set_key_for(extractor: ImageMeasurementExtractor, schema_version: str) -> str:
+    return build_candidate_set_key(
+        extractor.name,
+        extractor.version,
+        schema_version,
+        getattr(extractor, "model_name", None),
+        getattr(extractor, "model_version", None),
+        getattr(extractor, "prompt_version", None),
+    )
+
+
+def _validate_normalized_field(normalized: NormalizedField) -> None:
+    if not normalized.metric_code:
+        raise ExtractionFailure(
+            "extractor_invalid_payload", "candidate field is missing metric_code"
+        )
+    if normalized.confidence is not None and not 0 <= normalized.confidence <= 1:
+        raise ExtractionFailure("extractor_invalid_payload", "confidence out of range")
+    if (
+        normalized.temporal_precision is not None
+        and normalized.temporal_precision not in _ALLOWED_PRECISION
+    ):
+        raise ExtractionFailure("extractor_invalid_payload", "invalid temporal precision")
 
 
 def _photo_source_identity(content_hash: str, group_key: str) -> tuple[str, str, str]:
@@ -884,38 +1150,109 @@ def _representative(candidates: Sequence[ImportCandidate]) -> ImportCandidate:
     return sorted(candidates, key=lambda candidate: (candidate.metric_code, candidate.id))[0]
 
 
-def _group_time(candidates: Sequence[ImportCandidate]) -> tuple[str, date, datetime | None]:
-    precisions = {candidate.temporal_precision or "date" for candidate in candidates}
-    precision = "date" if "date" in precisions or precisions == {None} else next(iter(precisions))
-    local_dates = [
-        candidate.edited_source_local_date or candidate.proposed_source_local_date
-        for candidate in candidates
+def _sorted_ids(candidates: Sequence[ImportCandidate]) -> list[str]:
+    return [
+        candidate.id
+        for candidate in sorted(
+            candidates,
+            key=lambda item: (item.measurement_group_key, item.metric_code, item.id),
+        )
     ]
-    local_dates = [value for value in local_dates if value is not None]
-    if not local_dates:
+
+
+def _effective_time(
+    candidate: ImportCandidate, payload: Mapping[str, Any]
+) -> tuple[str, date, datetime | None]:
+    precision = candidate.temporal_precision or "date"
+    edit_timestamp = payload.get("source_timestamp", payload.get("edited_source_timestamp"))
+    edit_date = _as_date(payload.get("source_local_date", payload.get("edited_source_local_date")))
+    timestamp = (
+        edit_timestamp
+        if edit_timestamp is not None
+        else candidate.edited_source_timestamp or candidate.proposed_source_timestamp
+    )
+    local_date = (
+        edit_date
+        if edit_date is not None
+        else candidate.edited_source_local_date or candidate.proposed_source_local_date
+    )
+    timestamp = restore_stored_utc(timestamp) if timestamp is not None else None
+    if precision == "date":
+        if edit_timestamp is not None or candidate.edited_source_timestamp is not None:
+            raise PhotoImportError(
+                "date_precision_timestamp",
+                "date-only evidence cannot accept a timestamp",
+            )
+        if local_date is None:
+            raise PhotoImportError(
+                "missing_source_date", "confirmed photo evidence is missing a source date"
+            )
+        return precision, local_date, None
+    if local_date is None:
         raise PhotoImportError(
             "missing_source_date", "confirmed photo evidence is missing a source date"
         )
-    timestamp = None
-    if precision != "date":
-        timestamps = [
-            candidate.edited_source_timestamp or candidate.proposed_source_timestamp
-            for candidate in candidates
-        ]
-        timestamps = [value for value in timestamps if value is not None]
-        if not timestamps:
-            raise PhotoImportError(
-                "missing_timestamp", "non-date photo evidence requires a timestamp"
-            )
-        timestamp = timestamps[0]
-    return precision, local_dates[0], timestamp
+    if timestamp is None:
+        raise PhotoImportError("missing_timestamp", "non-date photo evidence requires a timestamp")
+    return precision, local_date, timestamp
+
+
+def _validated_group_time(
+    candidates: Sequence[ImportCandidate], payloads: Mapping[str, Mapping[str, Any]]
+) -> tuple[str, date, datetime | None]:
+    times = [_effective_time(candidate, payloads.get(candidate.id, {})) for candidate in candidates]
+    unique = {_time_key(item) for item in times}
+    if len(unique) != 1:
+        raise PhotoImportError(
+            "temporal_conflict",
+            "candidates in one session must share one date/time/precision",
+        )
+    return times[0]
+
+
+def _time_key(value: tuple[str, date, datetime | None]) -> tuple[str, date, datetime | None]:
+    precision, local_date, timestamp = value
+    if timestamp is None:
+        return precision, local_date, None
+    restored = restore_stored_utc(timestamp)
+    assert restored is not None
+    return precision, local_date, restored.astimezone(UTC).replace(tzinfo=None)
+
+
+def _session_time_matches(
+    session: MeasurementSession, expected: tuple[str, date, datetime | None]
+) -> bool:
+    precision, local_date, timestamp = expected
+    if session.temporal_precision != precision or session.source_local_date != local_date:
+        return False
+    return _time_key(
+        (precision, local_date, restore_stored_utc(session.source_timestamp_utc))
+    ) == _time_key((precision, local_date, timestamp))
+
+
+def _measurement_row(
+    candidate: ImportCandidate, measurement: ScalarMeasurement, session_id: str
+) -> dict[str, Any]:
+    return {
+        "candidate_id": candidate.id,
+        "measurement_session_id": session_id,
+        "scalar_measurement_id": measurement.id,
+        "metric_code": measurement.metric_code,
+        "normalized_value": measurement.normalized_value,
+        "normalized_unit": measurement.normalized_unit,
+        "measurement_algorithm_id": measurement.measurement_algorithm_id,
+        "idempotent": True,
+    }
 
 
 def _edit_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     result = dict(payload)
     timestamp = result.get("source_timestamp", result.get("edited_source_timestamp"))
     if isinstance(timestamp, str):
-        result["source_timestamp"] = datetime.fromisoformat(timestamp)
+        parsed = datetime.fromisoformat(timestamp)
+        result["source_timestamp"] = restore_stored_utc(parsed)
+    elif isinstance(timestamp, datetime):
+        result["source_timestamp"] = restore_stored_utc(timestamp)
     local_date = result.get("source_local_date", result.get("edited_source_local_date"))
     if isinstance(local_date, str):
         result["source_local_date"] = date.fromisoformat(local_date)
@@ -930,6 +1267,16 @@ def _as_date(value: date | str | None) -> date | None:
 
 def _decision_error(exc: ValueError) -> PhotoImportError:
     message = str(exc)
+    if "date-only" in message:
+        return PhotoImportError(
+            "date_precision_timestamp", "date-only evidence cannot accept a timestamp"
+        )
     if "terminal" in message or "revision" in message:
-        return PhotoImportError("terminal_candidate", message, status_code=409)
-    return PhotoImportError("invalid_confirmation", message)
+        return PhotoImportError(
+            "terminal_candidate", "terminal candidate cannot change", status_code=409
+        )
+    if "different evidence" in message:
+        return PhotoImportError(
+            "extraction_conflict", "extraction identity already has different evidence"
+        )
+    return PhotoImportError("invalid_confirmation", "confirmation request is invalid")

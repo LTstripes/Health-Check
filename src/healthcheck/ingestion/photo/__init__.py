@@ -10,7 +10,7 @@ from healthcheck.ingestion.photo.extractor import (
     MeasurementGroup,
 )
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
-from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
+from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload, ReprocessResult
 
 __all__ = [
     "CandidateField",
@@ -23,4 +23,5 @@ __all__ = [
     "PhotoImportError",
     "PhotoImportService",
     "PhotoUpload",
+    "ReprocessResult",
 ]

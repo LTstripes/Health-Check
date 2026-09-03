@@ -74,6 +74,9 @@ class ImageMeasurementExtractor(Protocol):
 
     name: str
     version: str
+    model_name: str | None
+    model_version: str | None
+    prompt_version: str | None
 
     def extract(self, request: ExtractionRequest, image_bytes: bytes) -> ExtractionResult:
         """Return versioned candidate groups or raise ``ExtractionFailure``."""

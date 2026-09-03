@@ -194,7 +194,12 @@ def test_reprocess_with_new_extractor_version_creates_revision_not_mutation(phot
     reprocessed = _service_call(
         engine, paths, v2, lambda service: service.reprocess_event(event_id)
     )
-    second_ids = [candidate.id for candidate in reprocessed if candidate.extractor_version == "2"]
+    assert reprocessed.failed is False
+    second_ids = [
+        candidate.id
+        for candidate in reprocessed.candidates
+        if candidate.extractor_version == "2"
+    ]
     assert set(second_ids).isdisjoint(first_ids)
     original = _service_call(
         engine, paths, extractor, lambda service: service._load_candidate(first_ids[0])
@@ -390,9 +395,11 @@ def test_failed_extraction_keeps_replayable_artifact(photo_env):
     stored = paths.photos.parent / imported.items[0].relative_storage_path
     assert stored.is_file()
     event_id = imported.items[0].ingest_event_id
-    with pytest.raises(PhotoImportError) as failure:
-        _service_call(engine, paths, extractor, lambda service: service.reprocess_event(event_id))
-    assert failure.value.code == "extractor_empty_result"
+    result = _service_call(
+        engine, paths, extractor, lambda service: service.reprocess_event(event_id)
+    )
+    assert result.failed is True
+    assert result.error_code == "extractor_empty_result"
 
 
 def test_failed_extraction_then_reprocess_with_payload_succeeds(photo_env, tmp_path):

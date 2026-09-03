@@ -19,10 +19,25 @@ from healthcheck.ingestion.photo.synthetic import decode_synthetic_payload
 class FakeImageMeasurementExtractor:
     """Read structured payloads from synthetic PNGs.  No live model is called."""
 
-    def __init__(self, *, version: str = "1", value_delta: float = 0.0):
+    def __init__(
+        self,
+        *,
+        version: str = "1",
+        value_delta: float = 0.0,
+        model_name: str = "synthetic-fixture",
+        model_version: str | None = None,
+        prompt_version: str | None = None,
+        provider_code: str | None = None,
+        field_algorithms: dict[str, tuple[str, str]] | None = None,
+    ):
         self.name = "healthcheck-synthetic-extractor"
         self.version = version
         self.value_delta = value_delta
+        self.model_name = model_name
+        self.model_version = version if model_version is None else model_version
+        self.prompt_version = prompt_version
+        self.provider_code_override = provider_code
+        self.field_algorithms = field_algorithms or {}
 
     def extract(self, request: ExtractionRequest, image_bytes: bytes) -> ExtractionResult:
         try:
@@ -44,16 +59,22 @@ class FakeImageMeasurementExtractor:
             raise ExtractionFailure(
                 "extractor_empty_result", "extractor returned no measurement groups"
             )
+        if "provider_code" in payload:
+            provider_code = payload.get("provider_code")
+        else:
+            provider_code = "xiaomi_home"
+        if self.provider_code_override is not None:
+            provider_code = self.provider_code_override
         return ExtractionResult(
             extractor_name=self.name,
             extractor_version=self.version,
             schema_version=schema_version,
-            provider_code=str(payload.get("provider_code") or "xiaomi_home"),
+            provider_code=str(provider_code) if provider_code else "",
             physical_device_code=str(payload.get("physical_device_code") or "xiaomi_s400"),
             groups=groups,
-            model_name="synthetic-fixture",
-            model_version=self.version,
-            prompt_version=None,
+            model_name=self.model_name,
+            model_version=self.model_version,
+            prompt_version=self.prompt_version,
             source_application=payload.get("source_application"),
             source_application_version=payload.get("source_application_version"),
         )
@@ -92,6 +113,10 @@ class FakeImageMeasurementExtractor:
         value = raw_field.get("value")
         if value is not None:
             value = float(value) + self.value_delta
+        algorithm_code = _optional_text(raw_field.get("algorithm_code"))
+        algorithm_version = _optional_text(raw_field.get("algorithm_version"))
+        if metric_code in self.field_algorithms:
+            algorithm_code, algorithm_version = self.field_algorithms[metric_code]
         return CandidateField(
             metric_code=metric_code,
             proposed_value=value,
@@ -102,8 +127,8 @@ class FakeImageMeasurementExtractor:
             source_timestamp=_parse_timestamp(raw_field.get("source_timestamp")),
             temporal_precision=_optional_text(raw_field.get("temporal_precision")),
             evidence_region=raw_field.get("evidence_region"),
-            algorithm_code=_optional_text(raw_field.get("algorithm_code")),
-            algorithm_version=_optional_text(raw_field.get("algorithm_version")),
+            algorithm_code=algorithm_code,
+            algorithm_version=algorithm_version,
         )
 
 

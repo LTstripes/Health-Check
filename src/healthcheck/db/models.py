@@ -349,6 +349,9 @@ class ImportCandidate(Base):
     schema_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     evidence_region_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    algorithm_code: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    algorithm_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     edited_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     edited_unit: Mapped[str | None] = mapped_column(String(60), nullable=True)
     edited_source_timestamp: Mapped[datetime | None] = mapped_column(

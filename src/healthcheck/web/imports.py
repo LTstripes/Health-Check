@@ -101,6 +101,16 @@ def _batch_payload(service: PhotoImportService, batch_id: str) -> dict[str, Any]
                 "acquisition_source_id": event.acquisition_source_id,
                 "diagnostic_code": event.diagnostic_code,
                 "diagnostic_reason": event.diagnostic_reason,
+                "duplicate_of_event_id": event.duplicate_of_event_id,
+                "original_batch_id": (
+                    None
+                    if event.duplicate_of_event_id is None
+                    else getattr(
+                        service.repos.ingest_events.get(event.duplicate_of_event_id),
+                        "ingest_batch_id",
+                        None,
+                    )
+                ),
             }
             for event in events
         ],
@@ -249,14 +259,25 @@ def reprocess_event(
         extractor = FakeImageMeasurementExtractor(version=version)
     try:
         with _photo_service(request, extractor=extractor) as service:
-            candidates = service.reprocess_event(event_id)
-            return _json(
-                {
-                    "event_id": event_id,
-                    "extractor_name": extractor.name,
-                    "extractor_version": extractor.version,
-                    "candidates": [service.candidate_view(candidate) for candidate in candidates],
-                }
+            result = service.reprocess_event(event_id)
+            payload = {
+                "event_id": event_id,
+                "extractor_name": extractor.name,
+                "extractor_version": extractor.version,
+                "candidates": [
+                    service.candidate_view(candidate) for candidate in result.candidates
+                ],
+                "attempt_event_id": result.attempt_event_id,
+            }
+            failed = result.failed
+            error_code = result.error_code
+            error_message = result.error_message
+        if failed:
+            return _error(
+                PhotoImportError(
+                    error_code or "reprocess_failed", error_message or "reprocess failed"
+                )
             )
+        return _json(payload)
     except PhotoImportError as exc:
         return _error(exc)
