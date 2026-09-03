@@ -60,7 +60,7 @@ Do not put real health values, screenshots, credentials, private payloads or med
 - **Baseline:** `cca6efb43d2cb56de7448f006b3f496b1ef6d770`.
 - **Target integration:** `integration/r01-weight-core` at the same baseline SHA.
 - **Task branch / workspace:** `task/4-bootstrap-runtime`; `D:\Codex\Garmin\workspaces\4-bootstrap-runtime`.
-- **Candidate:** `54ecf2391037bca616e006e2c8b45a9a5e8f06c5` (`feat: bootstrap local runtime`).
+- **Candidate:** `54ecf2391037bca616e006b3b45a9a5e8f06c5` (`feat: bootstrap local runtime`).
 - **Objective:** create the smallest production-shaped Python/Windows runtime foundation for later R01 tasks without implementing Xiaomi/domain behavior prematurely.
 - **Result:** added Python 3.12+/uv project skeleton, typed Pydantic settings, external runtime directory guard/layout, SQLite bootstrap with WAL/foreign keys, narrow structured logging, separate loopback UI and ingest-only FastAPI apps, CLI, canonical `scripts/start.ps1`, GitHub Actions CI, repository hygiene rules, README bootstrap instructions and six offline bootstrap tests.
 - **Checks:** worker reported `uv sync --locked` PASS; `uv run ruff check .` PASS; `uv run pytest` = 6 passed with one upstream Starlette/httpx warning; PowerShell fresh-start returned HTTP 200 from both `/healthz` endpoints and 404 for `/api/imports` on ingest listener; `git diff --check` PASS. Repository-side verification confirmed GitHub Actions run `33664348091` completed `success` on exact candidate SHA `54ecf239...`.
@@ -139,3 +139,41 @@ Do not put real health values, screenshots, credentials, private payloads or med
 - **Integrator final review:** **ACCEPT**. Actual `5304debb..011cfbb` delta and final implementation were inspected; no new blocker found. The accepted Theil–Sen window is `(latest-90d, latest]`, a consistent 90-calendar-date interpretation.
 - **Integration result:** PR #18 merged into `integration/r01-weight-core`; merge SHA `297d5838c5c9f24a42b51bcf6feffa9af627c984`.
 - **Benchmark retrospective:** **PARTIAL first shot → ACCEPT after one targeted fix round**. Muse Spark was strong on formula implementation, determinism, scope discipline, synthetic tests and responding precisely to review. Its main weakness was cross-layer domain semantics: locally plausible algorithm-boundary rules were applied at the wrong metric/session layer, and an API DTO omitted evidence the spec required to remain visible. For a free Contributor-tier coding model, this was a useful and credible result rather than a clean first-pass success.
+
+## 2026-09-03 — R01-07a — openScale-sync contract fixture and pure normalization
+
+- **Issue / PR:** #19 / PR #20.
+- **Complexity / routing:** C2 / Normal bounded contract/normalization; deliberate second benchmark for Hermes + Meta Muse Spark 1.3 Contributor.
+- **Executor:** Hermes Agent desktop on Windows 11, runtime-reported model `muse-spark-1.3-contributor-free` via `opencode-free`; no delegates/fallbacks reported.
+- **Baseline:** `1b8afb5fc1be9594ba6b0d7b64d43619a85f93f0`.
+- **Task branch / workspace:** `task/19-openscale-contract`; `D:\Hermes Project\hermes-garmin\workspaces\19-openscale-contract`.
+- **Initial candidate:** `f76936076075808222eb37ba351aa905bff9ff06`.
+- **Final candidate:** `609ee8cbc29f4772f6c1ff495392edd52baea11d`.
+- **Objective:** implement a pure, framework-free openScale-sync generic-webhook contract and normalization layer for later #10, with deterministic identity/fingerprints, authoritative `values[]`, missing-not-zero semantics, source-time precision and typed sanitized failures, while excluding HTTP/auth/DB state machinery.
+- **Initial result:** added typed contract DTOs, normalization, synthetic fixtures and 21 adversarial tests. The first pass was structurally strong and stayed inside scope.
+- **Integrator first review:** **FIXES REQUIRED** on three edge contracts: id-less insert/update incorrectly used delete-style `(source,user,time)` identity instead of semantic fingerprint; present `values: null` incorrectly enabled convenience fallback; unknown numeric values retained metadata but lost the numeric evidence.
+- **Fix round:** the same Muse Spark model corrected all three in one focused pass: event-specific identity now reserves time fallback for delete and uses semantic fingerprints for id-less insert/update; any present non-list `values` fails closed; unknown numeric evidence preserves numeric value and explicit-value state without becoming canonical or influencing the canonical semantic fingerprint.
+- **Checks:** worker reported Ruff PASS, focused contract tests `24 passed`, full pytest `74 passed`, diff/privacy/scope audits clean. Repository-side CI run `33789789944` completed `success` on exact final SHA `609ee8c...`.
+- **Integrator review:** **PARTIAL/FIXES REQUIRED → ACCEPT** after independent actual-delta inspection.
+- **Integration result:** PR #20 merged into `integration/r01-weight-core`; merge SHA `102c6dfe75410eb12a7381661d57dc96ec0484c3`. Issue #19 closed completed.
+- **Benchmark retrospective:** Muse Spark again showed a consistent profile: strong deterministic implementation, tests and scope discipline, but it benefits materially from Integrator review on edge-domain identity/evidence semantics. It closed all findings cleanly in one short fix round, supporting use as a cost-effective C2 worker with review rather than autonomous merge authority.
+
+## 2026-09-03 — R01-03 — Historical Xiaomi photo import and confirmation workflow
+
+- **Issue / PR:** #6 / PR #16.
+- **Complexity / routing:** C3 / Hard ingestion, provenance, idempotency and migration convergence; implementation/fix rounds Grok xHigh, independent Sol-family adversarial review, final ChatGPT/Lera Integrator convergence review.
+- **Executor:** Grok runtime reported Grok 4.6; assigned Grok xHigh; no delegates reported.
+- **Original baseline:** `05fe900161b8aa2c806de8f4fdd847456f047967`.
+- **Task branch / workspace:** `task/6-photo-import`; `D:\Grok\Garmin\workspaces\6-photo-import`.
+- **Initial reviewed candidate:** `d343757096d9a70187c1983b44c8dfd2075e218c`.
+- **Semantic-accepted candidate:** `64adf33a4a745b998c794d34d11b47dd308c0df7`.
+- **Grok convergence candidate:** `4ca8c7a1e2e1d64df25f400c3a4ce6aeae797bb6` after merging accepted #7/#8 integration `1b8afb5fc1be9594ba6b0d7b64d43619a85f93f0`.
+- **Final PR head:** `8a51c7b4dbe878033bc160abbc4666eabb18f5f8`, an Integrator-only mechanical merge of current integration `102c6dfe75410eb12a7381661d57dc96ec0484c3` after #19 landed in parallel.
+- **Objective/result:** implemented immutable external photo artifacts, provider-neutral versioned extraction, pending candidates, explicit edit/reject/confirm, idempotent confirmation/reprocessing, complete temporal/provider/device/algorithm provenance, linked acquisition-source lineages, source-head supersession, sanitized failures/logging, durable duplicate and failed-attempt audit, and loopback photo import/review APIs using only synthetic test data.
+- **Independent review:** the first Sol review reproduced 10 blockers spanning temporal consistency, SQLite timestamp reload, old replay/reprocess revision behavior, multiple metric heads, extraction identity, provider/algorithm provenance, atomic extraction, failed-reprocess durability, privacy logging and duplicate occurrence history. Grok fix round 1 closed most but left four; fix round 2 closed the remaining internal date/timestamp consistency, exact terminal replay, full extraction/acquisition fingerprint and reprocess acquisition-source lineage findings. Integrator independently inspected the fixed code and accepted `64adf33...` semantically when owner limits made another external Sol pass undesirable.
+- **Migration convergence:** the parallel photo migration was linearized without rewriting accepted history: `0001_r01_core_schema -> 0002_canonical_selection_metric_identity -> 0003_photo_candidate_provenance`. Accepted canonical `0002` remained blob-identical to integration; obsolete parallel photo `0002` was removed. Grok reported fresh/repeat/existing-0002/downgrade-reupgrade probes PASS and exactly one Alembic head.
+- **Cross-task convergence:** #19 merged after Grok's pinned convergence. Integrator resolved the remaining mechanical overlap by merging current integration as a second parent and overlaying accepted #19 files unchanged; compare against current integration then contained only #6 changes.
+- **Checks:** Grok convergence reported Ruff PASS, full pytest `97 passed`, focused #6 `45 passed`, #7 `10 passed`, #8 `28 passed`, compile/diff/privacy/hygiene PASS and Alembic head/current/check PASS. Exact final PR head `8a51c7b...` received GitHub Actions run `33791846735` **SUCCESS**; `uv sync --locked`, Ruff and full pytest all succeeded on the real combined #6+#19 tree.
+- **Integrator review:** **FIXES REQUIRED → semantic ACCEPT → convergence ACCEPT → FINAL ACCEPT**. Worker/reviewer prose was repeatedly cross-checked against actual remote code, migration graph and CI.
+- **Integration result:** PR #16 merged into `integration/r01-weight-core`; merge SHA `ca28af2f71909ce24ac0660756d0c19387dc52c9`. Issue #6 closed completed.
+- **Retrospective note:** #6 validated the full multi-agent workflow under real complexity: independent adversarial review found bugs green tests missed; repeated narrow fix rounds worked better than rewrites; preserving the semantic candidate in ancestry made later migration convergence auditable; and parallel accepted work can be reconciled mechanically by the Integrator when its surface is truly non-semantic. This is the strongest evidence so far for keeping C3/C4 workers separate from acceptance authority.
