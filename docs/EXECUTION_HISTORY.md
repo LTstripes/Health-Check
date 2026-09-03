@@ -60,7 +60,7 @@ Do not put real health values, screenshots, credentials, private payloads or med
 - **Baseline:** `cca6efb43d2cb56de7448f006b3f496b1ef6d770`.
 - **Target integration:** `integration/r01-weight-core` at the same baseline SHA.
 - **Task branch / workspace:** `task/4-bootstrap-runtime`; `D:\Codex\Garmin\workspaces\4-bootstrap-runtime`.
-- **Candidate:** `54ecf2391037bca616e006b3b45a9a5e8f06c5` (`feat: bootstrap local runtime`).
+- **Candidate:** `54ecf2391037bca616e006e2c8b45a9a5e8f06c5` (`feat: bootstrap local runtime`).
 - **Objective:** create the smallest production-shaped Python/Windows runtime foundation for later R01 tasks without implementing Xiaomi/domain behavior prematurely.
 - **Result:** added Python 3.12+/uv project skeleton, typed Pydantic settings, external runtime directory guard/layout, SQLite bootstrap with WAL/foreign keys, narrow structured logging, separate loopback UI and ingest-only FastAPI apps, CLI, canonical `scripts/start.ps1`, GitHub Actions CI, repository hygiene rules, README bootstrap instructions and six offline bootstrap tests.
 - **Checks:** worker reported `uv sync --locked` PASS; `uv run ruff check .` PASS; `uv run pytest` = 6 passed with one upstream Starlette/httpx warning; PowerShell fresh-start returned HTTP 200 from both `/healthz` endpoints and 404 for `/api/imports` on ingest listener; `git diff --check` PASS. Repository-side verification confirmed GitHub Actions run `33664348091` completed `success` on exact candidate SHA `54ecf239...`.
