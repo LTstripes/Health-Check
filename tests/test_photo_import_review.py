@@ -256,11 +256,25 @@ def test_partial_reprocess_keeps_one_active_head_per_metric(photo_env):
         from healthcheck.db.repositories import repositories_for
 
         repos = repositories_for(session)
-        active_weight = repos.scalar_measurements.active_for_metric("weight")
-        active_fat = repos.scalar_measurements.active_for_metric("body_fat_pct")
-        assert len(active_weight) == 1
-        assert len(active_fat) == 1
-        assert active_weight[0].supersedes_measurement_id == v1_weight_id
+        latest = session.scalar(
+            select(MeasurementSession).order_by(MeasurementSession.revision_number.desc())
+        )
+        assert latest is not None
+        active_weight = repos.scalar_measurements.active_for_source_metric(
+            acquisition_source_id=latest.acquisition_source_id,
+            metric_code="weight",
+            semantic_key=latest.semantic_key,
+            source_record_id=latest.source_record_id,
+        )
+        active_fat = repos.scalar_measurements.active_for_source_metric(
+            acquisition_source_id=latest.acquisition_source_id,
+            metric_code="body_fat_pct",
+            semantic_key=latest.semantic_key,
+            source_record_id=latest.source_record_id,
+        )
+        assert active_weight is not None
+        assert active_fat is not None
+        assert active_weight.supersedes_measurement_id == v1_weight_id
 
 
 def test_candidate_set_identity_includes_model_and_prompt(photo_env):

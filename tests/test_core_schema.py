@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
-from sqlalchemy import func, inspect, select
+from alembic import command
+from sqlalchemy import func, inspect, select, text
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
+    _alembic_config,
     create_session_factory,
     create_sqlite_engine,
     database_readiness,
@@ -66,7 +68,7 @@ def test_empty_migration_is_idempotent_and_has_only_r01_tables(migrated_database
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0002_photo_candidate_provenance",
+        "migration_revision": "0003_photo_candidate_provenance",
         "ready": True,
     }
 
@@ -718,3 +720,99 @@ def e2e_database(migrated_database):
     factory = create_session_factory(engine)
     with factory() as session:
         yield repositories_for(session), session
+
+
+def test_linear_alembic_chain_canonical_then_photo(tmp_path):
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
+    config = _alembic_config(paths)
+    command.upgrade(config, "head")
+    assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
+    command.upgrade(config, "head")
+    assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with engine.connect() as connection:
+            columns = {
+                row[1]
+                for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
+            }
+            assert {
+                "algorithm_code",
+                "algorithm_version",
+                "provider_code",
+                "source_timezone",
+                "source_utc_offset_minutes",
+            } <= columns
+            triggers = {
+                row[0]
+                for row in connection.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='trigger'"
+                )
+            }
+            assert "immutable_canonical_selections_update" in triggers
+            assert "immutable_canonical_selections_delete" in triggers
+            assert "immutable_terminal_import_candidates_update" in triggers
+    finally:
+        engine.dispose()
+
+
+def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
+    config = _alembic_config(paths)
+    command.upgrade(config, "0002_canonical_selection_metric_identity")
+    assert (
+        database_readiness(paths)["migration_revision"]
+        == "0002_canonical_selection_metric_identity"
+    )
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO providers (id, code, display_name, provider_kind) "
+                    "VALUES ('prov-1', 'synthetic', 'Synthetic', 'test')"
+                )
+            )
+            before_providers = connection.execute(text("SELECT COUNT(*) FROM providers")).scalar()
+        command.upgrade(config, "0003_photo_candidate_provenance")
+        assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
+        with engine.connect() as connection:
+            after_providers = connection.execute(text("SELECT COUNT(*) FROM providers")).scalar()
+            assert after_providers == before_providers
+            columns = {
+                row[1]
+                for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
+            }
+            assert "algorithm_code" in columns
+            triggers = {
+                row[0]
+                for row in connection.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='trigger'"
+                )
+            }
+            assert "immutable_canonical_selections_update" in triggers
+        command.downgrade(config, "0002_canonical_selection_metric_identity")
+        assert (
+            database_readiness(paths)["migration_revision"]
+            == "0002_canonical_selection_metric_identity"
+        )
+        with engine.connect() as connection:
+            columns = {
+                row[1]
+                for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
+            }
+            assert "algorithm_code" not in columns
+            assert connection.execute(text("SELECT COUNT(*) FROM providers")).scalar() == 1
+            triggers = {
+                row[0]
+                for row in connection.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='trigger'"
+                )
+            }
+            assert "immutable_canonical_selections_update" in triggers
+        command.upgrade(config, "0003_photo_candidate_provenance")
+        assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
+    finally:
+        engine.dispose()

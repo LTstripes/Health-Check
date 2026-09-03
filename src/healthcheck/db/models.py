@@ -680,7 +680,10 @@ class CanonicalSelection(Base):
             name="exactly_one_evidence_reference",
         ),
         UniqueConstraint(
-            "selection_run_id", "semantic_key", name="uq_canonical_selections_run_key"
+            "selection_run_id",
+            "metric_code",
+            "semantic_key",
+            name="uq_canonical_selections_run_metric_key",
         ),
     )
 
