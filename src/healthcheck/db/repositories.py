@@ -72,7 +72,17 @@ def build_input_snapshot_hash(
     """
 
     pairs = records.items() if isinstance(records, Mapping) else records
-    normalized = sorted((str(entity_id), str(content_hash)) for entity_id, content_hash in pairs)
+    by_entity: dict[str, str] = {}
+    for entity_id, content_hash in pairs:
+        normalized_id = str(entity_id)
+        normalized_hash = str(content_hash)
+        previous_hash = by_entity.get(normalized_id)
+        if previous_hash is not None and previous_hash != normalized_hash:
+            raise ValueError(
+                "an input snapshot cannot assign multiple content hashes to one evidence ID"
+            )
+        by_entity[normalized_id] = normalized_hash
+    normalized = sorted(by_entity.items())
     payload = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -400,6 +410,9 @@ class AcquisitionSourceRepository:
 class MeasurementAlgorithmRepository:
     def __init__(self, session: Session):
         self.session = session
+
+    def get_by_id(self, algorithm_id: str) -> MeasurementAlgorithm | None:
+        return self.session.get(MeasurementAlgorithm, algorithm_id)
 
     def get_by_code_version(self, code: str, version: str) -> MeasurementAlgorithm | None:
         return self.session.scalar(
@@ -835,6 +848,57 @@ class MeasurementSessionRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def get_by_id(self, session_id: str) -> MeasurementSession | None:
+        return self.session.get(MeasurementSession, session_id)
+
+    def current_heads(
+        self,
+        *,
+        acquisition_source_id: str | None = None,
+        semantic_key: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[MeasurementSession]:
+        """Return confirmed session heads, never an older superseded revision.
+
+        Revision order is represented by the supersession edge, not by receive
+        time.  The query therefore remains correct when a backfill arrives out
+        of order or when a correction is confirmed after the original import.
+        """
+
+        successor_ids = select(MeasurementSession.supersedes_session_id).where(
+            MeasurementSession.supersedes_session_id.is_not(None)
+        )
+        conditions = [
+            MeasurementSession.confirmation_status == "confirmed",
+            ~MeasurementSession.id.in_(successor_ids),
+        ]
+        if acquisition_source_id is not None:
+            conditions.append(MeasurementSession.acquisition_source_id == acquisition_source_id)
+        if semantic_key is not None:
+            conditions.append(MeasurementSession.semantic_key == semantic_key)
+        if start_date is not None:
+            conditions.append(MeasurementSession.source_local_date >= start_date)
+        if end_date is not None:
+            conditions.append(MeasurementSession.source_local_date <= end_date)
+        statement = select(MeasurementSession).where(*conditions).order_by(
+            MeasurementSession.source_local_date,
+            MeasurementSession.source_timestamp_utc,
+            MeasurementSession.id,
+        )
+        return list(self.session.scalars(statement))
+
+    def is_current_head(self, session_id: str) -> bool:
+        session = self.get_by_id(session_id)
+        if session is None or session.confirmation_status != "confirmed":
+            return False
+        successor = self.session.scalar(
+            select(MeasurementSession.id).where(
+                MeasurementSession.supersedes_session_id == session_id
+            )
+        )
+        return successor is None
+
     def find_by_source_identity(
         self,
         *,
@@ -1077,6 +1141,86 @@ class ScalarMeasurementRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def get_by_id(self, measurement_id: str) -> ScalarMeasurement | None:
+        return self.session.get(ScalarMeasurement, measurement_id)
+
+    def current_heads(
+        self,
+        metric_code: str | None = None,
+        *,
+        acquisition_source_id: str | None = None,
+        provider_id: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[ScalarMeasurement]:
+        """Return source measurements whose measurement and session are heads.
+
+        A scalar row can be current at the measurement level while its session
+        has since been revised.  Canonical selection must exclude both kinds
+        of stale evidence, so this method resolves the two append-only chains
+        together.
+        """
+
+        measurement_successor_ids = select(ScalarMeasurement.supersedes_measurement_id).where(
+            ScalarMeasurement.supersedes_measurement_id.is_not(None)
+        )
+        session_successor_ids = select(MeasurementSession.supersedes_session_id).where(
+            MeasurementSession.supersedes_session_id.is_not(None)
+        )
+        conditions = [
+            ~ScalarMeasurement.id.in_(measurement_successor_ids),
+            MeasurementSession.confirmation_status == "confirmed",
+            ~MeasurementSession.id.in_(session_successor_ids),
+        ]
+        if metric_code is not None:
+            conditions.append(
+                ScalarMeasurement.metric_code == _required_text(metric_code, "metric code")
+            )
+        if acquisition_source_id is not None:
+            conditions.append(MeasurementSession.acquisition_source_id == acquisition_source_id)
+        if provider_id is not None:
+            conditions.append(
+                AcquisitionSource.provider_id == _required_text(provider_id, "provider id")
+            )
+        if start_date is not None:
+            conditions.append(MeasurementSession.source_local_date >= start_date)
+        if end_date is not None:
+            conditions.append(MeasurementSession.source_local_date <= end_date)
+        statement = (
+            select(ScalarMeasurement)
+            .join(
+                MeasurementSession,
+                MeasurementSession.id == ScalarMeasurement.measurement_session_id,
+            )
+        )
+        if provider_id is not None:
+            statement = statement.join(
+                AcquisitionSource,
+                AcquisitionSource.id == MeasurementSession.acquisition_source_id,
+            )
+        statement = statement.where(*conditions).order_by(
+            MeasurementSession.source_local_date,
+            MeasurementSession.source_timestamp_utc,
+            ScalarMeasurement.metric_code,
+            ScalarMeasurement.id,
+        )
+        return list(self.session.scalars(statement))
+
+    def is_current_head(self, measurement_id: str) -> bool:
+        measurement = self.get_by_id(measurement_id)
+        if measurement is None:
+            return False
+        successor = self.session.scalar(
+            select(ScalarMeasurement.id).where(
+                ScalarMeasurement.supersedes_measurement_id == measurement_id
+            )
+        )
+        if successor is not None:
+            return False
+        return MeasurementSessionRepository(self.session).is_current_head(
+            measurement.measurement_session_id
+        )
+
     def create(
         self,
         *,
@@ -1209,23 +1353,27 @@ class ScalarMeasurementRepository:
         )
 
     def active_for_metric(self, metric_code: str) -> list[ScalarMeasurement]:
-        superseded_ids = select(ScalarMeasurement.supersedes_measurement_id).where(
-            ScalarMeasurement.supersedes_measurement_id.is_not(None)
-        )
-        statement = (
-            select(ScalarMeasurement)
-            .where(
-                ScalarMeasurement.metric_code == metric_code,
-                ~ScalarMeasurement.id.in_(superseded_ids),
-            )
-            .order_by(ScalarMeasurement.created_at, ScalarMeasurement.id)
-        )
-        return list(self.session.scalars(statement))
+        return self.current_heads(metric_code)
 
 
 class DerivedMeasurementRepository:
     def __init__(self, session: Session):
         self.session = session
+
+    def get_by_id(self, derived_measurement_id: str) -> DerivedMeasurement | None:
+        return self.session.get(DerivedMeasurement, derived_measurement_id)
+
+    def all(self, metric_code: str | None = None) -> list[DerivedMeasurement]:
+        statement = select(DerivedMeasurement)
+        if metric_code is not None:
+            statement = statement.where(
+                DerivedMeasurement.metric_code == _required_text(metric_code, "metric code")
+            )
+        return list(
+            self.session.scalars(
+                statement.order_by(DerivedMeasurement.computed_at, DerivedMeasurement.id)
+            )
+        )
 
     def create(
         self,
@@ -1328,6 +1476,31 @@ class CanonicalSelectionRunRepository:
             )
         )
 
+    def latest_successful(self, scope_key: str) -> CanonicalSelectionRun | None:
+        """Return the latest active result for a semantic scope.
+
+        Only successful runs are active.  Failed and still-running attempts
+        remain auditable but must never become a predecessor for a new
+        canonical result.
+        """
+
+        return self.session.scalar(
+            select(CanonicalSelectionRun)
+            .where(
+                CanonicalSelectionRun.scope_key == _required_text(
+                    scope_key, "canonical scope key"
+                ),
+                CanonicalSelectionRun.status == RunStatus.SUCCEEDED.value,
+            )
+            .order_by(
+                CanonicalSelectionRun.completed_at.desc(),
+                CanonicalSelectionRun.id.desc(),
+            )
+        )
+
+    def get_by_id(self, run_id: str) -> CanonicalSelectionRun | None:
+        return self.session.get(CanonicalSelectionRun, run_id)
+
     def start_or_get(
         self,
         *,
@@ -1343,8 +1516,9 @@ class CanonicalSelectionRunRepository:
     ) -> tuple[CanonicalSelectionRun, bool]:
         if rule_set.rule_hash is None:
             raise ValueError("canonical rule must have a hash")
+        normalized_scope_key = _required_text(scope_key, "canonical scope key")
         existing = self.get_successful(
-            scope_key=scope_key,
+            scope_key=normalized_scope_key,
             rule_hash=rule_set.rule_hash,
             input_snapshot_hash=input_snapshot_hash,
         )
@@ -1352,7 +1526,7 @@ class CanonicalSelectionRunRepository:
             return existing, False
         running = self.session.scalar(
             select(CanonicalSelectionRun).where(
-                CanonicalSelectionRun.scope_key == scope_key,
+                CanonicalSelectionRun.scope_key == normalized_scope_key,
                 CanonicalSelectionRun.rule_hash == rule_set.rule_hash,
                 CanonicalSelectionRun.input_snapshot_hash == input_snapshot_hash,
                 CanonicalSelectionRun.status == RunStatus.RUNNING.value,
@@ -1360,8 +1534,16 @@ class CanonicalSelectionRunRepository:
         )
         if running is not None:
             return running, False
+        if supersedes_run_id is not None:
+            predecessor = self.get_by_id(supersedes_run_id)
+            if predecessor is None:
+                raise KeyError(f"unknown canonical predecessor run {supersedes_run_id}")
+            if predecessor.status != RunStatus.SUCCEEDED.value:
+                raise ValueError("only a successful canonical run can be superseded")
+            if predecessor.scope_key != normalized_scope_key:
+                raise ValueError("a canonical run can supersede only the same scope")
         run = CanonicalSelectionRun(
-            scope_key=_required_text(scope_key, "canonical scope key"),
+            scope_key=normalized_scope_key,
             requested_start_date=requested_start_date,
             requested_end_date=requested_end_date,
             rule_set_id=rule_set.id,
@@ -1415,11 +1597,16 @@ class CanonicalSelectionRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_by_key(self, selection_run_id: str, semantic_key: str) -> CanonicalSelection | None:
+    def get_by_key(
+        self, selection_run_id: str, metric_code: str, semantic_key: str
+    ) -> CanonicalSelection | None:
+        normalized_metric_code = _required_text(metric_code, "canonical metric code")
+        normalized_key = _required_text(semantic_key, "canonical semantic key")
         return self.session.scalar(
             select(CanonicalSelection).where(
                 CanonicalSelection.selection_run_id == selection_run_id,
-                CanonicalSelection.semantic_key == semantic_key,
+                CanonicalSelection.metric_code == normalized_metric_code,
+                CanonicalSelection.semantic_key == normalized_key,
             )
         )
 
@@ -1439,6 +1626,14 @@ class CanonicalSelectionRepository:
             raise ValueError(
                 "canonical selection must reference exactly one source or derived measurement"
             )
+        normalized_metric_code = _required_text(metric_code, "canonical metric code")
+        normalized_key = _required_text(semantic_key, "canonical semantic key")
+        if (
+            period_start_date is not None
+            and period_end_date is not None
+            and period_end_date < period_start_date
+        ):
+            raise ValueError("canonical selection period_end_date must not precede start date")
         run = self.session.get(CanonicalSelectionRun, selection_run_id)
         if run is None:
             raise KeyError(f"unknown canonical selection run {selection_run_id}")
@@ -1448,14 +1643,22 @@ class CanonicalSelectionRepository:
             source_measurement = self.session.get(ScalarMeasurement, source_measurement_id)
             if source_measurement is None:
                 raise KeyError(f"unknown source measurement {source_measurement_id}")
-            if source_measurement.metric_code != metric_code:
+            if source_measurement.metric_code != normalized_metric_code:
                 raise ValueError("canonical metric does not match source measurement metric")
             if source_measurement.measurement_session_id is not None:
                 source_session = self.session.get(
                     MeasurementSession, source_measurement.measurement_session_id
                 )
-                if source_session is None or source_session.confirmation_status != "confirmed":
-                    raise ValueError("only confirmed source measurements are canonical-eligible")
+                if source_session is None or not MeasurementSessionRepository(
+                    self.session
+                ).is_current_head(source_session.id):
+                    raise ValueError(
+                        "only current confirmed source measurements are canonical-eligible"
+                    )
+                if source_session.semantic_key != normalized_key:
+                    raise ValueError(
+                        "canonical semantic key must match source measurement evidence"
+                    )
             superseded = self.session.scalar(
                 select(ScalarMeasurement.id).where(
                     ScalarMeasurement.supersedes_measurement_id == source_measurement_id
@@ -1467,13 +1670,41 @@ class CanonicalSelectionRepository:
             derived_measurement = self.session.get(DerivedMeasurement, derived_measurement_id)
             if derived_measurement is None:
                 raise KeyError(f"unknown derived measurement {derived_measurement_id}")
-            if derived_measurement.metric_code != metric_code:
+            if derived_measurement.metric_code != normalized_metric_code:
                 raise ValueError("canonical metric does not match derived measurement metric")
-        normalized_key = _required_text(semantic_key, "canonical semantic key")
-        existing = self.get_by_key(selection_run_id, normalized_key)
+            session_repository = MeasurementSessionRepository(self.session)
+            source_session_id = derived_measurement.source_session_id
+            source_session = None
+            if source_session_id is not None:
+                source_session = session_repository.get_by_id(source_session_id)
+                if source_session is None or not session_repository.is_current_head(
+                    source_session_id
+                ):
+                    raise ValueError("derived measurement source session is not canonical-eligible")
+                if source_session.semantic_key != normalized_key:
+                    raise ValueError("canonical semantic key must match derived source session")
+            if not derived_measurement.input_measurement_ids_json:
+                raise ValueError(
+                    "derived canonical selections require explicit input measurement IDs"
+                )
+            try:
+                input_measurement_ids = json.loads(derived_measurement.input_measurement_ids_json)
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError("derived measurement input IDs are malformed") from exc
+            if not isinstance(input_measurement_ids, list) or not input_measurement_ids:
+                raise ValueError(
+                    "derived canonical selections require explicit input measurement IDs"
+                )
+            scalar_repository = ScalarMeasurementRepository(self.session)
+            if not all(
+                scalar_repository.is_current_head(str(input_id))
+                for input_id in input_measurement_ids
+            ):
+                raise ValueError("derived measurement has ineligible input evidence")
+        existing = self.get_by_key(selection_run_id, normalized_metric_code, normalized_key)
         if existing is not None:
             if (
-                existing.metric_code == metric_code
+                existing.metric_code == normalized_metric_code
                 and existing.source_measurement_id == source_measurement_id
                 and existing.derived_measurement_id == derived_measurement_id
             ):
@@ -1481,7 +1712,7 @@ class CanonicalSelectionRepository:
             raise ValueError("canonical semantic key already points to different evidence")
         selection = CanonicalSelection(
             selection_run_id=selection_run_id,
-            metric_code=_required_text(metric_code, "canonical metric code"),
+            metric_code=normalized_metric_code,
             semantic_key=normalized_key,
             period_start_date=period_start_date,
             period_end_date=period_end_date,
@@ -1497,7 +1728,17 @@ class CanonicalSelectionRepository:
         statement = select(CanonicalSelection).where(
             CanonicalSelection.selection_run_id == selection_run_id
         )
-        return list(self.session.scalars(statement.order_by(CanonicalSelection.semantic_key)))
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    CanonicalSelection.metric_code,
+                    CanonicalSelection.semantic_key,
+                    CanonicalSelection.period_start_date,
+                    CanonicalSelection.period_end_date,
+                    CanonicalSelection.id,
+                )
+            )
+        )
 
 
 class SyncRepository:
@@ -1625,6 +1866,48 @@ class CoverageRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def list(
+        self,
+        *,
+        provider_id: str | None = None,
+        acquisition_source_id: str | None = None,
+        stream_code: str | None = None,
+        metric_code: str | None = None,
+        interval_start: datetime | None = None,
+        interval_end: datetime | None = None,
+    ) -> list[CoverageInterval]:
+        """List interval evidence, optionally clipped by an overlapping range."""
+
+        conditions = []
+        if provider_id is not None:
+            conditions.append(CoverageInterval.provider_id == provider_id)
+        if acquisition_source_id is not None:
+            conditions.append(CoverageInterval.acquisition_source_id == acquisition_source_id)
+        if stream_code is not None:
+            conditions.append(
+                CoverageInterval.stream_code == _required_text(stream_code, "stream code")
+            )
+        if metric_code is not None:
+            conditions.append(
+                CoverageInterval.metric_code == _required_text(metric_code, "metric code")
+            )
+        normalized_start = _as_utc(interval_start)
+        normalized_end = _as_utc(interval_end)
+        if normalized_start is not None:
+            conditions.append(CoverageInterval.interval_end > normalized_start)
+        if normalized_end is not None:
+            conditions.append(CoverageInterval.interval_start < normalized_end)
+        statement = select(CoverageInterval).where(*conditions).order_by(
+            CoverageInterval.interval_start,
+            CoverageInterval.interval_end,
+            CoverageInterval.computed_at,
+            CoverageInterval.id,
+        )
+        return list(self.session.scalars(statement))
+
+    def get_by_id(self, interval_id: str) -> CoverageInterval | None:
+        return self.session.get(CoverageInterval, interval_id)
+
     def record(
         self,
         *,
@@ -1640,31 +1923,66 @@ class CoverageRepository:
         observed_count: int | None = None,
         expected_count: int | None = None,
         diagnostic_reason: str | None = None,
+        idempotent: bool = True,
     ) -> CoverageInterval:
-        if status not in {"present", "confirmed_empty", "unavailable", "failed", "unknown"}:
+        normalized_status = getattr(status, "value", status)
+        if normalized_status not in {
+            "present",
+            "confirmed_empty",
+            "unavailable",
+            "failed",
+            "unknown",
+        }:
             raise ValueError(
                 "coverage status must be present, confirmed_empty, unavailable, failed, or unknown"
             )
-        if interval_end <= interval_start:
+        normalized_start = _as_utc(interval_start)
+        normalized_end = _as_utc(interval_end)
+        if normalized_start is None or normalized_end is None:
+            raise ValueError("coverage interval boundaries are required")
+        if normalized_end <= normalized_start:
             raise ValueError("coverage interval_end must be after interval_start")
         if observed_count is not None and observed_count < 0:
             raise ValueError("observed_count must be nonnegative")
         if expected_count is not None and expected_count < 0:
             raise ValueError("expected_count must be nonnegative")
+        normalized_stream_code = _required_text(stream_code, "coverage stream code")
+        normalized_metric_code = _required_text(metric_code, "coverage metric code")
+        normalized_rule_version = _required_text(
+            calculation_rule_version, "coverage calculation rule version"
+        )
+        if idempotent:
+            existing = self.session.scalar(
+                select(CoverageInterval).where(
+                    CoverageInterval.provider_id == provider_id,
+                    CoverageInterval.acquisition_source_id == acquisition_source_id,
+                    CoverageInterval.stream_code == normalized_stream_code,
+                    CoverageInterval.metric_code == normalized_metric_code,
+                    CoverageInterval.interval_start == normalized_start,
+                    CoverageInterval.interval_end == normalized_end,
+                    CoverageInterval.resolution
+                    == _required_text(resolution, "coverage resolution"),
+                    CoverageInterval.status == normalized_status,
+                    CoverageInterval.calculation_rule_version == normalized_rule_version,
+                    CoverageInterval.observed_count == observed_count,
+                    CoverageInterval.expected_count == expected_count,
+                    CoverageInterval.diagnostic_reason == diagnostic_reason,
+                )
+            )
+            if existing is not None:
+                return existing
         interval = CoverageInterval(
             provider_id=provider_id,
             acquisition_source_id=acquisition_source_id,
-            stream_code=_required_text(stream_code, "coverage stream code"),
-            metric_code=_required_text(metric_code, "coverage metric code"),
-            interval_start=_as_utc(interval_start),
-            interval_end=_as_utc(interval_end),
+            stream_code=normalized_stream_code,
+            metric_code=normalized_metric_code,
+            interval_start=normalized_start,
+            interval_end=normalized_end,
             resolution=_required_text(resolution, "coverage resolution"),
-            status=status,
+            status=normalized_status,
             observed_count=observed_count,
             expected_count=expected_count,
-            calculation_rule_version=_required_text(
-                calculation_rule_version, "coverage calculation rule version"
-            ),
+            calculation_rule_version=normalized_rule_version,
             diagnostic_reason=diagnostic_reason,
         )
         self.session.add(interval)

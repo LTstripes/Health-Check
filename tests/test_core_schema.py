@@ -66,7 +66,7 @@ def test_empty_migration_is_idempotent_and_has_only_r01_tables(migrated_database
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0001_r01_core_schema",
+        "migration_revision": "0002_canonical_selection_metric_identity",
         "ready": True,
     }
 
