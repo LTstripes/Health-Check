@@ -1,1 +1,3 @@
-"""Provider-neutral ingestion services."""
+"""Provider-neutral ingestion contract helpers (pure, framework-free)."""
+
+__all__ = []
