@@ -10,8 +10,11 @@ Contracts implemented (``docs/R01_IMPLEMENTATION_SPEC.md`` §11):
 - ``weight_trend_taewma_v1``: time-aware EWMA with a 21-day half-life;
 - ``weight_rate_theil_sen_90d_v1``: trailing 90-calendar-day Theil–Sen slope
   in kg/week, available only with >= 6 observations spanning >= 42 days;
-- ``body_composition_decomposition_v1``: same-session estimated fat/lean mass
-  from weight + body-fat percentage with exact input IDs;
+- ``body_composition_decomposition_v1``: same confirmed session estimated
+  fat/lean mass from weight + body-fat percentage with exact input IDs.
+  Algorithm identity belongs to each scalar independently: the weight and
+  the body-fat value may carry different measurement-algorithm
+  compatibility groups, and the derived group follows the BIA lineage;
 - source muscle mass stays distinct from estimated lean mass;
 - recomposition evidence only inside one measurement-algorithm compatibility
   group; similar-weight comparison only for observations >= 28 days apart
@@ -56,6 +59,8 @@ SIMILAR_MAX_WEIGHT_DIFF_RATIO = 0.01
 WEIGHT_METRIC_CODES = frozenset({"weight"})
 BODY_FAT_METRIC_CODES = frozenset({"body_fat_pct", "body_fat", "body_fat_percentage"})
 MUSCLE_METRIC_CODES = frozenset({"muscle_mass", "muscle_mass_kg"})
+WEIGHT_UNITS = frozenset({"kg"})
+BODY_FAT_UNITS = frozenset({"%", "pct", "percent", "percentage", "percentage_points", "pp"})
 
 _CONSUMER_BIA_NOTE = (
     "Consumer BIA is trend evidence, not precise tissue truth: "
@@ -283,7 +288,11 @@ class BodyCompositionResult:
 
 @dataclass(frozen=True, slots=True)
 class CompositionPoint:
-    """One session's derived composition with its source muscle kept separate."""
+    """One session's derived composition with its source muscle kept separate.
+
+    Exact source algorithm provenance (code/version) travels with the point;
+    the compatibility group alone is never a substitute for it.
+    """
 
     session_id: str
     observed_date: date
@@ -296,12 +305,16 @@ class CompositionPoint:
     weight_measurement_id: str | None = None
     body_fat_measurement_id: str | None = None
     muscle_measurement_id: str | None = None
+    algorithm_code: str | None = None
+    algorithm_version: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
             "observed_date": self.observed_date.isoformat(),
             "compatibility_group": self.compatibility_group,
+            "algorithm_code": self.algorithm_code,
+            "algorithm_version": self.algorithm_version,
             "weight_kg": self.weight_kg,
             "body_fat_pct": self.body_fat_pct,
             "estimated_fat_mass_kg": self.estimated_fat_mass_kg,
@@ -331,6 +344,10 @@ class SimilarWeightComparison:
     later_fat_mass_kg: float | None = None
     fat_mass_delta_kg: float | None = None
     compatibility_group: str | None = None
+    earlier_algorithm_code: str | None = None
+    earlier_algorithm_version: str | None = None
+    later_algorithm_code: str | None = None
+    later_algorithm_version: str | None = None
     caution: str = _CONSUMER_BIA_NOTE
 
     def as_dict(self) -> dict[str, Any]:
@@ -351,14 +368,24 @@ class SimilarWeightComparison:
             "later_fat_mass_kg": self.later_fat_mass_kg,
             "fat_mass_delta_kg": self.fat_mass_delta_kg,
             "compatibility_group": self.compatibility_group,
+            "earlier_algorithm_code": self.earlier_algorithm_code,
+            "earlier_algorithm_version": self.earlier_algorithm_version,
+            "later_algorithm_code": self.later_algorithm_code,
+            "later_algorithm_version": self.later_algorithm_version,
             "caution": self.caution,
         }
 
 
 @dataclass(frozen=True, slots=True)
 class WeightSeries:
-    """Raw + daily + trend points with provenance for API/UI consumers."""
+    """Raw + daily + trend points with provenance for API/UI consumers.
 
+    ``raw_points`` preserves every canonical weight observation for
+    drill-down; ``daily_points`` holds the per-date medians the trend
+    actually consumes.
+    """
+
+    raw_points: tuple[WeightObservation, ...] = ()
     daily_points: tuple[DailyWeightPoint, ...] = ()
     trend_points: tuple[TrendPoint, ...] = ()
     trend_algorithm: str = WEIGHT_TREND_ALGORITHM
@@ -373,6 +400,7 @@ class WeightSeries:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "raw_points": [item.as_dict() for item in self.raw_points],
             "daily_points": [item.as_dict() for item in self.daily_points],
             "trend_points": [item.as_dict() for item in self.trend_points],
             "trend_algorithm": self.trend_algorithm,
@@ -681,7 +709,15 @@ def derive_body_composition(
     *,
     analytics_version: str = WEIGHT_ANALYTICS_VERSION,
 ) -> BodyCompositionResult:
-    """Derive estimated fat/lean mass for one confirmed same-session pair."""
+    """Derive estimated fat/lean mass for one confirmed same-session pair.
+
+    Algorithm identity belongs to each scalar measurement independently, so
+    the raw weight and the body-fat value are NOT required to share a
+    measurement-algorithm compatibility group (e.g. a scale weight group
+    next to a Xiaomi-app BIA group is a valid pair).  The derived
+    composition compatibility group represents the body-composition/BIA
+    algorithm lineage, i.e. the body-fat input's group.
+    """
 
     if weight is None or body_fat is None:
         missing = "weight" if weight is None else "body_fat"
@@ -698,11 +734,22 @@ def derive_body_composition(
         return BodyCompositionResult(available=False, reason="missing_session")
     if weight.session_id != body_fat.session_id:
         return BodyCompositionResult(available=False, reason="cross_session")
-    weight_group = _normalize_group(weight.compatibility_group)
-    fat_group = _normalize_group(body_fat.compatibility_group)
-    if weight_group is None or fat_group is None or weight_group != fat_group:
+    if (
+        weight.observed_date is not None
+        and body_fat.observed_date is not None
+        and weight.observed_date != body_fat.observed_date
+    ):
         return BodyCompositionResult(
-            available=False, reason="incompatible_algorithm_group"
+            available=False, reason="conflicting_observed_date"
+        )
+    if not _unit_accepted(weight.unit, WEIGHT_UNITS) or not _unit_accepted(
+        body_fat.unit, BODY_FAT_UNITS
+    ):
+        return BodyCompositionResult(available=False, reason="invalid_unit")
+    fat_group = _normalize_group(body_fat.compatibility_group)
+    if fat_group is None:
+        return BodyCompositionResult(
+            available=False, reason="missing_compatibility_group"
         )
     if not math.isfinite(weight.value) or weight.value <= 0:
         return BodyCompositionResult(available=False, reason="invalid_weight_value")
@@ -722,7 +769,7 @@ def derive_body_composition(
         estimated_lean_mass_kg=lean_mass,
         weight_measurement_id=weight.measurement_id,
         body_fat_measurement_id=body_fat.measurement_id,
-        compatibility_group=weight_group,
+        compatibility_group=fat_group,
         analytics_version=analytics_version,
     )
 
@@ -771,6 +818,14 @@ def composition_series_by_group(
         ):
             fat_mass = weight_value * fat_value / 100.0
             lean_mass = weight_value - fat_mass
+        # Composition lineage follows the body-fat/BIA side; an explicit
+        # per-metric algorithm beats the session-level fallback.
+        algorithm_code = _text_or_none(body_fat.get("algorithm_code")) or _text_or_none(
+            session.get("algorithm_code")
+        )
+        algorithm_version = _text_or_none(
+            body_fat.get("algorithm_version")
+        ) or _text_or_none(session.get("algorithm_version"))
         grouped.setdefault(group, []).append(
             CompositionPoint(
                 session_id=str(session_id),
@@ -784,6 +839,8 @@ def composition_series_by_group(
                 weight_measurement_id=_text_or_none(weight.get("measurement_id")),
                 body_fat_measurement_id=_text_or_none(body_fat.get("measurement_id")),
                 muscle_measurement_id=_text_or_none(muscle.get("measurement_id")),
+                algorithm_code=algorithm_code,
+                algorithm_version=algorithm_version,
             )
         )
     return {
@@ -798,10 +855,12 @@ def similar_weight_comparison(
 ) -> SimilarWeightComparison:
     """Compare two same-algorithm sessions at a similar body weight.
 
-    Gates: identical compatibility groups, at least 28 days apart, and
-    ``|later - earlier| / earlier <= 1%``.  Boundaries are inclusive.
-    Anything else returns ``unavailable`` + reason — never a cross-group
-    comparison and never a causal tissue claim.
+    Gates: identical body-composition compatibility groups, at least 28
+    days apart, ``|later - earlier| / earlier <= 1%``, and comparable
+    composition evidence (body-fat/fat-mass) on BOTH sides — similar
+    weights alone never yield an available comparison.  Boundaries are
+    inclusive.  Anything else returns ``unavailable`` + reason — never a
+    cross-group comparison and never a causal tissue claim.
     """
 
     if earlier is None or later is None:
@@ -822,6 +881,19 @@ def similar_weight_comparison(
         return SimilarWeightComparison(available=False, reason="missing_weight")
     if earlier_point.weight_kg <= 0 or later_point.weight_kg <= 0:
         return SimilarWeightComparison(available=False, reason="invalid_weight_value")
+    if (
+        earlier_point.body_fat_pct is None
+        or later_point.body_fat_pct is None
+        or not math.isfinite(earlier_point.body_fat_pct)
+        or not math.isfinite(later_point.body_fat_pct)
+    ):
+        return SimilarWeightComparison(
+            available=False,
+            reason="missing_composition_evidence",
+            earlier_date=earlier_point.observed_date,
+            later_date=later_point.observed_date,
+            compatibility_group=earlier_point.compatibility_group,
+        )
     first, second = (
         (earlier_point, later_point)
         if earlier_point.observed_date <= later_point.observed_date
@@ -877,6 +949,10 @@ def similar_weight_comparison(
         later_fat_mass_kg=second.estimated_fat_mass_kg,
         fat_mass_delta_kg=mass_delta,
         compatibility_group=first.compatibility_group,
+        earlier_algorithm_code=first.algorithm_code,
+        earlier_algorithm_version=first.algorithm_version,
+        later_algorithm_code=second.algorithm_code,
+        later_algorithm_version=second.algorithm_version,
     )
 
 
@@ -900,6 +976,7 @@ def build_weight_series(
             group: points for group, points in composition.items() if group == normalized
         }
     return WeightSeries(
+        raw_points=observations,
         daily_points=daily,
         trend_points=trend.points,
         trend_algorithm=WEIGHT_TREND_ALGORITHM,
@@ -984,6 +1061,12 @@ def _normalize_group(value: Any) -> str | None:
     return text or None
 
 
+def _unit_accepted(unit: Any, accepted: frozenset[str]) -> bool:
+    if unit is None:
+        return False
+    return str(unit).strip().casefold() in accepted
+
+
 def _finite_or_none(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
@@ -1033,6 +1116,8 @@ def _as_composition_point(value: CompositionPoint | Mapping[str, Any]) -> (
             ),
             estimated_fat_mass_kg=_finite_or_none(value.get("estimated_fat_mass_kg")),
             estimated_lean_mass_kg=_finite_or_none(value.get("estimated_lean_mass_kg")),
+            algorithm_code=_text_or_none(value.get("algorithm_code")),
+            algorithm_version=_text_or_none(value.get("algorithm_version")),
         )
     return None
 

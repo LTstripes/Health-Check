@@ -73,12 +73,13 @@ def composition_input(
     *,
     group: str | None = GROUP,
     observed: date | None = None,
+    unit: str | None = None,
 ) -> CompositionInput:
     return CompositionInput(
         measurement_id=measurement_id,
         metric_code=metric,
         value=value,
-        unit="kg" if metric == "weight" else "pct",
+        unit=unit if unit is not None else ("kg" if metric == "weight" else "pct"),
         session_id=session_id,
         compatibility_group=group,
         observed_date=observed or date(2026, 3, 1),
@@ -292,15 +293,76 @@ def test_cross_session_derivation_rejected() -> None:
     assert result.estimated_lean_mass_kg is None
 
 
-def test_cross_algorithm_derivation_rejected() -> None:
-    weight = composition_input("weight-id-1", "weight", 80.0, "session-1", group=GROUP)
+def test_same_session_different_algorithm_groups_is_available() -> None:
+    # R01: algorithm identity belongs to each scalar independently.  A scale
+    # weight group next to a Xiaomi-app BIA group is still a valid pair;
+    # the derived group follows the body-composition/BIA lineage.
+    weight = composition_input(
+        "weight-id-1", "weight", 80.0, "session-1", group="xiaomi_s400_weight"
+    )
     fat = composition_input(
-        "fat-id-1", "body_fat_pct", 25.0, "session-1", group=OTHER_GROUP
+        "fat-id-1",
+        "body_fat_pct",
+        25.0,
+        "session-1",
+        group="xiaomi_home_s400_unknown_version",
+    )
+    result = derive_body_composition(weight, fat)
+    assert result.available is True
+    # Hand-check: 80 × 25 / 100 = 20.0 fat; 80 − 20 = 60.0 lean.
+    assert result.estimated_fat_mass_kg == pytest.approx(20.0)
+    assert result.estimated_lean_mass_kg == pytest.approx(60.0)
+    assert result.weight_measurement_id == "weight-id-1"
+    assert result.body_fat_measurement_id == "fat-id-1"
+    assert result.as_dict()["input_measurement_ids"] == ["weight-id-1", "fat-id-1"]
+    assert result.compatibility_group == "xiaomi_home_s400_unknown_version"
+    assert result.analytics_version == "v1"
+
+
+def test_same_session_conflicting_source_dates_rejected() -> None:
+    weight = composition_input(
+        "weight-id-1", "weight", 80.0, "session-1", observed=date(2026, 3, 1)
+    )
+    fat = composition_input(
+        "fat-id-1", "body_fat_pct", 25.0, "session-1", observed=date(2026, 3, 2)
     )
     result = derive_body_composition(weight, fat)
     assert result.available is False
-    assert result.reason == "incompatible_algorithm_group"
+    assert result.reason == "conflicting_observed_date"
     assert result.estimated_fat_mass_kg is None
+    assert result.estimated_lean_mass_kg is None
+
+
+def test_derivation_rejects_invalid_canonical_units_and_values() -> None:
+    good_weight = composition_input("weight-id-1", "weight", 80.0, "session-1")
+    good_fat = composition_input("fat-id-1", "body_fat_pct", 25.0, "session-1")
+    bad_weight_unit = composition_input(
+        "weight-id-1", "weight", 80.0, "session-1", unit="lb"
+    )
+    bad_fat_unit = composition_input(
+        "fat-id-1", "body_fat_pct", 25.0, "session-1", unit="kg"
+    )
+    assert derive_body_composition(bad_weight_unit, good_fat).reason == "invalid_unit"
+    assert derive_body_composition(good_weight, bad_fat_unit).reason == "invalid_unit"
+    bad_weight_value = composition_input("weight-id-1", "weight", 0.0, "session-1")
+    bad_fat_value = composition_input(
+        "fat-id-1", "body_fat_pct", 100.0, "session-1"
+    )
+    assert (
+        derive_body_composition(bad_weight_value, good_fat).reason
+        == "invalid_weight_value"
+    )
+    assert (
+        derive_body_composition(good_weight, bad_fat_value).reason
+        == "invalid_body_fat_value"
+    )
+    missing_group_fat = composition_input(
+        "fat-id-1", "body_fat_pct", 25.0, "session-1", group=None
+    )
+    assert (
+        derive_body_composition(good_weight, missing_group_fat).reason
+        == "missing_compatibility_group"
+    )
 
 
 def test_source_muscle_mass_stays_distinct_from_lean() -> None:
@@ -355,19 +417,55 @@ def test_composition_never_crosses_algorithm_groups() -> None:
 
 
 def similar_point(
-    session: str, observed: date, weight: float, group: str | None = GROUP
+    session: str,
+    observed: date,
+    weight: float,
+    group: str | None = GROUP,
+    *,
+    body_fat_pct: float | None = 25.0,
+    algorithm_code: str | None = "synthetic-bia",
+    algorithm_version: str | None = "1",
 ) -> CompositionPoint:
-    fat_pct = 25.0
-    fat_mass = weight * fat_pct / 100.0
+    fat_mass: float | None = None
+    lean_mass: float | None = None
+    if body_fat_pct is not None:
+        fat_mass = weight * body_fat_pct / 100.0
+        lean_mass = weight - fat_mass
     return CompositionPoint(
         session_id=session,
         observed_date=observed,
         compatibility_group=group,
         weight_kg=weight,
-        body_fat_pct=fat_pct,
+        body_fat_pct=body_fat_pct,
         estimated_fat_mass_kg=fat_mass,
-        estimated_lean_mass_kg=weight - fat_mass,
+        estimated_lean_mass_kg=lean_mass,
+        algorithm_code=algorithm_code,
+        algorithm_version=algorithm_version,
     )
+
+
+def test_composition_series_keeps_exact_algorithm_provenance() -> None:
+    grouped = composition_series_by_group(
+        [
+            {
+                "session_id": "session-1",
+                "observed_date": date(2026, 3, 1),
+                "compatibility_group": GROUP,
+                "weight": {"measurement_id": "w-1", "value": 80.0},
+                "body_fat": {
+                    "measurement_id": "f-1",
+                    "value": 25.0,
+                    "algorithm_code": "xiaomi-home",
+                    "algorithm_version": "unknown",
+                },
+            }
+        ]
+    )
+    point = grouped[GROUP][0]
+    assert point.algorithm_code == "xiaomi-home"
+    assert point.algorithm_version == "unknown"
+    assert point.as_dict()["algorithm_code"] == "xiaomi-home"
+    assert point.as_dict()["algorithm_version"] == "unknown"
 
 
 def test_similar_weight_28_day_boundary() -> None:
@@ -405,6 +503,84 @@ def test_similar_weight_cross_algorithm_rejected() -> None:
     result = similar_weight_comparison(earlier, later)
     assert result.available is False
     assert result.reason == "incompatible_algorithm_group"
+
+
+def test_similar_weight_requires_composition_on_both_sides() -> None:
+    # Same weight and sufficient gap, but no body-fat evidence anywhere.
+    neither = similar_weight_comparison(
+        similar_point("s-1", date(2026, 1, 1), 80.0, body_fat_pct=None),
+        similar_point("s-2", date(2026, 2, 5), 80.0, body_fat_pct=None),
+    )
+    assert neither.available is False
+    assert neither.reason == "missing_composition_evidence"
+    # Composition on one side only is still not comparable; no zeros made.
+    one_sided = similar_weight_comparison(
+        similar_point("s-1", date(2026, 1, 1), 80.0, body_fat_pct=25.0),
+        similar_point("s-2", date(2026, 2, 5), 80.0, body_fat_pct=None),
+    )
+    assert one_sided.available is False
+    assert one_sided.reason == "missing_composition_evidence"
+
+
+def test_similar_weight_compatible_pair_keeps_algorithm_identity() -> None:
+    earlier = similar_point(
+        "s-1",
+        date(2026, 1, 1),
+        80.0,
+        algorithm_code="xiaomi-home",
+        algorithm_version="unknown",
+    )
+    later = similar_point(
+        "s-2",
+        date(2026, 2, 5),
+        80.4,
+        algorithm_code="xiaomi-home",
+        algorithm_version="unknown",
+    )
+    result = similar_weight_comparison(earlier, later)
+    assert result.available is True
+    assert result.compatibility_group == GROUP
+    assert result.earlier_algorithm_code == "xiaomi-home"
+    assert result.earlier_algorithm_version == "unknown"
+    assert result.later_algorithm_code == "xiaomi-home"
+    assert result.later_algorithm_version == "unknown"
+    assert result.body_fat_delta_pp == pytest.approx(0.0)
+    payload = result.as_dict()
+    assert payload["earlier_algorithm_code"] == "xiaomi-home"
+    assert payload["later_algorithm_version"] == "unknown"
+
+
+def test_weight_series_preserves_raw_observations() -> None:
+    day = date(2026, 3, 10)
+    candidates = [
+        weight_candidate("w-1", day, 80.0),
+        weight_candidate("w-2", day, 82.0),
+        weight_candidate("w-3", day, 81.0),
+        weight_candidate("w-4", date(2026, 3, 11), 81.5),
+    ]
+    series = build_weight_series(candidates)
+    # All four raw canonical observations survive for drill-down.
+    assert [item.evidence_id for item in series.raw_points] == ["w-1", "w-2", "w-3", "w-4"]
+    assert [item.value_kg for item in series.raw_points] == [80.0, 82.0, 81.0, 81.5]
+    raw = series.raw_points[0]
+    assert raw.observed_date == day
+    assert raw.algorithm_code == "synthetic-scale"
+    assert raw.algorithm_version == "1"
+    assert raw.compatibility_group == GROUP
+    # Daily reduction still collapses the shared date to one median…
+    assert len(series.daily_points) == 2
+    assert series.daily_points[0].median_kg == pytest.approx(81.0)
+    assert series.daily_points[0].evidence_ids == ("w-1", "w-2", "w-3")
+    # …and the trend consumes the median, while raw stays visible.
+    assert series.trend_points[0].median_kg == pytest.approx(81.0)
+    assert series.trend_points[0].evidence_ids == ("w-1", "w-2", "w-3")
+    payload = series.as_dict()
+    assert [item["evidence_id"] for item in payload["raw_points"]] == [
+        "w-1",
+        "w-2",
+        "w-3",
+        "w-4",
+    ]
 
 
 def test_missing_observed_date_excluded_without_midnight_invention() -> None:
