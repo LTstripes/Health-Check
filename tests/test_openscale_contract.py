@@ -395,3 +395,113 @@ def test_control_with_measurements_fails_closed() -> None:
     assert [item.reason_code for item in result.failures] == [
         "conflicting_control_with_measurements"
     ]
+
+
+def _identity_less_insert(values, **overrides):
+    payload = single_measurement(values=values, **overrides)
+    payload.pop("id", None)
+    return payload
+
+
+def test_identity_less_insert_uses_semantic_identity() -> None:
+    """Blocker 1: id-less insert/update must not use the delete time fallback.
+
+    Same source/user/time with different metric content or different
+    algorithm/config identity must yield different identities, while
+    reordered values[] stays stable.
+    """
+
+    base = _identity_less_insert([weight_item(76.4)])
+    first = normalize_envelope(base, source_instance_id=SOURCE_INSTANCE)
+    (measurement,) = first.measurements
+    assert measurement.kind == "insert"
+    assert measurement.identity_kind == "semantic"
+    assert measurement.identity is not None
+    assert measurement.identity.startswith("fp:")
+
+    changed_metric = normalize_envelope(
+        _identity_less_insert([weight_item(78.0)]),
+        source_instance_id=SOURCE_INSTANCE,
+    )
+    assert changed_metric.measurements[0].identity != measurement.identity
+
+    changed_config = normalize_envelope(
+        base, source_instance_id=SOURCE_INSTANCE, config_identity="scale-B"
+    )
+    assert changed_config.measurements[0].identity != measurement.identity
+
+    reordered = _identity_less_insert(
+        [
+            {"key": "fat", "name": "Fat", "unit": "%", "value": 21.5},
+            weight_item(76.4),
+        ]
+    )
+    same_set = _identity_less_insert(
+        [
+            weight_item(76.4),
+            {"key": "fat", "name": "Fat", "unit": "%", "value": 21.5},
+        ]
+    )
+    left = normalize_envelope(reordered, source_instance_id=SOURCE_INSTANCE)
+    right = normalize_envelope(same_set, source_instance_id=SOURCE_INSTANCE)
+    assert left.measurements[0].identity == right.measurements[0].identity
+
+    update = _identity_less_insert([weight_item(76.4)], event="update")
+    update_result = normalize_envelope(update, source_instance_id=SOURCE_INSTANCE)
+    assert update_result.measurements[0].identity_kind == "semantic"
+
+    delete_payload = _identity_less_insert([weight_item(76.4)], event="delete")
+    delete_result = normalize_envelope(
+        delete_payload, source_instance_id=SOURCE_INSTANCE
+    )
+    assert delete_result.measurements[0].identity_kind == "fallback_time"
+
+
+def test_values_null_never_activates_convenience_fallback() -> None:
+    """Blocker 2: present-but-null values[] is authoritative, not absent."""
+
+    for bad_values in (None, "oops"):
+        payload = single_measurement(weight=76.4, values=bad_values)
+        result = normalize_envelope(payload, source_instance_id=SOURCE_INSTANCE)
+        assert result.measurements == ()
+        assert "invalid_values_type" in [
+            item.reason_code for item in (*result.failures, *result.invalid_items)
+        ]
+        assert "weight" not in "".join(
+            item.reason_code for item in (*result.failures, *result.invalid_items)
+        )
+
+
+def test_unknown_numeric_value_round_trips_without_canonical_metric() -> None:
+    """Blocker 3: unknown numeric evidence is retained, never projected."""
+
+    with_unknown = _identity_less_insert(
+        [
+            weight_item(76.4),
+            {"key": "quantumFlux", "name": "Quantum", "unit": "qf", "value": 9.5},
+        ]
+    )
+    result = normalize_envelope(with_unknown, source_instance_id=SOURCE_INSTANCE)
+    (measurement,) = result.measurements
+    assert measurement.metric_codes() == ("weight",)
+    (unknown,) = measurement.unknown_items
+    assert unknown.key == "quantumFlux"
+    assert unknown.numeric_value == 9.5
+    assert unknown.has_explicit_value is True
+    assert unknown.raw_kind == "number"
+    assert unknown.as_dict()["numeric_value"] == 9.5
+    assert unknown.as_dict()["has_explicit_value"] is True
+
+    without_unknown = _identity_less_insert([weight_item(76.4)])
+    plain = normalize_envelope(without_unknown, source_instance_id=SOURCE_INSTANCE)
+    assert plain.measurements[0].identity == measurement.identity
+
+    text_only = normalize_envelope(
+        _identity_less_insert(
+            [{"key": "quantumFlux", "name": "Quantum", "unit": "qf", "text": "n/a"}]
+        ),
+        source_instance_id=SOURCE_INSTANCE,
+    )
+    (evidence,) = text_only.measurements[0].unknown_items
+    assert evidence.numeric_value is None
+    assert evidence.has_explicit_value is False

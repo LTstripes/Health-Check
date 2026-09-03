@@ -17,7 +17,9 @@ convenience measurements, and optional ``values[]``; a batch carries
 Core invariants:
 
 - ``values[]`` is authoritative when present (including present-but-empty).
-  Convenience fields are consulted only when ``values[]`` is absent, and a
+  A present non-list ``values`` (including explicit null) fails closed
+  with typed ``invalid_values_type``; only true key absence permits the
+  convenience fallback.  Convenience fields are consulted only then, and a
   missing convenience field serialized as numeric zero never becomes a
   real zero measurement.  Missing is not zero; explicit zero and missing
   stay distinguishable.
@@ -176,7 +178,13 @@ class NormalizedMetric:
 
 @dataclass(frozen=True, slots=True)
 class UnknownItem:
-    """Retained non-canonical evidence; never a canonical metric."""
+    """Retained non-canonical evidence; never a canonical metric.
+
+    The raw numeric value (when the sender supplied one) travels with the
+    item so unknown evidence round-trips without inventing a canonical
+    metric.  Unknown evidence is fingerprint-neutral by construction: the
+    semantic fingerprint only covers usable canonical metrics.
+    """
 
     key: str
     name: str | None = None
@@ -185,6 +193,8 @@ class UnknownItem:
     raw_kind: str = "missing"
     text: str | None = None
     detail: str | None = None
+    numeric_value: float | None = None
+    has_explicit_value: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -195,6 +205,8 @@ class UnknownItem:
             "raw_kind": self.raw_kind,
             "text": self.text,
             "detail": self.detail,
+            "numeric_value": self.numeric_value,
+            "has_explicit_value": self.has_explicit_value,
         }
 
 
@@ -625,10 +637,9 @@ def _normalize_measurement(
     metrics: list[NormalizedMetric] = []
     unknown_items: list[UnknownItem] = []
     values_authoritative = False
-    values_present = "values" in raw and raw.get("values") is not None
-    if values_present:
+    if "values" in raw:
         values_authoritative = True
-        raw_values = raw.get("values")
+        raw_values = raw["values"]
         if not isinstance(raw_values, list):
             fail(
                 "invalid_values_type",
@@ -658,10 +669,16 @@ def _normalize_measurement(
     if record_id is not None:
         identity_kind = "stable_id"
         identity = stable_record_identity(source_instance_id, user_id, record_id)
-    elif parsed is not None:
+    elif kind == "delete":
+        # The R01 §9 time fallback is reserved for delete; without a stable
+        # id a delete always carries a sender date (enforced above).
+        assert parsed is not None
         identity_kind = "fallback_time"
         identity = delete_fallback_identity(source_instance_id, user_id, time_key)
     else:
+        # Insert/update without stable sender identity use the semantic
+        # fingerprint so records with different metric content or
+        # algorithm/config identity never collapse to one identity.
         identity_kind = "semantic"
         identity = semantic_fingerprint(
             source_instance_id,
@@ -764,6 +781,8 @@ def _project_values(
                     is_derived=representative.is_derived,
                     raw_kind=representative.raw_kind,
                     detail="duplicate_identical_collapsed",
+                    numeric_value=representative.numeric_value,
+                    has_explicit_value=representative.has_numeric_value,
                 )
             )
         _project_single_value(representative, metrics, unknown_items, failures, path)
@@ -788,6 +807,8 @@ def _project_single_value(
                 raw_kind=item.raw_kind,
                 text=item.text,
                 detail="unknown_metric_key_or_unit",
+                numeric_value=item.numeric_value,
+                has_explicit_value=item.has_numeric_value,
             )
         )
         return
@@ -801,6 +822,8 @@ def _project_single_value(
                 raw_kind=item.raw_kind,
                 text=item.text,
                 detail="known_key_without_numeric_value",
+                numeric_value=item.numeric_value,
+                has_explicit_value=item.has_numeric_value,
             )
         )
         return
