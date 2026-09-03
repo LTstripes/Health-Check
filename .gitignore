@@ -36,3 +36,5 @@ data/
 # Generated reports and generic local exports
 *.pdf
 *.html
+!src/healthcheck/web/templates/
+!src/healthcheck/web/templates/**.html
