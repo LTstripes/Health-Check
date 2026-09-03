@@ -177,3 +177,27 @@ Do not put real health values, screenshots, credentials, private payloads or med
 - **Integrator review:** **FIXES REQUIRED → semantic ACCEPT → convergence ACCEPT → FINAL ACCEPT**. Worker/reviewer prose was repeatedly cross-checked against actual remote code, migration graph and CI.
 - **Integration result:** PR #16 merged into `integration/r01-weight-core`; merge SHA `ca28af2f71909ce24ac0660756d0c19387dc52c9`. Issue #6 closed completed.
 - **Retrospective note:** #6 validated the full multi-agent workflow under real complexity: independent adversarial review found bugs green tests missed; repeated narrow fix rounds worked better than rewrites; preserving the semantic candidate in ancestry made later migration convergence auditable; and parallel accepted work can be reconciled mechanically by the Integrator when its surface is truly non-semantic. This is the strongest evidence so far for keeping C3/C4 workers separate from acceptance authority.
+
+## 2026-09-03 — R01-06 — Local dashboard and photo-review UX
+
+- **Issue / PR:** #9 / PR #21.
+- **Complexity / routing:** C2 / Normal multi-layer UI; executor Grok High; targeted contract/UI review by ChatGPT/Lera Integrator.
+- **Executor:** Grok runtime-reported Grok 4.6 / launch Grok High; no delegates/fallbacks.
+- **Role:** Grok worker/fix rounds; ChatGPT/Lera Integrator reviewer and merge authority.
+- **Baseline:** `afa4d84ef6bf5a7ca23414bca93e97e5a4dcb507`.
+- **Target integration:** `integration/r01-weight-core` at the same baseline SHA.
+- **Task branch / workspace:** `task/9-dashboard-ui`; `D:\Grok\Garmin\workspaces\9-dashboard-ui`.
+- **Initial candidate:** `eec7f08f96db6aae714d4aafd1bc1bc3afb9e65e`.
+- **Fix-round-1 candidate:** `0547c3d08a4ef5caf6a88d39d474465b85b55a7d`.
+- **Final candidate:** `12b163d20a5f963db94f768bace9330dfa831103`.
+- **Objective:** turn accepted photo-import/canonical/analytics contracts into a usable loopback dashboard and browser review flow without hiding provenance, coverage or algorithm boundaries.
+- **Initial result:** added Jinja2 + vanilla JS/SVG dashboard/review pages, loopback weight series/summary/artifact routes, goal/cadence configuration, import queue and browser edit/reject/confirm flow, provenance drill-down, raw/trend/goal/composition/recomposition/coverage presentation, algorithm-boundary/BIA warnings and synthetic UI tests. No Node toolchain or #10 webhook implementation was introduced.
+- **Integrator review round 1:** **FIXES REQUIRED** despite green tests. Dashboard GET paths called `CanonicalSelectionService.select()` under a committing session. Filtered reads could therefore create/supersede durable partial or empty `r01-weight` runs, making canonical history depend on browser filters.
+- **Fix round 1:** Grok removed canonical writes from GET paths and added regression snapshots proving repeated/filtered `/`, `/api/weight/series` and `/api/weight/summary` reads do not mutate runs/selections. Integrator accepted that blocker as closed but found a second cross-layer defect: analytics still read all current source heads directly, so the canonical layer had effectively fallen out of the vertical slice and normal photo confirmation created no durable dashboard canonical run.
+- **Fix round 2:** Grok moved canonical recomputation to the explicit photo-confirm write path, added durable `r01-weight` plus per-composition-compatibility-group scopes, and changed trend/rate/composition inputs to canonical-selected evidence. Raw current source heads remain independently inspectable with provenance and a `canonical_selected` marker. A competing-source regression proves both raw values remain visible while daily/trend/current analytics use only the canonical winner.
+- **Checks:** final worker reported Ruff PASS; full pytest `132 passed` with one upstream Starlette/httpx warning; `git diff --check` PASS; live synthetic 26-image API/UI smoke PASS; GET non-mutation PASS; negative ingest probes PASS; DOM-rendered visual smoke PASS; safe-error PASS. Repository-side exact-head CI `33799919165` completed **SUCCESS** on `12b163d...`; post-merge integration CI `33800201969` completed **SUCCESS** on merge head `a6a002d...`.
+- **Limitations:** owner UAT with real Xiaomi screenshots remains `UNVERIFIED`; live S400/openScale remains #10/owner-only. Bitmap screenshot capture was not available in the worker environment; visual verification used rendered DOM plus synthetic assertions.
+- **Non-blocking hardening follow-up:** #11 should explicitly audit the UX/diagnostic behavior when a source write succeeds but canonical recomputation produces a failed run, so a prior successful canonical snapshot cannot be mistaken for fresh state.
+- **Integrator review:** **FIXES REQUIRED → FIXES REQUIRED → ACCEPT** after actual remote diff, source-contract and CI inspection on every round.
+- **Integration result:** PR #21 merged into `integration/r01-weight-core`; merge SHA `a6a002d224165f718cf6334fea28fb648f96895a`. Issue #9 closed completed.
+- **Retrospective note:** #9 reinforced the same lesson seen in the Muse C2 benchmarks: cross-layer code can look polished, have comprehensive tests and still place a domain mutation or semantic source-of-truth at the wrong layer. Two narrow Integrator rounds converted a strong UI implementation into a correct write-canonical/read-canonical vertical slice without a rewrite.
