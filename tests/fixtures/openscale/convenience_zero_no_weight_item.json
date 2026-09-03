@@ -1,0 +1,1 @@
+{"event": "insert", "id": "synthetic-record-201", "userId": "synthetic-user-1", "username": "Synthetic User", "date": "2026-02-12T08:15:00+03:00", "weight": 0, "values": [{"key": "fat", "name": "Body fat", "unit": "%", "value": 24.5, "isDerived": true}]}
