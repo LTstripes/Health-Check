@@ -117,6 +117,16 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(UTC)
 
 
+def restore_stored_utc(value: datetime | None) -> datetime | None:
+    """Return aware UTC, treating naive SQLite-reloaded values as UTC."""
+
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _datetime_key(value: datetime | None) -> datetime | None:
     """Compare SQLite-reloaded UTC timestamps without losing exactness."""
 
@@ -300,6 +310,9 @@ class ProviderRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def get(self, provider_id: str) -> Provider | None:
+        return self.session.get(Provider, provider_id)
+
     def get_by_code(self, code: str) -> Provider | None:
         return self.session.scalar(select(Provider).where(Provider.code == code))
 
@@ -321,6 +334,9 @@ class ProviderRepository:
 class PhysicalDeviceRepository:
     def __init__(self, session: Session):
         self.session = session
+
+    def get(self, device_id: str) -> PhysicalDevice | None:
+        return self.session.get(PhysicalDevice, device_id)
 
     def get_by_code(self, code: str) -> PhysicalDevice | None:
         return self.session.scalar(select(PhysicalDevice).where(PhysicalDevice.code == code))
@@ -411,8 +427,11 @@ class MeasurementAlgorithmRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_by_id(self, algorithm_id: str) -> MeasurementAlgorithm | None:
+    def get(self, algorithm_id: str) -> MeasurementAlgorithm | None:
         return self.session.get(MeasurementAlgorithm, algorithm_id)
+
+    def get_by_id(self, algorithm_id: str) -> MeasurementAlgorithm | None:
+        return self.get(algorithm_id)
 
     def get_by_code_version(self, code: str, version: str) -> MeasurementAlgorithm | None:
         return self.session.scalar(
@@ -475,6 +494,9 @@ class MeasurementAlgorithmRepository:
 class RawArtifactRepository:
     def __init__(self, session: Session):
         self.session = session
+
+    def get(self, artifact_id: str) -> RawArtifact | None:
+        return self.session.get(RawArtifact, artifact_id)
 
     def get_by_content_hash(self, content_hash: str) -> RawArtifact | None:
         return self.session.scalar(
@@ -545,10 +567,122 @@ class IngestBatchRepository:
         self.session.flush()
         return batch
 
+    def get(self, batch_id: str) -> IngestBatch | None:
+        return self.session.get(IngestBatch, batch_id)
+
+    def list_recent(self, *, limit: int = 100) -> list[IngestBatch]:
+        statement = select(IngestBatch).order_by(
+            IngestBatch.started_at.desc(), IngestBatch.id.desc()
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
+        return list(self.session.scalars(statement))
+
+    def update(
+        self,
+        batch_id: str,
+        *,
+        status: str | None = None,
+        received_count: int | None = None,
+        parsed_count: int | None = None,
+        committed_count: int | None = None,
+        failed_count: int | None = None,
+        diagnostic_reason: str | None = None,
+        completed: bool = False,
+    ) -> IngestBatch:
+        batch = self.session.get(IngestBatch, batch_id)
+        if batch is None:
+            raise KeyError(f"unknown ingest batch {batch_id}")
+        if status is not None:
+            batch.status = status
+        if received_count is not None:
+            batch.received_count = received_count
+        if parsed_count is not None:
+            batch.parsed_count = parsed_count
+        if committed_count is not None:
+            batch.committed_count = committed_count
+        if failed_count is not None:
+            batch.failed_count = failed_count
+        if diagnostic_reason is not None:
+            batch.diagnostic_reason = diagnostic_reason
+        if completed and batch.completed_at is None:
+            batch.completed_at = utc_now()
+        self.session.flush()
+        return batch
+
 
 class IngestEventRepository:
     def __init__(self, session: Session):
         self.session = session
+
+    def get(self, event_id: str) -> IngestEvent | None:
+        return self.session.get(IngestEvent, event_id)
+
+    def list_for_batch(self, ingest_batch_id: str) -> list[IngestEvent]:
+        return list(
+            self.session.scalars(
+                select(IngestEvent)
+                .where(IngestEvent.ingest_batch_id == ingest_batch_id)
+                .order_by(IngestEvent.received_at, IngestEvent.id)
+            )
+        )
+
+    def find_photo_by_artifact(self, raw_artifact_id: str) -> IngestEvent | None:
+        """Return the durable photo event for an artifact, if one exists.
+
+        Photo artifacts deduplicate by content hash.  The webhook identity
+        path stays on ``find_existing`` / ``get_or_create`` and is not used
+        here, because a later batch may carry a different acquisition-source
+        row while still referring to the same immutable image.
+        """
+
+        return self.session.scalar(
+            select(IngestEvent)
+            .where(
+                IngestEvent.raw_artifact_id == raw_artifact_id,
+                IngestEvent.event_type == "photo",
+                IngestEvent.duplicate_of_event_id.is_(None),
+            )
+            .order_by(IngestEvent.received_at, IngestEvent.id)
+        )
+
+    def create_linked(
+        self,
+        *,
+        ingest_batch_id: str,
+        acquisition_source_id: str,
+        duplicate_of_event_id: str,
+        status: str,
+        semantic_fingerprint: str,
+        raw_artifact_id: str | None = None,
+        event_type: str = "photo",
+        diagnostic_code: str | None = None,
+        diagnostic_reason: str | None = None,
+    ) -> IngestEvent:
+        """Insert a batch-local occurrence or failed attempt linked to an original event."""
+
+        fingerprint = _required_text(semantic_fingerprint, "semantic fingerprint").lower()
+        deduplication_key = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+        existing = self.session.scalar(
+            select(IngestEvent).where(IngestEvent.deduplication_key == deduplication_key)
+        )
+        if existing is not None:
+            return existing
+        event = IngestEvent(
+            ingest_batch_id=ingest_batch_id,
+            acquisition_source_id=acquisition_source_id,
+            raw_artifact_id=raw_artifact_id,
+            semantic_fingerprint=fingerprint,
+            deduplication_key=deduplication_key,
+            event_type=event_type.strip().lower() if event_type is not None else None,
+            status=status,
+            diagnostic_code=diagnostic_code,
+            diagnostic_reason=diagnostic_reason,
+            duplicate_of_event_id=duplicate_of_event_id,
+        )
+        self.session.add(event)
+        self.session.flush()
+        return event
 
     def find_existing(
         self,
@@ -693,6 +827,58 @@ class ImportCandidateRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    def get(self, candidate_id: str) -> ImportCandidate | None:
+        return self.session.get(ImportCandidate, candidate_id)
+
+    def list_for_event(self, ingest_event_id: str) -> list[ImportCandidate]:
+        return list(
+            self.session.scalars(
+                select(ImportCandidate)
+                .where(ImportCandidate.ingest_event_id == ingest_event_id)
+                .order_by(
+                    ImportCandidate.candidate_set_key,
+                    ImportCandidate.measurement_group_key,
+                    ImportCandidate.metric_code,
+                    ImportCandidate.id,
+                )
+            )
+        )
+
+    def find_for_artifact_set_key(
+        self, raw_artifact_id: str, candidate_set_key: str
+    ) -> list[ImportCandidate]:
+        return list(
+            self.session.scalars(
+                select(ImportCandidate)
+                .join(IngestEvent, ImportCandidate.ingest_event_id == IngestEvent.id)
+                .where(
+                    IngestEvent.raw_artifact_id == raw_artifact_id,
+                    IngestEvent.event_type == "photo",
+                    ImportCandidate.candidate_set_key == candidate_set_key,
+                )
+                .order_by(
+                    ImportCandidate.measurement_group_key,
+                    ImportCandidate.metric_code,
+                    ImportCandidate.id,
+                )
+            )
+        )
+
+    def list_for_batch(self, ingest_batch_id: str) -> list[ImportCandidate]:
+        return list(
+            self.session.scalars(
+                select(ImportCandidate)
+                .join(IngestEvent, ImportCandidate.ingest_event_id == IngestEvent.id)
+                .where(IngestEvent.ingest_batch_id == ingest_batch_id)
+                .order_by(
+                    ImportCandidate.candidate_set_key,
+                    ImportCandidate.measurement_group_key,
+                    ImportCandidate.metric_code,
+                    ImportCandidate.id,
+                )
+            )
+        )
+
     def create_pending(
         self,
         *,
@@ -714,10 +900,24 @@ class ImportCandidateRepository:
         schema_version: str | None = None,
         confidence: float | None = None,
         evidence_region: Any = None,
+        algorithm_code: str | None = None,
+        algorithm_version: str | None = None,
+        provider_code: str | None = None,
+        source_timezone: str | None = None,
+        source_utc_offset_minutes: int | None = None,
     ) -> ImportCandidate:
         if confidence is not None and not 0 <= confidence <= 1:
             raise ValueError("candidate confidence must be between 0 and 1")
+        if temporal_precision is not None:
+            allowed = {item.value for item in TemporalPrecision}
+            if str(temporal_precision) not in allowed:
+                raise ValueError("candidate temporal precision must be instant, minute, or date")
         normalized_precision = None if temporal_precision is None else str(temporal_precision)
+        normalized_timestamp = (
+            None
+            if proposed_source_timestamp is None
+            else restore_stored_utc(proposed_source_timestamp)
+        )
         existing = self.session.scalar(
             select(ImportCandidate).where(
                 ImportCandidate.ingest_event_id == ingest_event_id,
@@ -726,7 +926,31 @@ class ImportCandidateRepository:
                 ImportCandidate.metric_code == metric_code,
             )
         )
+        incoming = {
+            "proposed_value": proposed_value,
+            "proposed_unit": proposed_unit,
+            "proposed_source_local_date": proposed_source_local_date,
+            "temporal_precision": normalized_precision,
+            "source_text": source_text,
+            "extractor_name": extractor_name,
+            "extractor_version": extractor_version,
+            "model_name": model_name,
+            "model_version": model_version,
+            "prompt_version": prompt_version,
+            "schema_version": schema_version,
+            "confidence": confidence,
+            "algorithm_code": algorithm_code,
+            "algorithm_version": algorithm_version,
+            "provider_code": provider_code,
+            "source_timezone": source_timezone,
+            "source_utc_offset_minutes": source_utc_offset_minutes,
+        }
         if existing is not None:
+            stored = {field_name: getattr(existing, field_name) for field_name in incoming}
+            if stored != incoming or not _same_datetime(
+                existing.proposed_source_timestamp, normalized_timestamp
+            ):
+                raise ValueError("extraction identity already has different evidence")
             return existing
         candidate = ImportCandidate(
             ingest_event_id=ingest_event_id,
@@ -735,7 +959,7 @@ class ImportCandidateRepository:
             metric_code=_required_text(metric_code, "metric code"),
             proposed_value=proposed_value,
             proposed_unit=proposed_unit,
-            proposed_source_timestamp=_as_utc(proposed_source_timestamp),
+            proposed_source_timestamp=normalized_timestamp,
             proposed_source_local_date=proposed_source_local_date,
             temporal_precision=normalized_precision,
             source_text=source_text,
@@ -747,6 +971,11 @@ class ImportCandidateRepository:
             schema_version=schema_version,
             confidence=confidence,
             evidence_region_json=_json_or_none(evidence_region),
+            algorithm_code=algorithm_code,
+            algorithm_version=algorithm_version,
+            provider_code=provider_code,
+            source_timezone=source_timezone,
+            source_utc_offset_minutes=source_utc_offset_minutes,
         )
         self.session.add(candidate)
         self.session.flush()
@@ -768,6 +997,54 @@ class ImportCandidateRepository:
         )
         self.session.add(edit)
 
+    def edit_pending(
+        self,
+        candidate_id: str,
+        *,
+        edited_value: float | None = None,
+        edited_unit: str | None = None,
+        edited_source_timestamp: datetime | None = None,
+        edited_source_local_date: date | None = None,
+        actor: str = "owner",
+    ) -> ImportCandidate:
+        """Record a pending-field edit without confirming or rejecting."""
+
+        candidate = self.session.get(ImportCandidate, candidate_id)
+        if candidate is None:
+            raise KeyError(f"unknown import candidate {candidate_id}")
+        if candidate.user_decision != CandidateDecision.PENDING.value:
+            raise ValueError(
+                "a terminal candidate decision cannot be edited; create a measurement revision"
+            )
+        if (
+            edited_source_timestamp is not None
+            and candidate.temporal_precision == TemporalPrecision.DATE.value
+        ):
+            raise ValueError("date-only evidence cannot accept a timestamp")
+        changed_fields: dict[str, Any] = {}
+        if edited_value is not None and edited_value != candidate.edited_value:
+            candidate.edited_value = edited_value
+            changed_fields["edited_value"] = edited_value
+        if edited_unit is not None and edited_unit != candidate.edited_unit:
+            candidate.edited_unit = edited_unit
+            changed_fields["edited_unit"] = edited_unit
+        if edited_source_timestamp is not None:
+            normalized_source_timestamp = _as_utc(edited_source_timestamp)
+            if not _same_datetime(normalized_source_timestamp, candidate.edited_source_timestamp):
+                candidate.edited_source_timestamp = normalized_source_timestamp
+                changed_fields["edited_source_timestamp"] = edited_source_timestamp.isoformat()
+        if (
+            edited_source_local_date is not None
+            and edited_source_local_date != candidate.edited_source_local_date
+        ):
+            candidate.edited_source_local_date = edited_source_local_date
+            changed_fields["edited_source_local_date"] = edited_source_local_date.isoformat()
+        if not changed_fields:
+            return candidate
+        self._record_edit(candidate, changed_fields, actor)
+        self.session.flush()
+        return candidate
+
     def decide(
         self,
         candidate_id: str,
@@ -787,6 +1064,11 @@ class ImportCandidateRepository:
             normalized_decision = CandidateDecision(str(decision)).value
         except ValueError as exc:
             raise ValueError("candidate decision must be pending, confirmed, or rejected") from exc
+        if (
+            edited_source_timestamp is not None
+            and candidate.temporal_precision == TemporalPrecision.DATE.value
+        ):
+            raise ValueError("date-only evidence cannot accept a timestamp")
 
         if candidate.user_decision != CandidateDecision.PENDING.value:
             if normalized_decision != candidate.user_decision:
@@ -848,8 +1130,11 @@ class MeasurementSessionRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_by_id(self, session_id: str) -> MeasurementSession | None:
+    def get(self, session_id: str) -> MeasurementSession | None:
         return self.session.get(MeasurementSession, session_id)
+
+    def get_by_id(self, session_id: str) -> MeasurementSession | None:
+        return self.get(session_id)
 
     def current_heads(
         self,
@@ -1141,8 +1426,68 @@ class ScalarMeasurementRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_by_id(self, measurement_id: str) -> ScalarMeasurement | None:
+    def get(self, measurement_id: str) -> ScalarMeasurement | None:
         return self.session.get(ScalarMeasurement, measurement_id)
+
+    def get_by_id(self, measurement_id: str) -> ScalarMeasurement | None:
+        return self.get(measurement_id)
+
+    def get_by_import_candidate(
+        self, import_candidate_id: str, metric_code: str | None = None
+    ) -> ScalarMeasurement | None:
+        conditions = [ScalarMeasurement.import_candidate_id == import_candidate_id]
+        if metric_code is not None:
+            conditions.append(ScalarMeasurement.metric_code == metric_code)
+        return self.session.scalar(select(ScalarMeasurement).where(*conditions))
+
+    def list_for_session(self, measurement_session_id: str) -> list[ScalarMeasurement]:
+        return list(
+            self.session.scalars(
+                select(ScalarMeasurement)
+                .where(ScalarMeasurement.measurement_session_id == measurement_session_id)
+                .order_by(ScalarMeasurement.metric_code, ScalarMeasurement.id)
+            )
+        )
+
+    def active_for_source_metric(
+        self,
+        *,
+        acquisition_source_id: str,
+        metric_code: str,
+        semantic_key: str | None = None,
+        source_record_id: str | None = None,
+    ) -> ScalarMeasurement | None:
+        """Return the single active head for a metric on one source-identity chain."""
+
+        identity_conditions = []
+        if semantic_key is not None:
+            identity_conditions.append(MeasurementSession.semantic_key == semantic_key)
+        if source_record_id is not None:
+            identity_conditions.append(MeasurementSession.source_record_id == source_record_id)
+        if not identity_conditions:
+            return None
+        session_ids = select(MeasurementSession.id).where(
+            MeasurementSession.acquisition_source_id == acquisition_source_id,
+            or_(*identity_conditions),
+        )
+        measurements = list(
+            self.session.scalars(
+                select(ScalarMeasurement).where(
+                    ScalarMeasurement.measurement_session_id.in_(session_ids),
+                    ScalarMeasurement.metric_code == metric_code,
+                )
+            )
+        )
+        superseded = {
+            measurement.supersedes_measurement_id
+            for measurement in measurements
+            if measurement.supersedes_measurement_id is not None
+        }
+        active = [measurement for measurement in measurements if measurement.id not in superseded]
+        if not active:
+            return None
+        active.sort(key=lambda measurement: (measurement.created_at, measurement.id))
+        return active[-1]
 
     def current_heads(
         self,
@@ -2052,4 +2397,5 @@ __all__ = [
     "canonical_json",
     "hash_canonical_rule",
     "repositories_for",
+    "restore_stored_utc",
 ]
