@@ -7,6 +7,8 @@ from fastapi.responses import PlainTextResponse
 
 from healthcheck.app import create_base_app
 from healthcheck.config import Settings
+from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+from healthcheck.web.imports import router as import_router
 
 
 def create_ui_app(settings: Settings | None = None) -> tuple[FastAPI, object]:
@@ -15,6 +17,8 @@ def create_ui_app(settings: Settings | None = None) -> tuple[FastAPI, object]:
         service="loopback-ui",
         title="Health-Check local runtime",
     )
+    app.state.photo_extractor = FakeImageMeasurementExtractor()
+    app.include_router(import_router)
 
     @app.get("/", response_class=PlainTextResponse)
     def bootstrap_page() -> str:
