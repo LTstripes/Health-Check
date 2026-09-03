@@ -1597,11 +1597,16 @@ class CanonicalSelectionRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_by_key(self, selection_run_id: str, semantic_key: str) -> CanonicalSelection | None:
+    def get_by_key(
+        self, selection_run_id: str, metric_code: str, semantic_key: str
+    ) -> CanonicalSelection | None:
+        normalized_metric_code = _required_text(metric_code, "canonical metric code")
+        normalized_key = _required_text(semantic_key, "canonical semantic key")
         return self.session.scalar(
             select(CanonicalSelection).where(
                 CanonicalSelection.selection_run_id == selection_run_id,
-                CanonicalSelection.semantic_key == semantic_key,
+                CanonicalSelection.metric_code == normalized_metric_code,
+                CanonicalSelection.semantic_key == normalized_key,
             )
         )
 
@@ -1696,7 +1701,7 @@ class CanonicalSelectionRepository:
                 for input_id in input_measurement_ids
             ):
                 raise ValueError("derived measurement has ineligible input evidence")
-        existing = self.get_by_key(selection_run_id, normalized_key)
+        existing = self.get_by_key(selection_run_id, normalized_metric_code, normalized_key)
         if existing is not None:
             if (
                 existing.metric_code == normalized_metric_code

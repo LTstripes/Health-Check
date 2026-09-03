@@ -44,7 +44,12 @@ from healthcheck.db.repositories import (
 
 @dataclass(frozen=True, slots=True)
 class CanonicalSelectionResult:
-    """Persisted run plus ordered selections and non-fatal exclusions."""
+    """Persisted run plus ordered selections and non-fatal exclusions.
+
+    Selection persistence failures are represented by this same typed result
+    with ``status == "failed"`` and a sanitized ``failure_reason``.  That
+    lets the caller commit the failed audit run through its outer transaction.
+    """
 
     rule_set: CanonicalRuleSet
     run: CanonicalSelectionRun
@@ -80,6 +85,10 @@ class CanonicalSelectionResult:
         return self.run.input_snapshot_hash
 
     @property
+    def failure_reason(self) -> str | None:
+        return self.run.failure_reason
+
+    @property
     def run_dto(self) -> CanonicalSelectionRunDTO:
         return canonical_run_dto(self.run)
 
@@ -104,8 +113,9 @@ class CanonicalSelectionResult:
 class CanonicalSelectionService:
     """Coordinate pure selection rules with the #5 repositories.
 
-    The service flushes but does not commit.  The caller controls the outer
-    transaction, just as it does for the existing provenance repositories.
+    The service flushes but does not commit.  Selection writes are enclosed in
+    a savepoint so a failed attempt can roll those writes back while leaving a
+    sanitized failed run for the caller's outer transaction to commit.
     """
 
     def __init__(self, session: Session):
@@ -142,7 +152,8 @@ class CanonicalSelectionService:
         application service that already assembled a bounded evidence scope.
         A changed revision or rule changes the input/rule identity and creates
         a new run whose predecessor is the latest successful run for the same
-        scope.
+        scope.  A selection-write failure returns a failed result with no
+        persisted selections; the caller's outer transaction owns its commit.
         """
 
         if algorithm_compatibility_group is not None:
@@ -272,32 +283,40 @@ class CanonicalSelectionService:
             )
 
         try:
-            for candidate in selected:
-                self.repositories.canonical_selections.add(
-                    selection_run_id=run.id,
-                    metric_code=candidate.metric_code,
-                    semantic_key=candidate.semantic_key,
-                    period_start_date=candidate.period_start_date,
-                    period_end_date=candidate.period_end_date,
-                    selection_reason=selection_reason(candidate),
-                    source_measurement_id=candidate.source_measurement_id,
-                    derived_measurement_id=candidate.derived_measurement_id,
+            with self.session.begin_nested():
+                for candidate in selected:
+                    self.repositories.canonical_selections.add(
+                        selection_run_id=run.id,
+                        metric_code=candidate.metric_code,
+                        semantic_key=candidate.semantic_key,
+                        period_start_date=candidate.period_start_date,
+                        period_end_date=candidate.period_end_date,
+                        selection_reason=selection_reason(candidate),
+                        source_measurement_id=candidate.source_measurement_id,
+                        derived_measurement_id=candidate.derived_measurement_id,
+                    )
+                self.repositories.canonical_selection_runs.finish(
+                    run.id,
+                    status=RunStatus.SUCCEEDED,
+                    selection_count=len(selected),
                 )
-            self.repositories.canonical_selection_runs.finish(
-                run.id,
-                status=RunStatus.SUCCEEDED,
-                selection_count=len(selected),
-            )
         except Exception as exc:
-            # Keep a durable, sanitized failed attempt when the caller keeps
-            # the transaction open.  Never put a health value or raw exception
-            # payload into the canonical failure field.
-            self.repositories.canonical_selection_runs.finish(
+            # The savepoint has removed any partial selections.  Return a
+            # typed failed result rather than re-raising, so session_scope can
+            # commit this durable audit row.  BaseException subclasses still
+            # escape and preserve the normal rollback behaviour.
+            failed_run = self.repositories.canonical_selection_runs.finish(
                 run.id,
                 status=RunStatus.FAILED,
                 failure_reason=_failure_reason(exc),
             )
-            raise
+            return CanonicalSelectionResult(
+                rule_set=effective_rule,
+                run=failed_run,
+                selections=tuple(self.repositories.canonical_selections.for_run(run.id)),
+                exclusions=current_exclusions + plan_exclusions,
+                replayed=False,
+            )
 
         return CanonicalSelectionResult(
             rule_set=effective_rule,

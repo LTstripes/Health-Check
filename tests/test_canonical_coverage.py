@@ -14,11 +14,17 @@ from healthcheck.analytics.coverage import (
 )
 from healthcheck.canonical import (
     CanonicalCandidate,
+    CanonicalSelectionResult,
     CanonicalSelectionService,
     select_canonical_candidates,
 )
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import (
+    create_session_factory,
+    create_sqlite_engine,
+    migrate_database,
+    session_scope,
+)
 from healthcheck.db.models import CanonicalSelectionRun
 from healthcheck.db.repositories import repositories_for
 from healthcheck.runtime import prepare_runtime
@@ -137,6 +143,74 @@ def test_revision_recomputes_canonical_run_and_old_evidence_survives(database):
     old_value = session.get(type(first_measurement), first_measurement.id).normalized_value
     assert old_value == pytest.approx(72.5)
     assert repositories.scalar_measurements.current_heads("weight") == [revision]
+
+
+def test_persisted_run_allows_multiple_metrics_for_one_semantic_weigh_in(database):
+    repositories, session = database
+    provider = repositories.providers.get_or_create("synthetic", "Synthetic", "scale")
+    source = repositories.acquisition_sources.get_or_create(
+        provider_id=provider.id, input_method="manual_import"
+    )
+    weight_algorithm = repositories.measurement_algorithms.get_or_create(
+        code="synthetic-weight",
+        version="1",
+        metric_family="weight",
+        producer="healthcheck",
+        compatibility_group="synthetic-weight-v1",
+    )
+    composition_algorithm = repositories.measurement_algorithms.get_or_create(
+        code="synthetic-body-composition",
+        version="1",
+        metric_family="body_composition",
+        producer="healthcheck",
+        compatibility_group="synthetic-body-v1",
+    )
+    measurement_session = repositories.measurement_sessions.create_confirmed(
+        acquisition_source_id=source.id,
+        semantic_key="weigh-in-1",
+        source_local_date=date(2026, 1, 1),
+        temporal_precision="date",
+    )
+    weight = repositories.scalar_measurements.create(
+        measurement_session_id=measurement_session.id,
+        metric_code="weight",
+        normalized_value=72.5,
+        normalized_unit="kg",
+        measurement_algorithm_id=weight_algorithm.id,
+    )
+    body_fat = repositories.scalar_measurements.create(
+        measurement_session_id=measurement_session.id,
+        metric_code="body_fat_pct",
+        normalized_value=20.0,
+        normalized_unit="%",
+        measurement_algorithm_id=composition_algorithm.id,
+    )
+
+    result = CanonicalSelectionService(session).select(
+        scope_key="mixed-metrics:2026-01-01",
+        compatibility_group="synthetic-body-v1",
+    )
+
+    assert result.status == "succeeded"
+    assert {
+        (selection.metric_code, selection.semantic_key) for selection in result.selections
+    } == {
+        ("weight", "weigh-in-1"),
+        ("body_fat_pct", "weigh-in-1"),
+    }
+    assert (
+        repositories.canonical_selections.get_by_key(
+            result.id, "weight", "weigh-in-1"
+        ).source_measurement_id
+        == weight.id
+    )
+    assert (
+        repositories.canonical_selections.get_by_key(
+            result.id, "body_fat_pct", "weigh-in-1"
+        ).source_measurement_id
+        == body_fat.id
+    )
+    assert len(repositories.canonical_selections.for_run(result.id)) == 2
 
 
 def test_coverage_uses_sparse_cadence_and_all_states_without_zero_fallback():
@@ -468,30 +542,74 @@ def test_derived_selection_requires_current_inputs_and_requested_version(databas
     assert recomputed.selections == ()
 
 
-def test_invalid_selection_leaves_a_failed_non_active_run(database):
+def test_invalid_selection_is_durable_through_session_scope(database):
     _repositories, session = database
-    with pytest.raises(KeyError, match="unknown source measurement"):
-        CanonicalSelectionService(session).select(
+    engine = session.get_bind()
+    with session_scope(engine) as setup_session:
+        setup_repositories = repositories_for(setup_session)
+        provider = setup_repositories.providers.get_or_create(
+            "synthetic-failure", "Synthetic Failure", "scale"
+        )
+        source = setup_repositories.acquisition_sources.get_or_create(
+            provider_id=provider.id, input_method="manual_import"
+        )
+        algorithm = setup_repositories.measurement_algorithms.get_or_create(
+            code="synthetic-failure-weight",
+            version="1",
+            metric_family="weight",
+            producer="healthcheck",
+            compatibility_group="synthetic-failure-v1",
+        )
+        measurement_session = setup_repositories.measurement_sessions.create_confirmed(
+            acquisition_source_id=source.id,
+            semantic_key="a-valid-weigh-in",
+            source_local_date=date(2026, 1, 1),
+            temporal_precision="date",
+        )
+        valid_measurement = setup_repositories.scalar_measurements.create(
+            measurement_session_id=measurement_session.id,
+            metric_code="weight",
+            normalized_value=72.5,
+            normalized_unit="kg",
+            measurement_algorithm_id=algorithm.id,
+        )
+
+    with session_scope(engine) as scoped_session:
+        result = CanonicalSelectionService(scoped_session).select(
             scope_key="invalid:scope",
             metric_code="weight",
             candidates=[
                 CanonicalCandidate(
                     metric_code="weight",
-                    semantic_key="missing",
+                    semantic_key="a-valid-weigh-in",
+                    source_measurement_id=valid_measurement.id,
+                ),
+                CanonicalCandidate(
+                    metric_code="weight",
+                    semantic_key="z-missing-weigh-in",
                     source_measurement_id="missing-source-measurement",
-                )
+                ),
             ],
         )
+        assert isinstance(result, CanonicalSelectionResult)
+        assert result.status == "failed"
+        assert result.failure_reason == "canonical_selection_reference_missing"
+        assert result.selections == ()
 
-    failed = session.scalar(
-        select(CanonicalSelectionRun).where(
-            CanonicalSelectionRun.scope_key == "invalid:scope"
+    with create_session_factory(engine)() as fresh_session:
+        failed = fresh_session.scalar(
+            select(CanonicalSelectionRun).where(
+                CanonicalSelectionRun.scope_key == "invalid:scope"
+            )
         )
-    )
-    assert failed is not None
-    assert failed.status == "failed"
-    assert failed.failure_reason == "canonical_selection_reference_missing"
-    assert (
-        repositories_for(session).canonical_selection_runs.latest_successful("invalid:scope")
-        is None
-    )
+        assert failed is not None
+        assert failed.status == "failed"
+        assert failed.failure_reason == "canonical_selection_reference_missing"
+        assert (
+            repositories_for(fresh_session)
+            .canonical_selection_runs.latest_successful("invalid:scope")
+            is None
+        )
+        assert (
+            repositories_for(fresh_session).canonical_selections.for_run(failed.id) == []
+        )
