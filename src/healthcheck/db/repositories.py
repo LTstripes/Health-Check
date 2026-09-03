@@ -72,7 +72,17 @@ def build_input_snapshot_hash(
     """
 
     pairs = records.items() if isinstance(records, Mapping) else records
-    normalized = sorted((str(entity_id), str(content_hash)) for entity_id, content_hash in pairs)
+    by_entity: dict[str, str] = {}
+    for entity_id, content_hash in pairs:
+        normalized_id = str(entity_id)
+        normalized_hash = str(content_hash)
+        previous_hash = by_entity.get(normalized_id)
+        if previous_hash is not None and previous_hash != normalized_hash:
+            raise ValueError(
+                "an input snapshot cannot assign multiple content hashes to one evidence ID"
+            )
+        by_entity[normalized_id] = normalized_hash
+    normalized = sorted(by_entity.items())
     payload = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -1139,6 +1149,7 @@ class ScalarMeasurementRepository:
         metric_code: str | None = None,
         *,
         acquisition_source_id: str | None = None,
+        provider_id: str | None = None,
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> list[ScalarMeasurement]:
@@ -1167,6 +1178,10 @@ class ScalarMeasurementRepository:
             )
         if acquisition_source_id is not None:
             conditions.append(MeasurementSession.acquisition_source_id == acquisition_source_id)
+        if provider_id is not None:
+            conditions.append(
+                AcquisitionSource.provider_id == _required_text(provider_id, "provider id")
+            )
         if start_date is not None:
             conditions.append(MeasurementSession.source_local_date >= start_date)
         if end_date is not None:
@@ -1177,13 +1192,17 @@ class ScalarMeasurementRepository:
                 MeasurementSession,
                 MeasurementSession.id == ScalarMeasurement.measurement_session_id,
             )
-            .where(*conditions)
-            .order_by(
-                MeasurementSession.source_local_date,
-                MeasurementSession.source_timestamp_utc,
-                ScalarMeasurement.metric_code,
-                ScalarMeasurement.id,
+        )
+        if provider_id is not None:
+            statement = statement.join(
+                AcquisitionSource,
+                AcquisitionSource.id == MeasurementSession.acquisition_source_id,
             )
+        statement = statement.where(*conditions).order_by(
+            MeasurementSession.source_local_date,
+            MeasurementSession.source_timestamp_utc,
+            ScalarMeasurement.metric_code,
+            ScalarMeasurement.id,
         )
         return list(self.session.scalars(statement))
 
@@ -1603,6 +1622,7 @@ class CanonicalSelectionRepository:
                 "canonical selection must reference exactly one source or derived measurement"
             )
         normalized_metric_code = _required_text(metric_code, "canonical metric code")
+        normalized_key = _required_text(semantic_key, "canonical semantic key")
         if (
             period_start_date is not None
             and period_end_date is not None
@@ -1630,6 +1650,10 @@ class CanonicalSelectionRepository:
                     raise ValueError(
                         "only current confirmed source measurements are canonical-eligible"
                     )
+                if source_session.semantic_key != normalized_key:
+                    raise ValueError(
+                        "canonical semantic key must match source measurement evidence"
+                    )
             superseded = self.session.scalar(
                 select(ScalarMeasurement.id).where(
                     ScalarMeasurement.supersedes_measurement_id == source_measurement_id
@@ -1645,10 +1669,15 @@ class CanonicalSelectionRepository:
                 raise ValueError("canonical metric does not match derived measurement metric")
             session_repository = MeasurementSessionRepository(self.session)
             source_session_id = derived_measurement.source_session_id
-            if source_session_id is not None and not session_repository.is_current_head(
-                source_session_id
-            ):
-                raise ValueError("derived measurement source session is not canonical-eligible")
+            source_session = None
+            if source_session_id is not None:
+                source_session = session_repository.get_by_id(source_session_id)
+                if source_session is None or not session_repository.is_current_head(
+                    source_session_id
+                ):
+                    raise ValueError("derived measurement source session is not canonical-eligible")
+                if source_session.semantic_key != normalized_key:
+                    raise ValueError("canonical semantic key must match derived source session")
             if not derived_measurement.input_measurement_ids_json:
                 raise ValueError(
                     "derived canonical selections require explicit input measurement IDs"
@@ -1667,7 +1696,6 @@ class CanonicalSelectionRepository:
                 for input_id in input_measurement_ids
             ):
                 raise ValueError("derived measurement has ineligible input evidence")
-        normalized_key = _required_text(semantic_key, "canonical semantic key")
         existing = self.get_by_key(selection_run_id, normalized_key)
         if existing is not None:
             if (
@@ -1695,7 +1723,17 @@ class CanonicalSelectionRepository:
         statement = select(CanonicalSelection).where(
             CanonicalSelection.selection_run_id == selection_run_id
         )
-        return list(self.session.scalars(statement.order_by(CanonicalSelection.semantic_key)))
+        return list(
+            self.session.scalars(
+                statement.order_by(
+                    CanonicalSelection.metric_code,
+                    CanonicalSelection.semantic_key,
+                    CanonicalSelection.period_start_date,
+                    CanonicalSelection.period_end_date,
+                    CanonicalSelection.id,
+                )
+            )
+        )
 
 
 class SyncRepository:

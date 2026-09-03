@@ -169,7 +169,7 @@ def build_selection_plan(
             ),
         )
     )
-    return ordered, tuple(exclusions)
+    return ordered, tuple(sorted(exclusions, key=_exclusion_sort_key))
 
 
 def select_canonical_candidates(
@@ -223,6 +223,15 @@ def _exclusion(candidate: CanonicalCandidate, reason_code: str) -> CanonicalExcl
         metric_code=candidate.metric_code,
         semantic_key=candidate.semantic_key,
         reason_code=reason_code,
+    )
+
+
+def _exclusion_sort_key(value: CanonicalExclusionDTO) -> tuple[str, str, str, str]:
+    return (
+        value.metric_code or "",
+        value.semantic_key or "",
+        value.evidence_id or "",
+        value.reason_code,
     )
 
 

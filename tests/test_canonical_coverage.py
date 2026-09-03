@@ -204,6 +204,57 @@ def test_coverage_uses_sparse_cadence_and_all_states_without_zero_fallback():
         computed_at=datetime(2026, 1, 7, 9, tzinfo=UTC),
     )
     assert resolve_coverage_status([earlier_empty, later_failure]) == "failed"
+    assert (
+        resolve_coverage_status(
+            [
+                {
+                    "status": "confirmed_empty",
+                    "computed_at": "2026-01-07T08:00:00Z",
+                    "interval_end": "2026-01-07T00:00:00Z",
+                    "interval_id": "empty-map",
+                },
+                {
+                    "status": "failed",
+                    "computed_at": "2026-01-07T09:00:00Z",
+                    "interval_end": "2026-01-07T00:00:00Z",
+                    "interval_id": "failed-map",
+                },
+            ]
+        )
+        == "failed"
+    )
+
+
+def test_coverage_interval_reordering_has_stable_ids_and_tie_precedence():
+    empty = CoverageEvidence(
+        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2026, 1, 2, tzinfo=UTC),
+        "confirmed_empty",
+        interval_id="empty",
+    )
+    failure = CoverageEvidence(
+        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2026, 1, 2, tzinfo=UTC),
+        "failed",
+        interval_id="failure",
+    )
+
+    forward = calculate_coverage(
+        date(2026, 1, 1),
+        date(2026, 1, 1),
+        coverage_intervals=[failure, empty],
+        cadence_days=1,
+    )
+    reverse = calculate_coverage(
+        date(2026, 1, 1),
+        date(2026, 1, 1),
+        coverage_intervals=[empty, failure],
+        cadence_days=1,
+    )
+
+    assert forward.as_dict() == reverse.as_dict()
+    assert forward.bins[0].status == "confirmed_empty"
+    assert forward.bins[0].interval_ids == ("empty", "failure")
 
 
 def test_coverage_service_reads_persisted_utc_interval_and_current_heads(database):
@@ -254,6 +305,101 @@ def test_coverage_service_reads_persisted_utc_interval_and_current_heads(databas
     assert summary.bins[0].status == "present"
     assert summary.bins[0].source_breakdown == {source.id: 1}
     assert summary.cadence_days == 7
+
+
+def test_coverage_service_filters_observations_by_provider(database):
+    repositories, session = database
+    first_provider = repositories.providers.get_or_create("synthetic-a", "Synthetic A", "scale")
+    second_provider = repositories.providers.get_or_create("synthetic-b", "Synthetic B", "scale")
+    first_source = repositories.acquisition_sources.get_or_create(
+        provider_id=first_provider.id, input_method="manual_import"
+    )
+    second_source = repositories.acquisition_sources.get_or_create(
+        provider_id=second_provider.id, input_method="manual_import"
+    )
+    algorithm = repositories.measurement_algorithms.get_or_create(
+        code="synthetic-weight",
+        version="1",
+        metric_family="weight",
+        producer="healthcheck",
+        compatibility_group="synthetic-weight-v1",
+    )
+    for source, semantic_key, value in (
+        (first_source, "first", 72.5),
+        (second_source, "second", 73.5),
+    ):
+        measurement_session = repositories.measurement_sessions.create_confirmed(
+            acquisition_source_id=source.id,
+            semantic_key=semantic_key,
+            source_local_date=date(2026, 1, 1),
+            temporal_precision="date",
+        )
+        repositories.scalar_measurements.create(
+            measurement_session_id=measurement_session.id,
+            metric_code="weight",
+            normalized_value=value,
+            normalized_unit="kg",
+            measurement_algorithm_id=algorithm.id,
+        )
+
+    summary = CoverageService(session).summarize(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 7),
+        provider_id=first_provider.id,
+    )
+
+    assert summary.observed_dates == (date(2026, 1, 1),)
+    assert summary.source_breakdown == {first_source.id: 1}
+
+
+def test_orm_candidate_excludes_a_superseded_measurement(database):
+    repositories, session = database
+    provider = repositories.providers.get_or_create("synthetic", "Synthetic", "scale")
+    source = repositories.acquisition_sources.get_or_create(
+        provider_id=provider.id, input_method="manual_import"
+    )
+    algorithm = repositories.measurement_algorithms.get_or_create(
+        code="synthetic-weight",
+        version="1",
+        metric_family="weight",
+        producer="healthcheck",
+        compatibility_group="synthetic-weight-v1",
+    )
+    first_session = repositories.measurement_sessions.create_confirmed(
+        acquisition_source_id=source.id,
+        semantic_key="weigh-in-1",
+        source_local_date=date(2026, 1, 1),
+        temporal_precision="date",
+    )
+    first_measurement = repositories.scalar_measurements.create(
+        measurement_session_id=first_session.id,
+        metric_code="weight",
+        normalized_value=72.5,
+        normalized_unit="kg",
+        measurement_algorithm_id=algorithm.id,
+    )
+    revision_session = repositories.measurement_sessions.create_revision(
+        first_session.id,
+        source_local_date=date(2026, 1, 1),
+        temporal_precision="date",
+    )
+    repositories.scalar_measurements.create_revision(
+        first_measurement.id,
+        measurement_session_id=revision_session.id,
+        normalized_value=72.4,
+        normalized_unit="kg",
+        measurement_algorithm_id=algorithm.id,
+    )
+
+    result = CanonicalSelectionService(session).select(
+        scope_key="weight:stale-candidate",
+        metric_code="weight",
+        candidates=[first_measurement],
+    )
+
+    assert result.status == "succeeded"
+    assert result.selections == ()
+    assert result.exclusions[0].reason_code == "superseded"
 
 
 def test_derived_selection_requires_current_inputs_and_requested_version(database):

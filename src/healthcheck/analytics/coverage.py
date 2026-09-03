@@ -232,10 +232,7 @@ def resolve_coverage_status(
     """
 
     values = tuple(statuses)
-    normalized = {
-        getattr(raw_status, "value", raw_status)
-        for raw_status in (getattr(status, "status", status) for status in values)
-    }
+    normalized = {_status_value(status) for status in values}
     unsupported = normalized - set(COVERAGE_STATUSES)
     if unsupported:
         raise ValueError(f"unsupported coverage statuses: {sorted(unsupported)}")
@@ -246,11 +243,11 @@ def resolve_coverage_status(
     evidence_events = [
         status
         for status in values
-        if getattr(status, "status", None) in {"confirmed_empty", "failed"}
+        if _status_value(status) in {"confirmed_empty", "failed"}
     ]
     if evidence_events:
         latest = max(evidence_events, key=_coverage_event_key)
-        return getattr(latest, "status")
+        return _status_value(latest)
     if "confirmed_empty" in normalized:
         return "confirmed_empty"
     if "failed" in normalized:
@@ -295,7 +292,10 @@ def calculate_coverage(
     )
     observed_dates = tuple(sorted({value.observed_date for value in in_period}))
     normalized_intervals = tuple(
-        _coerce_evidence(value) for value in (coverage_intervals or ())
+        sorted(
+            (_coerce_evidence(value) for value in (coverage_intervals or ())),
+            key=_coverage_evidence_sort_key,
+        )
     )
     expected = _expected_bins(start, end, cadence_days)
     bins: list[CoverageBin] = []
@@ -400,6 +400,8 @@ class CoverageService:
                 metric_code=metric_code,
                 start_date=start_date,
                 end_date=end_date,
+                provider_id=provider_id,
+                acquisition_source_id=acquisition_source_id,
             )
         if coverage_intervals is None:
             coverage_intervals = self.repositories.coverage.list(
@@ -429,11 +431,19 @@ class CoverageService:
     get_summary = summarize
 
     def _current_observations(
-        self, *, metric_code: str, start_date: date, end_date: date
+        self,
+        *,
+        metric_code: str,
+        start_date: date,
+        end_date: date,
+        provider_id: str | None = None,
+        acquisition_source_id: str | None = None,
     ) -> tuple[CoverageObservation, ...]:
         values = []
         for measurement in self.repositories.scalar_measurements.current_heads(
             metric_code,
+            acquisition_source_id=acquisition_source_id,
+            provider_id=provider_id,
             start_date=_as_date(start_date),
             end_date=_as_date(end_date),
         ):
@@ -559,14 +569,48 @@ def _longest_gap(observed_dates: tuple[date, ...]) -> int | None:
     )
 
 
-def _coverage_event_key(value: Any) -> tuple[datetime, datetime, str]:
-    computed_at = getattr(value, "computed_at", None)
-    interval_end = getattr(value, "interval_end", datetime.min.replace(tzinfo=UTC))
+def _coverage_event_key(value: Any) -> tuple[datetime, datetime, int, str]:
+    status = _status_value(value)
+    if isinstance(value, Mapping):
+        computed_at = value.get("computed_at")
+        interval_end = value.get("interval_end", datetime.min.replace(tzinfo=UTC))
+        interval_id = value.get("interval_id", value.get("id", ""))
+    else:
+        computed_at = getattr(value, "computed_at", None)
+        interval_end = getattr(value, "interval_end", datetime.min.replace(tzinfo=UTC))
+        interval_id = getattr(value, "interval_id", "")
     if computed_at is None:
         computed_at = interval_end
-    return _as_utc(_as_datetime(computed_at)), _as_utc(_as_datetime(interval_end)), str(
-        getattr(value, "interval_id", "") or ""
+    return (
+        _as_utc(_as_datetime(computed_at)),
+        _as_utc(_as_datetime(interval_end)),
+        1 if status == "confirmed_empty" else 0,
+        str(interval_id or ""),
     )
+
+
+def _coverage_evidence_sort_key(value: CoverageEvidence) -> tuple[Any, ...]:
+    """Provide an input-order-independent order for interval evidence."""
+
+    minimum = datetime.min.replace(tzinfo=UTC)
+    return (
+        value.interval_start,
+        value.interval_end,
+        value.computed_at or minimum,
+        value.status,
+        value.source_id or "",
+        value.interval_id or "",
+        value.observed_count if value.observed_count is not None else -1,
+        value.expected_count if value.expected_count is not None else -1,
+    )
+
+
+def _status_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        value = value.get("status")
+    else:
+        value = getattr(value, "status", value)
+    return getattr(value, "value", value)
 
 
 def _summary_status(status_counts: Mapping[str, int]) -> str:

@@ -52,6 +52,21 @@ class CanonicalSelectionResult:
     exclusions: tuple[CanonicalExclusionDTO, ...] = ()
     replayed: bool = False
 
+    def __post_init__(self) -> None:
+        # Repository queries and caller-provided candidate iterables may use
+        # different transport order.  Keep the DTO boundary byte-stable for
+        # later API/UI consumers as well as for persisted selection rows.
+        object.__setattr__(
+            self,
+            "selections",
+            tuple(sorted(self.selections, key=_selection_sort_key)),
+        )
+        object.__setattr__(
+            self,
+            "exclusions",
+            tuple(sorted(self.exclusions, key=_exclusion_sort_key)),
+        )
+
     @property
     def id(self) -> str:
         return self.run.id
@@ -151,6 +166,14 @@ class CanonicalSelectionService:
         )
         normalized_metric_code = metric_code.strip() if metric_code is not None else None
         normalized_scope_key = scope_key.strip()
+        if not normalized_scope_key:
+            raise ValueError("canonical scope key must not be empty")
+        if (
+            requested_start_date is not None
+            and requested_end_date is not None
+            and requested_end_date < requested_start_date
+        ):
+            raise ValueError("canonical requested end date must not precede start date")
 
         current_exclusions: tuple[CanonicalExclusionDTO, ...] = ()
         if candidates is None:
@@ -524,6 +547,8 @@ class CanonicalSelectionService:
                 compatibility_group=algorithm.compatibility_group,
                 revision_number=session.revision_number,
                 created_at=value.created_at,
+                confirmed=session.confirmation_status == "confirmed",
+                current=self.repositories.scalar_measurements.is_current_head(value.id),
             )
         if isinstance(value, DerivedMeasurement):
             candidate, exclusion = self._derived_candidate(
@@ -587,6 +612,27 @@ def canonical_run_dto(run: CanonicalSelectionRun) -> CanonicalSelectionRunDTO:
         supersedes_run_id=run.supersedes_run_id,
         started_at=run.started_at,
         completed_at=run.completed_at,
+    )
+
+
+def _selection_sort_key(selection: CanonicalSelection) -> tuple[Any, ...]:
+    return (
+        selection.metric_code,
+        selection.semantic_key,
+        selection.period_start_date or date.min,
+        selection.period_end_date or date.min,
+        selection.source_measurement_id or "",
+        selection.derived_measurement_id or "",
+        selection.id,
+    )
+
+
+def _exclusion_sort_key(exclusion: CanonicalExclusionDTO) -> tuple[str, str, str, str]:
+    return (
+        exclusion.metric_code or "",
+        exclusion.semantic_key or "",
+        exclusion.evidence_id or "",
+        exclusion.reason_code,
     )
 
 
