@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from healthcheck.canonical import CanonicalSelectionService
 from healthcheck.db.models import (
     CandidateDecision,
     ImportCandidate,
@@ -407,6 +408,7 @@ class PhotoImportService:
                 )
             )
             self._refresh_event_status(key[0])
+        CanonicalSelectionService(self.session).recompute_dashboard()
         log_event("photo_confirm", operation="photo_confirm", status="ok", count=len(selected))
         return results
 

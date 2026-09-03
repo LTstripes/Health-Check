@@ -12,11 +12,12 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from healthcheck.db.engine import create_sqlite_engine, session_scope
+from healthcheck.db.engine import session_scope
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.logging import log_event
+from healthcheck.web.common import request_engine
 
 router = APIRouter()
 
@@ -40,11 +41,7 @@ class ReprocessBody(BaseModel):
 
 
 def _engine(request: Request):
-    engine = getattr(request.app.state, "engine", None)
-    if engine is None:
-        engine = create_sqlite_engine(request.app.state.runtime_paths)
-        request.app.state.engine = engine
-    return engine
+    return request_engine(request)
 
 
 @contextmanager

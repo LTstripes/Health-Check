@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     ingest_host: str = "127.0.0.1"
     ingest_port: int = Field(default=8001, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    weight_goal_kg: float | None = None
+    weight_cadence_days: int = Field(default=7, ge=1, le=365)
 
     @field_validator("data_dir", mode="before")
     @classmethod
@@ -48,4 +50,13 @@ class Settings(BaseSettings):
         value = value.strip()
         if not value:
             raise ValueError("HEALTHCHECK_INGEST_HOST must not be empty")
+        return value
+
+    @field_validator("weight_goal_kg")
+    @classmethod
+    def reject_non_positive_goal(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if value <= 0 or value != value or value == float("inf") or value == float("-inf"):
+            raise ValueError("HEALTHCHECK_WEIGHT_GOAL_KG must be a finite positive number")
         return value
