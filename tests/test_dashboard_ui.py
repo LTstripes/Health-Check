@@ -11,10 +11,12 @@ from datetime import date
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from healthcheck.canonical import CanonicalSelectionService
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
 from healthcheck.db.models import (
     CanonicalSelection,
+    CanonicalSelectionRun,
     ImportCandidate,
     MeasurementSession,
     ScalarMeasurement,
@@ -105,6 +107,7 @@ def test_pending_extraction_is_not_confirmed_or_canonical(tmp_path):
                 assert session.scalar(select(func.count(MeasurementSession.id))) == 0
                 assert session.scalar(select(func.count(ScalarMeasurement.id))) == 0
                 assert session.scalar(select(func.count(CanonicalSelection.id))) == 0
+                assert session.scalar(select(func.count(CanonicalSelectionRun.id))) == 0
                 assert session.scalar(select(func.count(ImportCandidate.id))) >= 6
         finally:
             engine.dispose()
@@ -185,8 +188,8 @@ def test_six_month_history_dashboard_smoke(tmp_path):
         assert series["trend_available"] is True
         assert series["goal_kg"] == 76.0
         assert series["current"]["available"] is True
-        assert series["canonical"]["available"] is True
-        assert series["canonical"]["selection_count"] == 26
+        assert series["canonical"]["available"] is False
+        assert series["canonical"]["reason"] == "no_canonical_run"
         summary = client.get("/api/weight/summary").json()
         assert summary["rate"]["available"] is True
         assert summary["rate"]["slope_kg_per_week"] is not None
@@ -365,3 +368,109 @@ def test_unmigrated_dashboard_stays_available(tmp_path):
         series = client.get("/api/weight/series")
         assert series.status_code == 200
         assert series.json()["raw_points"] == []
+
+
+def _canonical_snapshot(paths):
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            runs = list(
+                session.scalars(
+                    select(CanonicalSelectionRun).order_by(CanonicalSelectionRun.id)
+                )
+            )
+            selections = list(
+                session.scalars(select(CanonicalSelection).order_by(CanonicalSelection.id))
+            )
+            return {
+                "run_count": len(runs),
+                "selection_count": len(selections),
+                "run_ids": tuple(run.id for run in runs),
+                "statuses": tuple(run.status for run in runs),
+                "run_selection_counts": tuple(run.selection_count for run in runs),
+                "supersedes": tuple(run.supersedes_run_id for run in runs),
+                "scope_keys": tuple(run.scope_key for run in runs),
+                "input_hashes": tuple(run.input_snapshot_hash for run in runs),
+                "completed_at": tuple(
+                    None if run.completed_at is None else run.completed_at.isoformat()
+                    for run in runs
+                ),
+            }
+    finally:
+        engine.dispose()
+
+
+def test_dashboard_gets_do_not_mutate_canonical_state(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    with TestClient(app) as client:
+        uploaded = _upload_batch(client, six_month_synthetic_batch()[:8])
+        _confirm_all_pending(client, uploaded.json()["id"])
+        empty = _canonical_snapshot(paths)
+        assert empty["run_count"] == 0
+        assert empty["selection_count"] == 0
+
+        for _ in range(2):
+            assert client.get("/").status_code == 200
+            series = client.get("/api/weight/series")
+            summary = client.get("/api/weight/summary")
+            assert series.status_code == 200
+            assert summary.status_code == 200
+            assert series.json()["canonical"]["available"] is False
+            assert series.json()["canonical"]["reason"] == "no_canonical_run"
+            assert summary.json()["canonical"]["available"] is False
+            assert len(series.json()["raw_points"]) == 8
+
+        assert _canonical_snapshot(paths) == empty
+
+        engine = create_sqlite_engine(paths)
+        try:
+            with session_scope(engine) as session:
+                created = CanonicalSelectionService(session).select(
+                    scope_key="r01-weight",
+                    metric_code="weight",
+                    include_derived=False,
+                )
+                assert created.status == "succeeded"
+                established_run_id = created.run.id
+                established_count = created.run.selection_count
+        finally:
+            engine.dispose()
+
+        established = _canonical_snapshot(paths)
+        assert established["run_count"] == 1
+        assert established["selection_count"] == established_count
+        assert established["run_ids"] == (established_run_id,)
+        assert established["statuses"] == ("succeeded",)
+        assert established["supersedes"] == (None,)
+
+        reads = (
+            ("/", None),
+            ("/api/weight/series", None),
+            ("/api/weight/summary", None),
+            ("/api/weight/series", {"start_date": "2026-02-01"}),
+            ("/api/weight/summary", {"end_date": "2026-02-01"}),
+            ("/api/weight/series", {"compatibility_group": "not-a-real-group"}),
+            ("/api/weight/summary", {"start_date": "2026-06-01", "end_date": "2026-07-01"}),
+        )
+        for path, params in reads:
+            for _ in range(2):
+                response = client.get(path, params=params)
+                assert response.status_code == 200
+                if path.startswith("/api/"):
+                    body = response.json()
+                    assert body["canonical"]["available"] is True
+                    assert body["canonical"]["run_id"] == established_run_id
+                    assert body["canonical"]["selection_count"] == established_count
+
+        assert _canonical_snapshot(paths) == established
+        filtered = client.get(
+            "/api/weight/series", params={"start_date": "2026-02-01"}
+        ).json()
+        empty_filter = client.get(
+            "/api/weight/series", params={"compatibility_group": "not-a-real-group"}
+        ).json()
+        assert filtered["canonical"]["run_id"] == established_run_id
+        assert empty_filter["canonical"]["run_id"] == established_run_id
+        assert 0 < len(filtered["raw_points"]) < 8
+        assert empty_filter["raw_points"] == []
+        assert empty_filter["canonical"]["selection_count"] == established_count

@@ -30,7 +30,7 @@ from healthcheck.analytics.weight import (
     derive_body_composition,
     similar_weight_comparison,
 )
-from healthcheck.canonical import CanonicalCandidate, CanonicalSelectionService
+from healthcheck.canonical import CanonicalCandidate
 from healthcheck.config import Settings
 from healthcheck.db.models import ScalarMeasurement
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
@@ -44,7 +44,6 @@ class WeightQueryService:
         self.session = session
         self.settings = settings or Settings()
         self.repos = repositories_for(session)
-        self.canonical = CanonicalSelectionService(session)
         self.coverage = CoverageService(session)
 
     def series(
@@ -171,7 +170,7 @@ class WeightQueryService:
         else:
             similar_payload = similar_result.as_dict()
 
-        canonical = self._ensure_weight_canonical(weight_candidates)
+        canonical = self._read_weight_canonical()
         provenance = {
             item["candidate"].evidence_id: item["provenance"]
             for item in records
@@ -423,34 +422,33 @@ class WeightQueryService:
             return best_pair, best
         return None, last_reason
 
-    def _ensure_weight_canonical(
-        self, candidates: tuple[CanonicalCandidate, ...]
-    ) -> dict[str, Any]:
-        try:
-            result = self.canonical.select(
-                scope_key=DASHBOARD_WEIGHT_SCOPE,
-                metric_code="weight",
-                candidates=candidates,
-                include_derived=False,
-            )
-        except Exception:
+    def _read_weight_canonical(self) -> dict[str, Any]:
+        """Return established canonical state without creating or superseding runs.
+
+        Dashboard/JSON GET paths must not call ``CanonicalSelectionService.select``.
+        Filtered date or compatibility-group views therefore cannot leave a
+        partial-input run as the active ``r01-weight`` result.
+        """
+
+        run = self.repos.canonical_selection_runs.latest_successful(DASHBOARD_WEIGHT_SCOPE)
+        if run is None:
             return {
                 "available": False,
-                "reason": "canonical_unavailable",
+                "reason": "no_canonical_run",
                 "run_id": None,
                 "status": None,
                 "selection_count": 0,
-                "replayed": False,
             }
         return {
-            "available": result.status == "succeeded",
-            "reason": result.failure_reason,
-            "run_id": result.run.id,
-            "status": result.status,
-            "selection_count": result.run.selection_count,
-            "replayed": result.replayed,
-            "rule_name": result.rule_set.rule_name,
-            "rule_version": result.rule_set.rule_version,
+            "available": True,
+            "reason": None,
+            "run_id": run.id,
+            "status": run.status,
+            "selection_count": run.selection_count or 0,
+            "rule_name": run.rule_name,
+            "rule_version": run.rule_version,
+            "scope_key": run.scope_key,
+            "input_snapshot_hash": run.input_snapshot_hash,
         }
 
 
