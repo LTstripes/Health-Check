@@ -22,10 +22,14 @@ def upgrade() -> None:
         batch.add_column(sa.Column("algorithm_code", sa.String(180), nullable=True))
         batch.add_column(sa.Column("algorithm_version", sa.String(100), nullable=True))
         batch.add_column(sa.Column("provider_code", sa.String(120), nullable=True))
+        batch.add_column(sa.Column("source_timezone", sa.String(100), nullable=True))
+        batch.add_column(sa.Column("source_utc_offset_minutes", sa.Integer(), nullable=True))
 
 
 def downgrade() -> None:
     with op.batch_alter_table("import_candidates") as batch:
+        batch.drop_column("source_utc_offset_minutes")
+        batch.drop_column("source_timezone")
         batch.drop_column("provider_code")
         batch.drop_column("algorithm_version")
         batch.drop_column("algorithm_code")

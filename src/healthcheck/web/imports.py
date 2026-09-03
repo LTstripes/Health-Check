@@ -262,6 +262,7 @@ def reprocess_event(
             result = service.reprocess_event(event_id)
             payload = {
                 "event_id": event_id,
+                "ingest_event_id": result.ingest_event_id or event_id,
                 "extractor_name": extractor.name,
                 "extractor_version": extractor.version,
                 "candidates": [

@@ -352,6 +352,8 @@ class ImportCandidate(Base):
     algorithm_code: Mapped[str | None] = mapped_column(String(180), nullable=True)
     algorithm_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
     provider_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     edited_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     edited_unit: Mapped[str | None] = mapped_column(String(60), nullable=True)
     edited_source_timestamp: Mapped[datetime | None] = mapped_column(

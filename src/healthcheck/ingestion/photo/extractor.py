@@ -67,6 +67,8 @@ class ExtractionResult:
     prompt_version: str | None = None
     source_application: str | None = None
     source_application_version: str | None = None
+    source_timezone: str | None = None
+    source_utc_offset_minutes: int | None = None
 
 
 class ImageMeasurementExtractor(Protocol):

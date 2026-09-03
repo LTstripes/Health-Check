@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
+from datetime import timezone as dt_timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from healthcheck.db.repositories import canonical_json, restore_stored_utc
 from healthcheck.ingestion.photo.extractor import CandidateField, MeasurementGroup
 
 WEIGHT_METRICS = {"weight"}
@@ -42,6 +46,38 @@ class NormalizedField:
     algorithm_code: str | None
     algorithm_version: str | None
     warnings: tuple[str, ...]
+    source_timezone: str | None = None
+    source_utc_offset_minutes: int | None = None
+
+
+def extraction_configuration_fingerprint(
+    *,
+    extractor_name: str,
+    extractor_version: str,
+    schema_version: str,
+    model_name: str | None = None,
+    model_version: str | None = None,
+    prompt_version: str | None = None,
+    provider_code: str | None = None,
+    physical_device_code: str | None = None,
+    source_application: str | None = None,
+    source_application_version: str | None = None,
+) -> str:
+    """Canonical hash of interpretation-relevant extraction/acquisition config."""
+
+    payload = {
+        "extractor_name": extractor_name,
+        "extractor_version": extractor_version,
+        "model_name": model_name,
+        "model_version": model_version,
+        "prompt_version": prompt_version,
+        "schema_version": schema_version,
+        "provider_code": provider_code,
+        "physical_device_code": physical_device_code,
+        "source_application": source_application,
+        "source_application_version": source_application_version,
+    }
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 def candidate_set_key(
@@ -51,22 +87,76 @@ def candidate_set_key(
     model_name: str | None = None,
     model_version: str | None = None,
     prompt_version: str | None = None,
+    provider_code: str | None = None,
+    physical_device_code: str | None = None,
+    source_application: str | None = None,
+    source_application_version: str | None = None,
 ) -> str:
-    """Build extraction-set identity including model/prompt/schema metadata."""
+    """Build extraction-set identity from the full configuration fingerprint."""
 
-    return (
-        f"{extractor_name}@{extractor_version}/{schema_version}"
-        f"|model={model_name or '-'}@{model_version or '-'}"
-        f"|prompt={prompt_version or '-'}"
+    return extraction_configuration_fingerprint(
+        extractor_name=extractor_name,
+        extractor_version=extractor_version,
+        schema_version=schema_version,
+        model_name=model_name,
+        model_version=model_version,
+        prompt_version=prompt_version,
+        provider_code=provider_code,
+        physical_device_code=physical_device_code,
+        source_application=source_application,
+        source_application_version=source_application_version,
     )
 
 
-def normalize_group(group: MeasurementGroup) -> tuple[NormalizedField, ...]:
+def validate_local_date_and_timestamp(
+    local_date: date | None,
+    timestamp: datetime | None,
+    *,
+    timezone: str | None = None,
+    utc_offset_minutes: int | None = None,
+) -> None:
+    """Reject impossible local-date / instant pairs without inventing a timezone."""
+
+    if local_date is None or timestamp is None:
+        return
+    instant = restore_stored_utc(timestamp)
+    assert instant is not None
+    if timezone:
+        try:
+            zone = ZoneInfo(timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("source timezone is not usable") from exc
+        if instant.astimezone(zone).date() != local_date:
+            raise ValueError("local date does not match timestamp in source timezone")
+        return
+    if utc_offset_minutes is not None:
+        zone = dt_timezone(timedelta(minutes=utc_offset_minutes))
+        if instant.astimezone(zone).date() != local_date:
+            raise ValueError("local date does not match timestamp in source offset")
+        return
+    utc_date = instant.astimezone(UTC).date()
+    if abs((local_date - utc_date).days) > 1:
+        raise ValueError("local date and timestamp disagree by more than one calendar day")
+
+
+def normalize_group(
+    group: MeasurementGroup,
+    *,
+    source_timezone: str | None = None,
+    source_utc_offset_minutes: int | None = None,
+) -> tuple[NormalizedField, ...]:
     group_date = group.source_local_date
     group_timestamp = group.source_timestamp
     group_precision = group.temporal_precision
     return tuple(
-        normalize_field(field, group_date, group_timestamp, group_precision)
+        normalize_field(
+            field,
+            group_date,
+            group_timestamp,
+            group_precision,
+            source_timezone=source_timezone,
+            source_utc_offset_minutes=source_utc_offset_minutes,
+        )
         for field in group.fields
     )
 
@@ -76,6 +166,9 @@ def normalize_field(
     group_date: date | None,
     group_timestamp: datetime | None,
     group_precision: str | None,
+    *,
+    source_timezone: str | None = None,
+    source_utc_offset_minutes: int | None = None,
 ) -> NormalizedField:
     warnings: list[str] = []
     unit = _canonical_unit(field.proposed_unit)
@@ -107,6 +200,13 @@ def normalize_field(
         warnings.append("missing_timestamp")
     if source_local_date is None:
         warnings.append("missing_source_date")
+    if precision in {"instant", "minute"} and source_timestamp is not None:
+        validate_local_date_and_timestamp(
+            source_local_date,
+            source_timestamp,
+            timezone=source_timezone,
+            utc_offset_minutes=source_utc_offset_minutes,
+        )
 
     return NormalizedField(
         metric_code=field.metric_code,
@@ -121,6 +221,8 @@ def normalize_field(
         algorithm_code=field.algorithm_code,
         algorithm_version=field.algorithm_version,
         warnings=tuple(warnings),
+        source_timezone=source_timezone,
+        source_utc_offset_minutes=source_utc_offset_minutes,
     )
 
 

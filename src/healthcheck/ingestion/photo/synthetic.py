@@ -98,6 +98,7 @@ def weigh_in_payload(
     body_fat_confidence: float | None = None,
     provider_code: str = "xiaomi_home",
     source_application: str = "Xiaomi Home",
+    source_application_version: str | None = None,
     physical_device_code: str = "xiaomi_s400",
     extra_fields: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -136,6 +137,7 @@ def weigh_in_payload(
         "schema_version": "r01-photo-v1",
         "provider_code": provider_code,
         "source_application": source_application,
+        "source_application_version": source_application_version,
         "physical_device_code": physical_device_code,
         "groups": [
             {

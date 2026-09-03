@@ -29,6 +29,11 @@ class FakeImageMeasurementExtractor:
         prompt_version: str | None = None,
         provider_code: str | None = None,
         field_algorithms: dict[str, tuple[str, str]] | None = None,
+        physical_device_code: str | None = None,
+        source_application: str | None = None,
+        source_application_version: str | None = None,
+        source_timezone: str | None = None,
+        source_utc_offset_minutes: int | None = None,
     ):
         self.name = "healthcheck-synthetic-extractor"
         self.version = version
@@ -38,6 +43,11 @@ class FakeImageMeasurementExtractor:
         self.prompt_version = prompt_version
         self.provider_code_override = provider_code
         self.field_algorithms = field_algorithms or {}
+        self.physical_device_code_override = physical_device_code
+        self.source_application_override = source_application
+        self.source_application_version_override = source_application_version
+        self.source_timezone = source_timezone
+        self.source_utc_offset_minutes = source_utc_offset_minutes
 
     def extract(self, request: ExtractionRequest, image_bytes: bytes) -> ExtractionResult:
         try:
@@ -65,18 +75,35 @@ class FakeImageMeasurementExtractor:
             provider_code = "xiaomi_home"
         if self.provider_code_override is not None:
             provider_code = self.provider_code_override
+        physical_device_code = (
+            self.physical_device_code_override
+            or payload.get("physical_device_code")
+            or "xiaomi_s400"
+        )
+        source_application = (
+            self.source_application_override
+            if self.source_application_override is not None
+            else payload.get("source_application")
+        )
+        source_application_version = (
+            self.source_application_version_override
+            if self.source_application_version_override is not None
+            else payload.get("source_application_version")
+        )
         return ExtractionResult(
             extractor_name=self.name,
             extractor_version=self.version,
             schema_version=schema_version,
             provider_code=str(provider_code) if provider_code else "",
-            physical_device_code=str(payload.get("physical_device_code") or "xiaomi_s400"),
+            physical_device_code=str(physical_device_code),
             groups=groups,
             model_name=self.model_name,
             model_version=self.model_version,
             prompt_version=self.prompt_version,
-            source_application=payload.get("source_application"),
-            source_application_version=payload.get("source_application_version"),
+            source_application=source_application,
+            source_application_version=source_application_version,
+            source_timezone=self.source_timezone or request.timezone,
+            source_utc_offset_minutes=self.source_utc_offset_minutes,
         )
 
     def _group(self, raw_group: Any) -> MeasurementGroup:

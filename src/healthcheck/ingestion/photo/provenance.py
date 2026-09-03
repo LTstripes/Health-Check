@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
+
 from healthcheck.db.models import AcquisitionSource, MeasurementAlgorithm
-from healthcheck.db.repositories import ProvenanceRepositories
+from healthcheck.db.repositories import ProvenanceRepositories, canonical_json
 
 XIAOMI_S400_DEVICE = "xiaomi_s400"
 XIAOMI_HOME_PROVIDER = "xiaomi_home"
@@ -12,6 +14,7 @@ XIAOMI_APP_UNKNOWN_PROVIDER = "xiaomi_app_unknown"
 WEIGHT_ALGORITHM_CODE = "xiaomi_s400_weight"
 XIAOMI_HOME_COMPOSITION_ALGORITHM = "xiaomi_home_s400_unknown_version"
 XIAOMI_UNKNOWN_APP_ALGORITHM = "xiaomi_s400_unknown_app_algorithm"
+PHOTO_ACQUISITION_NAMESPACE = uuid.UUID("8f3c2a10-6b91-5d4e-9a77-1c0d4e8f2b65")
 
 
 def resolve_provider_code(provider_code: str | None) -> str:
@@ -20,6 +23,27 @@ def resolve_provider_code(provider_code: str | None) -> str:
     if provider_code == XIAOMI_HOME_PROVIDER:
         return XIAOMI_HOME_PROVIDER
     return XIAOMI_APP_UNKNOWN_PROVIDER
+
+
+def photo_acquisition_instance_id(
+    *,
+    provider_code: str | None,
+    physical_device_code: str | None,
+    source_application: str | None,
+    source_application_version: str | None,
+) -> str:
+    """Stable photo-import source identity including application/version."""
+
+    payload = canonical_json(
+        {
+            "input_method": "photo_import",
+            "provider_code": resolve_provider_code(provider_code),
+            "physical_device_code": physical_device_code,
+            "source_application": source_application,
+            "source_application_version": source_application_version,
+        }
+    )
+    return str(uuid.uuid5(PHOTO_ACQUISITION_NAMESPACE, payload))
 
 
 def ensure_photo_acquisition_source(
@@ -51,6 +75,12 @@ def ensure_photo_acquisition_source(
         provider_id=provider.id,
         physical_device_id=device.id,
         input_method="photo_import",
+        source_instance_id=photo_acquisition_instance_id(
+            provider_code=resolved,
+            physical_device_code=physical_device_code,
+            source_application=application,
+            source_application_version=source_application_version,
+        ),
         source_application=application,
         source_application_version=source_application_version,
     )

@@ -831,6 +831,26 @@ class ImportCandidateRepository:
             )
         )
 
+    def find_for_artifact_set_key(
+        self, raw_artifact_id: str, candidate_set_key: str
+    ) -> list[ImportCandidate]:
+        return list(
+            self.session.scalars(
+                select(ImportCandidate)
+                .join(IngestEvent, ImportCandidate.ingest_event_id == IngestEvent.id)
+                .where(
+                    IngestEvent.raw_artifact_id == raw_artifact_id,
+                    IngestEvent.event_type == "photo",
+                    ImportCandidate.candidate_set_key == candidate_set_key,
+                )
+                .order_by(
+                    ImportCandidate.measurement_group_key,
+                    ImportCandidate.metric_code,
+                    ImportCandidate.id,
+                )
+            )
+        )
+
     def list_for_batch(self, ingest_batch_id: str) -> list[ImportCandidate]:
         return list(
             self.session.scalars(
@@ -870,6 +890,8 @@ class ImportCandidateRepository:
         algorithm_code: str | None = None,
         algorithm_version: str | None = None,
         provider_code: str | None = None,
+        source_timezone: str | None = None,
+        source_utc_offset_minutes: int | None = None,
     ) -> ImportCandidate:
         if confidence is not None and not 0 <= confidence <= 1:
             raise ValueError("candidate confidence must be between 0 and 1")
@@ -907,6 +929,8 @@ class ImportCandidateRepository:
             "algorithm_code": algorithm_code,
             "algorithm_version": algorithm_version,
             "provider_code": provider_code,
+            "source_timezone": source_timezone,
+            "source_utc_offset_minutes": source_utc_offset_minutes,
         }
         if existing is not None:
             stored = {field_name: getattr(existing, field_name) for field_name in incoming}
@@ -937,6 +961,8 @@ class ImportCandidateRepository:
             algorithm_code=algorithm_code,
             algorithm_version=algorithm_version,
             provider_code=provider_code,
+            source_timezone=source_timezone,
+            source_utc_offset_minutes=source_utc_offset_minutes,
         )
         self.session.add(candidate)
         self.session.flush()

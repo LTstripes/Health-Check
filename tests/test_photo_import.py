@@ -196,9 +196,7 @@ def test_reprocess_with_new_extractor_version_creates_revision_not_mutation(phot
     )
     assert reprocessed.failed is False
     second_ids = [
-        candidate.id
-        for candidate in reprocessed.candidates
-        if candidate.extractor_version == "2"
+        candidate.id for candidate in reprocessed.candidates if candidate.extractor_version == "2"
     ]
     assert set(second_ids).isdisjoint(first_ids)
     original = _service_call(
