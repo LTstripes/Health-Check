@@ -6,7 +6,7 @@ enter this file.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -188,8 +188,9 @@ def test_six_month_history_dashboard_smoke(tmp_path):
         assert series["trend_available"] is True
         assert series["goal_kg"] == 76.0
         assert series["current"]["available"] is True
-        assert series["canonical"]["available"] is False
-        assert series["canonical"]["reason"] == "no_canonical_run"
+        assert series["canonical"]["available"] is True
+        assert series["canonical"]["selection_count"] == 26
+        assert sum(1 for point in series["raw_points"] if point["canonical_selected"]) == 26
         summary = client.get("/api/weight/summary").json()
         assert summary["rate"]["available"] is True
         assert summary["rate"]["slope_kg_per_week"] is not None
@@ -276,6 +277,7 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
                     normalized_unit="%",
                     measurement_algorithm_id=fat_alg.id,
                 )
+            CanonicalSelectionService(session).recompute_dashboard()
     finally:
         engine.dispose()
 
@@ -405,43 +407,28 @@ def test_dashboard_gets_do_not_mutate_canonical_state(tmp_path):
     with TestClient(app) as client:
         uploaded = _upload_batch(client, six_month_synthetic_batch()[:8])
         _confirm_all_pending(client, uploaded.json()["id"])
-        empty = _canonical_snapshot(paths)
-        assert empty["run_count"] == 0
-        assert empty["selection_count"] == 0
+        established = _canonical_snapshot(paths)
+        assert established["run_count"] >= 1
+        assert established["selection_count"] >= 8
+        series = client.get("/api/weight/series").json()
+        assert series["canonical"]["available"] is True
+        established_run_id = series["canonical"]["run_id"]
+        established_count = series["canonical"]["selection_count"]
+        assert established_count == 8
 
         for _ in range(2):
             assert client.get("/").status_code == 200
-            series = client.get("/api/weight/series")
+            series_response = client.get("/api/weight/series")
             summary = client.get("/api/weight/summary")
-            assert series.status_code == 200
+            assert series_response.status_code == 200
             assert summary.status_code == 200
-            assert series.json()["canonical"]["available"] is False
-            assert series.json()["canonical"]["reason"] == "no_canonical_run"
-            assert summary.json()["canonical"]["available"] is False
-            assert len(series.json()["raw_points"]) == 8
+            body = series_response.json()
+            assert body["canonical"]["run_id"] == established_run_id
+            assert body["canonical"]["selection_count"] == established_count
+            assert len(body["raw_points"]) == 8
+            assert summary.json()["canonical"]["run_id"] == established_run_id
 
-        assert _canonical_snapshot(paths) == empty
-
-        engine = create_sqlite_engine(paths)
-        try:
-            with session_scope(engine) as session:
-                created = CanonicalSelectionService(session).select(
-                    scope_key="r01-weight",
-                    metric_code="weight",
-                    include_derived=False,
-                )
-                assert created.status == "succeeded"
-                established_run_id = created.run.id
-                established_count = created.run.selection_count
-        finally:
-            engine.dispose()
-
-        established = _canonical_snapshot(paths)
-        assert established["run_count"] == 1
-        assert established["selection_count"] == established_count
-        assert established["run_ids"] == (established_run_id,)
-        assert established["statuses"] == ("succeeded",)
-        assert established["supersedes"] == (None,)
+        assert _canonical_snapshot(paths) == established
 
         reads = (
             ("/", None),
@@ -474,3 +461,91 @@ def test_dashboard_gets_do_not_mutate_canonical_state(tmp_path):
         assert 0 < len(filtered["raw_points"]) < 8
         assert empty_filter["raw_points"] == []
         assert empty_filter["canonical"]["selection_count"] == established_count
+        assert empty_filter["trend_available"] is False
+
+
+def test_competing_source_heads_use_canonical_evidence_for_analytics(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    png = encode_synthetic_png(
+        weigh_in_payload(source_local_date=date(2026, 3, 4), weight_kg=81.2, body_fat_pct=24.4)
+    )
+    with TestClient(app) as client:
+        uploaded = client.post(
+            "/api/imports/photos", files=[("files", ("one.png", png, "image/png"))]
+        )
+        _confirm_all_pending(client, uploaded.json()["id"])
+        before = client.get("/api/weight/series").json()
+        assert before["canonical"]["available"] is True
+        photo_point = next(
+            point for point in before["raw_points"] if point["canonical_selected"]
+        )
+        photo_value = photo_point["value_kg"]
+        semantic = photo_point["provenance"]["semantic_key"]
+        snapshot = _canonical_snapshot(paths)
+
+        engine = create_sqlite_engine(paths)
+        try:
+            with session_scope(engine) as session:
+                from healthcheck.db.repositories import repositories_for
+
+                repos = repositories_for(session)
+                provider = repos.providers.get_or_create(
+                    "openscale", "openScale", "scale_app"
+                )
+                device = repos.physical_devices.get_or_create(
+                    "xiaomi_s400", manufacturer="Xiaomi", model="S400"
+                )
+                source = repos.acquisition_sources.get_or_create(
+                    provider_id=provider.id,
+                    physical_device_id=device.id,
+                    input_method="webhook",
+                )
+                algorithm = repos.measurement_algorithms.get_or_create(
+                    code="openscale_weight",
+                    version="1",
+                    metric_family="weight",
+                    producer="openscale",
+                    compatibility_group="openscale-weight",
+                )
+                competing_session = repos.measurement_sessions.create_confirmed(
+                    acquisition_source_id=source.id,
+                    semantic_key=semantic,
+                    source_local_date=date(2026, 3, 4),
+                    temporal_precision="instant",
+                    source_timestamp_utc=datetime(2026, 3, 4, 12, 0, tzinfo=UTC),
+                )
+                repos.scalar_measurements.create(
+                    measurement_session_id=competing_session.id,
+                    metric_code="weight",
+                    normalized_value=99.25,
+                    normalized_unit="kg",
+                    measurement_algorithm_id=algorithm.id,
+                )
+                CanonicalSelectionService(session).recompute_dashboard()
+        finally:
+            engine.dispose()
+
+        after_write = _canonical_snapshot(paths)
+        assert after_write["run_count"] >= snapshot["run_count"]
+        series = client.get("/api/weight/series").json()
+        summary = client.get("/api/weight/summary").json()
+        assert _canonical_snapshot(paths) == after_write
+        raw_values = {point["value_kg"] for point in series["raw_points"]}
+        assert photo_value in raw_values
+        assert 99.25 in raw_values
+        selected_values = {
+            point["value_kg"]
+            for point in series["raw_points"]
+            if point["canonical_selected"]
+        }
+        assert selected_values == {99.25}
+        assert [point["median_kg"] for point in series["daily_points"]] == [99.25]
+        assert all(point["median_kg"] == 99.25 for point in series["trend_points"])
+        losing = next(point for point in series["raw_points"] if point["value_kg"] == photo_value)
+        winning = next(point for point in series["raw_points"] if point["value_kg"] == 99.25)
+        assert losing["canonical_selected"] is False
+        assert winning["canonical_selected"] is True
+        assert losing["provenance"]["provider_code"]
+        assert winning["provenance"]["input_method"] == "webhook"
+        assert summary["canonical"]["available"] is True
+        assert summary["current"]["value_kg"] == 99.25

@@ -27,16 +27,20 @@ from healthcheck.analytics.weight import (
     SimilarWeightComparison,
     build_weight_series,
     build_weight_summary,
+    coerce_weight_observations,
     derive_body_composition,
     similar_weight_comparison,
 )
-from healthcheck.canonical import CanonicalCandidate
+from healthcheck.canonical import (
+    DASHBOARD_WEIGHT_SCOPE,
+    CanonicalCandidate,
+    dashboard_composition_scope,
+    is_composition_metric,
+)
 from healthcheck.config import Settings
 from healthcheck.db.models import ScalarMeasurement
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.web.common import ALGORITHM_BOUNDARY_WARNING, BIA_UNCERTAINTY
-
-DASHBOARD_WEIGHT_SCOPE = "r01-weight"
 
 
 class WeightQueryService:
@@ -125,28 +129,53 @@ class WeightQueryService:
     ) -> dict[str, Any]:
         as_of = end_date or date.today()
         records = self._current_records(start_date=start_date, end_date=end_date)
-        weight_candidates = tuple(
+        canonical, selected_weight_ids, selected_composition_ids = (
+            self._established_canonical()
+        )
+        overlay_weights = tuple(
             item["candidate"]
             for item in records
             if item["candidate"].metric_code in WEIGHT_METRIC_CODES
         )
         if compatibility_group:
             normalized = compatibility_group.strip()
-            weight_candidates = tuple(
-                item for item in weight_candidates if item.compatibility_group == normalized
+            overlay_weights = tuple(
+                item
+                for item in overlay_weights
+                if item.compatibility_group == normalized
             )
-        composition_sessions = self._composition_sessions(records)
+        selected_weights = tuple(
+            item for item in overlay_weights if item.evidence_id in selected_weight_ids
+        )
+        composition_records = [
+            item
+            for item in records
+            if item["candidate"].evidence_id in selected_weight_ids
+            or item["candidate"].evidence_id in selected_composition_ids
+        ]
+        if compatibility_group:
+            normalized = compatibility_group.strip()
+            composition_records = [
+                item
+                for item in composition_records
+                if item["candidate"].compatibility_group == normalized
+                or item["candidate"].metric_code in WEIGHT_METRIC_CODES
+            ]
+        composition_sessions = self._composition_sessions(composition_records)
         series = build_weight_series(
-            weight_candidates,
+            selected_weights,
             compatibility_group=compatibility_group,
             composition_sessions=composition_sessions,
+        )
+        overlay_raw, _overlay_exclusions = coerce_weight_observations(
+            overlay_weights, compatibility_group=compatibility_group
         )
         latest_composition = self._latest_composition(series.composition_by_group)
         similar_pair, similar_result = self._similar_weight(series.composition_by_group)
         coverage_start = start_date
         if coverage_start is None:
-            if series.raw_points:
-                coverage_start = series.raw_points[0].observed_date
+            if overlay_raw:
+                coverage_start = overlay_raw[0].observed_date
             else:
                 coverage_start = as_of - timedelta(days=180)
         coverage = self.coverage.summarize(
@@ -156,8 +185,16 @@ class WeightQueryService:
             cadence_days=self.settings.weight_cadence_days or DEFAULT_WEIGHT_CADENCE_DAYS,
             as_of_date=as_of,
         )
+        if not canonical["available"]:
+            latest_composition = BodyCompositionResult(
+                available=False, reason="no_canonical_run"
+            )
+            similar_pair = None
+            similar_result = SimilarWeightComparison(
+                available=False, reason="no_canonical_run"
+            )
         summary = build_weight_summary(
-            weight_candidates,
+            selected_weights,
             compatibility_group=compatibility_group,
             composition_sessions=composition_sessions,
             latest_composition=latest_composition,
@@ -170,7 +207,6 @@ class WeightQueryService:
         else:
             similar_payload = similar_result.as_dict()
 
-        canonical = self._read_weight_canonical()
         provenance = {
             item["candidate"].evidence_id: item["provenance"]
             for item in records
@@ -180,18 +216,30 @@ class WeightQueryService:
         boundary = len(groups) > 1
         current = _current_weight(series.raw_points)
         raw_points = []
-        for point in series.raw_points:
+        for point in overlay_raw:
             payload = point.as_dict()
             payload["metric_origin"] = "source-provider"
+            payload["canonical_selected"] = point.evidence_id in selected_weight_ids
             payload["provenance"] = provenance.get(point.evidence_id)
             raw_points.append(payload)
         composition_payload = {
             group: [_composition_point_payload(point) for point in points]
             for group, points in series.composition_by_group.items()
         }
+        if canonical["available"]:
+            trend_available = series.trend_available
+            trend_reason = series.trend_reason
+        elif overlay_raw:
+            trend_available = False
+            trend_reason = "no_canonical_run"
+        else:
+            trend_available = series.trend_available
+            trend_reason = series.trend_reason
         series_payload = {
             **series.as_dict(),
             "raw_points": raw_points,
+            "trend_available": trend_available,
+            "trend_reason": trend_reason,
             "composition_by_group": composition_payload,
             "goal_kg": self.settings.weight_goal_kg,
             "current": current,
@@ -213,6 +261,8 @@ class WeightQueryService:
             },
         }
         summary_payload = summary.as_dict()
+        summary_payload["trend"]["available"] = trend_available
+        summary_payload["trend"]["reason"] = trend_reason
         summary_payload["similar_weight"] = similar_payload
         summary_payload["goal_kg"] = self.settings.weight_goal_kg
         summary_payload["current"] = current
@@ -289,6 +339,7 @@ class WeightQueryService:
         provenance = {
             "evidence_id": measurement.id,
             "session_id": session.id,
+            "semantic_key": session.semantic_key,
             "metric_code": measurement.metric_code,
             "metric_origin": "source-provider",
             "provider_code": provider.code if provider is not None else None,
@@ -422,24 +473,50 @@ class WeightQueryService:
             return best_pair, best
         return None, last_reason
 
-    def _read_weight_canonical(self) -> dict[str, Any]:
-        """Return established canonical state without creating or superseding runs.
-
-        Dashboard/JSON GET paths must not call ``CanonicalSelectionService.select``.
-        Filtered date or compatibility-group views therefore cannot leave a
-        partial-input run as the active ``r01-weight`` result.
-        """
+    def _established_canonical(
+        self,
+    ) -> tuple[dict[str, Any], frozenset[str], frozenset[str]]:
+        """Read durable canonical evidence IDs.  GET paths must not write."""
 
         run = self.repos.canonical_selection_runs.latest_successful(DASHBOARD_WEIGHT_SCOPE)
         if run is None:
-            return {
+            meta = {
                 "available": False,
                 "reason": "no_canonical_run",
                 "run_id": None,
                 "status": None,
                 "selection_count": 0,
             }
-        return {
+            return meta, frozenset(), frozenset()
+        weight_ids = {
+            selection.source_measurement_id
+            for selection in self.repos.canonical_selections.for_run(run.id)
+            if selection.source_measurement_id
+        }
+        composition_ids: set[str] = set()
+        groups: set[str] = set()
+        for measurement in self.repos.scalar_measurements.current_heads():
+            if not is_composition_metric(measurement.metric_code):
+                continue
+            algorithm = self.repos.measurement_algorithms.get_by_id(
+                measurement.measurement_algorithm_id
+            )
+            if algorithm is not None and algorithm.compatibility_group:
+                groups.add(algorithm.compatibility_group)
+        for group in groups:
+            composition_run = self.repos.canonical_selection_runs.latest_successful(
+                dashboard_composition_scope(group)
+            )
+            if composition_run is None:
+                continue
+            composition_ids.update(
+                selection.source_measurement_id
+                for selection in self.repos.canonical_selections.for_run(
+                    composition_run.id
+                )
+                if selection.source_measurement_id
+            )
+        meta = {
             "available": True,
             "reason": None,
             "run_id": run.id,
@@ -450,6 +527,7 @@ class WeightQueryService:
             "scope_key": run.scope_key,
             "input_snapshot_hash": run.input_snapshot_hash,
         }
+        return meta, frozenset(weight_ids), frozenset(composition_ids)
 
 
 def empty_dashboard_payload(*, reason: str = "no_data") -> dict[str, Any]:

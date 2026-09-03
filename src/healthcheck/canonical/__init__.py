@@ -21,6 +21,8 @@ from healthcheck.canonical.rules import (
     selection_reason,
 )
 from healthcheck.canonical.service import (
+    DASHBOARD_COMPOSITION_SCOPE_PREFIX,
+    DASHBOARD_WEIGHT_SCOPE,
     CanonicalRunResult,
     CanonicalSelectionResult,
     CanonicalSelectionService,
@@ -28,10 +30,13 @@ from healthcheck.canonical.service import (
     canonical_rule_set_dto,
     canonical_run_dto,
     canonical_selection_dto,
+    dashboard_composition_scope,
 )
 
 __all__ = [
     "COMPOSITION_METRICS",
+    "DASHBOARD_COMPOSITION_SCOPE_PREFIX",
+    "DASHBOARD_WEIGHT_SCOPE",
     "DEFAULT_ANALYTICS_VERSION",
     "DEFAULT_RULE_DEFINITION",
     "DEFAULT_RULE_NAME",
@@ -50,6 +55,7 @@ __all__ = [
     "canonical_rule_set_dto",
     "canonical_run_dto",
     "canonical_selection_dto",
+    "dashboard_composition_scope",
     "default_rule_definition",
     "is_composition_metric",
     "select_canonical_candidates",

@@ -41,6 +41,13 @@ from healthcheck.db.repositories import (
     repositories_for,
 )
 
+DASHBOARD_WEIGHT_SCOPE = "r01-weight"
+DASHBOARD_COMPOSITION_SCOPE_PREFIX = "r01-composition:"
+
+
+def dashboard_composition_scope(compatibility_group: str) -> str:
+    return f"{DASHBOARD_COMPOSITION_SCOPE_PREFIX}{compatibility_group}"
+
 
 @dataclass(frozen=True, slots=True)
 class CanonicalSelectionResult:
@@ -336,6 +343,55 @@ class CanonicalSelectionService:
         """Run the same scope again after a revision or rule/input change."""
 
         return self.select(**kwargs)
+
+    def recompute_dashboard(self) -> tuple[CanonicalSelectionResult, ...]:
+        """Write-side refresh of the durable R01 dashboard canonical scopes.
+
+        Confirmation and other application writes call this.  Dashboard GET
+        paths must not.  Weight is one scope; each composition compatibility
+        group is a separate scope so groups are never mixed.
+        """
+
+        results = [
+            self.select(
+                scope_key=DASHBOARD_WEIGHT_SCOPE,
+                metric_code="weight",
+                include_derived=False,
+            )
+        ]
+        candidates, _exclusions = self._current_candidates(
+            metric_code=None,
+            start_date=None,
+            end_date=None,
+            include_derived=False,
+            derived_algorithm_version=None,
+        )
+        groups = sorted(
+            {
+                candidate.compatibility_group
+                for candidate in candidates
+                if is_composition_metric(candidate.metric_code)
+                and candidate.compatibility_group
+            }
+        )
+        for group in groups:
+            group_candidates = tuple(
+                candidate
+                for candidate in candidates
+                if is_composition_metric(candidate.metric_code)
+                and candidate.compatibility_group == group
+            )
+            if not group_candidates:
+                continue
+            results.append(
+                self.select(
+                    scope_key=dashboard_composition_scope(group),
+                    candidates=group_candidates,
+                    compatibility_group=group,
+                    include_derived=False,
+                )
+            )
+        return tuple(results)
 
     execute = select
     run = select
@@ -812,6 +868,8 @@ CanonicalRunResult = CanonicalSelectionResult
 
 
 __all__ = [
+    "DASHBOARD_COMPOSITION_SCOPE_PREFIX",
+    "DASHBOARD_WEIGHT_SCOPE",
     "CanonicalRunResult",
     "CanonicalSelectionResult",
     "CanonicalSelectionService",
@@ -819,4 +877,5 @@ __all__ = [
     "canonical_rule_set_dto",
     "canonical_run_dto",
     "canonical_selection_dto",
+    "dashboard_composition_scope",
 ]
