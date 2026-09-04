@@ -47,9 +47,7 @@ def render_error(
 
 
 def _photo_error(request: Request, exc: PhotoImportError) -> HTMLResponse:
-    return render_error(
-        request, code=exc.code, message=exc.message, status_code=exc.status_code
-    )
+    return render_error(request, code=exc.code, message=exc.message, status_code=exc.status_code)
 
 
 def _persist_error(request: Request, operation: str) -> HTMLResponse:
@@ -84,9 +82,7 @@ def imports_page(request: Request) -> HTMLResponse:
                 session, request.app.state.runtime_paths, _extractor(request)
             )
             batches = service.list_batches()
-            queue = WeightQueryService(
-                session, request.app.state.settings
-            ).import_queue_summary()
+            queue = WeightQueryService(session, request.app.state.settings).import_queue_summary()
     except SQLAlchemyError as exc:
         if not database_unavailable(exc):
             return _persist_error(request, "imports")

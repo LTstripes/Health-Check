@@ -734,8 +734,7 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     try:
         with engine.connect() as connection:
             columns = {
-                row[1]
-                for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
             }
             assert {
                 "algorithm_code",
@@ -782,8 +781,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
             after_providers = connection.execute(text("SELECT COUNT(*) FROM providers")).scalar()
             assert after_providers == before_providers
             columns = {
-                row[1]
-                for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
             }
             assert "algorithm_code" in columns
             triggers = {
@@ -800,8 +798,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         )
         with engine.connect() as connection:
             columns = {
-                row[1]
-                for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
+                row[1] for row in connection.exec_driver_sql("PRAGMA table_info(import_candidates)")
             }
             assert "algorithm_code" not in columns
             assert connection.execute(text("SELECT COUNT(*) FROM providers")).scalar() == 1

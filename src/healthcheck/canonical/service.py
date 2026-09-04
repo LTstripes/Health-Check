@@ -370,8 +370,7 @@ class CanonicalSelectionService:
             {
                 candidate.compatibility_group
                 for candidate in candidates
-                if is_composition_metric(candidate.metric_code)
-                and candidate.compatibility_group
+                if is_composition_metric(candidate.metric_code) and candidate.compatibility_group
             }
         )
         for group in groups:

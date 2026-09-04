@@ -182,9 +182,7 @@ def linear_weekly_points(start: date, kilos: list[float]) -> tuple[DailyWeightPo
 
 def test_theil_sen_exact_linear_slope() -> None:
     # 8 weekly points declining exactly 1 kg/week over 49 days.
-    daily = linear_weekly_points(
-        date(2026, 1, 1), [80.0, 79.0, 78.0, 77.0, 76.0, 75.0, 74.0, 73.0]
-    )
+    daily = linear_weekly_points(date(2026, 1, 1), [80.0, 79.0, 78.0, 77.0, 76.0, 75.0, 74.0, 73.0])
     result = theil_sen_rate(daily)
     assert result.available is True
     assert result.algorithm == WEIGHT_RATE_ALGORITHM
@@ -195,9 +193,7 @@ def test_theil_sen_exact_linear_slope() -> None:
 
 def test_theil_sen_resists_single_outlier() -> None:
     # Same linear decline with one +5 kg outlier on week 4.
-    daily = linear_weekly_points(
-        date(2026, 1, 1), [80.0, 79.0, 78.0, 82.0, 76.0, 75.0, 74.0, 73.0]
-    )
+    daily = linear_weekly_points(date(2026, 1, 1), [80.0, 79.0, 78.0, 82.0, 76.0, 75.0, 74.0, 73.0])
     result = theil_sen_rate(daily)
     assert result.available is True
     assert result.slope_kg_per_week == pytest.approx(-1.0, abs=0.3)
@@ -336,29 +332,15 @@ def test_same_session_conflicting_source_dates_rejected() -> None:
 def test_derivation_rejects_invalid_canonical_units_and_values() -> None:
     good_weight = composition_input("weight-id-1", "weight", 80.0, "session-1")
     good_fat = composition_input("fat-id-1", "body_fat_pct", 25.0, "session-1")
-    bad_weight_unit = composition_input(
-        "weight-id-1", "weight", 80.0, "session-1", unit="lb"
-    )
-    bad_fat_unit = composition_input(
-        "fat-id-1", "body_fat_pct", 25.0, "session-1", unit="kg"
-    )
+    bad_weight_unit = composition_input("weight-id-1", "weight", 80.0, "session-1", unit="lb")
+    bad_fat_unit = composition_input("fat-id-1", "body_fat_pct", 25.0, "session-1", unit="kg")
     assert derive_body_composition(bad_weight_unit, good_fat).reason == "invalid_unit"
     assert derive_body_composition(good_weight, bad_fat_unit).reason == "invalid_unit"
     bad_weight_value = composition_input("weight-id-1", "weight", 0.0, "session-1")
-    bad_fat_value = composition_input(
-        "fat-id-1", "body_fat_pct", 100.0, "session-1"
-    )
-    assert (
-        derive_body_composition(bad_weight_value, good_fat).reason
-        == "invalid_weight_value"
-    )
-    assert (
-        derive_body_composition(good_weight, bad_fat_value).reason
-        == "invalid_body_fat_value"
-    )
-    missing_group_fat = composition_input(
-        "fat-id-1", "body_fat_pct", 25.0, "session-1", group=None
-    )
+    bad_fat_value = composition_input("fat-id-1", "body_fat_pct", 100.0, "session-1")
+    assert derive_body_composition(bad_weight_value, good_fat).reason == "invalid_weight_value"
+    assert derive_body_composition(good_weight, bad_fat_value).reason == "invalid_body_fat_value"
+    missing_group_fat = composition_input("fat-id-1", "body_fat_pct", 25.0, "session-1", group=None)
     assert (
         derive_body_composition(good_weight, missing_group_fat).reason
         == "missing_compatibility_group"
@@ -584,9 +566,7 @@ def test_weight_series_preserves_raw_observations() -> None:
 
 
 def test_missing_observed_date_excluded_without_midnight_invention() -> None:
-    observations, exclusions = coerce_weight_observations(
-        [weight_candidate("w-1", None, 80.0)]
-    )
+    observations, exclusions = coerce_weight_observations([weight_candidate("w-1", None, 80.0)])
     assert observations == ()
     assert [item.reason_code for item in exclusions] == ["missing_observed_date"]
     trend = time_aware_ewma((), exclusions=exclusions)
@@ -622,9 +602,7 @@ def test_series_and_summary_consume_coverage_metadata() -> None:
     coverage = calculate_coverage(
         start,
         date(2026, 3, 1),
-        observations=[
-            {"observed_date": item.observed_date} for item in observations
-        ],
+        observations=[{"observed_date": item.observed_date} for item in observations],
     )
     series = build_weight_series(candidates)
     assert series.trend_available is True

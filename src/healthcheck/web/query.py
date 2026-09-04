@@ -129,9 +129,7 @@ class WeightQueryService:
     ) -> dict[str, Any]:
         as_of = end_date or date.today()
         records = self._current_records(start_date=start_date, end_date=end_date)
-        canonical, selected_weight_ids, selected_composition_ids = (
-            self._established_canonical()
-        )
+        canonical, selected_weight_ids, selected_composition_ids = self._established_canonical()
         overlay_weights = tuple(
             item["candidate"]
             for item in records
@@ -140,9 +138,7 @@ class WeightQueryService:
         if compatibility_group:
             normalized = compatibility_group.strip()
             overlay_weights = tuple(
-                item
-                for item in overlay_weights
-                if item.compatibility_group == normalized
+                item for item in overlay_weights if item.compatibility_group == normalized
             )
         selected_weights = tuple(
             item for item in overlay_weights if item.evidence_id in selected_weight_ids
@@ -186,13 +182,9 @@ class WeightQueryService:
             as_of_date=as_of,
         )
         if not canonical["available"]:
-            latest_composition = BodyCompositionResult(
-                available=False, reason="no_canonical_run"
-            )
+            latest_composition = BodyCompositionResult(available=False, reason="no_canonical_run")
             similar_pair = None
-            similar_result = SimilarWeightComparison(
-                available=False, reason="no_canonical_run"
-            )
+            similar_result = SimilarWeightComparison(available=False, reason="no_canonical_run")
         summary = build_weight_summary(
             selected_weights,
             compatibility_group=compatibility_group,
@@ -511,9 +503,7 @@ class WeightQueryService:
                 continue
             composition_ids.update(
                 selection.source_measurement_id
-                for selection in self.repos.canonical_selections.for_run(
-                    composition_run.id
-                )
+                for selection in self.repos.canonical_selections.for_run(composition_run.id)
                 if selection.source_measurement_id
             )
         meta = {

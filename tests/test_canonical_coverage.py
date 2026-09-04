@@ -192,9 +192,7 @@ def test_persisted_run_allows_multiple_metrics_for_one_semantic_weigh_in(databas
     )
 
     assert result.status == "succeeded"
-    assert {
-        (selection.metric_code, selection.semantic_key) for selection in result.selections
-    } == {
+    assert {(selection.metric_code, selection.semantic_key) for selection in result.selections} == {
         ("weight", "weigh-in-1"),
         ("body_fat_pct", "weigh-in-1"),
     }
@@ -598,18 +596,15 @@ def test_invalid_selection_is_durable_through_session_scope(database):
 
     with create_session_factory(engine)() as fresh_session:
         failed = fresh_session.scalar(
-            select(CanonicalSelectionRun).where(
-                CanonicalSelectionRun.scope_key == "invalid:scope"
-            )
+            select(CanonicalSelectionRun).where(CanonicalSelectionRun.scope_key == "invalid:scope")
         )
         assert failed is not None
         assert failed.status == "failed"
         assert failed.failure_reason == "canonical_selection_reference_missing"
         assert (
-            repositories_for(fresh_session)
-            .canonical_selection_runs.latest_successful("invalid:scope")
+            repositories_for(fresh_session).canonical_selection_runs.latest_successful(
+                "invalid:scope"
+            )
             is None
         )
-        assert (
-            repositories_for(fresh_session).canonical_selections.for_run(failed.id) == []
-        )
+        assert repositories_for(fresh_session).canonical_selections.for_run(failed.id) == []

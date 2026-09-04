@@ -38,17 +38,21 @@ def _create_append_only_triggers() -> None:
 
 
 def _assert_downgrade_is_lossless() -> None:
-    conflict = op.get_bind().execute(
-        sa.text(
-            """
+    conflict = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                """
             SELECT selection_run_id, semantic_key
             FROM canonical_selections
             GROUP BY selection_run_id, semantic_key
             HAVING COUNT(*) > 1
             LIMIT 1
             """
+            )
         )
-    ).first()
+        .first()
+    )
     if conflict is not None:
         raise RuntimeError(
             "cannot downgrade 0002: a run contains multiple metrics for one semantic key"

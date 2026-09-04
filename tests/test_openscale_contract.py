@@ -140,9 +140,7 @@ def test_duplicate_contradictory_values_fail_closed_as_ambiguity() -> None:
     assert metric.reason == "duplicate_conflicting_values"
     assert metric.value is None
     assert measurement.usable_metrics() == ()
-    assert "duplicate_conflicting_values" in [
-        item.reason_code for item in result.failures
-    ]
+    assert "duplicate_conflicting_values" in [item.reason_code for item in result.failures]
 
 
 def test_identical_duplicates_collapse_deterministically() -> None:
@@ -151,9 +149,7 @@ def test_identical_duplicates_collapse_deterministically() -> None:
     measurement = result.measurements[0]
     assert [item.metric_code for item in measurement.metrics] == ["weight"]
     assert measurement.metrics[0].status == "ok"
-    assert any(
-        item.detail == "duplicate_identical_collapsed" for item in measurement.unknown_items
-    )
+    assert any(item.detail == "duplicate_identical_collapsed" for item in measurement.unknown_items)
 
 
 def test_numeric_string_is_never_silently_coerced() -> None:
@@ -194,16 +190,13 @@ def test_malformed_inputs_are_sanitized_failures() -> None:
         ]
         for quarantined in result.invalid_items:
             failure_texts.extend(
-                f"{item.reason_code}: {item.message} @ {item.path}"
-                for item in quarantined.failures
+                f"{item.reason_code}: {item.message} @ {item.path}" for item in quarantined.failures
             )
         assert failure_texts
         blob = json.dumps(failure_texts)
         assert "76.4" not in blob
         assert "not-a-date" not in blob
-    reasons = normalize_envelope(
-        {"event": "teleport"}, source_instance_id=SOURCE_INSTANCE
-    ).failures
+    reasons = normalize_envelope({"event": "teleport"}, source_instance_id=SOURCE_INSTANCE).failures
     assert [item.reason_code for item in reasons] == ["invalid_event"]
 
 
@@ -451,9 +444,7 @@ def test_identity_less_insert_uses_semantic_identity() -> None:
     assert update_result.measurements[0].identity_kind == "semantic"
 
     delete_payload = _identity_less_insert([weight_item(76.4)], event="delete")
-    delete_result = normalize_envelope(
-        delete_payload, source_instance_id=SOURCE_INSTANCE
-    )
+    delete_result = normalize_envelope(delete_payload, source_instance_id=SOURCE_INSTANCE)
     assert delete_result.measurements[0].identity_kind == "fallback_time"
 
 
