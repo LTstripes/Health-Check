@@ -486,6 +486,12 @@ class WeightQueryService:
                 "run_id": None,
                 "status": None,
                 "selection_count": 0,
+                "fresh": False,
+                "stale": False,
+                "warning": None,
+                "latest_attempt_status": None,
+                "latest_attempt_run_id": None,
+                "failure_reason": None,
             }
             return meta, frozenset(), frozenset()
         weight_ids = {
@@ -516,6 +522,9 @@ class WeightQueryService:
                 )
                 if selection.source_measurement_id
             )
+        freshness = _canonical_freshness_meta(
+            self.repos.canonical_selection_runs, DASHBOARD_WEIGHT_SCOPE, run
+        )
         meta = {
             "available": True,
             "reason": None,
@@ -526,8 +535,56 @@ class WeightQueryService:
             "rule_version": run.rule_version,
             "scope_key": run.scope_key,
             "input_snapshot_hash": run.input_snapshot_hash,
+            **freshness,
         }
         return meta, frozenset(weight_ids), frozenset(composition_ids)
+
+
+def _canonical_freshness_meta(
+    runs_repo: Any, scope_key: str, successful_run: Any
+) -> dict[str, Any]:
+    """Describe whether the latest attempt leaves established success stale.
+
+    Failed runs never become the active selection set, but a newer failed
+    recompute must not look like a fresh successful establishment on GET.
+    """
+
+    latest = runs_repo.latest_for_scope(scope_key)
+    if latest is None or latest.id == successful_run.id:
+        return {
+            "fresh": True,
+            "stale": False,
+            "warning": None,
+            "latest_attempt_status": successful_run.status,
+            "latest_attempt_run_id": successful_run.id,
+            "failure_reason": None,
+        }
+    if latest.status == "failed":
+        return {
+            "fresh": False,
+            "stale": True,
+            "warning": "canonical_recompute_failed",
+            "latest_attempt_status": latest.status,
+            "latest_attempt_run_id": latest.id,
+            "failure_reason": latest.failure_reason,
+        }
+    if latest.status == "running":
+        return {
+            "fresh": False,
+            "stale": True,
+            "warning": "canonical_recompute_in_progress",
+            "latest_attempt_status": latest.status,
+            "latest_attempt_run_id": latest.id,
+            "failure_reason": None,
+        }
+    return {
+        "fresh": False,
+        "stale": latest.id != successful_run.id,
+        "warning": None,
+        "latest_attempt_status": latest.status,
+        "latest_attempt_run_id": latest.id,
+        "failure_reason": getattr(latest, "failure_reason", None),
+    }
 
 
 def empty_dashboard_payload(*, reason: str = "no_data") -> dict[str, Any]:
@@ -552,7 +609,17 @@ def empty_dashboard_payload(*, reason: str = "no_data") -> dict[str, Any]:
         "composition_by_group": {},
         "goal_kg": None,
         "current": current,
-        "canonical": {"available": False, "reason": reason, "selection_count": 0},
+        "canonical": {
+            "available": False,
+            "reason": reason,
+            "selection_count": 0,
+            "fresh": False,
+            "stale": False,
+            "warning": None,
+            "latest_attempt_status": None,
+            "latest_attempt_run_id": None,
+            "failure_reason": None,
+        },
         "algorithm_boundary": {
             "present": False,
             "groups": [],

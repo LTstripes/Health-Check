@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from healthcheck.canonical import CanonicalSelectionService
+from healthcheck.canonical import DASHBOARD_WEIGHT_SCOPE, CanonicalSelectionService
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
 from healthcheck.db.models import (
@@ -19,6 +19,7 @@ from healthcheck.db.models import (
     CanonicalSelectionRun,
     ImportCandidate,
     MeasurementSession,
+    RunStatus,
     ScalarMeasurement,
 )
 from healthcheck.ingestion.photo.synthetic import (
@@ -552,3 +553,66 @@ def test_competing_source_heads_use_canonical_evidence_for_analytics(tmp_path):
         assert winning["provenance"]["input_method"] == "webhook"
         assert summary["canonical"]["available"] is True
         assert summary["current"]["value_kg"] == 99.25
+
+
+def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
+    """GET must not present a prior success as fresh after a newer failed run."""
+
+    from healthcheck.db.repositories import repositories_for
+
+    app, _settings, paths = _ui(tmp_path)
+    with TestClient(app) as client:
+        uploaded = _upload_batch(client, six_month_synthetic_batch()[:4])
+        _confirm_all_pending(client, uploaded.json()["id"])
+        before = client.get("/api/weight/series").json()["canonical"]
+        assert before["available"] is True
+        assert before["fresh"] is True
+        assert before["stale"] is False
+        success_run_id = before["run_id"]
+        snapshot = _canonical_snapshot(paths)
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            success = repos.canonical_selection_runs.get_by_id(success_run_id)
+            assert success is not None
+            from healthcheck.db.models import CanonicalRuleSet
+
+            rule_set = session.get(CanonicalRuleSet, success.rule_set_id)
+            assert rule_set is not None
+            failed_run, created = repos.canonical_selection_runs.start_or_get(
+                scope_key=DASHBOARD_WEIGHT_SCOPE,
+                rule_set=rule_set,
+                input_snapshot_hash="synthetic-failed-recompute-input",
+                supersedes_run_id=success.id,
+            )
+            assert created is True
+            repos.canonical_selection_runs.finish(
+                failed_run.id,
+                status=RunStatus.FAILED,
+                failure_reason="canonical_selection_failed",
+            )
+    finally:
+        engine.dispose()
+
+    with TestClient(app) as client:
+        series = client.get("/api/weight/series").json()
+        summary = client.get("/api/weight/summary").json()
+        home = client.get("/")
+        assert home.status_code == 200
+        for payload in (series, summary):
+            canonical = payload["canonical"]
+            assert canonical["available"] is True
+            assert canonical["run_id"] == success_run_id
+            assert canonical["fresh"] is False
+            assert canonical["stale"] is True
+            assert canonical["warning"] == "canonical_recompute_failed"
+            assert canonical["latest_attempt_status"] == "failed"
+            assert canonical["latest_attempt_run_id"] != success_run_id
+            assert canonical["failure_reason"] == "canonical_selection_failed"
+        assert _canonical_snapshot(paths)["run_count"] == snapshot["run_count"] + 1
+        # GET must not add further runs.
+        client.get("/api/weight/series")
+        client.get("/")
+        assert _canonical_snapshot(paths)["run_count"] == snapshot["run_count"] + 1
