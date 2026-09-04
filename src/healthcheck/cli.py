@@ -10,20 +10,28 @@ import uvicorn
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import migrate_database
+from healthcheck.demo import DemoSeedError, seed_demo
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.runtime import prepare_runtime
+from healthcheck.uat import format_smoke_results, run_smoke, smoke_exit_code
 from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="healthcheck")
-    parser.add_argument("command", choices=("prepare-runtime", "migrate", "serve"))
+    parser.add_argument(
+        "command", choices=("prepare-runtime", "migrate", "serve", "seed-demo", "smoke")
+    )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
     parser.add_argument("--data-dir")
     parser.add_argument("--port", type=int)
     parser.add_argument("--host")
+    parser.add_argument("--reset", action="store_true")
+    parser.add_argument("--ui-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--ingest-url")
+    parser.add_argument("--timeout", type=float, default=3.0)
     return parser
 
 
@@ -40,7 +48,33 @@ def _settings(args: argparse.Namespace) -> Settings:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "smoke":
+        if args.timeout <= 0:
+            print("smoke: --timeout must be positive", file=sys.stderr)
+            return 2
+        results = run_smoke(
+            ui_url=args.ui_url,
+            ingest_url=args.ingest_url,
+            timeout=args.timeout,
+        )
+        print(format_smoke_results(results))
+        return smoke_exit_code(results)
+
     settings = _settings(args)
+    if args.command == "seed-demo":
+        try:
+            result = seed_demo(settings, reset=args.reset)
+        except (DemoSeedError, ValueError) as exc:
+            print(f"seed-demo: ERROR: {exc}", file=sys.stderr)
+            return 2
+        action = "created" if result.created else "already ready"
+        reset_note = " after explicit reset" if result.reset else ""
+        print(
+            f"seed-demo: {action}{reset_note}; synthetic data only; "
+            f"{result.weigh_in_count} weigh-ins, {result.candidate_count} candidates"
+        )
+        return 0
+
     paths = prepare_runtime(settings)
 
     if args.command == "prepare-runtime":

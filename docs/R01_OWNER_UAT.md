@@ -42,6 +42,56 @@ Expectations:
 
 **Status rule:** this step is **OWNER-UNVERIFIED** until Nikita runs it on Windows from `D:\Garmin\Garmin-UAT`. Team Linux/CLI substitutes do **not** make AC-01 PASS.
 
+## 4a. Synthetic demo helper (developer/UAT preparation)
+
+Use a new dedicated directory outside this checkout and outside any private profile. In PowerShell:
+
+```powershell
+$env:HEALTHCHECK_DATA_DIR = Join-Path $env:LOCALAPPDATA "Health-Check\r01-synthetic-demo"
+uv run python -m healthcheck.cli seed-demo
+```
+
+The command creates a labelled synthetic six-month / 26-weigh-in profile through the accepted photo-import service path. Repeating it is a safe no-op after the manifest is validated. To explicitly rebuild that same marked synthetic profile:
+
+```powershell
+uv run python -m healthcheck.cli seed-demo --reset
+```
+
+An existing non-empty directory without the synthetic manifest is refused, including with `--reset`. This prevents a private-looking profile from being overwritten; choose a new empty directory instead. The reset removes only the marked demo database and `artifacts` tree, and leaves unknown files in place. The manifest and all runtime artifacts stay outside Git.
+
+After seeding, run the mandatory owner start from this checkout (the helper does not replace AC-01):
+
+```powershell
+.\scripts\start.ps1 -DataDir $env:HEALTHCHECK_DATA_DIR
+```
+
+In another PowerShell window, run the read-only helper:
+
+```powershell
+.\scripts\uat-smoke.ps1
+```
+
+If the optional ingest listener is running, include its URL:
+
+```powershell
+.\scripts\uat-smoke.ps1 -IngestUrl "http://127.0.0.1:8001"
+```
+
+The helper prints only endpoint paths, statuses, and sanitized shape/readiness assertions. It checks UI/ingest liveness, dashboard/API reachability, ingest route isolation, and that the UI does not mount the openScale write route. It never prints response bodies or secrets and never reports AC-01 PASS.
+
+Open the populated dashboard at `http://127.0.0.1:8000/`.
+
+When finished, stop `start.ps1` with `Ctrl+C`, then remove only the dedicated synthetic profile after confirming its path:
+
+```powershell
+$demoDir = [IO.Path]::GetFullPath($env:HEALTHCHECK_DATA_DIR)
+$expectedDemoDir = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "Health-Check\r01-synthetic-demo"))
+if (-not $demoDir.Equals($expectedDemoDir, [StringComparison]::OrdinalIgnoreCase)) { throw "Refusing cleanup outside the dedicated synthetic demo path" }
+Remove-Item -LiteralPath $demoDir -Recurse -Force
+```
+
+Do not run that cleanup against a production or owner-private data directory.
+
 ## 5. Loopback UI and ingest route checks
 
 - UI `/healthz` reports loopback-ui.
