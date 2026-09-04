@@ -298,7 +298,7 @@ def test_ingest_listener_does_not_expose_dashboard_or_import_routes(tmp_path):
     settings = Settings(data_dir=tmp_path / "runtime")
     ingest, _ = create_ingest_app(settings)
     ui, _ = create_ui_app(settings)
-    probes = (
+    forbidden = (
         "/",
         "/imports",
         "/imports/demo",
@@ -310,15 +310,18 @@ def test_ingest_listener_does_not_expose_dashboard_or_import_routes(tmp_path):
         "/static/dashboard.js",
         "/static/dashboard.css",
         "/settings",
-        "/api/ingest/openscale",
     )
     with TestClient(ingest) as client:
-        assert [route.path for route in ingest.routes] == ["/healthz"]
-        for route in probes:
+        assert client.get("/healthz").json() == {"status": "ok", "service": "ingest"}
+        assert client.get("/api/ingest/openscale").status_code == 405
+        # Without configured credentials the route exists but fails closed.
+        assert client.post("/api/ingest/openscale", content=b"{}").status_code in {401, 503}
+        for route in forbidden:
             assert client.get(route).status_code == 404
             assert client.post(route).status_code == 404
     with TestClient(ui) as client:
         assert client.get("/healthz").json() == {"status": "ok", "service": "loopback-ui"}
+        assert client.post("/api/ingest/openscale", content=b"{}").status_code == 404
 
 
 def test_safe_error_pages_do_not_leak_sql_or_payloads(tmp_path):

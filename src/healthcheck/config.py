@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from healthcheck.ingestion.openscale.binding import (
+    classify_ingest_bind_host,
+    evaluate_ingest_binding,
+)
 
 
 def default_data_dir() -> Path:
@@ -36,6 +41,11 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     weight_goal_kg: float | None = None
     weight_cadence_days: int = Field(default=7, ge=1, le=365)
+    openscale_source_instance_id: str | None = None
+    openscale_ingest_token: str | None = None
+    trusted_private_lan_http: bool = False
+    openscale_algorithm_identity: str = "openscale-unknown"
+    openscale_config_identity: str = "unknown"
 
     @field_validator("data_dir", mode="before")
     @classmethod
@@ -52,6 +62,15 @@ class Settings(BaseSettings):
             raise ValueError("HEALTHCHECK_INGEST_HOST must not be empty")
         return value
 
+    @field_validator("openscale_source_instance_id", "openscale_ingest_token", mode="before")
+    @classmethod
+    def empty_secret_to_none(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("weight_goal_kg")
     @classmethod
     def reject_non_positive_goal(cls, value: float | None) -> float | None:
@@ -60,3 +79,27 @@ class Settings(BaseSettings):
         if value <= 0 or value != value or value == float("inf") or value == float("-inf"):
             raise ValueError("HEALTHCHECK_WEIGHT_GOAL_KG must be a finite positive number")
         return value
+
+    @model_validator(mode="after")
+    def reject_unsafe_ingest_binds(self) -> Self:
+        """Fail closed for public/unspecified binds and untrusted private LAN."""
+
+        kind = classify_ingest_bind_host(self.ingest_host)
+        if kind in {"public", "unspecified"}:
+            raise ValueError("public internet exposure of the ingest listener is unsupported")
+        if kind == "private" and not self.trusted_private_lan_http:
+            raise ValueError(
+                "plain private-LAN HTTP requires HEALTHCHECK_TRUSTED_PRIVATE_LAN_HTTP=true"
+            )
+        return self
+
+    def ingest_binding_warning(self) -> str | None:
+        """Return a plain-HTTP warning when a trusted private-LAN bind is active."""
+
+        decision = evaluate_ingest_binding(
+            self.ingest_host,
+            trusted_private_lan_http=self.trusted_private_lan_http,
+        )
+        if decision.requires_plain_http_warning:
+            return decision.message
+        return None

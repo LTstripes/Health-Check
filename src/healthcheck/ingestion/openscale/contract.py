@@ -229,9 +229,7 @@ class ParsedDateTime:
     def as_dict(self) -> dict[str, Any]:
         return {
             "precision": self.precision,
-            "measured_at_utc": (
-                self.measured_at_utc.isoformat() if self.measured_at_utc else None
-            ),
+            "measured_at_utc": (self.measured_at_utc.isoformat() if self.measured_at_utc else None),
             "local_wall_time": self.local_wall_time,
             "local_date": self.local_date.isoformat() if self.local_date else None,
         }
@@ -271,9 +269,7 @@ class NormalizedMeasurement:
             "username": self.username,
             "batch_index": self.batch_index,
             "precision": self.precision,
-            "measured_at_utc": (
-                self.measured_at_utc.isoformat() if self.measured_at_utc else None
-            ),
+            "measured_at_utc": (self.measured_at_utc.isoformat() if self.measured_at_utc else None),
             "local_wall_time": self.local_wall_time,
             "local_date": self.local_date.isoformat() if self.local_date else None,
             "metrics": [item.as_dict() for item in self.metrics],
@@ -289,11 +285,13 @@ class NormalizedMeasurement:
 class InvalidBatchItem:
     batch_index: int
     failures: tuple[ContractFailure, ...] = ()
+    evidence_key: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "batch_index": self.batch_index,
             "failures": [item.as_dict() for item in self.failures],
+            "evidence_key": self.evidence_key,
         }
 
 
@@ -335,9 +333,7 @@ class EnvelopeResult:
         }
 
 
-def stable_record_identity(
-    source_instance_id: str, user_id: str, record_id: str
-) -> str:
+def stable_record_identity(source_instance_id: str, user_id: str, record_id: str) -> str:
     """Return the downstream idempotency identity for insert/update.
 
     Depends only on ``(source_instance_id, userId, id)`` — never on
@@ -362,9 +358,7 @@ def stable_record_identity(
     return f"stable:{digest}"
 
 
-def delete_fallback_identity(
-    source_instance_id: str, user_id: str, measured_key: str
-) -> str:
+def delete_fallback_identity(source_instance_id: str, user_id: str, measured_key: str) -> str:
     """Return the delete fallback identity ``(source_instance, user, time)``."""
 
     for label, value in (
@@ -458,11 +452,7 @@ def normalize_envelope(
     if not isinstance(payload, Mapping):
         return _envelope_failure(
             "",
-            (
-                ContractFailure(
-                    "invalid_envelope", "top-level payload must be an object", None
-                ),
-            ),
+            (ContractFailure("invalid_envelope", "top-level payload must be an object", None),),
             payload,
         )
     raw_event = payload.get("event")
@@ -479,9 +469,7 @@ def normalize_envelope(
             payload,
         )
     event = raw_event.strip()
-    extras = {
-        key: payload[key] for key in payload if key not in {"event", "measurements"}
-    }
+    extras = {key: payload[key] for key in payload if key not in {"event", "measurements"}}
     if event in CONTROL_EVENTS:
         measurements = payload.get("measurements")
         if isinstance(measurements, list) and measurements:
@@ -540,22 +528,34 @@ def normalize_envelope(
                 measurements.append(measurement)
             if fatal:
                 invalid_items.append(
-                    InvalidBatchItem(batch_index=index, failures=tuple(failures))
+                    InvalidBatchItem(
+                        batch_index=index,
+                        failures=tuple(failures),
+                        evidence_key=invalid_item_evidence_key(
+                            event_type=event,
+                            raw_item=raw_item,
+                            failures=failures,
+                        ),
+                    )
                 )
             elif failures:
                 item_warnings.append(
-                    InvalidBatchItem(batch_index=index, failures=tuple(failures))
+                    InvalidBatchItem(
+                        batch_index=index,
+                        failures=tuple(failures),
+                        evidence_key=invalid_item_evidence_key(
+                            event_type=event,
+                            raw_item=raw_item,
+                            failures=failures,
+                        ),
+                    )
                 )
         measurements.sort(key=_measurement_sort_key)
         return EnvelopeResult(
             event=event,
             measurements=tuple(measurements),
-            invalid_items=tuple(
-                sorted(invalid_items, key=lambda item: item.batch_index)
-            ),
-            item_warnings=tuple(
-                sorted(item_warnings, key=lambda item: item.batch_index)
-            ),
+            invalid_items=tuple(sorted(invalid_items, key=lambda item: item.batch_index)),
+            item_warnings=tuple(sorted(item_warnings, key=lambda item: item.batch_index)),
             extras=extras,
         )
     measurement, failures, _fatal = _normalize_measurement(
@@ -963,9 +963,7 @@ def _project_convenience(
         )
 
 
-def _parse_value_item(
-    raw: Any, path: str
-) -> tuple[RawValueItem | None, ContractFailure | None]:
+def _parse_value_item(raw: Any, path: str) -> tuple[RawValueItem | None, ContractFailure | None]:
     def fail(reason: str, message: str) -> tuple[None, ContractFailure]:
         return None, ContractFailure(reason, message, path)
 
@@ -1116,6 +1114,73 @@ def _envelope_failure(
     return EnvelopeResult(event=event, failures=failures, extras={})
 
 
+def invalid_item_evidence_key(
+    *,
+    event_type: str,
+    raw_item: Any,
+    failures: Iterable[ContractFailure],
+) -> str:
+    """Deterministic quarantine identity independent of envelope bytes/order.
+
+    Prefer structural item fields that survive JSON formatting and batch
+    reordering.  Whole-envelope hashes and batch indexes are intentionally
+    excluded so the same semantic invalid item retries converge.
+    """
+
+    reason_codes = sorted({item.reason_code for item in failures})
+    if isinstance(raw_item, Mapping):
+        record_id = raw_item.get("id")
+        if isinstance(record_id, bool):
+            record_id = None
+        elif isinstance(record_id, (str, int)):
+            record_id = str(record_id).strip() or None
+        else:
+            record_id = None
+        user_id = raw_item.get("userId")
+        user_id = user_id.strip() if isinstance(user_id, str) else None
+        date_text = raw_item.get("date")
+        date_text = date_text.strip() if isinstance(date_text, str) else None
+        values_sig: list[Any] = []
+        if "values" in raw_item:
+            raw_values = raw_item.get("values")
+            if isinstance(raw_values, list):
+                for entry in raw_values:
+                    if not isinstance(entry, Mapping):
+                        values_sig.append({"kind": type(entry).__name__})
+                        continue
+                    key = entry.get("key") if isinstance(entry.get("key"), str) else None
+                    unit = entry.get("unit") if isinstance(entry.get("unit"), str) else None
+                    if "value" in entry:
+                        raw_kind = type(entry.get("value")).__name__
+                    elif "text" in entry:
+                        raw_kind = "text"
+                    else:
+                        raw_kind = "absent"
+                    values_sig.append({"key": key, "unit": unit, "raw_kind": raw_kind})
+            else:
+                values_sig.append({"values_type": type(raw_values).__name__})
+        structural = {
+            "user_id": user_id,
+            "record_id": record_id,
+            "date": date_text,
+            "values": values_sig,
+        }
+    else:
+        raw_value = None
+        if isinstance(raw_item, (str, int, float, bool)) or raw_item is None:
+            raw_value = raw_item
+        structural = {"raw_kind": type(raw_item).__name__, "raw": raw_value}
+    digest = _hash_canonical(
+        {
+            "kind": "invalid_item",
+            "event_type": str(event_type),
+            "reason_codes": reason_codes,
+            "structural": structural,
+        }
+    )
+    return f"invalid:{digest}"
+
+
 def _hash_canonical(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -1139,6 +1204,7 @@ __all__ = [
     "RawValueItem",
     "UnknownItem",
     "delete_fallback_identity",
+    "invalid_item_evidence_key",
     "measurement_fingerprint",
     "normalize_envelope",
     "semantic_fingerprint",

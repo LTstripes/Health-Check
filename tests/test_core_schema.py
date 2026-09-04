@@ -68,7 +68,7 @@ def test_empty_migration_is_idempotent_and_has_only_r01_tables(migrated_database
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0003_photo_candidate_provenance",
+        "migration_revision": "0004_naive_minute_wall_clock",
         "ready": True,
     }
 
@@ -468,6 +468,18 @@ def test_date_precision_rejects_invented_timestamp_and_revisions_are_append_only
             temporal_precision="minute",
             source_timestamp_utc=datetime(2026, 1, 2, 8, 30, 1, tzinfo=UTC),
         )
+    naive_wall = repositories.measurement_sessions.create_confirmed(
+        acquisition_source_id=source.id,
+        semantic_key="naive-wall-minute",
+        source_local_date=date(2026, 1, 2),
+        temporal_precision="minute",
+        source_timestamp_utc=None,
+        source_local_timestamp=datetime(2026, 1, 2, 8, 15),
+    )
+    assert naive_wall.source_timestamp_utc is None
+    assert naive_wall.source_local_timestamp is not None
+    assert naive_wall.source_local_timestamp.replace(tzinfo=None).hour == 8
+    assert naive_wall.source_local_timestamp.replace(tzinfo=None).minute == 15
 
     first_session = repositories.measurement_sessions.create_confirmed(
         acquisition_source_id=source.id,
@@ -726,9 +738,9 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
     config = _alembic_config(paths)
     command.upgrade(config, "head")
-    assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
+    assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
     command.upgrade(config, "head")
-    assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
+    assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
 
     engine = create_sqlite_engine(paths)
     try:
@@ -814,5 +826,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
             assert "immutable_canonical_selections_update" in triggers
         command.upgrade(config, "0003_photo_candidate_provenance")
         assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
+        command.upgrade(config, "head")
+        assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
     finally:
         engine.dispose()

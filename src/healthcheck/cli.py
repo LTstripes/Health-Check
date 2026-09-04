@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 
 import uvicorn
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import migrate_database
+from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.ingest_app import create_ingest_app
@@ -57,6 +59,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         port = settings.ui_port
         service = "loopback-ui"
     else:
+        decision = evaluate_ingest_binding(
+            settings.ingest_host,
+            trusted_private_lan_http=settings.trusted_private_lan_http,
+        )
+        if not decision.allowed:
+            log_event(
+                "ingest_bind_rejected",
+                operation="serve",
+                service="ingest",
+                status="error",
+                reason=decision.reason_code,
+            )
+            print(decision.message, file=sys.stderr)
+            return 1
+        if decision.requires_plain_http_warning:
+            log_event(
+                "ingest_plain_http_warning",
+                operation="serve",
+                service="ingest",
+                status="ok",
+                reason=decision.reason_code,
+            )
+            print(decision.message, file=sys.stderr)
         app, _ = create_ingest_app(settings)
         host = settings.ingest_host
         port = settings.ingest_port

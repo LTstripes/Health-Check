@@ -222,6 +222,10 @@ def _validate_temporal_precision(
             raise ValueError("date-only evidence must not receive an invented timestamp")
         return value.value
     if source_timestamp_utc is None:
+        # Naive sender wall clocks preserve local minute evidence without an
+        # invented UTC instant (accepted #19 / openScale contract semantics).
+        if value is TemporalPrecision.MINUTE and source_local_timestamp is not None:
+            return value.value
         raise ValueError(f"{value.value} evidence requires source_timestamp_utc")
     if source_timestamp_utc.tzinfo is None or source_timestamp_utc.utcoffset() is None:
         raise ValueError("source_timestamp_utc must be timezone-aware")
@@ -1166,10 +1170,14 @@ class MeasurementSessionRepository:
             conditions.append(MeasurementSession.source_local_date >= start_date)
         if end_date is not None:
             conditions.append(MeasurementSession.source_local_date <= end_date)
-        statement = select(MeasurementSession).where(*conditions).order_by(
-            MeasurementSession.source_local_date,
-            MeasurementSession.source_timestamp_utc,
-            MeasurementSession.id,
+        statement = (
+            select(MeasurementSession)
+            .where(*conditions)
+            .order_by(
+                MeasurementSession.source_local_date,
+                MeasurementSession.source_timestamp_utc,
+                MeasurementSession.id,
+            )
         )
         return list(self.session.scalars(statement))
 
@@ -1382,6 +1390,65 @@ class MeasurementSessionRepository:
         self.session.flush()
         return session
 
+    def find_by_ingest_event(self, ingest_event_id: str) -> MeasurementSession | None:
+        return self.session.scalar(
+            select(MeasurementSession)
+            .where(MeasurementSession.ingest_event_id == ingest_event_id)
+            .order_by(MeasurementSession.revision_number.desc(), MeasurementSession.id.desc())
+        )
+
+    def create_tombstone(
+        self,
+        previous_session_id: str,
+        *,
+        ingest_event_id: str | None = None,
+        raw_artifact_id: str | None = None,
+    ) -> MeasurementSession:
+        """Supersede a confirmed head with a recoverable rejected tombstone.
+
+        Raw history stays immutable.  Because measurement_sessions are
+        append-only at the SQL layer, the tombstone must be inserted already
+        rejected — never updated in place after a confirmed insert.
+        """
+
+        previous = self.session.get(MeasurementSession, previous_session_id)
+        if previous is None:
+            raise KeyError(f"unknown measurement session {previous_session_id}")
+        if previous.confirmation_status != "confirmed":
+            raise ValueError("only a confirmed session head can be tombstoned")
+        successor = self.session.scalar(
+            select(MeasurementSession).where(
+                MeasurementSession.supersedes_session_id == previous.id
+            )
+        )
+        if successor is not None:
+            if successor.confirmation_status == "rejected":
+                return successor
+            raise ValueError("session already has a non-tombstone successor")
+        tombstone = MeasurementSession(
+            acquisition_source_id=previous.acquisition_source_id,
+            ingest_event_id=ingest_event_id or previous.ingest_event_id,
+            raw_artifact_id=raw_artifact_id or previous.raw_artifact_id,
+            confirmation_candidate_id=None,
+            semantic_key=previous.semantic_key,
+            source_record_id=previous.source_record_id,
+            source_fingerprint=previous.source_fingerprint,
+            temporal_precision=previous.temporal_precision,
+            source_local_date=previous.source_local_date,
+            source_timestamp_utc=previous.source_timestamp_utc,
+            source_local_timestamp=previous.source_local_timestamp,
+            source_utc_offset_minutes=previous.source_utc_offset_minutes,
+            source_timezone=previous.source_timezone,
+            confirmation_status="rejected",
+            import_status=IngestStatus.REJECTED.value,
+            revision_number=previous.revision_number + 1,
+            supersedes_session_id=previous.id,
+            confirmed_at=None,
+        )
+        self.session.add(tombstone)
+        self.session.flush()
+        return tombstone
+
     def create_revision(
         self,
         previous_session_id: str,
@@ -1531,12 +1598,9 @@ class ScalarMeasurementRepository:
             conditions.append(MeasurementSession.source_local_date >= start_date)
         if end_date is not None:
             conditions.append(MeasurementSession.source_local_date <= end_date)
-        statement = (
-            select(ScalarMeasurement)
-            .join(
-                MeasurementSession,
-                MeasurementSession.id == ScalarMeasurement.measurement_session_id,
-            )
+        statement = select(ScalarMeasurement).join(
+            MeasurementSession,
+            MeasurementSession.id == ScalarMeasurement.measurement_session_id,
         )
         if provider_id is not None:
             statement = statement.join(
@@ -1832,14 +1896,28 @@ class CanonicalSelectionRunRepository:
         return self.session.scalar(
             select(CanonicalSelectionRun)
             .where(
-                CanonicalSelectionRun.scope_key == _required_text(
-                    scope_key, "canonical scope key"
-                ),
+                CanonicalSelectionRun.scope_key == _required_text(scope_key, "canonical scope key"),
                 CanonicalSelectionRun.status == RunStatus.SUCCEEDED.value,
             )
             .order_by(
                 CanonicalSelectionRun.completed_at.desc(),
                 CanonicalSelectionRun.id.desc(),
+            )
+        )
+
+    def successful_scope_keys(self, *, prefix: str) -> list[str]:
+        """Return distinct successful scope keys that start with ``prefix``."""
+
+        normalized = _required_text(prefix, "canonical scope key prefix")
+        return list(
+            self.session.scalars(
+                select(CanonicalSelectionRun.scope_key)
+                .where(
+                    CanonicalSelectionRun.scope_key.startswith(normalized),
+                    CanonicalSelectionRun.status == RunStatus.SUCCEEDED.value,
+                )
+                .distinct()
+                .order_by(CanonicalSelectionRun.scope_key)
             )
         )
 
@@ -2242,11 +2320,15 @@ class CoverageRepository:
             conditions.append(CoverageInterval.interval_end > normalized_start)
         if normalized_end is not None:
             conditions.append(CoverageInterval.interval_start < normalized_end)
-        statement = select(CoverageInterval).where(*conditions).order_by(
-            CoverageInterval.interval_start,
-            CoverageInterval.interval_end,
-            CoverageInterval.computed_at,
-            CoverageInterval.id,
+        statement = (
+            select(CoverageInterval)
+            .where(*conditions)
+            .order_by(
+                CoverageInterval.interval_start,
+                CoverageInterval.interval_end,
+                CoverageInterval.computed_at,
+                CoverageInterval.id,
+            )
         )
         return list(self.session.scalars(statement))
 

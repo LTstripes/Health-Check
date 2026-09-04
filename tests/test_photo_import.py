@@ -549,9 +549,12 @@ def test_api_create_list_detail_confirm_reject(photo_env):
         assert ingest_client.post("/api/import-candidates/confirm").status_code == 404
 
 
-def test_ingest_listener_still_exposes_only_liveness(tmp_path):
+def test_ingest_listener_still_exposes_only_liveness_and_openscale(tmp_path):
     app, _ = create_ingest_app(Settings(data_dir=tmp_path / "runtime"))
-    assert [route.path for route in app.routes] == ["/healthz"]
+    with TestClient(app) as client:
+        assert client.get("/healthz").status_code == 200
+        assert client.get("/api/ingest/openscale").status_code == 405
+        assert client.get("/api/imports").status_code == 404
 
 
 def test_logs_do_not_contain_extracted_values(photo_env):
