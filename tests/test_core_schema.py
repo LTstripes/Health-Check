@@ -62,6 +62,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
         "coverage_intervals",
         "garmin_sources",
         "garmin_raw_payloads",
+        "garmin_payload_observations",
         "garmin_source_records",
         "garmin_daily_records",
         "garmin_sleep_records",
@@ -78,7 +79,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0005_garmin_persistence_contract",
+        "migration_revision": "0006_garmin_payload_observation_provenance",
         "ready": True,
     }
 
@@ -748,9 +749,15 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
     config = _alembic_config(paths)
     command.upgrade(config, "head")
-    assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
+    assert (
+        database_readiness(paths)["migration_revision"]
+        == "0006_garmin_payload_observation_provenance"
+    )
     command.upgrade(config, "head")
-    assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
+    assert (
+        database_readiness(paths)["migration_revision"]
+        == "0006_garmin_payload_observation_provenance"
+    )
 
     engine = create_sqlite_engine(paths)
     try:
@@ -837,6 +844,9 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "0003_photo_candidate_provenance")
         assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
         command.upgrade(config, "head")
-        assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
+        assert (
+            database_readiness(paths)["migration_revision"]
+            == "0006_garmin_payload_observation_provenance"
+        )
     finally:
         engine.dispose()

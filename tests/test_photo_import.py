@@ -612,6 +612,7 @@ def test_core_schema_tables_unchanged_by_photo_import(photo_env):
         "coverage_intervals",
         "garmin_sources",
         "garmin_raw_payloads",
+        "garmin_payload_observations",
         "garmin_source_records",
         "garmin_daily_records",
         "garmin_sleep_records",

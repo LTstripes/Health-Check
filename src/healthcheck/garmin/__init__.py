@@ -58,6 +58,7 @@ from healthcheck.garmin.persistence import (
     GARMIN_SOURCE_APPLICATION,
     PERSISTENCE_CONTRACT_VERSION,
     GarminCoverageRepository,
+    GarminPayloadObservationRepository,
     GarminPersistenceOutcome,
     GarminPersistenceRepositories,
     GarminPersistenceRepository,
@@ -65,6 +66,7 @@ from healthcheck.garmin.persistence import (
     GarminRawPayloadRepository,
     GarminSourceRecordRepository,
     GarminSourceRepository,
+    build_garmin_observation_key,
     garmin_persistence_for,
 )
 from healthcheck.garmin.storage import (
@@ -94,6 +96,7 @@ __all__ = [
     "GarminCapabilityFixtureError",
     "GarminCapabilityInventory",
     "GarminCoverageRepository",
+    "GarminPayloadObservationRepository",
     "GarminDiagnostic",
     "GarminFieldState",
     "GarminMetricDTO",
@@ -118,6 +121,7 @@ __all__ = [
     "ContentAddressedGarminPayloadStore",
     "get_capability",
     "garmin_persistence_for",
+    "build_garmin_observation_key",
     "garmin_record_idempotency_key",
     "garmin_semantic_idempotency_key",
     "garmin_source_identity",
