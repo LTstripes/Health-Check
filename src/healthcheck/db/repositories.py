@@ -1939,6 +1939,19 @@ class CanonicalSelectionRunRepository:
             )
         )
 
+    def scope_keys_with_prefix(self, *, prefix: str) -> list[str]:
+        """Return distinct scope keys that start with ``prefix`` (any status)."""
+
+        normalized = _required_text(prefix, "canonical scope key prefix")
+        return list(
+            self.session.scalars(
+                select(CanonicalSelectionRun.scope_key)
+                .where(CanonicalSelectionRun.scope_key.startswith(normalized))
+                .distinct()
+                .order_by(CanonicalSelectionRun.scope_key)
+            )
+        )
+
     def get_by_id(self, run_id: str) -> CanonicalSelectionRun | None:
         return self.session.get(CanonicalSelectionRun, run_id)
 

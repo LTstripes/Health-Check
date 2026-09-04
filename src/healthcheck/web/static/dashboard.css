@@ -35,7 +35,7 @@ body {
 .top nav a.active, .top nav a:hover { color: #fff; }
 main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
 .legal { max-width: 1100px; margin: 0 auto 2rem; padding: 0 1rem; color: var(--muted); font-size: 0.9rem; }
-.card, .hero, .bia-banner, .algorithm-banner {
+.card, .hero, .bia-banner, .algorithm-banner, .canonical-banner {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -44,6 +44,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
 }
 .bia-banner { border-left: 6px solid var(--warn); }
 .algorithm-banner { border-left: 6px solid var(--alert); background: #fdeeee; }
+.canonical-banner { border-left: 6px solid var(--alert); background: #fdeeee; }
 .hero { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .current { display: grid; gap: 0.6rem; margin: 0; }
 .current dt { font-size: 0.8rem; color: var(--muted); }
