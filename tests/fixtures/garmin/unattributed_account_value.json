@@ -1,0 +1,22 @@
+{
+  "fixture_contract_version": "r02-garmin-capability-fixture-v1",
+  "fixture_id": "synthetic-unattributed-account-value-001",
+  "source_kind": "synthetic",
+  "provider_code": "garmin_connect",
+  "stream_code": "daily_health",
+  "device": {
+    "attributed": false,
+    "code": null,
+    "model": null
+  },
+  "client_methods": ["get_training_status"],
+  "payload_fields": {
+    "training_status": "trainingStatus.value"
+  },
+  "payload": {
+    "trainingStatus": {
+      "value": "productive",
+      "producer": "synthetic-unknown-device"
+    }
+  }
+}
