@@ -10,6 +10,10 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
+from healthcheck.canonical import (
+    DASHBOARD_COMPOSITION_SCOPE_PREFIX,
+    dashboard_composition_scope,
+)
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
 from healthcheck.db.models import (
@@ -811,5 +815,211 @@ def test_single_mode_conflict_persists_envelope_failures(tmp_path):
             }
             assert "weight" not in metrics
             assert metrics["body_fat_pct"] == pytest.approx(18.0)
+    finally:
+        engine.dispose()
+
+
+def test_naive_datetime_preserves_minute_wall_without_invented_utc(tmp_path):
+    """Breaker 1: naive sender datetime must not invent a UTC instant."""
+
+    client, _settings_obj, paths = _client(tmp_path)
+    payload = {
+        "event": "insert",
+        "id": "naive-minute-1",
+        "userId": "synthetic-user-1",
+        "date": "2026-05-10T08:15:00",
+        "values": [
+            {
+                "key": "weight",
+                "name": "Weight",
+                "unit": "kg",
+                "value": 77.25,
+                "isDerived": False,
+            }
+        ],
+    }
+    with client:
+        response = client.post(
+            "/api/ingest/openscale",
+            content=json.dumps(payload).encode("utf-8"),
+            headers=_auth(),
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["items"][0]["status"] == "committed"
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            heads = repos.measurement_sessions.current_heads()
+            assert len(heads) == 1
+            row = heads[0]
+            assert row.temporal_precision == "minute"
+            assert row.source_timestamp_utc is None
+            assert row.source_local_timestamp is not None
+            wall = row.source_local_timestamp.replace(tzinfo=None)
+            assert wall.year == 2026
+            assert wall.month == 5
+            assert wall.day == 10
+            assert wall.hour == 8
+            assert wall.minute == 15
+            assert wall.second == 0
+            assert row.source_local_date.isoformat() == "2026-05-10"
+    finally:
+        engine.dispose()
+
+
+def test_final_composition_group_delete_creates_empty_superseding_run(tmp_path):
+    """Breaker 2: tombstoning last composition evidence must clear the head."""
+
+    client, _settings_obj, paths = _client(tmp_path)
+    insert = {
+        "event": "insert",
+        "id": "composition-head-1",
+        "userId": "synthetic-user-1",
+        "date": "2026-04-01T09:00:00+03:00",
+        "values": [
+            {
+                "key": "weight",
+                "name": "Weight",
+                "unit": "kg",
+                "value": 80.0,
+                "isDerived": False,
+            },
+            {
+                "key": "fat",
+                "name": "Body fat",
+                "unit": "%",
+                "value": 22.5,
+                "isDerived": False,
+            },
+        ],
+    }
+    delete = {
+        "event": "delete",
+        "id": "composition-head-1",
+        "userId": "synthetic-user-1",
+        "date": "2026-04-01T09:00:00+03:00",
+    }
+    scope_key = dashboard_composition_scope(OPENSCALE_COMPOSITION_GROUP)
+    with client:
+        created = client.post(
+            "/api/ingest/openscale",
+            content=json.dumps(insert).encode("utf-8"),
+            headers=_auth(),
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["items"][0]["status"] == "committed"
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            before = repos.canonical_selection_runs.latest_successful(scope_key)
+            assert before is not None
+            assert before.status == "succeeded"
+            selections = repos.canonical_selections.for_run(before.id)
+            assert any(item.metric_code == "body_fat_pct" for item in selections)
+            before_id = before.id
+        with client:
+            deleted = client.post(
+                "/api/ingest/openscale",
+                content=json.dumps(delete).encode("utf-8"),
+                headers=_auth(),
+            )
+            assert deleted.status_code == 200, deleted.text
+            assert deleted.json()["items"][0]["status"] == "committed"
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            after = repos.canonical_selection_runs.latest_successful(scope_key)
+            assert after is not None
+            assert after.id != before_id
+            assert after.supersedes_run_id == before_id
+            assert after.selection_count == 0
+            assert repos.canonical_selections.for_run(after.id) == []
+            scopes = repos.canonical_selection_runs.successful_scope_keys(
+                prefix=DASHBOARD_COMPOSITION_SCOPE_PREFIX
+            )
+            assert scope_key in scopes
+    finally:
+        engine.dispose()
+
+
+def test_invalid_item_retry_identity_ignores_batch_order_and_formatting(tmp_path):
+    """Breaker 3: semantic invalid quarantine converges across replay shape."""
+
+    client, _settings_obj, paths = _client(tmp_path)
+    first = {
+        "event": "insert",
+        "measurements": [
+            {
+                "id": "valid-before",
+                "userId": "synthetic-user-1",
+                "date": "2026-05-01T08:00:00+03:00",
+                "values": [
+                    {
+                        "key": "weight",
+                        "name": "Weight",
+                        "unit": "kg",
+                        "value": 70.0,
+                        "isDerived": False,
+                    }
+                ],
+            },
+            {
+                "id": "bad-values-object",
+                "userId": "synthetic-user-1",
+                "date": "2026-05-02T08:00:00+03:00",
+                "values": None,
+            },
+        ],
+    }
+    # Same semantic invalid item, different batch position and JSON formatting.
+    second = {
+        "event": "insert",
+        "measurements": [
+            {
+                "id": "bad-values-object",
+                "userId": "synthetic-user-1",
+                "date": "2026-05-02T08:00:00+03:00",
+                "values": None,
+            },
+            {
+                "id": "valid-after",
+                "userId": "synthetic-user-1",
+                "date": "2026-05-03T08:00:00+03:00",
+                "values": [
+                    {
+                        "key": "weight",
+                        "unit": "kg",
+                        "name": "Weight",
+                        "isDerived": False,
+                        "value": 71.0,
+                    }
+                ],
+            },
+        ],
+    }
+    with client:
+        first_response = client.post(
+            "/api/ingest/openscale",
+            content=json.dumps(first, separators=(",", ":")).encode("utf-8"),
+            headers=_auth(),
+        )
+        assert first_response.status_code == 200, first_response.text
+        second_response = client.post(
+            "/api/ingest/openscale",
+            content=json.dumps(second, indent=2, sort_keys=True).encode("utf-8"),
+            headers=_auth(),
+        )
+        assert second_response.status_code == 200, second_response.text
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            failed = list(
+                session.scalars(select(IngestEvent).where(IngestEvent.status == "failed"))
+            )
+            assert len(failed) == 1
+            assert failed[0].diagnostic_code == "invalid_values_type"
+            assert failed[0].semantic_fingerprint.startswith("invalid:")
+            assert str(failed[0].raw_artifact_id) not in failed[0].semantic_fingerprint
     finally:
         engine.dispose()

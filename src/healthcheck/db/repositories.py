@@ -222,6 +222,10 @@ def _validate_temporal_precision(
             raise ValueError("date-only evidence must not receive an invented timestamp")
         return value.value
     if source_timestamp_utc is None:
+        # Naive sender wall clocks preserve local minute evidence without an
+        # invented UTC instant (accepted #19 / openScale contract semantics).
+        if value is TemporalPrecision.MINUTE and source_local_timestamp is not None:
+            return value.value
         raise ValueError(f"{value.value} evidence requires source_timestamp_utc")
     if source_timestamp_utc.tzinfo is None or source_timestamp_utc.utcoffset() is None:
         raise ValueError("source_timestamp_utc must be timezone-aware")
@@ -1898,6 +1902,22 @@ class CanonicalSelectionRunRepository:
             .order_by(
                 CanonicalSelectionRun.completed_at.desc(),
                 CanonicalSelectionRun.id.desc(),
+            )
+        )
+
+    def successful_scope_keys(self, *, prefix: str) -> list[str]:
+        """Return distinct successful scope keys that start with ``prefix``."""
+
+        normalized = _required_text(prefix, "canonical scope key prefix")
+        return list(
+            self.session.scalars(
+                select(CanonicalSelectionRun.scope_key)
+                .where(
+                    CanonicalSelectionRun.scope_key.startswith(normalized),
+                    CanonicalSelectionRun.status == RunStatus.SUCCEEDED.value,
+                )
+                .distinct()
+                .order_by(CanonicalSelectionRun.scope_key)
             )
         )
 

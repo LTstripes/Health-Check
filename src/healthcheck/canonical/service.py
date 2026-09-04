@@ -350,6 +350,10 @@ class CanonicalSelectionService:
         Confirmation and other application writes call this.  Dashboard GET
         paths must not.  Weight is one scope; each composition compatibility
         group is a separate scope so groups are never mixed.
+
+        Previously successful composition scopes are reconsidered even when
+        their final evidence was tombstoned, so a newer empty successful run
+        can supersede deleted evidence rather than leaving it canonical.
         """
 
         results = [
@@ -366,22 +370,25 @@ class CanonicalSelectionService:
             include_derived=False,
             derived_algorithm_version=None,
         )
-        groups = sorted(
-            {
-                candidate.compatibility_group
-                for candidate in candidates
-                if is_composition_metric(candidate.metric_code) and candidate.compatibility_group
-            }
-        )
-        for group in groups:
+        groups = {
+            candidate.compatibility_group
+            for candidate in candidates
+            if is_composition_metric(candidate.metric_code) and candidate.compatibility_group
+        }
+        prefix = DASHBOARD_COMPOSITION_SCOPE_PREFIX
+        for scope_key in self.repositories.canonical_selection_runs.successful_scope_keys(
+            prefix=prefix
+        ):
+            group = scope_key[len(prefix) :]
+            if group:
+                groups.add(group)
+        for group in sorted(groups):
             group_candidates = tuple(
                 candidate
                 for candidate in candidates
                 if is_composition_metric(candidate.metric_code)
                 and candidate.compatibility_group == group
             )
-            if not group_candidates:
-                continue
             results.append(
                 self.select(
                     scope_key=dashboard_composition_scope(group),

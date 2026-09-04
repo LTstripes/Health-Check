@@ -219,7 +219,9 @@ class WeightRateResult:
             "window_start_date": self.window_start_date.isoformat()
             if self.window_start_date
             else None,
-            "window_end_date": self.window_end_date.isoformat() if self.window_end_date else None,
+            "window_end_date": self.window_end_date.isoformat()
+            if self.window_end_date
+            else None,
             "pair_count": self.pair_count,
             "exclusions": [item.as_dict() for item in self.exclusions],
         }
@@ -392,7 +394,9 @@ class WeightSeries:
     input_count: int = 0
     covered_span_days: int | None = None
     exclusions: tuple[WeightExclusion, ...] = ()
-    composition_by_group: Mapping[str, tuple[CompositionPoint, ...]] = field(default_factory=dict)
+    composition_by_group: Mapping[str, tuple[CompositionPoint, ...]] = field(
+        default_factory=dict
+    )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -418,8 +422,12 @@ class WeightSummary:
 
     trend: WeightTrendResult = field(default_factory=WeightTrendResult)
     rate: WeightRateResult = field(default_factory=WeightRateResult)
-    latest_composition: BodyCompositionResult = field(default_factory=BodyCompositionResult)
-    similar_weight: SimilarWeightComparison = field(default_factory=SimilarWeightComparison)
+    latest_composition: BodyCompositionResult = field(
+        default_factory=BodyCompositionResult
+    )
+    similar_weight: SimilarWeightComparison = field(
+        default_factory=SimilarWeightComparison
+    )
     coverage: Mapping[str, Any] | None = None
     algorithm_versions: Mapping[str, str] = field(
         default_factory=lambda: {
@@ -483,19 +491,27 @@ def coerce_weight_observations(
             continue
         observed = getattr(candidate, "source_local_date", None)
         if observed is None:
-            exclusions.append(_exclusion(evidence, metric, semantic, "missing_observed_date"))
+            exclusions.append(
+                _exclusion(evidence, metric, semantic, "missing_observed_date")
+            )
             continue
         if isinstance(observed, datetime):
             observed = observed.date()
         if not isinstance(observed, date):
-            exclusions.append(_exclusion(evidence, metric, semantic, "missing_observed_date"))
+            exclusions.append(
+                _exclusion(evidence, metric, semantic, "missing_observed_date")
+            )
             continue
         value = getattr(candidate, "normalized_value", None)
-        if value is None or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        if value is None or not isinstance(value, (int, float)) or not math.isfinite(
+            float(value)
+        ):
             exclusions.append(_exclusion(evidence, metric, semantic, "missing_value"))
             continue
         if float(value) <= 0:
-            exclusions.append(_exclusion(evidence, metric, semantic, "non_positive_weight"))
+            exclusions.append(
+                _exclusion(evidence, metric, semantic, "non_positive_weight")
+            )
             continue
         unit = getattr(candidate, "normalized_unit", None)
         if unit is not None and str(unit).strip().casefold() != "kg":
@@ -516,12 +532,8 @@ def coerce_weight_observations(
         )
     observations.sort(key=_observation_sort_key)
     exclusions.sort(
-        key=lambda item: (
-            item.metric_code or "",
-            item.semantic_key or "",
-            item.evidence_id or "",
-            item.reason_code,
-        )
+        key=lambda item: (item.metric_code or "", item.semantic_key or "",
+                          item.evidence_id or "", item.reason_code)
     )
     return tuple(observations), tuple(exclusions)
 
@@ -620,15 +632,16 @@ def theil_sen_rate(
     ordered = tuple(sorted(daily_points, key=lambda item: item.observed_date))
     normalized_exclusions = tuple(exclusions)
     if not ordered:
-        return WeightRateResult(available=False, reason="no_data", exclusions=normalized_exclusions)
+        return WeightRateResult(
+            available=False, reason="no_data", exclusions=normalized_exclusions
+        )
     latest = ordered[-1].observed_date
     if as_of_date is not None and as_of_date < latest:
         latest = as_of_date
     window_start = _add_days(latest, -RATE_WINDOW_DAYS)
     window = tuple(
-        item
-        for item in ordered
-        if item.observed_date > window_start and item.observed_date <= latest
+        item for item in ordered if item.observed_date > window_start
+        and item.observed_date <= latest
     )
     if not window:
         return WeightRateResult(
@@ -712,7 +725,9 @@ def derive_body_composition(
     if weight.metric_code not in WEIGHT_METRIC_CODES:
         return BodyCompositionResult(available=False, reason="invalid_weight_metric")
     if body_fat.metric_code in MUSCLE_METRIC_CODES:
-        return BodyCompositionResult(available=False, reason="source_muscle_not_lean")
+        return BodyCompositionResult(
+            available=False, reason="source_muscle_not_lean"
+        )
     if body_fat.metric_code not in BODY_FAT_METRIC_CODES:
         return BodyCompositionResult(available=False, reason="invalid_body_fat_metric")
     if weight.session_id is None or body_fat.session_id is None:
@@ -724,14 +739,18 @@ def derive_body_composition(
         and body_fat.observed_date is not None
         and weight.observed_date != body_fat.observed_date
     ):
-        return BodyCompositionResult(available=False, reason="conflicting_observed_date")
+        return BodyCompositionResult(
+            available=False, reason="conflicting_observed_date"
+        )
     if not _unit_accepted(weight.unit, WEIGHT_UNITS) or not _unit_accepted(
         body_fat.unit, BODY_FAT_UNITS
     ):
         return BodyCompositionResult(available=False, reason="invalid_unit")
     fat_group = _normalize_group(body_fat.compatibility_group)
     if fat_group is None:
-        return BodyCompositionResult(available=False, reason="missing_compatibility_group")
+        return BodyCompositionResult(
+            available=False, reason="missing_compatibility_group"
+        )
     if not math.isfinite(weight.value) or weight.value <= 0:
         return BodyCompositionResult(available=False, reason="invalid_weight_value")
     if not math.isfinite(body_fat.value) or not 0.0 < body_fat.value < 100.0:
@@ -804,9 +823,9 @@ def composition_series_by_group(
         algorithm_code = _text_or_none(body_fat.get("algorithm_code")) or _text_or_none(
             session.get("algorithm_code")
         )
-        algorithm_version = _text_or_none(body_fat.get("algorithm_version")) or _text_or_none(
-            session.get("algorithm_version")
-        )
+        algorithm_version = _text_or_none(
+            body_fat.get("algorithm_version")
+        ) or _text_or_none(session.get("algorithm_version"))
         grouped.setdefault(group, []).append(
             CompositionPoint(
                 session_id=str(session_id),
@@ -855,7 +874,9 @@ def similar_weight_comparison(
         or later_point.compatibility_group is None
         or earlier_point.compatibility_group != later_point.compatibility_group
     ):
-        return SimilarWeightComparison(available=False, reason="incompatible_algorithm_group")
+        return SimilarWeightComparison(
+            available=False, reason="incompatible_algorithm_group"
+        )
     if earlier_point.weight_kg is None or later_point.weight_kg is None:
         return SimilarWeightComparison(available=False, reason="missing_weight")
     if earlier_point.weight_kg <= 0 or later_point.weight_kg <= 0:
@@ -906,7 +927,10 @@ def similar_weight_comparison(
     if first.body_fat_pct is not None and second.body_fat_pct is not None:
         fat_delta = second.body_fat_pct - first.body_fat_pct
     mass_delta: float | None = None
-    if first.estimated_fat_mass_kg is not None and second.estimated_fat_mass_kg is not None:
+    if (
+        first.estimated_fat_mass_kg is not None
+        and second.estimated_fat_mass_kg is not None
+    ):
         mass_delta = second.estimated_fat_mass_kg - first.estimated_fat_mass_kg
     return SimilarWeightComparison(
         available=True,
@@ -1019,7 +1043,9 @@ def _observation_sort_key(item: WeightObservation) -> tuple[Any, ...]:
     return (item.observed_date, timestamp_key, item.evidence_id)
 
 
-def _exclusion(evidence: Any, metric: Any, semantic: Any, reason: str) -> WeightExclusion:
+def _exclusion(
+    evidence: Any, metric: Any, semantic: Any, reason: str
+) -> WeightExclusion:
     return WeightExclusion(
         evidence_id=str(evidence) if evidence is not None else None,
         metric_code=str(metric) if metric is not None else None,
@@ -1064,7 +1090,9 @@ def _add_days(value: date, days: int) -> date:
     return value + timedelta(days=days)
 
 
-def _as_composition_point(value: CompositionPoint | Mapping[str, Any]) -> CompositionPoint | None:
+def _as_composition_point(value: CompositionPoint | Mapping[str, Any]) -> (
+    CompositionPoint | None
+):
     if isinstance(value, CompositionPoint):
         return value
     if isinstance(value, Mapping):
@@ -1083,7 +1111,9 @@ def _as_composition_point(value: CompositionPoint | Mapping[str, Any]) -> Compos
             observed_date=observed,
             compatibility_group=_normalize_group(value.get("compatibility_group")),
             weight_kg=_finite_or_none(value.get("weight_kg", value.get("weight"))),
-            body_fat_pct=_finite_or_none(value.get("body_fat_pct", value.get("body_fat"))),
+            body_fat_pct=_finite_or_none(
+                value.get("body_fat_pct", value.get("body_fat"))
+            ),
             estimated_fat_mass_kg=_finite_or_none(value.get("estimated_fat_mass_kg")),
             estimated_lean_mass_kg=_finite_or_none(value.get("estimated_lean_mass_kg")),
             algorithm_code=_text_or_none(value.get("algorithm_code")),

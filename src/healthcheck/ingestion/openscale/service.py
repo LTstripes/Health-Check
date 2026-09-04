@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from healthcheck.ingestion.openscale.contract import (
     EnvelopeResult,
     InvalidBatchItem,
     NormalizedMeasurement,
+    invalid_item_evidence_key,
     normalize_envelope,
 )
 from healthcheck.ingestion.openscale.errors import OpenScaleIngestError
@@ -288,9 +289,12 @@ class OpenScaleWebhookService:
         event_type: str,
     ) -> ItemOutcome:
         reason = invalid.failures[0].reason_code if invalid.failures else "invalid_measurement"
-        fingerprint = (
-            f"invalid:{event_type}:{invalid.batch_index}:"
-            f"{raw_artifact_id}:{reason}:{','.join(f.reason_code for f in invalid.failures)}"
+        # Retry identity must not depend on whole-envelope artifact hash or
+        # batch ordering when deterministic item evidence is available.
+        fingerprint = invalid.evidence_key or invalid_item_evidence_key(
+            event_type=event_type,
+            raw_item=None,
+            failures=invalid.failures,
         )
         nested = self.session.begin_nested()
         try:
@@ -508,7 +512,7 @@ class OpenScaleWebhookService:
         )
         if head is not None and self.repos.measurement_sessions.is_current_head(head.id):
             if _session_matches_measurement(
-                head, measurement, precision, local_date, timestamp_utc
+                head, measurement, precision, local_date, timestamp_utc, local_timestamp
             ):
                 if _scalars_match(self.repos, head, usable):
                     diagnostic_code, diagnostic_reason = _item_diagnostic(
@@ -865,16 +869,17 @@ def _session_time(
             _parse_local_wall(measurement.local_wall_time),
         )
     if measurement.local_wall_time is not None:
-        # Schema requires UTC for minute/instant precision.  When the sender
-        # supplied a naive wall clock, store that wall time labeled UTC without
-        # inventing a different zone offset — zone remains unknown.
+        # Accepted #19 naive-time semantics: preserve the sender-local wall
+        # minute verbatim and keep measured_at_utc null rather than inventing
+        # a UTC instant / zone.
         wall = _parse_local_wall(measurement.local_wall_time)
         assert wall is not None
-        labeled = wall if wall.tzinfo is not None else wall.replace(tzinfo=UTC)
-        precision = "minute"
-        if labeled.second != 0 or labeled.microsecond != 0:
-            precision = "instant"
-        return precision, measurement.local_date, labeled, wall.replace(tzinfo=UTC)
+        return (
+            measurement.precision or "minute",
+            measurement.local_date,
+            None,
+            wall.replace(tzinfo=None),
+        )
     return "date", measurement.local_date, None, None
 
 
@@ -894,12 +899,21 @@ def _session_matches_measurement(
     precision: str,
     local_date: date,
     timestamp_utc: datetime | None,
+    local_timestamp: datetime | None = None,
 ) -> bool:
     if session.source_local_date != local_date:
         return False
     if session.temporal_precision != precision:
         return False
-    return restore_stored_utc(session.source_timestamp_utc) == restore_stored_utc(timestamp_utc)
+    if restore_stored_utc(session.source_timestamp_utc) != restore_stored_utc(timestamp_utc):
+        return False
+    if timestamp_utc is not None:
+        return True
+    left = session.source_local_timestamp
+    right = local_timestamp
+    if left is None or right is None:
+        return left is None and right is None
+    return left.replace(tzinfo=None) == right.replace(tzinfo=None)
 
 
 def _scalars_match(

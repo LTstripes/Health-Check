@@ -406,7 +406,9 @@ class MeasurementSession(Base):
         CheckConstraint(
             "(temporal_precision = 'date' AND source_timestamp_utc IS NULL "
             "AND source_local_timestamp IS NULL) "
-            "OR (temporal_precision IN ('instant', 'minute') AND source_timestamp_utc IS NOT NULL)",
+            "OR (temporal_precision = 'minute' AND ("
+            "source_timestamp_utc IS NOT NULL OR source_local_timestamp IS NOT NULL)) "
+            "OR (temporal_precision = 'instant' AND source_timestamp_utc IS NOT NULL)",
             name="temporal_precision_timestamp_consistency",
         ),
         CheckConstraint(

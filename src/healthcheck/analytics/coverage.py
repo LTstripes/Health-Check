@@ -71,7 +71,9 @@ class CoverageEvidence:
         object.__setattr__(self, "interval_end", end)
         object.__setattr__(self, "status", status)
         if self.computed_at is not None:
-            object.__setattr__(self, "computed_at", _as_utc(_as_datetime(self.computed_at)))
+            object.__setattr__(
+                self, "computed_at", _as_utc(_as_datetime(self.computed_at))
+            )
 
     @classmethod
     def from_model(cls, interval: Any) -> CoverageEvidence:
@@ -219,7 +221,9 @@ class CoverageSummary:
         }
 
 
-def resolve_coverage_status(statuses: Iterable[str], *, evidence_present: bool = False) -> str:
+def resolve_coverage_status(
+    statuses: Iterable[str], *, evidence_present: bool = False
+) -> str:
     """Resolve one bin using the R01 precedence contract.
 
     Actual evidence wins.  Without it, an explicit capability block wins over
@@ -237,7 +241,9 @@ def resolve_coverage_status(statuses: Iterable[str], *, evidence_present: bool =
     if "unavailable" in normalized:
         return "unavailable"
     evidence_events = [
-        status for status in values if _status_value(status) in {"confirmed_empty", "failed"}
+        status
+        for status in values
+        if _status_value(status) in {"confirmed_empty", "failed"}
     ]
     if evidence_events:
         latest = max(evidence_events, key=_coverage_event_key)
@@ -278,7 +284,9 @@ def calculate_coverage(
             raise ValueError("coverage_intervals and intervals aliases cannot both be supplied")
         coverage_intervals = intervals
     reference_date = _as_date(as_of_date) if as_of_date is not None else end
-    normalized_observations = tuple(_coerce_observation(value) for value in (observations or ()))
+    normalized_observations = tuple(
+        _coerce_observation(value) for value in (observations or ())
+    )
     in_period = tuple(
         value for value in normalized_observations if start <= value.observed_date <= end
     )
@@ -293,7 +301,9 @@ def calculate_coverage(
     bins: list[CoverageBin] = []
     for bin_start, bin_end in expected:
         bin_observations = tuple(
-            value for value in in_period if bin_start <= value.observed_date < bin_end
+            value
+            for value in in_period
+            if bin_start <= value.observed_date < bin_end
         )
         overlaps = tuple(
             value
@@ -325,9 +335,13 @@ def calculate_coverage(
                 observed_count=observed_count,
                 expected_count=expected_count,
                 interval_ids=tuple(
-                    value.interval_id for value in overlaps if value.interval_id is not None
+                    value.interval_id
+                    for value in overlaps
+                    if value.interval_id is not None
                 ),
-                source_breakdown=_breakdown(bin_observations, lambda value: value.source_id),
+                source_breakdown=_breakdown(
+                    bin_observations, lambda value: value.source_id
+                ),
                 algorithm_breakdown=_breakdown(
                     bin_observations, lambda value: value.algorithm_compatibility_group
                 ),
@@ -496,7 +510,8 @@ def _coerce_evidence(value: Any) -> CoverageEvidence:
     if isinstance(value, CoverageEvidence):
         return value
     if all(
-        hasattr(value, field_name) for field_name in ("interval_start", "interval_end", "status")
+        hasattr(value, field_name)
+        for field_name in ("interval_start", "interval_end", "status")
     ):
         return CoverageEvidence.from_model(value)
     if isinstance(value, Mapping):
@@ -538,7 +553,9 @@ def _expected_count(overlaps: Iterable[CoverageEvidence]) -> int | None:
     return max(values) if values else 1
 
 
-def _breakdown(observations: Iterable[CoverageObservation], key_fn: Any) -> dict[str, int]:
+def _breakdown(
+    observations: Iterable[CoverageObservation], key_fn: Any
+) -> dict[str, int]:
     unique = {(value.observed_date, key_fn(value) or "unknown") for value in observations}
     counts: Counter[str] = Counter(key for _observed_date, key in unique)
     return dict(sorted(counts.items()))
@@ -547,7 +564,9 @@ def _breakdown(observations: Iterable[CoverageObservation], key_fn: Any) -> dict
 def _longest_gap(observed_dates: tuple[date, ...]) -> int | None:
     if len(observed_dates) < 2:
         return None
-    return max((right - left).days for left, right in zip(observed_dates, observed_dates[1:]))
+    return max(
+        (right - left).days for left, right in zip(observed_dates, observed_dates[1:])
+    )
 
 
 def _coverage_event_key(value: Any) -> tuple[datetime, datetime, int, str]:
