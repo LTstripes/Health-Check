@@ -13,6 +13,20 @@
   {% endfor %}
 </section>
 {% endif %}
+{% if payload.canonical.warning or payload.canonical.stale or payload.canonical.reason in ["canonical_selection_failed", "canonical_selection_in_progress"] %}
+<section class="canonical-banner" role="alert" data-canonical-warning="{{ payload.canonical.warning or payload.canonical.reason }}">
+  {% if payload.canonical.available and payload.canonical.stale %}
+    Canonical analytics below come from the last successful snapshot and may be stale.
+    Latest recomputation status: <code>{{ payload.canonical.warning or payload.canonical.latest_attempt_status }}</code>.
+  {% elif payload.canonical.reason == "canonical_selection_failed" or payload.canonical.warning == "canonical_recompute_failed" %}
+    Canonical selection is unavailable after a failed recomputation.
+    Status: <code>{{ payload.canonical.warning or payload.canonical.reason }}</code>.
+  {% else %}
+    Canonical selection is not ready yet.
+    Status: <code>{{ payload.canonical.warning or payload.canonical.reason or "unknown" }}</code>.
+  {% endif %}
+</section>
+{% endif %}
 
 <section class="hero">
   <div>

@@ -241,6 +241,8 @@ That history is useful for later model benchmarks and the eventual story of how 
 
 ## 10. Release integration and UAT
 
+For the R01 release gate use the concise owner checklist in `docs/R01_OWNER_UAT.md`.
+
 When all planned tasks for a release are integrated:
 
 1. Integrator reviews the complete integration diff against the release spec.

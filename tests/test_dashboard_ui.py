@@ -11,14 +11,21 @@ from datetime import UTC, date, datetime
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from healthcheck.canonical import CanonicalSelectionService
+from healthcheck.canonical import (
+    DASHBOARD_WEIGHT_SCOPE,
+    CanonicalCandidate,
+    CanonicalSelectionService,
+    dashboard_composition_scope,
+)
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
 from healthcheck.db.models import (
+    CanonicalRuleSet,
     CanonicalSelection,
     CanonicalSelectionRun,
     ImportCandidate,
     MeasurementSession,
+    RunStatus,
     ScalarMeasurement,
 )
 from healthcheck.ingestion.photo.synthetic import (
@@ -552,3 +559,361 @@ def test_competing_source_heads_use_canonical_evidence_for_analytics(tmp_path):
         assert winning["provenance"]["input_method"] == "webhook"
         assert summary["canonical"]["available"] is True
         assert summary["current"]["value_kg"] == 99.25
+
+
+def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
+    """GET must not present a prior success as fresh after a newer failed run."""
+
+    from healthcheck.db.repositories import repositories_for
+
+    app, _settings, paths = _ui(tmp_path)
+    with TestClient(app) as client:
+        uploaded = _upload_batch(client, six_month_synthetic_batch()[:4])
+        _confirm_all_pending(client, uploaded.json()["id"])
+        before = client.get("/api/weight/series").json()["canonical"]
+        assert before["available"] is True
+        assert before["fresh"] is True
+        assert before["stale"] is False
+        assert before["warning"] is None
+        success_run_id = before["run_id"]
+        snapshot = _canonical_snapshot(paths)
+        assert "failed" not in snapshot["statuses"]
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            success = repos.canonical_selection_runs.get_by_id(success_run_id)
+            assert success is not None
+            heads = [
+                measurement
+                for measurement in repos.scalar_measurements.current_heads()
+                if measurement.metric_code == "weight"
+            ]
+            assert heads
+            measurement = heads[0]
+            measurement_session = repos.measurement_sessions.get_by_id(
+                measurement.measurement_session_id
+            )
+            assert measurement_session is not None
+            assert measurement_session.semantic_key
+            # Prefer the real CanonicalSelectionService savepoint failure path so
+            # the durable failed run matches production write-side diagnostics.
+            result = CanonicalSelectionService(session).select(
+                scope_key=DASHBOARD_WEIGHT_SCOPE,
+                metric_code="weight",
+                candidates=[
+                    CanonicalCandidate(
+                        metric_code="weight",
+                        semantic_key=measurement_session.semantic_key,
+                        source_measurement_id=measurement.id,
+                    ),
+                    CanonicalCandidate(
+                        metric_code="weight",
+                        semantic_key="synthetic-missing-after-success",
+                        source_measurement_id="missing-source-measurement",
+                    ),
+                ],
+            )
+            assert result.status == "failed"
+            assert result.failure_reason == "canonical_selection_reference_missing"
+            assert result.id != success_run_id
+            failed_run_id = result.id
+    finally:
+        engine.dispose()
+
+    after_fail = _canonical_snapshot(paths)
+    assert after_fail["run_count"] == snapshot["run_count"] + 1
+    assert "failed" in after_fail["statuses"]
+
+    with TestClient(app) as client:
+        series = client.get("/api/weight/series").json()
+        summary = client.get("/api/weight/summary").json()
+        home = client.get("/")
+        assert home.status_code == 200
+        html = home.text
+        assert 'class="canonical-banner"' in html
+        assert 'role="alert"' in html
+        assert "last successful snapshot and may be stale" in html
+        assert "canonical_recompute_failed" in html
+        # Embedded dashboard JSON keeps sanitized freshness fields.
+        assert '"dashboard-data"' in html or 'id="dashboard-data"' in html
+        assert "canonical_selection_reference_missing" in html  # sanitized code in JSON
+        assert series["canonical"]["failure_reason"] == "canonical_selection_reference_missing"
+        # No SQL/exception/payload/secrets leakage.
+        assert "Traceback" not in html
+        assert "SELECT " not in html
+        assert "password" not in html.lower()
+        assert "bearer " not in html.lower()
+        for payload in (series, summary):
+            canonical = payload["canonical"]
+            assert canonical["available"] is True
+            assert canonical["run_id"] == success_run_id
+            assert canonical["fresh"] is False
+            assert canonical["stale"] is True
+            assert canonical["warning"] == "canonical_recompute_failed"
+            assert canonical["latest_attempt_status"] == "failed"
+            assert canonical["latest_attempt_run_id"] == failed_run_id
+            assert canonical["failure_reason"] == "canonical_selection_reference_missing"
+        # GET must not mutate durable canonical state.
+        assert _canonical_snapshot(paths) == after_fail
+        client.get("/api/weight/series")
+        client.get("/api/weight/summary")
+        client.get("/")
+        assert _canonical_snapshot(paths) == after_fail
+
+
+def test_failed_only_composition_scope_marks_weight_success_stale(tmp_path):
+    """Composition FAILED before any success must surface overall freshness warning."""
+
+    from healthcheck.db.repositories import repositories_for
+
+    app, _settings, paths = _ui(tmp_path)
+    with TestClient(app) as client:
+        uploaded = _upload_batch(client, six_month_synthetic_batch()[:3])
+        _confirm_all_pending(client, uploaded.json()["id"])
+        before = client.get("/api/weight/series").json()["canonical"]
+        assert before["available"] is True
+        assert before["fresh"] is True
+        weight_run_id = before["run_id"]
+
+    group = "synthetic-comp-failed-only"
+    scope = dashboard_composition_scope(group)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            provider = repos.providers.get_or_create("photo", "Photo", "manual_photo")
+            device = repos.physical_devices.get_or_create(
+                "synthetic_scale", manufacturer="Synthetic", model="UAT"
+            )
+            source = repos.acquisition_sources.get_or_create(
+                provider_id=provider.id,
+                physical_device_id=device.id,
+                input_method="photo_import",
+            )
+            algorithm = repos.measurement_algorithms.get_or_create(
+                code="synthetic_body_fat",
+                version="1",
+                metric_family="body_composition",
+                producer="synthetic",
+                compatibility_group=group,
+            )
+            measured = repos.measurement_sessions.create_confirmed(
+                acquisition_source_id=source.id,
+                semantic_key="synthetic-comp-only-1",
+                source_local_date=date(2026, 4, 1),
+                temporal_precision="date",
+            )
+            repos.scalar_measurements.create(
+                measurement_session_id=measured.id,
+                metric_code="body_fat_pct",
+                normalized_value=22.5,
+                normalized_unit="%",
+                measurement_algorithm_id=algorithm.id,
+            )
+            weight_success = repos.canonical_selection_runs.get_by_id(weight_run_id)
+            assert weight_success is not None
+            rule_set = session.get(CanonicalRuleSet, weight_success.rule_set_id)
+            assert rule_set is not None
+            assert repos.canonical_selection_runs.latest_successful(scope) is None
+            failed_run, created = repos.canonical_selection_runs.start_or_get(
+                scope_key=scope,
+                rule_set=rule_set,
+                input_snapshot_hash="synthetic-comp-failed-only-input",
+            )
+            assert created is True
+            repos.canonical_selection_runs.finish(
+                failed_run.id,
+                status=RunStatus.FAILED,
+                failure_reason="canonical_selection_failed",
+            )
+            failed_run_id = failed_run.id
+            assert repos.canonical_selection_runs.latest_successful(scope) is None
+            assert repos.canonical_selections.for_run(failed_run.id) == []
+            assert scope in repos.canonical_selection_runs.scope_keys_with_prefix(
+                prefix="r01-composition:"
+            )
+    finally:
+        engine.dispose()
+
+    with TestClient(app) as client:
+        series = client.get("/api/weight/series").json()
+        summary = client.get("/api/weight/summary").json()
+        home = client.get("/")
+        assert home.status_code == 200
+        assert 'class="canonical-banner"' in home.text
+        assert 'role="alert"' in home.text
+        assert "may be stale" in home.text
+        for payload in (series, summary):
+            canonical = payload["canonical"]
+            assert canonical["available"] is True
+            assert canonical["run_id"] == weight_run_id
+            assert canonical["fresh"] is False
+            assert canonical["stale"] is True
+            assert canonical["warning"] == "canonical_recompute_failed"
+            assert canonical["latest_attempt_status"] == "failed"
+            assert canonical["latest_attempt_run_id"] == failed_run_id
+            assert canonical["failure_reason"] == "canonical_selection_failed"
+        # Failed composition selections never activate.
+        assert group not in series.get("composition_by_group", {})
+        mid = _canonical_snapshot(paths)
+        client.get("/api/weight/series")
+        client.get("/")
+        assert _canonical_snapshot(paths) == mid
+
+
+def test_dashboard_html_shows_canonical_banner_when_stale(tmp_path):
+    """HTML regression: banner is visible, not only API JSON fields."""
+
+    from healthcheck.db.repositories import repositories_for
+
+    app, _settings, paths = _ui(tmp_path)
+    with TestClient(app) as client:
+        uploaded = _upload_batch(client, six_month_synthetic_batch()[:2])
+        _confirm_all_pending(client, uploaded.json()["id"])
+        success_run_id = client.get("/api/weight/series").json()["canonical"]["run_id"]
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            success = repos.canonical_selection_runs.get_by_id(success_run_id)
+            assert success is not None
+            rule_set = session.get(CanonicalRuleSet, success.rule_set_id)
+            assert rule_set is not None
+            failed, created = repos.canonical_selection_runs.start_or_get(
+                scope_key=DASHBOARD_WEIGHT_SCOPE,
+                rule_set=rule_set,
+                input_snapshot_hash="html-banner-failed-input",
+                supersedes_run_id=success.id,
+            )
+            assert created
+            repos.canonical_selection_runs.finish(
+                failed.id,
+                status=RunStatus.FAILED,
+                failure_reason="canonical_selection_failed",
+            )
+    finally:
+        engine.dispose()
+
+    with TestClient(app) as client:
+        home = client.get("/")
+        assert home.status_code == 200
+        assert 'data-canonical-warning="canonical_recompute_failed"' in home.text
+        assert "last successful snapshot and may be stale" in home.text
+        assert "Traceback" not in home.text
+        assert "SELECT " not in home.text
+        assert "canonical_recompute_failed" in home.text
+
+
+def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
+    """Older composition success + newer failed attempt stays stale, not failed-only."""
+
+    from healthcheck.db.repositories import repositories_for
+    from healthcheck.ingestion.photo.provenance import XIAOMI_HOME_COMPOSITION_ALGORITHM
+
+    app, _settings, paths = _ui(tmp_path)
+    group = XIAOMI_HOME_COMPOSITION_ALGORITHM
+    composition_scope = dashboard_composition_scope(group)
+
+    with TestClient(app) as client:
+        png = encode_synthetic_png(
+            weigh_in_payload(
+                source_local_date=date(2026, 3, 4), weight_kg=81.2, body_fat_pct=24.4
+            )
+        )
+        uploaded = client.post(
+            "/api/imports/photos",
+            files=[("files", ("with-fat.png", png, "image/png"))],
+        )
+        assert uploaded.status_code == 200
+        _confirm_all_pending(client, uploaded.json()["id"])
+        before = client.get("/api/weight/series").json()
+        assert before["canonical"]["available"] is True
+        assert before["canonical"]["fresh"] is True
+        assert group in before["composition_by_group"]
+        selected_before = {
+            point["evidence_id"]
+            for point in before["raw_points"]
+            if point.get("canonical_selected")
+        }
+        assert selected_before
+        weight_run_id = before["canonical"]["run_id"]
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            success = repos.canonical_selection_runs.latest_successful(composition_scope)
+            assert success is not None
+            success_composition_id = success.id
+            composition_ids_before = {
+                selection.source_measurement_id
+                for selection in repos.canonical_selections.for_run(success.id)
+                if selection.source_measurement_id
+            }
+            assert composition_ids_before
+            rule_set = session.get(CanonicalRuleSet, success.rule_set_id)
+            assert rule_set is not None
+            failed_run, created = repos.canonical_selection_runs.start_or_get(
+                scope_key=composition_scope,
+                rule_set=rule_set,
+                input_snapshot_hash="synthetic-stale-composition-recompute",
+                supersedes_run_id=success.id,
+            )
+            assert created is True
+            repos.canonical_selection_runs.finish(
+                failed_run.id,
+                status=RunStatus.FAILED,
+                failure_reason="canonical_selection_failed",
+            )
+            failed_run_id = failed_run.id
+    finally:
+        engine.dispose()
+
+    after_fail = _canonical_snapshot(paths)
+    with TestClient(app) as client:
+        series = client.get("/api/weight/series").json()
+        summary = client.get("/api/weight/summary").json()
+        home = client.get("/")
+        assert home.status_code == 200
+        assert 'class="canonical-banner"' in home.text
+        assert "last successful snapshot and may be stale" in home.text
+        for payload in (series, summary):
+            canonical = payload["canonical"]
+            assert canonical["available"] is True
+            assert canonical["run_id"] == weight_run_id
+            assert canonical["fresh"] is False
+            assert canonical["stale"] is True
+            assert canonical["warning"] == "canonical_recompute_failed"
+            assert canonical["latest_attempt_status"] == "failed"
+            assert canonical["latest_attempt_run_id"] == failed_run_id
+            assert canonical["failure_reason"] == "canonical_selection_failed"
+        selected_after = {
+            point["evidence_id"]
+            for point in series["raw_points"]
+            if point.get("canonical_selected")
+        }
+        assert selected_before <= selected_after
+        assert group in series["composition_by_group"]
+        # Prior successful composition selections remain active.
+        engine = create_sqlite_engine(paths)
+        try:
+            with session_scope(engine) as session:
+                repos = repositories_for(session)
+                still = repos.canonical_selection_runs.latest_successful(composition_scope)
+                assert still is not None
+                assert still.id == success_composition_id
+                composition_ids_after = {
+                    selection.source_measurement_id
+                    for selection in repos.canonical_selections.for_run(still.id)
+                    if selection.source_measurement_id
+                }
+                assert composition_ids_after == composition_ids_before
+        finally:
+            engine.dispose()
+        assert _canonical_snapshot(paths) == after_fail
+        client.get("/api/weight/series")
+        client.get("/")
+        assert _canonical_snapshot(paths) == after_fail

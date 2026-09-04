@@ -1905,6 +1905,24 @@ class CanonicalSelectionRunRepository:
             )
         )
 
+    def latest_for_scope(self, scope_key: str) -> CanonicalSelectionRun | None:
+        """Return the newest attempt for a scope regardless of status.
+
+        Used by read paths to detect a failed/stale recompute that is newer
+        than the last successful canonical set without activating failures.
+        """
+
+        return self.session.scalar(
+            select(CanonicalSelectionRun)
+            .where(
+                CanonicalSelectionRun.scope_key == _required_text(scope_key, "canonical scope key"),
+            )
+            .order_by(
+                CanonicalSelectionRun.started_at.desc(),
+                CanonicalSelectionRun.id.desc(),
+            )
+        )
+
     def successful_scope_keys(self, *, prefix: str) -> list[str]:
         """Return distinct successful scope keys that start with ``prefix``."""
 
@@ -1916,6 +1934,19 @@ class CanonicalSelectionRunRepository:
                     CanonicalSelectionRun.scope_key.startswith(normalized),
                     CanonicalSelectionRun.status == RunStatus.SUCCEEDED.value,
                 )
+                .distinct()
+                .order_by(CanonicalSelectionRun.scope_key)
+            )
+        )
+
+    def scope_keys_with_prefix(self, *, prefix: str) -> list[str]:
+        """Return distinct scope keys that start with ``prefix`` (any status)."""
+
+        normalized = _required_text(prefix, "canonical scope key prefix")
+        return list(
+            self.session.scalars(
+                select(CanonicalSelectionRun.scope_key)
+                .where(CanonicalSelectionRun.scope_key.startswith(normalized))
                 .distinct()
                 .order_by(CanonicalSelectionRun.scope_key)
             )
