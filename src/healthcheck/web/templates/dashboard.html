@@ -1,13 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Weight dashboard — Health-Check{% endblock %}
+{% block title %}Dashboard — Health-Check{% endblock %}
 {% block content %}
-<section class="bia-banner" role="note">
+<section class="notice bia-banner" role="note">
+  <span class="notice-label">A note on body composition</span>
   {{ payload.bia_uncertainty }}
 </section>
 {% if payload.algorithm_boundary.present %}
-<section class="algorithm-banner" role="alert">
+<section class="notice algorithm-banner" role="alert">
+  <span class="notice-label">Composition series stay separate</span>
   {{ payload.algorithm_boundary.warning }}
-  Groups:
+  <span class="muted">Groups:</span>
   {% for group in payload.algorithm_boundary.groups %}
     <code>{{ group }}</code>{% if not loop.last %}, {% endif %}
   {% endfor %}
@@ -15,6 +17,7 @@
 {% endif %}
 {% if payload.canonical.warning or payload.canonical.stale or payload.canonical.reason in ["canonical_selection_failed", "canonical_selection_in_progress"] %}
 <section class="canonical-banner" role="alert" data-canonical-warning="{{ payload.canonical.warning or payload.canonical.reason }}">
+  <span class="notice-label">Canonical data needs attention</span>
   {% if payload.canonical.available and payload.canonical.stale %}
     Canonical analytics below come from the last successful snapshot and may be stale.
     Latest recomputation status: <code>{{ payload.canonical.warning or payload.canonical.latest_attempt_status }}</code>.
@@ -28,89 +31,103 @@
 </section>
 {% endif %}
 
-<section class="hero">
-  <div>
-    <h1>Weight and body composition</h1>
-    <p class="muted">Raw confirmed source points stay visible. The trend is a 21-day time-aware EWMA, not a replacement for the observations.</p>
+<section class="hero dashboard-hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Your daily snapshot</p>
+    <h1>Weight &amp; body composition</h1>
+    <p>See the signal first: your latest confirmed weight, direction of travel, goal, and the context that makes the data trustworthy.</p>
   </div>
-  <dl class="current">
-    <div>
+  <dl class="hero-summary">
+    <div class="hero-stat">
       <dt>Current confirmed weight</dt>
-      <dd>
-        {% if payload.current.available %}
-          {{ '%.1f'|format(payload.current.value_kg) }} kg
-          <span class="muted">on {{ payload.current.observed_date }} (source)</span>
-        {% else %}
-          <span class="unavailable">unavailable</span>
-          <span class="muted">({{ payload.current.reason or 'no_data' }})</span>
-        {% endif %}
+      <dd class="metric-value">
+        {% if payload.current.available %}{{ '%.1f'|format(payload.current.value_kg) }} kg{% else %}<span class="unavailable">Unavailable</span>{% endif %}
       </dd>
+      <span class="stat-note">{% if payload.current.available %}Measured {{ payload.current.observed_date }}{% else %}{{ payload.current.reason or 'no_data' }}{% endif %}</span>
     </div>
-    <div>
-      <dt>Goal</dt>
-      <dd>
-        {% if payload.goal_kg is not none %}
-          {{ '%.1f'|format(payload.goal_kg) }} kg
-        {% else %}
-          <span class="unavailable">not configured</span>
-        {% endif %}
-      </dd>
+    <div class="hero-stat" data-current-value="{{ payload.current.value_kg if payload.current.available else '' }}" data-goal-value="{{ payload.goal_kg if payload.goal_kg is not none else '' }}">
+      <dt>Distance to goal</dt>
+      <dd id="goal-distance" class="metric-value">{% if payload.current.available and payload.goal_kg is not none %}{{ '%.1f'|format((payload.current.value_kg - payload.goal_kg)|abs) }} kg{% else %}<span class="unavailable">Unavailable</span>{% endif %}</dd>
+      <span id="goal-distance-note" class="stat-note">{% if payload.goal_kg is not none %}Goal {{ '%.1f'|format(payload.goal_kg) }} kg{% else %}Goal not configured{% endif %}</span>
     </div>
-    <div>
-      <dt>Pending import candidates</dt>
-      <dd>
-        {% if payload.imports.pending_candidate_count %}
-          <a href="/imports">{{ payload.imports.pending_candidate_count }} awaiting review</a>
-        {% else %}
-          0 pending
-        {% endif %}
-      </dd>
+    <div class="hero-stat">
+      <dt>Longer-term rate</dt>
+      <dd id="hero-rate" class="metric-value"><span class="unavailable">Unavailable</span></dd>
+      <span id="hero-rate-note" class="stat-note">Trailing 90 days · Theil–Sen</span>
+    </div>
+    <div class="hero-stat">
+      <dt>Data status</dt>
+      <dd id="hero-status">{% if payload.current.available %}Current snapshot{% else %}<span class="unavailable">Awaiting data</span>{% endif %}</dd>
+      <span class="stat-note">{% if payload.imports.pending_candidate_count %}<a href="/imports">{{ payload.imports.pending_candidate_count }} import candidates to review</a>{% else %}Confirmed measurements only{% endif %}</span>
     </div>
   </dl>
 </section>
 
 <section class="card">
-  <h2>Weight series</h2>
-  <p class="legend">
-    <span class="swatch raw"></span> Raw confirmed weight (source)
-    <span class="swatch trend"></span> 21-day time-aware trend (Health-Check derived)
-    <span class="swatch goal"></span> Configured goal
-  </p>
-  <div id="weight-chart" class="chart" aria-label="Weight chart"></div>
-  <p id="trend-status" class="muted"></p>
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">The signal over time</p>
+      <h2>Weight trend</h2>
+    </div>
+    <p class="muted">Raw observations remain visible; the trend smooths irregular cadence.</p>
+  </div>
+  <div class="legend" aria-label="Chart legend">
+    <span class="legend-item"><span class="swatch raw"></span>Raw confirmed</span>
+    <span class="legend-item"><span class="swatch trend"></span>21-day trend</span>
+    <span class="legend-item"><span class="swatch goal"></span>Configured goal</span>
+  </div>
+  <div id="weight-chart" class="chart chart-shell" aria-label="Weight chart"></div>
+  <div class="chart-meta">
+    <p id="trend-status" class="muted"></p>
+    <p class="muted">Select a point to inspect its provenance.</p>
+  </div>
 </section>
 
 <section class="grid">
-  <article class="card">
-    <h2>Theil–Sen rate (trailing 90 days)</h2>
+  <article class="card metric-card">
+    <p class="eyebrow">Momentum</p>
+    <h2>Theil–Sen rate</h2>
     <div id="rate-panel"></div>
   </article>
-  <article class="card">
-    <h2>Coverage and freshness</h2>
-    <div id="coverage-panel"></div>
-  </article>
-  <article class="card">
-    <h2>Latest composition</h2>
+  <article class="card metric-card">
+    <p class="eyebrow">Latest compatible reading</p>
+    <h2>Body composition</h2>
     <div id="composition-latest"></div>
   </article>
-  <article class="card">
-    <h2>Similar-weight recomposition evidence</h2>
-    <p class="muted">Same algorithm only, at least 28 days apart, weight within 1%. Not a tissue-change claim.</p>
+  <article class="card metric-card">
+    <p class="eyebrow">Like-for-like evidence</p>
+    <h2>Recomposition</h2>
+    <p class="card-subtitle">Same algorithm, similar weight, at least 28 days apart.</p>
     <div id="similar-panel"></div>
   </article>
 </section>
 
 <section class="card">
-  <h2>Body composition by algorithm group</h2>
-  <p class="muted">Estimated fat/lean are Health-Check derived from same-session weight and body fat. Source muscle mass is never renamed to lean mass.</p>
+  <div class="section-heading">
+    <div><p class="eyebrow">Keep comparisons honest</p><h2>Body composition by algorithm group</h2></div>
+    <p class="muted">Compatible series only</p>
+  </div>
+  <p class="card-subtitle">Body fat and estimated fat/lean mass are shown alongside source muscle mass. Source muscle is not renamed as lean mass.</p>
   <div id="composition-groups"></div>
 </section>
 
-<section class="card">
-  <h2>Point provenance</h2>
-  <p class="muted">Click a raw weight point. Provenance shows source, device, input method and algorithm — not secrets or raw payload bodies.</p>
-  <div id="provenance-panel" class="provenance empty">Select a raw point on the chart.</div>
-</section>
+<details class="secondary-details" open>
+  <summary>Data details · coverage, freshness &amp; provenance</summary>
+  <div class="secondary-details-content">
+    <div class="grid">
+      <article>
+        <h2>Coverage and freshness</h2>
+        <p class="card-subtitle">A compact view of how complete and current the evidence is.</p>
+        <div id="coverage-panel"></div>
+      </article>
+      <article>
+        <h2>Point provenance</h2>
+        <p class="card-subtitle">Select a raw weight point above. Details never include secrets or raw payload bodies.</p>
+        <div id="provenance-panel" class="provenance empty">Select a raw point on the chart.</div>
+      </article>
+    </div>
+  </div>
+</details>
 
 <script id="dashboard-data" type="application/json">{{ payload | tojson }}</script>
 {% endblock %}

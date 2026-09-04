@@ -1,66 +1,64 @@
 {% extends "base.html" %}
-{% block title %}Import review — Health-Check{% endblock %}
+{% block title %}Review imports — Health-Check{% endblock %}
 {% block content %}
-<section class="hero">
-  <div>
-    <h1>Photo import queue</h1>
-    <p class="muted">Uploading extracts candidates only. Nothing becomes confirmed or canonical until you explicitly confirm selected rows.</p>
+<section class="hero dashboard-hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Evidence, then confirmation</p>
+    <h1>Review photo imports</h1>
+    <p>Extraction creates candidates for you to inspect. A measurement is never confirmed or made canonical without an explicit action.</p>
   </div>
-  <dl class="current">
-    <div>
-      <dt>Pending candidates</dt>
-      <dd>{{ queue.pending_candidate_count }}</dd>
-    </div>
-    <div>
-      <dt>Confirmed</dt>
-      <dd>{{ queue.confirmed_candidate_count }}</dd>
-    </div>
-    <div>
-      <dt>Rejected</dt>
-      <dd>{{ queue.rejected_candidate_count }}</dd>
-    </div>
+  <dl class="hero-summary">
+    <div class="hero-stat"><dt>Awaiting review</dt><dd class="metric-value">{{ queue.pending_candidate_count }}</dd><span class="stat-note">Candidate values</span></div>
+    <div class="hero-stat"><dt>Confirmed</dt><dd class="metric-value">{{ queue.confirmed_candidate_count }}</dd><span class="stat-note">Committed measurements</span></div>
+    <div class="hero-stat"><dt>Rejected</dt><dd class="metric-value">{{ queue.rejected_candidate_count }}</dd><span class="stat-note">Kept as review history</span></div>
+    <div class="hero-stat"><dt>Workflow</dt><dd>Manual review</dd><span class="stat-note">No implicit confirmation</span></div>
   </dl>
 </section>
 
 <section class="card">
-  <h2>Upload synthetic or screenshot images</h2>
+  <div class="section-heading">
+    <div><p class="eyebrow">Add source evidence</p><h2>Upload images for review</h2></div>
+    <span class="status-pill">Candidates only</span>
+  </div>
   <form class="upload" action="/imports/photos" method="post" enctype="multipart/form-data">
-    <input type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required>
-    <button type="submit">Upload for review</button>
+    <div class="upload-dropzone">
+      <div class="upload-copy">
+        <strong>Select one or more scale screenshots</strong>
+        <span>PNG, JPEG or WebP · originals remain outside the repository</span>
+        <span id="upload-selection" class="action-note">No files selected yet.</span>
+      </div>
+      <div class="form-actions">
+        <input id="photo-files" type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required>
+        <button type="submit">Start extraction</button>
+      </div>
+    </div>
   </form>
 </section>
 
 <section class="card">
-  <h2>Batch history</h2>
+  <div class="section-heading">
+    <div><p class="eyebrow">Audit trail</p><h2>Batch history</h2></div>
+    <p class="muted">Open a batch to inspect each candidate.</p>
+  </div>
   {% if batches %}
-  <table>
-    <thead>
-      <tr>
-        <th>Started</th>
-        <th>Status</th>
-        <th>Received</th>
-        <th>Parsed</th>
-        <th>Committed</th>
-        <th>Failed</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for batch in batches %}
-      <tr>
-        <td>{{ batch.started_at }}</td>
-        <td><code>{{ batch.status }}</code></td>
-        <td>{{ batch.received_count }}</td>
-        <td>{{ batch.parsed_count }}</td>
-        <td>{{ batch.committed_count }}</td>
-        <td>{{ batch.failed_count }}</td>
-        <td><a href="/imports/{{ batch.id }}">Review</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="batch-list">
+    {% for batch in batches %}
+    <article class="batch-row">
+      <div><span class="batch-label">Started</span><strong>{{ batch.started_at }}</strong></div>
+      <div class="batch-status"><span class="batch-label">Status</span><span class="status-pill {% if batch.status == 'pending-confirmation' %}pending{% elif batch.status == 'failed' %}failed{% endif %}">{{ batch.status }}</span></div>
+      <div><span class="batch-label">Received</span><strong>{{ batch.received_count }}</strong></div>
+      <div><span class="batch-label">Parsed</span><strong>{{ batch.parsed_count }}</strong></div>
+      <div><span class="batch-label">Committed</span><strong>{{ batch.committed_count }}</strong></div>
+      <div><span class="batch-label">Failed</span><strong>{{ batch.failed_count }}</strong></div>
+      <a class="batch-link" href="/imports/{{ batch.id }}">Review batch <span aria-hidden="true">→</span></a>
+    </article>
+    {% endfor %}
+  </div>
   {% else %}
-  <p class="unavailable">No import batches yet.</p>
+  <div class="empty-state"><strong>No import batches yet.</strong><br>Upload a screenshot batch when you have source evidence to review.</div>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/dashboard.js"></script>
 {% endblock %}

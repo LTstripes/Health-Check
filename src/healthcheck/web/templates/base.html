@@ -3,22 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17382f">
   <title>{% block title %}Health-Check{% endblock %}</title>
   <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
   <header class="top">
-    <a class="brand" href="/">Health-Check</a>
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◒</span>Health-Check</a>
     <nav>
-      <a href="/" class="{% if page == 'dashboard' %}active{% endif %}">Weight dashboard</a>
-      <a href="/imports" class="{% if page == 'imports' %}active{% endif %}">Import review</a>
+      <a href="/" class="{% if page == 'dashboard' %}active{% endif %}" {% if page == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+      <a href="/imports" class="{% if page == 'imports' %}active{% endif %}" {% if page == 'imports' %}aria-current="page"{% endif %}>Review imports</a>
     </nav>
   </header>
   <main>
     {% block content %}{% endblock %}
   </main>
   <footer class="legal">
-    Local loopback UI. Consumer BIA is non-clinical. No diagnosis or causal claims.
+  Local loopback UI · Consumer BIA is non-clinical · No diagnosis or causal claims.
   </footer>
   {% block scripts %}{% endblock %}
 </body>

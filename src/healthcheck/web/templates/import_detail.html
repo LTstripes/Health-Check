@@ -1,116 +1,99 @@
 {% extends "base.html" %}
 {% block title %}Review batch — Health-Check{% endblock %}
 {% block content %}
-<section class="hero">
-  <div>
-    <h1>Review batch</h1>
-    <p class="muted">
-      Status <code>{{ batch.status }}</code>.
-      Extractor {{ batch.extractor_name }} {{ batch.extractor_version }}.
-      Pending extraction is never treated as confirmed or canonical data.
-    </p>
+<section class="hero dashboard-hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Import review</p>
+    <h1>Check extracted values</h1>
+    <p>Compare each candidate with its source image, edit if needed, then explicitly confirm or reject. Pending extraction is never treated as confirmed or canonical data.</p>
+    <p><a href="/imports">← Back to import queue</a></p>
   </div>
-  <p><a href="/imports">Back to queue</a></p>
+  <dl class="hero-summary">
+    <div class="hero-stat"><dt>Batch status</dt><dd><span class="status-pill {% if batch.status == 'pending-confirmation' %}pending{% elif batch.status == 'failed' %}failed{% endif %}">{{ batch.status }}</span></dd><span class="stat-note">{{ batch.extractor_name }} {{ batch.extractor_version }}</span></div>
+    <div class="hero-stat"><dt>Images received</dt><dd class="metric-value">{{ batch.received_count }}</dd><span class="stat-note">{{ batch.parsed_count }} parsed</span></div>
+    <div class="hero-stat"><dt>Committed</dt><dd class="metric-value">{{ batch.committed_count }}</dd><span class="stat-note">Confirmed measurements</span></div>
+    <div class="hero-stat"><dt>Needs a decision</dt><dd id="pending-count" class="metric-value">{{ batch.candidates | selectattr('user_decision', 'equalto', 'pending') | list | length }}</dd><span class="stat-note">Select rows below</span></div>
+  </dl>
 </section>
 
 <section class="card preview-card">
-  <h2>Commit preview</h2>
-  <p class="muted">Selected pending rows will be committed exactly as shown. Already confirmed rows replay without duplicating measurements.</p>
+  <div class="section-heading">
+    <div><p class="eyebrow">Before anything is committed</p><h2>Commit preview</h2></div>
+    <span id="selection-count" class="status-pill">0 selected</span>
+  </div>
+  <p class="card-subtitle">The preview shows exactly what the selected rows will do. Already confirmed rows are safe replays; pending rows will become confirmed only after you submit Confirm.</p>
   <div id="commit-preview" class="preview empty">Select candidates to preview committed values.</div>
-  <form id="confirm-form" action="/imports/{{ batch.id }}/confirm" method="post">
-    <div id="confirm-ids"></div>
-    <button type="submit" id="confirm-button" disabled>Confirm selected</button>
-  </form>
-  <form id="reject-form" action="/imports/{{ batch.id }}/reject" method="post">
-    <div id="reject-ids"></div>
-    <label>Reject reason <input type="text" name="reason" maxlength="200"></label>
-    <button type="submit" id="reject-button" disabled>Reject selected</button>
-  </form>
+  <div class="review-actions">
+    <form id="confirm-form" action="/imports/{{ batch.id }}/confirm" method="post">
+      <div id="confirm-ids"></div>
+      <button type="submit" id="confirm-button" disabled>Confirm selected</button>
+    </form>
+    <form id="reject-form" action="/imports/{{ batch.id }}/reject" method="post">
+      <div id="reject-ids"></div>
+      <label>Reason <input type="text" name="reason" maxlength="200" placeholder="Optional"></label>
+      <button type="submit" id="reject-button" class="danger" disabled>Reject selected</button>
+    </form>
+  </div>
 </section>
 
 {% for group in groups %}
 <article class="card event-card" data-event-id="{{ group.event.id }}">
   <header class="event-head">
-    <div>
-      <h2>Image {{ loop.index }}</h2>
-      <p class="muted">
-        Event <code>{{ group.event.status }}</code>
+    <div class="event-meta">
+      <p class="eyebrow">Source image {{ loop.index }}</p>
+      <h2>Extracted candidates</h2>
+      <p><span class="status-pill {% if group.event.status == 'failed' %}failed{% endif %}">{{ group.event.status }}</span>
         {% if group.event.diagnostic_code %} · {{ group.event.diagnostic_code }}{% endif %}
-        {% if group.event.duplicate_of_event_id %} · duplicate of existing artifact{% endif %}
-      </p>
+        {% if group.event.duplicate_of_event_id %} · duplicate of existing artifact{% endif %}</p>
+      <p>Review the extracted value and confidence; confidence is not a user confirmation.</p>
     </div>
     {% if group.artifact %}
     <figure>
-      <img src="/api/artifacts/{{ group.artifact.id }}" alt="Imported synthetic image {{ group.artifact.source_filename or group.artifact.id }}">
-      <figcaption class="muted">hash {{ group.artifact.content_hash[:12] }}… · {{ group.artifact.source_filename }}</figcaption>
+      <img src="/api/artifacts/{{ group.artifact.id }}" alt="Imported image {{ group.artifact.source_filename or group.artifact.id }}">
+      <figcaption class="muted">{{ group.artifact.source_filename }} · hash {{ group.artifact.content_hash[:12] }}…</figcaption>
     </figure>
     {% endif %}
   </header>
   {% if group.candidates %}
-  <table class="candidates">
-    <thead>
-      <tr>
-        <th></th>
-        <th>Metric</th>
-        <th>Effective value</th>
-        <th>Date</th>
-        <th>Decision</th>
-        <th>Confidence</th>
-        <th>Algorithm</th>
-        <th>Edit</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for candidate in group.candidates %}
-      <tr class="candidate-row"
-          data-candidate-id="{{ candidate.id }}"
-          data-metric="{{ candidate.metric_code }}"
-          data-value="{{ candidate.effective_value }}"
-          data-unit="{{ candidate.effective_unit }}"
-          data-date="{{ candidate.effective_date }}"
-          data-decision="{{ candidate.user_decision }}"
-          data-committed="{{ 'true' if candidate.already_committed else 'false' }}">
-        <td>
-          <input type="checkbox" class="candidate-select" value="{{ candidate.id }}"
-                 {% if not candidate.is_pending and not candidate.already_committed %}disabled{% endif %}>
-        </td>
-        <td><code>{{ candidate.metric_code }}</code></td>
-        <td>
-          {% if candidate.effective_value is not none %}
-            {{ candidate.effective_value }} {{ candidate.effective_unit }}
-          {% else %}
-            <span class="unavailable">missing</span>
-          {% endif %}
-        </td>
-        <td>{{ candidate.effective_date or '—' }}</td>
-        <td><code>{{ candidate.user_decision }}</code></td>
-        <td>
-          {% if candidate.confidence is none %}
-            <span class="muted">null (not confirmation)</span>
-          {% else %}
-            {{ candidate.confidence }}
-          {% endif %}
-        </td>
-        <td class="muted">{{ candidate.algorithm_code or '—' }} {{ candidate.algorithm_version or '' }}</td>
-        <td>
-          {% if candidate.is_pending %}
-          <form class="inline-edit" action="/imports/{{ batch.id }}/edit" method="post">
-            <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
-            <input type="number" step="any" name="edited_value" value="{{ candidate.effective_value }}" aria-label="Edited value">
-            <input type="text" name="edited_unit" value="{{ candidate.effective_unit or '' }}" size="4" aria-label="Unit">
-            <input type="date" name="edited_source_local_date" value="{{ candidate.effective_date or '' }}" aria-label="Date">
-            <button type="submit">Save edit</button>
-          </form>
-          {% else %}
-            <span class="muted">locked</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="candidate-list">
+    {% for candidate in group.candidates %}
+    <article class="candidate-card {% if candidate.user_decision == 'confirmed' %}is-confirmed{% elif candidate.user_decision == 'rejected' %}is-rejected{% endif %} candidate-row"
+      data-candidate-id="{{ candidate.id }}"
+      data-metric="{{ candidate.metric_code }}"
+      data-value="{{ candidate.effective_value }}"
+      data-unit="{{ candidate.effective_unit }}"
+      data-date="{{ candidate.effective_date }}"
+      data-decision="{{ candidate.user_decision }}"
+      data-committed="{{ 'true' if candidate.already_committed else 'false' }}">
+      <input type="checkbox" class="candidate-select candidate-check" value="{{ candidate.id }}"
+        aria-label="Select {{ candidate.metric_code }} candidate"
+        {% if not candidate.is_pending and not candidate.already_committed %}disabled{% endif %}>
+      <div class="candidate-main">
+        <span class="candidate-label">Metric</span>
+        <strong class="candidate-value">{{ candidate.metric_code }}</strong>
+        <span class="candidate-source">Candidate from image</span>
+      </div>
+      <div><span class="candidate-label">Extracted value</span><span class="candidate-value">{% if candidate.effective_value is not none %}{{ candidate.effective_value }} {{ candidate.effective_unit }}{% else %}<span class="unavailable">Missing</span>{% endif %}</span></div>
+      <div><span class="candidate-label">Source date</span><span class="candidate-value">{{ candidate.effective_date or '—' }}</span></div>
+      <div><span class="candidate-label">Decision</span><span class="status-pill {% if candidate.user_decision == 'pending' %}pending{% endif %}">{{ candidate.user_decision }}</span></div>
+      <div class="candidate-edit">
+        <span class="candidate-label">Edit before confirming</span>
+        {% if candidate.confidence is none %}<span class="candidate-source">Confidence unavailable · confirmation is still a separate action.</span>{% else %}<span class="candidate-source">Extraction confidence {{ candidate.confidence }}</span>{% endif %}
+        {% if candidate.is_pending %}
+        <form class="inline-edit" action="/imports/{{ batch.id }}/edit" method="post">
+          <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+          <label>Value<input type="number" step="any" name="edited_value" value="{{ candidate.effective_value }}" aria-label="Edited value"></label>
+          <label>Unit<input type="text" name="edited_unit" value="{{ candidate.effective_unit or '' }}" size="4" aria-label="Unit"></label>
+          <label>Date<input type="date" name="edited_source_local_date" value="{{ candidate.effective_date or '' }}" aria-label="Date"></label>
+          <button type="submit" class="secondary">Save edit</button>
+        </form>
+        {% else %}<span class="candidate-source">Locked after decision.</span>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
   {% else %}
-  <p class="unavailable">No candidates for this image.</p>
+  <div class="empty-state">No candidates for this image.</div>
   {% endif %}
 </article>
 {% endfor %}

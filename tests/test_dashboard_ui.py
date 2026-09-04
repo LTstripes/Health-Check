@@ -221,6 +221,31 @@ def test_six_month_history_dashboard_smoke(tmp_path):
         assert static_js.status_code == 200
 
 
+def test_dashboard_polish_keeps_responsive_structure_and_explicit_review_actions(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(app) as client:
+        empty = client.get("/")
+        assert empty.status_code == 200
+        assert 'class="hero dashboard-hero"' in empty.text
+        assert 'class="secondary-details"' in empty.text
+        assert 'class="canonical-banner"' not in empty.text
+        assert "0 kg" not in empty.text
+
+        uploaded = _upload_batch(client, six_month_synthetic_batch()[:1])
+        review = client.get(f"/imports/{uploaded.json()['id']}")
+        assert review.status_code == 200
+        assert 'class="candidate-card' in review.text
+        assert 'id="confirm-form"' in review.text
+        assert 'id="reject-form"' in review.text
+        assert "Pending extraction is never treated as confirmed" in review.text
+
+        css = client.get("/static/dashboard.css").text
+        js = client.get("/static/dashboard.js").text
+        assert "@media (max-width: 600px)" in css
+        assert "chart-tooltip" in js
+        assert "data-series" in js
+
+
 def test_incompatible_composition_groups_are_separated(tmp_path):
     app, settings, paths = _ui(tmp_path)
     from healthcheck.db.repositories import repositories_for
