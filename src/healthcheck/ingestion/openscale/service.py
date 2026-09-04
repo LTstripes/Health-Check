@@ -136,10 +136,9 @@ class OpenScaleWebhookService:
                 )
             )
         else:
-            for warning in envelope.item_warnings:
-                # Non-fatal metric conflicts are retained as durable diagnostics
-                # attached to the surviving measurement when present.
-                del warning
+            warnings_by_index = {
+                warning.batch_index: warning.failures for warning in envelope.item_warnings
+            }
             for invalid in envelope.invalid_items:
                 outcomes.append(
                     self._quarantine_invalid(
@@ -151,6 +150,10 @@ class OpenScaleWebhookService:
                     )
                 )
             for measurement in envelope.measurements:
+                item_failures = warnings_by_index.get(measurement.batch_index)
+                if item_failures is None and measurement.batch_index is None:
+                    # Single-measurement mode parks non-fatal failures on envelope.
+                    item_failures = envelope.failures
                 outcomes.append(
                     self._process_measurement(
                         batch=batch,
@@ -158,6 +161,7 @@ class OpenScaleWebhookService:
                         raw_artifact_id=artifact.id,
                         measurement=measurement,
                         event_type=envelope.event,
+                        item_failures=item_failures or (),
                     )
                 )
 
@@ -326,6 +330,7 @@ class OpenScaleWebhookService:
         raw_artifact_id: str,
         measurement: NormalizedMeasurement,
         event_type: str,
+        item_failures: tuple[Any, ...] = (),
     ) -> ItemOutcome:
         identity = measurement.identity or f"missing-identity:{raw_artifact_id}"
         evidence = _event_evidence(measurement, event_type)
@@ -350,6 +355,7 @@ class OpenScaleWebhookService:
                     identity=identity,
                     evidence=evidence,
                     source_timestamp=source_timestamp,
+                    item_failures=item_failures,
                 )
             nested.commit()
             return outcome
@@ -407,6 +413,7 @@ class OpenScaleWebhookService:
         identity: str,
         evidence: str,
         source_timestamp: datetime | None,
+        item_failures: tuple[Any, ...] = (),
     ) -> ItemOutcome:
         existing_event = self.repos.ingest_events.find_existing(
             acquisition_source_id=acquisition_source_id,
@@ -473,17 +480,21 @@ class OpenScaleWebhookService:
 
         usable = measurement.usable_metrics()
         if not usable and event_type in {"insert", "update"}:
-            # Structurally valid but no usable metrics — durable quarantine.
+            # Prefer precise contract conflict codes over a generic empty-metric label.
+            diagnostic_code, diagnostic_reason = _item_diagnostic(item_failures, measurement)
+            if diagnostic_code is None:
+                diagnostic_code = "no_usable_metrics"
+                diagnostic_reason = "measurement carried no usable canonical metrics"
             self.repos.ingest_events.set_status(
                 event.id,
                 IngestStatus.FAILED.value,
-                diagnostic_code="no_usable_metrics",
-                diagnostic_reason="measurement carried no usable canonical metrics",
+                diagnostic_code=diagnostic_code,
+                diagnostic_reason=diagnostic_reason,
             )
             return ItemOutcome(
                 status="failed",
                 event_id=event.id,
-                reason_code="no_usable_metrics",
+                reason_code=diagnostic_code,
                 batch_index=measurement.batch_index,
             )
 
@@ -500,13 +511,22 @@ class OpenScaleWebhookService:
                 head, measurement, precision, local_date, timestamp_utc
             ):
                 if _scalars_match(self.repos, head, usable):
-                    self.repos.ingest_events.set_status(event.id, IngestStatus.COMMITTED.value)
+                    diagnostic_code, diagnostic_reason = _item_diagnostic(
+                        item_failures, measurement
+                    )
+                    self.repos.ingest_events.set_status(
+                        event.id,
+                        IngestStatus.COMMITTED.value,
+                        diagnostic_code=diagnostic_code,
+                        diagnostic_reason=diagnostic_reason,
+                    )
                     return ItemOutcome(
                         status="duplicate",
                         event_id=event.id,
                         session_id=head.id,
                         duplicate_of_event_id=event.id,
                         batch_index=measurement.batch_index,
+                        reason_code=diagnostic_code,
                     )
             session_record = self.repos.measurement_sessions.create_revision(
                 head.id,
@@ -617,11 +637,18 @@ class OpenScaleWebhookService:
                     source_text=metric.source_key,
                 )
 
-        self.repos.ingest_events.set_status(event.id, IngestStatus.COMMITTED.value)
+        diagnostic_code, diagnostic_reason = _item_diagnostic(item_failures, measurement)
+        self.repos.ingest_events.set_status(
+            event.id,
+            IngestStatus.COMMITTED.value,
+            diagnostic_code=diagnostic_code,
+            diagnostic_reason=diagnostic_reason,
+        )
         return ItemOutcome(
             status="committed",
             event_id=event.id,
             session_id=session_record.id,
+            reason_code=diagnostic_code,
             batch_index=measurement.batch_index,
         )
 
@@ -765,6 +792,29 @@ def _primary_reason(envelope: EnvelopeResult) -> str:
 def _sanitize_failures(failures: tuple[Any, ...]) -> str:
     codes = [getattr(item, "reason_code", "invalid") for item in failures]
     return ",".join(codes) if codes else "invalid_measurement"
+
+
+def _item_diagnostic(
+    failures: tuple[Any, ...],
+    measurement: NormalizedMeasurement,
+) -> tuple[str | None, str | None]:
+    """Return sanitized durable diagnostics for non-fatal item conflicts."""
+
+    codes: list[str] = []
+    for item in failures:
+        code = getattr(item, "reason_code", None)
+        if isinstance(code, str) and code and code not in codes:
+            codes.append(code)
+    for metric in measurement.metrics:
+        if metric.status == "ambiguous" and metric.reason and metric.reason not in codes:
+            codes.append(metric.reason)
+    if not codes:
+        return None, None
+    if "duplicate_conflicting_values" in codes:
+        primary = "duplicate_conflicting_values"
+    else:
+        primary = codes[0]
+    return primary, ",".join(codes)
 
 
 def _event_evidence(measurement: NormalizedMeasurement, event_type: str) -> str:

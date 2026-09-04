@@ -649,3 +649,167 @@ def test_openscale_algorithm_group_distinct_from_xiaomi(tmp_path):
             )
     finally:
         engine.dispose()
+
+
+def test_item_warnings_persist_duplicate_conflict_with_surviving_metrics(tmp_path):
+    """Repro A: conflicting weight + usable fat keeps durable conflict diagnostic."""
+
+    client, _settings_obj, paths = _client(tmp_path)
+    payload = {
+        "event": "insert",
+        "measurements": [
+            {
+                "id": "conflict-with-fat",
+                "userId": "synthetic-user-1",
+                "date": "2026-03-01T08:00:00+03:00",
+                "values": [
+                    {
+                        "key": "weight",
+                        "name": "Weight",
+                        "unit": "kg",
+                        "value": 80.0,
+                        "isDerived": False,
+                    },
+                    {
+                        "key": "weight",
+                        "name": "Weight",
+                        "unit": "kg",
+                        "value": 81.0,
+                        "isDerived": False,
+                    },
+                    {
+                        "key": "fat",
+                        "name": "Body fat",
+                        "unit": "%",
+                        "value": 20.0,
+                        "isDerived": False,
+                    },
+                ],
+            }
+        ],
+    }
+    with client:
+        response = client.post(
+            "/api/ingest/openscale",
+            content=json.dumps(payload).encode(),
+            headers={**_auth(), "Content-Type": "application/json"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["items"][0]["status"] == "committed"
+        assert body["items"][0]["diagnostic_code"] == "duplicate_conflicting_values"
+        assert body["items"][0]["measurement_session_id"]
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            events = list(session.scalars(select(IngestEvent)))
+            assert len(events) == 1
+            assert events[0].diagnostic_code == "duplicate_conflicting_values"
+            assert "80" not in (events[0].diagnostic_reason or "")
+            assert "81" not in (events[0].diagnostic_reason or "")
+            heads = repos.measurement_sessions.current_heads()
+            assert len(heads) == 1
+            metrics = {
+                row.metric_code: row.normalized_value
+                for row in repos.scalar_measurements.list_for_session(heads[0].id)
+            }
+            assert "weight" not in metrics
+            assert metrics["body_fat_pct"] == pytest.approx(20.0)
+    finally:
+        engine.dispose()
+
+
+def test_conflict_only_weight_keeps_precise_diagnostic(tmp_path):
+    """Repro B: conflict-only weight fails with duplicate_conflicting_values, not generic."""
+
+    client, _settings_obj, paths = _client(tmp_path)
+    payload = {
+        "event": "insert",
+        "measurements": [
+            {
+                "id": "conflict-only",
+                "userId": "synthetic-user-1",
+                "date": "2026-03-01T09:00:00+03:00",
+                "values": [
+                    {
+                        "key": "weight",
+                        "name": "Weight",
+                        "unit": "kg",
+                        "value": 80.0,
+                        "isDerived": False,
+                    },
+                    {
+                        "key": "weight",
+                        "name": "Weight",
+                        "unit": "kg",
+                        "value": 81.0,
+                        "isDerived": False,
+                    },
+                ],
+            }
+        ],
+    }
+    with client:
+        response = client.post(
+            "/api/ingest/openscale",
+            content=json.dumps(payload).encode(),
+            headers={**_auth(), "Content-Type": "application/json"},
+        )
+        assert response.status_code == 200, response.text
+        item = response.json()["items"][0]
+        assert item["status"] == "failed"
+        assert item["diagnostic_code"] == "duplicate_conflicting_values"
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            events = list(session.scalars(select(IngestEvent)))
+            assert len(events) == 1
+            assert events[0].status == "failed"
+            assert events[0].diagnostic_code == "duplicate_conflicting_values"
+            assert events[0].diagnostic_reason == "duplicate_conflicting_values"
+            assert "80" not in (events[0].diagnostic_reason or "")
+            assert repositories_for(session).measurement_sessions.current_heads() == []
+    finally:
+        engine.dispose()
+
+
+def test_single_mode_conflict_persists_envelope_failures(tmp_path):
+    client, _settings_obj, paths = _client(tmp_path)
+    payload = {
+        "event": "insert",
+        "id": "single-conflict",
+        "userId": "synthetic-user-1",
+        "date": "2026-03-01T10:00:00+03:00",
+        "values": [
+            {"key": "weight", "name": "Weight", "unit": "kg", "value": 70.0, "isDerived": False},
+            {"key": "weight", "name": "Weight", "unit": "kg", "value": 71.0, "isDerived": False},
+            {"key": "fat", "name": "Body fat", "unit": "%", "value": 18.0, "isDerived": False},
+        ],
+    }
+    with client:
+        response = client.post(
+            "/api/ingest/openscale",
+            content=json.dumps(payload).encode(),
+            headers={**_auth(), "Content-Type": "application/json"},
+        )
+        assert response.status_code == 200, response.text
+        item = response.json()["items"][0]
+        assert item["status"] == "committed"
+        assert item["diagnostic_code"] == "duplicate_conflicting_values"
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            events = list(session.scalars(select(IngestEvent)))
+            assert events[0].diagnostic_code == "duplicate_conflicting_values"
+            heads = repositories_for(session).measurement_sessions.current_heads()
+            metrics = {
+                row.metric_code: row.normalized_value
+                for row in repositories_for(session).scalar_measurements.list_for_session(
+                    heads[0].id
+                )
+            }
+            assert "weight" not in metrics
+            assert metrics["body_fat_pct"] == pytest.approx(18.0)
+    finally:
+        engine.dispose()
