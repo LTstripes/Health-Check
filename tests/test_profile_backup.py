@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
-import uuid
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -23,12 +22,8 @@ from healthcheck.runtime import prepare_runtime
 
 @pytest.fixture
 def external_tmp_path():
-    root = Path("D:/Codex/Garmin/.pytest-profile-temp") / uuid.uuid4().hex
-    root.mkdir(parents=True)
-    try:
-        yield root
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
+    with tempfile.TemporaryDirectory(prefix="healthcheck-profile-") as root:
+        yield Path(root)
 
 
 def _synthetic_profile(tmp_path: Path) -> Path:
@@ -163,6 +158,43 @@ def test_replace_is_explicit_and_checkout_is_refused(external_tmp_path: Path) ->
 
     with pytest.raises(ProfileBackupError, match="outside the checkout"):
         restore_profile(archive, Path(__file__).resolve().parents[1])
+
+
+def test_replace_over_existing_healthcheck_profile_with_database_and_artifacts(
+    external_tmp_path: Path,
+) -> None:
+    source = _synthetic_profile(external_tmp_path)
+    archive = external_tmp_path / "profile.zip"
+    create_backup(source, archive)
+
+    target = external_tmp_path / "existing-profile"
+    paths = prepare_runtime(Settings(data_dir=target))
+    connection = sqlite3.connect(paths.database)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE existing_profile_marker (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO existing_profile_marker VALUES ('old')")
+        connection.commit()
+    finally:
+        connection.close()
+    old_artifact = target / "artifacts" / "photos" / "old.png"
+    old_artifact.write_bytes(b"old artifact")
+
+    result = restore_profile(archive, target, replace=True)
+
+    assert result.replaced is True
+    assert (target / "healthcheck.db").is_file()
+    assert (target / "artifacts" / "provenance.txt").read_text(encoding="utf-8") == (
+        "synthetic provenance"
+    )
+    assert not old_artifact.exists()
+    restored_db = sqlite3.connect(target / "healthcheck.db")
+    try:
+        assert restored_db.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'existing_profile_marker'"
+        ).fetchone() is None
+    finally:
+        restored_db.close()
 
 
 def test_archive_symlink_entry_and_cli_output_do_not_expose_content(

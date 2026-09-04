@@ -678,7 +678,7 @@ def _validate_directory_tree(root: Path) -> None:
 def _validate_restore_conflicts(target: Path, files: tuple[dict[str, Any], ...]) -> None:
     for item in files:
         destination = target / Path(*PurePosixPath(item["path"]).parts)
-        current = destination
+        current = destination.parent
         while current != target:
             if current.exists() and (_is_link_or_reparse(current) or not current.is_dir()):
                 raise ProfileBackupError("restore conflicts with an unsafe target entry")
