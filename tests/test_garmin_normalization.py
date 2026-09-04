@@ -58,6 +58,10 @@ def test_aware_and_naive_timestamps_keep_distinct_contracts() -> None:
     assert aware.precision is GarminTemporalPrecision.UTC_INSTANT
     assert aware.measured_at_utc == datetime(2099, 1, 2, 5, tzinfo=UTC)
     assert aware.local_date == date(2099, 1, 2)
+    assert aware.local_wall_time == "2099-01-02T08:00:00"
+    assert aware.source_local_timestamp == "2099-01-02T08:00:00+03:00"
+    assert aware.source_utc_offset_minutes == 180
+    assert aware.source_timezone is None
     assert naive.precision is GarminTemporalPrecision.LOCAL_WALL_TIME
     assert naive.measured_at_utc is None
     assert naive.local_wall_time == "2099-01-02T08:00:00"
@@ -65,6 +69,60 @@ def test_aware_and_naive_timestamps_keep_distinct_contracts() -> None:
     assert date_only.precision is GarminTemporalPrecision.DATE_ONLY
     assert date_only.local_date == date(2099, 1, 2)
     assert date_only.measured_at_utc is None
+
+
+def test_paired_local_and_gmt_fields_preserve_both_temporal_semantics() -> None:
+    result = normalize_garmin_payload(
+        {
+            "calendarDate": "2099-01-02",
+            "startTimeLocal": "2099-01-02T11:00:00+03:00",
+            "startTimeGMT": "2099-01-02T08:00:00",
+            "timeZone": "Europe/Moscow",
+            "restingHeartRate": 52,
+            "hrvStatus": {"weeklyAverage": 55},
+            "maxMetrics": {"vo2MaxRunning": 44.2},
+            "trainingReadiness": 80,
+            "trainingStatus": "productive",
+        },
+        stream="daily_health",
+    )
+
+    assert result.ok
+    (record,) = result.records
+    temporal = record.temporal
+    assert temporal.precision is GarminTemporalPrecision.UTC_INSTANT
+    assert temporal.measured_at_utc == datetime(2099, 1, 2, 8, tzinfo=UTC)
+    assert temporal.local_wall_time == "2099-01-02T11:00:00"
+    assert temporal.source_local_timestamp == "2099-01-02T11:00:00+03:00"
+    assert temporal.source_utc_offset_minutes == 180
+    assert temporal.source_timezone == "Europe/Moscow"
+    assert temporal.source_local_field == "payload.startTimeLocal"
+    assert temporal.source_utc_field == "payload.startTimeGMT"
+    assert temporal.source_field == "payload.startTimeGMT"
+
+
+def test_naive_gmt_field_is_utc_by_field_semantics() -> None:
+    parsed = parse_garmin_time("2099-01-02T08:00:00", source_field="startTimeGMT")
+
+    assert parsed.precision is GarminTemporalPrecision.UTC_INSTANT
+    assert parsed.measured_at_utc == datetime(2099, 1, 2, 8, tzinfo=UTC)
+    assert parsed.local_wall_time is None
+    assert parsed.local_date == date(2099, 1, 2)
+    assert parsed.source_local_timestamp is None
+    assert parsed.source_utc_field == "startTimeGMT"
+
+
+def test_naive_local_only_field_has_no_invented_timezone() -> None:
+    parsed = parse_garmin_time("2099-01-02T08:00:00", source_field="startTimeLocal")
+
+    assert parsed.precision is GarminTemporalPrecision.LOCAL_WALL_TIME
+    assert parsed.measured_at_utc is None
+    assert parsed.local_wall_time == "2099-01-02T08:00:00"
+    assert parsed.local_date == date(2099, 1, 2)
+    assert parsed.source_local_timestamp == "2099-01-02T08:00:00"
+    assert parsed.source_utc_offset_minutes is None
+    assert parsed.source_timezone is None
+    assert parsed.source_local_field == "startTimeLocal"
 
 
 def test_activity_fixture_normalizes_records_and_stable_record_key() -> None:
