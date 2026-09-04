@@ -1,0 +1,19 @@
+{
+  "fixture_contract_version": "r02-garmin-capability-fixture-v1",
+  "fixture_id": "synthetic-client-method-surface-only-001",
+  "source_kind": "synthetic",
+  "provider_code": "garmin_connect",
+  "stream_code": "daily_health",
+  "device": {
+    "attributed": false,
+    "code": null,
+    "model": null
+  },
+  "client_methods": [
+    "get_training_readiness",
+    "get_training_status",
+    "get_max_metrics"
+  ],
+  "payload_fields": {},
+  "payload": {}
+}

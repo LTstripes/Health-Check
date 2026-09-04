@@ -1,0 +1,39 @@
+{
+  "fixture_contract_version": "r02-garmin-capability-fixture-v1",
+  "fixture_id": "synthetic-vivoactive-5-daily-health-001",
+  "source_kind": "synthetic",
+  "provider_code": "garmin_connect",
+  "stream_code": "daily_health",
+  "device": {
+    "attributed": true,
+    "code": "garmin_vivoactive_5",
+    "model": "Vivoactive 5"
+  },
+  "client_methods": [
+    "get_rhr_day",
+    "get_hrv_data",
+    "get_max_metrics",
+    "get_training_readiness",
+    "get_training_status"
+  ],
+  "payload_fields": {
+    "resting_heart_rate": "restingHeartRate",
+    "hrv_status": "hrvStatus.weeklyAverage",
+    "vo2_max": "maxMetrics.vo2MaxRunning",
+    "training_readiness": "trainingReadiness",
+    "training_status": "trainingStatus"
+  },
+  "payload": {
+    "calendarDate": "2099-01-02",
+    "restingHeartRate": 52,
+    "hrvStatus": {
+      "weeklyAverage": 55,
+      "status": "balanced"
+    },
+    "maxMetrics": {
+      "vo2MaxRunning": 44.2
+    },
+    "trainingReadiness": null,
+    "trainingStatus": null
+  }
+}

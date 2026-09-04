@@ -1,0 +1,40 @@
+{
+  "fixture_contract_version": "r02-garmin-capability-fixture-v1",
+  "fixture_id": "synthetic-vivoactive-5-sleep-001",
+  "source_kind": "synthetic",
+  "provider_code": "garmin_connect",
+  "stream_code": "sleep",
+  "device": {
+    "attributed": true,
+    "code": "garmin_vivoactive_5",
+    "model": "Vivoactive 5"
+  },
+  "client_methods": ["get_sleep_data"],
+  "payload_fields": {
+    "sleep": "sleepTimeSeconds",
+    "sleep_score": "sleepScore.value",
+    "sleep_stages": "levels",
+    "naps": "napTimeSeconds"
+  },
+  "payload": {
+    "calendarDate": "2099-01-02",
+    "sleepTimeSeconds": 28800,
+    "sleepScore": {
+      "value": 82,
+      "qualifier": "synthetic"
+    },
+    "levels": [
+      {
+        "startTimeGMT": "2099-01-01T21:30:00Z",
+        "endTimeGMT": "2099-01-01T23:00:00Z",
+        "activityLevel": "deep"
+      },
+      {
+        "startTimeGMT": "2099-01-02T05:30:00Z",
+        "endTimeGMT": "2099-01-02T06:45:00Z",
+        "activityLevel": "light"
+      }
+    ],
+    "napTimeSeconds": 900
+  }
+}
