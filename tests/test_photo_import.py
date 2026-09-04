@@ -610,6 +610,16 @@ def test_core_schema_tables_unchanged_by_photo_import(photo_env):
         "sync_runs",
         "sync_stream_state",
         "coverage_intervals",
+        "garmin_sources",
+        "garmin_raw_payloads",
+        "garmin_source_records",
+        "garmin_daily_records",
+        "garmin_sleep_records",
+        "garmin_activity_records",
+        "garmin_intraday_records",
+        "garmin_fit_records",
+        "garmin_record_metrics",
+        "garmin_sleep_stage_intervals",
         "alembic_version",
     }
     assert set(inspect(engine).get_table_names()) == expected
