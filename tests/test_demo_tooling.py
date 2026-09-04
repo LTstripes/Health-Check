@@ -58,6 +58,29 @@ def test_seed_demo_reset_rebuilds_only_marked_profile(tmp_path: Path) -> None:
     assert extra.read_text(encoding="utf-8") == "leave this file"
 
 
+def test_seed_demo_reset_preflight_preserves_state_on_invalid_artifacts(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(data_dir=tmp_path / "synthetic-demo")
+    seed_demo(settings)
+    database = settings.data_dir / "healthcheck.db"
+    marker = settings.data_dir / DEMO_MARKER_NAME
+    artifacts = settings.data_dir / "artifacts"
+    saved_database = database.read_bytes()
+    saved_marker = marker.read_bytes()
+    saved_artifacts = tmp_path / "saved-artifacts"
+    artifacts.rename(saved_artifacts)
+    artifacts.write_bytes(b"not a directory")
+
+    with pytest.raises(DemoSeedError, match="artifacts directory"):
+        seed_demo(settings, reset=True)
+
+    assert database.read_bytes() == saved_database
+    assert marker.read_bytes() == saved_marker
+    assert artifacts.read_bytes() == b"not a directory"
+    assert saved_artifacts.is_dir()
+
+
 def test_seed_demo_rejects_checkout_target(tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(DemoSeedError, match="outside the checkout"):

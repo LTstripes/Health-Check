@@ -52,6 +52,13 @@ class DemoSeedResult:
     candidate_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class _DemoResetPlan:
+    marker: Path
+    database_paths: tuple[Path, ...]
+    artifacts: Path | None
+
+
 def seed_demo(settings: Settings, *, reset: bool = False) -> DemoSeedResult:
     """Create or safely re-use a dedicated synthetic demo profile.
 
@@ -70,7 +77,6 @@ def seed_demo(settings: Settings, *, reset: bool = False) -> DemoSeedResult:
         raise DemoSeedError(str(exc)) from None
 
     marker = paths.root / DEMO_MARKER_NAME
-    had_marked_demo = False
     if paths.root.exists():
         if not paths.root.is_dir() or paths.root.is_symlink():
             raise DemoSeedError("demo target must be a real directory")
@@ -78,7 +84,6 @@ def seed_demo(settings: Settings, *, reset: bool = False) -> DemoSeedResult:
             if marker.is_symlink() or not marker.is_file():
                 raise DemoSeedError("demo marker is not a regular file")
             _read_and_validate_marker(marker)
-            had_marked_demo = True
             if reset:
                 _reset_marked_demo(paths, marker)
             else:
@@ -96,11 +101,6 @@ def seed_demo(settings: Settings, *, reset: bool = False) -> DemoSeedResult:
                 "demo target is non-empty and is not a Health-Check synthetic demo; "
                 "choose a new dedicated HEALTHCHECK_DATA_DIR"
             )
-
-    # A reset removes the marker after its safety check.  Any later failure is
-    # intentionally fail-closed: the next invocation will not guess ownership.
-    if had_marked_demo and marker.exists():
-        marker.unlink()
 
     paths = prepare_runtime(settings)
     migrate_database(paths)
@@ -189,23 +189,70 @@ def _write_marker(paths: RuntimePaths, *, weigh_in_count: int, candidate_count: 
 
 
 def _reset_marked_demo(paths: RuntimePaths, marker: Path) -> None:
-    """Remove only state owned by a validated marker, leaving unknown files."""
+    """Preflight all reset targets, then remove only marked demo state."""
 
-    for database_path in (
+    plan = _preflight_marked_demo_reset(paths, marker)
+    _mutate_marked_demo_reset(plan)
+
+
+def _preflight_marked_demo_reset(paths: RuntimePaths, marker: Path) -> _DemoResetPlan:
+    """Validate every reset target without modifying the runtime."""
+
+    if not paths.root.is_dir() or paths.root.is_symlink():
+        raise DemoSeedError("demo target must be a real directory")
+    if marker.parent != paths.root or marker.is_symlink() or not marker.is_file():
+        raise DemoSeedError("demo marker is not a regular file")
+    _read_and_validate_marker(marker)
+
+    database_paths = (
         paths.database,
         Path(f"{paths.database}-wal"),
         Path(f"{paths.database}-shm"),
-    ):
-        if database_path.exists():
-            if database_path.is_symlink() or not database_path.is_file():
-                raise DemoSeedError("demo database state is not a regular file")
-            database_path.unlink()
+    )
+    if not paths.database.is_file() or paths.database.is_symlink():
+        raise DemoSeedError("demo database state is not a regular file")
+    for database_path in database_paths[1:]:
+        if database_path.is_symlink() or (
+            database_path.exists() and not database_path.is_file()
+        ):
+            raise DemoSeedError("demo database state is not a regular file")
+
     artifacts = paths.root / "artifacts"
+    if artifacts.is_symlink() or (artifacts.exists() and not artifacts.is_dir()):
+        raise DemoSeedError("demo artifacts directory is not a regular directory")
     if artifacts.exists():
-        if artifacts.is_symlink() or not artifacts.is_dir():
-            raise DemoSeedError("demo artifacts directory is not a regular directory")
-        shutil.rmtree(artifacts)
-    marker.touch(exist_ok=True)
+        _validate_artifact_tree(artifacts)
+        artifacts_target: Path | None = artifacts
+    else:
+        artifacts_target = None
+    return _DemoResetPlan(
+        marker=marker,
+        database_paths=database_paths,
+        artifacts=artifacts_target,
+    )
+
+
+def _validate_artifact_tree(artifacts: Path) -> None:
+    """Reject links and special entries before an artifact tree is removed."""
+
+    try:
+        children = artifacts.rglob("*")
+        for child in children:
+            if child.is_symlink() or not (child.is_file() or child.is_dir()):
+                raise DemoSeedError("demo artifacts tree contains an unsafe entry")
+    except OSError as exc:
+        raise DemoSeedError("demo artifacts tree could not be preflighted") from exc
+
+
+def _mutate_marked_demo_reset(plan: _DemoResetPlan) -> None:
+    """Execute a reset only from a completed, immutable preflight plan."""
+
+    for database_path in plan.database_paths:
+        if database_path.exists():
+            database_path.unlink()
+    if plan.artifacts is not None:
+        shutil.rmtree(plan.artifacts)
+    plan.marker.unlink()
 
 
 def _validate_seeded_demo(paths: RuntimePaths) -> None:
