@@ -51,9 +51,7 @@ def _confirm_all_pending(client, batch_id):
     detail = client.get(f"/api/imports/{batch_id}")
     assert detail.status_code == 200
     pending = [
-        item["id"]
-        for item in detail.json()["candidates"]
-        if item["user_decision"] == "pending"
+        item["id"] for item in detail.json()["candidates"] if item["user_decision"] == "pending"
     ]
     if not pending:
         return []
@@ -298,7 +296,7 @@ def test_ingest_listener_does_not_expose_dashboard_or_import_routes(tmp_path):
     settings = Settings(data_dir=tmp_path / "runtime")
     ingest, _ = create_ingest_app(settings)
     ui, _ = create_ui_app(settings)
-    probes = (
+    forbidden = (
         "/",
         "/imports",
         "/imports/demo",
@@ -310,15 +308,18 @@ def test_ingest_listener_does_not_expose_dashboard_or_import_routes(tmp_path):
         "/static/dashboard.js",
         "/static/dashboard.css",
         "/settings",
-        "/api/ingest/openscale",
     )
     with TestClient(ingest) as client:
-        assert [route.path for route in ingest.routes] == ["/healthz"]
-        for route in probes:
+        assert client.get("/healthz").json() == {"status": "ok", "service": "ingest"}
+        assert client.get("/api/ingest/openscale").status_code == 405
+        # Without configured credentials the route exists but fails closed.
+        assert client.post("/api/ingest/openscale", content=b"{}").status_code in {401, 503}
+        for route in forbidden:
             assert client.get(route).status_code == 404
             assert client.post(route).status_code == 404
     with TestClient(ui) as client:
         assert client.get("/healthz").json() == {"status": "ok", "service": "loopback-ui"}
+        assert client.post("/api/ingest/openscale", content=b"{}").status_code == 404
 
 
 def test_safe_error_pages_do_not_leak_sql_or_payloads(tmp_path):
@@ -377,9 +378,7 @@ def _canonical_snapshot(paths):
     try:
         with session_scope(engine) as session:
             runs = list(
-                session.scalars(
-                    select(CanonicalSelectionRun).order_by(CanonicalSelectionRun.id)
-                )
+                session.scalars(select(CanonicalSelectionRun).order_by(CanonicalSelectionRun.id))
             )
             selections = list(
                 session.scalars(select(CanonicalSelection).order_by(CanonicalSelection.id))
@@ -450,9 +449,7 @@ def test_dashboard_gets_do_not_mutate_canonical_state(tmp_path):
                     assert body["canonical"]["selection_count"] == established_count
 
         assert _canonical_snapshot(paths) == established
-        filtered = client.get(
-            "/api/weight/series", params={"start_date": "2026-02-01"}
-        ).json()
+        filtered = client.get("/api/weight/series", params={"start_date": "2026-02-01"}).json()
         empty_filter = client.get(
             "/api/weight/series", params={"compatibility_group": "not-a-real-group"}
         ).json()
@@ -476,9 +473,7 @@ def test_competing_source_heads_use_canonical_evidence_for_analytics(tmp_path):
         _confirm_all_pending(client, uploaded.json()["id"])
         before = client.get("/api/weight/series").json()
         assert before["canonical"]["available"] is True
-        photo_point = next(
-            point for point in before["raw_points"] if point["canonical_selected"]
-        )
+        photo_point = next(point for point in before["raw_points"] if point["canonical_selected"])
         photo_value = photo_point["value_kg"]
         semantic = photo_point["provenance"]["semantic_key"]
         snapshot = _canonical_snapshot(paths)
@@ -489,9 +484,7 @@ def test_competing_source_heads_use_canonical_evidence_for_analytics(tmp_path):
                 from healthcheck.db.repositories import repositories_for
 
                 repos = repositories_for(session)
-                provider = repos.providers.get_or_create(
-                    "openscale", "openScale", "scale_app"
-                )
+                provider = repos.providers.get_or_create("openscale", "openScale", "scale_app")
                 device = repos.physical_devices.get_or_create(
                     "xiaomi_s400", manufacturer="Xiaomi", model="S400"
                 )
@@ -534,9 +527,7 @@ def test_competing_source_heads_use_canonical_evidence_for_analytics(tmp_path):
         assert photo_value in raw_values
         assert 99.25 in raw_values
         selected_values = {
-            point["value_kg"]
-            for point in series["raw_points"]
-            if point["canonical_selected"]
+            point["value_kg"] for point in series["raw_points"] if point["canonical_selected"]
         }
         assert selected_values == {99.25}
         assert [point["median_kg"] for point in series["daily_points"]] == [99.25]

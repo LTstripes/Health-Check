@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine
@@ -41,14 +43,19 @@ def test_listener_health_endpoints_are_non_sensitive(tmp_path):
         response = client.get("/healthz")
         assert response.status_code == 200
         assert response.json() == {"status": "ok", "service": "ingest"}
-        routes = ("/", "/api/imports", "/api/weight/series", "/settings", "/api/ingest/openscale")
-        for route in routes:
+        for route in ("/", "/api/imports", "/api/weight/series", "/settings"):
             assert client.get(route).status_code == 404
+        assert client.get("/api/ingest/openscale").status_code == 405
 
 
-def test_ingest_app_has_only_liveness_route(tmp_path):
+def test_ingest_app_exposes_only_liveness_and_openscale_ingest(tmp_path):
     app, _ = create_ingest_app(Settings(data_dir=tmp_path / "runtime"))
-    assert [route.path for route in app.routes] == ["/healthz"]
+    with TestClient(app) as client:
+        assert client.get("/healthz").status_code == 200
+        assert client.get("/api/ingest/openscale").status_code == 405
+        assert client.post("/api/ingest/openscale", content=b"{}").status_code in {401, 503}
+        for route in ("/", "/api/imports", "/api/weight/series", "/settings"):
+            assert client.get(route).status_code == 404
 
 
 def test_sqlite_bootstrap_enables_wal_and_foreign_keys(tmp_path):
@@ -83,3 +90,22 @@ def test_no_database_is_created_by_health_only(tmp_path):
     with TestClient(app) as client:
         assert client.get("/healthz").status_code == 200
     assert not (tmp_path / "runtime" / "healthcheck.db").exists()
+
+
+def test_public_and_unspecified_ingest_binds_fail_closed():
+    with pytest.raises(ValidationError):
+        Settings(ingest_host="0.0.0.0")
+    with pytest.raises(ValidationError):
+        Settings(ingest_host="8.8.8.8")
+    with pytest.raises(ValidationError):
+        Settings(ingest_host="192.168.1.10")
+
+
+def test_private_lan_bind_requires_trusted_opt_in():
+    settings = Settings(
+        ingest_host="192.168.1.10",
+        trusted_private_lan_http=True,
+    )
+    warning = settings.ingest_binding_warning()
+    assert warning is not None
+    assert "plain private-LAN HTTP" in warning
