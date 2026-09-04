@@ -32,6 +32,7 @@ from healthcheck.analytics.weight import (
     similar_weight_comparison,
 )
 from healthcheck.canonical import (
+    DASHBOARD_COMPOSITION_SCOPE_PREFIX,
     DASHBOARD_WEIGHT_SCOPE,
     CanonicalCandidate,
     dashboard_composition_scope,
@@ -478,21 +479,52 @@ class WeightQueryService:
     ) -> tuple[dict[str, Any], frozenset[str], frozenset[str]]:
         """Read durable canonical evidence IDs.  GET paths must not write."""
 
-        run = self.repos.canonical_selection_runs.latest_successful(DASHBOARD_WEIGHT_SCOPE)
+        runs = self.repos.canonical_selection_runs
+        run = runs.latest_successful(DASHBOARD_WEIGHT_SCOPE)
         if run is None:
-            meta = {
-                "available": False,
-                "reason": "no_canonical_run",
-                "run_id": None,
-                "status": None,
-                "selection_count": 0,
-                "fresh": False,
-                "stale": False,
-                "warning": None,
-                "latest_attempt_status": None,
-                "latest_attempt_run_id": None,
-                "failure_reason": None,
-            }
+            latest = runs.latest_for_scope(DASHBOARD_WEIGHT_SCOPE)
+            if latest is not None and latest.status == "failed":
+                meta = {
+                    "available": False,
+                    "reason": "canonical_selection_failed",
+                    "run_id": None,
+                    "status": None,
+                    "selection_count": 0,
+                    "fresh": False,
+                    "stale": False,
+                    "warning": "canonical_recompute_failed",
+                    "latest_attempt_status": latest.status,
+                    "latest_attempt_run_id": latest.id,
+                    "failure_reason": latest.failure_reason,
+                }
+            elif latest is not None and latest.status == "running":
+                meta = {
+                    "available": False,
+                    "reason": "canonical_selection_in_progress",
+                    "run_id": None,
+                    "status": None,
+                    "selection_count": 0,
+                    "fresh": False,
+                    "stale": False,
+                    "warning": "canonical_recompute_in_progress",
+                    "latest_attempt_status": latest.status,
+                    "latest_attempt_run_id": latest.id,
+                    "failure_reason": None,
+                }
+            else:
+                meta = {
+                    "available": False,
+                    "reason": "no_canonical_run",
+                    "run_id": None,
+                    "status": None,
+                    "selection_count": 0,
+                    "fresh": False,
+                    "stale": False,
+                    "warning": None,
+                    "latest_attempt_status": None,
+                    "latest_attempt_run_id": None,
+                    "failure_reason": None,
+                }
             return meta, frozenset(), frozenset()
         weight_ids = {
             selection.source_measurement_id
@@ -509,10 +541,14 @@ class WeightQueryService:
             )
             if algorithm is not None and algorithm.compatibility_group:
                 groups.add(algorithm.compatibility_group)
-        for group in groups:
-            composition_run = self.repos.canonical_selection_runs.latest_successful(
-                dashboard_composition_scope(group)
-            )
+        composition_scopes = {
+            dashboard_composition_scope(group) for group in groups
+        }
+        composition_scopes.update(
+            runs.successful_scope_keys(prefix=DASHBOARD_COMPOSITION_SCOPE_PREFIX)
+        )
+        for scope_key in sorted(composition_scopes):
+            composition_run = runs.latest_successful(scope_key)
             if composition_run is None:
                 continue
             composition_ids.update(
@@ -522,9 +558,15 @@ class WeightQueryService:
                 )
                 if selection.source_measurement_id
             )
-        freshness = _canonical_freshness_meta(
-            self.repos.canonical_selection_runs, DASHBOARD_WEIGHT_SCOPE, run
-        )
+        freshness = _canonical_freshness_meta(runs, DASHBOARD_WEIGHT_SCOPE, run)
+        for scope_key in sorted(composition_scopes):
+            composition_run = runs.latest_successful(scope_key)
+            if composition_run is None:
+                continue
+            freshness = _merge_canonical_freshness(
+                freshness,
+                _canonical_freshness_meta(runs, scope_key, composition_run),
+            )
         meta = {
             "available": True,
             "reason": None,
@@ -585,6 +627,23 @@ def _canonical_freshness_meta(
         "latest_attempt_run_id": latest.id,
         "failure_reason": getattr(latest, "failure_reason", None),
     }
+
+
+def _merge_canonical_freshness(
+    current: dict[str, Any], candidate: dict[str, Any]
+) -> dict[str, Any]:
+    """Prefer any stale/failed attempt signal across dashboard scopes."""
+
+    if not candidate.get("stale"):
+        return current
+    if not current.get("stale"):
+        return candidate
+    if (
+        candidate.get("latest_attempt_status") == "failed"
+        and current.get("latest_attempt_status") != "failed"
+    ):
+        return candidate
+    return current
 
 
 def empty_dashboard_payload(*, reason: str = "no_data") -> dict[str, Any]:

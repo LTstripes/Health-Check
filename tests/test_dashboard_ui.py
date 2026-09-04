@@ -11,7 +11,11 @@ from datetime import UTC, date, datetime
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from healthcheck.canonical import DASHBOARD_WEIGHT_SCOPE, CanonicalSelectionService
+from healthcheck.canonical import (
+    DASHBOARD_WEIGHT_SCOPE,
+    CanonicalCandidate,
+    CanonicalSelectionService,
+)
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
 from healthcheck.db.models import (
@@ -19,7 +23,6 @@ from healthcheck.db.models import (
     CanonicalSelectionRun,
     ImportCandidate,
     MeasurementSession,
-    RunStatus,
     ScalarMeasurement,
 )
 from healthcheck.ingestion.photo.synthetic import (
@@ -568,8 +571,10 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
         assert before["available"] is True
         assert before["fresh"] is True
         assert before["stale"] is False
+        assert before["warning"] is None
         success_run_id = before["run_id"]
         snapshot = _canonical_snapshot(paths)
+        assert "failed" not in snapshot["statuses"]
 
     engine = create_sqlite_engine(paths)
     try:
@@ -577,24 +582,46 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
             repos = repositories_for(session)
             success = repos.canonical_selection_runs.get_by_id(success_run_id)
             assert success is not None
-            from healthcheck.db.models import CanonicalRuleSet
-
-            rule_set = session.get(CanonicalRuleSet, success.rule_set_id)
-            assert rule_set is not None
-            failed_run, created = repos.canonical_selection_runs.start_or_get(
+            heads = [
+                measurement
+                for measurement in repos.scalar_measurements.current_heads()
+                if measurement.metric_code == "weight"
+            ]
+            assert heads
+            measurement = heads[0]
+            measurement_session = repos.measurement_sessions.get_by_id(
+                measurement.measurement_session_id
+            )
+            assert measurement_session is not None
+            assert measurement_session.semantic_key
+            # Prefer the real CanonicalSelectionService savepoint failure path so
+            # the durable failed run matches production write-side diagnostics.
+            result = CanonicalSelectionService(session).select(
                 scope_key=DASHBOARD_WEIGHT_SCOPE,
-                rule_set=rule_set,
-                input_snapshot_hash="synthetic-failed-recompute-input",
-                supersedes_run_id=success.id,
+                metric_code="weight",
+                candidates=[
+                    CanonicalCandidate(
+                        metric_code="weight",
+                        semantic_key=measurement_session.semantic_key,
+                        source_measurement_id=measurement.id,
+                    ),
+                    CanonicalCandidate(
+                        metric_code="weight",
+                        semantic_key="synthetic-missing-after-success",
+                        source_measurement_id="missing-source-measurement",
+                    ),
+                ],
             )
-            assert created is True
-            repos.canonical_selection_runs.finish(
-                failed_run.id,
-                status=RunStatus.FAILED,
-                failure_reason="canonical_selection_failed",
-            )
+            assert result.status == "failed"
+            assert result.failure_reason == "canonical_selection_reference_missing"
+            assert result.id != success_run_id
+            failed_run_id = result.id
     finally:
         engine.dispose()
+
+    after_fail = _canonical_snapshot(paths)
+    assert after_fail["run_count"] == snapshot["run_count"] + 1
+    assert "failed" in after_fail["statuses"]
 
     with TestClient(app) as client:
         series = client.get("/api/weight/series").json()
@@ -609,10 +636,11 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
             assert canonical["stale"] is True
             assert canonical["warning"] == "canonical_recompute_failed"
             assert canonical["latest_attempt_status"] == "failed"
-            assert canonical["latest_attempt_run_id"] != success_run_id
-            assert canonical["failure_reason"] == "canonical_selection_failed"
-        assert _canonical_snapshot(paths)["run_count"] == snapshot["run_count"] + 1
-        # GET must not add further runs.
+            assert canonical["latest_attempt_run_id"] == failed_run_id
+            assert canonical["failure_reason"] == "canonical_selection_reference_missing"
+        # GET must not mutate durable canonical state.
+        assert _canonical_snapshot(paths) == after_fail
         client.get("/api/weight/series")
+        client.get("/api/weight/summary")
         client.get("/")
-        assert _canonical_snapshot(paths)["run_count"] == snapshot["run_count"] + 1
+        assert _canonical_snapshot(paths) == after_fail
