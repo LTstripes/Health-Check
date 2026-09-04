@@ -9,8 +9,9 @@ credentials, make HTTP calls, or persist anything.
 Important semantics:
 
 * ``calendarDate`` is a local date, not a UTC midnight instant;
-* aware timestamps are normalized to UTC, while naive timestamps remain local
-  wall time with no invented timezone;
+* aware timestamps are normalized to UTC while retaining local wall-time
+  evidence, explicit GMT/UTC fields define naive values as UTC, and genuinely
+  local-only naive values retain no invented timezone;
 * a missing field, JSON ``null``, and numeric zero have different states;
 * source/device attribution is metadata and is never inferred from a client
   method, a field name, or an account-level value;
@@ -264,6 +265,11 @@ class GarminTemporalDTO:
     local_date: date | None = None
     source_field: str | None = None
     local_date_source: str | None = None
+    source_local_timestamp: str | None = None
+    source_timezone: str | None = None
+    source_utc_offset_minutes: int | None = None
+    source_local_field: str | None = None
+    source_utc_field: str | None = None
 
     def __post_init__(self) -> None:
         precision = GarminTemporalPrecision(self.precision)
@@ -278,14 +284,57 @@ class GarminTemporalDTO:
             raise ValueError("instant temporal values require a UTC instant")
         if precision is GarminTemporalPrecision.LOCAL_WALL_TIME and not self.local_wall_time:
             raise ValueError("local temporal values require a wall time")
+        source_utc_offset_minutes = self.source_utc_offset_minutes
+        if source_utc_offset_minutes is not None and not isinstance(source_utc_offset_minutes, int):
+            raise ValueError("source_utc_offset_minutes must be an integer")
         object.__setattr__(self, "precision", precision)
         object.__setattr__(self, "measured_at_utc", measured_at_utc)
         if self.local_wall_time is not None:
             object.__setattr__(self, "local_wall_time", self.local_wall_time.strip())
+        if self.source_local_timestamp is not None:
+            object.__setattr__(
+                self, "source_local_timestamp", self.source_local_timestamp.strip() or None
+            )
+        if self.source_timezone is not None:
+            object.__setattr__(self, "source_timezone", self.source_timezone.strip() or None)
         if self.source_field is not None:
             object.__setattr__(self, "source_field", self.source_field.strip() or None)
         if self.local_date_source is not None:
             object.__setattr__(self, "local_date_source", self.local_date_source.strip() or None)
+        if self.source_local_field is not None:
+            object.__setattr__(self, "source_local_field", self.source_local_field.strip() or None)
+        if self.source_utc_field is not None:
+            object.__setattr__(self, "source_utc_field", self.source_utc_field.strip() or None)
+
+    @property
+    def local_wall_time_with_offset(self) -> str | None:
+        """Return the original local timestamp representation, if retained."""
+
+        return self.source_local_timestamp
+
+    @property
+    def local_offset_minutes(self) -> int | None:
+        """Readable alias for the source local UTC offset evidence."""
+
+        return self.source_utc_offset_minutes
+
+    @property
+    def local_timezone(self) -> str | None:
+        """Readable alias for the source timezone evidence."""
+
+        return self.source_timezone
+
+    @property
+    def local_source_field(self) -> str | None:
+        """Readable alias for the source local-time field path."""
+
+        return self.source_local_field
+
+    @property
+    def utc_source_field(self) -> str | None:
+        """Readable alias for the source UTC/GMT field path."""
+
+        return self.source_utc_field
 
     def time_key(self) -> str:
         if self.measured_at_utc is not None:
@@ -306,6 +355,11 @@ class GarminTemporalDTO:
             "local_date": self.local_date.isoformat() if self.local_date is not None else None,
             "source_field": self.source_field,
             "local_date_source": self.local_date_source,
+            "source_local_timestamp": self.source_local_timestamp,
+            "source_timezone": self.source_timezone,
+            "source_utc_offset_minutes": self.source_utc_offset_minutes,
+            "source_local_field": self.source_local_field,
+            "source_utc_field": self.source_utc_field,
         }
 
 
@@ -313,7 +367,10 @@ def parse_garmin_time(
     value: Any,
     *,
     calendar_date: Any = _MISSING,
-    source_field: str = "time",
+    source_field: str | None = "time",
+    field_semantics: str | None = None,
+    source_timezone: str | None = None,
+    source_utc_offset_minutes: int | None = None,
 ) -> GarminTemporalDTO:
     """Parse a Garmin ISO/date value without inventing timezone information.
 
@@ -322,7 +379,14 @@ def parse_garmin_time(
     is useful to offline callers that only need temporal projection.
     """
 
-    parsed, _ = _parse_garmin_time(value, calendar_date=calendar_date, source_field=source_field)
+    parsed, _ = _parse_garmin_time(
+        value,
+        calendar_date=calendar_date,
+        source_field=source_field,
+        field_semantics=field_semantics,
+        source_timezone=source_timezone,
+        source_utc_offset_minutes=source_utc_offset_minutes,
+    )
     return parsed
 
 
@@ -697,9 +761,30 @@ _INTRADAY_SCALARS = (
 _COMMON_TIME_PATHS = (
     "startTimeGMT",
     "startTimeLocal",
+    "startTime",
     "timestamp",
     "time",
     "sleepStartGMT",
+)
+_PAIRED_LOCAL_TIME_PATHS = ("startTimeLocal",)
+_PAIRED_UTC_TIME_PATHS = ("startTimeGMT", "startTimeUTC")
+_TIMEZONE_PATHS = (
+    "timeZone",
+    "timezone",
+    "timeZoneId",
+    "timezoneId",
+    "zone",
+    "sourceTimezone",
+)
+_UTC_OFFSET_PATHS = (
+    "sourceUtcOffsetMinutes",
+    "utcOffsetMinutes",
+    "timeZoneOffsetMinutes",
+    "timezoneOffsetMinutes",
+    "sourceUtcOffset",
+    "utcOffset",
+    "timeZoneOffset",
+    "timezoneOffset",
 )
 
 
@@ -1070,6 +1155,139 @@ def _parse_single_payload(
     return record, unknown_fields, diagnostics
 
 
+def _parse_record_temporal(
+    raw: Mapping[str, Any], source_path: str
+) -> tuple[GarminTemporalDTO, list[GarminDiagnostic]]:
+    """Parse record time fields while retaining paired Local/GMT evidence."""
+
+    calendar_value = raw.get("calendarDate", _MISSING)
+    local_path, local_value = _first_present(raw, _PAIRED_LOCAL_TIME_PATHS)
+    utc_path, utc_value = _first_present(raw, _PAIRED_UTC_TIME_PATHS)
+    if local_path is None and utc_path is None:
+        timestamp_path, timestamp_value = _first_present(raw, _COMMON_TIME_PATHS)
+        return _parse_garmin_time(
+            timestamp_value,
+            calendar_date=calendar_value,
+            source_field=(
+                f"{source_path}.{timestamp_path}" if timestamp_path is not None else None
+            ),
+        )
+
+    diagnostics: list[GarminDiagnostic] = []
+    parsed_calendar = None
+    if calendar_value is not _MISSING:
+        parsed_calendar = _parse_date(calendar_value)
+        if parsed_calendar is None:
+            diagnostics.append(_diag("invalid_calendar_date", "calendarDate", "error"))
+    component_calendar = calendar_value if parsed_calendar is not None else _MISSING
+    source_timezone, source_utc_offset_minutes = _source_time_evidence(raw)
+
+    local_temporal = None
+    if local_path is not None:
+        local_temporal, local_diagnostics = _parse_garmin_time(
+            local_value,
+            calendar_date=component_calendar,
+            source_field=f"{source_path}.{local_path}",
+            field_semantics="local",
+            source_timezone=source_timezone,
+            source_utc_offset_minutes=source_utc_offset_minutes,
+        )
+        diagnostics.extend(local_diagnostics)
+
+    utc_temporal = None
+    if utc_path is not None:
+        utc_temporal, utc_diagnostics = _parse_garmin_time(
+            utc_value,
+            calendar_date=component_calendar,
+            source_field=f"{source_path}.{utc_path}",
+            field_semantics="utc",
+        )
+        diagnostics.extend(utc_diagnostics)
+
+    return _merge_paired_temporal(
+        local_temporal=local_temporal,
+        utc_temporal=utc_temporal,
+        local_field=f"{source_path}.{local_path}" if local_path is not None else None,
+        utc_field=f"{source_path}.{utc_path}" if utc_path is not None else None,
+        parsed_calendar=parsed_calendar,
+        diagnostics=diagnostics,
+    )
+
+
+def _merge_paired_temporal(
+    *,
+    local_temporal: GarminTemporalDTO | None,
+    utc_temporal: GarminTemporalDTO | None,
+    local_field: str | None,
+    utc_field: str | None,
+    parsed_calendar: date | None,
+    diagnostics: list[GarminDiagnostic],
+) -> tuple[GarminTemporalDTO, list[GarminDiagnostic]]:
+    """Combine Local/GMT values without discarding either source meaning."""
+
+    local_instant = local_temporal.measured_at_utc if local_temporal is not None else None
+    utc_instant = utc_temporal.measured_at_utc if utc_temporal is not None else None
+    if local_instant is not None and utc_instant is not None and local_instant != utc_instant:
+        diagnostics.append(_diag("paired_time_mismatch", utc_field or local_field, "error"))
+
+    measured_at_utc = utc_instant or local_instant
+    if measured_at_utc is not None:
+        precision = GarminTemporalPrecision.UTC_INSTANT
+    elif (
+        local_temporal is not None
+        and local_temporal.precision is GarminTemporalPrecision.LOCAL_WALL_TIME
+    ):
+        precision = GarminTemporalPrecision.LOCAL_WALL_TIME
+    elif (
+        local_temporal is not None and local_temporal.precision is GarminTemporalPrecision.DATE_ONLY
+    ) or (utc_temporal is not None and utc_temporal.precision is GarminTemporalPrecision.DATE_ONLY):
+        precision = GarminTemporalPrecision.DATE_ONLY
+    else:
+        precision = GarminTemporalPrecision.UNKNOWN
+
+    local_date = parsed_calendar
+    local_date_source = "calendarDate" if parsed_calendar is not None else None
+    if local_date is None and local_temporal is not None:
+        local_date = local_temporal.local_date
+        local_date_source = local_temporal.local_date_source
+    if local_date is None and utc_temporal is not None:
+        local_date = utc_temporal.local_date
+        local_date_source = utc_temporal.local_date_source
+
+    if utc_instant is not None:
+        source_field = utc_field
+    elif (
+        local_temporal is not None
+        and local_temporal.precision is not GarminTemporalPrecision.UNKNOWN
+    ):
+        source_field = local_field
+    elif utc_temporal is not None and utc_temporal.precision is not GarminTemporalPrecision.UNKNOWN:
+        source_field = utc_field
+    else:
+        source_field = local_field or utc_field
+
+    return (
+        GarminTemporalDTO(
+            precision=precision,
+            measured_at_utc=measured_at_utc,
+            local_wall_time=local_temporal.local_wall_time if local_temporal else None,
+            local_date=local_date,
+            source_field=source_field,
+            local_date_source=local_date_source,
+            source_local_timestamp=(
+                local_temporal.source_local_timestamp if local_temporal else None
+            ),
+            source_timezone=local_temporal.source_timezone if local_temporal else None,
+            source_utc_offset_minutes=(
+                local_temporal.source_utc_offset_minutes if local_temporal else None
+            ),
+            source_local_field=local_field,
+            source_utc_field=utc_field,
+        ),
+        diagnostics,
+    )
+
+
 def _parse_record(
     raw: Mapping[str, Any],
     stream: GarminStream,
@@ -1090,13 +1308,7 @@ def _parse_record(
             _diag("record_id_shape_drift", f"{source_path}.{record_id_path}", "error")
         )
 
-    calendar_value = raw.get("calendarDate", _MISSING)
-    timestamp_path, timestamp_value = _first_present(raw, _COMMON_TIME_PATHS)
-    temporal, temporal_diagnostics = _parse_garmin_time(
-        timestamp_value,
-        calendar_date=calendar_value,
-        source_field=(f"{source_path}.{timestamp_path}" if timestamp_path is not None else None),
-    )
+    temporal, temporal_diagnostics = _parse_record_temporal(raw, source_path)
     diagnostics.extend(temporal_diagnostics)
     if temporal.precision is GarminTemporalPrecision.UNKNOWN:
         diagnostics.append(_diag("missing_time", source_path, "warning"))
@@ -1146,7 +1358,7 @@ def _parse_record(
     elif (
         missing_metric
         or has_partial_collection
-        or any(item.severity == "warning" for item in diagnostics)
+        or any(item.severity in {"warning", "error"} for item in diagnostics)
     ):
         status = GarminParseStatus.PARTIAL
     else:
@@ -1336,12 +1548,13 @@ def _parse_sleep_levels(
         if not isinstance(item, Mapping):
             diagnostics.append(_diag("sleep_stage_shape_drift", item_path, "error"))
             continue
-        start_value = item.get("startTimeGMT", item.get("startTime", _MISSING))
-        end_value = item.get("endTimeGMT", item.get("endTime", _MISSING))
-        start, start_diagnostics = _parse_garmin_time(
-            start_value, source_field=f"{item_path}.startTimeGMT"
+        start, start_diagnostics = _parse_record_temporal(item, item_path)
+        end, end_diagnostics = _parse_garmin_time(
+            item.get("endTimeGMT", item.get("endTime", _MISSING)),
+            source_field=(
+                f"{item_path}.endTimeGMT" if "endTimeGMT" in item else f"{item_path}.endTime"
+            ),
         )
-        end, end_diagnostics = _parse_garmin_time(end_value, source_field=f"{item_path}.endTimeGMT")
         if start_diagnostics or end_diagnostics:
             diagnostics.extend(start_diagnostics)
             diagnostics.extend(end_diagnostics)
@@ -1392,13 +1605,22 @@ def _parse_garmin_time(
     *,
     calendar_date: Any = _MISSING,
     source_field: str | None = "time",
+    field_semantics: str | None = None,
+    source_timezone: str | None = None,
+    source_utc_offset_minutes: int | None = None,
 ) -> tuple[GarminTemporalDTO, list[GarminDiagnostic]]:
+    """Parse one temporal source value with field-level UTC/local semantics."""
+
     diagnostics: list[GarminDiagnostic] = []
     parsed_date: date | None = None
     if calendar_date is not _MISSING:
         parsed_date = _parse_date(calendar_date)
         if parsed_date is None:
             diagnostics.append(_diag("invalid_calendar_date", "calendarDate", "error"))
+
+    semantics = _temporal_field_semantics(field_semantics, source_field)
+    source_timezone = _text_evidence(source_timezone)
+    source_utc_offset_minutes = _offset_minutes(source_utc_offset_minutes)
 
     if value is _MISSING or value is None:
         if parsed_date is not None:
@@ -1440,6 +1662,8 @@ def _parse_garmin_time(
                 local_date=parsed_date,
                 source_field=source_field,
                 local_date_source="calendarDate" if parsed_date is not None else None,
+                source_timezone=source_timezone,
+                source_utc_offset_minutes=source_utc_offset_minutes,
             ),
             diagnostics,
         )
@@ -1450,12 +1674,36 @@ def _parse_garmin_time(
                 local_date=parsed_date or parsed,
                 source_field=source_field,
                 local_date_source="calendarDate" if parsed_date is not None else source_field,
+                source_local_timestamp=(
+                    _source_temporal_text(value) if semantics == "local" else None
+                ),
+                source_timezone=source_timezone if semantics == "local" else None,
+                source_utc_offset_minutes=(
+                    source_utc_offset_minutes if semantics == "local" else None
+                ),
+                source_local_field=source_field if semantics == "local" else None,
+                source_utc_field=source_field if semantics == "utc" else None,
             ),
             diagnostics,
         )
 
     assert isinstance(parsed, datetime)
     if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+        parsed_offset_minutes = _offset_minutes(int(parsed.utcoffset().total_seconds() // 60))
+        if semantics == "utc":
+            return (
+                GarminTemporalDTO(
+                    precision=GarminTemporalPrecision.UTC_INSTANT,
+                    measured_at_utc=parsed.astimezone(UTC),
+                    local_date=parsed_date or parsed.date(),
+                    source_field=source_field,
+                    local_date_source=(
+                        "calendarDate" if parsed_date is not None else "source_offset"
+                    ),
+                    source_utc_field=source_field,
+                ),
+                diagnostics,
+            )
         return (
             GarminTemporalDTO(
                 precision=GarminTemporalPrecision.UTC_INSTANT,
@@ -1463,6 +1711,24 @@ def _parse_garmin_time(
                 local_date=parsed_date or parsed.date(),
                 source_field=source_field,
                 local_date_source="calendarDate" if parsed_date is not None else "source_offset",
+                local_wall_time=parsed.replace(tzinfo=None).isoformat(),
+                source_local_timestamp=_source_temporal_text(value),
+                source_timezone=source_timezone,
+                source_utc_offset_minutes=parsed_offset_minutes,
+                source_local_field=source_field,
+                source_utc_field=source_field,
+            ),
+            diagnostics,
+        )
+    if semantics == "utc":
+        return (
+            GarminTemporalDTO(
+                precision=GarminTemporalPrecision.UTC_INSTANT,
+                measured_at_utc=parsed.replace(tzinfo=UTC),
+                local_date=parsed_date or parsed.date(),
+                source_field=source_field,
+                local_date_source=("calendarDate" if parsed_date is not None else "utc_field"),
+                source_utc_field=source_field,
             ),
             diagnostics,
         )
@@ -1473,9 +1739,90 @@ def _parse_garmin_time(
             local_date=parsed_date or parsed.date(),
             source_field=source_field,
             local_date_source="calendarDate" if parsed_date is not None else "local_wall_time",
+            source_local_timestamp=_source_temporal_text(value),
+            source_timezone=source_timezone,
+            source_utc_offset_minutes=source_utc_offset_minutes,
+            source_local_field=source_field,
         ),
         diagnostics,
     )
+
+
+def _temporal_field_semantics(field_semantics: str | None, source_field: str | None) -> str:
+    if field_semantics is not None:
+        normalized = field_semantics.strip().lower()
+        if normalized in {"utc", "gmt", "instant"}:
+            return "utc"
+        if normalized in {"local", "wall", "wall_time"}:
+            return "local"
+        if normalized in {"generic", "unknown"}:
+            return "generic"
+    if source_field:
+        leaf = source_field.rsplit(".", 1)[-1].lower()
+        if "gmt" in leaf or leaf.endswith("utc"):
+            return "utc"
+        if "local" in leaf:
+            return "local"
+    return "generic"
+
+
+def _source_temporal_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return None
+
+
+def _source_time_evidence(raw: Mapping[str, Any]) -> tuple[str | None, int | None]:
+    _, timezone_value = _first_present(raw, _TIMEZONE_PATHS)
+    source_timezone = _text_evidence(timezone_value)
+    offset_path, offset_value = _first_present(raw, _UTC_OFFSET_PATHS)
+    source_utc_offset_minutes = _parse_source_offset(offset_path, offset_value)
+    return source_timezone, source_utc_offset_minutes
+
+
+def _parse_source_offset(path: str | None, value: Any) -> int | None:
+    if path is None or value is _MISSING:
+        return None
+    if isinstance(value, str):
+        return _parse_offset_text(value)
+    if path.lower().endswith("minutes"):
+        return _offset_minutes(value)
+    return None
+
+
+def _parse_offset_text(value: str) -> int | None:
+    text = value.strip()
+    if text.upper() in {"Z", "UTC", "GMT"}:
+        return 0
+    match = re.fullmatch(r"([+-])(\d{1,2})(?::?(\d{2}))?", text)
+    if match is None:
+        return None
+    hours = int(match.group(2))
+    minutes = int(match.group(3) or 0)
+    if minutes >= 60:
+        return None
+    offset = hours * 60 + minutes
+    if offset > 23 * 60 + 59:
+        return None
+    return -offset if match.group(1) == "-" else offset
+
+
+def _offset_minutes(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if -23 * 60 - 59 <= value <= 23 * 60 + 59:
+        return value
+    return None
+
+
+def _text_evidence(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
 
 
 def _record_id(raw: Mapping[str, Any], stream: GarminStream) -> tuple[str | None, str | None]:
@@ -1556,12 +1903,16 @@ def _known_roots(stream: GarminStream) -> set[str]:
         "calendarDate",
         "startTimeGMT",
         "startTimeLocal",
+        "startTimeUTC",
+        "startTime",
         "timestamp",
         "time",
         "sleepStartGMT",
         "recordId",
         "id",
     }
+    roots.update(_TIMEZONE_PATHS)
+    roots.update(_UTC_OFFSET_PATHS)
     for spec in _specs_for_stream(stream):
         roots.add(spec.paths[0].split(".")[0])
     if stream is GarminStream.SLEEP:
@@ -1798,6 +2149,7 @@ def _diag(code: str, path: str | None, severity: str) -> GarminDiagnostic:
         "record_id_shape_drift": "record identity field must be non-empty text",
         "invalid_calendar_date": "calendar date is not a valid date-only value",
         "invalid_datetime": "timestamp is not a valid ISO temporal value",
+        "paired_time_mismatch": "paired local and GMT times disagree on the UTC instant",
         "missing_time": "record has no usable source time",
         "field_shape_drift": "field has an unsupported source shape",
         "numeric_string_not_coerced": "numeric field is not silently coerced from text",

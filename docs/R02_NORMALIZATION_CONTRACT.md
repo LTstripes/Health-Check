@@ -26,11 +26,15 @@ canonical metrics.
 | Source value | DTO precision | UTC field | Local field |
 | --- | --- | --- | --- |
 | `YYYY-MM-DD` / `calendarDate` | `date` | `None` | `local_date` |
-| aware ISO datetime or Garmin `...GMT` value | `instant` | normalized aware UTC | date from explicit `calendarDate`, otherwise source offset |
-| naive ISO datetime / local wall time | `local` | `None` | `local_wall_time` and its date |
+| aware ISO local datetime | `instant` | normalized aware UTC | `local_wall_time`, original `source_local_timestamp`, and `source_utc_offset_minutes`/`source_timezone` when available |
+| aware or naive explicit `...GMT`/`...UTC` field | `instant` | normalized aware UTC; naive values are attached to UTC by field semantics | no local wall time is invented |
+| paired `startTimeLocal` + `startTimeGMT` | `instant` when either side supplies an instant | GMT/UTC side is retained as `source_utc_field` | Local side is retained as `source_local_field` plus its wall-time/zone evidence |
+| naive ISO datetime / local wall time with no paired UTC field | `local` | `None` | `local_wall_time` and its date |
 
-Date-only input never becomes midnight UTC. A naive datetime never receives an invented timezone.
-An invalid timestamp yields an `unknown` temporal DTO plus a stable diagnostic.
+Date-only input never becomes midnight UTC. A genuinely local-only naive datetime never receives
+an invented timezone. An invalid timestamp yields an `unknown` temporal DTO plus a stable
+diagnostic. When both paired fields are valid but disagree on the UTC instant, the local field
+is still retained and the record receives a deterministic `paired_time_mismatch` diagnostic.
 
 ## Presence semantics
 
