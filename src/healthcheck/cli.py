@@ -13,6 +13,12 @@ from healthcheck.db.engine import migrate_database
 from healthcheck.demo import DemoSeedError, seed_demo
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
+from healthcheck.profile_backup import (
+    ProfileBackupError,
+    create_backup,
+    restore_profile,
+    verify_backup,
+)
 from healthcheck.runtime import prepare_runtime
 from healthcheck.uat import format_smoke_results, run_smoke, smoke_exit_code
 from healthcheck.web.ingest_app import create_ingest_app
@@ -22,7 +28,17 @@ from healthcheck.web.ui_app import create_ui_app
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="healthcheck")
     parser.add_argument(
-        "command", choices=("prepare-runtime", "migrate", "serve", "seed-demo", "smoke")
+        "command",
+        choices=(
+            "prepare-runtime",
+            "migrate",
+            "serve",
+            "seed-demo",
+            "smoke",
+            "backup-profile",
+            "verify-backup",
+            "restore-profile",
+        ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
     parser.add_argument("--data-dir")
@@ -32,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ui-url", default="http://127.0.0.1:8000")
     parser.add_argument("--ingest-url")
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--output", help="backup archive path")
+    parser.add_argument("--backup", help="backup archive path")
+    parser.add_argument("--target-dir", help="explicit restore target profile")
+    parser.add_argument("--replace", action="store_true")
     return parser
 
 
@@ -59,6 +79,52 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(format_smoke_results(results))
         return smoke_exit_code(results)
+
+    if args.command == "backup-profile":
+        if not args.output:
+            print("backup-profile: --output is required", file=sys.stderr)
+            return 2
+        try:
+            result = create_backup(Settings(data_dir=args.data_dir).data_dir, args.output)
+        except (ProfileBackupError, OSError) as exc:
+            print(f"backup-profile: ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(
+            f"backup-profile: verified archive created; {result.file_count} files; "
+            f"classification={result.classification}"
+        )
+        return 0
+
+    if args.command == "verify-backup":
+        if not args.backup:
+            print("verify-backup: --backup is required", file=sys.stderr)
+            return 2
+        try:
+            result = verify_backup(args.backup)
+        except (ProfileBackupError, OSError) as exc:
+            print(f"verify-backup: ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(
+            f"verify-backup: OK; {result.file_count} files; "
+            f"classification={result.classification}"
+        )
+        return 0
+
+    if args.command == "restore-profile":
+        if not args.backup or not args.target_dir:
+            print("restore-profile: --backup and --target-dir are required", file=sys.stderr)
+            return 2
+        try:
+            result = restore_profile(args.backup, args.target_dir, replace=args.replace)
+        except (ProfileBackupError, OSError) as exc:
+            print(f"restore-profile: ERROR: {exc}", file=sys.stderr)
+            return 2
+        action = "replaced" if result.replaced else "restored"
+        print(
+            f"restore-profile: {action}; {result.file_count} files; "
+            f"classification={result.classification}"
+        )
+        return 0
 
     settings = _settings(args)
     if args.command == "seed-demo":

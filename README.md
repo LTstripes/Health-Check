@@ -72,6 +72,7 @@ Runtime state defaults to `%LOCALAPPDATA%\Health-Check` and can be overridden wi
 - [Final Architecture](docs/ARCHITECTURE.md)
 - [R00 Final Architecture Audit](docs/audits/R00_FINAL_ARCHITECTURE.md)
 - [R01 Implementation Spec](docs/R01_IMPLEMENTATION_SPEC.md)
+- [Local profile backup and restore](docs/PROFILE_BACKUP.md)
 - [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
