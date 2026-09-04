@@ -97,3 +97,38 @@ def test_smoke_reports_pass_skip_and_never_prints_response_body(
     assert "SKIP /ingest/healthz" in rendered
     assert "private-token" not in rendered
     assert "80.00" not in rendered
+
+
+def test_smoke_checks_ingest_liveness_and_route_isolation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        ("http://ui/healthz", "GET"): _HttpResult(
+            200, "application/json", b'{"status":"ok","service":"loopback-ui"}'
+        ),
+        ("http://ui/", "GET"): _HttpResult(200, "text/html", b"synthetic dashboard"),
+        ("http://ui/api/weight/series", "GET"): _HttpResult(
+            200, "application/json", b'{"raw_points":[],"composition_by_group":{}}'
+        ),
+        ("http://ui/api/weight/summary", "GET"): _HttpResult(
+            200, "application/json", b'{"trend":{},"latest_composition":{},"coverage":null}'
+        ),
+        ("http://ui/api/ingest/openscale", "POST"): _HttpResult(404, "", b""),
+        ("http://ingest/healthz", "GET"): _HttpResult(
+            200, "application/json", b'{"status":"ok","service":"ingest"}'
+        ),
+        ("http://ingest/", "GET"): _HttpResult(404, "", b""),
+        ("http://ingest/api/weight/series", "GET"): _HttpResult(404, "", b""),
+        ("http://ingest/static/dashboard.js", "GET"): _HttpResult(404, "", b""),
+    }
+
+    def fake_request(url: str, *, method: str = "GET", timeout: float) -> _HttpResult:
+        del timeout
+        return responses[(url, method)]
+
+    monkeypatch.setattr("healthcheck.uat._request", fake_request)
+    results = run_smoke(ui_url="http://ui", ingest_url="http://ingest")
+
+    assert smoke_exit_code(results) == 0
+    assert all(result.status == "PASS" for result in results)
+    assert "/ingest/healthz" in format_smoke_results(results)
