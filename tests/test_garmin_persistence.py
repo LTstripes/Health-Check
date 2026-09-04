@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from healthcheck.db.models import (
     GarminDailyRecord,
     GarminFitRecord,
     GarminIntradayRecord,
+    GarminPayloadObservation,
     GarminRawPayload,
     GarminRecordMetric,
     GarminSleepRecord,
@@ -36,7 +38,7 @@ from healthcheck.db.models import (
     RawArtifact,
     SyncStreamState,
 )
-from healthcheck.db.repositories import restore_stored_utc
+from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.garmin.contracts import GarminCapabilityFixture, load_synthetic_fixture
 from healthcheck.garmin.normalization import (
     GarminSourceIdentity,
@@ -202,6 +204,7 @@ def test_exact_replay_is_idempotent_but_refreshed_payload_updates_current_projec
     assert replay.updated_count == 0
     session.commit()
     assert session.scalar(select(func.count(GarminRawPayload.id))) == 1
+    assert session.scalar(select(func.count(GarminPayloadObservation.id))) == 1
     assert session.scalar(select(func.count(GarminSourceRecord.id))) == 1
 
     refreshed_payload = raw_fixture("activity")
@@ -214,6 +217,7 @@ def test_exact_replay_is_idempotent_but_refreshed_payload_updates_current_projec
     session.commit()
 
     assert session.scalar(select(func.count(GarminRawPayload.id))) == 2
+    assert session.scalar(select(func.count(GarminPayloadObservation.id))) == 2
     assert session.scalar(select(func.count(RawArtifact.id))) == 2
     record = session.get(GarminSourceRecord, first.records[0].id)
     assert record is not None
@@ -228,6 +232,149 @@ def test_exact_replay_is_idempotent_but_refreshed_payload_updates_current_projec
     assert store.read(
         session.get(RawArtifact, first.raw_payload.raw_artifact_id).relative_storage_path
     ) == serialize_garmin_payload(first_payload)
+
+
+@pytest.mark.parametrize(
+    ("offset_text", "expected_offset_minutes"),
+    (("+23:59", 1439), ("-23:59", -1439)),
+)
+def test_accepted_boundary_utc_offset_round_trips_through_persistence(
+    persistence_database, offset_text, expected_offset_minutes
+):
+    _paths, session, store = persistence_database
+    source = GarminSourceIdentity(
+        source_kind="synthetic",
+        provider_code="garmin_connect",
+        device_attributed=True,
+        device_code="garmin_vivoactive_5",
+        device_model="Vivoactive 5",
+        source_instance_id=f"synthetic-offset-{expected_offset_minutes}",
+    )
+    payload = {
+        "calendarDate": "2099-01-02",
+        "startTimeLocal": f"2099-01-02T08:00:00{offset_text}",
+        "restingHeartRate": 52,
+    }
+    result = normalize_garmin_payload(payload, stream="daily_health", source_identity=source)
+    assert result.records[0].temporal.source_utc_offset_minutes == expected_offset_minutes
+
+    outcome = GarminPersistenceRepository(session, payload_store=store).persist_result(
+        result,
+        payload=payload,
+        source_identity=source,
+        stream_code="daily_health",
+        create_ingest_event=False,
+    )
+    session.commit()
+    session.expire_all()
+
+    record = session.get(GarminSourceRecord, outcome.records[0].id)
+    assert record is not None
+    assert record.source_utc_offset_minutes == expected_offset_minutes
+
+
+def test_identical_bytes_keep_each_window_sync_and_normalization_observation(
+    persistence_database,
+):
+    _paths, session, store = persistence_database
+    fixture_value = fixture("activity")
+    payload = (FIXTURE_ROOT / "activity.json").read_bytes()
+    result_v1 = normalize_garmin_payload(fixture_value)
+    repository = GarminPersistenceRepository(session, payload_store=store)
+    source = repository.sources.get_or_create(result_v1.source)
+    provenance = repositories_for(session)
+    first_run = provenance.sync.create_run(
+        provider_id=source.provider_id,
+        acquisition_source_id=source.acquisition_source_id,
+        stream_code="activity",
+        requested_start=datetime(2099, 1, 1, tzinfo=UTC),
+        requested_end=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    second_run = provenance.sync.create_run(
+        provider_id=source.provider_id,
+        acquisition_source_id=source.acquisition_source_id,
+        stream_code="activity",
+        requested_start=datetime(2099, 1, 2, tzinfo=UTC),
+        requested_end=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+
+    first = repository.persist_result(
+        result_v1,
+        payload=payload,
+        source_filename="activity-window-1.json",
+        received_at=datetime(2099, 1, 3, 12, tzinfo=UTC),
+        source_window_start_utc=datetime(2099, 1, 1, tzinfo=UTC),
+        source_window_end_utc=datetime(2099, 1, 3, tzinfo=UTC),
+        sync_run_id=first_run.id,
+    )
+    session.commit()
+
+    result_v2 = replace(result_v1, contract_version="r02-garmin-normalization-contract-v2")
+    second = repository.persist_result(
+        result_v2,
+        payload=payload,
+        source_filename="activity-window-2.json",
+        received_at=datetime(2099, 1, 4, 12, tzinfo=UTC),
+        source_window_start_utc=datetime(2099, 1, 2, tzinfo=UTC),
+        source_window_end_utc=datetime(2099, 1, 4, tzinfo=UTC),
+        sync_run_id=second_run.id,
+    )
+    session.commit()
+
+    replay = repository.persist_result(
+        result_v1,
+        payload=payload,
+        source_filename="activity-window-1.json",
+        received_at=datetime(2099, 1, 5, 12, tzinfo=UTC),
+        source_window_start_utc=datetime(2099, 1, 1, tzinfo=UTC),
+        source_window_end_utc=datetime(2099, 1, 3, tzinfo=UTC),
+        sync_run_id=first_run.id,
+    )
+    assert replay.replayed is True
+    assert replay.inserted_count == 0
+    assert replay.updated_count == 0
+    session.commit()
+    session.expire_all()
+
+    observations = list(
+        session.scalars(
+            select(GarminPayloadObservation).order_by(
+                GarminPayloadObservation.received_at, GarminPayloadObservation.id
+            )
+        )
+    )
+    assert len(observations) == 2
+    assert {item.garmin_raw_payload_id for item in observations} == {first.raw_payload.id}
+    assert {item.raw_artifact_id for item in observations} == {first.raw_payload.raw_artifact_id}
+    assert [item.sync_run_id for item in observations] == [first_run.id, second_run.id]
+    assert [item.source_filename for item in observations] == [
+        "activity-window-1.json",
+        "activity-window-2.json",
+    ]
+    assert [item.normalization_contract_version for item in observations] == [
+        result_v1.contract_version,
+        result_v2.contract_version,
+    ]
+    assert [
+        (
+            restore_stored_utc(item.source_window_start_utc),
+            restore_stored_utc(item.source_window_end_utc),
+        )
+        for item in observations
+    ] == [
+        (datetime(2099, 1, 1, tzinfo=UTC), datetime(2099, 1, 3, tzinfo=UTC)),
+        (datetime(2099, 1, 2, tzinfo=UTC), datetime(2099, 1, 4, tzinfo=UTC)),
+    ]
+    assert observations[0].ingest_event_id == first.ingest_event_id
+    assert observations[1].ingest_event_id == second.ingest_event_id
+    assert observations[0].ingest_event_id != observations[1].ingest_event_id
+    assert session.scalar(select(func.count(GarminRawPayload.id))) == 1
+    assert session.scalar(select(func.count(RawArtifact.id))) == 1
+
+    current = session.get(GarminSourceRecord, first.records[0].id)
+    assert current is not None
+    assert current.ingest_event_id == second.ingest_event_id
+    assert current.normalization_contract_version == result_v2.contract_version
 
 
 @pytest.mark.parametrize(
@@ -400,8 +547,9 @@ def test_garmin_raw_and_source_rows_are_append_only(persistence_database):
     outcome = persist(session, store, "daily_health")
     session.commit()
     raw_payload = session.get(GarminRawPayload, outcome.raw_payload.id)
+    observation = session.get(GarminPayloadObservation, outcome.observation.id)
     source = session.get(GarminSource, outcome.source.id)
-    assert raw_payload is not None and source is not None
+    assert raw_payload is not None and observation is not None and source is not None
 
     with pytest.raises(Exception):
         with session.begin_nested():
@@ -411,11 +559,21 @@ def test_garmin_raw_and_source_rows_are_append_only(persistence_database):
         with session.begin_nested():
             session.delete(source)
             session.flush()
+    with pytest.raises(Exception):
+        with session.begin_nested():
+            observation.source_filename = "changed.json"
+            session.flush()
+    with pytest.raises(Exception):
+        with session.begin_nested():
+            session.delete(observation)
+            session.flush()
     session.rollback()
 
     session.refresh(raw_payload)
+    session.refresh(observation)
     session.refresh(source)
     assert raw_payload.parse_status == "ok"
+    assert observation.source_filename is None
     assert source.provider_code == "garmin_connect"
 
 
@@ -423,16 +581,80 @@ def test_garmin_migration_downgrade_and_upgrade_are_linear(tmp_path):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
     config = _alembic_config(paths)
     command.upgrade(config, "head")
-    assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
+    assert (
+        database_readiness(paths)["migration_revision"]
+        == "0006_garmin_payload_observation_provenance"
+    )
 
     engine = create_sqlite_engine(paths)
     try:
         assert "garmin_sources" in inspect(engine).get_table_names()
+        assert "garmin_payload_observations" in inspect(engine).get_table_names()
         command.downgrade(config, "0004_naive_minute_wall_clock")
         assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
         assert "garmin_sources" not in inspect(engine).get_table_names()
+        assert "garmin_payload_observations" not in inspect(engine).get_table_names()
         command.upgrade(config, "head")
-        assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
+        assert (
+            database_readiness(paths)["migration_revision"]
+            == "0006_garmin_payload_observation_provenance"
+        )
         assert "garmin_sleep_stage_intervals" in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
+
+
+def test_observation_migration_backfills_legacy_raw_payload_provenance(tmp_path):
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
+    config = _alembic_config(paths)
+    command.upgrade(config, "0005_garmin_persistence_contract")
+    engine = create_sqlite_engine(paths)
+    try:
+        factory = create_session_factory(engine)
+        with factory() as session:
+            source_identity = GarminSourceIdentity(
+                source_kind="synthetic",
+                provider_code="garmin_connect",
+                device_attributed=False,
+                source_instance_id="synthetic-legacy-observation-source",
+            )
+            repository = GarminPersistenceRepository(session)
+            source = repository.sources.get_or_create(source_identity)
+            artifact = repositories_for(session).raw_artifacts.get_or_create(
+                content_hash="a" * 64,
+                kind="garmin_payload",
+                media_type="application/json",
+                byte_size=16,
+                relative_storage_path="garmin/aa/" + "a" * 64 + ".json",
+                source_filename="legacy-window.json",
+            )
+            raw_payload = GarminRawPayload(
+                garmin_source_id=source.id,
+                raw_artifact_id=artifact.id,
+                stream_code="daily_health",
+                content_hash="a" * 64,
+                payload_format="json",
+                normalization_contract_version="r02-garmin-normalization-contract-v1",
+                parse_status="ok",
+                record_count=0,
+                source_window_start_utc=datetime(2099, 1, 1, tzinfo=UTC),
+                source_window_end_utc=datetime(2099, 1, 2, tzinfo=UTC),
+                received_at=datetime(2099, 1, 3, tzinfo=UTC),
+            )
+            session.add(raw_payload)
+            session.commit()
+
+        command.upgrade(config, "head")
+        with factory() as session:
+            observation = session.scalar(select(GarminPayloadObservation))
+            assert observation is not None
+            assert observation.garmin_raw_payload_id == raw_payload.id
+            assert observation.raw_artifact_id == artifact.id
+            assert observation.source_filename == "legacy-window.json"
+            assert observation.sync_run_id is None
+            assert observation.normalization_contract_version == (
+                "r02-garmin-normalization-contract-v1"
+            )
+            assert observation.observation_key.startswith("garmin-observation-v1:")
     finally:
         engine.dispose()

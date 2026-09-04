@@ -343,6 +343,80 @@ class GarminRawPayload(Base):
     )
 
 
+class GarminPayloadObservation(Base):
+    """One acquisition/normalization observation of an immutable raw payload."""
+
+    __tablename__ = "garmin_payload_observations"
+    __table_args__ = (
+        UniqueConstraint("observation_key", name="uq_garmin_payload_observations_key"),
+        CheckConstraint(
+            "stream_code IN ('daily_health', 'sleep', 'activity', 'intraday', 'original_fit')",
+            name="stream_code_allowed",
+        ),
+        CheckConstraint(
+            "payload_format IN ('json', 'fit', 'binary')", name="payload_format_allowed"
+        ),
+        CheckConstraint(
+            "parse_status IN ('ok', 'partial', 'empty', 'invalid')",
+            name="parse_status_allowed",
+        ),
+        CheckConstraint("length(observation_key) >= 32", name="observation_key_min_length"),
+        CheckConstraint("record_count >= 0", name="record_count_nonnegative"),
+        Index(
+            "ix_garmin_payload_observations_source_stream_received",
+            "garmin_source_id",
+            "stream_code",
+            "received_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    garmin_raw_payload_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("garmin_raw_payloads.id", ondelete="RESTRICT"), nullable=False
+    )
+    raw_artifact_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("raw_artifacts.id", ondelete="RESTRICT"), nullable=False
+    )
+    garmin_source_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("garmin_sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    ingest_event_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("ingest_events.id", ondelete="RESTRICT"), nullable=True
+    )
+    sync_run_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("sync_runs.id", ondelete="RESTRICT"), nullable=True
+    )
+    observation_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    stream_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload_format: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_contract_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    fixture_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    parse_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    record_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unknown_fields_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_window_start_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_window_end_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
 class GarminSourceRecord(Base):
     """Current typed projection of one stable Garmin source-record identity."""
 
@@ -370,7 +444,7 @@ class GarminSourceRecord(Base):
         ),
         CheckConstraint(
             "source_utc_offset_minutes IS NULL OR "
-            "(source_utc_offset_minutes >= -840 AND source_utc_offset_minutes <= 840)",
+            "(source_utc_offset_minutes >= -1439 AND source_utc_offset_minutes <= 1439)",
             name="source_utc_offset_range",
         ),
         CheckConstraint(
@@ -558,6 +632,13 @@ class GarminSleepStageInterval(Base):
         CheckConstraint(
             "start_at_utc IS NULL OR end_at_utc IS NULL OR end_at_utc > start_at_utc",
             name="interval_order",
+        ),
+        CheckConstraint(
+            "(start_utc_offset_minutes IS NULL OR "
+            "(start_utc_offset_minutes >= -1439 AND start_utc_offset_minutes <= 1439)) "
+            "AND (end_utc_offset_minutes IS NULL OR "
+            "(end_utc_offset_minutes >= -1439 AND end_utc_offset_minutes <= 1439))",
+            name="stage_utc_offset_range",
         ),
         Index("ix_garmin_sleep_stage_intervals_start", "sleep_record_id", "start_at_utc"),
     )
@@ -1246,6 +1327,7 @@ __all__ = [
     "GarminIntradayRecord",
     "GarminMetricState",
     "GarminPayloadStatus",
+    "GarminPayloadObservation",
     "GarminRawPayload",
     "GarminRecordMetric",
     "GarminSleepRecord",

@@ -7,6 +7,7 @@ authentication, network, backfill loop, or analytics behavior.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -22,6 +23,7 @@ from healthcheck.db.models import (
     GarminFitRecord,
     GarminIntradayRecord,
     GarminMetricState,
+    GarminPayloadObservation,
     GarminPayloadStatus,
     GarminRawPayload,
     GarminRecordMetric,
@@ -70,6 +72,7 @@ class GarminPersistenceOutcome:
 
     source: GarminSource
     raw_payload: GarminRawPayload
+    observation: GarminPayloadObservation
     records: tuple[GarminSourceRecord, ...]
     inserted_count: int
     updated_count: int
@@ -235,6 +238,8 @@ class GarminRawPayloadRepository:
         fixture_id: str | None = None,
         diagnostics: Iterable[Mapping[str, Any]] = (),
         unknown_fields: Iterable[Mapping[str, Any]] = (),
+        diagnostics_json: str | None = None,
+        unknown_fields_json: str | None = None,
         ingest_event_id: str | None = None,
         sync_run_id: str | None = None,
         source_window_start_utc: datetime | None = None,
@@ -243,8 +248,7 @@ class GarminRawPayloadRepository:
     ) -> GarminRawPayload:
         normalized_stream = GarminStream(stream_code).value
         normalized_status = GarminPayloadStatus(parse_status).value
-        if payload_format not in {"json", "fit", "binary"}:
-            raise ValueError("Garmin payload format must be json, fit, or binary")
+        normalized_format = _payload_format(payload_format)
         if record_count < 0:
             raise ValueError("Garmin payload record_count must be nonnegative")
         start = _as_utc(source_window_start_utc)
@@ -267,7 +271,7 @@ class GarminRawPayloadRepository:
             sync_run_id=sync_run_id,
             stream_code=normalized_stream,
             content_hash=normalized_hash,
-            payload_format=payload_format,
+            payload_format=normalized_format,
             source_contract_version=source_contract_version,
             normalization_contract_version=_required_text(
                 normalization_contract_version, "normalization contract version"
@@ -275,8 +279,16 @@ class GarminRawPayloadRepository:
             fixture_id=fixture_id,
             parse_status=normalized_status,
             record_count=record_count,
-            diagnostics_json=_json_list_or_none(diagnostics),
-            unknown_fields_json=_json_list_or_none(unknown_fields),
+            diagnostics_json=(
+                diagnostics_json
+                if diagnostics_json is not None
+                else _json_list_or_none(diagnostics)
+            ),
+            unknown_fields_json=(
+                unknown_fields_json
+                if unknown_fields_json is not None
+                else _json_list_or_none(unknown_fields)
+            ),
             source_window_start_utc=start,
             source_window_end_utc=end,
             received_at=start_or_now(received_at),
@@ -284,6 +296,121 @@ class GarminRawPayloadRepository:
         self.session.add(payload)
         self.session.flush()
         return payload
+
+
+class GarminPayloadObservationRepository:
+    """Persist immutable acquisition/normalization observations."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get(self, observation_id: str) -> GarminPayloadObservation | None:
+        return self.session.get(GarminPayloadObservation, observation_id)
+
+    def get_by_key(self, observation_key: str) -> GarminPayloadObservation | None:
+        return self.session.scalar(
+            select(GarminPayloadObservation).where(
+                GarminPayloadObservation.observation_key
+                == _required_text(observation_key, "Garmin observation key")
+            )
+        )
+
+    def list(
+        self,
+        *,
+        garmin_source_id: str | None = None,
+        stream_code: str | GarminStream | None = None,
+        garmin_raw_payload_id: str | None = None,
+    ) -> list[GarminPayloadObservation]:
+        conditions = []
+        if garmin_source_id is not None:
+            conditions.append(GarminPayloadObservation.garmin_source_id == garmin_source_id)
+        if stream_code is not None:
+            conditions.append(
+                GarminPayloadObservation.stream_code == GarminStream(stream_code).value
+            )
+        if garmin_raw_payload_id is not None:
+            conditions.append(
+                GarminPayloadObservation.garmin_raw_payload_id == garmin_raw_payload_id
+            )
+        statement = (
+            select(GarminPayloadObservation)
+            .where(*conditions)
+            .order_by(GarminPayloadObservation.received_at, GarminPayloadObservation.id)
+        )
+        return list(self.session.scalars(statement))
+
+    def create(
+        self,
+        *,
+        garmin_raw_payload_id: str,
+        raw_artifact_id: str,
+        garmin_source_id: str,
+        observation_key: str,
+        stream_code: str | GarminStream,
+        payload_format: str,
+        normalization_contract_version: str,
+        parse_status: str | GarminPayloadStatus,
+        record_count: int,
+        source_contract_version: str | None = None,
+        fixture_id: str | None = None,
+        diagnostics_json: str | None = None,
+        unknown_fields_json: str | None = None,
+        ingest_event_id: str | None = None,
+        sync_run_id: str | None = None,
+        source_window_start_utc: datetime | None = None,
+        source_window_end_utc: datetime | None = None,
+        source_filename: str | None = None,
+        received_at: datetime | None = None,
+    ) -> GarminPayloadObservation:
+        normalized_stream = GarminStream(stream_code).value
+        normalized_status = GarminPayloadStatus(parse_status).value
+        normalized_format = _payload_format(payload_format)
+        normalized_key = _required_text(observation_key, "Garmin observation key")
+        if len(normalized_key) < 32:
+            raise ValueError("Garmin observation key must be at least 32 characters")
+        if record_count < 0:
+            raise ValueError("Garmin observation record_count must be nonnegative")
+        start = _as_utc(source_window_start_utc)
+        end = _as_utc(source_window_end_utc)
+        _validate_optional_interval(start, end, "source observation window")
+        existing = self.get_by_key(normalized_key)
+        if existing is not None:
+            if (
+                existing.garmin_raw_payload_id != garmin_raw_payload_id
+                or existing.raw_artifact_id != raw_artifact_id
+                or existing.garmin_source_id != garmin_source_id
+            ):
+                raise ValueError("Garmin observation key is linked to conflicting provenance")
+            if ingest_event_id is not None and existing.ingest_event_id != ingest_event_id:
+                raise ValueError("Garmin observation replay has a conflicting ingest event")
+            return existing
+        observation = GarminPayloadObservation(
+            garmin_raw_payload_id=garmin_raw_payload_id,
+            raw_artifact_id=raw_artifact_id,
+            garmin_source_id=garmin_source_id,
+            ingest_event_id=ingest_event_id,
+            sync_run_id=sync_run_id,
+            observation_key=normalized_key,
+            stream_code=normalized_stream,
+            payload_format=normalized_format,
+            source_contract_version=source_contract_version,
+            normalization_contract_version=_required_text(
+                normalization_contract_version, "normalization contract version"
+            ),
+            fixture_id=fixture_id,
+            parse_status=normalized_status,
+            record_count=record_count,
+            diagnostics_json=diagnostics_json,
+            unknown_fields_json=unknown_fields_json,
+            source_window_start_utc=start,
+            source_window_end_utc=end,
+            source_filename=source_filename,
+            received_at=start_or_now(received_at),
+        )
+        self.session.add(observation)
+        self.session.flush()
+        return observation
 
 
 class GarminSourceRecordRepository:
@@ -362,6 +489,7 @@ class GarminSourceRecordRepository:
         record: GarminRecordDTO,
         ingest_event_id: str | None = None,
         seen_at: datetime | None = None,
+        normalization_contract_version: str = NORMALIZATION_CONTRACT_VERSION,
     ) -> tuple[GarminSourceRecord, bool, bool]:
         if not isinstance(record, GarminRecordDTO):
             raise TypeError("GarminSourceRecordRepository expects a GarminRecordDTO")
@@ -371,6 +499,7 @@ class GarminSourceRecordRepository:
             raw_payload_id=raw_payload_id,
             record=record,
             ingest_event_id=ingest_event_id,
+            normalization_contract_version=normalization_contract_version,
         )
         existing = self.get_by_idempotency_key(
             garmin_source_id=garmin_source_id,
@@ -647,6 +776,8 @@ class GarminPersistenceRepositories:
         self.sources = GarminSourceRepository(session)
         self.source_identities = self.sources
         self.raw_payloads = GarminRawPayloadRepository(session)
+        self.observations = GarminPayloadObservationRepository(session)
+        self.payload_observations = self.observations
         self.records = GarminSourceRecordRepository(session)
         self.source_records = self.records
         self.coverage = GarminCoverageRepository(session)
@@ -666,6 +797,7 @@ class GarminPersistenceRepository:
         self.provenance = repositories_for(session)
         self.sources = GarminSourceRepository(session)
         self.raw_payloads = GarminRawPayloadRepository(session)
+        self.observations = GarminPayloadObservationRepository(session)
         self.records = GarminSourceRecordRepository(session)
         self.coverage = GarminCoverageRepository(session)
         self.payload_store = payload_store
@@ -709,10 +841,27 @@ class GarminPersistenceRepository:
             if record.source != source or record.stream is not stream:
                 raise ValueError("Garmin result contains a record with conflicting provenance")
 
+        normalized_payload_format = _payload_format(
+            payload_format or _payload_format_for_media_type(media_type)
+        )
+        normalized_source_contract_version = source_contract_version or _source_contract_version(
+            payload
+        )
+        normalized_normalization_contract_version = _required_text(
+            result.contract_version, "normalization contract version"
+        )
+        diagnostics_json = _json_list_or_none(item.as_dict() for item in result.diagnostics)
+        unknown_fields_json = _json_list_or_none(item.as_dict() for item in result.unknown_fields)
+        normalized_window_start = _as_utc(source_window_start_utc)
+        normalized_window_end = _as_utc(source_window_end_utc)
+        _validate_optional_interval(
+            normalized_window_start, normalized_window_end, "source observation window"
+        )
+
         stored = self._store_payload(
             payload,
             media_type=media_type,
-            payload_format=payload_format,
+            payload_format=normalized_payload_format,
         )
         source_row = self.sources.get_or_create(source)
         artifact = self.provenance.raw_artifacts.get_or_create(
@@ -728,6 +877,24 @@ class GarminPersistenceRepository:
             stream_code=stream,
             content_hash=stored.content_hash,
         )
+        observation_key = build_garmin_observation_key(
+            garmin_source_id=source_row.id,
+            stream_code=stream,
+            content_hash=stored.content_hash,
+            payload_format=normalized_payload_format,
+            source_contract_version=normalized_source_contract_version,
+            normalization_contract_version=normalized_normalization_contract_version,
+            fixture_id=result.fixture_id,
+            parse_status=result.status.value,
+            record_count=len(result.records),
+            diagnostics_json=diagnostics_json,
+            unknown_fields_json=unknown_fields_json,
+            source_window_start_utc=normalized_window_start,
+            source_window_end_utc=normalized_window_end,
+            sync_run_id=sync_run_id,
+            source_filename=source_filename,
+        )
+        existing_observation = self.observations.get_by_key(observation_key)
 
         batch = None
         event = self.provenance.ingest_events.get(ingest_event_id) if ingest_event_id else None
@@ -735,7 +902,53 @@ class GarminPersistenceRepository:
             raise KeyError(f"unknown ingest event {ingest_event_id}")
         if event is not None and event.acquisition_source_id != source_row.acquisition_source_id:
             raise ValueError("Garmin ingest event does not belong to the source identity")
-        if existing_payload is None and event is None and create_ingest_event:
+
+        if existing_observation is not None:
+            raw_payload = self.raw_payloads.get(existing_observation.garmin_raw_payload_id)
+            if raw_payload is None:
+                raise RuntimeError("Garmin observation references a missing raw payload")
+            if raw_payload.raw_artifact_id != artifact.id:
+                raise ValueError("Garmin observation references a conflicting raw artifact")
+            observation = self.observations.create(
+                garmin_raw_payload_id=raw_payload.id,
+                raw_artifact_id=artifact.id,
+                garmin_source_id=source_row.id,
+                observation_key=observation_key,
+                stream_code=stream,
+                payload_format=normalized_payload_format,
+                source_contract_version=normalized_source_contract_version,
+                normalization_contract_version=normalized_normalization_contract_version,
+                fixture_id=result.fixture_id,
+                parse_status=result.status.value,
+                record_count=len(result.records),
+                diagnostics_json=diagnostics_json,
+                unknown_fields_json=unknown_fields_json,
+                ingest_event_id=ingest_event_id,
+                sync_run_id=sync_run_id,
+                source_window_start_utc=normalized_window_start,
+                source_window_end_utc=normalized_window_end,
+                source_filename=source_filename,
+                received_at=received_at,
+            )
+            records = self._replay_current_records(
+                source_id=source_row.id,
+                raw_payload_id=raw_payload.id,
+                result=result,
+                ingest_event_id=observation.ingest_event_id,
+                seen_at=start_or_now(received_at),
+            )
+            return GarminPersistenceOutcome(
+                source=source_row,
+                raw_payload=raw_payload,
+                observation=observation,
+                records=records,
+                inserted_count=0,
+                updated_count=0,
+                replayed=True,
+                ingest_event_id=observation.ingest_event_id,
+            )
+
+        if event is None and create_ingest_event:
             batch = self.provenance.ingest_batches.create(
                 acquisition_source_id=source_row.acquisition_source_id,
                 batch_kind="provider_sync",
@@ -748,35 +961,50 @@ class GarminPersistenceRepository:
                 acquisition_source_id=source_row.acquisition_source_id,
                 raw_artifact_id=artifact.id,
                 provider_stream=stream.value,
-                semantic_fingerprint=f"garmin-payload:{stored.content_hash}",
+                semantic_fingerprint=f"garmin-observation:{observation_key}",
                 event_type="insert",
                 status="parsed",
             )
 
-        event_id = (
-            existing_payload.ingest_event_id
-            if existing_payload is not None and existing_payload.ingest_event_id is not None
-            else event.id
-            if event is not None
-            else ingest_event_id
-        )
+        event_id = event.id if event is not None else ingest_event_id
         raw_payload = existing_payload or self.raw_payloads.create(
             garmin_source_id=source_row.id,
             raw_artifact_id=artifact.id,
             content_hash=stored.content_hash,
             stream_code=stream,
-            payload_format=payload_format or _payload_format_for_media_type(media_type),
-            source_contract_version=source_contract_version or _source_contract_version(payload),
-            normalization_contract_version=result.contract_version,
+            payload_format=normalized_payload_format,
+            source_contract_version=normalized_source_contract_version,
+            normalization_contract_version=normalized_normalization_contract_version,
             parse_status=result.status.value,
             record_count=len(result.records),
-            diagnostics=(item.as_dict() for item in result.diagnostics),
-            unknown_fields=(item.as_dict() for item in result.unknown_fields),
+            diagnostics_json=diagnostics_json,
+            unknown_fields_json=unknown_fields_json,
             ingest_event_id=event_id,
             sync_run_id=sync_run_id,
-            source_window_start_utc=source_window_start_utc,
-            source_window_end_utc=source_window_end_utc,
+            source_window_start_utc=normalized_window_start,
+            source_window_end_utc=normalized_window_end,
             fixture_id=result.fixture_id,
+            received_at=received_at,
+        )
+        observation = self.observations.create(
+            garmin_raw_payload_id=raw_payload.id,
+            raw_artifact_id=artifact.id,
+            garmin_source_id=source_row.id,
+            observation_key=observation_key,
+            stream_code=stream,
+            payload_format=normalized_payload_format,
+            source_contract_version=normalized_source_contract_version,
+            normalization_contract_version=normalized_normalization_contract_version,
+            fixture_id=result.fixture_id,
+            parse_status=result.status.value,
+            record_count=len(result.records),
+            diagnostics_json=diagnostics_json,
+            unknown_fields_json=unknown_fields_json,
+            ingest_event_id=event_id,
+            sync_run_id=sync_run_id,
+            source_window_start_utc=normalized_window_start,
+            source_window_end_utc=normalized_window_end,
+            source_filename=source_filename,
             received_at=received_at,
         )
 
@@ -799,6 +1027,7 @@ class GarminPersistenceRepository:
                 record=record,
                 ingest_event_id=event_id,
                 seen_at=seen_at,
+                normalization_contract_version=normalized_normalization_contract_version,
             )
             records.append(stored_record)
             inserted_count += int(inserted)
@@ -827,13 +1056,55 @@ class GarminPersistenceRepository:
         return GarminPersistenceOutcome(
             source=source_row,
             raw_payload=raw_payload,
+            observation=observation,
             records=tuple(records),
             inserted_count=inserted_count,
             updated_count=updated_count,
-            replayed=existing_payload is not None and inserted_count == 0 and updated_count == 0,
+            replayed=False,
             ingest_batch_id=batch.id if batch is not None else None,
             ingest_event_id=event_id,
         )
+
+    def _replay_current_records(
+        self,
+        *,
+        source_id: str,
+        raw_payload_id: str,
+        result: GarminNormalizationResult,
+        ingest_event_id: str | None,
+        seen_at: datetime,
+    ) -> tuple[GarminSourceRecord, ...]:
+        """Return the current projection without replaying an old observation."""
+
+        seen_records: dict[str, str] = {}
+        records: list[GarminSourceRecord] = []
+        for record in result.records:
+            signature = canonical_json(record.as_dict())
+            previous_signature = seen_records.get(record.idempotency_key)
+            if previous_signature is not None:
+                if previous_signature != signature:
+                    raise ValueError("one Garmin result contains conflicting duplicate identities")
+                continue
+            seen_records[record.idempotency_key] = signature
+            current = self.records.get_by_idempotency_key(
+                garmin_source_id=source_id,
+                idempotency_key=record.idempotency_key,
+            )
+            if current is None:
+                current, _inserted, _updated = self.records.upsert(
+                    garmin_source_id=source_id,
+                    raw_payload_id=raw_payload_id,
+                    record=record,
+                    ingest_event_id=ingest_event_id,
+                    seen_at=seen_at,
+                    normalization_contract_version=_required_text(
+                        result.contract_version, "normalization contract version"
+                    ),
+                )
+            elif current.stream_code != record.stream.value:
+                raise ValueError("Garmin idempotency key cannot change stream identity")
+            records.append(current)
+        return tuple(records)
 
     persist = persist_result
     upsert_result = persist_result
@@ -874,6 +1145,7 @@ def _record_values(
     raw_payload_id: str,
     record: GarminRecordDTO,
     ingest_event_id: str | None,
+    normalization_contract_version: str,
 ) -> dict[str, Any]:
     temporal = record.temporal
     return {
@@ -897,7 +1169,9 @@ def _record_values(
         "source_local_field": temporal.source_local_field,
         "source_utc_field": temporal.source_utc_field,
         "record_status": record.status.value,
-        "normalization_contract_version": NORMALIZATION_CONTRACT_VERSION,
+        "normalization_contract_version": _required_text(
+            normalization_contract_version, "normalization contract version"
+        ),
         "diagnostics_json": _json_list_or_none(item.as_dict() for item in record.diagnostics),
         "unknown_fields_json": _json_list_or_none(item.as_dict() for item in record.unknown_fields),
     }
@@ -962,6 +1236,62 @@ def _sleep_stage_values(
     }
 
 
+def build_garmin_observation_key(
+    *,
+    garmin_source_id: str,
+    stream_code: str | GarminStream,
+    content_hash: str,
+    payload_format: str,
+    source_contract_version: str | None,
+    normalization_contract_version: str,
+    fixture_id: str | None,
+    parse_status: str | GarminPayloadStatus,
+    record_count: int,
+    diagnostics_json: str | None,
+    unknown_fields_json: str | None,
+    source_window_start_utc: datetime | None,
+    source_window_end_utc: datetime | None,
+    sync_run_id: str | None,
+    source_filename: str | None,
+) -> str:
+    """Build the stable identity of one raw-byte observation.
+
+    Receive time and ingest event id are intentionally excluded: transport
+    retries converge on one observation, while a different window, sync run,
+    or normalization interpretation remains a separate provenance row.
+    """
+
+    normalized_start = _as_utc(source_window_start_utc)
+    normalized_end = _as_utc(source_window_end_utc)
+    _validate_optional_interval(normalized_start, normalized_end, "source observation window")
+    payload = {
+        "version": "garmin-observation-v1",
+        "garmin_source_id": garmin_source_id,
+        "stream_code": GarminStream(stream_code).value,
+        "content_hash": _required_text(content_hash, "Garmin payload content hash").lower(),
+        "payload_format": _payload_format(payload_format),
+        "source_contract_version": source_contract_version,
+        "normalization_contract_version": _required_text(
+            normalization_contract_version, "normalization contract version"
+        ),
+        "fixture_id": fixture_id,
+        "parse_status": GarminPayloadStatus(parse_status).value,
+        "record_count": record_count,
+        "diagnostics_json": diagnostics_json,
+        "unknown_fields_json": unknown_fields_json,
+        "source_window_start_utc": (
+            normalized_start.isoformat() if normalized_start is not None else None
+        ),
+        "source_window_end_utc": (
+            normalized_end.isoformat() if normalized_end is not None else None
+        ),
+        "sync_run_id": sync_run_id,
+        "source_filename": source_filename,
+    }
+    digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return f"garmin-observation-v1:{digest}"
+
+
 def _source_contract_version(payload: RawGarminPayload) -> str | None:
     if isinstance(payload, GarminCapabilityFixture):
         return payload.contract_version
@@ -978,6 +1308,13 @@ def _payload_format_for_media_type(media_type: str) -> str:
     if "fit" in normalized:
         return "fit"
     return "binary"
+
+
+def _payload_format(value: str) -> str:
+    normalized = _required_text(value, "Garmin payload format").lower()
+    if normalized not in {"json", "fit", "binary"}:
+        raise ValueError("Garmin payload format must be json, fit, or binary")
+    return normalized
 
 
 def _normalized_media_type(media_type: str) -> str:
@@ -1045,6 +1382,7 @@ __all__ = [
     "GARMIN_INPUT_METHOD",
     "GARMIN_SOURCE_APPLICATION",
     "GarminCoverageRepository",
+    "GarminPayloadObservationRepository",
     "GarminPersistenceOutcome",
     "GarminPersistenceRepository",
     "GarminPersistenceRepositories",
@@ -1053,5 +1391,6 @@ __all__ = [
     "GarminSourceRecordRepository",
     "GarminSourceRepository",
     "PERSISTENCE_CONTRACT_VERSION",
+    "build_garmin_observation_key",
     "garmin_persistence_for",
 ]
