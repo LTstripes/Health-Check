@@ -37,7 +37,7 @@ def migrated_database(tmp_path):
         engine.dispose()
 
 
-def test_empty_migration_is_idempotent_and_has_only_r01_tables(migrated_database):
+def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_database):
     paths, engine = migrated_database
     migrate_database(paths)
 
@@ -60,6 +60,16 @@ def test_empty_migration_is_idempotent_and_has_only_r01_tables(migrated_database
         "sync_runs",
         "sync_stream_state",
         "coverage_intervals",
+        "garmin_sources",
+        "garmin_raw_payloads",
+        "garmin_source_records",
+        "garmin_daily_records",
+        "garmin_sleep_records",
+        "garmin_activity_records",
+        "garmin_intraday_records",
+        "garmin_fit_records",
+        "garmin_record_metrics",
+        "garmin_sleep_stage_intervals",
         "alembic_version",
     }
     table_names = set(inspect(engine).get_table_names())
@@ -68,7 +78,7 @@ def test_empty_migration_is_idempotent_and_has_only_r01_tables(migrated_database
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0004_naive_minute_wall_clock",
+        "migration_revision": "0005_garmin_persistence_contract",
         "ready": True,
     }
 
@@ -738,9 +748,9 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
     config = _alembic_config(paths)
     command.upgrade(config, "head")
-    assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
+    assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
     command.upgrade(config, "head")
-    assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
+    assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
 
     engine = create_sqlite_engine(paths)
     try:
@@ -827,6 +837,6 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "0003_photo_candidate_provenance")
         assert database_readiness(paths)["migration_revision"] == "0003_photo_candidate_provenance"
         command.upgrade(config, "head")
-        assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
+        assert database_readiness(paths)["migration_revision"] == "0005_garmin_persistence_contract"
     finally:
         engine.dispose()

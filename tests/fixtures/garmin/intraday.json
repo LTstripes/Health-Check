@@ -1,0 +1,28 @@
+{
+  "fixture_contract_version": "r02-garmin-capability-fixture-v1",
+  "fixture_id": "synthetic-vivoactive-5-intraday-001",
+  "source_kind": "synthetic",
+  "provider_code": "garmin_connect",
+  "stream_code": "intraday",
+  "device": {
+    "attributed": true,
+    "code": "garmin_vivoactive_5",
+    "model": "Vivoactive 5"
+  },
+  "client_methods": ["get_heart_rates", "get_stress_data", "get_spo2_data"],
+  "payload_fields": {
+    "heart_rate": "heartRate",
+    "stress": "stress",
+    "body_battery": "bodyBattery",
+    "spo2": "spo2",
+    "respiration": "respiration"
+  },
+  "payload": {
+    "timestamp": "2099-01-02T08:15:00Z",
+    "heartRate": 0,
+    "stress": null,
+    "bodyBattery": 64,
+    "spo2": 98,
+    "respiration": 15
+  }
+}

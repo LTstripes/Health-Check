@@ -179,6 +179,7 @@ def test_all_checked_in_fixtures_are_synthetic_and_credential_free() -> None:
     assert {path.stem for path in fixture_paths} == {
         "activity",
         "daily_health",
+        "intraday",
         "method_surface_only",
         "original_fit",
         "sleep",
