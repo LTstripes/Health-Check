@@ -50,7 +50,10 @@ issue because no live Garmin account is accessed.
 The machine-readable source of truth is
 `healthcheck.garmin.capabilities.GARMIN_CAPABILITY_INVENTORY`; the checked-in
 fixtures under `tests/fixtures/garmin/` exercise the offline envelope in
-`healthcheck.garmin.contracts`.
+`healthcheck.garmin.contracts`. The typed normalization, temporal, source
+identity, and idempotency continuation is documented in
+`docs/R02_NORMALIZATION_CONTRACT.md` and implemented by
+`healthcheck.garmin.normalization`.
 
 ## Synthetic fixture contract
 
