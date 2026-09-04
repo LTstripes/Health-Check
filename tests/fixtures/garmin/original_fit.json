@@ -1,0 +1,25 @@
+{
+  "fixture_contract_version": "r02-garmin-capability-fixture-v1",
+  "fixture_id": "synthetic-vivoactive-5-original-fit-001",
+  "source_kind": "synthetic",
+  "provider_code": "garmin_connect",
+  "stream_code": "original_fit",
+  "device": {
+    "attributed": true,
+    "code": "garmin_vivoactive_5",
+    "model": "Vivoactive 5"
+  },
+  "client_methods": ["download_activity"],
+  "payload_fields": {
+    "recovery_time": "fitRecords.0.recoveryTimeSeconds"
+  },
+  "payload": {
+    "fileName": "synthetic-activity-001.fit",
+    "fitRecords": [
+      {
+        "recordType": "synthetic",
+        "recoveryTimeSeconds": null
+      }
+    ]
+  }
+}
