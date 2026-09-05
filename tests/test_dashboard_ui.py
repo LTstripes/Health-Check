@@ -138,6 +138,25 @@ def test_review_edit_reject_confirm_and_dashboard_points(tmp_path):
         candidates = uploaded.json()["candidates"]
         weight = next(item for item in candidates if item["metric_code"] == "weight")
         fat = next(item for item in candidates if item["metric_code"] == "body_fat_pct")
+        review_provenance = weight["provenance"]
+        assert review_provenance["provider_code"] == "xiaomi_home"
+        assert review_provenance["provider_display_name"] == "Xiaomi Home"
+        assert review_provenance["input_method"] == "photo_import"
+        assert review_provenance["device_code"] == "xiaomi_s400"
+        assert review_provenance["device_model"] == "S400"
+        assert review_provenance["algorithm_compatibility_state"] == "not_evidenced"
+        assert review_provenance["temporal_precision"] == "date"
+        assert "Provider/source" in review.text
+        assert "Xiaomi Home" in review.text
+        assert "Input method" in review.text
+        assert "photo_import" in review.text
+        assert "Physical device" in review.text
+        assert "xiaomi_s400" in review.text
+        assert "Algorithm" in review.text
+        assert "unknown / not evidenced" in review.text
+        assert "not evidenced (date-only)" in review.text
+        assert "authorization" not in review.text.lower()
+        assert "token" not in review.text.lower()
         edited = client.post(
             f"/imports/{batch_id}/edit",
             data={

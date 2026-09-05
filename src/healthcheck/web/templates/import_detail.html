@@ -53,10 +53,10 @@
         <th></th>
         <th>Metric</th>
         <th>Effective value</th>
-        <th>Date</th>
+        <th>Source time</th>
         <th>Decision</th>
         <th>Confidence</th>
-        <th>Algorithm</th>
+        <th>Review provenance</th>
         <th>Edit</th>
       </tr>
     </thead>
@@ -82,7 +82,30 @@
             <span class="unavailable">missing</span>
           {% endif %}
         </td>
-        <td>{{ candidate.effective_date or '—' }}</td>
+        <td>
+          <dl class="provenance-list temporal-evidence">
+            <div>
+              <dt>Date</dt>
+              <dd>{{ candidate.effective_date or 'unknown / not evidenced' }}</dd>
+            </div>
+            <div>
+              <dt>Time</dt>
+              <dd>
+                {% if candidate.effective_timestamp %}
+                  {{ candidate.effective_timestamp }}
+                {% elif candidate.temporal_precision == 'date' %}
+                  not evidenced (date-only)
+                {% else %}
+                  unknown / not evidenced
+                {% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt>Precision</dt>
+              <dd>{{ candidate.temporal_precision or 'unknown / not evidenced' }}</dd>
+            </div>
+          </dl>
+        </td>
         <td><code>{{ candidate.user_decision }}</code></td>
         <td>
           {% if candidate.confidence is none %}
@@ -91,7 +114,51 @@
             {{ candidate.confidence }}
           {% endif %}
         </td>
-        <td class="muted">{{ candidate.algorithm_code or '—' }} {{ candidate.algorithm_version or '' }}</td>
+        <td>
+          {% set provenance = candidate.provenance %}
+          <dl class="provenance-list">
+            <div>
+              <dt>Provider/source</dt>
+              <dd>
+                {% if provenance.provider_code %}
+                  {{ provenance.provider_display_name or 'unknown provider' }}
+                  (<code>{{ provenance.provider_code }}</code>)
+                {% else %}
+                  unknown / not evidenced
+                {% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt>Input method</dt>
+              <dd>{{ provenance.input_method or 'unknown / not evidenced' }}</dd>
+            </div>
+            <div>
+              <dt>Physical device</dt>
+              <dd>
+                {% if provenance.device_code %}
+                  {{ provenance.device_display_name or provenance.device_model or 'known device' }}
+                  (<code>{{ provenance.device_code }}</code>)
+                {% else %}
+                  unknown / not evidenced
+                {% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt>Algorithm</dt>
+              <dd>
+                {% if provenance.algorithm_code or provenance.algorithm_version %}
+                  <code>{{ provenance.algorithm_code or 'unknown' }}{% if provenance.algorithm_version %}@{{ provenance.algorithm_version }}{% endif %}</code>
+                {% else %}
+                  unknown / not evidenced
+                {% endif %}
+                <small>
+                  Compatibility group:
+                  {{ provenance.compatibility_group or 'unknown / not evidenced' }}
+                </small>
+              </dd>
+            </div>
+          </dl>
+        </td>
         <td>
           {% if candidate.is_pending %}
           <form class="inline-edit" action="/imports/{{ batch.id }}/edit" method="post">
