@@ -13,13 +13,14 @@ Normal flow:
 3. Integrator chooses the release integration baseline, task branch and assigned local workspace.
 4. Integrator sends the owner a short copyable launch prompt.
 5. Owner launches the selected worker in Codex, Grok Build or Hermes.
-6. Worker reads `AGENTS.md`, the issue and active release spec; implements only the task; tests; commits/pushes its task branch; returns a completion report.
+6. Worker reads `AGENTS.md`, the issue and the active release spec when one is designated; implements only the task; tests; commits/pushes its task branch; returns a completion report.
 7. Owner forwards that report to the Integrator.
 8. Integrator reads the actual GitHub branch/diff/check evidence, reviews it and decides ACCEPT / FIXES REQUIRED / REJECT.
 9. Accepted work is merged by the Integrator into the current release integration branch (or `main` for a deliberately tiny standalone task).
 10. Integrator updates engineering history and any canonical docs made stale.
 11. At release gate, owner-only preview/UAT validates the integrated release.
-12. Integrator reviews and merges the release integration PR into `main`, then reads back canonical state.
+12. Integrator reviews and merges the release integration PR into `main`, then reads back canonical state and exact post-merge CI.
+13. The completed release integration line becomes historical/staging-only; the next release starts from the new canonical `main`.
 
 Workers implement. The Integrator owns acceptance, GitHub integration and durable engineering history.
 
@@ -27,18 +28,22 @@ Workers implement. The Integrator owns acceptance, GitHub integration and durabl
 
 ### `main`
 
-Canonical stable/accepted project state. No coding agent writes directly to it.
+Canonical stable/accepted project state and the only release source. No coding agent writes directly to it.
 
 ### Release integration branch
 
 For releases composed of multiple tasks, create one branch from current `main`, for example:
 
 - `integration/r01-weight-core`
-- later `integration/r02-garmin`
+- `integration/r02-garmin`
 
 This branch is the moving integration target for that release. It solves the old Finance problem where every task had to chase a moving `main` while parallel development was active.
 
 Task PRs target the release integration branch. Only after release integration/UAT passes do we open one integration -> `main` PR.
+
+A release integration branch is never a second source of truth and must not become the baseline for the next release after it has already been released. Once its release is merged to `main`, the next release integration branch is created from the then-current canonical `main`.
+
+Accepted task branches that were intentionally held during a release freeze must be re-read against the new `main`; their old acceptance does not by itself make their historical branch merge-ready after the freeze lifts.
 
 ### Task branches
 
@@ -59,6 +64,8 @@ A task does not rebase continuously. If integration advances while a worker is c
 - candidate conflicts semantically and must be revised.
 
 Schema/migration/security/network/canonical-data tasks are treated conservatively and normally refresh/retest against latest integration before acceptance.
+
+For stacked accepted work created before the previous release completed, reconstruct the accepted semantic deltas onto the new canonical lineage instead of blindly merging a diverged stack. Preserve exact accepted behavior, migration order and review evidence; rerun exact-head checks on the reconstructed line.
 
 ## 3. Local workspace layout
 
@@ -163,11 +170,11 @@ Recommended executor: Luna High (alternative: Grok High)
 
 Repo: https://github.com/LTstripes/Health-Check
 Issue: <URL>
-Target integration: integration/r01-weight-core @ <SHA>
+Target integration: integration/<active-release> @ <SHA>
 Branch: task/<issue>-<slug>
 Workspace: D:\Codex\Garmin\workspaces\<issue>-<slug>
 
-Read AGENTS.md, the issue and the active release spec. Implement only the issue. Run the required checks. Commit/push only the task branch. Do not merge or modify main/integration. Return the canonical completion report with exact final SHA.
+Read AGENTS.md, the issue and the active release spec if one is designated. Implement only the issue. Run the required checks. Commit/push only the task branch. Do not merge or modify main/integration. Return the canonical completion report with exact final SHA.
 ```
 
 The issue contains details; the launch prompt is a locator, not a second specification.
@@ -189,7 +196,7 @@ Integrator checks, as applicable:
 
 Possible verdicts:
 
-- **ACCEPT** — candidate is integrated.
+- **ACCEPT** — candidate is integrated or explicitly accepted-and-held with a stated future gate.
 - **FIXES REQUIRED** — same issue/candidate remains open with explicit findings.
 - **REJECT** — approach/candidate is not integrated; reason is preserved in history.
 
@@ -241,7 +248,7 @@ That history is useful for later model benchmarks and the eventual story of how 
 
 ## 10. Release integration and UAT
 
-For the R01 release gate use the concise owner checklist in `docs/R01_OWNER_UAT.md`.
+`docs/R01_OWNER_UAT.md` is the historical owner checklist for R01. Future releases should use their own release-specific UAT checklist/issue rather than treating the R01 checklist as current by default.
 
 When all planned tasks for a release are integrated:
 
@@ -252,8 +259,10 @@ When all planned tasks for a release are integrated:
 5. Integrator resolves findings in dedicated task branches, not by ad-hoc edits in UAT checkout.
 6. Integrator opens/reviews integration -> `main` PR.
 7. Accepted release is merged to `main`.
-8. `D:\Garmin\Garmin-Main` is fast-forwarded to canonical `main` by the owner when convenient; GitHub remains canonical.
-9. Release documentation/history is synchronized.
+8. Exact post-merge `main` CI is checked and canonical `main` is read back.
+9. `D:\Garmin\Garmin-Main` is fast-forwarded to canonical `main` by the owner when convenient; GitHub remains canonical.
+10. Release documentation/history is synchronized.
+11. The completed integration branch is no longer used as the next release baseline; create the next release integration branch from current `main`.
 
 ## 11. Benchmark / A-B tasks
 

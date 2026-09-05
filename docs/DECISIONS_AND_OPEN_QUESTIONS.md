@@ -9,8 +9,9 @@ R00 turns earlier hypotheses into decisions or explicit `UNVERIFIED` items. An i
 - Health-Check is a single-user personal health observatory on a Windows laptop.
 - Dashboard and AI are equal product interfaces over one deterministic evidence layer.
 - Priority is weight/body composition, then sleep, activity/fitness, then recovery/wellbeing.
-- R01 is the Weight & Body Composition vertical slice plus the reusable core. Garmin-first is rejected because it delays the highest-priority unique value while Garmin Connect already covers daily Garmin viewing.
+- R01 is the released Weight & Body Composition vertical slice plus the reusable core. Garmin-first was rejected because it would have delayed the highest-priority unique value while Garmin Connect already covered daily Garmin viewing.
 - R01 includes a minimal dashboard and both Xiaomi historical/live contracts; it excludes Garmin, Fitbit, Recovery Score, and full notifications.
+- R02 Garmin ingestion/backfill is the next release line after post-R01 consolidation. Its accepted pre-release contract/live-spike work must be reconstructed onto a fresh R02 integration branch from canonical `main` before production ingestion begins.
 
 ### Runtime
 
@@ -52,11 +53,27 @@ R00 turns earlier hypotheses into decisions or explicit `UNVERIFIED` items. An i
 
 - R02 uses pinned `python-garminconnect` `0.3.12`; it does not build another Garmin HTTP client.
 - Current `python-garminconnect` no longer depends on deprecated `garth`.
-- Only read/download methods are allowlisted. Sign-in/MFA is user-assisted; credential state needs Windows-appropriate protection.
+- Only read/download methods are allowlisted. Sign-in/MFA is user-assisted; credential state uses Windows-appropriate user-scoped protection and remains outside Git.
 - Garmin sync uses raw retention, idempotency, per-stream coverage, and an explicit trailing reconciliation window.
 - Client endpoint existence is never treated as device capability.
 - Vivoactive 5 Recovery Time is available on the watch but is not promised through Garmin Connect/API for a sole-Vivoactive-5 account.
 - Training Readiness, Training Status, Training Effect, and Acute Load are not treated as Vivoactive 5-produced metrics merely because client schemas expose fields.
+
+#### Owner live evidence snapshot — 2026-09-05
+
+The owner-only R02 discovery spike is now materially verified and no longer wholly `UNVERIFIED`:
+
+- Garmin authentication succeeded on the owner Windows machine and protected session reuse was verified.
+- User-scoped Windows protection for persisted Garmin session state was exercised successfully; implementation agents never received credentials, tokens or raw owner payloads.
+- The bounded capability probe completed at its designed 27-request ceiling for two dates plus one selected activity; retries were disabled and no route/GPS/FIT download was used for the capability decision.
+- Expected metric leaves were observed for sleep summary, sleep score/stages, naps, RHR, HRV, stress, Body Battery, SpO2 and respiration.
+- Training Readiness `score`/`level` was observed as account-level evidence only; `target_device_evidence` remains false.
+- Training Status / Unified Training Status evidence was attributed to `other_device`; endpoint availability is not reclassified as Vivoactive 5 production.
+- VO2 was empty for the selected probe dates.
+- Training Effect and Acute Load leaves were absent on the one selected activity; this remains unknown/selected-activity-specific rather than unsupported-device evidence.
+- Recovery Time remains intentionally not evaluated through the live probe.
+
+This evidence is sufficient to plan production R02 ingestion surfaces, but it does not remove retention/backfill/rate-limit questions or promote account-level/other-device evidence to target-device capability.
 
 ### Google Fitbit / OAuth
 
@@ -108,12 +125,13 @@ These are not architecture gaps; they are explicit acceptance probes for the own
 
 ### Garmin / R02–R03
 
-- Owner-region MFA/login behavior, endpoint retention depth, rate limits, and payload stability.
-- Exact nap intervals in owner payloads.
-- Vivoactive 5 `recovery_time` in downloaded ORIGINAL FIT.
-- Empty/non-empty account fields for Training Readiness/Status/Effect/Load when Vivoactive 5 is the only compatible producer.
-- Cycling power/advanced dynamics fields for this device/accessory setup.
-- Windows at-rest protection behavior chosen for Garmin auth state.
+- MFA-specific branch behavior if the owner account is challenged on a future login; the successful owner login/session-reuse path itself is verified.
+- Endpoint retention depth, practical rate limits and longer-term payload-shape stability during real backfill/incremental sync.
+- Exact nap intervals in owner payloads beyond the summary leaf detected by the bounded probe.
+- Vivoactive 5 `recovery_time` in downloaded ORIGINAL FIT; the current live probe intentionally did not evaluate FIT.
+- VO2 availability outside the selected empty probe dates.
+- Training Effect / Acute Load availability on activities where those leaves are actually produced; absence on the selected activity is not a device-level unsupported verdict.
+- Cycling power/advanced dynamics fields for this device/accessory setup beyond the generic activity evidence already observed.
 
 ### Google Fitbit / R04
 

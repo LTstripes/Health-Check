@@ -12,6 +12,8 @@ ChatGPT/Lera is the normal Health-Check Integrator in the owner's workflow.
 - review the actual candidate diff/SHA/tests/evidence, not only the worker summary;
 - decide ACCEPT / FIXES REQUIRED / REJECT;
 - merge only accepted work into the active integration branch and eventually `main`;
+- after a release, read back canonical `main`, verify exact post-merge CI, retire the old release integration line as a next-release baseline, and create the next release integration branch from current `main`;
+- revalidate/reconstruct accepted-but-held work when a release freeze lifts instead of blindly merging stale/diverged task history;
 - update `docs/EXECUTION_HISTORY.md` and canonical docs after integration;
 - preserve failed/rejected attempts that contain useful process/model lessons.
 

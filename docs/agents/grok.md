@@ -14,9 +14,10 @@ Do not use `D:\Garmin`, `D:\Garmin-UAT`, another client's root, or another activ
 
 ## Start
 
-- Read `AGENTS.md`, the active GitHub issue and active release spec.
+- Read `AGENTS.md`, the active GitHub issue and the active release spec when one is explicitly designated.
 - Verify the exact assigned baseline/integration SHA before editing.
 - Work only on the assigned task branch.
+- Do not treat a completed prior release integration branch or an old stacked task branch as the next release baseline unless the Integrator explicitly assigns it.
 
 ## Work
 
