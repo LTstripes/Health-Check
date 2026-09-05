@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -26,6 +27,7 @@ from healthcheck.garmin.capabilities import (
     GarminCapability,
 )
 from healthcheck.garmin.redaction import (
+    GARMIN_SAFE_FIELD_PATHS,
     GarminDeviceAttribution,
     GarminPayloadShape,
     GarminValueState,
@@ -37,6 +39,11 @@ from healthcheck.garmin.redaction import (
 
 PROBE_CONTRACT_VERSION = "r02-garmin-capability-spike-v1"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+MAX_PROVIDER_REQUESTS = 27
+_ACTIVITY_DISCOVERY_METHOD = "connectapi"
+_ACTIVITY_DISCOVERY_ENDPOINT_ATTRIBUTE = "garmin_connect_activities"
+_ACTIVITY_DISCOVERY_ENDPOINT = "/activitylist-service/activities/search/activities"
+_ACTIVITY_DETAIL_KWARGS = {"maxchart": 1, "maxpoly": 0}
 
 
 class GarminProbeStatus(StrEnum):
@@ -61,6 +68,7 @@ class _ProbeSpec:
     operation: str
     expected_shapes: tuple[str, ...]
     field_paths: tuple[str, ...] = ()
+    metric_paths: tuple[str, ...] = ()
     static_capability: GarminCapability | None = None
 
 
@@ -75,8 +83,9 @@ class _CallObservation:
     field_states: tuple[tuple[str, GarminValueState], ...] = ()
     field_state_counts: tuple[tuple[str, int], ...] = ()
     attribution: GarminDeviceAttribution = GarminDeviceAttribution.UNKNOWN
+    observed_metric_paths: tuple[str, ...] = ()
     error: GarminSafeError | None = None
-    recovery_time_visibility: str | None = None
+    not_run_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +110,7 @@ class GarminCapabilityObservation:
     method_calls: tuple[dict[str, Any], ...] = ()
     errors: tuple[GarminSafeError, ...] = ()
     recovery_time_visibility: str | None = None
+    not_run_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -124,6 +134,8 @@ class GarminCapabilityObservation:
         }
         if self.recovery_time_visibility is not None:
             result["recovery_time_visibility"] = self.recovery_time_visibility
+        if self.not_run_reason is not None:
+            result["not_run_reason"] = self.not_run_reason
         return result
 
 
@@ -137,6 +149,7 @@ class GarminCapabilityReport:
     activity_selected: bool
     request_count: int
     capabilities: tuple[GarminCapabilityObservation, ...]
+    abort_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -160,6 +173,8 @@ class GarminCapabilityReport:
                 "activity_requested": self.activity_requested,
                 "activity_selected": self.activity_selected,
                 "request_count": self.request_count,
+                "max_provider_requests": MAX_PROVIDER_REQUESTS,
+                "abort_reason": self.abort_reason,
                 "raw_payloads_retained": False,
                 "database_writes": False,
             },
@@ -190,13 +205,57 @@ _SPECIAL_INTRADAY = _ProbeSpec(
     methods=("get_heart_rates",),
     operation="heart_rate",
     expected_shapes=("object",),
-    field_paths=("heartRateValues", "heartRateValue", "timeOffset"),
+    field_paths=(
+        "heartRateValues",
+        "heartRateValue",
+        "heartRate",
+        "heartRateBpm",
+        "timeOffset",
+    ),
+    metric_paths=("heartRateValues", "heartRateValue"),
 )
 _SPECIAL_ACTIVITY_DETAILS = _ProbeSpec(
     code="activity_details",
     methods=("get_activity", "get_activity_details"),
     operation="activity_detail",
     expected_shapes=("object",),
+    field_paths=(
+        "distance",
+        "distanceMeters",
+        "duration",
+        "durationSeconds",
+        "trainingEffect",
+        "trainingLoad",
+        "acuteTrainingLoad",
+        "metrics.speedMps",
+        "metrics.heartRateBpm",
+        "metrics.cadenceRpm",
+        "metrics.powerWatts",
+        "metrics.cyclingDynamics",
+        "speed",
+        "heartRate",
+        "cadence",
+        "power",
+        "cyclingDynamics",
+    ),
+    metric_paths=(
+        "distance",
+        "distanceMeters",
+        "duration",
+        "durationSeconds",
+        "trainingEffect",
+        "trainingLoad",
+        "acuteTrainingLoad",
+        "metrics.speedMps",
+        "metrics.heartRateBpm",
+        "metrics.cadenceRpm",
+        "metrics.powerWatts",
+        "speed",
+        "heartRate",
+        "cadence",
+        "power",
+        "cyclingDynamics",
+    ),
 )
 
 
@@ -206,6 +265,7 @@ def _static_spec(
     operation: str,
     expected_shapes: tuple[str, ...],
     field_paths: tuple[str, ...] = (),
+    metric_paths: tuple[str, ...] = (),
 ) -> _ProbeSpec:
     capability = next(item for item in CAPABILITY_MATRIX if item.code == code)
     return _ProbeSpec(
@@ -214,6 +274,7 @@ def _static_spec(
         operation=operation,
         expected_shapes=expected_shapes,
         field_paths=field_paths,
+        metric_paths=metric_paths,
         static_capability=capability,
     )
 
@@ -225,34 +286,111 @@ _PROBE_SPECS: tuple[_ProbeSpec, ...] = (
         ("get_sleep_data",),
         "sleep",
         ("object",),
-        ("sleepTimeSeconds", "sleepScore", "levels", "napTimeSeconds"),
+        (
+            "sleepTimeSeconds",
+            "sleepScore",
+            "sleepScore.value",
+            "levels",
+            "napTimeSeconds",
+            "napEvents",
+        ),
+        metric_paths=("sleepTimeSeconds",),
     ),
-    _static_spec("sleep_score", ("get_sleep_data",), "sleep", ("object",), ("sleepScore",)),
-    _static_spec("sleep_stages", ("get_sleep_data",), "sleep", ("object",), ("levels",)),
+    _static_spec(
+        "sleep_score",
+        ("get_sleep_data",),
+        "sleep",
+        ("object",),
+        ("sleepScore",),
+        metric_paths=("sleepScore.value", "sleepScore"),
+    ),
+    _static_spec(
+        "sleep_stages",
+        ("get_sleep_data",),
+        "sleep",
+        ("object",),
+        ("levels",),
+        metric_paths=("levels",),
+    ),
     _static_spec(
         "naps",
         ("get_sleep_data", "get_body_battery_events"),
         "naps",
         ("object", "array"),
         ("napTimeSeconds", "napEvents"),
+        metric_paths=("napTimeSeconds", "napEvents"),
     ),
-    _static_spec("heart_rate", ("get_heart_rates",), "heart_rate", ("object",)),
-    _static_spec("resting_heart_rate", ("get_rhr_day",), "resting_heart_rate", ("object",)),
-    _static_spec("hrv_status", ("get_hrv_data",), "hrv_status", ("object",)),
-    _static_spec("stress", ("get_stress_data",), "stress", ("object",)),
+    _static_spec(
+        "heart_rate",
+        ("get_heart_rates",),
+        "heart_rate",
+        ("object",),
+        ("heartRateValues", "heartRateValue", "heartRate", "heartRateBpm"),
+        metric_paths=("heartRateValues", "heartRateValue", "heartRate", "heartRateBpm"),
+    ),
+    _static_spec(
+        "resting_heart_rate",
+        ("get_rhr_day",),
+        "resting_heart_rate",
+        ("object",),
+        ("restingHeartRate",),
+        metric_paths=("restingHeartRate",),
+    ),
+    _static_spec(
+        "hrv_status",
+        ("get_hrv_data",),
+        "hrv_status",
+        ("object",),
+        ("hrvStatus.weeklyAverage", "hrvStatus"),
+        metric_paths=("hrvStatus.weeklyAverage",),
+    ),
+    _static_spec(
+        "stress",
+        ("get_stress_data",),
+        "stress",
+        ("object",),
+        ("stressValues", "stress", "stressLevel"),
+        metric_paths=("stressValues", "stress", "stressLevel"),
+    ),
     _static_spec(
         "body_battery",
         ("get_body_battery_events",),
         "body_battery",
         ("array",),
         ("bodyBatteryChargedValue", "bodyBatteryDrainedValue", "bodyBatteryLevel"),
+        metric_paths=(
+            "bodyBatteryChargedValue",
+            "bodyBatteryDrainedValue",
+            "bodyBatteryLevel",
+        ),
     ),
-    _static_spec("spo2", ("get_spo2_data",), "spo2", ("object",)),
-    _static_spec("respiration", ("get_respiration_data",), "respiration", ("object",)),
-    _static_spec("vo2_max", ("get_max_metrics",), "vo2_max", ("object",)),
+    _static_spec(
+        "spo2",
+        ("get_spo2_data",),
+        "spo2",
+        ("object",),
+        ("spo2Values", "spo2", "spo2Percent"),
+        metric_paths=("spo2Values", "spo2", "spo2Percent"),
+    ),
+    _static_spec(
+        "respiration",
+        ("get_respiration_data",),
+        "respiration",
+        ("object",),
+        ("respirationValues", "respiration", "respirationRate"),
+        metric_paths=("respirationValues", "respiration", "respirationRate"),
+    ),
+    _static_spec(
+        "vo2_max",
+        ("get_max_metrics",),
+        "vo2_max",
+        ("object",),
+        ("maxMetrics.vo2MaxRunning", "vo2Max", "vo2MaxRunning"),
+        metric_paths=("maxMetrics.vo2MaxRunning",),
+    ),
     _static_spec(
         "recovery_time",
-        ("get_activity", "get_activity_details", "download_activity"),
+        ("get_activity", "get_activity_details"),
         "recovery_time",
         ("object", "bytes"),
         ("recoveryTimeSeconds", "recoveryTime"),
@@ -263,8 +401,16 @@ _PROBE_SPECS: tuple[_ProbeSpec, ...] = (
         "training_readiness",
         ("array",),
         ("trainingReadiness", "score"),
+        metric_paths=("trainingReadiness.value", "trainingReadiness"),
     ),
-    _static_spec("training_status", ("get_training_status",), "training_status", ("object",)),
+    _static_spec(
+        "training_status",
+        ("get_training_status",),
+        "training_status",
+        ("object",),
+        ("trainingStatus.value", "trainingStatus"),
+        metric_paths=("trainingStatus.value", "trainingStatus"),
+    ),
     _static_spec(
         "unified_training_status",
         ("get_training_status",),
@@ -277,6 +423,7 @@ _PROBE_SPECS: tuple[_ProbeSpec, ...] = (
         "activity_detail",
         ("object",),
         ("trainingEffect",),
+        metric_paths=("trainingEffect",),
     ),
     _static_spec(
         "acute_training_load",
@@ -284,21 +431,47 @@ _PROBE_SPECS: tuple[_ProbeSpec, ...] = (
         "activity_detail",
         ("object",),
         ("trainingLoad", "acuteTrainingLoad"),
+        metric_paths=("trainingLoad", "acuteTrainingLoad"),
     ),
     _static_spec(
         "activities",
-        ("get_activities_by_date",),
+        (_ACTIVITY_DISCOVERY_METHOD,),
         "activities",
         ("array",),
+        ("activityType", "durationSeconds", "distanceMeters", "duration", "distance"),
+        metric_paths=(
+            "activityType",
+            "durationSeconds",
+            "distanceMeters",
+            "duration",
+            "distance",
+        ),
     ),
     _SPECIAL_ACTIVITY_DETAILS,
     _SPECIAL_INTRADAY,
     _static_spec(
         "cycling_metrics",
-        ("get_activities_by_date", "download_activity"),
+        (_ACTIVITY_DISCOVERY_METHOD, "get_activity_details"),
         "cycling_metrics",
         ("object", "bytes"),
-        ("speed", "distance", "heartRate", "cadence", "power", "cyclingDynamics"),
+        (
+            "metrics.speedMps",
+            "metrics.heartRateBpm",
+            "metrics.cadenceRpm",
+            "metrics.powerWatts",
+            "speed",
+            "distance",
+            "heartRate",
+            "cadence",
+            "power",
+            "cyclingDynamics",
+        ),
+        metric_paths=(
+            "metrics.speedMps",
+            "metrics.heartRateBpm",
+            "metrics.cadenceRpm",
+            "metrics.powerWatts",
+        ),
     ),
 )
 
@@ -316,15 +489,20 @@ _ALLOWED_METHODS = frozenset(
         "get_max_metrics",
         "get_training_readiness",
         "get_training_status",
-        "get_activities_by_date",
+        "connectapi",
         "get_activity",
         "get_activity_details",
-        "download_activity",
     }
 )
 
 if any(method not in _ALLOWED_METHODS for spec in _PROBE_SPECS for method in spec.methods):
-    raise RuntimeError("Garmin probe contains a method outside its read/download allowlist")
+    raise RuntimeError("Garmin probe contains a method outside its read allowlist")
+if any(
+    path not in GARMIN_SAFE_FIELD_PATHS
+    for spec in _PROBE_SPECS
+    for path in (*spec.field_paths, *spec.metric_paths)
+):
+    raise RuntimeError("Garmin probe contains a field outside its static redaction allowlist")
 
 
 def validate_probe_dates(values: Sequence[str] | None) -> tuple[str, ...]:
@@ -352,12 +530,33 @@ def validate_probe_dates(values: Sequence[str] | None) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-class GarminCapabilityProbe:
-    """Run the fixed small read/download probe against an authenticated client."""
+@contextmanager
+def _bounded_provider_requests(client: Any) -> Any:
+    """Disable pinned-provider retries for a deterministic hard request cap."""
 
-    def __init__(self, client: Any | None, *, original_fit_format: Any = None) -> None:
+    marker = object()
+    previous = getattr(client, "retry_attempts", marker)
+    changed = previous is not marker
+    if changed:
+        try:
+            client.retry_attempts = 0
+        except Exception:
+            changed = False
+    try:
+        yield
+    finally:
+        if changed:
+            try:
+                client.retry_attempts = previous
+            except Exception:
+                pass
+
+
+class GarminCapabilityProbe:
+    """Run the fixed small read-only probe against an authenticated client."""
+
+    def __init__(self, client: Any | None) -> None:
         self.client = client
-        self.original_fit_format = original_fit_format
 
     def run(
         self,
@@ -371,147 +570,232 @@ class GarminCapabilityProbe:
             return self._not_run_report(auth, len(requested_dates))
 
         observations: dict[str, list[_CallObservation]] = {}
-        performed_calls: list[_CallObservation] = []
-        for requested_date in requested_dates:
-            date_observations: dict[str, _CallObservation] = {}
-            for method, operation, expected_shapes, field_paths in (
-                (
-                    "get_user_summary",
-                    "daily_summary",
-                    ("object",),
-                    _SPECIAL_DAILY_SUMMARY.field_paths,
-                ),
-                (
-                    "get_sleep_data",
-                    "sleep",
-                    ("object",),
-                    ("sleepTimeSeconds", "sleepScore", "levels", "napTimeSeconds"),
-                ),
-                (
-                    "get_heart_rates",
-                    "heart_rate",
-                    ("object",),
-                    _SPECIAL_INTRADAY.field_paths,
-                ),
-                ("get_rhr_day", "resting_heart_rate", ("object",), ()),
-                ("get_hrv_data", "hrv_status", ("object",), ()),
-                ("get_stress_data", "stress", ("object",), ()),
-                (
-                    "get_body_battery_events",
-                    "body_battery",
-                    ("array",),
-                    ("bodyBatteryChargedValue", "bodyBatteryDrainedValue", "bodyBatteryLevel"),
-                ),
-                ("get_spo2_data", "spo2", ("object",), ()),
-                ("get_respiration_data", "respiration", ("object",), ()),
-                ("get_max_metrics", "vo2_max", ("object",), ()),
-                (
-                    "get_training_readiness",
-                    "training_readiness",
-                    ("array",),
-                    ("trainingReadiness", "score"),
-                ),
-                ("get_training_status", "training_status", ("object",), ()),
-            ):
-                observation, _ = self._invoke(
-                    method,
-                    operation,
-                    (requested_date,),
-                    expected_shapes,
-                    field_paths,
-                )
-                observations.setdefault(operation, []).append(observation)
-                date_observations[operation] = observation
-                performed_calls.append(observation)
-            observations.setdefault("naps", []).extend(
-                item
-                for operation in ("sleep", "body_battery")
-                if (item := date_observations.get(operation)) is not None
-            )
-
-        activity_observation, activity_payload = self._invoke(
-            "get_activities_by_date",
-            "activities",
-            (requested_dates[0], requested_dates[-1]),
-            ("array",),
-            (),
-        )
-        observations.setdefault("activities", []).append(activity_observation)
-        observations.setdefault("cycling_metrics", []).append(activity_observation)
-        performed_calls.append(activity_observation)
-        activity_id = (
-            _select_activity_id(activity_payload)
-            if activity_observation.status is GarminProbeStatus.SUCCEEDED
-            else None
-        )
-        activity_payload = None
-
-        if activity_id is not None:
-            for method, operation, expected_shapes, field_paths in (
-                (
-                    "get_activity",
-                    "activity_detail",
-                    ("object",),
+        auth_lost = False
+        abort_reason: str | None = None
+        self._request_count = 0
+        with _bounded_provider_requests(self.client):
+            for requested_date in requested_dates:
+                date_observations: dict[str, _CallObservation] = {}
+                for method, operation, expected_shapes, field_paths in (
                     (
-                        "trainingEffect",
-                        "trainingLoad",
-                        "acuteTrainingLoad",
-                        "recoveryTimeSeconds",
-                        "recoveryTime",
+                        "get_user_summary",
+                        "daily_summary",
+                        ("object",),
+                        _SPECIAL_DAILY_SUMMARY.field_paths,
                     ),
-                ),
-                (
-                    "get_activity_details",
-                    "activity_detail",
-                    ("object",),
                     (
-                        "trainingEffect",
-                        "trainingLoad",
-                        "acuteTrainingLoad",
-                        "recoveryTimeSeconds",
-                        "recoveryTime",
+                        "get_sleep_data",
+                        "sleep",
+                        ("object",),
+                        (
+                            "sleepTimeSeconds",
+                            "sleepScore.value",
+                            "sleepScore",
+                            "levels",
+                            "napTimeSeconds",
+                            "napEvents",
+                        ),
                     ),
-                ),
-            ):
-                observation, _ = self._invoke(
-                    method,
-                    operation,
-                    (activity_id,),
-                    expected_shapes,
-                    field_paths,
+                    (
+                        "get_heart_rates",
+                        "heart_rate",
+                        ("object",),
+                        _SPECIAL_INTRADAY.field_paths,
+                    ),
+                    (
+                        "get_rhr_day",
+                        "resting_heart_rate",
+                        ("object",),
+                        ("restingHeartRate",),
+                    ),
+                    (
+                        "get_hrv_data",
+                        "hrv_status",
+                        ("object",),
+                        ("hrvStatus.weeklyAverage",),
+                    ),
+                    (
+                        "get_stress_data",
+                        "stress",
+                        ("object",),
+                        ("stressValues", "stress", "stressLevel"),
+                    ),
+                    (
+                        "get_body_battery_events",
+                        "body_battery",
+                        ("array",),
+                        (
+                            "bodyBatteryChargedValue",
+                            "bodyBatteryDrainedValue",
+                            "bodyBatteryLevel",
+                            "bodyBattery",
+                        ),
+                    ),
+                    (
+                        "get_spo2_data",
+                        "spo2",
+                        ("object",),
+                        ("spo2Values", "spo2", "spo2Percent"),
+                    ),
+                    (
+                        "get_respiration_data",
+                        "respiration",
+                        ("object",),
+                        ("respirationValues", "respiration", "respirationRate"),
+                    ),
+                    (
+                        "get_max_metrics",
+                        "vo2_max",
+                        ("object",),
+                        ("maxMetrics.vo2MaxRunning", "vo2Max", "vo2MaxRunning"),
+                    ),
+                    (
+                        "get_training_readiness",
+                        "training_readiness",
+                        ("array",),
+                        (
+                            "trainingReadiness.value",
+                            "trainingReadiness.score",
+                            "trainingReadiness",
+                            "score",
+                        ),
+                    ),
+                    (
+                        "get_training_status",
+                        "training_status",
+                        ("object",),
+                        ("trainingStatus.value", "trainingStatus"),
+                    ),
+                ):
+                    observation, _ = self._invoke(
+                        method,
+                        operation,
+                        (requested_date,),
+                        expected_shapes,
+                        field_paths,
+                    )
+                    observations.setdefault(operation, []).append(observation)
+                    date_observations[operation] = observation
+                    if observation.status is GarminProbeStatus.REAUTH_REQUIRED:
+                        auth_lost = True
+                        abort_reason = "reauth_required"
+                        break
+                    if observation.not_run_reason is not None:
+                        abort_reason = observation.not_run_reason
+                        break
+                observations.setdefault("naps", []).extend(
+                    item
+                    for operation in ("sleep", "body_battery")
+                    if (item := date_observations.get(operation)) is not None
                 )
-                observations.setdefault(operation, []).append(observation)
-                if operation == "activity_detail":
-                    observations.setdefault("recovery_time", []).append(observation)
-                performed_calls.append(observation)
-            fit_format = self._resolve_original_fit_format()
-            observation, _ = self._invoke(
-                "download_activity",
-                "original_fit",
-                (activity_id,),
-                ("bytes",),
-                (),
-                kwargs={"dl_fmt": fit_format},
-            )
-            observations.setdefault("original_fit", []).append(observation)
-            observations.setdefault("recovery_time", []).append(observation)
-            observations.setdefault("cycling_metrics", []).append(observation)
-            performed_calls.append(observation)
+                if auth_lost:
+                    break
+
+            activity_id: str | None = None
+            if not auth_lost and abort_reason is None:
+                activity_observation, activity_payload = self._invoke_activity_discovery(
+                    requested_dates[0], requested_dates[-1]
+                )
+                observations.setdefault("activities", []).append(activity_observation)
+                observations.setdefault("cycling_metrics", []).append(activity_observation)
+                if activity_observation.status is GarminProbeStatus.REAUTH_REQUIRED:
+                    auth_lost = True
+                    abort_reason = "reauth_required"
+                elif activity_observation.status is GarminProbeStatus.SUCCEEDED:
+                    activity_id = _select_activity_id(activity_payload)
+                activity_payload = None
+
+            if not auth_lost and abort_reason is None and activity_id is not None:
+                for method, operation, expected_shapes, field_paths, call_kwargs in (
+                    (
+                        "get_activity",
+                        "activity_detail",
+                        ("object",),
+                        _SPECIAL_ACTIVITY_DETAILS.field_paths,
+                        None,
+                    ),
+                    (
+                        "get_activity_details",
+                        "activity_detail",
+                        ("object",),
+                        _SPECIAL_ACTIVITY_DETAILS.field_paths,
+                        _ACTIVITY_DETAIL_KWARGS,
+                    ),
+                ):
+                    observation, _ = self._invoke(
+                        method,
+                        operation,
+                        (activity_id,),
+                        expected_shapes,
+                        field_paths,
+                        kwargs=call_kwargs,
+                    )
+                    observations.setdefault(operation, []).append(observation)
+                    observations.setdefault("cycling_metrics", []).append(observation)
+                    if observation.status is GarminProbeStatus.REAUTH_REQUIRED:
+                        auth_lost = True
+                        abort_reason = "reauth_required"
+                        break
+                    if observation.not_run_reason is not None:
+                        abort_reason = observation.not_run_reason
+                        break
+
+            # ORIGINAL FIT is deliberately not downloaded: a correct bounded
+            # FIT parser is not part of this spike, and the raw download can
+            # contain GPS tracks.  Keep the question explicitly unevaluated.
 
         capabilities = tuple(
             self._build_observation(
-                spec, observations.get(spec.operation, ()), activity_id is not None
+                spec,
+                observations.get(spec.operation, ()),
+                activity_id is not None,
+                not_run_reason=abort_reason,
             )
             for spec in _PROBE_SPECS
         )
-        request_count = len(performed_calls)
         return GarminCapabilityReport(
             auth=auth,
             window_day_count=len(requested_dates),
             activity_requested=True,
             activity_selected=activity_id is not None,
-            request_count=request_count,
+            request_count=self._request_count,
             capabilities=capabilities,
+            abort_reason=abort_reason,
+        )
+
+    def _invoke_activity_discovery(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> tuple[_CallObservation, Any | None]:
+        """Use one fixed endpoint request instead of the provider paginator."""
+
+        endpoint = getattr(self.client, _ACTIVITY_DISCOVERY_ENDPOINT_ATTRIBUTE, None)
+        if endpoint != _ACTIVITY_DISCOVERY_ENDPOINT:
+            return (
+                _CallObservation(
+                    operation="activities",
+                    method=_ACTIVITY_DISCOVERY_METHOD,
+                    method_callable=False,
+                    request_succeeded=False,
+                    status=GarminProbeStatus.METHOD_UNAVAILABLE,
+                ),
+                None,
+            )
+        return self._invoke(
+            _ACTIVITY_DISCOVERY_METHOD,
+            "activities",
+            (endpoint,),
+            ("array",),
+            ("activityType", "durationSeconds", "distanceMeters", "duration", "distance"),
+            kwargs={
+                "params": {
+                    "startDate": start_date,
+                    "endDate": end_date,
+                    "start": "0",
+                    "limit": "1",
+                }
+            },
         )
 
     def _invoke(
@@ -525,7 +809,7 @@ class GarminCapabilityProbe:
         kwargs: Mapping[str, Any] | None = None,
     ) -> tuple[_CallObservation, Any | None]:
         if method_name not in _ALLOWED_METHODS:
-            raise RuntimeError("attempted Garmin method outside read/download allowlist")
+            raise RuntimeError("attempted Garmin method outside read allowlist")
         method = getattr(self.client, method_name, None)
         if not callable(method):
             return (
@@ -538,6 +822,19 @@ class GarminCapabilityProbe:
                 ),
                 None,
             )
+        if self._request_count >= MAX_PROVIDER_REQUESTS:
+            return (
+                _CallObservation(
+                    operation=operation,
+                    method=method_name,
+                    method_callable=True,
+                    request_succeeded=None,
+                    status=GarminProbeStatus.NOT_RUN,
+                    not_run_reason="request_budget_exhausted",
+                ),
+                None,
+            )
+        self._request_count += 1
         try:
             with _silence_provider_logging():
                 response = method(*args, **dict(kwargs or {}))
@@ -561,7 +858,8 @@ class GarminCapabilityProbe:
                 None,
             )
 
-        summary = summarize_garmin_payload(response)
+        traversal_limit = 1 if operation == "activities" else 64
+        summary = summarize_garmin_payload(response, max_array_items=traversal_limit)
         if summary.value_state is GarminValueState.NULL:
             status = GarminProbeStatus.NULL
         elif summary.value_state is GarminValueState.EMPTY:
@@ -570,10 +868,7 @@ class GarminCapabilityProbe:
             status = GarminProbeStatus.SHAPE_DRIFT
         else:
             status = GarminProbeStatus.SUCCEEDED
-        attribution = infer_device_attribution(response).status
-        recovery_visibility = None
-        if operation in {"activity_detail", "original_fit"}:
-            recovery_visibility = _recovery_time_visibility(response)
+        attribution = infer_device_attribution(response, max_array_items=traversal_limit).status
         return (
             _CallObservation(
                 operation=operation,
@@ -583,33 +878,46 @@ class GarminCapabilityProbe:
                 status=status,
                 summary=summary,
                 field_states=tuple(
-                    (path, field_state_at_path(response, path)) for path in field_paths
+                    (
+                        path,
+                        field_state_at_path(
+                            response,
+                            path,
+                            max_array_items=traversal_limit,
+                        ),
+                    )
+                    for path in field_paths
                 ),
-                field_state_counts=tuple(sorted(field_state_counts(response, field_paths).items())),
+                field_state_counts=tuple(
+                    sorted(
+                        field_state_counts(
+                            response,
+                            field_paths,
+                            max_array_items=traversal_limit,
+                        ).items()
+                    )
+                ),
                 attribution=attribution,
-                recovery_time_visibility=recovery_visibility,
+                observed_metric_paths=tuple(
+                    path
+                    for path in field_paths
+                    if _metric_field_is_observed(
+                        response,
+                        path,
+                        max_array_items=traversal_limit,
+                    )
+                ),
             ),
             response,
         )
-
-    def _resolve_original_fit_format(self) -> Any:
-        if self.original_fit_format is not None:
-            return self.original_fit_format
-        enum = getattr(self.client, "ActivityDownloadFormat", None)
-        if enum is not None and hasattr(enum, "ORIGINAL"):
-            return enum.ORIGINAL
-        try:
-            from garminconnect import Garmin
-
-            return Garmin.ActivityDownloadFormat.ORIGINAL
-        except (ImportError, AttributeError):
-            return "original"
 
     def _build_observation(
         self,
         spec: _ProbeSpec,
         calls: Sequence[_CallObservation],
         activity_selected: bool,
+        *,
+        not_run_reason: str | None = None,
     ) -> GarminCapabilityObservation:
         static_status = (
             spec.static_capability.audit_status.value
@@ -626,7 +934,7 @@ class GarminCapabilityProbe:
                 self.client is not None
                 and all(callable(getattr(self.client, method, None)) for method in spec.methods)
             )
-            not_run_reason = (
+            reason = not_run_reason or (
                 "no_activity_selected"
                 if spec.operation
                 in {"activity_detail", "original_fit", "recovery_time", "cycling_metrics"}
@@ -643,7 +951,7 @@ class GarminCapabilityProbe:
                 method_callable=method_callable,
                 request_succeeded=None,
                 status=GarminProbeStatus.NOT_RUN,
-                value_state=not_run_reason or GarminValueState.UNKNOWN.value,
+                value_state=GarminValueState.UNKNOWN.value,
                 payload_shapes=(),
                 field_paths=(),
                 shape_counts=(),
@@ -651,21 +959,15 @@ class GarminCapabilityProbe:
                 device_attribution=GarminDeviceAttribution.UNKNOWN,
                 target_device_evidence=False,
                 method_calls=method_calls,
+                recovery_time_visibility=(
+                    "not_evaluated" if spec.code == "recovery_time" else None
+                ),
+                not_run_reason=reason,
             )
 
         statuses = {call.status for call in calls}
         request_succeeded = all(call.request_succeeded is True for call in calls)
         status = _combine_statuses(statuses)
-        value_states = {
-            _call_value_state(call, spec.field_paths).value
-            for call in calls
-            if call.summary is not None
-        }
-        value_state = (
-            next(iter(value_states))
-            if len(value_states) == 1
-            else ("mixed" if value_states else GarminValueState.UNKNOWN.value)
-        )
         summaries = [call.summary for call in calls if call.summary is not None]
         payload_shapes = tuple(sorted({summary.root_shape for summary in summaries}))
         field_paths = tuple(sorted({path for summary in summaries for path in summary.field_paths}))
@@ -680,13 +982,33 @@ class GarminCapabilityProbe:
                     expected_states[key] = expected_states.get(key, 0) + count
         attribution = _combine_attribution(call.attribution for call in calls)
         errors = _unique_errors(call.error for call in calls)
-        target_evidence = attribution is GarminDeviceAttribution.TARGET_DEVICE and value_state in {
-            GarminValueState.PRESENT.value,
-            "mixed",
+        value_paths = spec.metric_paths or spec.field_paths
+        value_states = {
+            _call_value_state(
+                call,
+                value_paths,
+                metric_only=bool(spec.metric_paths),
+            ).value
+            for call in calls
+            if call.summary is not None
         }
-        recovery_visibility = _combine_recovery_visibility(
-            call.recovery_time_visibility for call in calls
+        value_state = (
+            next(iter(value_states))
+            if len(value_states) == 1
+            else ("mixed" if value_states else GarminValueState.UNKNOWN.value)
         )
+        if spec.code == "recovery_time":
+            value_state = GarminValueState.UNKNOWN.value
+        target_evidence = (
+            bool(spec.metric_paths)
+            and attribution is GarminDeviceAttribution.TARGET_DEVICE
+            and any(
+                call.status is GarminProbeStatus.SUCCEEDED
+                and set(call.observed_metric_paths).intersection(spec.metric_paths)
+                for call in calls
+            )
+        )
+        recovery_visibility = "not_evaluated" if spec.code == "recovery_time" else None
         return GarminCapabilityObservation(
             code=spec.code,
             display_name=_display_name(spec),
@@ -709,12 +1031,16 @@ class GarminCapabilityProbe:
             method_calls=tuple(_call_as_dict(call, spec.field_paths) for call in calls),
             errors=errors,
             recovery_time_visibility=recovery_visibility,
+            not_run_reason=None,
         )
 
     def _not_run_report(
         self, auth: GarminAuthResult, window_day_count: int
     ) -> GarminCapabilityReport:
-        capabilities = tuple(self._build_observation(spec, (), False) for spec in _PROBE_SPECS)
+        capabilities = tuple(
+            self._build_observation(spec, (), False, not_run_reason="auth_not_ready")
+            for spec in _PROBE_SPECS
+        )
         return GarminCapabilityReport(
             auth=auth,
             window_day_count=window_day_count,
@@ -770,6 +1096,13 @@ def _combine_attribution(
     values: Sequence[GarminDeviceAttribution] | Any,
 ) -> GarminDeviceAttribution:
     normalized = set(values)
+    if GarminDeviceAttribution.MIXED in normalized or {
+        GarminDeviceAttribution.TARGET_DEVICE,
+        GarminDeviceAttribution.OTHER_DEVICE,
+    }.issubset(normalized):
+        return GarminDeviceAttribution.MIXED
+    if GarminDeviceAttribution.UNKNOWN in normalized:
+        return GarminDeviceAttribution.UNKNOWN
     if len(normalized) == 1 and GarminDeviceAttribution.TARGET_DEVICE in normalized:
         return GarminDeviceAttribution.TARGET_DEVICE
     if len(normalized) == 1 and GarminDeviceAttribution.OTHER_DEVICE in normalized:
@@ -804,26 +1137,40 @@ def _call_as_dict(call: _CallObservation, expected_paths: Sequence[str]) -> dict
     }
     if summary is not None and expected_paths:
         result["field_state_counts"] = dict(call.field_state_counts)
-    if call.recovery_time_visibility is not None:
-        result["recovery_time_visibility"] = call.recovery_time_visibility
+    if call.not_run_reason is not None:
+        result["not_run_reason"] = call.not_run_reason
     return result
 
 
 def _call_value_state(
     call: _CallObservation,
     expected_paths: Sequence[str],
+    *,
+    metric_only: bool = False,
 ) -> GarminValueState:
     if call.summary is None:
         return GarminValueState.UNKNOWN
     if call.summary.value_state in {GarminValueState.NULL, GarminValueState.EMPTY}:
         return call.summary.value_state
     if not expected_paths:
-        return call.summary.value_state
+        return GarminValueState.UNKNOWN
     expected = set(expected_paths)
     states = [state for path, state in call.field_states if path in expected]
     if not states:
-        return call.summary.value_state
+        return GarminValueState.UNKNOWN
     unique = set(states)
+    if metric_only:
+        if set(call.observed_metric_paths).intersection(expected):
+            return GarminValueState.PRESENT
+        if GarminValueState.NULL in unique:
+            return GarminValueState.NULL
+        if GarminValueState.EMPTY in unique:
+            return GarminValueState.EMPTY
+        if GarminValueState.PRESENT in unique:
+            return GarminValueState.UNKNOWN
+        if len(unique) == 1:
+            return states[0]
+        return GarminValueState.UNKNOWN
     if GarminValueState.PRESENT in unique:
         return GarminValueState.PRESENT
     if len(unique) == 1:
@@ -831,10 +1178,85 @@ def _call_value_state(
     return GarminValueState.UNKNOWN
 
 
+def _metric_field_is_observed(
+    value: Any,
+    path: str,
+    *,
+    max_array_items: int,
+) -> bool:
+    """Return true only when a bounded path reaches an actual metric leaf."""
+
+    if max_array_items < 1:
+        raise ValueError("metric limits must be positive")
+    return any(
+        _metric_leaf_is_observed(candidate)
+        for candidate in _iter_path_values(value, tuple(path.split(".")), max_array_items)
+    )
+
+
+def _iter_path_values(
+    value: Any,
+    segments: tuple[str, ...],
+    max_array_items: int,
+) -> Iterator[Any]:
+    if not segments:
+        yield value
+        return
+    segment = segments[0]
+    if isinstance(value, Mapping):
+        try:
+            if segment in value:
+                yield from _iter_path_values(value[segment], segments[1:], max_array_items)
+        except (KeyError, TypeError, ValueError):
+            return
+        return
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return
+    iterator = iter(value)
+    if segment.isdigit():
+        index = int(segment)
+        if index >= max_array_items:
+            return
+        for current_index in range(index + 1):
+            try:
+                nested = next(iterator)
+            except StopIteration:
+                return
+            if current_index == index:
+                yield from _iter_path_values(nested, segments[1:], max_array_items)
+        return
+    for _ in range(max_array_items):
+        try:
+            nested = next(iterator)
+        except StopIteration:
+            return
+        yield from _iter_path_values(nested, segments, max_array_items)
+
+
+def _metric_leaf_is_observed(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, Mapping):
+        return False
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        try:
+            return len(value) > 0
+        except (TypeError, ValueError):
+            return next(iter(value), None) is not None
+    if isinstance(value, (str, bytes, bytearray)):
+        return bool(value)
+    return True
+
+
 def _select_activity_id(value: Any) -> str | None:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         return None
-    for item in value:
+    iterator = iter(value)
+    for _ in range(1):
+        try:
+            item = next(iterator)
+        except StopIteration:
+            break
         if not isinstance(item, Mapping):
             continue
         for key in ("activityId", "activity_id", "id"):
@@ -851,35 +1273,10 @@ def _select_activity_id(value: Any) -> str | None:
 
 
 def _recovery_time_visibility(value: Any) -> str:
-    if isinstance(value, (bytes, bytearray)):
-        if not value:
-            return "unknown"
-        return "observed" if b"recoverytimeseconds" in bytes(value).lower() else "unknown"
-    if isinstance(value, Mapping):
-        for key, nested in value.items():
-            normalized = re.sub(r"[^a-z0-9]", "", str(key).casefold())
-            if normalized in {"recoverytimeseconds", "recoverytime"}:
-                return "observed"
-            if (
-                isinstance(nested, (Mapping, Sequence))
-                and not isinstance(nested, (str, bytes, bytearray))
-                and _recovery_time_visibility(nested) == "observed"
-            ):
-                return "observed"
-    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        for nested in list(value)[:64]:
-            if _recovery_time_visibility(nested) == "observed":
-                return "observed"
-    return "unknown"
+    """Report the FIT question as unevaluated until a real parser exists."""
 
-
-def _combine_recovery_visibility(values: Sequence[str | None] | Any) -> str | None:
-    normalized = {value for value in values if value is not None}
-    if not normalized:
-        return None
-    if "observed" in normalized:
-        return "observed"
-    return "unknown"
+    del value
+    return "not_evaluated"
 
 
 __all__ = [
@@ -887,6 +1284,7 @@ __all__ = [
     "GarminCapabilityProbe",
     "GarminCapabilityReport",
     "GarminProbeStatus",
+    "MAX_PROVIDER_REQUESTS",
     "PROBE_CONTRACT_VERSION",
     "run_capability_probe",
     "validate_probe_dates",

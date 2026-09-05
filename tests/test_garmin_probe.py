@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import inspect
+import io
 import json
-from collections.abc import Mapping
+import zipfile
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
 
 from healthcheck.garmin.auth import GarminAuthResult, GarminAuthStatus
 from healthcheck.garmin.probe import (
+    MAX_PROVIDER_REQUESTS,
     GarminCapabilityProbe,
     GarminProbeStatus,
+    _recovery_time_visibility,
     validate_probe_dates,
 )
 
@@ -40,11 +45,13 @@ class FakeProbeClient:
         "get_max_metrics",
         "get_training_readiness",
         "get_training_status",
+        "connectapi",
         "get_activities_by_date",
         "get_activity",
         "get_activity_details",
         "download_activity",
     }
+    garmin_connect_activities = "/activitylist-service/activities/search/activities"
 
     def __init__(
         self,
@@ -59,6 +66,7 @@ class FakeProbeClient:
         self.missing = set(missing or ())
         self.include_device = include_device
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+        self.retry_attempts = 3
 
     def __getattribute__(self, name: str) -> Any:
         if name in object.__getattribute__(self, "missing"):
@@ -78,6 +86,8 @@ class FakeProbeClient:
         return {"device": {"model": "Vivoactive 5"}} if self.include_device else {}
 
     def _default_response(self, method: str) -> Any:
+        if method == "connectapi":
+            return self._default_response("get_activities_by_date")
         if method == "get_user_summary":
             return {
                 **self._device(),
@@ -98,7 +108,10 @@ class FakeProbeClient:
         if method == "get_rhr_day":
             return {**self._device(), "restingHeartRate": 55}
         if method == "get_hrv_data":
-            return {**self._device(), "hrvStatus": {"status": "balanced"}}
+            return {
+                **self._device(),
+                "hrvStatus": {"weeklyAverage": 55, "status": "balanced"},
+            }
         if method == "get_stress_data":
             return {**self._device(), "stressValues": [20, 30]}
         if method == "get_body_battery_events":
@@ -108,9 +121,18 @@ class FakeProbeClient:
         if method == "get_respiration_data":
             return {**self._device(), "respirationValues": [15]}
         if method == "get_max_metrics":
-            return {**self._device(), "vo2Max": 42}
+            return {
+                **self._device(),
+                "maxMetrics": {"vo2MaxRunning": 42},
+            }
         if method == "get_training_readiness":
-            return [{**self._device(), "trainingReadiness": {"score": 60}, "score": 60}]
+            return [
+                {
+                    **self._device(),
+                    "trainingReadiness": {"value": 60},
+                    "score": 60,
+                }
+            ]
         if method == "get_training_status":
             return {**self._device(), "trainingStatus": "productive"}
         if method == "get_activities_by_date":
@@ -119,6 +141,8 @@ class FakeProbeClient:
                     **self._device(),
                     "activityId": SYNTHETIC_ACTIVITY_ID,
                     "activityName": "synthetic activity",
+                    "activityType": "cycling",
+                    "distanceMeters": 1000,
                 }
             ]
         if method in {"get_activity", "get_activity_details"}:
@@ -128,6 +152,13 @@ class FakeProbeClient:
                 "trainingLoad": 50,
                 "recoveryTimeSeconds": 120,
                 "distance": 1000,
+                "durationSeconds": 60,
+                "metrics": {
+                    "speedMps": 5,
+                    "heartRateBpm": 120,
+                    "cadenceRpm": 80,
+                    "powerWatts": 100,
+                },
                 "value": SYNTHETIC_HEALTH_VALUE,
             }
         if method == "download_activity":
@@ -173,11 +204,20 @@ class FakeProbeClient:
     def get_activities_by_date(self, start: str, end: str) -> Any:
         return self._call("get_activities_by_date", start, end)
 
+    def connectapi(self, path: str, **kwargs: Any) -> Any:
+        self.calls.append(("connectapi", (path,), kwargs))
+        if "get_activities_by_date" in self.errors:
+            raise self.errors["get_activities_by_date"]
+        if "get_activities_by_date" in self.responses:
+            response = self.responses["get_activities_by_date"]
+            return response(path, kwargs) if callable(response) else response
+        return self._default_response("get_activities_by_date")
+
     def get_activity(self, activity_id: str) -> Any:
         return self._call("get_activity", activity_id)
 
-    def get_activity_details(self, activity_id: str) -> Any:
-        return self._call("get_activity_details", activity_id)
+    def get_activity_details(self, activity_id: str, **kwargs: Any) -> Any:
+        return self._call("get_activity_details", activity_id, **kwargs)
 
     def download_activity(self, activity_id: str, *, dl_fmt: Any) -> Any:
         return self._call("download_activity", activity_id, dl_fmt=dl_fmt)
@@ -197,15 +237,32 @@ def test_successful_probe_is_small_deterministic_and_value_free() -> None:
 
     codes = [item["code"] for item in data["capabilities"]]
     assert len(codes) == len(set(codes)) == 23
-    assert report.request_count == 16
+    assert report.request_count == 15
     assert report.activity_selected is True
-    assert all(item["status"] == "succeeded" for item in data["capabilities"])
-    assert _capability(report, "recovery_time")["recovery_time_visibility"] == "observed"
+    assert all(
+        item["status"] == "succeeded"
+        for item in data["capabilities"]
+        if item["code"] != "recovery_time"
+    )
+    assert _capability(report, "recovery_time")["status"] == GarminProbeStatus.NOT_RUN.value
+    assert _capability(report, "recovery_time")["recovery_time_visibility"] == "not_evaluated"
+    assert _capability(report, "recovery_time")["value_state"] == "unknown"
+    assert all(
+        "recovery_time_visibility" not in call
+        for call in _capability(report, "recovery_time")["method_calls"]
+    )
     assert _capability(report, "training_effect")["target_device_evidence"] is True
     assert _capability(report, "acute_training_load")["target_device_evidence"] is True
+    assert _capability(report, "cycling_metrics")["target_device_evidence"] is True
     assert _capability(report, "naps")["field_state_counts"]
-    assert sum(method == "get_activities_by_date" for method, _, _ in client.calls) == 1
-    assert sum(method == "download_activity" for method, _, _ in client.calls) == 1
+    assert sum(method == "connectapi" for method, _, _ in client.calls) == 1
+    assert sum(method == "download_activity" for method, _, _ in client.calls) == 0
+    activity_request = next(call for call in client.calls if call[0] == "connectapi")
+    assert activity_request[2]["params"]["limit"] == "1"
+    detail_request = next(call for call in client.calls if call[0] == "get_activity_details")
+    assert detail_request[2] == {"maxchart": 1, "maxpoly": 0}
+    assert client.retry_attempts == 3
+    assert report.request_count <= MAX_PROVIDER_REQUESTS
     assert SYNTHETIC_HEALTH_VALUE not in serialized
     assert str(SYNTHETIC_ACTIVITY_ID) not in serialized
     assert "synthetic activity" not in serialized
@@ -263,6 +320,169 @@ def test_method_presence_without_device_attribution_never_becomes_target_evidenc
     assert activity["target_device_evidence"] is False
     assert effect["device_attribution"] == "unattributed"
     assert effect["target_device_evidence"] is False
+
+
+def test_mixed_target_and_other_device_markers_are_not_target_evidence() -> None:
+    client = FakeProbeClient(
+        responses={
+            "get_activity": {
+                "device": {"model": "Vivoactive 5"},
+                "sourceDevice": {"model": "Forerunner 265"},
+                "trainingEffect": 3.0,
+            },
+            "get_activity_details": {
+                "device": {"model": "Vivoactive 5"},
+                "sourceDevice": {"model": "Forerunner 265"},
+                "trainingEffect": 3.0,
+            },
+        }
+    )
+
+    report = GarminCapabilityProbe(client).run(("2026-09-05",))
+
+    effect = _capability(report, "training_effect")
+    assert effect["device_attribution"] == "mixed"
+    assert effect["target_device_evidence"] is False
+
+
+def test_nonempty_metric_container_without_expected_leaf_is_unknown_evidence() -> None:
+    client = FakeProbeClient(
+        responses={
+            "get_training_readiness": [
+                {
+                    "device": {"model": "Vivoactive 5"},
+                    "trainingReadiness": {"providerAddedField": "synthetic"},
+                }
+            ]
+        }
+    )
+
+    readiness = _capability(
+        GarminCapabilityProbe(client).run(("2026-09-05",)), "training_readiness"
+    )
+
+    assert readiness["value_state"] == "unknown"
+    assert readiness["device_attribution"] == "target_device"
+    assert readiness["target_device_evidence"] is False
+
+
+def test_reauth_required_aborts_remaining_provider_calls() -> None:
+    class ReauthRequiredError(Exception):
+        status_code = 401
+
+    client = FakeProbeClient(errors={"get_sleep_data": ReauthRequiredError()})
+
+    report = GarminCapabilityProbe(client).run(("2026-09-05",))
+    data = report.as_dict()
+
+    assert report.abort_reason == "reauth_required"
+    assert report.request_count == 2
+    assert [method for method, _, _ in client.calls] == [
+        "get_user_summary",
+        "get_sleep_data",
+    ]
+    assert _capability(report, "sleep")["status"] == GarminProbeStatus.REAUTH_REQUIRED.value
+    assert _capability(report, "heart_rate")["status"] == GarminProbeStatus.NOT_RUN.value
+    assert _capability(report, "heart_rate")["not_run_reason"] == "reauth_required"
+    assert data["probe"]["abort_reason"] == "reauth_required"
+
+
+def test_pinned_details_signature_and_probe_no_route_request() -> None:
+    from garminconnect import Garmin
+
+    signature = inspect.signature(Garmin.get_activity_details)
+    assert {"maxchart", "maxpoly"}.issubset(signature.parameters)
+    discovery_source = inspect.getsource(Garmin.get_activities_by_date)
+    assert "MAX_PAGINATED_REQUESTS" in discovery_source
+    assert "range(MAX_PAGINATED_REQUESTS)" in discovery_source
+
+    client = FakeProbeClient()
+    GarminCapabilityProbe(client).run(("2026-09-05",))
+
+    detail_calls = [call for call in client.calls if call[0] == "get_activity_details"]
+    assert detail_calls == [
+        (
+            "get_activity_details",
+            (str(SYNTHETIC_ACTIVITY_ID),),
+            {"maxchart": 1, "maxpoly": 0},
+        )
+    ]
+    discovery_calls = [call for call in client.calls if call[0] == "connectapi"]
+    assert discovery_calls == [
+        (
+            "connectapi",
+            (client.garmin_connect_activities,),
+            {
+                "params": {
+                    "startDate": "2026-09-05",
+                    "endDate": "2026-09-05",
+                    "start": "0",
+                    "limit": "1",
+                }
+            },
+        )
+    ]
+    assert not any(
+        "route" in method.casefold() or "polyline" in method.casefold()
+        for method, _, _ in client.calls
+    )
+
+
+class ExplodingSequence(Sequence[Any]):
+    def __init__(self, values: list[Any], allowed_items: int) -> None:
+        self._values = values
+        self._allowed_items = allowed_items
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __getitem__(self, index: int) -> Any:
+        return self._values[index]
+
+    def __iter__(self):
+        for index, value in enumerate(self._values):
+            if index >= self._allowed_items:
+                raise AssertionError("bounded helper traversed past its limit")
+            yield value
+
+
+def test_activity_discovery_and_redaction_traversal_are_bounded() -> None:
+    activity = {
+        "device": {"model": "Vivoactive 5"},
+        "activityId": SYNTHETIC_ACTIVITY_ID,
+        "activityType": "cycling",
+        "distanceMeters": 1000,
+    }
+    client = FakeProbeClient(
+        responses={
+            "get_activities_by_date": ExplodingSequence([activity], allowed_items=1),
+        }
+    )
+
+    report = GarminCapabilityProbe(client).run(("2026-09-05",))
+
+    assert report.activity_selected is True
+    assert report.request_count == 15
+
+
+def test_two_day_probe_stays_inside_hard_provider_request_budget() -> None:
+    client = FakeProbeClient()
+
+    report = GarminCapabilityProbe(client).run(("2026-09-05", "2026-09-06"))
+
+    assert report.request_count == 27
+    assert report.request_count <= report.as_dict()["probe"]["max_provider_requests"]
+    assert all(method != "get_activities_by_date" for method, _, _ in client.calls)
+    assert client.retry_attempts == 3
+
+
+def test_compressed_fit_bytes_remain_not_evaluated() -> None:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, mode="w") as archive:
+        archive.writestr("activity.fit", b"recoveryTimeSeconds")
+
+    assert _recovery_time_visibility(output.getvalue()) == "not_evaluated"
+    assert _recovery_time_visibility({"recoveryTimeSeconds": 120}) == "not_evaluated"
 
 
 def test_target_marker_does_not_promote_null_capability_field() -> None:

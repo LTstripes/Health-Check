@@ -3,11 +3,15 @@
 from healthcheck.garmin.auth import (
     AUTH_CONTRACT_VERSION,
     GARMIN_AUTH_STORAGE,
+    GARMIN_SESSION_PROTECTION,
     GARMIN_TOKENSTORE_FILENAME,
     GarminAuthResult,
     GarminAuthService,
     GarminAuthStatus,
     GarminSafeError,
+    GarminSessionCorruptError,
+    GarminSessionProtectionUnavailable,
+    WindowsUserScopedTokenProtection,
     classify_garmin_error,
     resolve_garmin_tokenstore,
     validate_external_tokenstore,
@@ -82,6 +86,7 @@ from healthcheck.garmin.persistence import (
     garmin_persistence_for,
 )
 from healthcheck.garmin.probe import (
+    MAX_PROVIDER_REQUESTS,
     PROBE_CONTRACT_VERSION,
     GarminCapabilityObservation,
     GarminCapabilityProbe,
@@ -91,6 +96,7 @@ from healthcheck.garmin.probe import (
     validate_probe_dates,
 )
 from healthcheck.garmin.redaction import (
+    GARMIN_SAFE_FIELD_PATHS,
     REDACTION_CONTRACT_VERSION,
     GarminDeviceAttribution,
     GarminDeviceAttributionEvidence,
@@ -117,6 +123,8 @@ __all__ = [
     "CAPABILITY_MATRIX",
     "GARMIN_CAPABILITY_INVENTORY",
     "GARMIN_AUTH_STORAGE",
+    "GARMIN_SESSION_PROTECTION",
+    "GARMIN_SAFE_FIELD_PATHS",
     "GARMIN_TOKENSTORE_FILENAME",
     "GARMIN_COVERAGE_RULE_VERSION",
     "GARMIN_NORMALIZATION_CONTRACT_VERSION",
@@ -140,6 +148,9 @@ __all__ = [
     "GarminAuthResult",
     "GarminAuthService",
     "GarminAuthStatus",
+    "GarminSessionCorruptError",
+    "GarminSessionProtectionUnavailable",
+    "WindowsUserScopedTokenProtection",
     "GarminDeviceAttribution",
     "GarminDeviceAttributionEvidence",
     "GarminPayloadObservationRepository",
@@ -154,6 +165,7 @@ __all__ = [
     "GarminPayloadShape",
     "GarminProbeStatus",
     "GarminSafeError",
+    "MAX_PROVIDER_REQUESTS",
     "GarminParseStatus",
     "GarminRawPayloadRepository",
     "GarminRecordDTO",

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,9 @@ from healthcheck.garmin.auth import (
     GarminAuthResult,
     GarminAuthService,
     GarminAuthStatus,
+    GarminSessionCorruptError,
+    GarminSessionProtectionUnavailable,
+    WindowsUserScopedTokenProtection,
     _silence_provider_logging,
     validate_external_tokenstore,
 )
@@ -28,6 +33,20 @@ class ExpiredSessionError(Exception):
 
 class AuthenticationError(Exception):
     pass
+
+
+class SyntheticTokenProtection:
+    """Opaque reversible boundary used only by synthetic auth tests."""
+
+    def protect(self, plaintext: str) -> str:
+        return json.dumps({"ciphertext": base64.b64encode(plaintext.encode()).decode()})
+
+    def unprotect(self, envelope: str) -> str:
+        try:
+            value = json.loads(envelope)
+            return base64.b64decode(value["ciphertext"], validate=True).decode()
+        except Exception as exc:
+            raise GarminSessionCorruptError from exc
 
 
 class FakeGarminClient:
@@ -51,21 +70,21 @@ class FakeGarminClient:
             self.mfa_code = self.prompt_mfa()
         if self.behavior == "mfa_resume":
             return "needs_mfa", {"synthetic_state": True}
-        self._write_session(tokenstore)
         return None, None
 
     def resume_login(self, state: object, code: str) -> tuple[None, None]:
         assert state == {"synthetic_state": True}
         self.mfa_code = code
-        self._write_session(self.login_paths[-1])
         return None, None
 
-    @staticmethod
-    def _write_session(tokenstore: str | None) -> None:
-        assert tokenstore is not None
-        path = Path(tokenstore)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("synthetic-session-only", encoding="utf-8")
+    def dumps(self) -> str:
+        return json.dumps(
+            {
+                "di_token": "synthetic-di-token",
+                "di_refresh_token": "synthetic-refresh-token",
+                "di_client_id": "synthetic-client-id",
+            }
+        )
 
 
 class FakeFactory:
@@ -93,6 +112,14 @@ def service(
         client_factory=factory,
         credential_prompt=lambda _prompt: next(values),
         mfa_prompt=lambda _prompt: mfa_value,
+        session_protector=SyntheticTokenProtection(),
+    )
+
+
+def seed_session(auth_service: GarminAuthService, *, token: str = "synthetic-old-token") -> None:
+    auth_service.tokenstore.parent.mkdir(parents=True)
+    auth_service._write_protected_session(
+        json.dumps({"di_token": token, "di_refresh_token": "synthetic-old-refresh"})
     )
 
 
@@ -155,15 +182,33 @@ def test_auth_failure_is_fixed_vocabulary_and_does_not_echo_error(tmp_path: Path
 def test_expired_cached_session_falls_back_to_owner_reauth(tmp_path: Path) -> None:
     factory = FakeFactory("expired", "success")
     auth_service = service(tmp_path, factory)
-    auth_service.tokenstore.parent.mkdir(parents=True)
-    auth_service.tokenstore.write_text("synthetic-old-session", encoding="utf-8")
+    seed_session(auth_service)
 
     result = auth_service.bootstrap()
 
     assert result.status is GarminAuthStatus.AUTHENTICATED
     assert len(factory.clients) == 2
     assert factory.clients[0].email is None
-    assert auth_service.tokenstore.read_text(encoding="utf-8") == "synthetic-session-only"
+    assert factory.clients[0].login_paths[0].startswith("{")
+    assert factory.clients[1].login_paths == [None]
+    assert auth_service.tokenstore.read_text(encoding="utf-8") != "synthetic-old-session"
+
+
+def test_corrupt_cached_session_has_deterministic_owner_recovery_path(tmp_path: Path) -> None:
+    factory = FakeFactory("success")
+    auth_service = service(tmp_path, factory)
+    auth_service.tokenstore.parent.mkdir(parents=True)
+    auth_service.tokenstore.write_text("synthetic-poisoned-session", encoding="utf-8")
+
+    client, load_result = auth_service.load_existing()
+
+    assert client is None
+    assert load_result.status is GarminAuthStatus.REAUTH_REQUIRED
+    assert load_result.error is not None
+    assert load_result.error.error_code == "session_corrupt"
+    result = auth_service.bootstrap()
+    assert result.status is GarminAuthStatus.AUTHENTICATED
+    assert factory.clients[0].login_paths == [None]
 
 
 def test_force_reauth_uses_external_temporary_store_and_replaces_only_on_success(
@@ -171,34 +216,35 @@ def test_force_reauth_uses_external_temporary_store_and_replaces_only_on_success
 ) -> None:
     factory = FakeFactory("success")
     auth_service = service(tmp_path, factory)
-    auth_service.tokenstore.parent.mkdir(parents=True)
-    auth_service.tokenstore.write_text("synthetic-old-session", encoding="utf-8")
+    seed_session(auth_service)
+    old_session = auth_service.tokenstore.read_text(encoding="utf-8")
 
     result = auth_service.bootstrap(force_reauth=True)
 
     assert result.status is GarminAuthStatus.AUTHENTICATED
-    assert Path(factory.clients[0].login_paths[0]) != auth_service.tokenstore
-    assert auth_service.tokenstore.read_text(encoding="utf-8") == "synthetic-session-only"
-    assert not list(auth_service.tokenstore.parent.glob("*.tmp"))
+    assert factory.clients[0].login_paths == [None]
+    assert auth_service.tokenstore.read_text(encoding="utf-8") != old_session
+    assert not list(auth_service.tokenstore.parent.glob(".garmin_tokens.json.*.json"))
 
 
 def test_force_reauth_failure_preserves_previous_session(tmp_path: Path) -> None:
     factory = FakeFactory("failure")
     auth_service = service(tmp_path, factory)
-    auth_service.tokenstore.parent.mkdir(parents=True)
-    auth_service.tokenstore.write_text("synthetic-old-session", encoding="utf-8")
+    seed_session(auth_service)
+    old_session = auth_service.tokenstore.read_text(encoding="utf-8")
 
     result = auth_service.bootstrap(force_reauth=True)
 
     assert result.status is GarminAuthStatus.FAILED
-    assert auth_service.tokenstore.read_text(encoding="utf-8") == "synthetic-old-session"
-    assert not list(auth_service.tokenstore.parent.glob("*.tmp"))
+    assert auth_service.tokenstore.read_text(encoding="utf-8") == old_session
+    assert factory.clients[0].login_paths == [None]
+    assert not list(auth_service.tokenstore.parent.glob(".garmin_tokens.json.*.json"))
 
 
 def test_force_reauth_uses_pinned_provider_file_semantics_and_replaces_session(
     tmp_path: Path,
 ) -> None:
-    captured_paths: list[Path] = []
+    captured_tokenstores: list[str | None] = []
 
     def provider_factory(**kwargs: object) -> Garmin:
         provider = Garmin(**kwargs)
@@ -207,9 +253,7 @@ def test_force_reauth_uses_pinned_provider_file_semantics_and_replaces_session(
         provider.client.di_client_id = "synthetic-client-id"
 
         def local_login(*, tokenstore: str | None = None) -> tuple[None, None]:
-            assert tokenstore is not None
-            captured_paths.append(Path(tokenstore))
-            provider.client.dump(tokenstore)
+            captured_tokenstores.append(tokenstore)
             return None, None
 
         provider.login = local_login
@@ -221,33 +265,30 @@ def test_force_reauth_uses_pinned_provider_file_semantics_and_replaces_session(
         credential_prompt=lambda prompt: (
             "synthetic-owner-value" if "email" in prompt else "synthetic-password"
         ),
+        session_protector=SyntheticTokenProtection(),
     )
-    auth_service.tokenstore.parent.mkdir(parents=True)
-    auth_service.tokenstore.write_text("synthetic-old-session", encoding="utf-8")
+    seed_session(auth_service)
+    old_session = auth_service.tokenstore.read_text(encoding="utf-8")
 
     result = auth_service.bootstrap(force_reauth=True)
 
     assert result.status is GarminAuthStatus.AUTHENTICATED
-    assert len(captured_paths) == 1
-    temporary_path = captured_paths[0]
-    assert temporary_path.suffix == ".json"
-    assert token_file_path(str(temporary_path)) == temporary_path
-    non_json_path = temporary_path.with_suffix(".tmp")
+    assert captured_tokenstores == [None]
+    non_json_path = auth_service.tokenstore.with_suffix(".tmp")
     assert token_file_path(str(non_json_path)) == non_json_path / "garmin_tokens.json"
     assert auth_service.tokenstore.is_file()
-    assert auth_service.tokenstore.read_text(encoding="utf-8") != "synthetic-old-session"
-    assert not temporary_path.exists()
+    assert auth_service.tokenstore.read_text(encoding="utf-8") != old_session
+    assert not list(auth_service.tokenstore.parent.glob(".garmin_tokens.json.*.json"))
 
 
 def test_force_reauth_with_pinned_provider_failure_keeps_old_session(tmp_path: Path) -> None:
-    captured_paths: list[Path] = []
+    captured_tokenstores: list[str | None] = []
 
     def provider_factory(**kwargs: object) -> Garmin:
         provider = Garmin(**kwargs)
 
         def local_login(*, tokenstore: str | None = None) -> tuple[None, None]:
-            assert tokenstore is not None
-            captured_paths.append(Path(tokenstore))
+            captured_tokenstores.append(tokenstore)
             raise AuthenticationError("synthetic pinned-provider failure")
 
         provider.login = local_login
@@ -257,17 +298,54 @@ def test_force_reauth_with_pinned_provider_failure_keeps_old_session(tmp_path: P
         Settings(data_dir=tmp_path / "runtime"),
         client_factory=provider_factory,
         credential_prompt=lambda _prompt: "synthetic-credential",
+        session_protector=SyntheticTokenProtection(),
     )
-    auth_service.tokenstore.parent.mkdir(parents=True)
-    auth_service.tokenstore.write_text("synthetic-old-session", encoding="utf-8")
+    seed_session(auth_service)
+    old_session = auth_service.tokenstore.read_text(encoding="utf-8")
 
     result = auth_service.bootstrap(force_reauth=True)
 
     assert result.status is GarminAuthStatus.FAILED
-    assert auth_service.tokenstore.read_text(encoding="utf-8") == "synthetic-old-session"
-    assert len(captured_paths) == 1
-    assert captured_paths[0].suffix == ".json"
-    assert not captured_paths[0].exists()
+    assert auth_service.tokenstore.read_text(encoding="utf-8") == old_session
+    assert captured_tokenstores == [None]
+    assert not list(auth_service.tokenstore.parent.glob(".garmin_tokens.json.*.json"))
+
+
+def test_pinned_provider_accepts_inline_session_without_path_semantics() -> None:
+    provider = Garmin()
+    provider._load_profile_and_settings = lambda: None
+    provider.client._token_expires_soon = lambda: False
+
+    result = provider.login(
+        tokenstore=json.dumps(
+            {
+                "di_token": "synthetic-di-token",
+                "di_refresh_token": "synthetic-refresh-token",
+                "di_client_id": "synthetic-client-id",
+            }
+        )
+    )
+
+    assert result == (None, None)
+    assert provider.client.di_token == "synthetic-di-token"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows DPAPI regression")
+def test_windows_user_scoped_protection_round_trips_and_rejects_owner_tampering() -> None:
+    protection = WindowsUserScopedTokenProtection()
+    plaintext = '{"di_token":"synthetic-dpapi-token"}'
+
+    try:
+        envelope = protection.protect(plaintext)
+    except GarminSessionProtectionUnavailable:
+        pytest.skip("Windows user DPAPI profile is unavailable in this test host")
+
+    assert "synthetic-dpapi-token" not in envelope
+    assert protection.unprotect(envelope) == plaintext
+    tampered = json.loads(envelope)
+    tampered["user_sid"] = f"{tampered['user_sid']}-tampered"
+    with pytest.raises(GarminSessionCorruptError):
+        protection.unprotect(json.dumps(tampered))
 
 
 def test_provider_logging_is_silenced_and_logger_state_is_restored(
