@@ -360,6 +360,27 @@ def test_nested_sleep_contract_reports_typed_summary_leaves() -> None:
     assert stages["value_state"] == "present"
 
 
+def test_successful_report_declares_every_emitted_method() -> None:
+    report = GarminCapabilityProbe(FakeProbeClient()).run(("2026-09-05",))
+
+    for capability in report.as_dict()["capabilities"]:
+        declared = set(capability["methods"])
+        emitted = {call["method"] for call in capability["method_calls"]}
+        assert emitted <= declared, capability["code"]
+
+    naps = _capability(report, "naps")
+    assert naps["methods"] == ["get_sleep_data"]
+    assert {call["method"] for call in naps["method_calls"]} == {"get_sleep_data"}
+
+    cycling = _capability(report, "cycling_metrics")
+    assert set(cycling["methods"]) == {
+        "connectapi",
+        "get_activity",
+        "get_activity_details",
+    }
+    assert {call["method"] for call in cycling["method_calls"]} == set(cycling["methods"])
+
+
 def test_successful_endpoint_without_nested_metric_leaf_is_missing_not_supported() -> None:
     client = FakeProbeClient(
         responses={"get_sleep_data": {"dailySleepDTO": {"providerAddedField": "synthetic"}}}

@@ -129,6 +129,12 @@ identity, and idempotency continuation is documented in
 `docs/R02_NORMALIZATION_CONTRACT.md` and implemented by
 `healthcheck.garmin.normalization`.
 
+The inventory's `client_methods` is the static reviewed surface. The probe
+report's `methods` and `method_calls` describe only the bounded execution graph
+used by this spike; therefore naps currently executes `get_sleep_data` for its
+typed `dailySleepDTO.napTimeSeconds` evidence, while the separately reviewed
+`get_body_battery_events` surface remains documented in the inventory.
+
 ## Synthetic fixture contract
 
 Fixtures are provider-shaped but invented. They must:

@@ -95,7 +95,6 @@ _SLEEP_STAGE_FIELD_PATHS = (
 _SLEEP_STAGE_METRIC_PATHS = _SLEEP_STAGE_FIELD_PATHS
 _NAP_FIELD_PATHS = (
     "dailySleepDTO.napTimeSeconds",
-    "napEvents",
 )
 _NAP_METRIC_PATHS = _NAP_FIELD_PATHS
 _HRV_FIELD_PATHS = (
@@ -390,9 +389,9 @@ _PROBE_SPECS: tuple[_ProbeSpec, ...] = (
     ),
     _static_spec(
         "naps",
-        ("get_sleep_data", "get_body_battery_events"),
+        ("get_sleep_data",),
         "naps",
-        ("object", "array"),
+        ("object",),
         _NAP_FIELD_PATHS,
         metric_paths=_NAP_METRIC_PATHS,
     ),
@@ -561,7 +560,7 @@ _PROBE_SPECS: tuple[_ProbeSpec, ...] = (
     _SPECIAL_INTRADAY,
     _static_spec(
         "cycling_metrics",
-        (_ACTIVITY_DISCOVERY_METHOD, "get_activity_details"),
+        (_ACTIVITY_DISCOVERY_METHOD, "get_activity", "get_activity_details"),
         "cycling_metrics",
         ("object", "bytes"),
         _ACTIVITY_FIELD_PATHS,
@@ -788,11 +787,8 @@ class GarminCapabilityProbe:
                     if observation.not_run_reason is not None:
                         abort_reason = observation.not_run_reason
                         break
-                observations.setdefault("naps", []).extend(
-                    item
-                    for operation in ("sleep", "body_battery")
-                    if (item := date_observations.get(operation)) is not None
-                )
+                if (sleep_observation := date_observations.get("sleep")) is not None:
+                    observations.setdefault("naps", []).append(sleep_observation)
                 if auth_lost:
                     break
 
