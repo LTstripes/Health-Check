@@ -213,6 +213,7 @@ def _blob_from_bytes(value: bytes) -> tuple[_DataBlob, Any]:
 
 def _dpapi_protect(value: bytes) -> bytes:
     crypt32 = _windows_library("crypt32.dll")
+    kernel32 = _windows_library("kernel32.dll")
     crypt32.CryptProtectData.argtypes = [
         ctypes.POINTER(_DataBlob),
         ctypes.c_wchar_p,
@@ -234,11 +235,12 @@ def _dpapi_protect(value: bytes) -> bytes:
     try:
         return ctypes.string_at(output_blob.pbData, output_blob.cbData)
     finally:
-        _local_free(crypt32, output_blob.pbData)
+        _local_free(kernel32, output_blob.pbData)
 
 
 def _dpapi_unprotect(value: bytes) -> bytes:
     crypt32 = _windows_library("crypt32.dll")
+    kernel32 = _windows_library("kernel32.dll")
     crypt32.CryptUnprotectData.argtypes = [
         ctypes.POINTER(_DataBlob),
         ctypes.POINTER(ctypes.c_wchar_p),
@@ -258,7 +260,7 @@ def _dpapi_unprotect(value: bytes) -> bytes:
         None,
         None,
         None,
-        0,
+        0x1,
         ctypes.byref(output_blob),
     ):
         del input_buffer
@@ -267,9 +269,9 @@ def _dpapi_unprotect(value: bytes) -> bytes:
     try:
         return ctypes.string_at(output_blob.pbData, output_blob.cbData)
     finally:
-        _local_free(crypt32, output_blob.pbData)
+        _local_free(kernel32, output_blob.pbData)
         if description:
-            _local_free(crypt32, description)
+            _local_free(kernel32, description)
 
 
 class WindowsUserScopedTokenProtection:
