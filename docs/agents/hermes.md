@@ -18,8 +18,9 @@ The Hermes session that receives the issue is the accountable primary worker eve
 
 It must:
 
-- read `AGENTS.md`, the issue and active release spec;
+- read `AGENTS.md`, the issue and the active release spec when one is explicitly designated;
 - verify assigned baseline/branch/workspace;
+- never infer the next-release baseline from a completed prior integration line or an old stacked branch;
 - keep all delegates inside issue scope;
 - ensure only the assigned candidate branch is delivered unless the issue explicitly defines benchmark branches;
 - report the actual delegate/fallback chain.
