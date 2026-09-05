@@ -352,7 +352,7 @@ class GarminAuthService:
             if force_reauth:
                 temporary_tokenstore = validate_external_tokenstore(
                     self.tokenstore.with_name(
-                        f".{self.tokenstore.name}.{secrets.token_hex(16)}.tmp"
+                        f".{self.tokenstore.stem}.{secrets.token_hex(16)}.json"
                     )
                 )
                 login_tokenstore = temporary_tokenstore
