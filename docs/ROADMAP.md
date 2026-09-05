@@ -15,7 +15,7 @@ Outputs:
 
 No product code or production data is part of R00.
 
-## R01 — Weight & Body Composition vertical slice
+## R01 — Weight & Body Composition vertical slice (release gate complete)
 
 Deliver the first useful product and the reusable Health-Check core:
 
@@ -27,6 +27,8 @@ Deliver the first useful product and the reusable Health-Check core:
 - raw weight, time-aware trend, robust rate, compatible body-composition series, estimated fat/lean mass, and recomposition view;
 - minimal local dashboard with provenance, coverage, import history, and algorithm-discontinuity warnings;
 - synthetic offline tests.
+
+The mandatory R01 owner gate passed on integrated candidate `058639919c4b5e13c420e7c016d292843afa10dc`. Final closeout evidence, including owner-assisted historical Xiaomi migration and explicit UNVERIFIED live-device/provider items, is recorded in [R01 Release Closeout](R01_RELEASE_CLOSEOUT.md).
 
 Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted AI/SQL are excluded.
 
