@@ -76,9 +76,9 @@ def test_matrix_rows_keep_client_surface_separate_from_device_evidence() -> None
     assert readiness.audit_status is CapabilityStatus.UNAVAILABLE
     assert status.client_methods == ("get_training_status",)
     assert status.audit_status is CapabilityStatus.NOT_DEVICE_PRODUCED
-    assert effect.client_fields == ("trainingEffect",)
+    assert effect.client_fields == ("aerobicTrainingEffect", "anaerobicTrainingEffect")
     assert effect.audit_status is CapabilityStatus.UNVERIFIED
-    assert load.client_fields == ("trainingLoad",)
+    assert load.client_fields == ("activityTrainingLoad",)
     assert load.audit_status is CapabilityStatus.UNVERIFIED
     assert all(not item.method_presence_is_device_evidence for item in CAPABILITY_MATRIX)
 

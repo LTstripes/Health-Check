@@ -163,11 +163,13 @@ def test_unattributed_account_value_is_not_device_evidence() -> None:
 def test_missing_null_and_zero_are_three_distinct_states() -> None:
     present = raw_fixture("daily_health")
     zero = raw_fixture("daily_health")
-    zero["payload"]["restingHeartRate"] = 0
+    zero["payload"]["allMetrics"]["metricsMap"]["WELLNESS_RESTING_HEART_RATE"][0]["value"] = 0
     missing = raw_fixture("daily_health")
-    del missing["payload"]["restingHeartRate"]
+    del missing["payload"]["allMetrics"]["metricsMap"]["WELLNESS_RESTING_HEART_RATE"]
     explicit_null = raw_fixture("daily_health")
-    explicit_null["payload"]["restingHeartRate"] = None
+    explicit_null["payload"]["allMetrics"]["metricsMap"][
+        "WELLNESS_RESTING_HEART_RATE"
+    ][0]["value"] = None
 
     present_result = normalize_garmin_payload(present)
     zero_result = normalize_garmin_payload(zero)
@@ -188,7 +190,7 @@ def test_missing_null_and_zero_are_three_distinct_states() -> None:
 
 def test_partial_empty_and_shape_drift_results_are_deterministic() -> None:
     partial = raw_fixture("sleep")
-    partial["payload"].pop("sleepScore")
+    partial["payload"]["dailySleepDTO"]["sleepScores"].pop("overall")
     partial["payload"]["levels"] = "unexpected-shape"
     first = normalize_garmin_payload(partial)
     second = normalize_garmin_payload(json.loads(json.dumps(partial)))

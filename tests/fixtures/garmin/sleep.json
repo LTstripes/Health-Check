@@ -11,17 +11,24 @@
   },
   "client_methods": ["get_sleep_data"],
   "payload_fields": {
-    "sleep": "sleepTimeSeconds",
-    "sleep_score": "sleepScore.value",
-    "sleep_stages": "levels",
-    "naps": "napTimeSeconds"
+    "sleep": "dailySleepDTO.sleepTimeSeconds",
+    "sleep_score": "dailySleepDTO.sleepScores.overall.value",
+    "sleep_stages": "dailySleepDTO.deepSleepSeconds",
+    "naps": "dailySleepDTO.napTimeSeconds"
   },
   "payload": {
-    "calendarDate": "2099-01-02",
-    "sleepTimeSeconds": 28800,
-    "sleepScore": {
-      "value": 82,
-      "qualifier": "synthetic"
+    "dailySleepDTO": {
+      "calendarDate": "2099-01-02",
+      "sleepTimeSeconds": 28800,
+      "napTimeSeconds": 900,
+      "deepSleepSeconds": 7200,
+      "lightSleepSeconds": 14400,
+      "remSleepSeconds": 6000,
+      "awakeSleepSeconds": 1200,
+      "sleepScores": {
+        "overall": {"value": 82, "qualifierKey": "SYNTHETIC"},
+        "totalDuration": {"value": 90}
+      }
     },
     "levels": [
       {
@@ -34,7 +41,6 @@
         "endTimeGMT": "2099-01-02T06:45:00Z",
         "activityLevel": "light"
       }
-    ],
-    "napTimeSeconds": 900
+    ]
   }
 }

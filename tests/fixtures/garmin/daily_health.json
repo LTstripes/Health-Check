@@ -17,17 +17,21 @@
     "get_training_status"
   ],
   "payload_fields": {
-    "resting_heart_rate": "restingHeartRate",
-    "hrv_status": "hrvStatus.weeklyAverage",
+    "resting_heart_rate": "allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE.0.value",
+    "hrv_status": "hrvSummary.weeklyAvg",
     "vo2_max": "maxMetrics.vo2MaxRunning",
     "training_readiness": "trainingReadiness",
     "training_status": "trainingStatus"
   },
   "payload": {
     "calendarDate": "2099-01-02",
-    "restingHeartRate": 52,
-    "hrvStatus": {
-      "weeklyAverage": 55,
+    "allMetrics": {
+      "metricsMap": {
+        "WELLNESS_RESTING_HEART_RATE": [{"value": 52}]
+      }
+    },
+    "hrvSummary": {
+      "weeklyAvg": 55,
       "status": "balanced"
     },
     "maxMetrics": {

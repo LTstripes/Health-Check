@@ -101,14 +101,14 @@ issue because no live Garmin account is accessed.
 | Code | Stream | Watch/device review | Garmin Connect surface | Client surface (`0.3.12`) | Static status |
 | --- | --- | --- | --- | --- | --- |
 | `sleep` | sleep | Supported | Detailed sleep | `get_sleep_data` | `VERIFIED` |
-| `sleep_score` | sleep | Supported | Sleep payload overall score | `get_sleep_data`, `sleepScore` | `VERIFIED` |
-| `sleep_stages` | sleep | Supported | Raw levels and totals | `get_sleep_data`, `levels` | `VERIFIED` |
-| `naps` | sleep | Conditional: totals/events reviewed, exact intervals unknown | Watch/app/web totals and events | `get_sleep_data`, `get_body_battery_events`, `napTimeSeconds` | `VERIFIED_CONDITIONAL` |
+| `sleep_score` | sleep | Supported | Sleep payload overall score | `get_sleep_data`, `dailySleepDTO.sleepScores.overall.value` | `VERIFIED` |
+| `sleep_stages` | sleep | Supported | Nested stage totals plus raw levels | `get_sleep_data`, `dailySleepDTO.*SleepSeconds`, `levels` | `VERIFIED` |
+| `naps` | sleep | Conditional: totals/events reviewed, exact intervals unknown | Watch/app/web totals and events | `get_sleep_data`, `get_body_battery_events`, `dailySleepDTO.napTimeSeconds`, `napEvents` | `VERIFIED_CONDITIONAL` |
 | `heart_rate` | intraday | Supported | Daily/activity/FIT records | `get_heart_rates` | `VERIFIED` |
 | `resting_heart_rate` | daily health | Supported | Daily history | `get_rhr_day` | `VERIFIED` |
 | `hrv_status` | daily health | Supported after overnight baseline | Status/trends | `get_hrv_data` | `VERIFIED` |
 | `stress` | intraday | Supported | Daily timeline | `get_stress_data` | `VERIFIED` |
-| `body_battery` | intraday | Supported | Trends/events | `get_body_battery_events`, body-battery fields | `VERIFIED` |
+| `body_battery` | intraday | Supported | Trends/events | `get_body_battery`, `charged`, `drained`, `bodyBatteryValuesArray` | `VERIFIED` |
 | `spo2` | intraday | Conditional: setting/region/sleep dependent | Trends | `get_spo2_data` | `VERIFIED_CONDITIONAL` |
 | `respiration` | intraday | Conditional: activity-type limits | Daily/sleep records | `get_respiration_data` | `VERIFIED_CONDITIONAL` |
 | `vo2_max` | daily health | Watch/endpoint reviewed; owner payload unknown | Max metrics | `get_max_metrics` | `UNVERIFIED` |

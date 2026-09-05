@@ -674,25 +674,44 @@ class _ScalarSpec:
 
 
 _SLEEP_SCALARS = (
-    _ScalarSpec("sleep", "sleep_duration_seconds", ("sleepTimeSeconds",), "number", "seconds"),
     _ScalarSpec(
-        "sleep_score", "sleep_score", ("sleepScore.value", "sleepScore"), "number", "points"
+        "sleep",
+        "sleep_duration_seconds",
+        ("dailySleepDTO.sleepTimeSeconds",),
+        "number",
+        "seconds",
     ),
-    _ScalarSpec("naps", "nap_duration_seconds", ("napTimeSeconds",), "number", "seconds"),
+    _ScalarSpec(
+        "sleep_score",
+        "sleep_score",
+        ("dailySleepDTO.sleepScores.overall.value",),
+        "number",
+        "points",
+    ),
+    _ScalarSpec(
+        "naps",
+        "nap_duration_seconds",
+        ("dailySleepDTO.napTimeSeconds",),
+        "number",
+        "seconds",
+    ),
 )
 
 _DAILY_SCALARS = (
     _ScalarSpec(
         "resting_heart_rate",
         "resting_heart_rate_bpm",
-        ("restingHeartRate",),
+        (
+            "allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE.0.value",
+            "restingHeartRate",
+        ),
         "number",
         "bpm",
     ),
     _ScalarSpec(
         "hrv_status",
         "hrv_weekly_average_ms",
-        ("hrvStatus.weeklyAverage",),
+        ("hrvSummary.weeklyAvg", "hrvStatus.weeklyAverage"),
         "number",
         "ms",
     ),
@@ -706,7 +725,7 @@ _DAILY_SCALARS = (
     _ScalarSpec(
         "training_readiness",
         "training_readiness",
-        ("trainingReadiness.value", "trainingReadiness"),
+        ("trainingReadiness.score", "trainingReadiness"),
         "number_or_text",
         "points",
     ),
@@ -720,16 +739,50 @@ _DAILY_SCALARS = (
 )
 
 _ACTIVITY_SCALARS = (
-    _ScalarSpec("activities", "duration_seconds", ("durationSeconds",), "number", "seconds"),
-    _ScalarSpec("activities", "distance_meters", ("distanceMeters",), "number", "meters"),
-    _ScalarSpec("training_effect", "training_effect", ("trainingEffect",), "number", "points"),
     _ScalarSpec(
-        "acute_training_load", "acute_training_load", ("trainingLoad",), "number", "points"
+        "activities",
+        "duration_seconds",
+        ("duration", "durationSeconds"),
+        "number",
+        "seconds",
     ),
-    _ScalarSpec("cycling_metrics", "speed_mps", ("metrics.speedMps",), "number", "m/s"),
-    _ScalarSpec("cycling_metrics", "heart_rate_bpm", ("metrics.heartRateBpm",), "number", "bpm"),
-    _ScalarSpec("cycling_metrics", "cadence_rpm", ("metrics.cadenceRpm",), "number", "rpm"),
-    _ScalarSpec("cycling_metrics", "power_watts", ("metrics.powerWatts",), "number", "watts"),
+    _ScalarSpec(
+        "activities",
+        "distance_meters",
+        ("distance", "distanceMeters"),
+        "number",
+        "meters",
+    ),
+    _ScalarSpec(
+        "training_effect",
+        "training_effect",
+        ("aerobicTrainingEffect", "trainingEffect"),
+        "number",
+        "points",
+    ),
+    _ScalarSpec(
+        "acute_training_load",
+        "acute_training_load",
+        ("activityTrainingLoad", "trainingLoad"),
+        "number",
+        "points",
+    ),
+    _ScalarSpec(
+        "cycling_metrics", "speed_mps", ("averageSpeed", "metrics.speedMps"), "number", "m/s"
+    ),
+    _ScalarSpec(
+        "cycling_metrics", "heart_rate_bpm", ("averageHR", "metrics.heartRateBpm"), "number", "bpm"
+    ),
+    _ScalarSpec(
+        "cycling_metrics",
+        "cadence_rpm",
+        ("averageRunningCadenceInStepsPerMinute", "metrics.cadenceRpm"),
+        "number",
+        "rpm",
+    ),
+    _ScalarSpec(
+        "cycling_metrics", "power_watts", ("avgPower", "metrics.powerWatts"), "number", "watts"
+    ),
 )
 
 _FIT_SCALARS = (
@@ -758,6 +811,7 @@ _INTRADAY_SCALARS = (
     ),
 )
 
+_CALENDAR_PATHS = ("calendarDate", "dailySleepDTO.calendarDate")
 _COMMON_TIME_PATHS = (
     "startTimeGMT",
     "startTimeLocal",
@@ -1160,7 +1214,7 @@ def _parse_record_temporal(
 ) -> tuple[GarminTemporalDTO, list[GarminDiagnostic]]:
     """Parse record time fields while retaining paired Local/GMT evidence."""
 
-    calendar_value = raw.get("calendarDate", _MISSING)
+    calendar_path, calendar_value = _first_present(raw, _CALENDAR_PATHS)
     local_path, local_value = _first_present(raw, _PAIRED_LOCAL_TIME_PATHS)
     utc_path, utc_value = _first_present(raw, _PAIRED_UTC_TIME_PATHS)
     if local_path is None and utc_path is None:
@@ -1178,7 +1232,9 @@ def _parse_record_temporal(
     if calendar_value is not _MISSING:
         parsed_calendar = _parse_date(calendar_value)
         if parsed_calendar is None:
-            diagnostics.append(_diag("invalid_calendar_date", "calendarDate", "error"))
+            diagnostics.append(
+                _diag("invalid_calendar_date", f"{source_path}.{calendar_path}", "error")
+            )
     component_calendar = calendar_value if parsed_calendar is not None else _MISSING
     source_timezone, source_utc_offset_minutes = _source_time_evidence(raw)
 
@@ -1328,7 +1384,14 @@ def _parse_record(
     metrics = [replace(item, source_device_attributed=source.device_attributed) for item in metrics]
 
     activity_type = raw.get("activityType")
-    if activity_type is not None and not isinstance(activity_type, str):
+    if isinstance(activity_type, Mapping):
+        activity_type = activity_type.get("typeKey")
+        if activity_type is not None and not isinstance(activity_type, str):
+            diagnostics.append(
+                _diag("activity_type_shape_drift", f"{source_path}.activityType.typeKey", "error")
+            )
+            activity_type = None
+    elif activity_type is not None and not isinstance(activity_type, str):
         diagnostics.append(
             _diag("activity_type_shape_drift", f"{source_path}.activityType", "error")
         )

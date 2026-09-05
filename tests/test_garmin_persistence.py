@@ -209,7 +209,7 @@ def test_exact_replay_is_idempotent_but_refreshed_payload_updates_current_projec
 
     refreshed_payload = raw_fixture("activity")
     refreshed_payload["fixture_id"] = "synthetic-vivoactive-5-cycling-refreshed"
-    refreshed_payload["payload"]["activities"][0]["durationSeconds"] = 9999
+    refreshed_payload["payload"]["activities"][0]["duration"] = 9999
     refreshed = persist(session, store, "activity", payload=refreshed_payload)
     assert refreshed.replayed is False
     assert refreshed.inserted_count == 0
@@ -391,9 +391,9 @@ def test_missing_null_and_zero_are_persisted_as_distinct_states(
     _paths, session, store = persistence_database
     payload = raw_fixture("daily_health")["payload"]
     if label == "missing":
-        payload.pop("restingHeartRate")
+        del payload["allMetrics"]["metricsMap"]["WELLNESS_RESTING_HEART_RATE"]
     else:
-        payload["restingHeartRate"] = value
+        payload["allMetrics"]["metricsMap"]["WELLNESS_RESTING_HEART_RATE"][0]["value"] = value
     source = GarminSourceIdentity(
         source_kind="synthetic",
         provider_code="garmin_connect",
