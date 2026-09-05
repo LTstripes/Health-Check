@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Error — Health-Check{% endblock %}
+{% block content %}
+<section class="card error-card">
+  <h1>Something stopped</h1>
+  <p><code>{{ code }}</code></p>
+  <p>{{ message }}</p>
+  <p class="muted">No database internals, secrets, or raw payloads are shown here.</p>
+  <p><a href="/">Dashboard</a> · <a href="/imports">Import queue</a></p>
+</section>
+{% endblock %}

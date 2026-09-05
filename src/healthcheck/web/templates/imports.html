@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Import review — Health-Check{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1>Photo import queue</h1>
+    <p class="muted">Uploading extracts candidates only. Nothing becomes confirmed or canonical until you explicitly confirm selected rows.</p>
+  </div>
+  <dl class="current">
+    <div>
+      <dt>Pending candidates</dt>
+      <dd>{{ queue.pending_candidate_count }}</dd>
+    </div>
+    <div>
+      <dt>Confirmed</dt>
+      <dd>{{ queue.confirmed_candidate_count }}</dd>
+    </div>
+    <div>
+      <dt>Rejected</dt>
+      <dd>{{ queue.rejected_candidate_count }}</dd>
+    </div>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Upload Xiaomi S400 screenshots or photos</h2>
+  <form class="upload" action="/imports/photos" method="post" enctype="multipart/form-data">
+    <input type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required>
+    <button type="submit">Upload for review</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Batch history</h2>
+  {% if batches %}
+  <table>
+    <thead>
+      <tr>
+        <th>Started</th>
+        <th>Status</th>
+        <th>Received</th>
+        <th>Parsed</th>
+        <th>Committed</th>
+        <th>Failed</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for batch in batches %}
+      <tr>
+        <td>{{ batch.started_at }}</td>
+        <td><code>{{ batch.status }}</code></td>
+        <td>{{ batch.received_count }}</td>
+        <td>{{ batch.parsed_count }}</td>
+        <td>{{ batch.committed_count }}</td>
+        <td>{{ batch.failed_count }}</td>
+        <td><a href="/imports/{{ batch.id }}">Review</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="unavailable">No import batches yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

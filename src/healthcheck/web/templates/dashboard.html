@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Weight dashboard — Health-Check{% endblock %}
+{% block content %}
+<section class="bia-banner" role="note">
+  {{ payload.bia_uncertainty }}
+</section>
+{% if payload.algorithm_boundary.present %}
+<section class="algorithm-banner" role="alert">
+  {{ payload.algorithm_boundary.warning }}
+  Groups:
+  {% for group in payload.algorithm_boundary.groups %}
+    <code>{{ group }}</code>{% if not loop.last %}, {% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+{% if payload.canonical.warning or payload.canonical.stale or payload.canonical.reason in ["canonical_selection_failed", "canonical_selection_in_progress"] %}
+<section class="canonical-banner" role="alert" data-canonical-warning="{{ payload.canonical.warning or payload.canonical.reason }}">
+  {% if payload.canonical.available and payload.canonical.stale %}
+    Canonical analytics below come from the last successful snapshot and may be stale.
+    Latest recomputation status: <code>{{ payload.canonical.warning or payload.canonical.latest_attempt_status }}</code>.
+  {% elif payload.canonical.reason == "canonical_selection_failed" or payload.canonical.warning == "canonical_recompute_failed" %}
+    Canonical selection is unavailable after a failed recomputation.
+    Status: <code>{{ payload.canonical.warning or payload.canonical.reason }}</code>.
+  {% else %}
+    Canonical selection is not ready yet.
+    Status: <code>{{ payload.canonical.warning or payload.canonical.reason or "unknown" }}</code>.
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="hero">
+  <div>
+    <h1>Weight and body composition</h1>
+    <p class="muted">Raw confirmed source points stay visible. The trend is a 21-day time-aware EWMA, not a replacement for the observations.</p>
+  </div>
+  <dl class="current">
+    <div>
+      <dt>Current confirmed weight</dt>
+      <dd>
+        {% if payload.current.available %}
+          {{ '%.1f'|format(payload.current.value_kg) }} kg
+          <span class="muted">on {{ payload.current.observed_date }} (source)</span>
+        {% else %}
+          <span class="unavailable">unavailable</span>
+          <span class="muted">({{ payload.current.reason or 'no_data' }})</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Goal</dt>
+      <dd>
+        {% if payload.goal_kg is not none %}
+          {{ '%.1f'|format(payload.goal_kg) }} kg
+        {% else %}
+          <span class="unavailable">not configured</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Pending import candidates</dt>
+      <dd>
+        {% if payload.imports.pending_candidate_count %}
+          <a href="/imports">{{ payload.imports.pending_candidate_count }} awaiting review</a>
+        {% else %}
+          0 pending
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Weight series</h2>
+  <p class="legend">
+    <span class="swatch raw"></span> Raw confirmed weight (source)
+    <span class="swatch trend"></span> 21-day time-aware trend (Health-Check derived)
+    <span class="swatch goal"></span> Configured goal
+  </p>
+  <div id="weight-chart" class="chart" aria-label="Weight chart"></div>
+  <p id="trend-status" class="muted"></p>
+</section>
+
+<section class="grid">
+  <article class="card">
+    <h2>Theil–Sen rate (trailing 90 days)</h2>
+    <div id="rate-panel"></div>
+  </article>
+  <article class="card">
+    <h2>Coverage and freshness</h2>
+    <div id="coverage-panel"></div>
+  </article>
+  <article class="card">
+    <h2>Latest composition</h2>
+    <div id="composition-latest"></div>
+  </article>
+  <article class="card">
+    <h2>Similar-weight recomposition evidence</h2>
+    <p class="muted">Same algorithm only, at least 28 days apart, weight within 1%. Not a tissue-change claim.</p>
+    <div id="similar-panel"></div>
+  </article>
+</section>
+
+<section class="card">
+  <h2>Body composition by algorithm group</h2>
+  <p class="muted">Estimated fat/lean are Health-Check derived from same-session weight and body fat. Source muscle mass is never renamed to lean mass.</p>
+  <div id="composition-groups"></div>
+</section>
+
+<section class="card">
+  <h2>Point provenance</h2>
+  <p class="muted">Click a raw weight point. Provenance shows source, device, input method and algorithm — not secrets or raw payload bodies.</p>
+  <div id="provenance-panel" class="provenance empty">Select a raw point on the chart.</div>
+</section>
+
+<script id="dashboard-data" type="application/json">{{ payload | tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/dashboard.js"></script>
+{% endblock %}
