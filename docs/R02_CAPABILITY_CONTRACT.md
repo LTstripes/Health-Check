@@ -2,9 +2,10 @@
 
 This document freezes the pre-ingestion capability inventory for a Garmin
 Vivoactive 5 and the reviewed `python-garminconnect` `0.3.12` source surface.
-It is an offline contract only. This issue does not add Garmin authentication,
-live calls, token handling, backfill, database/schema work, or an ingestion
-adapter.
+The matrix itself remains an offline/static contract. Issue #31 adds a
+separate owner-assisted authentication and capability-probe harness; it does
+not mutate this matrix or add ingestion, backfill, database/schema work, or a
+UI.
 
 The matrix has four deliberately separate questions:
 
@@ -17,6 +18,58 @@ The matrix has four deliberately separate questions:
 
 The third column never answers the first or fourth. A method or typed field is
 not evidence that a Vivoactive 5 produces that metric.
+
+## Issue #31 owner-assisted boundary
+
+The #31 commands run only when the owner invokes them from a checkout. They
+use the pinned `python-garminconnect` source revision recorded in
+`docs/REFERENCE_PROJECTS.md`, prompt for credentials and MFA through hidden
+input, and keep the reusable tokenstore below the external
+`HEALTHCHECK_DATA_DIR` runtime tree. The runtime path is rejected if it
+resolves inside the checkout. The implementation and CI tests use only fake
+clients and synthetic payloads; no agent or CI process runs these commands
+against an owner account.
+
+The live probe accepts one or two adjacent owner-selected dates and at most
+one activity selected from that small window. It calls only the allowlisted
+read/download methods in `healthcheck.garmin.probe`. It does not call
+`prepare-runtime`, migrate a database, write R02 persistence tables, ingest,
+backfill, or render a UI. The probe retains raw responses only transiently in
+memory so it can return a structural summary.
+
+The sanitized report has this shape:
+
+```text
+contract_version: r02-garmin-capability-spike-v1
+source: provider_code, target_device_code, target_device_model
+library: name, version
+application: name, version (unknown when no owner-safe app version is exposed)
+auth: status, session_reused, mfa, storage, fixed-vocabulary error
+probe: window_day_count, activity_requested, activity_selected, request_count,
+       raw_payloads_retained=false, database_writes=false
+privacy: raw_values_emitted=false, private_identifiers_emitted=false,
+         tokens_emitted=false, health_timestamps_emitted=false
+capabilities[]: code, static_audit_status, static_device_support, methods,
+                method_callable, request_succeeded, status, value_state,
+                payload_shapes, safe field_paths, shape_counts,
+                field_state_counts, device_attribution,
+                target_device_evidence, method_calls, fixed-vocabulary errors
+```
+
+`status` distinguishes `succeeded`, `empty`, `null`, `unsupported`,
+`shape_drift`, `method_unavailable`, `reauth_required`, `failed`, and
+`not_run`/`partial`. `method_callable=true` never upgrades static device
+support. A target-device capability claim requires both a present response
+and target-device evidence; otherwise the live result remains unknown or
+unattributed.
+
+The report contains no health values, activity/profile/device IDs, routes,
+coordinates, precise health timestamps, credentials, cookies, tokens, or raw
+payload dumps. If a raw owner response is deliberately saved for later shape
+work, it must stay outside the checkout and be passed through the separate
+`garmin-redact` command before anything is shared. The redaction output keeps
+only types, bounded counts, safe field names, presence states, and coarse
+attribution status.
 
 ## Matrix
 
@@ -76,10 +129,22 @@ Training Status value but no producer attribution. `daily_health.json` also
 keeps null Training Readiness and Training Status fields explicit. None of
 these fixtures changes the inventory status.
 
-## Future owner-controlled live spike questions
+## Owner live step and remaining questions
 
-The following remain `UNVERIFIED` and require a separately authorized owner
-environment. They are not run by this issue:
+The exact owner procedure is in
+`docs/R02_OWNER_AUTH_CAPABILITY_SPIKE.md`. In short, the owner runs auth first
+and then the separate capability probe:
+
+```powershell
+$ownerData = Join-Path $env:LOCALAPPDATA "Health-Check"
+uv run --locked healthcheck garmin-auth --data-dir $ownerData
+$probeDate = (Get-Date).ToString("yyyy-MM-dd")
+uv run --locked healthcheck garmin-capabilities --data-dir $ownerData --date $probeDate
+```
+
+Only the sanitized JSON summary may be copied back. Until the owner performs
+this step and an Integrator reviews the summary, every owner-account result
+below remains `UNVERIFIED`:
 
 - Prove owner-region login/MFA, token refresh/reconnect, and Windows at-rest
   storage.

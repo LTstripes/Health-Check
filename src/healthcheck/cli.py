@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 
@@ -11,6 +12,9 @@ import uvicorn
 from healthcheck.config import Settings
 from healthcheck.db.engine import migrate_database
 from healthcheck.demo import DemoSeedError, seed_demo
+from healthcheck.garmin.auth import GarminAuthService
+from healthcheck.garmin.probe import GarminCapabilityProbe, validate_probe_dates
+from healthcheck.garmin.redaction import redact_garmin_payload, validate_external_export_paths
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.runtime import prepare_runtime
@@ -22,7 +26,17 @@ from healthcheck.web.ui_app import create_ui_app
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="healthcheck")
     parser.add_argument(
-        "command", choices=("prepare-runtime", "migrate", "serve", "seed-demo", "smoke")
+        "command",
+        choices=(
+            "prepare-runtime",
+            "migrate",
+            "serve",
+            "seed-demo",
+            "smoke",
+            "garmin-auth",
+            "garmin-capabilities",
+            "garmin-redact",
+        ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
     parser.add_argument("--data-dir")
@@ -32,6 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ui-url", default="http://127.0.0.1:8000")
     parser.add_argument("--ingest-url")
     parser.add_argument("--timeout", type=float, default=3.0)
+    parser.add_argument("--force-reauth", action="store_true")
+    parser.add_argument("--is-cn", action="store_true")
+    parser.add_argument("--date", action="append", dest="dates")
+    parser.add_argument("--input")
+    parser.add_argument("--output")
     return parser
 
 
@@ -60,7 +79,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(format_smoke_results(results))
         return smoke_exit_code(results)
 
+    if args.command == "garmin-redact":
+        return _run_garmin_redact(args)
+
     settings = _settings(args)
+    if args.command == "garmin-auth":
+        return _run_garmin_auth(args, settings)
+    if args.command == "garmin-capabilities":
+        return _run_garmin_capabilities(args, settings)
     if args.command == "seed-demo":
         try:
             result = seed_demo(settings, reset=args.reset)
@@ -122,6 +148,84 @@ def main(argv: Sequence[str] | None = None) -> int:
         service = "ingest"
     log_event("runtime_starting", operation="serve", service=service, status="ok")
     uvicorn.run(app, host=host, port=port, log_config=None)
+    return 0
+
+
+def _run_garmin_auth(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        result = GarminAuthService(settings, is_cn=args.is_cn).bootstrap(
+            force_reauth=args.force_reauth
+        )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r02-garmin-auth-spike-v1",
+                    "status": "failed",
+                    "session_reused": False,
+                    "mfa": "not_attempted",
+                    "storage": "rejected",
+                    "error": {
+                        "error_class": "storage",
+                        "error_code": "unsafe_storage_path",
+                        "http_status": None,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(json.dumps(result.as_dict(), ensure_ascii=True, sort_keys=True))
+    return 0 if result.ok else 1
+
+
+def _run_garmin_capabilities(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        dates = validate_probe_dates(args.dates)
+        service = GarminAuthService(settings, is_cn=args.is_cn)
+        client, auth_result = service.load_existing()
+        report = GarminCapabilityProbe(client).run(dates, auth_result=auth_result)
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r02-garmin-capability-spike-v1",
+                    "error": {
+                        "error_class": "input",
+                        "error_code": "invalid_probe_request",
+                        "http_status": None,
+                    },
+                    "privacy": {
+                        "raw_values_emitted": False,
+                        "private_identifiers_emitted": False,
+                        "tokens_emitted": False,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    return 0 if auth_result.ok else 1
+
+
+def _run_garmin_redact(args: argparse.Namespace) -> int:
+    if not args.input or not args.output:
+        print("garmin-redact: ERROR: --input and --output are required", file=sys.stderr)
+        return 2
+    try:
+        input_path, output_path = validate_external_export_paths(args.input, args.output)
+        value = json.loads(input_path.read_text(encoding="utf-8"))
+        sanitized = redact_garmin_payload(value)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(sanitized, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
+        print("garmin-redact: ERROR: input or output was not accepted", file=sys.stderr)
+        return 2
+    print("garmin-redact: sanitized shape written; raw values were not copied")
     return 0
 
 
