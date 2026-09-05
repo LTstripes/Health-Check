@@ -12,27 +12,24 @@
   "client_methods": ["get_activities_by_date", "download_activity"],
   "payload_fields": {
     "activities": "activities",
-    "cycling_metrics": "activities.0.metrics",
-    "training_effect": "activities.0.trainingEffect",
-    "acute_training_load": "activities.0.trainingLoad"
+    "cycling_metrics": "activities.0.averageSpeed",
+    "training_effect": "activities.0.aerobicTrainingEffect",
+    "acute_training_load": "activities.0.activityTrainingLoad"
   },
   "payload": {
     "activities": [
       {
         "activityId": "synthetic-activity-001",
-        "activityType": "cycling",
+        "activityType": {"typeKey": "cycling"},
         "startTimeGMT": "2099-01-02T08:00:00Z",
-        "durationSeconds": 3600,
-        "distanceMeters": 21000,
-        "metrics": {
-          "speedMps": 5.83,
-          "heartRateBpm": 128,
-          "cadenceRpm": 82,
-          "powerWatts": null,
-          "cyclingDynamics": null
-        },
-        "trainingEffect": 2.3,
-        "trainingLoad": 42
+        "duration": 3600,
+        "distance": 21000,
+        "averageSpeed": 5.83,
+        "averageHR": 128,
+        "avgPower": null,
+        "averageRunningCadenceInStepsPerMinute": 82,
+        "aerobicTrainingEffect": 2.3,
+        "activityTrainingLoad": 42
       }
     ]
   }

@@ -39,6 +39,7 @@ class FakeProbeClient:
         "get_rhr_day",
         "get_hrv_data",
         "get_stress_data",
+        "get_body_battery",
         "get_body_battery_events",
         "get_spo2_data",
         "get_respiration_data",
@@ -98,28 +99,52 @@ class FakeProbeClient:
         if method == "get_sleep_data":
             return {
                 **self._device(),
-                "sleepTimeSeconds": 28800,
-                "sleepScore": 80,
-                "levels": [{"startGMT": "synthetic"}],
-                "napTimeSeconds": 0,
+                "dailySleepDTO": {
+                    "sleepTimeSeconds": 28800,
+                    "napTimeSeconds": 0,
+                    "deepSleepSeconds": 7200,
+                    "lightSleepSeconds": 14400,
+                    "remSleepSeconds": 6000,
+                    "awakeSleepSeconds": 1200,
+                    "sleepScores": {"overall": {"value": 80}},
+                },
             }
         if method == "get_heart_rates":
             return {**self._device(), "heartRateValues": [0, 72], "value": SYNTHETIC_HEALTH_VALUE}
         if method == "get_rhr_day":
-            return {**self._device(), "restingHeartRate": 55}
+            return {
+                **self._device(),
+                "allMetrics": {
+                    "metricsMap": {
+                        "WELLNESS_RESTING_HEART_RATE": [{"value": 55}]
+                    }
+                },
+            }
         if method == "get_hrv_data":
             return {
                 **self._device(),
-                "hrvStatus": {"weeklyAverage": 55, "status": "balanced"},
+                "hrvSummary": {"weeklyAvg": 55, "status": "balanced"},
             }
         if method == "get_stress_data":
-            return {**self._device(), "stressValues": [20, 30]}
-        if method == "get_body_battery_events":
-            return [{**self._device(), "bodyBatteryLevel": 70}]
+            return {
+                **self._device(),
+                "avgStressLevel": 20,
+                "maxStressLevel": 30,
+                "stressValuesArray": [[0, 20]],
+            }
+        if method == "get_body_battery":
+            return [
+                {
+                    **self._device(),
+                    "charged": 70,
+                    "drained": 20,
+                    "bodyBatteryValuesArray": [[0, 70]],
+                }
+            ]
         if method == "get_spo2_data":
-            return {**self._device(), "spo2Values": [98]}
+            return {**self._device(), "averageSpO2": 98}
         if method == "get_respiration_data":
-            return {**self._device(), "respirationValues": [15]}
+            return {**self._device(), "avgSleepRespirationValue": 15}
         if method == "get_max_metrics":
             return {
                 **self._device(),
@@ -129,7 +154,6 @@ class FakeProbeClient:
             return [
                 {
                     **self._device(),
-                    "trainingReadiness": {"value": 60},
                     "score": 60,
                 }
             ]
@@ -141,25 +165,21 @@ class FakeProbeClient:
                     **self._device(),
                     "activityId": SYNTHETIC_ACTIVITY_ID,
                     "activityName": "synthetic activity",
-                    "activityType": "cycling",
-                    "distanceMeters": 1000,
+                    "activityType": {"typeKey": "cycling"},
+                    "distance": 1000,
+                    "duration": 60,
                 }
             ]
         if method in {"get_activity", "get_activity_details"}:
             return {
                 **self._device(),
-                "trainingEffect": 3.0,
-                "trainingLoad": 50,
-                "recoveryTimeSeconds": 120,
+                "aerobicTrainingEffect": 3.0,
+                "activityTrainingLoad": 50,
                 "distance": 1000,
-                "durationSeconds": 60,
-                "metrics": {
-                    "speedMps": 5,
-                    "heartRateBpm": 120,
-                    "cadenceRpm": 80,
-                    "powerWatts": 100,
-                },
-                "value": SYNTHETIC_HEALTH_VALUE,
+                "duration": 60,
+                "averageSpeed": 5,
+                "averageHR": 120,
+                "avgPower": 100,
             }
         if method == "download_activity":
             return b"synthetic FIT recoveryTimeSeconds and health payload"
@@ -170,6 +190,9 @@ class FakeProbeClient:
 
     def get_sleep_data(self, value: str) -> Any:
         return self._call("get_sleep_data", value)
+
+    def get_body_battery(self, start: str, end: str | None = None) -> Any:
+        return self._call("get_body_battery", start, end)
 
     def get_heart_rates(self, value: str) -> Any:
         return self._call("get_heart_rates", value)
@@ -322,18 +345,118 @@ def test_method_presence_without_device_attribution_never_becomes_target_evidenc
     assert effect["target_device_evidence"] is False
 
 
+def test_nested_sleep_contract_reports_typed_summary_leaves() -> None:
+    report = GarminCapabilityProbe(FakeProbeClient()).run(("2026-09-05",))
+
+    sleep = _capability(report, "sleep")
+    score = _capability(report, "sleep_score")
+    stages = _capability(report, "sleep_stages")
+
+    assert "dailySleepDTO.sleepTimeSeconds" in sleep["field_paths"]
+    assert sleep["value_state"] == "present"
+    assert "dailySleepDTO.sleepScores.overall.value" in score["field_paths"]
+    assert score["value_state"] == "present"
+    assert "dailySleepDTO.deepSleepSeconds" in stages["field_paths"]
+    assert stages["value_state"] == "present"
+
+
+def test_successful_endpoint_without_nested_metric_leaf_is_missing_not_supported() -> None:
+    client = FakeProbeClient(
+        responses={"get_sleep_data": {"dailySleepDTO": {"providerAddedField": "synthetic"}}}
+    )
+
+    sleep = _capability(
+        GarminCapabilityProbe(client).run(("2026-09-05",)), "sleep"
+    )
+
+    assert sleep["request_succeeded"] is True
+    assert sleep["status"] == GarminProbeStatus.SUCCEEDED.value
+    assert sleep["value_state"] == "missing"
+    assert sleep["target_device_evidence"] is False
+
+
+def test_training_readiness_score_is_account_evidence_without_target_attribution() -> None:
+    client = FakeProbeClient(include_device=False)
+
+    readiness = _capability(
+        GarminCapabilityProbe(client).run(("2026-09-05",)), "training_readiness"
+    )
+
+    assert readiness["request_succeeded"] is True
+    assert readiness["value_state"] == "present"
+    assert readiness["device_attribution"] == "unattributed"
+    assert readiness["target_device_evidence"] is False
+    assert readiness["static_device_support"] == "not_supported"
+
+
+def test_training_status_other_device_is_not_target_evidence() -> None:
+    client = FakeProbeClient(
+        responses={
+            "get_training_status": {
+                "device": {"model": "Forerunner 265"},
+                "trainingStatus": "productive",
+            }
+        }
+    )
+
+    status = _capability(
+        GarminCapabilityProbe(client).run(("2026-09-05",)), "training_status"
+    )
+    unified = _capability(
+        GarminCapabilityProbe(FakeProbeClient(responses=client.responses)).run(("2026-09-05",)),
+        "unified_training_status",
+    )
+
+    assert status["device_attribution"] == "other_device"
+    assert status["target_device_evidence"] is False
+    assert unified["device_attribution"] == "other_device"
+    assert unified["target_device_evidence"] is False
+
+
+def test_activity_typed_effect_and_load_paths_are_optional_metric_leaves() -> None:
+    client = FakeProbeClient(
+        responses={
+            "get_activity": {"device": {"model": "Vivoactive 5"}, "distance": 1000},
+            "get_activity_details": {"device": {"model": "Vivoactive 5"}, "distance": 1000},
+        }
+    )
+
+    report = GarminCapabilityProbe(client).run(("2026-09-05",))
+
+    effect = _capability(report, "training_effect")
+    load = _capability(report, "acute_training_load")
+    assert effect["request_succeeded"] is True
+    assert effect["value_state"] == "missing"
+    assert effect["target_device_evidence"] is False
+    assert load["value_state"] == "missing"
+    assert load["target_device_evidence"] is False
+
+
+def test_empty_vo2_response_is_date_window_evidence_only() -> None:
+    client = FakeProbeClient(responses={"get_max_metrics": {}})
+
+    vo2 = _capability(
+        GarminCapabilityProbe(client).run(("2026-09-05",)), "vo2_max"
+    )
+
+    assert vo2["request_succeeded"] is True
+    assert vo2["status"] == GarminProbeStatus.EMPTY.value
+    assert vo2["value_state"] == "empty"
+    assert vo2["target_device_evidence"] is False
+
+
 def test_mixed_target_and_other_device_markers_are_not_target_evidence() -> None:
     client = FakeProbeClient(
         responses={
             "get_activity": {
                 "device": {"model": "Vivoactive 5"},
                 "sourceDevice": {"model": "Forerunner 265"},
-                "trainingEffect": 3.0,
+                "aerobicTrainingEffect": 3.0,
             },
             "get_activity_details": {
                 "device": {"model": "Vivoactive 5"},
                 "sourceDevice": {"model": "Forerunner 265"},
-                "trainingEffect": 3.0,
+                "aerobicTrainingEffect": 3.0,
             },
         }
     )
@@ -361,7 +484,7 @@ def test_nonempty_metric_container_without_expected_leaf_is_unknown_evidence() -
         GarminCapabilityProbe(client).run(("2026-09-05",)), "training_readiness"
     )
 
-    assert readiness["value_state"] == "unknown"
+    assert readiness["value_state"] == "missing"
     assert readiness["device_attribution"] == "target_device"
     assert readiness["target_device_evidence"] is False
 

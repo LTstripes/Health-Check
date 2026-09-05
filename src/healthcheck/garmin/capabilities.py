@@ -305,7 +305,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Yes",
             connect_surface="Sleep payload overall score",
             client_methods=("get_sleep_data",),
-            client_fields=("sleepScore",),
+            client_fields=("dailySleepDTO.sleepScores.overall.value",),
             audit_status=CapabilityStatus.VERIFIED,
             notes="Keep provider-native score distinct from any future Health-Check score.",
             live_spike_questions=(_LIVE_ACCOUNT_AVAILABILITY,),
@@ -318,7 +318,13 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Yes",
             connect_surface="Raw levels and stage totals",
             client_methods=("get_sleep_data",),
-            client_fields=("levels",),
+            client_fields=(
+                "dailySleepDTO.deepSleepSeconds",
+                "dailySleepDTO.lightSleepSeconds",
+                "dailySleepDTO.remSleepSeconds",
+                "dailySleepDTO.awakeSleepSeconds",
+                "levels",
+            ),
             audit_status=CapabilityStatus.VERIFIED,
             live_spike_questions=(_LIVE_ACCOUNT_AVAILABILITY,),
         ),
@@ -330,7 +336,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Timer/total; included in sleep statistics",
             connect_surface="Watch/app/web totals and events",
             client_methods=("get_sleep_data", "get_body_battery_events"),
-            client_fields=("napTimeSeconds",),
+            client_fields=("dailySleepDTO.napTimeSeconds",),
             audit_status=CapabilityStatus.VERIFIED_CONDITIONAL,
             notes="Totals/events are verified by the static audit; exact intervals are not.",
             live_spike_questions=(
@@ -356,6 +362,9 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Current and seven-day watch view",
             connect_surface="Daily history",
             client_methods=("get_rhr_day",),
+            client_fields=(
+                "allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE[].value",
+            ),
             audit_status=CapabilityStatus.VERIFIED,
             live_spike_questions=(_LIVE_ACCOUNT_AVAILABILITY,),
         ),
@@ -367,6 +376,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Overnight after baseline",
             connect_surface="Status and trends",
             client_methods=("get_hrv_data",),
+            client_fields=("hrvSummary.weeklyAvg", "hrvSummary.status"),
             audit_status=CapabilityStatus.VERIFIED,
             live_spike_questions=(_LIVE_ACCOUNT_AVAILABILITY,),
         ),
@@ -378,6 +388,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Yes",
             connect_surface="Daily timeline",
             client_methods=("get_stress_data",),
+            client_fields=("avgStressLevel", "maxStressLevel", "stressValuesArray"),
             audit_status=CapabilityStatus.VERIFIED,
             live_spike_questions=(_LIVE_ACCOUNT_AVAILABILITY,),
         ),
@@ -388,8 +399,8 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             device_support=DeviceSupport.SUPPORTED,
             watch_summary="Yes",
             connect_surface="Trends and events",
-            client_methods=("get_body_battery_events",),
-            client_fields=("bodyBatteryChargedValue", "bodyBatteryDrainedValue"),
+            client_methods=("get_body_battery",),
+            client_fields=("charged", "drained", "bodyBatteryValuesArray"),
             audit_status=CapabilityStatus.VERIFIED,
             live_spike_questions=(_LIVE_ACCOUNT_AVAILABILITY,),
         ),
@@ -401,6 +412,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Spot/all-day/sleep depending on setting and region",
             connect_surface="Trends",
             client_methods=("get_spo2_data",),
+            client_fields=("averageSpO2", "lastSevenDaysAvgSpO2"),
             audit_status=CapabilityStatus.VERIFIED_CONDITIONAL,
             live_spike_questions=(
                 "Verify setting/region-dependent SpO2 availability, sampling, and "
@@ -415,6 +427,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Current/sleep/all-day with activity-type limits",
             connect_surface="Daily and sleep records",
             client_methods=("get_respiration_data",),
+            client_fields=("avgSleepRespirationValue",),
             audit_status=CapabilityStatus.VERIFIED_CONDITIONAL,
             live_spike_questions=(
                 "Verify activity-type limits, sampling, and sleep/all-day respiration semantics.",
@@ -455,6 +468,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="No for Vivoactive 5 under the reviewed classification",
             connect_surface="No Vivoactive 5-produced value",
             client_methods=("get_training_readiness",),
+            client_fields=("score",),
             audit_status=CapabilityStatus.UNAVAILABLE,
             notes=(
                 "The library method exists, but this row remains unavailable for a "
@@ -501,7 +515,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             device_support=DeviceSupport.UNKNOWN,
             watch_summary="Not documented for Vivoactive 5 in the reviewed manual/comparison",
             connect_surface="Sole-Vivoactive-5 behavior unverified",
-            client_fields=("trainingEffect",),
+            client_fields=("aerobicTrainingEffect", "anaerobicTrainingEffect"),
             audit_status=CapabilityStatus.UNVERIFIED,
             notes="Typed activity field presence is not device evidence.",
             live_spike_questions=(
@@ -516,7 +530,7 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             device_support=DeviceSupport.UNKNOWN,
             watch_summary="Not documented for Vivoactive 5 in the reviewed manual/comparison",
             connect_surface="Sole-Vivoactive-5 behavior unverified",
-            client_fields=("trainingLoad",),
+            client_fields=("activityTrainingLoad",),
             audit_status=CapabilityStatus.UNVERIFIED,
             notes="Typed activity field presence is not device evidence.",
             live_spike_questions=(
@@ -543,7 +557,14 @@ GARMIN_CAPABILITY_INVENTORY = GarminCapabilityInventory(
             watch_summary="Basic speed/distance/HR; cadence accessory and eBike fields",
             connect_surface="Recorded activity fields and FIT download",
             client_methods=("get_activities_by_date", "download_activity"),
-            client_fields=("speed", "distance", "heartRate", "cadence", "power", "cyclingDynamics"),
+            client_fields=(
+                "activityType.typeKey",
+                "duration",
+                "distance",
+                "averageSpeed",
+                "averageHR",
+                "avgPower",
+            ),
             audit_status=CapabilityStatus.VERIFIED_CONDITIONAL,
             notes="Basic metrics are reviewed; power/dynamics/cycling VO2 remain unverified.",
             live_spike_questions=(
