@@ -222,3 +222,49 @@ Do not put real health values, screenshots, credentials, private payloads or med
 - **Integrator review:** **FIXES REQUIRED → ACCEPT** after independent source/spec/diff/CI inspection. The same-family Bot Auditor's ACCEPT was treated as useful peer review, not final independent authority.
 - **Integration result:** PR #22 merged into `integration/r01-weight-core`; merge SHA `8bb43c896f4b8fbed6bd1ea937f9cad46e01c2d4`. Issue #10 closed completed by Integrator after merge.
 - **Benchmark retrospective:** the three-Bot shape was worthwhile: Breaker caught a real implementation defect before handoff and the team fixed narrow findings effectively. At the same time, Builder/Breaker/Auditor shared cross-layer blind spots around accepted temporal/canonical contracts, validating the need for a different-model Integrator review on C3 tasks even when an internal multi-agent team unanimously ACCEPTs.
+
+## 2026-09-04 to 2026-09-05 — R01-08 — Release hardening and owner UAT closeout
+
+- **Issue / PRs:** #11; PR #23 initial hardening integration; PR #33 owner-UAT provenance fix; PR #35 issue #34 real-photo extractor; PR #38 issue #37 Windows tzdata hardening; PR #39 release-closeout docs.
+- **Role:** multiple bounded workers/reviewers; ChatGPT/Lera Integrator and owner-only Windows UAT gate.
+- **Initial accepted hardening candidate:** `291fba0162031aa09b2c5160df826e21f5dd4606`, exact-head CI `33874903730` SUCCESS.
+- **UAT tooling:** issue #24 candidate `b9966d15e89263e10e7eaa6785a091b37429217b`, exact-head CI `33902479908` SUCCESS, integrated only to support deterministic synthetic owner UAT.
+- **Owner-UAT findings:** provenance existed in JSON but was not visibly rendered; a normal Xiaomi screenshot exposed that production runtime was still wired to a synthetic-only extractor; clean Windows exposed missing IANA timezone data. These findings were treated as blockers/follow-ups rather than waived.
+- **Provenance fix:** candidate `d47ca51669aa5b1d41d1fad649cd22975c6e0c11`, exact-head CI `33955286452` SUCCESS.
+- **Real-photo extractor:** issue #34 candidate `a8699ac840710130b26c54e29fe5dc68ac132c10`, independent Muse Spark 1.2 reviewer ACCEPT, exact-head CI `33961667951` SUCCESS. Production composition became provider-neutral/fail-closed when unconfigured while the synthetic extractor remained explicit test/demo-only.
+- **Windows timezone hardening:** issue #37 candidate `1205c3c6f1086f74084bb1addd7ff96bdafc50a6`; packaged `tzdata` and host-independent `ZoneInfo("Europe/Moscow")` regression added with no timestamp semantic change.
+- **Final owner-UAT candidate:** `058639919c4b5e13c420e7c016d292843afa10dc`; integrated CI `33986964805` SUCCESS; owner Windows UAT PASS with Ruff, `182 passed`, fresh start, route isolation, synthetic 26-image import/review/confirm/idempotency, dashboard/analytics/provenance, read-only no-mutation, openScale synthetic replay, timezone runtime support and privacy/hygiene.
+- **Historical Xiaomi migration:** owner-assisted private migration used the accepted service/confirmation/provenance path and external runtime; no real measurements/screenshots/private database entered Git. Detailed sanitized counts remain in `docs/R01_RELEASE_CLOSEOUT.md` rather than being duplicated here.
+- **Explicit limitations:** live S400/openScale BLE remained `UNVERIFIED`; a real external vision-provider call remained `UNVERIFIED BY OWNER`. Neither was falsely counted as PASS.
+- **Integrator review:** **CODE ACCEPT / OWNER GATE PENDING → blocker fixes → OWNER GATE PASS**. Issue #11 closed completed only after final evidence and release-closeout synchronization.
+- **Retrospective note:** owner UAT materially improved the release: it found product-composition and Windows-runtime defects that green Linux CI and synthetic tests could not prove. Fail-fast evidence worked better than broad manual acceptance prose.
+
+## 2026-09-04 — R01.1 parallel work — Accepted safety/polish held behind R01 gate
+
+- **Issue #26 — Dashboard visual polish:** Luna High candidate `fbfeb9893ce4c21e84493104dc82c72013153dcf`; exact-head CI `33905097088` SUCCESS; UI-only scope; Integrator **CODE ACCEPT / HOLD**.
+- **Issue #27 — Safe local profile backup/restore:** final candidate `7890d1288e6e9cf0ad3b05700b2277d6591ed53f`; exact-head CI `33909041517` SUCCESS after fixing cross-platform test paths and realistic `--replace` preflight; Integrator **ACCEPT / HOLD**.
+- **Decision:** neither branch was merged while owner R01 UAT was pinned. After R01 release the freeze is lifted, but both candidates require current-main read-back/revalidation before integration; #27 is prioritized first because owner data safety has higher value before further private Garmin ingestion.
+
+## 2026-09-05 — R01 release — Stable main publication
+
+- **Release-closeout docs:** PR #39 merged final sanitized release evidence; post-closeout integration head `856fb201f99f4541df1434edb14d7421bec1cc4a`; integration CI `33988122371` SUCCESS.
+- **Release PR:** #40 `integration/r01-weight-core` → `main`.
+- **Pre-release stable main:** `cca6efb43d2cb56de7448f006b3f496b1ef6d770`.
+- **Released stable main:** `59f1a4e939d5850a22ca67640cc02257dc1b87ef`.
+- **Exact post-merge CI:** `33988260408` SUCCESS on exact `main` SHA.
+- **Tracker:** #13 closed with `R01 RELEASED / mandatory release gate PASS`.
+- **Release decision:** R01 is canonical stable history. The old `integration/r01-weight-core` branch is historical/staging-only and must not be used as the baseline for the next release.
+- **Retrospective note:** release closeout now distinguishes mandatory gate evidence from optional live-device/provider verification and makes `main` read-back + exact post-merge CI the completion proof.
+
+## 2026-09-04 to 2026-09-05 — R02 preparation — Garmin contracts, persistence and owner live discovery
+
+- **Context:** R02 preparation ran in parallel task branches while R01 remained pinned. No Garmin prep branch was merged during the R01 owner gate.
+- **#28 capability inventory/contracts:** accepted candidate `952b0c63846f8e8d1ea0f897ee10a0ad09d61851`; exact-head CI `33912091732` SUCCESS. Static inventory kept library method presence separate from device/account evidence and left owner verification explicit.
+- **#29 normalization/idempotency:** accepted candidate `e4da942eaf85ff1035a04bbe570d86bb3c82233d`; exact-head CI `33917373319` SUCCESS. It preserved aware UTC plus original local/offset evidence, paired local/GMT semantics, naive-local honesty and deterministic mismatch diagnostics. Its branch contains a tree-equivalent recreation of #28 and must not be merged as historical lineage.
+- **#30 persistence/schema:** accepted candidate `5b8f8b93a18ba69070ef1d63c41fdd1f84028b7d`; exact-head CI `33925394101` SUCCESS. Garmin raw artifacts remain content-addressed while immutable observation rows preserve separate acquisition/normalization provenance; normalized offset boundary ±23:59 round-trips; migration chain adds `0005` then `0006_garmin_payload_observation_provenance`.
+- **#31 auth/live spike:** final code candidate `cdfdcb38187a79457568ae31aa6f53a0eadd8c7b`; exact-head CI `33957848641` SUCCESS after several adversarial repair rounds, including Windows DPAPI handling/Kernel32 `LocalFree`, corrupt-session recovery, bounded fail-fast probing, static allowlist redaction and no-route/no-FIT constraints.
+- **Owner live #31:** initial Garmin/Cloudflare strategy failures produced no partial session; a later owner login succeeded and protected local session reuse was verified. Sanitized live probing stayed within privacy boundaries; no raw values/routes/identifiers were committed or posted.
+- **#36 live response-contract reconciliation:** final candidate `28024bd8117b6f8c8ee6e1bdc2628622f1f41d80`; exact-head CI `33983510764` SUCCESS; owner rerun PASS. Nested sleep/score/stage/nap leaves plus RHR/HRV/stress/Body Battery/SpO2/respiration were observed; Training Readiness remained account-level only; Training Status/Unified Training Status remained `other_device`; VO2 was empty on selected dates; Training Effect/Acute Load were absent on the selected activity; Recovery Time remained intentionally not evaluated. Provider request budget remained 27/27 for two dates + one activity.
+- **Integrator review:** all five semantic layers are accepted for reconstruction, but current Garmin history diverges from released R01 `main`. Do **not** merge the stacked branch directly.
+- **Next-lineage decision:** after post-R01 consolidation, create fresh `integration/r02-garmin` from canonical `main` and reconstruct accepted semantics in order `#28 -> #29 -> #30 -> #31 -> #36`, preserving the real #28 lineage and rerunning exact-head CI/migration/privacy checks before production ingestion/backfill starts.
+- **Post-release control:** issue #41 tracks this consolidation and formally lifts the old R01-UAT holds without turning stale branches into automatic merge candidates.
