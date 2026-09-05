@@ -96,6 +96,11 @@ The fix adds packaged Python `tzdata` as a runtime dependency and a regression t
 
 ## Release decision
 
-**R01 mandatory owner gate: PASS.**
+**R01 mandatory owner gate: PASS; R01 is released on `main`.**
 
-No mandatory R01 blockers remain on the accepted integration candidate. The release can proceed to the final `integration/r01-weight-core` → `main` pull request after this closeout documentation is integrated and its CI succeeds.
+The release merge completed as PR #40. The current `main` at this
+post-R01 documentation baseline is
+`24c4e1f949cd04746ca40bde539a9f32b1b4b4b0`; its post-merge CI run
+`33990424240` completed **SUCCESS**. No mandatory R01 blockers remain. Live
+S400/openScale BLE and the real external vision-provider call remain
+**UNVERIFIED** and are not part of the release PASS claim.

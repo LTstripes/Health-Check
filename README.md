@@ -40,7 +40,7 @@ raw evidence -> typed source records -> versioned canonical selection
 
 ## Current status
 
-The R01 bootstrap runtime is in place. Domain features are intentionally added in later task branches. The approved vertical slice is **R01 — Weight & Body Composition**, which will build the reusable core, import historical Xiaomi screenshots with confirmation, accept the openScale-sync webhook contract, compute conservative weight/body-composition analytics, and provide a minimal dashboard.
+The approved vertical slice **R01 — Weight & Body Composition** is implemented and released on `main`. It provides the reusable core, confirmed historical Xiaomi photo import, the openScale-sync webhook contract, conservative weight/body-composition analytics, and a minimal dashboard. The released Windows runtime includes packaged IANA timezone data for clean `ZoneInfo` resolution.
 
 R01 deliberately excludes Garmin ingestion, Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery.
 
@@ -85,6 +85,12 @@ the import remains replayable and returns a sanitized
 `extractor_not_configured` diagnostic; the synthetic fake is used only by
 explicit tests and the synthetic demo helper. No provider call is made by
 health checks or read-only pages.
+
+R01 owner UAT passed the synthetic import/review/confirmation and idempotency
+flow. One-time historical Xiaomi screenshots were handled through an
+owner-assisted, manually confirmed service path outside Git. Live
+`S400 → openScale → Health-Check` BLE verification and a real external vision
+provider call remain **UNVERIFIED**; neither is implied by the offline checks.
 
 ## Canonical product documentation
 

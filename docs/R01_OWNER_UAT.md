@@ -2,6 +2,16 @@
 
 Release-specific owner gate for R01 weight-core. Use synthetic or owner-private data only. Never commit runtime DB, photos, payloads, tokens, or secrets.
 
+## Recorded release-gate result
+
+The mandatory owner gate passed on exact integrated SHA
+`058639919c4b5e13c420e7c016d292843afa10dc`: Windows fresh start and route
+isolation, synthetic photo review/edit/reject/confirm and repeat-confirmation
+idempotency, dashboard/analytics/provenance, packaged `tzdata` timezone
+resolution, openScale synthetic replay, and privacy hygiene all passed.
+This is the recorded UAT result for the released R01 line; it does not claim
+that this checklist was rerun on the later documentation-only `main` commit.
+
 ## 1. Checkout / ref verification
 
 Work only in the owner UAT checkout:
@@ -40,7 +50,10 @@ Expectations:
 - loopback UI and ingest listener start with the documented binds;
 - no secrets printed.
 
-**Status rule:** this step is **OWNER-UNVERIFIED** until Nikita runs it on Windows from `D:\Garmin\Garmin-UAT`. Team Linux/CLI substitutes do **not** make AC-01 PASS.
+**Status rule:** the recorded release-gate result for this step is **PASS** on
+the exact integrated SHA above, from `D:\Garmin\Garmin-UAT`. A future run on a
+different SHA must be recorded separately; team Linux/CLI substitutes do not
+make AC-01 PASS.
 
 ## 4a. Synthetic demo helper (developer/UAT preparation)
 
@@ -127,6 +140,12 @@ Optional private photos on the owner machine only.
   response, or absolute image path. Date-only evidence must remain date-only.
 - If the provider is unavailable or returns malformed data, record the
   sanitized diagnostic and verify the immutable artifact remains reprocessable.
+- The final R01 gate verified the ordinary-image, unconfigured-provider path
+  fails closed without confirmed/canonical mutation. A real external provider
+  call was not run and remains **UNVERIFIED BY OWNER**.
+- Historical Xiaomi screenshots were imported separately through an
+  owner-assisted, manually confirmed service path; that operation is not
+  evidence of a live external-provider call.
 - Keep files under the UAT data dir, never in Git.
 - Record PASS / FAIL / UNVERIFIED.
 

@@ -2,11 +2,22 @@
 
 ## 1. Decision and outcome
 
-R01 builds the small provider-neutral Health-Check core and immediately uses it for the user's highest-priority problem: Xiaomi S400 weight and body composition.
+R01 builds the small provider-neutral Health-Check core and uses it for the user's highest-priority problem: Xiaomi S400 weight and body composition.
 
-At completion, the user can start one local Windows application, import a batch of historical Xiaomi screenshots into a review queue, explicitly confirm/edit measurements, receive an authenticated openScale-sync webhook payload, and view weight/body-composition trends with provenance, coverage, and algorithm-discontinuity warnings.
+The released slice lets the user start one local Windows application, import a batch of historical Xiaomi screenshots into a review queue, explicitly confirm/edit measurements, receive an authenticated openScale-sync webhook payload, and view weight/body-composition trends with provenance, coverage, and algorithm-discontinuity warnings.
 
 R01 is not a schema-only foundation release. It must be a useful working product.
+
+### Current release status
+
+R01 is released on `main`. The final owner gate passed on the integrated
+candidate `058639919c4b5e13c420e7c016d292843afa10dc`; the current `main` at
+the post-R01 documentation baseline is
+`24c4e1f949cd04746ca40bde539a9f32b1b4b4b0`, with its CI check successful.
+The owner-assisted historical Xiaomi import, packaged Windows `tzdata`
+support, and production vision-extractor composition are part of the
+released behavior. Live S400/openScale BLE and a real external vision
+provider call remain **UNVERIFIED**.
 
 ## 2. In scope
 
@@ -63,6 +74,8 @@ Use:
 
 - Python 3.12 or newer;
 - `uv` for environment/lock management;
+- packaged Python `tzdata` so IANA zones such as `Europe/Moscow` resolve on
+  clean Windows installations without relying on host timezone files;
 - FastAPI and Uvicorn;
 - SQLAlchemy 2.x and Alembic;
 - Pydantic Settings;
@@ -285,7 +298,7 @@ class ImageMeasurementExtractor(Protocol):
     def extract(self, request: ExtractionRequest) -> ExtractionResult: ...
 ```
 
-`ExtractionRequest` contains artifact ID/reference, declared locale/timezone hints, and target schema version; it never accepts an arbitrary filesystem path. `ExtractionResult` contains extractor/provider/model/prompt/schema versions and one or more measurement groups. Each candidate field contains metric code, source text when available, proposed value/unit/time, nullable model-reported confidence, and optional image-region evidence. Provider errors return a typed failure and leave the artifact replayable. Tests use a deterministic fake implementation; no live model call occurs in CI.
+`ExtractionRequest` contains artifact ID/reference, declared locale/timezone hints, and target schema version; it never accepts an arbitrary filesystem path. `ExtractionResult` contains extractor/provider/model/prompt/schema versions and one or more measurement groups. Each candidate field contains metric code, source text when available, proposed value/unit/time, nullable model-reported confidence, and optional image-region evidence. Provider errors return a typed failure and leave the artifact replayable. Normal runtime composition selects the configured real extractor and fails closed with `extractor_not_configured` when endpoint/model configuration is absent; the deterministic fake is reserved for explicit tests and synthetic demo composition. Network calls occur only from explicit import/reprocess actions, and no live model call occurs in CI.
 
 1. Upload one or many images.
 2. Hash and durably store each image outside Git before extraction.
@@ -490,6 +503,11 @@ Optional live acceptance:
 - Replay it successfully to the laptop over a private LAN and confirm one measurement.
 
 If optional live acceptance is not possible, report it as `UNVERIFIED`; do not fake a successful BLE/webhook claim.
+
+For the released R01, live S400/openScale BLE and the real external
+vision-provider call are still **UNVERIFIED**. The final owner gate covered
+the offline/synthetic contract, fail-closed unconfigured-provider behavior,
+and the owner-assisted historical import, not those optional live paths.
 
 ## 17. Implementation sequence
 
