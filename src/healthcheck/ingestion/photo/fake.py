@@ -1,4 +1,4 @@
-"""Deterministic extractor used by tests and the R01 development runtime."""
+"""Deterministic extractor used by tests and the synthetic R01 demo."""
 
 from __future__ import annotations
 
@@ -72,23 +72,25 @@ class FakeImageMeasurementExtractor:
         if "provider_code" in payload:
             provider_code = payload.get("provider_code")
         else:
-            provider_code = "xiaomi_home"
+            provider_code = request.provider_code or "xiaomi_home"
         if self.provider_code_override is not None:
             provider_code = self.provider_code_override
         physical_device_code = (
             self.physical_device_code_override
             or payload.get("physical_device_code")
+            or request.physical_device_code
             or "xiaomi_s400"
         )
         source_application = (
             self.source_application_override
             if self.source_application_override is not None
-            else payload.get("source_application")
+            else payload.get("source_application") or request.source_application
         )
         source_application_version = (
             self.source_application_version_override
             if self.source_application_version_override is not None
             else payload.get("source_application_version")
+            or request.source_application_version
         )
         return ExtractionResult(
             extractor_name=self.name,
@@ -103,6 +105,28 @@ class FakeImageMeasurementExtractor:
             source_application=source_application,
             source_application_version=source_application_version,
             source_timezone=self.source_timezone or request.timezone,
+            source_utc_offset_minutes=(
+                self.source_utc_offset_minutes
+                if self.source_utc_offset_minutes is not None
+                else request.source_utc_offset_minutes
+            ),
+        )
+
+    def with_version(self, version: str) -> FakeImageMeasurementExtractor:
+        """Return an explicitly versioned synthetic extractor for demo/tests."""
+
+        return FakeImageMeasurementExtractor(
+            version=version,
+            value_delta=self.value_delta,
+            model_name=self.model_name or "synthetic-fixture",
+            model_version=version if self.model_version == self.version else self.model_version,
+            prompt_version=self.prompt_version,
+            provider_code=self.provider_code_override,
+            field_algorithms=dict(self.field_algorithms),
+            physical_device_code=self.physical_device_code_override,
+            source_application=self.source_application_override,
+            source_application_version=self.source_application_version_override,
+            source_timezone=self.source_timezone,
             source_utc_offset_minutes=self.source_utc_offset_minutes,
         )
 

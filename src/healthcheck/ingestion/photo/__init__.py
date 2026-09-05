@@ -11,6 +11,11 @@ from healthcheck.ingestion.photo.extractor import (
 )
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload, ReprocessResult
+from healthcheck.ingestion.photo.vision import (
+    OpenAICompatibleVisionExtractor,
+    UnconfiguredImageMeasurementExtractor,
+    build_photo_extractor,
+)
 
 __all__ = [
     "CandidateField",
@@ -20,8 +25,11 @@ __all__ = [
     "FakeImageMeasurementExtractor",
     "ImageMeasurementExtractor",
     "MeasurementGroup",
+    "OpenAICompatibleVisionExtractor",
     "PhotoImportError",
     "PhotoImportService",
     "PhotoUpload",
     "ReprocessResult",
+    "UnconfiguredImageMeasurementExtractor",
+    "build_photo_extractor",
 ]

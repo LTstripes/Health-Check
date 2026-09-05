@@ -14,7 +14,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from healthcheck.app import create_base_app
 from healthcheck.config import Settings
 from healthcheck.ingestion.photo.errors import PhotoImportError
-from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+from healthcheck.ingestion.photo.extractor import ImageMeasurementExtractor
+from healthcheck.ingestion.photo.vision import build_photo_extractor
 from healthcheck.logging import log_event
 from healthcheck.web.common import wants_html
 from healthcheck.web.imports import router as import_router
@@ -25,14 +26,20 @@ from healthcheck.web.weight import router as weight_router
 WEB_DIR = Path(__file__).resolve().parent
 
 
-def create_ui_app(settings: Settings | None = None) -> tuple[FastAPI, object]:
+def create_ui_app(
+    settings: Settings | None = None,
+    *,
+    photo_extractor: ImageMeasurementExtractor | None = None,
+) -> tuple[FastAPI, object]:
     resolved = settings or Settings()
     app, paths = create_base_app(
         resolved,
         service="loopback-ui",
         title="Health-Check local runtime",
     )
-    app.state.photo_extractor = FakeImageMeasurementExtractor()
+    app.state.photo_extractor = (
+        photo_extractor if photo_extractor is not None else build_photo_extractor(resolved)
+    )
     app.include_router(import_router)
     app.include_router(weight_router)
     app.include_router(pages_router)

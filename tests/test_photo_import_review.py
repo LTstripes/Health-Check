@@ -401,7 +401,7 @@ def test_invalid_persistence_does_not_log_health_values(photo_env):
     log_path = configure_logging(paths.logs)
     payload = weigh_in_payload(source_local_date=date(2026, 1, 7), weight_kg=77.77)
     payload["groups"][0]["fields"][0]["source_text"] = SECRET_TEXT
-    app, _ = create_ui_app(settings)
+    app, _ = create_ui_app(settings, photo_extractor=extractor)
     with TestClient(app) as client:
         uploaded = client.post(
             "/api/imports/photos",
@@ -452,7 +452,7 @@ def test_duplicate_upload_has_durable_occurrence_in_new_batch(photo_env):
     assert second.items[0].duplicate_artifact is True
     assert second.items[0].ingest_batch_id == second.batch.id
     assert second.items[0].ingest_event_id != first.items[0].ingest_event_id
-    app, _ = create_ui_app(settings)
+    app, _ = create_ui_app(settings, photo_extractor=extractor)
     with TestClient(app) as client:
         detail = client.get(f"/api/imports/{second.batch.id}")
         assert detail.status_code == 200
@@ -631,7 +631,7 @@ def test_terminal_replay_is_noop_only_when_semantically_identical(photo_env):
         assert _count(session, ImportCandidateEdit) == 1
         measurement = session.scalar(select(ScalarMeasurement))
         assert measurement.normalized_value == pytest.approx(80.0)
-    app, _ = create_ui_app(settings)
+    app, _ = create_ui_app(settings, photo_extractor=extractor)
     with TestClient(app) as client:
         edited = client.post(
             "/api/imports/photos",

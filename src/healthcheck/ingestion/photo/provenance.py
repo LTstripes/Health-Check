@@ -50,7 +50,7 @@ def ensure_photo_acquisition_source(
     repositories: ProvenanceRepositories,
     *,
     provider_code: str | None = None,
-    physical_device_code: str = XIAOMI_S400_DEVICE,
+    physical_device_code: str | None = XIAOMI_S400_DEVICE,
     source_application: str | None = None,
     source_application_version: str | None = None,
 ) -> AcquisitionSource:
@@ -65,15 +65,19 @@ def ensure_photo_acquisition_source(
             XIAOMI_APP_UNKNOWN_PROVIDER, "Unknown Xiaomi app", "scale_app"
         )
         application = source_application
-    device = repositories.physical_devices.get_or_create(
-        physical_device_code,
-        manufacturer="Xiaomi",
-        model="S400",
-        display_name="Xiaomi Body Composition Scale S400",
-    )
+    device = None
+    if physical_device_code:
+        device = repositories.physical_devices.get_or_create(
+            physical_device_code,
+            manufacturer="Xiaomi" if physical_device_code == XIAOMI_S400_DEVICE else None,
+            model="S400" if physical_device_code == XIAOMI_S400_DEVICE else None,
+            display_name="Xiaomi Body Composition Scale S400"
+            if physical_device_code == XIAOMI_S400_DEVICE
+            else None,
+        )
     return repositories.acquisition_sources.get_or_create(
         provider_id=provider.id,
-        physical_device_id=device.id,
+        physical_device_id=None if device is None else device.id,
         input_method="photo_import",
         source_instance_id=photo_acquisition_instance_id(
             provider_code=resolved,

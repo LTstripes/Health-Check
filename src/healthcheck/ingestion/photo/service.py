@@ -41,6 +41,7 @@ from healthcheck.ingestion.photo.normalize import (
     validate_local_date_and_timestamp,
 )
 from healthcheck.ingestion.photo.provenance import (
+    XIAOMI_S400_DEVICE,
     algorithm_for_metric,
     ensure_photo_acquisition_source,
     provider_code_for_source,
@@ -150,7 +151,20 @@ class PhotoImportService:
                 "too_many_files", f"at most {MAX_FILES} photos can be imported at once"
             )
 
-        source = ensure_photo_acquisition_source(self.repos, provider_code=provider_code)
+        source = ensure_photo_acquisition_source(
+            self.repos,
+            provider_code=provider_code
+            or getattr(self.extractor, "configured_provider_code", None),
+            physical_device_code=getattr(
+                self.extractor, "configured_physical_device_code", XIAOMI_S400_DEVICE
+            ),
+            source_application=getattr(
+                self.extractor, "configured_source_application", None
+            ),
+            source_application_version=getattr(
+                self.extractor, "configured_source_application_version", None
+            ),
+        )
         batch = self.repos.ingest_batches.create(
             acquisition_source_id=source.id,
             batch_kind="photo",
@@ -479,10 +493,35 @@ class PhotoImportService:
         if artifact is None:
             raise PhotoImportError("unknown_artifact", "raw artifact is missing", status_code=404)
         image_bytes = self.store.read(artifact.relative_storage_path)
+        source = self.repos.acquisition_sources.get_by_id(event.acquisition_source_id)
+        device = (
+            self.repos.physical_devices.get(source.physical_device_id)
+            if source is not None and source.physical_device_id is not None
+            else None
+        )
+        original_candidates = self.repos.import_candidates.list_for_event(event.id)
+        timezones = {candidate.source_timezone for candidate in original_candidates}
+        offsets = {candidate.source_utc_offset_minutes for candidate in original_candidates}
+        source_timezone = next(iter(timezones)) if len(timezones) == 1 else None
+        source_offset = next(iter(offsets)) if len(offsets) == 1 else None
         request = ExtractionRequest(
             artifact_id=artifact.id,
             content_hash=artifact.content_hash,
             media_type=artifact.media_type,
+            provider_code=(
+                provider_code_for_source(self.repos, source)
+                if source is not None
+                else None
+            ),
+            physical_device_code=(
+                None if device is None else device.code
+            ),
+            source_application=None if source is None else source.source_application,
+            source_application_version=(
+                None if source is None else source.source_application_version
+            ),
+            timezone=source_timezone,
+            source_utc_offset_minutes=source_offset,
             schema_version=DEFAULT_SCHEMA_VERSION,
         )
         try:
@@ -571,6 +610,14 @@ class PhotoImportService:
             locale=locale,
             timezone=timezone,
             schema_version=schema_version,
+            provider_code=provider_code,
+            physical_device_code=getattr(
+                self.extractor, "configured_physical_device_code", None
+            ),
+            source_application=getattr(self.extractor, "configured_source_application", None),
+            source_application_version=getattr(
+                self.extractor, "configured_source_application_version", None
+            ),
         )
         try:
             extracted = self.extractor.extract(request, upload.content)
