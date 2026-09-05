@@ -74,12 +74,12 @@ In another PowerShell window, run the read-only helper:
 If the optional ingest listener is running, include its URL:
 
 ```powershell
-.\scripts\uat-smoke.ps1 -IngestUrl "http://127.0.0.1:8001"
+.\scripts\uat-smoke.ps1 -IngestUrl "http://127.0.0.1:8121"
 ```
 
 The helper prints only endpoint paths, statuses, and sanitized shape/readiness assertions. It checks UI/ingest liveness, dashboard/API reachability, ingest route isolation, and that the UI does not mount the openScale write route. It never prints response bodies or secrets and never reports AC-01 PASS.
 
-Open the populated dashboard at `http://127.0.0.1:8000/`.
+Open the populated dashboard at `http://127.0.0.1:8120/`.
 
 When finished, stop `start.ps1` with `Ctrl+C`, then remove only the dedicated synthetic profile after confirming its path:
 

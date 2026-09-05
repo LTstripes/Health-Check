@@ -1,10 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$DataDir,
-    [int]$Port = 8000,
+    [int]$Port = 8120,
     [switch]$EnableIngest,
     [string]$IngestHost = "127.0.0.1",
-    [int]$IngestPort = 8001
+    [int]$IngestPort = 8121
 )
 
 $ErrorActionPreference = "Stop"

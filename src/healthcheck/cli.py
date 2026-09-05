@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int)
     parser.add_argument("--host")
     parser.add_argument("--reset", action="store_true")
-    parser.add_argument("--ui-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--ui-url", default="http://127.0.0.1:8120")
     parser.add_argument("--ingest-url")
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--output", help="backup archive path")

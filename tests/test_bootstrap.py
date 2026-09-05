@@ -14,6 +14,19 @@ from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
 
 
+def test_default_and_explicit_listener_ports(monkeypatch):
+    monkeypatch.delenv("HEALTHCHECK_UI_PORT", raising=False)
+    monkeypatch.delenv("HEALTHCHECK_INGEST_PORT", raising=False)
+
+    defaults = Settings()
+    assert defaults.ui_port == 8120
+    assert defaults.ingest_port == 8121
+
+    overrides = Settings(ui_port=9120, ingest_port=9121)
+    assert overrides.ui_port == 9120
+    assert overrides.ingest_port == 9121
+
+
 def test_runtime_override_creates_external_layout(tmp_path, monkeypatch):
     runtime = tmp_path / "Health-Check"
     monkeypatch.setenv("HEALTHCHECK_DATA_DIR", str(runtime))

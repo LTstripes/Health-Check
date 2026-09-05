@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$UiUrl = "http://127.0.0.1:8000",
+    [string]$UiUrl = "http://127.0.0.1:8120",
     [string]$IngestUrl,
     [double]$Timeout = 3
 )

@@ -34,10 +34,10 @@ class Settings(BaseSettings):
     )
 
     data_dir: Path = Field(default_factory=default_data_dir)
-    ui_port: int = Field(default=8000, ge=1, le=65535)
+    ui_port: int = Field(default=8120, ge=1, le=65535)
     ingest_enabled: bool = False
     ingest_host: str = "127.0.0.1"
-    ingest_port: int = Field(default=8001, ge=1, le=65535)
+    ingest_port: int = Field(default=8121, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     weight_goal_kg: float | None = None
     weight_cadence_days: int = Field(default=7, ge=1, le=365)
