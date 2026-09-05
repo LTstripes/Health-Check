@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from healthcheck.ingestion.openscale.binding import (
@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     trusted_private_lan_http: bool = False
     openscale_algorithm_identity: str = "openscale-unknown"
     openscale_config_identity: str = "unknown"
+    photo_vision_base_url: str | None = None
+    photo_vision_model: str | None = None
+    photo_vision_api_key: SecretStr | None = None
+    photo_vision_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
+    photo_vision_provider_code: str | None = None
+    photo_vision_physical_device_code: str | None = None
+    photo_vision_source_application: str | None = None
+    photo_vision_source_application_version: str | None = None
 
     @field_validator("data_dir", mode="before")
     @classmethod
@@ -62,13 +70,36 @@ class Settings(BaseSettings):
             raise ValueError("HEALTHCHECK_INGEST_HOST must not be empty")
         return value
 
-    @field_validator("openscale_source_instance_id", "openscale_ingest_token", mode="before")
+    @field_validator(
+        "openscale_source_instance_id",
+        "openscale_ingest_token",
+        "photo_vision_api_key",
+        mode="before",
+    )
     @classmethod
     def empty_secret_to_none(cls, value: object) -> object:
         if value is None:
             return None
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator(
+        "photo_vision_base_url",
+        "photo_vision_model",
+        "photo_vision_provider_code",
+        "photo_vision_physical_device_code",
+        "photo_vision_source_application",
+        "photo_vision_source_application_version",
+        mode="before",
+    )
+    @classmethod
+    def empty_photo_vision_text_to_none(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
         return value
 
     @field_validator("weight_goal_kg")

@@ -13,8 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.db.engine import session_scope
 from healthcheck.ingestion.photo.errors import PhotoImportError
-from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
+from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.imports import _batch_payload
@@ -60,7 +60,9 @@ def _persist_error(request: Request, operation: str) -> HTMLResponse:
 
 
 def _extractor(request: Request):
-    return getattr(request.app.state, "photo_extractor", None) or FakeImageMeasurementExtractor()
+    return getattr(request.app.state, "photo_extractor", None) or (
+        UnconfiguredImageMeasurementExtractor()
+    )
 
 
 @router.get("/", response_class=HTMLResponse)

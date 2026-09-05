@@ -41,7 +41,7 @@
     </div>
     {% if group.artifact %}
     <figure>
-      <img src="/api/artifacts/{{ group.artifact.id }}" alt="Imported synthetic image {{ group.artifact.source_filename or group.artifact.id }}">
+      <img src="/api/artifacts/{{ group.artifact.id }}" alt="Imported Xiaomi S400 image {{ group.artifact.source_filename or group.artifact.id }}">
       <figcaption class="muted">hash {{ group.artifact.content_hash[:12] }}… · {{ group.artifact.source_filename }}</figcaption>
     </figure>
     {% endif %}

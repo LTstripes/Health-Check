@@ -482,7 +482,7 @@ def test_no_constant_confidence_default_in_batch(photo_env):
 def test_api_create_list_detail_confirm_reject(photo_env):
     settings, paths, engine, _extractor = photo_env
     del engine
-    app, _ = create_ui_app(settings)
+    app, _ = create_ui_app(settings, photo_extractor=_extractor)
     pngs = six_month_synthetic_batch()[:2]
     with TestClient(app) as client:
         response = client.post(

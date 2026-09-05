@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 
 from healthcheck.db.engine import session_scope
 from healthcheck.ingestion.photo.errors import PhotoImportError
-from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
+from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
 from healthcheck.web.common import request_engine
 
@@ -47,9 +47,13 @@ def _engine(request: Request):
 @contextmanager
 def _photo_service(request: Request, extractor: Any | None = None) -> Iterator[PhotoImportService]:
     paths = request.app.state.runtime_paths
-    selected = extractor or getattr(request.app.state, "photo_extractor", None)
+    selected = (
+        extractor
+        if extractor is not None
+        else getattr(request.app.state, "photo_extractor", None)
+    )
     if selected is None:
-        selected = FakeImageMeasurementExtractor()
+        selected = UnconfiguredImageMeasurementExtractor()
     with session_scope(_engine(request)) as session:
         yield PhotoImportService(session, paths, selected)
 
@@ -249,11 +253,22 @@ def reprocess_event(
     event_id: str, request: Request, body: ReprocessBody | None = None
 ) -> JSONResponse:
     version = None if body is None else body.extractor_version
-    extractor = (
-        getattr(request.app.state, "photo_extractor", None) or FakeImageMeasurementExtractor()
-    )
+    extractor = getattr(request.app.state, "photo_extractor", None)
+    if extractor is None:
+        extractor = UnconfiguredImageMeasurementExtractor()
     if version is not None:
-        extractor = FakeImageMeasurementExtractor(version=version)
+        versioned = getattr(extractor, "with_version", None)
+        if not callable(versioned):
+            raise PhotoImportError(
+                "extractor_version_unsupported",
+                "configured extractor cannot be versioned for reprocessing",
+            )
+        try:
+            extractor = versioned(version)
+        except (TypeError, ValueError):
+            raise PhotoImportError(
+                "extractor_version_invalid", "extractor version is invalid"
+            ) from None
     try:
         with _photo_service(request, extractor=extractor) as service:
             result = service.reprocess_event(event_id)

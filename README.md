@@ -66,6 +66,26 @@ Use `-DataDir C:\Temp\Health-Check` for a temporary runtime directory. Set `-Ena
 
 Runtime state defaults to `%LOCALAPPDATA%\Health-Check` and can be overridden with `HEALTHCHECK_DATA_DIR`. No health data, provider credentials, payloads, images, logs, database, or generated reports belong in the repository.
 
+### Real Xiaomi photo extraction
+
+The normal UI uses the configured real-image extractor. Configure the endpoint
+and model through environment variables before an explicit photo upload or
+reprocess action:
+
+```powershell
+$env:HEALTHCHECK_PHOTO_VISION_BASE_URL = "https://vision.example.invalid/v1"
+$env:HEALTHCHECK_PHOTO_VISION_MODEL = "your-vision-model"
+$env:HEALTHCHECK_PHOTO_VISION_API_KEY = $env:VISION_PROVIDER_SECRET
+```
+
+The endpoint is OpenAI-compatible and receives one image plus a strict R01
+photo schema request. The API key is never written to the repository,
+runtime config, logs, or review UI. If the endpoint/model is not configured,
+the import remains replayable and returns a sanitized
+`extractor_not_configured` diagnostic; the synthetic fake is used only by
+explicit tests and the synthetic demo helper. No provider call is made by
+health checks or read-only pages.
+
 ## Canonical product documentation
 
 - [Product Vision](docs/PRODUCT_VISION.md)

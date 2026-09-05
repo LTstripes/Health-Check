@@ -28,6 +28,11 @@ class ExtractionRequest:
     locale: str | None = None
     timezone: str | None = None
     schema_version: str = DEFAULT_SCHEMA_VERSION
+    provider_code: str | None = None
+    physical_device_code: str | None = None
+    source_application: str | None = None
+    source_application_version: str | None = None
+    source_utc_offset_minutes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +64,8 @@ class ExtractionResult:
     extractor_name: str
     extractor_version: str
     schema_version: str
-    provider_code: str
-    physical_device_code: str
+    provider_code: str | None
+    physical_device_code: str | None
     groups: tuple[MeasurementGroup, ...]
     model_name: str | None = None
     model_version: str | None = None

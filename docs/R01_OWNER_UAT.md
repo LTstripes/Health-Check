@@ -114,6 +114,19 @@ Using synthetic fixtures only:
 
 Optional private photos on the owner machine only.
 
+- Before the explicit upload, set `HEALTHCHECK_PHOTO_VISION_BASE_URL`,
+  `HEALTHCHECK_PHOTO_VISION_MODEL`, and the provider API key in the owner
+  process environment only. Do not put the key in `config.toml`, Git, or an
+  issue/comment.
+- Upload one ordinary Xiaomi S400 PNG/JPEG from the owner-private runtime
+  profile. The expected first result is a failed-safe or pending review queue:
+  successful extraction must create nonzero pending candidates, with zero
+  confirmed/canonical measurements before owner action.
+- Check that provider/model/prompt/schema and visible source/device/time
+  provenance are shown without an authorization header, key, raw provider
+  response, or absolute image path. Date-only evidence must remain date-only.
+- If the provider is unavailable or returns malformed data, record the
+  sanitized diagnostic and verify the immutable artifact remains reprocessable.
 - Keep files under the UAT data dir, never in Git.
 - Record PASS / FAIL / UNVERIFIED.
 

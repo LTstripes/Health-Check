@@ -28,6 +28,7 @@ from healthcheck.db.models import (
     RunStatus,
     ScalarMeasurement,
 )
+from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.ingestion.photo.synthetic import (
     encode_synthetic_png,
     six_month_synthetic_batch,
@@ -42,7 +43,7 @@ def _ui(tmp_path, **settings_values):
     settings = Settings(data_dir=tmp_path / "runtime", **settings_values)
     paths = prepare_runtime(settings)
     migrate_database(paths)
-    app, _ = create_ui_app(settings)
+    app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
     return app, settings, paths
 
 
@@ -323,7 +324,7 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
 def test_ingest_listener_does_not_expose_dashboard_or_import_routes(tmp_path):
     settings = Settings(data_dir=tmp_path / "runtime")
     ingest, _ = create_ingest_app(settings)
-    ui, _ = create_ui_app(settings)
+    ui, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
     forbidden = (
         "/",
         "/imports",
