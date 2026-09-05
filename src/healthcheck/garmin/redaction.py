@@ -1,10 +1,9 @@
 """Value-free shape inspection for owner-controlled Garmin responses.
 
 This module intentionally does not preserve provider values.  It can inspect a
-live response in memory and return only types, safe field paths, bounded
-counts, presence states, and coarse device-attribution evidence.  The same
-shape transformer is used by the optional owner export helper before a file
-is shared with an Integrator or reviewer.
+live response in memory and return only types, statically allowlisted field
+paths, bounded counts, presence states, and coarse device-attribution
+evidence.  Unknown or dynamic provider keys are aggregated as redacted fields.
 """
 
 from __future__ import annotations
@@ -20,6 +19,8 @@ from typing import Any
 REDACTION_CONTRACT_VERSION = "r02-garmin-redaction-v1"
 MAX_SHAPE_NODES = 512
 MAX_ARRAY_ITEMS = 64
+MAX_MAPPING_FIELDS = 64
+MAX_ATTRIBUTION_NODES = 512
 
 _SAFE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,79}$")
 _SENSITIVE_KEY_TERMS = (
@@ -78,10 +79,22 @@ _DEVICE_KEY_NAMES = frozenset(
         "devicemodelname",
         "devicetype",
         "devicemanufacturer",
-        "devicename",
         "sourcedevice",
-        "source",
     }
+)
+_DEVICE_MODEL_KEY_NAMES = frozenset(
+    {
+        "model",
+        "modelname",
+        "devicemodel",
+        "devicemodelname",
+        "devicetype",
+        "devicemanufacturer",
+        "manufacturer",
+    }
+)
+_DEVICE_IDENTIFIER_KEY_NAMES = frozenset(
+    {"deviceid", "deviceuuid", "deviceidentifier", "sourcedeviceid"}
 )
 _TARGET_DEVICE_MARKERS = ("vivoactive5", "vivoactive_5", "vivoactive 5")
 _OTHER_DEVICE_MARKERS = (
@@ -95,6 +108,101 @@ _OTHER_DEVICE_MARKERS = (
     "epix",
     "marq",
     "tactix",
+)
+
+
+def _normalize_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.casefold())
+
+
+# This is deliberately a closed set.  It is shared by the probe's expected
+# metric contracts and the optional shape export so a provider-added key can
+# never become output merely because it passes a spelling heuristic.
+GARMIN_SAFE_FIELD_PATHS = frozenset(
+    {
+        "calendarDate",
+        "userActivitySummary",
+        "sleepTimeSeconds",
+        "sleepScore",
+        "sleepScore.value",
+        "levels",
+        "napTimeSeconds",
+        "napEvents",
+        "heartRateValues",
+        "heartRateValue",
+        "heartRate",
+        "heartRateBpm",
+        "timeOffset",
+        "restingHeartRate",
+        "hrvStatus",
+        "hrvStatus.weeklyAverage",
+        "hrvStatus.status",
+        "stressValues",
+        "stress",
+        "stressLevel",
+        "bodyBatteryChargedValue",
+        "bodyBatteryDrainedValue",
+        "bodyBatteryLevel",
+        "bodyBattery",
+        "spo2Values",
+        "spo2",
+        "spo2Percent",
+        "respirationValues",
+        "respiration",
+        "respirationRate",
+        "maxMetrics",
+        "maxMetrics.vo2MaxRunning",
+        "vo2Max",
+        "vo2MaxRunning",
+        "trainingReadiness",
+        "trainingReadiness.value",
+        "trainingStatus",
+        "trainingStatus.value",
+        "score",
+        "trainingEffect",
+        "trainingLoad",
+        "acuteTrainingLoad",
+        "activities",
+        "activities.activityType",
+        "activities.durationSeconds",
+        "activities.distanceMeters",
+        "activities.duration",
+        "activities.distance",
+        "activities.metrics",
+        "activities.metrics.speedMps",
+        "activities.metrics.heartRateBpm",
+        "activities.metrics.cadenceRpm",
+        "activities.metrics.powerWatts",
+        "activities.metrics.cyclingDynamics",
+        "activityType",
+        "durationSeconds",
+        "distanceMeters",
+        "duration",
+        "distance",
+        "metrics",
+        "metrics.speedMps",
+        "metrics.heartRateBpm",
+        "metrics.cadenceRpm",
+        "metrics.powerWatts",
+        "metrics.cyclingDynamics",
+        "speed",
+        "cadence",
+        "power",
+        "cyclingDynamics",
+        "device",
+        "device.model",
+        "sourceDevice",
+        "sourceDevice.model",
+        "fitRecords",
+        "fitRecords.recoveryTimeSeconds",
+        "fitRecords.0.recoveryTimeSeconds",
+        "recoveryTimeSeconds",
+        "recoveryTime",
+    }
+)
+_SAFE_PATH_KEYS = frozenset(
+    tuple(_normalize_key(part) for part in path.split(".") if part != "[]")
+    for path in GARMIN_SAFE_FIELD_PATHS
 )
 
 
@@ -113,6 +221,7 @@ class GarminDeviceAttribution(StrEnum):
 
     TARGET_DEVICE = "target_device"
     OTHER_DEVICE = "other_device"
+    MIXED = "mixed"
     UNATTRIBUTED = "unattributed"
     UNKNOWN = "unknown"
 
@@ -176,29 +285,36 @@ def summarize_garmin_payload(
         visited += 1
         shape = _shape_name(current)
         shape_counts[shape] += 1
-        if path:
+        if path and _is_allowlisted_path(path):
             field_paths.add(path)
         if isinstance(current, Mapping):
-            items = sorted(current.items(), key=lambda item: str(item[0]))
-            for key, nested in items:
+            entries, has_more = _bounded_mapping_items(current)
+            truncated = truncated or has_more
+            entries.sort(key=lambda item: str(item[0]))
+            for key, nested in entries:
+                if visited >= max_nodes:
+                    truncated = True
+                    break
                 key_text = str(key)
-                if _is_sensitive_key(key_text):
+                child_path = f"{path}.{key_text}" if path else key_text
+                if _safe_key(key_text, child_path) is None:
                     redacted_field_count += 1
                     continue
-                segment = _safe_key(key_text)
-                if segment is None:
-                    redacted_field_count += 1
-                    continue
-                child_path = f"{path}.{segment}" if path else segment
                 walk(nested, child_path)
         elif _is_sequence(current):
-            for nested in list(current)[:max_array_items]:
+            iterator = iter(current)
+            for _ in range(max_array_items):
+                try:
+                    nested = next(iterator)
+                except StopIteration:
+                    break
                 walk(nested, f"{path}[]" if path else "[]")
-            if len(current) > max_array_items:
+            length = _sequence_length(current)
+            if length is not None and length > max_array_items:
                 truncated = True
 
     walk(value)
-    item_count = len(value) if _is_sequence(value) else None
+    item_count = _sequence_length(value) if _is_sequence(value) else None
     return GarminPayloadShape(
         root_shape=_shape_name(value),
         value_state=garmin_value_state(value),
@@ -216,34 +332,64 @@ def garmin_value_state(value: Any) -> GarminValueState:
     if value is None:
         return GarminValueState.NULL
     if isinstance(value, Mapping | Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return GarminValueState.EMPTY if len(value) == 0 else GarminValueState.PRESENT
+        length = _sequence_length(value)
+        return GarminValueState.EMPTY if length == 0 else GarminValueState.PRESENT
     if isinstance(value, (bytes, bytearray, str)) and len(value) == 0:
         return GarminValueState.EMPTY
     return GarminValueState.PRESENT
 
 
-def field_state_at_path(value: Any, path: str) -> GarminValueState:
+def field_state_at_path(
+    value: Any,
+    path: str,
+    *,
+    max_array_items: int = MAX_ARRAY_ITEMS,
+) -> GarminValueState:
     """Read a dotted field path and return only its presence state."""
 
     if not isinstance(path, str) or not path.strip():
         raise ValueError("field path is required")
-    return _field_state_at_segments(value, tuple(path.split(".")))
+    if max_array_items < 1:
+        raise ValueError("field state limits must be positive")
+    return _field_state_at_segments(value, tuple(path.split(".")), max_array_items)
 
 
-def _field_state_at_segments(value: Any, segments: tuple[str, ...]) -> GarminValueState:
+def _field_state_at_segments(
+    value: Any,
+    segments: tuple[str, ...],
+    max_array_items: int,
+) -> GarminValueState:
     if not segments:
         return garmin_value_state(value)
     if isinstance(value, Mapping):
         segment = segments[0]
         if segment not in value:
             return GarminValueState.MISSING
-        return _field_state_at_segments(value[segment], segments[1:])
+        return _field_state_at_segments(value[segment], segments[1:], max_array_items)
     if _is_sequence(value):
-        if not value:
+        if segments[0].isdigit():
+            index = int(segments[0])
+            if index >= max_array_items:
+                return GarminValueState.UNKNOWN
+            iterator = iter(value)
+            for current_index in range(index + 1):
+                try:
+                    item = next(iterator)
+                except StopIteration:
+                    return GarminValueState.MISSING
+                if current_index == index:
+                    return _field_state_at_segments(item, segments[1:], max_array_items)
+            return GarminValueState.MISSING
+        states: list[GarminValueState] = []
+        iterator = iter(value)
+        for _ in range(max_array_items):
+            try:
+                item = next(iterator)
+            except StopIteration:
+                break
+            states.append(_field_state_at_segments(item, segments, max_array_items))
+        if not states:
             return GarminValueState.EMPTY
-        states = [
-            _field_state_at_segments(item, segments) for item in list(value)[:MAX_ARRAY_ITEMS]
-        ]
         return _combine_field_states(states)
     return GarminValueState.MISSING
 
@@ -257,37 +403,66 @@ def _combine_field_states(states: Sequence[GarminValueState]) -> GarminValueStat
     return GarminValueState.UNKNOWN
 
 
-def field_state_counts(value: Any, paths: Sequence[str]) -> dict[str, int]:
+def field_state_counts(
+    value: Any,
+    paths: Sequence[str],
+    *,
+    max_array_items: int = MAX_ARRAY_ITEMS,
+) -> dict[str, int]:
     """Return deterministic counts for expected paths, never their values."""
 
     counts: Counter[str] = Counter()
     for path in sorted(set(paths)):
-        counts[field_state_at_path(value, path).value] += 1
+        counts[field_state_at_path(value, path, max_array_items=max_array_items).value] += 1
     return {key: counts[key] for key in sorted(counts)}
 
 
-def infer_device_attribution(value: Any) -> GarminDeviceAttributionEvidence:
-    """Infer only coarse target/other/unknown/unattributed evidence.
-
-    A missing device field is deliberately ``unattributed``.  A present field
-    that contains only an opaque identifier is ``unknown``.  Values are
-    inspected transiently to recognize the synthetic target marker but are
-    never returned or logged.
-    """
+def infer_device_attribution(
+    value: Any,
+    *,
+    max_array_items: int = MAX_ARRAY_ITEMS,
+) -> GarminDeviceAttributionEvidence:
+    """Infer only coarse target/other/mixed/unknown attribution evidence."""
 
     has_device_field = False
     has_opaque_device_field = False
     explicit_unattributed = False
     target_found = False
     other_found = False
+    visited = 0
+    traversal_truncated = False
+
+    def record_marker(nested: Any) -> None:
+        nonlocal has_opaque_device_field, target_found, other_found
+        if isinstance(nested, bool) or not isinstance(nested, (str, int, float)):
+            has_opaque_device_field = True
+            return
+        text = _normalize_marker_text(str(nested))
+        target = any(_normalize_marker_text(marker) in text for marker in _TARGET_DEVICE_MARKERS)
+        other = any(_normalize_marker_text(marker) in text for marker in _OTHER_DEVICE_MARKERS)
+        target_found = target_found or target
+        other_found = other_found or other
+        if not target and not other:
+            has_opaque_device_field = True
+
+    if max_array_items < 1:
+        raise ValueError("attribution limits must be positive")
 
     def inspect(current: Any, device_context: bool = False) -> None:
         nonlocal has_device_field, has_opaque_device_field, explicit_unattributed
-        nonlocal target_found, other_found
+        nonlocal visited, traversal_truncated
+        if visited >= MAX_ATTRIBUTION_NODES:
+            traversal_truncated = True
+            return
+        visited += 1
         if isinstance(current, Mapping):
-            for key, nested in current.items():
+            entries, has_more = _bounded_mapping_items(current)
+            traversal_truncated = traversal_truncated or has_more
+            for key, nested in entries:
                 normalized = _normalize_key(str(key))
-                is_device_key = normalized in _DEVICE_KEY_NAMES or "device" in normalized
+                is_device_key = normalized not in _DEVICE_IDENTIFIER_KEY_NAMES and (
+                    normalized in _DEVICE_KEY_NAMES or "device" in normalized
+                )
                 if is_device_key:
                     has_device_field = True
                     if normalized in {"deviceattributed", "isdeviceattributed"}:
@@ -297,35 +472,46 @@ def infer_device_attribution(value: Any) -> GarminDeviceAttributionEvidence:
                             has_opaque_device_field = True
                         continue
                     if isinstance(nested, (str, int, float)) and not isinstance(nested, bool):
-                        text = _normalize_marker_text(str(nested))
-                        if any(
-                            marker.replace(" ", "") in text for marker in _TARGET_DEVICE_MARKERS
-                        ):
-                            target_found = True
-                        elif any(marker in text for marker in _OTHER_DEVICE_MARKERS):
-                            other_found = True
-                        else:
-                            has_opaque_device_field = True
-                    elif nested is None or nested == {} or nested == []:
+                        record_marker(nested)
+                    elif nested is None or _is_empty_container(nested):
                         has_opaque_device_field = True
                     inspect(nested, True)
-                elif device_context and isinstance(nested, str):
-                    text = _normalize_marker_text(nested)
-                    if any(marker.replace(" ", "") in text for marker in _TARGET_DEVICE_MARKERS):
-                        target_found = True
-                    elif any(marker in text for marker in _OTHER_DEVICE_MARKERS):
-                        other_found = True
-                    else:
-                        has_opaque_device_field = True
+                elif device_context and (
+                    normalized in _DEVICE_MODEL_KEY_NAMES or "model" in normalized
+                ):
+                    record_marker(nested)
                 elif isinstance(nested, (Mapping, Sequence)) and not isinstance(
                     nested, (str, bytes, bytearray)
                 ):
                     inspect(nested, device_context)
         elif _is_sequence(current):
-            for nested in list(current)[:MAX_ARRAY_ITEMS]:
+            length = _sequence_length(current)
+            if length is not None and length > max_array_items:
+                traversal_truncated = True
+            iterator = iter(current)
+            for _ in range(max_array_items):
+                try:
+                    nested = next(iterator)
+                except StopIteration:
+                    break
                 inspect(nested, device_context)
 
     inspect(value)
+    if traversal_truncated:
+        return GarminDeviceAttributionEvidence(
+            GarminDeviceAttribution.UNKNOWN,
+            "attribution_traversal_bounded",
+        )
+    if target_found and other_found:
+        return GarminDeviceAttributionEvidence(
+            GarminDeviceAttribution.MIXED,
+            "mixed_device_models",
+        )
+    if (target_found or other_found) and (explicit_unattributed or has_opaque_device_field):
+        return GarminDeviceAttributionEvidence(
+            GarminDeviceAttribution.UNKNOWN,
+            "device_attribution_unresolved",
+        )
     if target_found:
         return GarminDeviceAttributionEvidence(
             GarminDeviceAttribution.TARGET_DEVICE,
@@ -363,7 +549,7 @@ def redact_garmin_payload(
     max_nodes: int = MAX_SHAPE_NODES,
     max_array_items: int = MAX_ARRAY_ITEMS,
 ) -> dict[str, Any]:
-    """Convert a raw response into a value-free shareable shape document."""
+    """Convert a raw response into a value-free allowlisted shape document."""
 
     if max_nodes < 1 or max_array_items < 1:
         raise ValueError("redaction limits must be positive")
@@ -381,12 +567,7 @@ def validate_external_export_paths(
     input_path: str | Path,
     output_path: str | Path,
 ) -> tuple[Path, Path]:
-    """Validate raw-input and sanitized-output paths before file I/O.
-
-    Both paths must be absolute and outside the checkout.  Existing symlinked
-    files or parent directories are rejected so a redaction export cannot be
-    redirected into Git or an unexpected location.
-    """
+    """Validate raw-input and sanitized-output paths before file I/O."""
 
     source = _validate_external_file_path(input_path)
     target = _validate_external_file_path(output_path)
@@ -400,6 +581,7 @@ def _redact_node(
     *,
     max_array_items: int,
     remaining_nodes: list[int],
+    path: str = "",
 ) -> dict[str, Any]:
     shape = _shape_name(value)
     if remaining_nodes[0] < 1:
@@ -409,30 +591,29 @@ def _redact_node(
         fields: list[dict[str, Any]] = []
         redacted = 0
         truncated = False
-        for key, nested in sorted(value.items(), key=lambda item: str(item[0])):
+        entries, has_more = _bounded_mapping_items(value)
+        truncated = has_more
+        entries.sort(key=lambda item: str(item[0]))
+        for key, nested in entries:
             if remaining_nodes[0] < 1:
                 truncated = True
                 break
             key_text = str(key)
-            safe_key = None if _is_sensitive_key(key_text) else _safe_key(key_text)
-            if safe_key is None:
+            child_path = f"{path}.{key_text}" if path else key_text
+            if _safe_key(key_text, child_path) is None:
                 redacted += 1
                 continue
             child_shape = _redact_node(
                 nested,
                 max_array_items=max_array_items,
                 remaining_nodes=remaining_nodes,
+                path=child_path,
             )
-            fields.append(
-                {
-                    "key": safe_key,
-                    "shape": child_shape,
-                }
-            )
+            fields.append({"key": key_text, "shape": child_shape})
             truncated = truncated or bool(child_shape.get("truncated"))
-        result = {
+        result: dict[str, Any] = {
             "type": shape,
-            "field_count": len(value),
+            "field_count": _sequence_length(value),
             "redacted_field_count": redacted,
             "fields": fields,
         }
@@ -440,10 +621,14 @@ def _redact_node(
             result["truncated"] = True
         return result
     if _is_sequence(value):
-        items = list(value)
         redacted_items: list[dict[str, Any]] = []
-        truncated = len(items) > max_array_items
-        for item in items[:max_array_items]:
+        iterator = iter(value)
+        truncated = False
+        for _ in range(max_array_items):
+            try:
+                item = next(iterator)
+            except StopIteration:
+                break
             if remaining_nodes[0] < 1:
                 truncated = True
                 break
@@ -451,12 +636,16 @@ def _redact_node(
                 item,
                 max_array_items=max_array_items,
                 remaining_nodes=remaining_nodes,
+                path=f"{path}[]" if path else "[]",
             )
             redacted_items.append(child_shape)
             truncated = truncated or bool(child_shape.get("truncated"))
+        length = _sequence_length(value)
+        if length is not None and length > max_array_items:
+            truncated = True
         return {
             "type": shape,
-            "item_count": len(items),
+            "item_count": _sequence_length(value),
             "items": redacted_items,
             "truncated": truncated,
         }
@@ -465,12 +654,38 @@ def _redact_node(
     return {"type": shape}
 
 
-def _normalize_key(value: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", value.casefold())
+def _bounded_mapping_items(value: Mapping[Any, Any]) -> tuple[list[tuple[Any, Any]], bool]:
+    iterator = iter(value.items())
+    entries: list[tuple[Any, Any]] = []
+    for _ in range(MAX_MAPPING_FIELDS):
+        try:
+            entries.append(next(iterator))
+        except StopIteration:
+            return entries, False
+    try:
+        next(iterator)
+    except StopIteration:
+        return entries, False
+    return entries, True
+
+
+def _sequence_length(value: Any) -> int | None:
+    try:
+        return len(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _normalize_marker_text(value: str) -> str:
     return re.sub(r"[-_\s]", "", value.casefold())
+
+
+def _path_key(value: str) -> tuple[str, ...]:
+    return tuple(_normalize_key(part) for part in value.split(".") if part != "[]")
+
+
+def _is_allowlisted_path(value: str) -> bool:
+    return _path_key(value) in _SAFE_PATH_KEYS
 
 
 def _validate_external_file_path(path: str | Path) -> Path:
@@ -510,10 +725,18 @@ def _is_sensitive_key(value: str) -> bool:
     return any(term.replace("_", "") in normalized for term in _SENSITIVE_KEY_TERMS)
 
 
-def _safe_key(value: str) -> str | None:
+def _safe_key(value: str, path: str) -> str | None:
     if not _SAFE_KEY_RE.fullmatch(value) or _is_sensitive_key(value):
         return None
+    if not _is_allowlisted_path(path):
+        return None
     return value
+
+
+def _is_empty_container(value: Any) -> bool:
+    if isinstance(value, Mapping | Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return _sequence_length(value) == 0
+    return False
 
 
 def _is_sequence(value: Any) -> bool:
@@ -539,11 +762,13 @@ def _shape_name(value: Any) -> str:
 
 
 __all__ = [
+    "GARMIN_SAFE_FIELD_PATHS",
     "GarminDeviceAttribution",
     "GarminDeviceAttributionEvidence",
     "GarminPayloadShape",
     "GarminValueState",
     "MAX_ARRAY_ITEMS",
+    "MAX_MAPPING_FIELDS",
     "MAX_SHAPE_NODES",
     "REDACTION_CONTRACT_VERSION",
     "field_state_at_path",

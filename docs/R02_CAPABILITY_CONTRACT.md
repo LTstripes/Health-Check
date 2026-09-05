@@ -26,16 +26,30 @@ use the pinned `python-garminconnect` source revision recorded in
 `docs/REFERENCE_PROJECTS.md`, prompt for credentials and MFA through hidden
 input, and keep the reusable tokenstore below the external
 `HEALTHCHECK_DATA_DIR` runtime tree. The runtime path is rejected if it
-resolves inside the checkout. The implementation and CI tests use only fake
-clients and synthetic payloads; no agent or CI process runs these commands
+resolves inside the checkout. The canonical `garmin_tokens.json` is a
+Windows-current-user DPAPI envelope with an explicit owner SID; if that
+protection API is unavailable the auth command fails closed. The provider sees
+an inline decrypted snapshot only, never a plaintext temporary token file. A
+malformed envelope is reported as recoverable `reauth_required`, while a
+provider outage remains a failure. The implementation and CI tests use only
+fake clients and synthetic payloads; no agent or CI process runs these commands
 against an owner account.
 
 The live probe accepts one or two adjacent owner-selected dates and at most
-one activity selected from that small window. It calls only the allowlisted
-read/download methods in `healthcheck.garmin.probe`. It does not call
-`prepare-runtime`, migrate a database, write R02 persistence tables, ingest,
-backfill, or render a UI. The probe retains raw responses only transiently in
-memory so it can return a structural summary.
+one activity selected from that small window. Activity discovery uses the
+pinned provider's fixed activity-search endpoint directly with `start=0` and
+`limit=1`; it does not call the provider's paginating
+`get_activities_by_date` helper. The hard logical/provider request cap is 27,
+and pinned-provider retries are disabled for the probe. One selected activity
+may receive a summary call and `get_activity_details(maxchart=1, maxpoly=0)`;
+no GPS/polyline route request and no ORIGINAL FIT download is made. Recovery
+Time FIT evidence therefore remains explicitly `not_evaluated` until a
+bounded correct FIT parser is added. Once a call reports reauthentication,
+the probe stops and marks all remaining rows `not_run` with
+`not_run_reason=reauth_required`. It does not call `prepare-runtime`, migrate
+a database, write R02 persistence tables, ingest, backfill, or render a UI.
+The probe retains raw responses only transiently in memory so it can return a
+structural summary.
 
 The sanitized report has this shape:
 
@@ -46,30 +60,37 @@ library: name, version
 application: name, version (unknown when no owner-safe app version is exposed)
 auth: status, session_reused, mfa, storage, fixed-vocabulary error
 probe: window_day_count, activity_requested, activity_selected, request_count,
-       raw_payloads_retained=false, database_writes=false
+       max_provider_requests, abort_reason, raw_payloads_retained=false,
+       database_writes=false
 privacy: raw_values_emitted=false, private_identifiers_emitted=false,
          tokens_emitted=false, health_timestamps_emitted=false
 capabilities[]: code, static_audit_status, static_device_support, methods,
                 method_callable, request_succeeded, status, value_state,
                 payload_shapes, safe field_paths, shape_counts,
                 field_state_counts, device_attribution,
-                target_device_evidence, method_calls, fixed-vocabulary errors
+                target_device_evidence, method_calls, fixed-vocabulary errors,
+                optional not_run_reason/recovery_time_visibility
 ```
 
 `status` distinguishes `succeeded`, `empty`, `null`, `unsupported`,
 `shape_drift`, `method_unavailable`, `reauth_required`, `failed`, and
 `not_run`/`partial`. `method_callable=true` never upgrades static device
-support. A target-device capability claim requires both a present response
-and target-device evidence; otherwise the live result remains unknown or
-unattributed.
+support. `target_device_evidence=true` requires a present expected metric
+leaf/value from the explicit #28/#29 field contract and exact target-device
+attribution; an object container without its expected leaf does not qualify.
+A payload containing both target and other-device markers is `mixed` and never
+target evidence. Method presence or a non-empty root object alone is not
+evidence.
 
 The report contains no health values, activity/profile/device IDs, routes,
 coordinates, precise health timestamps, credentials, cookies, tokens, or raw
 payload dumps. If a raw owner response is deliberately saved for later shape
 work, it must stay outside the checkout and be passed through the separate
 `garmin-redact` command before anything is shared. The redaction output keeps
-only types, bounded counts, safe field names, presence states, and coarse
-attribution status.
+only statically allowlisted field names/paths, bounded counts, presence states,
+and coarse attribution status. Unknown or provider-added keys are aggregated
+as redacted counts; bounded traversal never materializes a whole provider
+sequence.
 
 ## Matrix
 
@@ -153,8 +174,8 @@ below remains `UNVERIFIED`:
 - Record actual payload availability and device attribution for every matrix
   row with Vivoactive 5 as the only source device.
 - Verify exact nap intervals and timezone behavior.
-- Inspect downloaded ORIGINAL FIT for Recovery Time; retain `UNVERIFIED` if
-  absent or ambiguous.
+- Recovery Time ORIGINAL FIT is intentionally not evaluated by this spike:
+  retain `UNKNOWN`/`not_evaluated` until a correct bounded parser is reviewed.
 - Verify Training Effect and Acute/Training Load provenance when those fields
   appear in activity payloads.
 - Verify cycling power, advanced dynamics, cycling VO2, accessory attribution,

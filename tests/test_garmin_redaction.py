@@ -67,7 +67,22 @@ def test_redaction_export_is_value_free_even_for_safe_field_names() -> None:
     assert "activityId" not in serialized
     assert "serialNumber" not in serialized
     assert '"key": "calendarDate"' in serialized
-    assert '"key": "value"' in serialized
+    assert '"key": "value"' not in serialized
+
+
+def test_redaction_fail_closed_for_unknown_dynamic_keys() -> None:
+    payload = {
+        "providerAddedMetric": {"dynamicHealthValue": SYNTHETIC_PRIVATE_VALUE},
+        "heartRateValues": [72],
+    }
+
+    summary = summarize_garmin_payload(payload)
+    redacted = redact_garmin_payload(payload)
+    serialized = json.dumps(redacted, sort_keys=True)
+
+    assert "providerAddedMetric" not in json.dumps(summary.as_dict(), sort_keys=True)
+    assert "dynamicHealthValue" not in serialized
+    assert summary.redacted_field_count == 1
 
 
 def test_zero_is_present_and_missing_null_empty_are_distinct() -> None:
@@ -105,16 +120,52 @@ def test_device_attribution_is_coarse_and_value_free(
     assert "synthetic-device-marker" not in serialized
 
 
+def test_mixed_device_attribution_is_not_promoted_to_target() -> None:
+    evidence = infer_device_attribution(
+        {
+            "device": {"model": "Vivoactive 5"},
+            "sourceDevice": {"model": "Forerunner 265"},
+        }
+    )
+
+    assert evidence.status is GarminDeviceAttribution.MIXED
+    assert evidence.as_dict()["evidence_kind"] == "mixed_device_models"
+
+
 def test_shape_summary_is_bounded() -> None:
-    summary = summarize_garmin_payload({"items": list(range(20))}, max_nodes=5, max_array_items=3)
+    summary = summarize_garmin_payload(
+        {"heartRateValues": list(range(20))}, max_nodes=5, max_array_items=3
+    )
 
     assert summary.truncated is True
     assert summary.item_count is None
 
 
+def test_device_attribution_traversal_is_bounded_and_fail_closed() -> None:
+    payload: dict[str, object] = {"leaf": "synthetic"}
+    for _ in range(600):
+        payload = {"nested": payload}
+
+    evidence = infer_device_attribution(payload)
+
+    assert evidence.status is GarminDeviceAttribution.UNKNOWN
+    assert evidence.evidence_kind == "attribution_traversal_bounded"
+
+
+def test_device_attribution_does_not_claim_target_when_mapping_is_truncated() -> None:
+    payload: dict[str, object] = {"device": {"model": "Vivoactive 5"}}
+    payload.update({f"providerField{index}": index for index in range(63)})
+    payload["sourceDevice"] = {"model": "Forerunner 265"}
+
+    evidence = infer_device_attribution(payload)
+
+    assert evidence.status is GarminDeviceAttribution.UNKNOWN
+    assert evidence.status is not GarminDeviceAttribution.TARGET_DEVICE
+
+
 def test_redaction_export_is_bounded() -> None:
     redacted = redact_garmin_payload(
-        {"outer": {"inner": {"value": SYNTHETIC_PRIVATE_VALUE}}}, max_nodes=2
+        {"heartRateValues": [{"heartRate": SYNTHETIC_PRIVATE_VALUE}]}, max_nodes=2
     )
     serialized = json.dumps(redacted, sort_keys=True)
 
