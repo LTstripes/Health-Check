@@ -14,10 +14,11 @@ R01 is released on `main`. The final owner gate passed on the integrated
 candidate `058639919c4b5e13c420e7c016d292843afa10dc`; the current `main` at
 the post-R01 documentation baseline is
 `24c4e1f949cd04746ca40bde539a9f32b1b4b4b0`, with its CI check successful.
-The owner-assisted historical Xiaomi import, packaged Windows `tzdata`
-support, and production vision-extractor composition are part of the
-released behavior. Live S400/openScale BLE and a real external vision
-provider call remain **UNVERIFIED**.
+The owner-assisted historical Xiaomi backfill was completed alongside the
+release as a separate one-time data migration outside Git. Packaged Windows
+`tzdata` support and production vision-extractor composition are part of the
+shipped R01 behavior. Live S400/openScale BLE and a real external
+vision-provider call remain **UNVERIFIED**.
 
 ## 2. In scope
 
