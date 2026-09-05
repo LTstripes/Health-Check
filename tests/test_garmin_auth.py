@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import ctypes
 import json
 import logging
 import sys
@@ -12,6 +13,7 @@ import pytest
 from garminconnect import Garmin
 from garminconnect.client import token_file_path
 
+import healthcheck.garmin.auth as auth_module
 from healthcheck import cli
 from healthcheck.cli import build_parser
 from healthcheck.config import Settings
@@ -328,6 +330,92 @@ def test_pinned_provider_accepts_inline_session_without_path_semantics() -> None
 
     assert result == (None, None)
     assert provider.client.di_token == "synthetic-di-token"
+
+
+def test_dpapi_cleanup_uses_kernel32_localfree_with_fake_winapi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeWinFunction:
+        def __init__(self, callback: object) -> None:
+            self.callback = callback
+
+        def __call__(self, *args: object) -> object:
+            return self.callback(*args)  # type: ignore[operator]
+
+    class FakeKernel32:
+        def __init__(self) -> None:
+            self.freed: list[int | None] = []
+            self.LocalFree = FakeWinFunction(self._local_free)
+
+        def _local_free(self, pointer: ctypes.c_void_p) -> int:
+            self.freed.append(pointer.value)
+            return 0
+
+    class FakeCrypt32:
+        def __init__(self) -> None:
+            self.protect_flags: list[int] = []
+            self.unprotect_flags: list[int] = []
+            self.wrong_local_free_calls = 0
+            self._buffers: list[ctypes.Array[ctypes.c_char]] = []
+            self._descriptions: list[ctypes.c_wchar_p] = []
+            self.CryptProtectData = FakeWinFunction(self._protect)
+            self.CryptUnprotectData = FakeWinFunction(self._unprotect)
+            self.LocalFree = FakeWinFunction(self._wrong_local_free)
+
+        def _set_output(self, output: object, payload: bytes) -> None:
+            output_blob = ctypes.cast(output, ctypes.POINTER(auth_module._DataBlob)).contents
+            buffer = ctypes.create_string_buffer(payload)
+            self._buffers.append(buffer)
+            output_blob.cbData = len(payload)
+            output_blob.pbData = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte))
+
+        def _protect(
+            self,
+            _input: object,
+            _description: object,
+            _entropy: object,
+            _reserved: object,
+            _prompt: object,
+            flags: int,
+            output: object,
+        ) -> int:
+            self.protect_flags.append(flags)
+            self._set_output(output, b"synthetic-ciphertext")
+            return 1
+
+        def _unprotect(
+            self,
+            _input: object,
+            description: object,
+            _entropy: object,
+            _reserved: object,
+            _prompt: object,
+            flags: int,
+            output: object,
+        ) -> int:
+            self.unprotect_flags.append(flags)
+            self._set_output(output, b'{"di_token":"synthetic"}')
+            description_ref = ctypes.cast(description, ctypes.POINTER(ctypes.c_wchar_p))
+            value = ctypes.c_wchar_p("synthetic description")
+            self._descriptions.append(value)
+            description_ref[0] = value
+            return 1
+
+        def _wrong_local_free(self, _pointer: ctypes.c_void_p) -> int:
+            self.wrong_local_free_calls += 1
+            raise AssertionError("Crypt32 LocalFree must not be used")
+
+    crypt32 = FakeCrypt32()
+    kernel32 = FakeKernel32()
+    libraries = {"crypt32.dll": crypt32, "kernel32.dll": kernel32}
+    monkeypatch.setattr(auth_module, "_windows_library", libraries.__getitem__)
+
+    assert auth_module._dpapi_protect(b"synthetic-plaintext") == b"synthetic-ciphertext"
+    assert auth_module._dpapi_unprotect(b"synthetic-ciphertext") == (b'{"di_token":"synthetic"}')
+    assert crypt32.protect_flags == [0x1]
+    assert crypt32.unprotect_flags == [0x1]
+    assert crypt32.wrong_local_free_calls == 0
+    assert len(kernel32.freed) == 3
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows DPAPI regression")
