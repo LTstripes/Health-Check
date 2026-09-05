@@ -8,12 +8,14 @@ When documents disagree, use this order:
 
 1. `docs/PRODUCT_VISION.md` — product purpose and boundaries.
 2. `docs/ARCHITECTURE.md` and accepted ADRs — architecture invariants and durable technical contracts.
-3. The active release implementation spec, currently `docs/R01_IMPLEMENTATION_SPEC.md`.
+3. The active release implementation spec named by the current release tracker / explicit Integrator note. A completed release spec remains historical evidence and is not automatically the next release's active spec.
 4. The active GitHub issue and explicit Integrator notes — task-specific scope and acceptance criteria.
 5. `docs/DEVELOPMENT_PROCESS.md` — branch/workspace/review protocol.
 6. `docs/MODEL_ROUTING.md` — complexity/routing/escalation protocol.
 7. `docs/DECISIONS_AND_OPEN_QUESTIONS.md` — current decisions and live verification items.
 8. `docs/BACKLOG_IDEAS.md` and historical/audit material — context only unless promoted into an active spec.
+
+If no new release implementation spec has been promoted yet, use architecture + roadmap + the active GitHub issue/Integrator note; do not silently treat the previous release spec as current.
 
 A task issue may narrow an architecture/spec but may not silently override a higher-priority invariant. Escalate conflicts to the Integrator.
 
@@ -34,15 +36,17 @@ The GitHub issue is the authoritative task specification. A launch prompt sent b
 - assigned model/client and complexity;
 - assigned physical workspace root/task directory;
 - task branch and exact baseline/integration SHA;
-- instruction to read this file, the active release spec and the issue;
+- instruction to read this file, the active release spec (when one is designated) and the issue;
 - instruction to run required checks, commit/push only the task branch and return the exact final SHA.
 
 Do not duplicate the whole issue in chat prompts. If requirements change, the Integrator updates the issue or adds an explicit Integrator note in GitHub; chat-only requirement drift is not authoritative.
 
 ## Git ownership
 
-- `main` is canonical accepted/stable history. Workers never write to `main`.
-- During a multi-task release, the Integrator may create one release integration branch such as `integration/r01-weight-core`.
+- `main` is the only canonical accepted/stable history and the only release source. Workers never write to `main`.
+- During a multi-task release, the Integrator may create one release integration branch such as `integration/r01-weight-core` or `integration/r02-garmin`.
+- A release integration branch is a staging/coordination line, never a second source of truth.
+- After a release is merged to `main`, its integration branch becomes historical/staging-only. The next release integration branch starts from the then-current canonical `main`, not from the old integration branch or an arbitrary stacked task branch.
 - Worker branches are isolated, normally `task/<issue>-<slug>`, from an exact pinned integration SHA.
 - A worker may commit and push only its assigned task branch.
 - Workers do not merge, force-push, delete branches/tags, retarget PRs or alter repository settings unless explicitly delegated.
@@ -56,6 +60,7 @@ A task stays pinned to its assigned baseline while it is being implemented. Do n
 - Independent parallel tasks may finish against the same pinned integration SHA.
 - The Integrator decides at review time whether a stale candidate can merge cleanly or needs one refresh/retest pass.
 - A refresh is normally required for overlapping files, migrations/schema, security/network boundaries, canonical data semantics or other high-risk shared contracts.
+- Accepted-but-held work from a previous release freeze is not automatically merge-ready after the freeze lifts; re-read the new canonical baseline, reconcile lineage as needed, and rerun the required exact-head checks.
 - Low-risk independent work does not require churn merely to match the newest SHA.
 - Never rebase/reset another agent's branch or workspace.
 
@@ -135,4 +140,4 @@ Do not edit `docs/EXECUTION_HISTORY.md` as a normal worker. The Integrator recor
 
 A worker delivers a pushed task branch and completion report. The Integrator then inspects GitHub diff/evidence, requests fixes or rejects/accepts, merges accepted work into the current integration branch, updates execution history and affected canonical docs, and eventually opens the release integration -> `main` PR.
 
-After a release merge to `main`, canonical `main` must be read back and release/UAT status recorded before the release is considered integrated.
+After a release merge to `main`, canonical `main` must be read back, exact post-merge CI checked, release/UAT status recorded, and the next release must restart from the new canonical `main` rather than continuing from the old release integration branch.
