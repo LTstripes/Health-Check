@@ -210,6 +210,27 @@ class PhotoImportService:
             candidate.id, candidate.metric_code
         )
         session_id = measurement.measurement_session_id if measurement is not None else None
+        event = self.repos.ingest_events.get(candidate.ingest_event_id)
+        source = (
+            self.repos.acquisition_sources.get_by_id(event.acquisition_source_id)
+            if event is not None
+            else None
+        )
+        provider = (
+            self.repos.providers.get(source.provider_id)
+            if source is not None
+            else None
+        )
+        device = (
+            self.repos.physical_devices.get(source.physical_device_id)
+            if source is not None and source.physical_device_id is not None
+            else None
+        )
+        algorithm = None
+        if candidate.algorithm_code and candidate.algorithm_version:
+            algorithm = self.repos.measurement_algorithms.get_by_code_version(
+                candidate.algorithm_code, candidate.algorithm_version
+            )
         return {
             "id": candidate.id,
             "ingest_event_id": candidate.ingest_event_id,
@@ -249,6 +270,30 @@ class PhotoImportService:
                 candidate.proposed_source_timestamp,
                 candidate.proposed_source_local_date,
             ),
+            "provenance": {
+                "provider_code": provider.code if provider is not None else candidate.provider_code,
+                "provider_display_name": provider.display_name if provider is not None else None,
+                "acquisition_source_id": source.id if source is not None else None,
+                "input_method": source.input_method if source is not None else None,
+                "source_application": source.source_application if source is not None else None,
+                "source_application_version": (
+                    source.source_application_version if source is not None else None
+                ),
+                "device_code": device.code if device is not None else None,
+                "device_display_name": device.display_name if device is not None else None,
+                "device_model": device.model if device is not None else None,
+                "algorithm_code": candidate.algorithm_code,
+                "algorithm_version": candidate.algorithm_version,
+                "compatibility_group": (
+                    algorithm.compatibility_group if algorithm is not None else None
+                ),
+                "algorithm_compatibility_state": (
+                    "known" if algorithm is not None else "not_evidenced"
+                ),
+                "source_local_date": candidate.proposed_source_local_date,
+                "source_timestamp": candidate.proposed_source_timestamp,
+                "temporal_precision": candidate.temporal_precision,
+            },
             "measurement_session_id": session_id,
             "scalar_measurement_id": measurement.id if measurement is not None else None,
         }
