@@ -4,7 +4,9 @@ The roadmap follows usable vertical slices. Each release adds value on the Windo
 
 Future ideas that are intentionally not committed to a release yet live in [Backlog Ideas](BACKLOG_IDEAS.md).
 
-## R00 — Final architecture (complete in this branch)
+**Current planning focus:** R01 is released to stable `main`. Complete the bounded post-R01 consolidation/R01.1 safety follow-ups, then create a fresh `integration/r02-garmin` from canonical `main` and reconstruct the already accepted Garmin contract/live-spike layers before production R02 ingestion work begins.
+
+## R00 — Final architecture (complete)
 
 Outputs:
 
@@ -15,9 +17,9 @@ Outputs:
 
 No product code or production data is part of R00.
 
-## R01 — Weight & Body Composition vertical slice (release gate complete)
+## R01 — Weight & Body Composition vertical slice (released)
 
-Deliver the first useful product and the reusable Health-Check core:
+Delivered the first useful product and the reusable Health-Check core:
 
 - Python/FastAPI local application, configuration, SQLite WAL, and migrations;
 - provider/device/input/algorithm provenance model;
@@ -30,14 +32,37 @@ Deliver the first useful product and the reusable Health-Check core:
 
 The mandatory R01 owner gate passed on integrated candidate `058639919c4b5e13c420e7c016d292843afa10dc`. Final closeout evidence, including owner-assisted historical Xiaomi migration and explicit UNVERIFIED live-device/provider items, is recorded in [R01 Release Closeout](R01_RELEASE_CLOSEOUT.md).
 
-Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted AI/SQL are excluded.
+R01 release PR #40 merged to stable `main`; R01 tracker #13 is closed. Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted AI/SQL remain outside R01.
 
-## R02 — Garmin ingestion and backfill
+### Post-R01 bounded follow-ups
 
-- Start from the R00-reviewed `python-garminconnect` `0.3.12`/SHA pin; change it only if the live account spike supplies contrary evidence recorded in the R02 decision/ADR.
-- User-assisted initial sign-in/MFA and durable token storage outside Git.
+Before the main R02 implementation wave:
+
+- integrate the accepted safe local profile backup/restore tooling (#27) after revalidation on current `main`;
+- change default local ports to owner-approved `8120/8121` (#32), preserving explicit overrides and route isolation;
+- optionally integrate the accepted dashboard visual polish (#26) after current-main revalidation;
+- complete the post-release documentation/lineage consolidation tracked by #41.
+
+These are not reasons to reopen R01; they are post-release hardening/quality follow-ups.
+
+## R02 — Garmin ingestion and backfill (next active release)
+
+Production objective:
+
+- Start from the R00-reviewed `python-garminconnect` `0.3.12`/SHA pin; change it only if concrete live evidence requires an explicit decision.
+- User-assisted initial sign-in/MFA and durable protected token/session storage outside Git.
 - Raw/source records, typed daily/sleep/activity/intraday entities, incremental sync, trailing-window resync, backfill, idempotency, and stream coverage.
-- Preserve only metrics produced by this device/account; an available client method is not evidence of device capability.
+- Preserve only metrics produced/evidenced by this device/account; an available client method is not evidence of device capability.
+
+Accepted preparation already exists on held/diverged task branches:
+
+- #28 — capability inventory + synthetic contract fixtures: accepted;
+- #29 — normalization/idempotency/time/source contract: accepted;
+- #30 — Garmin persistence/raw-observation contract: accepted;
+- #31 — owner-assisted Windows auth/session and bounded live capability spike: owner live objective achieved;
+- #36 — live response-shape/capability reconciliation: owner rerun PASS.
+
+These branches must **not** be merged directly into current `main`. After post-R01 consolidation, create fresh `integration/r02-garmin` from the then-current canonical `main` and reconstruct accepted semantics in order `#28 -> #29 -> #30 -> #31 -> #36`, preserving the real accepted #28 lineage and rerunning exact-head CI/migration/privacy checks. Only after that foundation is canonical should production sync/backfill orchestration start.
 
 ## R03 — Garmin analytics and activity comparison
 
