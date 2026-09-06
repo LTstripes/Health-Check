@@ -41,6 +41,7 @@ from healthcheck.garmin.capabilities import (
     GarminStream,
     get_capability,
 )
+from healthcheck.garmin.contracts import is_forbidden_payload_key
 from healthcheck.garmin.normalization import (
     PROVIDER_SOURCE_KIND,
     GarminFieldState,
@@ -198,6 +199,7 @@ class GarminSyncAttempt:
     error: GarminSafeError | None = None
     not_run_reason: str | None = None
     skipped: bool = False
+    failure_stage: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -219,6 +221,8 @@ class GarminSyncAttempt:
             payload["not_run_reason"] = self.not_run_reason
         if self.skipped:
             payload["skipped"] = True
+        if self.failure_stage is not None:
+            payload["failure_stage"] = self.failure_stage
         return payload
 
 
@@ -406,14 +410,66 @@ def _normalize_provider_payload(
 
 
 def _body_battery_item(payload: Any, day: date | None) -> Mapping[str, Any]:
+    if _classify_body_battery_payload(payload, day) != "matched":
+        return {}
+    if isinstance(payload, Mapping):
+        return payload
     items = [item for item in payload if isinstance(item, Mapping)] if _is_sequence(payload) else []
-    if day is not None:
-        wanted = day.isoformat()
-        for item in items:
-            calendar = item.get("calendarDate") or item.get("date")
-            if calendar == wanted:
-                return item
-    return items[0] if items else {}
+    if day is None:
+        return items[0] if items else {}
+    for item in items:
+        if _mapping_calendar_date(item) == day:
+            return item
+    return {}
+
+
+def _classify_body_battery_payload(payload: Any, day: date | None) -> str:
+    if payload is None:
+        return "empty"
+    if isinstance(payload, Mapping):
+        return "matched"
+    if not _is_sequence(payload):
+        return "shape_drift"
+    items = [item for item in payload if isinstance(item, Mapping)]
+    if not items:
+        return "empty"
+    if day is None:
+        return "matched"
+    dated = False
+    for item in items:
+        item_day = _mapping_calendar_date(item)
+        if item_day is None:
+            continue
+        dated = True
+        if item_day == day:
+            return "matched"
+    if dated:
+        return "no_matching_day"
+    return "undated"
+
+
+def _mapping_calendar_date(item: Mapping[str, Any]) -> date | None:
+    for key in ("calendarDate", "date"):
+        parsed = _parse_calendar_day(item.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _parse_calendar_day(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if len(text) >= 10 and _DATE_RE.fullmatch(text[:10]):
+            if len(text) == 10 or text[10] in {"T", " ", "t"}:
+                try:
+                    return date.fromisoformat(text[:10])
+                except ValueError:
+                    return None
+    return None
 
 
 def _adapt_known_provider_shape(
@@ -422,6 +478,16 @@ def _adapt_known_provider_shape(
     """Copy reviewed #36 series/summary leaves onto the #29 scalar aliases."""
 
     adapted = dict(payload)
+    if surface.code == "body_battery":
+        if "calendarDate" not in adapted and "date" in adapted:
+            parsed_day = _parse_calendar_day(adapted["date"])
+            adapted["calendarDate"] = (
+                parsed_day.isoformat() if parsed_day is not None else adapted["date"]
+            )
+        if "startTimeGMT" not in adapted and "startTimestampGMT" in adapted:
+            adapted["startTimeGMT"] = adapted["startTimestampGMT"]
+        if "startTimeLocal" not in adapted and "startTimestampLocal" in adapted:
+            adapted["startTimeLocal"] = adapted["startTimestampLocal"]
     if surface.code == "stress" and "stress" not in adapted:
         for key in ("avgStressLevel", "maxStressLevel"):
             value = adapted.get(key)
@@ -447,7 +513,9 @@ def _adapt_known_provider_shape(
 
 
 def _summary_scalar(surface_code: str, payload: Mapping[str, Any]) -> int | float | None:
-    samples = _series_samples(payload, _SERIES_FIELDS.get(surface_code, ()))
+    samples = _series_samples(
+        payload, _SERIES_FIELDS.get(surface_code, ()), surface_code=surface_code
+    )
     if not samples:
         return None
     return samples[-1][2]
@@ -462,40 +530,115 @@ def _is_finite_number(value: Any) -> bool:
 
 
 def _series_samples(
-    payload: Mapping[str, Any], keys: Sequence[str]
+    payload: Mapping[str, Any],
+    keys: Sequence[str],
+    *,
+    surface_code: str | None = None,
 ) -> tuple[tuple[int, Any, int | float], ...]:
+    descriptors = _series_descriptors(payload) if surface_code == "body_battery" else {}
     for key in keys:
         raw = payload.get(key)
-        samples = _parse_series(raw)
+        samples = _parse_series(raw, descriptors=descriptors)
         if samples:
             return samples
     return ()
 
 
-def _parse_series(raw: Any) -> tuple[tuple[int, Any, int | float], ...]:
+def _series_descriptors(payload: Mapping[str, Any]) -> dict[str, int]:
+    raw = payload.get("bodyBatteryValueDescriptorDTOList")
+    if not _is_sequence(raw):
+        return {}
+    indices: dict[str, int] = {}
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        index = item.get("index", item.get("bodyBatteryValueDescriptorIndex"))
+        key = item.get("key", item.get("bodyBatteryValueDescriptorKey"))
+        if isinstance(index, bool) or not isinstance(index, int) or not isinstance(key, str):
+            continue
+        normalized = key.strip().lower()
+        if normalized:
+            indices[normalized] = index
+    return indices
+
+
+def _descriptor_index(descriptors: Mapping[str, int], names: Sequence[str]) -> int | None:
+    for name in names:
+        if name in descriptors:
+            return descriptors[name]
+    return None
+
+
+def _parse_series(
+    raw: Any, *, descriptors: Mapping[str, int] | None = None
+) -> tuple[tuple[int, Any, int | float], ...]:
     if not _is_sequence(raw):
         if _is_finite_number(raw):
             return ((0, None, raw),)
         return ()
     samples: list[tuple[int, Any, int | float]] = []
     for index, item in enumerate(raw):
-        stamp: Any = None
-        value: Any = None
-        if _is_sequence(item) and len(item) >= 2:
-            stamp, value = item[0], item[1]
-        elif isinstance(item, Mapping):
-            stamp = item.get("timestamp") or item.get("startGMT") or item.get("time")
-            value = item.get("value")
-            if value is None:
-                for key in ("heartRate", "stress", "bodyBattery", "spo2", "respiration"):
-                    if key in item:
-                        value = item[key]
-                        break
-        elif _is_finite_number(item):
-            value = item
+        stamp, value = _series_item_stamp_value(item, descriptors or {})
         if _is_finite_number(value):
             samples.append((index, stamp, value))
     return tuple(samples)
+
+
+def _series_item_stamp_value(
+    item: Any, descriptors: Mapping[str, int]
+) -> tuple[Any, Any]:
+    if _is_sequence(item) and len(item) >= 2:
+        time_index = _descriptor_index(
+            descriptors, ("millis", "timestamp", "time", "startgmt", "starttimestampgmt")
+        )
+        level_index = _descriptor_index(
+            descriptors, ("bodybatterylevel", "bodybattery", "level", "value")
+        )
+        stamp = item[time_index] if time_index is not None and time_index < len(item) else item[0]
+        if level_index is not None and level_index < len(item):
+            value = item[level_index]
+        else:
+            value = item[1]
+            if len(item) >= 3 and (
+                isinstance(value, bool)
+                or (
+                    _is_finite_number(value)
+                    and value in {0, 1}
+                    and _is_finite_number(item[2])
+                    and 0 <= float(item[2]) <= 100
+                )
+            ):
+                value = item[2]
+            elif not _is_finite_number(value):
+                value = next(
+                    (candidate for candidate in item[1:] if _is_finite_number(candidate)),
+                    value,
+                )
+        return stamp, value
+    if isinstance(item, Mapping):
+        stamp = (
+            item.get("timestamp")
+            or item.get("startGMT")
+            or item.get("time")
+            or item.get("millis")
+        )
+        value = item.get("value")
+        if value is None:
+            for key in (
+                "bodyBatteryLevel",
+                "bodyBattery",
+                "heartRate",
+                "stress",
+                "spo2",
+                "respiration",
+            ):
+                if key in item:
+                    value = item[key]
+                    break
+        return stamp, value
+    if _is_finite_number(item):
+        return None, item
+    return None, None
 
 
 def _raw_mapping_for_normalize(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -535,26 +678,9 @@ def _payload_bytes(payload: Any) -> bytes:
 
 
 def _reject_private_keys(value: Any) -> None:
-    forbidden = (
-        "access_token",
-        "authorization",
-        "bearer",
-        "client_secret",
-        "cookie",
-        "credential",
-        "email",
-        "mfa",
-        "otp",
-        "password",
-        "refresh_token",
-        "secret",
-        "token",
-        "username",
-    )
     if isinstance(value, Mapping):
         for key, nested in value.items():
-            key_text = str(key).strip().lower()
-            if any(part in key_text for part in forbidden):
+            if is_forbidden_payload_key(key):
                 raise ValueError("private or credential-shaped payload key is not accepted")
             _reject_private_keys(nested)
     elif _is_sequence(value):
@@ -615,7 +741,9 @@ def _series_records(
     spec = _SERIES_METRIC.get(surface.code)
     if spec is None or result.source is None:
         return ()
-    samples = _series_samples(payload, _SERIES_FIELDS.get(surface.code, ()))
+    samples = _series_samples(
+        payload, _SERIES_FIELDS.get(surface.code, ()), surface_code=surface.code
+    )
     if not samples:
         return ()
     capability_code, metric_code, unit = spec
@@ -745,9 +873,21 @@ def _coverage_status_for(
     surface: GarminSyncSurface,
     result: GarminNormalizationResult,
     payload: Any,
+    *,
+    day: date | None = None,
 ) -> str:
+    if surface.code == "body_battery" and _is_sequence(payload):
+        attribution = _classify_body_battery_payload(payload, day)
+        if attribution == "empty":
+            return "confirmed_empty"
+        if attribution in {"no_matching_day", "undated", "shape_drift"}:
+            return "unknown"
     if result.status is GarminParseStatus.INVALID and not result.records:
         return "failed"
+    if _explicit_empty_series(surface, payload, day=day) and not _has_expected_metric(
+        surface, result.records, payload
+    ):
+        return "confirmed_empty"
     if result.status is GarminParseStatus.EMPTY and not result.records:
         return "confirmed_empty"
     if not result.records:
@@ -755,6 +895,26 @@ def _coverage_status_for(
     if _has_expected_metric(surface, result.records, payload):
         return "present"
     return "unknown"
+
+
+def _explicit_empty_series(
+    surface: GarminSyncSurface, payload: Any, *, day: date | None
+) -> bool:
+    keys = _SERIES_FIELDS.get(surface.code)
+    if not keys:
+        return False
+    mapping = _normalize_provider_payload(surface, payload, day=day)
+    if not isinstance(mapping, Mapping):
+        return False
+    seen = False
+    for key in keys:
+        if key not in mapping:
+            continue
+        seen = True
+        raw = mapping[key]
+        if not _is_sequence(raw) or len(raw) > 0:
+            return False
+    return seen
 
 
 def _attempt_status_for(coverage_status: str) -> GarminSyncStatus:
@@ -1153,6 +1313,7 @@ class GarminIncrementalSync:
                 coverage_status="failed",
                 request_count=request_count,
                 error=error,
+                failure_stage="fetch",
             )
         if error is not None:
             coverage = (
@@ -1182,6 +1343,7 @@ class GarminIncrementalSync:
                 coverage_status=coverage,
                 request_count=request_count,
                 error=error,
+                failure_stage="fetch",
             )
         if fetched is None and request_count == 0:
             return GarminSyncAttempt(
@@ -1305,6 +1467,21 @@ class GarminIncrementalSync:
                 source_identity=identity,
             )
             result = _prepare_normalization_result(surface, payload, result, day=day)
+        except Exception as exc:
+            return self._failed_attempt(
+                factory,
+                provider_id=provider_id,
+                surface=surface,
+                day=day,
+                window_start=window_start,
+                window_end=window_end,
+                trailing_window_days=trailing_window_days,
+                request_count=request_count,
+                attribution=attribution,
+                exc=exc,
+                failure_stage="normalization",
+            )
+        try:
             raw_bytes = _payload_bytes(payload)
         except Exception as exc:
             return self._failed_attempt(
@@ -1318,6 +1495,7 @@ class GarminIncrementalSync:
                 request_count=request_count,
                 attribution=attribution,
                 exc=exc,
+                failure_stage="raw_payload_validation",
             )
 
         try:
@@ -1334,7 +1512,7 @@ class GarminIncrementalSync:
                     sync_run_id=sync_run_id,
                     source_filename=f"{surface.code}.json",
                 )
-                coverage_status = _coverage_status_for(surface, result, payload)
+                coverage_status = _coverage_status_for(surface, result, payload, day=day)
                 self._write_checkpoint(
                     session,
                     provider_id=provider_id,
@@ -1376,6 +1554,7 @@ class GarminIncrementalSync:
                 request_count=request_count,
                 attribution=attribution,
                 exc=exc,
+                failure_stage="persistence",
             )
 
     def _failed_attempt(
@@ -1391,6 +1570,7 @@ class GarminIncrementalSync:
         request_count: int,
         attribution: GarminDeviceAttribution,
         exc: BaseException,
+        failure_stage: str,
     ) -> GarminSyncAttempt:
         error = classify_garmin_error(exc)
         self._record_failure_checkpoint(
@@ -1414,6 +1594,7 @@ class GarminIncrementalSync:
             request_count=request_count,
             device_attribution=attribution.value,
             error=error,
+            failure_stage=failure_stage,
         )
 
     def _record_failure_checkpoint(

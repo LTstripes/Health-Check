@@ -24,6 +24,7 @@ from healthcheck.garmin.contracts import (
     CAPABILITY_FIXTURE_CONTRACT_VERSION,
     GarminCapabilityFixture,
     GarminCapabilityFixtureError,
+    is_forbidden_payload_key,
     load_synthetic_fixture,
 )
 
@@ -200,6 +201,22 @@ def test_fixture_contract_rejects_live_or_private_shapes() -> None:
     private["payload"]["access_token"] = "never-store-this"
     with pytest.raises(GarminCapabilityFixtureError, match="forbidden"):
         GarminCapabilityFixture.from_mapping(private)
+
+    mfa_key = json.loads(json.dumps(raw))
+    mfa_key["payload"]["mfa"] = "never-store-this"
+    with pytest.raises(GarminCapabilityFixtureError, match="forbidden"):
+        GarminCapabilityFixture.from_mapping(mfa_key)
+
+    provider_shaped = json.loads(json.dumps(raw))
+    provider_shaped["payload"]["manualActivity"] = False
+    GarminCapabilityFixture.from_mapping(provider_shaped)
+    assert is_forbidden_payload_key("mfa") is True
+    assert is_forbidden_payload_key("mfaCode") is True
+    assert is_forbidden_payload_key("refreshToken") is True
+    assert is_forbidden_payload_key("ownerEmail") is True
+    assert is_forbidden_payload_key("manualActivity") is False
+    assert is_forbidden_payload_key("manufacturer") is False
+    assert is_forbidden_payload_key("activityId") is False
 
     non_synthetic = json.loads(json.dumps(raw))
     non_synthetic["source_kind"] = "owner-live"

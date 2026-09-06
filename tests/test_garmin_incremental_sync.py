@@ -36,7 +36,7 @@ from healthcheck.garmin.normalization import (
     normalize_garmin_payload,
 )
 from healthcheck.garmin.persistence import GarminPersistenceRepository
-from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore, serialize_garmin_payload
 from healthcheck.garmin.sync import (
     DEFAULT_TRAILING_WINDOW_DAYS,
     MAX_SYNC_PROVIDER_REQUESTS,
@@ -835,6 +835,233 @@ def test_production_path_is_provider_kind_synthetic_fixtures_stay_synthetic(tmp_
             assert synthetic.device_attributed is True
     finally:
         engine.dispose()
+
+
+def _production_body_battery(day: str = "2099-01-02") -> list[dict[str, Any]]:
+    return [
+        {
+            "date": day,
+            "charged": 40,
+            "drained": 55,
+            "startTimestampGMT": f"{day}T00:00:00.000",
+            "bodyBatteryValueDescriptorDTOList": [
+                {
+                    "bodyBatteryValueDescriptorIndex": 0,
+                    "bodyBatteryValueDescriptorKey": "millis",
+                },
+                {
+                    "bodyBatteryValueDescriptorIndex": 1,
+                    "bodyBatteryValueDescriptorKey": "charged",
+                },
+                {
+                    "bodyBatteryValueDescriptorIndex": 2,
+                    "bodyBatteryValueDescriptorKey": "bodyBatteryLevel",
+                },
+            ],
+            "bodyBatteryValuesArray": [
+                [1_735_804_800_000, False, 64],
+                [1_735_804_860_000, True, 70],
+            ],
+        }
+    ]
+
+
+def _production_activity(day: str = "2099-01-02") -> list[dict[str, Any]]:
+    return [
+        {
+            "activityId": 1987654321,
+            "activityType": {"typeId": 2, "typeKey": "cycling"},
+            "startTimeGMT": f"{day}T08:00:00.000",
+            "duration": 3600.0,
+            "manualActivity": False,
+            "manufacturer": "GARMIN",
+        }
+    ]
+
+
+def test_private_key_guard_allows_provider_fields_and_rejects_secrets() -> None:
+    serialize_garmin_payload({"activities": _production_activity()})
+    with pytest.raises(ValueError, match="private or credential-shaped"):
+        serialize_garmin_payload({"access_token": "never-store-this"})
+    with pytest.raises(ValueError, match="private or credential-shaped"):
+        serialize_garmin_payload({"mfa": "never-store-this"})
+    with pytest.raises(ValueError, match="private or credential-shaped"):
+        serialize_garmin_payload({"refreshToken": "never-store-this"})
+
+
+def test_explicit_empty_heart_rate_series_is_confirmed_empty(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(
+            responses={
+                "get_heart_rates": {"calendarDate": "2099-01-02", "heartRateValues": []},
+            }
+        ),
+    )
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.coverage_status == "confirmed_empty"
+    assert heart.status is GarminSyncStatus.EMPTY
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            coverage = next(
+                item
+                for item in session.scalars(select(CoverageInterval))
+                if item.metric_code == "heart_rate"
+            )
+            assert coverage.status == "confirmed_empty"
+            samples = list(
+                session.scalars(
+                    select(GarminSourceRecord).where(
+                        GarminSourceRecord.source_path.like("payload.heartRateValues[%]")
+                    )
+                )
+            )
+            assert samples == []
+    finally:
+        engine.dispose()
+
+
+def test_heart_rate_shape_drift_stays_unknown_not_empty(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(
+            responses={
+                "get_heart_rates": {
+                    "calendarDate": "2099-01-02",
+                    "heartRateValues": [{"unexpected": True}],
+                },
+            }
+        ),
+    )
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.coverage_status == "unknown"
+    assert heart.status is GarminSyncStatus.PARTIAL
+
+
+def test_body_battery_descriptor_series_is_present(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_body_battery": _production_body_battery()}),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "present"
+    assert battery.status is GarminSyncStatus.SUCCEEDED
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            values = {
+                item.value_number
+                for item in session.scalars(
+                    select(GarminRecordMetric).where(
+                        GarminRecordMetric.metric_code == "body_battery"
+                    )
+                )
+            }
+            assert values >= {64, 70}
+    finally:
+        engine.dispose()
+
+
+def test_body_battery_no_matching_day_is_unattributable(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(
+            responses={
+                "get_body_battery": [
+                    {
+                        "date": "2099-01-01",
+                        "bodyBatteryValuesArray": [[0, 64], [60, 70]],
+                    }
+                ]
+            }
+        ),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "unknown"
+    assert battery.status is GarminSyncStatus.PARTIAL
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            values = [
+                item.value_number
+                for item in session.scalars(
+                    select(GarminRecordMetric).where(
+                        GarminRecordMetric.metric_code == "body_battery",
+                        GarminRecordMetric.value_number.is_not(None),
+                    )
+                )
+            ]
+            assert values == []
+    finally:
+        engine.dispose()
+
+
+def test_body_battery_empty_list_is_confirmed_empty(tmp_path: Path):
+    report = _run(tmp_path, FakeSyncClient(empty={"get_body_battery"}))
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "confirmed_empty"
+    assert battery.status is GarminSyncStatus.EMPTY
+
+
+def test_body_battery_undated_item_is_unknown(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(
+            responses={
+                "get_body_battery": [{"bodyBatteryValuesArray": [[0, 64], [60, 70]]}],
+            }
+        ),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "unknown"
+    assert battery.status is GarminSyncStatus.PARTIAL
+
+
+def test_numeric_activity_id_and_provider_fields_persist(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"connectapi": _production_activity()}),
+    )
+    activities = next(item for item in report.attempts if item.surface == "activities")
+    assert activities.coverage_status == "present"
+    assert activities.status is GarminSyncStatus.SUCCEEDED
+    assert activities.failure_stage is None
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(
+                session.scalars(
+                    select(GarminSourceRecord).where(GarminSourceRecord.stream_code == "activity")
+                )
+            )
+            assert any(item.external_record_id == "1987654321" for item in records)
+    finally:
+        engine.dispose()
+
+
+def test_activity_failure_stage_is_sanitized_and_privacy_closed(tmp_path: Path):
+    poisoned = _production_activity()
+    poisoned[0]["access_token"] = "never-store-this"
+    report = _run(tmp_path, FakeSyncClient(responses={"connectapi": poisoned}))
+    activities = next(item for item in report.attempts if item.surface == "activities")
+    dumped = json.dumps(report.as_dict())
+    assert activities.status is GarminSyncStatus.FAILED
+    assert activities.coverage_status == "failed"
+    assert activities.failure_stage == "raw_payload_validation"
+    assert activities.error is not None
+    assert activities.error.error_class == "input"
+    assert activities.error.error_code == "invalid_input"
+    assert "never-store-this" not in dumped
+    assert "access_token" not in dumped
+
+    fetch_report = _run(
+        tmp_path / "fetch",
+        FakeSyncClient(errors={"get_heart_rates": ConnectionError("synthetic-provider-outage")}),
+    )
+    heart = next(item for item in fetch_report.attempts if item.surface == "heart_rate")
+    assert heart.failure_stage == "fetch"
+    assert "synthetic-provider-outage" not in json.dumps(fetch_report.as_dict())
 
 
 def test_provider_source_kind_is_rejected_for_unknown_values():
