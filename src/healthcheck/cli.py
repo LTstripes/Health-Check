@@ -13,6 +13,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import migrate_database
 from healthcheck.demo import DemoSeedError, seed_demo
 from healthcheck.garmin.auth import GarminAuthService
+from healthcheck.garmin.backfill import GarminHistoricalBackfill, plan_garmin_historical_backfill
 from healthcheck.garmin.probe import GarminCapabilityProbe, validate_probe_dates
 from healthcheck.garmin.redaction import redact_garmin_payload, validate_external_export_paths
 from healthcheck.garmin.sync import GarminIncrementalSync, GarminSyncStatus
@@ -47,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-capabilities",
             "garmin-redact",
             "garmin-sync",
+            "garmin-backfill",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -65,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--is-cn", action="store_true")
     parser.add_argument("--date", action="append", dest="dates")
     parser.add_argument("--trailing-window-days", type=int)
+    parser.add_argument("--start")
+    parser.add_argument("--end")
+    parser.add_argument("--stream", action="append", dest="streams")
+    parser.add_argument("--chunk-days", type=int)
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--input")
     return parser
 
@@ -150,6 +157,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_capabilities(args, settings)
     if args.command == "garmin-sync":
         return _run_garmin_sync(args, settings)
+    if args.command == "garmin-backfill":
+        return _run_garmin_backfill(args, settings)
     if args.command == "seed-demo":
         try:
             result = seed_demo(settings, reset=args.reset)
@@ -308,6 +317,60 @@ def _run_garmin_sync(args: argparse.Namespace, settings: Settings) -> int:
         return 2
     print(report.to_json(), end="")
     if report.status is GarminSyncStatus.SUCCEEDED:
+        return 0
+    if report.status is GarminSyncStatus.REAUTH_REQUIRED:
+        return 1
+    return 1
+
+
+def _run_garmin_backfill(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.dates:
+            raise ValueError("garmin-backfill uses --start and --end, not --date")
+        if args.trailing_window_days is not None:
+            raise ValueError("garmin-backfill does not use --trailing-window-days")
+        if args.dry_run:
+            report = plan_garmin_historical_backfill(
+                start=args.start,
+                end=args.end,
+                streams=args.streams,
+                chunk_days=args.chunk_days,
+            )
+        else:
+            service = GarminAuthService(settings, is_cn=args.is_cn)
+            client, auth_result = service.load_existing()
+            report = GarminHistoricalBackfill(
+                settings,
+                client=client,
+                auth_result=auth_result,
+            ).run(
+                start=args.start,
+                end=args.end,
+                streams=args.streams,
+                chunk_days=args.chunk_days,
+            )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r02-garmin-historical-backfill-v1",
+                    "error": {
+                        "error_class": "input",
+                        "error_code": "invalid_backfill_request",
+                        "http_status": None,
+                    },
+                    "privacy": {
+                        "raw_values_emitted": False,
+                        "private_identifiers_emitted": False,
+                        "tokens_emitted": False,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    if report.dry_run or report.status is GarminSyncStatus.SUCCEEDED:
         return 0
     if report.status is GarminSyncStatus.REAUTH_REQUIRED:
         return 1
