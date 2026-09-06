@@ -12,9 +12,10 @@ import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from numbers import Real
 from typing import Any
 
 from sqlalchemy import select
@@ -36,13 +37,23 @@ from healthcheck.garmin.capabilities import (
     GARMINCONNECT_VERSION,
     VIVOACTIVE_5_DEVICE_CODE,
     VIVOACTIVE_5_MODEL,
+    CapabilityStatus,
     GarminStream,
+    get_capability,
 )
 from healthcheck.garmin.normalization import (
+    PROVIDER_SOURCE_KIND,
+    GarminFieldState,
+    GarminMetricDTO,
+    GarminNormalizationResult,
     GarminParseStatus,
+    GarminRecordDTO,
     GarminSourceIdentity,
+    GarminTemporalDTO,
+    GarminTemporalPrecision,
     garmin_source_identity,
     normalize_garmin_payload,
+    stable_garmin_reconciliation_key,
 )
 from healthcheck.garmin.persistence import (
     GARMIN_COVERAGE_RULE_VERSION,
@@ -131,6 +142,41 @@ if any(surface.method not in _ALLOWED_METHODS for surface in PRODUCTION_SYNC_SUR
     raise RuntimeError("Garmin incremental sync contains a method outside its read allowlist")
 if any(surface.method in _FORBIDDEN_METHODS for surface in PRODUCTION_SYNC_SURFACES):
     raise RuntimeError("Garmin incremental sync allowlist includes a forbidden method")
+
+# Expected typed metric for checkpoint success. daily_summary is structural.
+SURFACE_EXPECTED_METRICS: dict[str, tuple[str, ...]] = {
+    "daily_summary": (),
+    "sleep": ("sleep_duration_seconds",),
+    "heart_rate": ("heart_rate_bpm",),
+    "resting_heart_rate": ("resting_heart_rate_bpm",),
+    "hrv_status": ("hrv_weekly_average_ms",),
+    "stress": ("stress",),
+    "body_battery": ("body_battery",),
+    "spo2": ("spo2_percent",),
+    "respiration": ("respiration_bpm",),
+    "activities": ("duration_seconds",),
+}
+_SERIES_FIELDS: dict[str, tuple[str, ...]] = {
+    "heart_rate": ("heartRateValues", "heartRateValue"),
+    "stress": ("stressValuesArray", "stressValues"),
+    "body_battery": ("bodyBatteryValuesArray",),
+    "spo2": ("spo2Values",),
+    "respiration": ("respirationValues",),
+}
+_SERIES_SCALAR_ALIASES: dict[str, str] = {
+    "heart_rate": "heartRate",
+    "stress": "stress",
+    "body_battery": "bodyBattery",
+    "spo2": "spo2",
+    "respiration": "respiration",
+}
+_SERIES_METRIC: dict[str, tuple[str, str, str]] = {
+    "heart_rate": ("heart_rate", "heart_rate_bpm", "bpm"),
+    "stress": ("stress", "stress", "points"),
+    "body_battery": ("body_battery", "body_battery", "points"),
+    "spo2": ("spo2", "spo2_percent", "%"),
+    "respiration": ("respiration", "respiration_bpm", "breaths/min"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,14 +371,17 @@ def _source_identity_for(payload: Any) -> GarminSourceIdentity:
     attribution = infer_device_attribution(payload).status
     if attribution is GarminDeviceAttribution.TARGET_DEVICE:
         return garmin_source_identity(
+            source_kind=PROVIDER_SOURCE_KIND,
             device_attributed=True,
             device_code=VIVOACTIVE_5_DEVICE_CODE,
             device_model=VIVOACTIVE_5_MODEL,
         )
-    return garmin_source_identity(device_attributed=False)
+    return garmin_source_identity(source_kind=PROVIDER_SOURCE_KIND, device_attributed=False)
 
 
-def _normalize_provider_payload(surface: GarminSyncSurface, payload: Any) -> Any:
+def _normalize_provider_payload(
+    surface: GarminSyncSurface, payload: Any, *, day: date | None = None
+) -> Any:
     if payload is None:
         return {}
     if surface.stream is GarminStream.ACTIVITY:
@@ -344,13 +393,106 @@ def _normalize_provider_payload(surface: GarminSyncSurface, payload: Any) -> Any
             return {"activities": [payload]}
         return payload
     if surface.code == "body_battery" and _is_sequence(payload):
-        items = [item for item in payload if isinstance(item, Mapping)]
-        if not items:
+        item = _body_battery_item(payload, day=day)
+        if not item:
             return {}
-        if len(items) == 1:
-            return _raw_mapping_for_normalize(items[0])
-        return _raw_mapping_for_normalize(items[0])
-    return _raw_mapping_for_normalize(payload) if isinstance(payload, Mapping) else payload
+        return _adapt_known_provider_shape(surface, _raw_mapping_for_normalize(item))
+    if isinstance(payload, Mapping):
+        return _adapt_known_provider_shape(surface, _raw_mapping_for_normalize(payload))
+    return payload
+
+
+def _body_battery_item(payload: Any, day: date | None) -> Mapping[str, Any]:
+    items = [item for item in payload if isinstance(item, Mapping)] if _is_sequence(payload) else []
+    if day is not None:
+        wanted = day.isoformat()
+        for item in items:
+            calendar = item.get("calendarDate") or item.get("date")
+            if calendar == wanted:
+                return item
+    return items[0] if items else {}
+
+
+def _adapt_known_provider_shape(
+    surface: GarminSyncSurface, payload: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Copy reviewed #36 series/summary leaves onto the #29 scalar aliases."""
+
+    adapted = dict(payload)
+    if surface.code == "stress" and "stress" not in adapted:
+        for key in ("avgStressLevel", "maxStressLevel"):
+            value = adapted.get(key)
+            if _is_finite_number(value):
+                adapted["stress"] = value
+                break
+    if surface.code == "spo2" and "spo2" not in adapted:
+        for key in ("averageSpO2", "lastSevenDaysAvgSpO2"):
+            value = adapted.get(key)
+            if _is_finite_number(value):
+                adapted["spo2"] = value
+                break
+    if surface.code == "respiration" and "respiration" not in adapted:
+        value = adapted.get("avgSleepRespirationValue")
+        if _is_finite_number(value):
+            adapted["respiration"] = value
+    alias = _SERIES_SCALAR_ALIASES.get(surface.code)
+    if alias is not None and alias not in adapted:
+        scalar = _summary_scalar(surface.code, adapted)
+        if scalar is not None:
+            adapted[alias] = scalar
+    return adapted
+
+
+def _summary_scalar(surface_code: str, payload: Mapping[str, Any]) -> int | float | None:
+    samples = _series_samples(payload, _SERIES_FIELDS.get(surface_code, ()))
+    if not samples:
+        return None
+    return samples[-1][2]
+
+
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return False
+    if isinstance(value, float) and (value != value or value in {float("inf"), float("-inf")}):
+        return False
+    return True
+
+
+def _series_samples(
+    payload: Mapping[str, Any], keys: Sequence[str]
+) -> tuple[tuple[int, Any, int | float], ...]:
+    for key in keys:
+        raw = payload.get(key)
+        samples = _parse_series(raw)
+        if samples:
+            return samples
+    return ()
+
+
+def _parse_series(raw: Any) -> tuple[tuple[int, Any, int | float], ...]:
+    if not _is_sequence(raw):
+        if _is_finite_number(raw):
+            return ((0, None, raw),)
+        return ()
+    samples: list[tuple[int, Any, int | float]] = []
+    for index, item in enumerate(raw):
+        stamp: Any = None
+        value: Any = None
+        if _is_sequence(item) and len(item) >= 2:
+            stamp, value = item[0], item[1]
+        elif isinstance(item, Mapping):
+            stamp = item.get("timestamp") or item.get("startGMT") or item.get("time")
+            value = item.get("value")
+            if value is None:
+                for key in ("heartRate", "stress", "bodyBattery", "spo2", "respiration"):
+                    if key in item:
+                        value = item[key]
+                        break
+        elif _is_finite_number(item):
+            value = item
+        if _is_finite_number(value):
+            samples.append((index, stamp, value))
+    return tuple(samples)
 
 
 def _raw_mapping_for_normalize(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -421,20 +563,207 @@ def _is_sequence(value: Any) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray, Mapping))
 
 
-def _coverage_status_for(parse_status: GarminParseStatus, record_count: int) -> str:
-    if parse_status is GarminParseStatus.INVALID and record_count == 0:
+def _prepare_normalization_result(
+    surface: GarminSyncSurface,
+    payload: Any,
+    result: GarminNormalizationResult,
+    *,
+    day: date | None,
+) -> GarminNormalizationResult:
+    if isinstance(payload, Mapping):
+        mapping = payload
+    else:
+        mapped = _normalize_provider_payload(surface, payload, day=day)
+        mapping = mapped if isinstance(mapped, Mapping) else {}
+    if not isinstance(mapping, Mapping):
+        mapping = {}
+    sample_records = _series_records(surface, mapping, result, day=day)
+    records = [_reconcile_record(surface, item) for item in (*result.records, *sample_records)]
+    status = result.status
+    if sample_records and status in {GarminParseStatus.EMPTY, GarminParseStatus.INVALID}:
+        status = GarminParseStatus.OK
+    elif sample_records and status is GarminParseStatus.PARTIAL:
+        if _has_expected_metric(surface, records, mapping):
+            status = GarminParseStatus.OK
+    return replace(result, records=tuple(records), status=status)
+
+
+def _reconcile_record(surface: GarminSyncSurface, record: GarminRecordDTO) -> GarminRecordDTO:
+    return replace(
+        record,
+        idempotency_key=stable_garmin_reconciliation_key(
+            record.source,
+            record.stream,
+            surface=surface.code,
+            temporal=record.temporal,
+            record_id=record.record_id,
+            sample_index=record.record_index,
+        ),
+    )
+
+
+def _series_records(
+    surface: GarminSyncSurface,
+    payload: Mapping[str, Any],
+    result: GarminNormalizationResult,
+    *,
+    day: date | None,
+) -> tuple[GarminRecordDTO, ...]:
+    spec = _SERIES_METRIC.get(surface.code)
+    if spec is None or result.source is None:
+        return ()
+    samples = _series_samples(payload, _SERIES_FIELDS.get(surface.code, ()))
+    if not samples:
+        return ()
+    capability_code, metric_code, unit = spec
+    try:
+        capability_status = get_capability(capability_code).audit_status
+    except KeyError:
+        capability_status = CapabilityStatus.UNVERIFIED
+    series_key = next(
+        (key for key in _SERIES_FIELDS.get(surface.code, ()) if _is_sequence(payload.get(key))),
+        _SERIES_FIELDS[surface.code][0],
+    )
+    records: list[GarminRecordDTO] = []
+    for index, stamp, value in samples:
+        parent_temporal = result.records[0].temporal if result.records else None
+        temporal = _sample_temporal(stamp, day=day, fallback=parent_temporal)
+        metric = GarminMetricDTO(
+            capability_code=capability_code,
+            metric_code=metric_code,
+            field_path=f"payload.{series_key}",
+            state=GarminFieldState.VALUE,
+            value=value,
+            unit=unit,
+            capability_status=capability_status,
+            source_device_attributed=result.source.device_attributed,
+        )
+        records.append(
+            GarminRecordDTO(
+                stream=surface.stream,
+                source=result.source,
+                temporal=temporal,
+                idempotency_key=stable_garmin_reconciliation_key(
+                    result.source,
+                    surface.stream,
+                    surface=surface.code,
+                    temporal=temporal,
+                    sample_index=index,
+                    sample_token=_sample_token(stamp, index),
+                ),
+                record_index=index,
+                metrics=(metric,),
+                status=GarminParseStatus.OK,
+                source_path=f"payload.{series_key}[{index}]",
+            )
+        )
+    return tuple(records)
+
+
+def _sample_token(stamp: Any, index: int) -> str:
+    if stamp is None:
+        return f"index:{index}"
+    return f"stamp:{stamp}"
+
+
+def _sample_temporal(
+    stamp: Any, *, day: date | None, fallback: GarminTemporalDTO | None
+) -> GarminTemporalDTO:
+    if isinstance(stamp, datetime):
+        measured = stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+        return GarminTemporalDTO(
+            precision=GarminTemporalPrecision.UTC_INSTANT,
+            measured_at_utc=measured.astimezone(UTC),
+            local_date=day or measured.astimezone(UTC).date(),
+            source_field="payload.series",
+        )
+    if isinstance(stamp, str):
+        text = stamp.strip()
+        try:
+            iso = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+            parsed = datetime.fromisoformat(iso)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return GarminTemporalDTO(
+                precision=GarminTemporalPrecision.UTC_INSTANT,
+                measured_at_utc=parsed.astimezone(UTC),
+                local_date=day or parsed.astimezone(UTC).date(),
+                source_field="payload.series",
+                source_local_timestamp=text if parsed.tzinfo is None else None,
+            )
+    if isinstance(stamp, Real) and not isinstance(stamp, bool) and stamp >= 1_000_000_000:
+        seconds = float(stamp) / 1000.0 if stamp >= 1_000_000_000_000 else float(stamp)
+        measured = datetime.fromtimestamp(seconds, tz=UTC)
+        return GarminTemporalDTO(
+            precision=GarminTemporalPrecision.UTC_INSTANT,
+            measured_at_utc=measured,
+            local_date=day or measured.date(),
+            source_field="payload.series",
+        )
+    if day is not None:
+        return GarminTemporalDTO(
+            precision=GarminTemporalPrecision.DATE_ONLY,
+            local_date=day,
+            local_date_source="calendarDate",
+        )
+    if fallback is not None:
+        return fallback
+    return GarminTemporalDTO(precision=GarminTemporalPrecision.UNKNOWN)
+
+
+def _has_expected_metric(
+    surface: GarminSyncSurface,
+    records: Sequence[GarminRecordDTO],
+    payload: Any,
+) -> bool:
+    expected = SURFACE_EXPECTED_METRICS.get(surface.code)
+    if expected is None:
+        return False
+    if not expected:
+        return _structural_summary_present(payload)
+    for record in records:
+        for code in expected:
+            metric = record.metric(code)
+            if metric is not None and metric.has_value:
+                return True
+    return False
+
+
+def _structural_summary_present(payload: Any) -> bool:
+    if not isinstance(payload, Mapping) or not payload:
+        return False
+    return any(key in payload for key in ("calendarDate", "userActivitySummary"))
+
+
+def _coverage_status_for(
+    surface: GarminSyncSurface,
+    result: GarminNormalizationResult,
+    payload: Any,
+) -> str:
+    if result.status is GarminParseStatus.INVALID and not result.records:
         return "failed"
-    if parse_status is GarminParseStatus.EMPTY or record_count == 0:
+    if result.status is GarminParseStatus.EMPTY and not result.records:
         return "confirmed_empty"
-    return "present"
+    if not result.records:
+        return "confirmed_empty"
+    if _has_expected_metric(surface, result.records, payload):
+        return "present"
+    return "unknown"
 
 
-def _attempt_status_for(coverage_status: str, parse_status: GarminParseStatus) -> GarminSyncStatus:
-    if coverage_status == "failed" or parse_status is GarminParseStatus.INVALID:
+def _attempt_status_for(coverage_status: str) -> GarminSyncStatus:
+    if coverage_status == "failed":
         return GarminSyncStatus.FAILED
     if coverage_status == "confirmed_empty":
         return GarminSyncStatus.EMPTY
-    return GarminSyncStatus.SUCCEEDED
+    if coverage_status == "present":
+        return GarminSyncStatus.SUCCEEDED
+    if coverage_status == "unavailable":
+        return GarminSyncStatus.UNAVAILABLE
+    return GarminSyncStatus.PARTIAL
 
 
 class GarminIncrementalSync:
@@ -868,7 +1197,7 @@ class GarminIncrementalSync:
     ) -> GarminSyncAttempt:
         attribution = infer_device_attribution(payload).status
         identity = _source_identity_for(payload)
-        normalized_payload = _normalize_provider_payload(surface, payload)
+        normalized_payload = _normalize_provider_payload(surface, payload, day=day)
         window_start_utc, _ = _day_bounds(window_start)
         _, window_end_utc = _day_bounds(window_end)
         try:
@@ -877,6 +1206,7 @@ class GarminIncrementalSync:
                 stream=surface.stream,
                 source_identity=identity,
             )
+            result = _prepare_normalization_result(surface, payload, result, day=day)
             raw_bytes = _payload_bytes(payload)
         except Exception as exc:
             return self._failed_attempt(
@@ -906,7 +1236,7 @@ class GarminIncrementalSync:
                     sync_run_id=sync_run_id,
                     source_filename=f"{surface.code}.json",
                 )
-                coverage_status = _coverage_status_for(result.status, len(outcome.records))
+                coverage_status = _coverage_status_for(surface, result, payload)
                 self._write_checkpoint(
                     session,
                     provider_id=provider_id,
@@ -927,7 +1257,7 @@ class GarminIncrementalSync:
                     stream=surface.stream.value,
                     method=surface.method,
                     day=day.isoformat() if day is not None else None,
-                    status=_attempt_status_for(coverage_status, result.status),
+                    status=_attempt_status_for(coverage_status),
                     coverage_status=coverage_status,
                     record_count=len(outcome.records),
                     inserted_count=outcome.inserted_count,

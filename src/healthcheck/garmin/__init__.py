@@ -41,8 +41,10 @@ from healthcheck.garmin.contracts import (
     load_synthetic_fixture,
 )
 from healthcheck.garmin.normalization import (
+    ALLOWED_SOURCE_KINDS,
     GARMIN_NORMALIZATION_CONTRACT_VERSION,
     NORMALIZATION_CONTRACT_VERSION,
+    PROVIDER_SOURCE_KIND,
     GarminDiagnostic,
     GarminFieldState,
     GarminMetricDTO,
@@ -66,6 +68,7 @@ from healthcheck.garmin.normalization import (
     parse_garmin_timestamp,
     parse_synthetic_garmin_payload,
     stable_garmin_idempotency_key,
+    stable_garmin_reconciliation_key,
     stable_idempotency_key,
 )
 from healthcheck.garmin.persistence import (
@@ -143,7 +146,9 @@ __all__ = [
     "GARMIN_SAFE_FIELD_PATHS",
     "GARMIN_TOKENSTORE_FILENAME",
     "GARMIN_COVERAGE_RULE_VERSION",
+    "ALLOWED_SOURCE_KINDS",
     "GARMIN_NORMALIZATION_CONTRACT_VERSION",
+    "PROVIDER_SOURCE_KIND",
     "GARMIN_INPUT_METHOD",
     "GARMIN_SOURCE_APPLICATION",
     "GARMINCONNECT_VERSION",
@@ -241,6 +246,7 @@ __all__ = [
     "validate_trailing_window_days",
     "serialize_garmin_payload",
     "stable_garmin_idempotency_key",
+    "stable_garmin_reconciliation_key",
     "stable_idempotency_key",
     "StoredGarminPayload",
     "validate_external_export_paths",

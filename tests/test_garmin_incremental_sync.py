@@ -29,6 +29,14 @@ from healthcheck.db.models import (
     SyncStreamState,
 )
 from healthcheck.garmin.auth import GarminAuthResult, GarminAuthStatus
+from healthcheck.garmin.contracts import load_synthetic_fixture
+from healthcheck.garmin.normalization import (
+    PROVIDER_SOURCE_KIND,
+    garmin_source_identity,
+    normalize_garmin_payload,
+)
+from healthcheck.garmin.persistence import GarminPersistenceRepository
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.garmin.sync import (
     DEFAULT_TRAILING_WINDOW_DAYS,
     MAX_SYNC_PROVIDER_REQUESTS,
@@ -39,6 +47,7 @@ from healthcheck.garmin.sync import (
     run_garmin_incremental_sync,
     validate_trailing_window_days,
 )
+from healthcheck.runtime import resolve_runtime_paths
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "garmin"
 AS_OF = date(2099, 1, 2)
@@ -121,7 +130,13 @@ class FakeSyncClient:
             )
         if method == "get_heart_rates":
             return _with_device(
-                {"calendarDate": "2099-01-02", "heartRate": 0, "timestamp": "2099-01-02T08:15:00Z"},
+                {
+                    "calendarDate": "2099-01-02",
+                    "heartRateValues": [
+                        ["2099-01-02T08:00:00Z", 0],
+                        ["2099-01-02T08:15:00Z", 72],
+                    ],
+                },
                 include_device=device,
                 other_device=other,
             )
@@ -145,27 +160,46 @@ class FakeSyncClient:
             )
         if method == "get_stress_data":
             return _with_device(
-                {"calendarDate": "2099-01-02", "stress": None},
+                {
+                    "calendarDate": "2099-01-02",
+                    "avgStressLevel": 25,
+                    "maxStressLevel": 80,
+                    "stressValuesArray": [[0, 12], [60, 40]],
+                },
                 include_device=device,
                 other_device=other,
             )
         if method == "get_body_battery":
             return [
                 _with_device(
-                    {"calendarDate": "2099-01-02", "bodyBattery": 64},
+                    {
+                        "calendarDate": "2099-01-02",
+                        "charged": 40,
+                        "drained": 55,
+                        "bodyBatteryValuesArray": [[0, 64], [60, 70]],
+                    },
                     include_device=device,
                     other_device=other,
                 )
             ]
         if method == "get_spo2_data":
             return _with_device(
-                {"calendarDate": "2099-01-02", "spo2": 98},
+                {
+                    "calendarDate": "2099-01-02",
+                    "averageSpO2": 98,
+                    "lastSevenDaysAvgSpO2": 97,
+                    "spo2Values": [[0, 96], [60, 98]],
+                },
                 include_device=device,
                 other_device=other,
             )
         if method == "get_respiration_data":
             return _with_device(
-                {"calendarDate": "2099-01-02", "respiration": 15},
+                {
+                    "calendarDate": "2099-01-02",
+                    "avgSleepRespirationValue": 15,
+                    "respirationValues": [[0, 14], [60, 16]],
+                },
                 include_device=device,
                 other_device=other,
             )
@@ -297,8 +331,31 @@ def test_first_run_persists_streams_coverage_and_checkpoints(tmp_path: Path):
             assert sleep_state.last_success_at is not None
             source = session.scalar(select(GarminSource))
             assert source is not None
+            assert source.source_kind == PROVIDER_SOURCE_KIND
             assert source.device_attributed is True
             assert session.get(PhysicalDevice, source.physical_device_id).model == "Vivoactive 5"
+            def _values(capability: str) -> set:
+                return {
+                    item.value_number
+                    for item in session.scalars(select(GarminRecordMetric))
+                    if item.capability_code == capability and item.state == "value"
+                }
+
+            assert _values("heart_rate") >= {0, 72}
+            assert _values("stress") >= {12, 25, 40}
+            assert _values("body_battery") >= {64, 70}
+            assert _values("spo2") >= {96, 98}
+            assert _values("respiration") >= {14, 15, 16}
+            assert 52 in _values("resting_heart_rate")
+            assert 28800 in _values("sleep")
+            hr_samples = list(
+                session.scalars(
+                    select(GarminSourceRecord).where(
+                        GarminSourceRecord.source_path.like("payload.heartRateValues[%]")
+                    )
+                )
+            )
+            assert len(hr_samples) == 2
     finally:
         engine.dispose()
 
@@ -306,8 +363,15 @@ def test_first_run_persists_streams_coverage_and_checkpoints(tmp_path: Path):
 def test_identical_replay_does_not_duplicate_current_records(tmp_path: Path):
     client = FakeSyncClient()
     first = _run(tmp_path, client)
-    second = _run(tmp_path, FakeSyncClient())
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            first_current = session.scalar(select(func.count(GarminSourceRecord.id)))
+            first_observations = session.scalar(select(func.count(GarminPayloadObservation.id)))
+    finally:
+        engine.dispose()
 
+    second = _run(tmp_path, FakeSyncClient())
     assert first.status is GarminSyncStatus.SUCCEEDED
     assert second.status is GarminSyncStatus.SUCCEEDED
     engine, factory = _engine_factory(tmp_path)
@@ -316,8 +380,8 @@ def test_identical_replay_does_not_duplicate_current_records(tmp_path: Path):
             current = session.scalar(select(func.count(GarminSourceRecord.id)))
             observations = session.scalar(select(func.count(GarminPayloadObservation.id)))
             runs = session.scalar(select(func.count(SyncRun.id)))
-            assert current >= 1
-            assert observations == current * 2 or observations > current
+            assert current == first_current
+            assert observations >= first_observations
             assert runs == 2
             keys = list(session.scalars(select(GarminSourceRecord.idempotency_key)))
             assert len(keys) == len(set(keys))
@@ -327,7 +391,6 @@ def test_identical_replay_does_not_duplicate_current_records(tmp_path: Path):
 
 def test_overlapping_trailing_window_applies_late_correction(tmp_path: Path):
     original = raw_fixture("sleep")["payload"]
-    original = {**original, "id": "synthetic-sleep-night-2099-01-02"}
     corrected = json.loads(json.dumps(original))
     corrected["dailySleepDTO"]["sleepScores"]["overall"]["value"] = 90
     first_client = FakeSyncClient(sleep_payloads=[original])
@@ -457,23 +520,40 @@ def test_restart_resume_retries_failed_surface_without_losing_success(tmp_path: 
 
 
 def test_missing_null_and_zero_stay_distinct(tmp_path: Path):
-    report = _run(tmp_path, FakeSyncClient())
-    assert report.status is GarminSyncStatus.SUCCEEDED
+    client = FakeSyncClient(
+        responses={
+            "get_heart_rates": {
+                "calendarDate": "2099-01-02",
+                "device": {"model": "Vivoactive 5"},
+                "heartRateValues": [["2099-01-02T08:00:00Z", 0]],
+            },
+            "get_stress_data": {
+                "calendarDate": "2099-01-02",
+                "device": {"model": "Vivoactive 5"},
+                "stress": None,
+            },
+        }
+    )
+    report = _run(tmp_path, client)
+    stress = next(item for item in report.attempts if item.surface == "stress")
+    assert stress.status is GarminSyncStatus.PARTIAL
+    assert stress.coverage_status == "unknown"
     engine, factory = _engine_factory(tmp_path)
     try:
         with factory() as session:
             metrics = list(session.scalars(select(GarminRecordMetric)))
-            by_code = {}
+            by_code: dict[str, list] = {}
             for item in metrics:
                 by_code.setdefault(item.metric_code, []).append(item)
-            heart = next(
-                item for item in by_code["heart_rate_bpm"] if item.state == "value"
-            )
+            heart = next(item for item in by_code["heart_rate_bpm"] if item.state == "value")
             assert heart.value_number == 0
-            stress = next(item for item in by_code["stress"] if item.state == "null")
-            assert stress.value_number is None
+            stress_metric = next(item for item in by_code["stress"] if item.state == "null")
+            assert stress_metric.value_number is None
             missing = [item for item in metrics if item.state == "missing"]
             assert missing
+            states = {item.stream_code: item for item in session.scalars(select(SyncStreamState))}
+            assert states["heart_rate"].watermark is not None
+            assert states["stress"].watermark is None
     finally:
         engine.dispose()
 
@@ -573,3 +653,190 @@ def test_sync_surfaces_are_the_accepted_first_wave_only():
     ]
     assert all(item.method != "download_activity" for item in PRODUCTION_SYNC_SURFACES)
     assert all(item.method != "get_activities_by_date" for item in PRODUCTION_SYNC_SURFACES)
+
+
+def test_expected_metric_missing_is_unknown_not_present(tmp_path: Path):
+    client = FakeSyncClient(
+        responses={
+            "get_sleep_data": {
+                "calendarDate": "2099-01-02",
+                "device": {"model": "Vivoactive 5"},
+                "dailySleepDTO": {"sleepScores": {"overall": {}}},
+            }
+        }
+    )
+    report = _run(tmp_path, client)
+    sleep = next(item for item in report.attempts if item.surface == "sleep")
+    assert sleep.status is GarminSyncStatus.PARTIAL
+    assert sleep.coverage_status == "unknown"
+    assert sleep.record_count >= 1
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            coverage = next(
+                item
+                for item in session.scalars(select(CoverageInterval))
+                if item.metric_code == "sleep"
+            )
+            assert coverage.status == "unknown"
+            state = next(
+                item
+                for item in session.scalars(select(SyncStreamState))
+                if item.stream_code == "sleep"
+            )
+            assert state.watermark is None
+            assert state.last_success_at is None
+            assert state.last_attempt_at is not None
+    finally:
+        engine.dispose()
+
+
+def test_shape_drift_does_not_advance_successful_checkpoint(tmp_path: Path):
+    client = FakeSyncClient(
+        responses={
+            "get_heart_rates": {
+                "calendarDate": "2099-01-02",
+                "device": {"model": "Vivoactive 5"},
+                "heartRate": {"unexpected": True},
+            }
+        }
+    )
+    report = _run(tmp_path, client)
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.status is GarminSyncStatus.PARTIAL
+    assert heart.coverage_status == "unknown"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            state = next(
+                item
+                for item in session.scalars(select(SyncStreamState))
+                if item.stream_code == "heart_rate"
+            )
+            assert state.watermark is None
+            coverage = next(
+                item
+                for item in session.scalars(select(CoverageInterval))
+                if item.metric_code == "heart_rate"
+            )
+            assert coverage.status == "unknown"
+    finally:
+        engine.dispose()
+
+
+def test_id_less_trailing_window_updates_one_current_projection(tmp_path: Path):
+    original = raw_fixture("sleep")["payload"]
+    assert "id" not in original and "recordId" not in original
+    corrected = json.loads(json.dumps(original))
+    corrected["dailySleepDTO"]["sleepTimeSeconds"] = 30000
+    first = _run(tmp_path, FakeSyncClient(sleep_payloads=[original]))
+    second = _run(tmp_path, FakeSyncClient(sleep_payloads=[corrected]))
+    assert first.status is GarminSyncStatus.SUCCEEDED
+    assert second.status is GarminSyncStatus.SUCCEEDED
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            sleep_records = list(
+                session.scalars(
+                    select(GarminSourceRecord).where(GarminSourceRecord.stream_code == "sleep")
+                )
+            )
+            assert len(sleep_records) == 1
+            duration = session.scalar(
+                select(GarminRecordMetric).where(
+                    GarminRecordMetric.record_id == sleep_records[0].id,
+                    GarminRecordMetric.metric_code == "sleep_duration_seconds",
+                )
+            )
+            assert duration is not None
+            assert duration.value_number == 30000
+            assert session.scalar(select(func.count(GarminPayloadObservation.id))) >= 2
+    finally:
+        engine.dispose()
+
+
+def test_timeseries_sample_correction_reconciles_by_sample_identity(tmp_path: Path):
+    first = {
+        "calendarDate": "2099-01-02",
+        "device": {"model": "Vivoactive 5"},
+        "heartRateValues": [
+            ["2099-01-02T08:00:00Z", 60],
+            ["2099-01-02T08:15:00Z", 72],
+        ],
+    }
+    second = {
+        "calendarDate": "2099-01-02",
+        "device": {"model": "Vivoactive 5"},
+        "heartRateValues": [
+            ["2099-01-02T08:00:00Z", 60],
+            ["2099-01-02T08:15:00Z", 80],
+        ],
+    }
+    assert _run(tmp_path, FakeSyncClient(responses={"get_heart_rates": first})).status is (
+        GarminSyncStatus.SUCCEEDED
+    )
+    assert _run(tmp_path, FakeSyncClient(responses={"get_heart_rates": second})).status is (
+        GarminSyncStatus.SUCCEEDED
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            samples = list(
+                session.scalars(
+                    select(GarminSourceRecord).where(
+                        GarminSourceRecord.stream_code == "intraday",
+                        GarminSourceRecord.source_path.like("payload.heartRateValues[%]"),
+                    )
+                )
+            )
+            assert len(samples) == 2
+            values = sorted(
+                session.scalar(
+                    select(GarminRecordMetric.value_number).where(
+                        GarminRecordMetric.record_id == item.id,
+                        GarminRecordMetric.metric_code == "heart_rate_bpm",
+                    )
+                )
+                for item in samples
+            )
+            assert values == [60, 80]
+    finally:
+        engine.dispose()
+
+
+def test_production_path_is_provider_kind_synthetic_fixtures_stay_synthetic(tmp_path: Path):
+    report = _run(tmp_path, FakeSyncClient(include_device=False))
+    assert report.status in {GarminSyncStatus.SUCCEEDED, GarminSyncStatus.PARTIAL}
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = resolve_runtime_paths(settings)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            production_sources = list(session.scalars(select(GarminSource)))
+            assert production_sources
+            assert all(source.source_kind == PROVIDER_SOURCE_KIND for source in production_sources)
+            assert all(source.device_attributed is False for source in production_sources)
+            fixture = load_synthetic_fixture(FIXTURE_ROOT / "sleep.json")
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            result = normalize_garmin_payload(fixture)
+            GarminPersistenceRepository(session, payload_store=store).persist_result(
+                result,
+                payload=fixture,
+            )
+            session.commit()
+            kinds = {source.source_kind for source in session.scalars(select(GarminSource))}
+            assert PROVIDER_SOURCE_KIND in kinds
+            assert "synthetic" in kinds
+            synthetic = next(
+                source
+                for source in session.scalars(select(GarminSource))
+                if source.source_kind == "synthetic"
+            )
+            assert synthetic.device_attributed is True
+    finally:
+        engine.dispose()
+
+
+def test_provider_source_kind_is_rejected_for_unknown_values():
+    with pytest.raises(ValueError, match="synthetic or provider"):
+        garmin_source_identity(source_kind="owner-live")
