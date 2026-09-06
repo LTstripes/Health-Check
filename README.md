@@ -42,7 +42,9 @@ raw evidence -> typed source records -> versioned canonical selection
 
 **R01 — Weight & Body Composition is released to canonical `main`.** It provides the reusable local runtime/core, historical Xiaomi screenshot import with owner confirmation and provenance, the isolated openScale-sync ingest contract, conservative deterministic weight/body-composition analytics, the local dashboard, owner UAT tooling, and safe local profile backup/restore. The default local listeners are UI `127.0.0.1:8120` and optional ingest `127.0.0.1:8121`, with explicit overrides still supported.
 
-**R02 — Garmin ingestion is the active next release.** Capability contracts, normalization/persistence groundwork, owner-assisted authentication, and a bounded live capability probe have been validated on separate accepted task branches; they must be reconstructed onto a fresh R02 integration line before production sync/backfill is implemented. Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery remain later work.
+**R02 — Garmin ingestion and historical backfill is released to canonical `main`.** It provides owner-assisted protected Garmin session reuse, capability/normalization/persistence contracts, incremental sync, bounded resumable historical backfill, explicit coverage semantics, separate historical/incremental checkpoints, and exact completed-rerun idempotency. The owner release gate proved a completed historical range reruns with zero provider requests and unchanged persisted counts, followed by a successful normal incremental sync. Stable release SHA: `d3b2fa316242ac11a7ba5851fdc99656cdf8e534`; full sanitized evidence is in [R02 Release Closeout](docs/R02_RELEASE_CLOSEOUT.md).
+
+**Current planning focus: pre-R03 hardening.** Complete #56 (collection reconciliation and version-aware reprocessing) and then #55 (metric/time/analytic-coverage contract plus reproducible evidence manifests) before deterministic R03 Garmin analytics consumes the released ingestion data. Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery remain later work.
 
 ## Local bootstrap
 
@@ -92,6 +94,11 @@ health checks or read-only pages.
 - [Final Architecture](docs/ARCHITECTURE.md)
 - [R00 Final Architecture Audit](docs/audits/R00_FINAL_ARCHITECTURE.md)
 - [R01 Implementation Spec](docs/R01_IMPLEMENTATION_SPEC.md)
+- [R01 Release Closeout](docs/R01_RELEASE_CLOSEOUT.md)
+- [R02 Capability Contract](docs/R02_CAPABILITY_CONTRACT.md)
+- [R02 Normalization Contract](docs/R02_NORMALIZATION_CONTRACT.md)
+- [R02 Persistence Contract](docs/R02_PERSISTENCE_CONTRACT.md)
+- [R02 Release Closeout](docs/R02_RELEASE_CLOSEOUT.md)
 - [Local profile backup and restore](docs/PROFILE_BACKUP.md)
 - [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)
 - [Roadmap](docs/ROADMAP.md)
