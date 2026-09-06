@@ -1,9 +1,4 @@
-"""R01 SQLAlchemy persistence model.
-
-The model deliberately contains only the provider-neutral evidence, weight and
-provenance concepts required by R01.  Future typed entities such as sleep,
-activity and intraday series belong to later migrations.
-"""
+"""SQLAlchemy persistence models for the R01 core and R02 Garmin contract."""
 
 from __future__ import annotations
 
@@ -12,6 +7,7 @@ from enum import StrEnum
 from uuid import uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -207,6 +203,472 @@ class RawArtifact(Base):
     source_timestamp: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class GarminSource(Base):
+    """Explicit Garmin provider/device identity used by R02 evidence."""
+
+    __tablename__ = "garmin_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider_code", "source_instance_id", name="uq_garmin_sources_provider_instance"
+        ),
+        CheckConstraint("length(source_kind) > 0", name="source_kind_nonempty"),
+        CheckConstraint("length(provider_code) > 0", name="provider_code_nonempty"),
+        CheckConstraint("length(source_instance_id) > 0", name="source_instance_nonempty"),
+        CheckConstraint(
+            "(device_attributed = 1 AND device_code IS NOT NULL AND device_model IS NOT NULL) "
+            "OR (device_attributed = 0 AND device_code IS NULL AND device_model IS NULL)",
+            name="device_identity_consistency",
+        ),
+        Index("ix_garmin_sources_acquisition", "acquisition_source_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    provider_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("providers.id", ondelete="RESTRICT"), nullable=False
+    )
+    acquisition_source_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("acquisition_sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    physical_device_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("physical_devices.id", ondelete="RESTRICT"), nullable=True
+    )
+    source_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    provider_code: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_instance_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    device_attributed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    device_code: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    device_model: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class GarminPayloadStatus(StrEnum):
+    """Normalized status retained alongside one immutable raw payload."""
+
+    OK = "ok"
+    PARTIAL = "partial"
+    EMPTY = "empty"
+    INVALID = "invalid"
+
+
+class GarminMetricState(StrEnum):
+    """Presence state for a persisted Garmin metric field."""
+
+    MISSING = "missing"
+    NULL = "null"
+    VALUE = "value"
+    INVALID = "invalid"
+
+
+class GarminRawPayload(Base):
+    """Immutable source payload metadata linked to a content-addressed artifact."""
+
+    __tablename__ = "garmin_raw_payloads"
+    __table_args__ = (
+        UniqueConstraint(
+            "garmin_source_id",
+            "stream_code",
+            "content_hash",
+            name="uq_garmin_raw_payloads_source_stream_hash",
+        ),
+        CheckConstraint(
+            "stream_code IN ('daily_health', 'sleep', 'activity', 'intraday', 'original_fit')",
+            name="stream_code_allowed",
+        ),
+        CheckConstraint(
+            "payload_format IN ('json', 'fit', 'binary')", name="payload_format_allowed"
+        ),
+        CheckConstraint(
+            "parse_status IN ('ok', 'partial', 'empty', 'invalid')",
+            name="parse_status_allowed",
+        ),
+        CheckConstraint("length(content_hash) >= 32", name="content_hash_min_length"),
+        CheckConstraint("record_count >= 0", name="record_count_nonnegative"),
+        Index(
+            "ix_garmin_raw_payloads_source_stream_received",
+            "garmin_source_id",
+            "stream_code",
+            "received_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    garmin_source_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("garmin_sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    raw_artifact_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("raw_artifacts.id", ondelete="RESTRICT"), nullable=False
+    )
+    ingest_event_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("ingest_events.id", ondelete="RESTRICT"), nullable=True
+    )
+    sync_run_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("sync_runs.id", ondelete="RESTRICT"), nullable=True
+    )
+    stream_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_format: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_contract_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    fixture_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    parse_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    record_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unknown_fields_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_window_start_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_window_end_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class GarminPayloadObservation(Base):
+    """One acquisition/normalization observation of an immutable raw payload."""
+
+    __tablename__ = "garmin_payload_observations"
+    __table_args__ = (
+        UniqueConstraint("observation_key", name="uq_garmin_payload_observations_key"),
+        CheckConstraint(
+            "stream_code IN ('daily_health', 'sleep', 'activity', 'intraday', 'original_fit')",
+            name="stream_code_allowed",
+        ),
+        CheckConstraint(
+            "payload_format IN ('json', 'fit', 'binary')", name="payload_format_allowed"
+        ),
+        CheckConstraint(
+            "parse_status IN ('ok', 'partial', 'empty', 'invalid')",
+            name="parse_status_allowed",
+        ),
+        CheckConstraint("length(observation_key) >= 32", name="observation_key_min_length"),
+        CheckConstraint("record_count >= 0", name="record_count_nonnegative"),
+        Index(
+            "ix_garmin_payload_observations_source_stream_received",
+            "garmin_source_id",
+            "stream_code",
+            "received_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    garmin_raw_payload_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("garmin_raw_payloads.id", ondelete="RESTRICT"), nullable=False
+    )
+    raw_artifact_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("raw_artifacts.id", ondelete="RESTRICT"), nullable=False
+    )
+    garmin_source_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("garmin_sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    ingest_event_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("ingest_events.id", ondelete="RESTRICT"), nullable=True
+    )
+    sync_run_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("sync_runs.id", ondelete="RESTRICT"), nullable=True
+    )
+    observation_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    stream_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload_format: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_contract_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    fixture_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    parse_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    record_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unknown_fields_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_window_start_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_window_end_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class GarminSourceRecord(Base):
+    """Current typed projection of one stable Garmin source-record identity."""
+
+    __tablename__ = "garmin_source_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "garmin_source_id",
+            "idempotency_key",
+            name="uq_garmin_source_records_source_idempotency",
+        ),
+        CheckConstraint(
+            "stream_code IN ('daily_health', 'sleep', 'activity', 'intraday', 'original_fit')",
+            name="stream_code_allowed",
+        ),
+        CheckConstraint(
+            "temporal_precision IN ('unknown', 'date', 'instant', 'local')",
+            name="temporal_precision_allowed",
+        ),
+        CheckConstraint(
+            "record_status IN ('ok', 'partial', 'empty', 'invalid')",
+            name="record_status_allowed",
+        ),
+        CheckConstraint(
+            "record_index IS NULL OR record_index >= 0", name="record_index_nonnegative"
+        ),
+        CheckConstraint(
+            "source_utc_offset_minutes IS NULL OR "
+            "(source_utc_offset_minutes >= -1439 AND source_utc_offset_minutes <= 1439)",
+            name="source_utc_offset_range",
+        ),
+        CheckConstraint(
+            "(temporal_precision = 'instant' AND source_timestamp_utc IS NOT NULL) "
+            "OR (temporal_precision = 'local' AND local_wall_time IS NOT NULL) "
+            "OR temporal_precision IN ('unknown', 'date')",
+            name="temporal_precision_consistency",
+        ),
+        Index(
+            "ix_garmin_source_records_stream_date",
+            "garmin_source_id",
+            "stream_code",
+            "source_local_date",
+        ),
+        Index(
+            "ix_garmin_source_records_external_id",
+            "garmin_source_id",
+            "stream_code",
+            "external_record_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    garmin_source_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("garmin_sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    raw_payload_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("garmin_raw_payloads.id", ondelete="RESTRICT"), nullable=False
+    )
+    ingest_event_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("ingest_events.id", ondelete="RESTRICT"), nullable=True
+    )
+    stream_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    external_record_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    record_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    activity_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    temporal_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source_timestamp_utc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    local_wall_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_local_timestamp: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_local_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_utc_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    record_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unknown_fields_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class GarminDailyRecord(Base):
+    """Typed daily-health record marker and local calendar identity."""
+
+    __tablename__ = "garmin_daily_records"
+
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    calendar_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class GarminSleepRecord(Base):
+    """Typed sleep-session record keyed to the source/local wake date."""
+
+    __tablename__ = "garmin_sleep_records"
+
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    wake_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class GarminActivityRecord(Base):
+    """Typed activity record marker."""
+
+    __tablename__ = "garmin_activity_records"
+
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    activity_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class GarminIntradayRecord(Base):
+    """Typed intraday sample marker."""
+
+    __tablename__ = "garmin_intraday_records"
+
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    sample_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    sample_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class GarminFitRecord(Base):
+    """Typed ORIGINAL FIT record marker; the file remains the raw evidence."""
+
+    __tablename__ = "garmin_fit_records"
+
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class GarminRecordMetric(Base):
+    """Scalar metric registry attached to a typed Garmin source record."""
+
+    __tablename__ = "garmin_record_metrics"
+    __table_args__ = (
+        UniqueConstraint("record_id", "metric_code", name="uq_garmin_record_metrics_record_metric"),
+        CheckConstraint("state IN ('missing', 'null', 'value', 'invalid')", name="state_allowed"),
+        CheckConstraint(
+            "state = 'value' OR "
+            "(value_number IS NULL AND value_text IS NULL AND collection_json IS NULL)",
+            name="non_value_has_no_value",
+        ),
+        Index("ix_garmin_record_metrics_metric_state", "metric_code", "state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    capability_code: Mapped[str] = mapped_column(String(120), nullable=False)
+    metric_code: Mapped[str] = mapped_column(String(120), nullable=False)
+    field_path: Mapped[str] = mapped_column(String(255), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False)
+    value_number: Mapped[float | None] = mapped_column(Float, nullable=True)
+    value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    capability_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    source_device_attributed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("0")
+    )
+    collection_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class GarminSleepStageInterval(Base):
+    """Typed sleep-stage interval with UTC and original local evidence."""
+
+    __tablename__ = "garmin_sleep_stage_intervals"
+    __table_args__ = (
+        UniqueConstraint(
+            "sleep_record_id", "ordinal", name="uq_garmin_sleep_stage_intervals_ordinal"
+        ),
+        CheckConstraint("ordinal >= 0", name="ordinal_nonnegative"),
+        CheckConstraint(
+            "start_at_utc IS NULL OR end_at_utc IS NULL OR end_at_utc > start_at_utc",
+            name="interval_order",
+        ),
+        CheckConstraint(
+            "(start_utc_offset_minutes IS NULL OR "
+            "(start_utc_offset_minutes >= -1439 AND start_utc_offset_minutes <= 1439)) "
+            "AND (end_utc_offset_minutes IS NULL OR "
+            "(end_utc_offset_minutes >= -1439 AND end_utc_offset_minutes <= 1439))",
+            name="stage_utc_offset_range",
+        ),
+        Index("ix_garmin_sleep_stage_intervals_start", "sleep_record_id", "start_at_utc"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    sleep_record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_sleep_records.record_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    end_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    start_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    start_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    start_local_wall_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_local_wall_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_source_timestamp: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_source_timestamp: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_source_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_source_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    activity_level: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    start_temporal_json: Mapped[str] = mapped_column(Text, nullable=False)
+    end_temporal_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IngestBatch(Base):
@@ -859,6 +1321,19 @@ __all__ = [
     "CoverageInterval",
     "CoverageStatus",
     "DerivedMeasurement",
+    "GarminActivityRecord",
+    "GarminDailyRecord",
+    "GarminFitRecord",
+    "GarminIntradayRecord",
+    "GarminMetricState",
+    "GarminPayloadStatus",
+    "GarminPayloadObservation",
+    "GarminRawPayload",
+    "GarminRecordMetric",
+    "GarminSleepRecord",
+    "GarminSleepStageInterval",
+    "GarminSource",
+    "GarminSourceRecord",
     "ImportCandidate",
     "ImportCandidateEdit",
     "IngestBatch",
