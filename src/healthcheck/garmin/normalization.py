@@ -47,6 +47,8 @@ from healthcheck.garmin.contracts import (
 NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v1"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 SYNTHETIC_SOURCE_KIND = "synthetic"
+PROVIDER_SOURCE_KIND = "provider"
+ALLOWED_SOURCE_KINDS = frozenset({SYNTHETIC_SOURCE_KIND, PROVIDER_SOURCE_KIND})
 
 _MISSING = object()
 _DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -146,7 +148,12 @@ class GarminDiagnostic:
 
 @dataclass(frozen=True, slots=True)
 class GarminSourceIdentity:
-    """Synthetic provider/device identity used by downstream idempotency."""
+    """Provider/device identity used by downstream idempotency.
+
+    Synthetic fixtures keep ``source_kind=synthetic``. Production Garmin API
+    ingestion uses ``source_kind=provider``. Device attribution remains an
+    explicit envelope/payload fact and is never inferred from a client method.
+    """
 
     source_kind: str
     provider_code: str
@@ -158,8 +165,8 @@ class GarminSourceIdentity:
     def __post_init__(self) -> None:
         source_kind = _required_text(self.source_kind, "source_kind").lower()
         provider_code = _required_text(self.provider_code, "provider_code").lower()
-        if source_kind != SYNTHETIC_SOURCE_KIND:
-            raise ValueError("only synthetic Garmin source identity is supported")
+        if source_kind not in ALLOWED_SOURCE_KINDS:
+            raise ValueError("Garmin source_kind must be synthetic or provider")
         if provider_code != GARMIN_PROVIDER_CODE:
             raise ValueError("source provider must be garmin_connect")
         if not isinstance(self.device_attributed, bool):
@@ -224,11 +231,12 @@ def garmin_source_identity(
     device_attributed: bool = False,
     device_code: str | None = None,
     device_model: str | None = None,
+    source_kind: str = SYNTHETIC_SOURCE_KIND,
 ) -> GarminSourceIdentity:
-    """Create a validated synthetic Garmin source identity."""
+    """Create a validated Garmin source identity."""
 
     return GarminSourceIdentity(
-        source_kind=SYNTHETIC_SOURCE_KIND,
+        source_kind=source_kind,
         provider_code=provider_code,
         device_attributed=device_attributed,
         device_code=device_code,
@@ -796,16 +804,38 @@ _FIT_SCALARS = (
 )
 
 _INTRADAY_SCALARS = (
-    _ScalarSpec("heart_rate", "heart_rate_bpm", ("heartRate", "heartRateBpm"), "number", "bpm"),
-    _ScalarSpec("stress", "stress", ("stress", "stressLevel"), "number", "points"),
     _ScalarSpec(
-        "body_battery", "body_battery", ("bodyBattery", "bodyBatteryLevel"), "number", "points"
+        "heart_rate",
+        "heart_rate_bpm",
+        ("heartRate", "heartRateBpm", "heartRateValue"),
+        "number",
+        "bpm",
     ),
-    _ScalarSpec("spo2", "spo2_percent", ("spo2", "spo2Percent"), "number", "%"),
+    _ScalarSpec(
+        "stress",
+        "stress",
+        ("stress", "stressLevel", "avgStressLevel", "maxStressLevel"),
+        "number",
+        "points",
+    ),
+    _ScalarSpec(
+        "body_battery",
+        "body_battery",
+        ("bodyBattery", "bodyBatteryLevel"),
+        "number",
+        "points",
+    ),
+    _ScalarSpec(
+        "spo2",
+        "spo2_percent",
+        ("spo2", "spo2Percent", "averageSpO2", "lastSevenDaysAvgSpO2"),
+        "number",
+        "%",
+    ),
     _ScalarSpec(
         "respiration",
         "respiration_bpm",
-        ("respiration", "respirationRate"),
+        ("respiration", "respirationRate", "avgSleepRespirationValue"),
         "number",
         "breaths/min",
     ),
@@ -902,6 +932,38 @@ def garmin_semantic_idempotency_key(
     """Explicit helper for the no-record-id semantic fallback."""
 
     return stable_garmin_idempotency_key(source, stream, None, temporal=temporal, metrics=metrics)
+
+
+def stable_garmin_reconciliation_key(
+    source: GarminSourceIdentity | str,
+    stream: GarminStream | str,
+    *,
+    surface: str,
+    temporal: GarminTemporalDTO | None = None,
+    record_id: str | None = None,
+    sample_index: int | None = None,
+    sample_token: str | None = None,
+) -> str:
+    """Stable current-projection key that does not include mutable metric values.
+
+    Provider record IDs still win.  Id-less production records reconcile by
+    source, stream, surface, temporal identity and optional sample identity so
+    a trailing-window value correction updates one current row.
+    """
+
+    normalized_record_id = _optional_text(record_id)
+    if normalized_record_id is not None:
+        return stable_garmin_idempotency_key(source, stream, normalized_record_id)
+    payload = {
+        "kind": "reconcile",
+        "source_instance_id": _source_instance_value(source),
+        "stream": GarminStream(stream).value,
+        "surface": _required_text(surface, "reconciliation surface"),
+        "time": temporal.time_key() if temporal is not None else "unknown-time",
+        "sample_index": sample_index,
+        "sample_token": _optional_text(sample_token),
+    }
+    return f"garmin:v1:reconcile:{_digest(payload)}"
 
 
 def normalize_garmin_payload(
@@ -1977,9 +2039,29 @@ def _known_roots(stream: GarminStream) -> set[str]:
     roots.update(_TIMEZONE_PATHS)
     roots.update(_UTC_OFFSET_PATHS)
     for spec in _specs_for_stream(stream):
-        roots.add(spec.paths[0].split(".")[0])
+        for path in spec.paths:
+            roots.add(path.split(".")[0])
     if stream is GarminStream.SLEEP:
         roots.add("levels")
+    if stream is GarminStream.INTRADAY:
+        roots.update(
+            {
+                "heartRateValues",
+                "heartRateValue",
+                "avgStressLevel",
+                "maxStressLevel",
+                "stressValuesArray",
+                "stressValues",
+                "bodyBatteryValuesArray",
+                "charged",
+                "drained",
+                "averageSpO2",
+                "lastSevenDaysAvgSpO2",
+                "spo2Values",
+                "avgSleepRespirationValue",
+                "respirationValues",
+            }
+        )
     if stream is GarminStream.ORIGINAL_FIT:
         roots.update({"fileName", "fitRecords"})
     if stream is GarminStream.ACTIVITY:

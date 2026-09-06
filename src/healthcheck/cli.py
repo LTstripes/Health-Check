@@ -15,6 +15,7 @@ from healthcheck.demo import DemoSeedError, seed_demo
 from healthcheck.garmin.auth import GarminAuthService
 from healthcheck.garmin.probe import GarminCapabilityProbe, validate_probe_dates
 from healthcheck.garmin.redaction import redact_garmin_payload, validate_external_export_paths
+from healthcheck.garmin.sync import GarminIncrementalSync, GarminSyncStatus
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.profile_backup import (
@@ -45,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-auth",
             "garmin-capabilities",
             "garmin-redact",
+            "garmin-sync",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -62,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force-reauth", action="store_true")
     parser.add_argument("--is-cn", action="store_true")
     parser.add_argument("--date", action="append", dest="dates")
+    parser.add_argument("--trailing-window-days", type=int)
     parser.add_argument("--input")
     return parser
 
@@ -145,6 +148,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_auth(args, settings)
     if args.command == "garmin-capabilities":
         return _run_garmin_capabilities(args, settings)
+    if args.command == "garmin-sync":
+        return _run_garmin_sync(args, settings)
     if args.command == "seed-demo":
         try:
             result = seed_demo(settings, reset=args.reset)
@@ -265,6 +270,48 @@ def _run_garmin_capabilities(args: argparse.Namespace, settings: Settings) -> in
         return 2
     print(report.to_json(), end="")
     return 0 if auth_result.ok else 1
+
+
+def _run_garmin_sync(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.dates is not None and len(args.dates) != 1:
+            raise ValueError("garmin-sync accepts exactly one --date")
+        service = GarminAuthService(settings, is_cn=args.is_cn)
+        client, auth_result = service.load_existing()
+        report = GarminIncrementalSync(
+            settings,
+            client=client,
+            auth_result=auth_result,
+        ).run(
+            as_of=args.dates[0] if args.dates else None,
+            trailing_window_days=args.trailing_window_days,
+        )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r02-garmin-incremental-sync-v1",
+                    "error": {
+                        "error_class": "input",
+                        "error_code": "invalid_sync_request",
+                        "http_status": None,
+                    },
+                    "privacy": {
+                        "raw_values_emitted": False,
+                        "private_identifiers_emitted": False,
+                        "tokens_emitted": False,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    if report.status is GarminSyncStatus.SUCCEEDED:
+        return 0
+    if report.status is GarminSyncStatus.REAUTH_REQUIRED:
+        return 1
+    return 1
 
 
 def _run_garmin_redact(args: argparse.Namespace) -> int:

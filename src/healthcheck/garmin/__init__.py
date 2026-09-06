@@ -1,4 +1,4 @@
-"""Garmin R02 static contracts and the owner-assisted #31 capability spike."""
+"""Garmin R02 contracts, owner-assisted auth, and incremental sync."""
 
 from healthcheck.garmin.auth import (
     AUTH_CONTRACT_VERSION,
@@ -41,8 +41,10 @@ from healthcheck.garmin.contracts import (
     load_synthetic_fixture,
 )
 from healthcheck.garmin.normalization import (
+    ALLOWED_SOURCE_KINDS,
     GARMIN_NORMALIZATION_CONTRACT_VERSION,
     NORMALIZATION_CONTRACT_VERSION,
+    PROVIDER_SOURCE_KIND,
     GarminDiagnostic,
     GarminFieldState,
     GarminMetricDTO,
@@ -66,6 +68,7 @@ from healthcheck.garmin.normalization import (
     parse_garmin_timestamp,
     parse_synthetic_garmin_payload,
     stable_garmin_idempotency_key,
+    stable_garmin_reconciliation_key,
     stable_idempotency_key,
 )
 from healthcheck.garmin.persistence import (
@@ -115,6 +118,22 @@ from healthcheck.garmin.storage import (
     StoredGarminPayload,
     serialize_garmin_payload,
 )
+from healthcheck.garmin.sync import (
+    DEFAULT_TRAILING_WINDOW_DAYS,
+    MAX_SYNC_PROVIDER_REQUESTS,
+    MAX_TRAILING_WINDOW_DAYS,
+    PRODUCTION_SYNC_SURFACES,
+    SYNC_CONTRACT_VERSION,
+    GarminIncrementalSync,
+    GarminSyncAttempt,
+    GarminSyncReport,
+    GarminSyncStatus,
+    GarminSyncSurface,
+    compute_sync_window,
+    run_garmin_incremental_sync,
+    validate_sync_date,
+    validate_trailing_window_days,
+)
 
 __all__ = [
     "AUTH_CONTRACT_VERSION",
@@ -127,7 +146,9 @@ __all__ = [
     "GARMIN_SAFE_FIELD_PATHS",
     "GARMIN_TOKENSTORE_FILENAME",
     "GARMIN_COVERAGE_RULE_VERSION",
+    "ALLOWED_SOURCE_KINDS",
     "GARMIN_NORMALIZATION_CONTRACT_VERSION",
+    "PROVIDER_SOURCE_KIND",
     "GARMIN_INPUT_METHOD",
     "GARMIN_SOURCE_APPLICATION",
     "GARMINCONNECT_VERSION",
@@ -209,8 +230,23 @@ __all__ = [
     "run_capability_probe",
     "summarize_garmin_payload",
     "PERSISTENCE_CONTRACT_VERSION",
+    "DEFAULT_TRAILING_WINDOW_DAYS",
+    "MAX_SYNC_PROVIDER_REQUESTS",
+    "MAX_TRAILING_WINDOW_DAYS",
+    "PRODUCTION_SYNC_SURFACES",
+    "SYNC_CONTRACT_VERSION",
+    "GarminIncrementalSync",
+    "GarminSyncAttempt",
+    "GarminSyncReport",
+    "GarminSyncStatus",
+    "GarminSyncSurface",
+    "compute_sync_window",
+    "run_garmin_incremental_sync",
+    "validate_sync_date",
+    "validate_trailing_window_days",
     "serialize_garmin_payload",
     "stable_garmin_idempotency_key",
+    "stable_garmin_reconciliation_key",
     "stable_idempotency_key",
     "StoredGarminPayload",
     "validate_external_export_paths",
