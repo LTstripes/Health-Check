@@ -53,6 +53,8 @@ from test_garmin_incremental_sync import (
     _null_heart_rate,
     _production_activity,
     _production_body_battery,
+    _reviewed_empty_respiration,
+    _reviewed_empty_sleep,
     _unrecognized_body_battery,
     raw_fixture,
 )
@@ -786,5 +788,89 @@ def test_capped_historical_run_converges_null_hr_and_all_null_body_battery(
             states = {item.stream_code for item in session.scalars(select(SyncStreamState))}
             assert "heart_rate" not in states
             assert "body_battery" not in states
+    finally:
+        engine.dispose()
+
+
+def test_capped_historical_run_converges_reviewed_sleep_and_respiration_empty(
+    tmp_path: Path,
+):
+    streams = ["sleep", "respiration"]
+    responses = {
+        "get_sleep_data": _reviewed_empty_sleep(),
+        "get_respiration_data": _reviewed_empty_respiration(),
+    }
+    remaining = True
+    start = START
+    end = END
+    runs = 0
+    while remaining:
+        runs += 1
+        assert runs <= 8
+        client = DatedFakeSyncClient(responses=responses)
+        report = _run_backfill(
+            tmp_path,
+            client,
+            start=start,
+            end=end,
+            streams=streams,
+            chunk_days=1,
+            max_provider_requests=3,
+        )
+        remaining = report.status is GarminSyncStatus.PARTIAL
+        if remaining:
+            assert report.remaining_chunk_count >= 1
+            assert report.remaining_day_count >= 1
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    by_surface: dict[str, list[str | None]] = {}
+    for item in report.attempts:
+        by_surface.setdefault(item.surface, []).append(item.coverage_status)
+    assert set(by_surface["sleep"]) <= {"confirmed_empty"}
+    assert set(by_surface["respiration"]) <= {"confirmed_empty"}
+    assert "confirmed_empty" in by_surface["sleep"]
+    assert "confirmed_empty" in by_surface["respiration"]
+
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            first_records = session.scalar(select(func.count(GarminSourceRecord.id)))
+            first_observations = session.scalar(select(func.count(GarminPayloadObservation.id)))
+            states = {item.stream_code for item in session.scalars(select(SyncStreamState))}
+            assert f"{HISTORICAL_CHECKPOINT_NAMESPACE}:sleep" in states
+            assert f"{HISTORICAL_CHECKPOINT_NAMESPACE}:respiration" in states
+            assert "sleep" not in states
+            assert "respiration" not in states
+            coverage: dict[str, set[str]] = {}
+            for item in session.scalars(select(CoverageInterval)):
+                coverage.setdefault(item.metric_code, set()).add(item.status)
+            assert coverage.get("sleep") == {"confirmed_empty"}
+            assert coverage.get("respiration") == {"confirmed_empty"}
+    finally:
+        engine.dispose()
+
+    rerun_client = DatedFakeSyncClient(responses=responses)
+    rerun = _run_backfill(
+        tmp_path,
+        rerun_client,
+        start=start,
+        end=end,
+        streams=streams,
+        chunk_days=1,
+    )
+    assert rerun.status is GarminSyncStatus.SUCCEEDED
+    assert rerun.request_count == 0
+    assert rerun_client.calls == []
+    assert all(item.skipped for item in rerun.attempts if item.surface in streams)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count(GarminSourceRecord.id))) == first_records
+            assert (
+                session.scalar(select(func.count(GarminPayloadObservation.id)))
+                == first_observations
+            )
+            states = {item.stream_code for item in session.scalars(select(SyncStreamState))}
+            assert "sleep" not in states
+            assert "respiration" not in states
     finally:
         engine.dispose()
