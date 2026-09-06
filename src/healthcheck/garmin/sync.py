@@ -903,6 +903,8 @@ def _coverage_status_for(
         return "confirmed_empty"
     if _has_expected_metric(surface, result.records, payload):
         return "present"
+    if _reviewed_empty_provider_shell(surface, payload, result):
+        return "confirmed_empty"
     return "unknown"
 
 
@@ -933,6 +935,72 @@ def _is_reviewed_empty_series_field(surface: GarminSyncSurface, raw: Any) -> boo
         return True
     # Reviewed live empty HR is `heartRateValues: null` as well as `[]`.
     return surface.code == "heart_rate" and raw is None
+
+
+def _reviewed_empty_provider_shell(
+    surface: GarminSyncSurface,
+    payload: Any,
+    result: GarminNormalizationResult,
+) -> bool:
+    """True only for the #59 reviewed sleep/respiration provider-empty shells."""
+
+    if surface.code == "sleep":
+        return _reviewed_empty_sleep_shell(surface, payload, result)
+    if surface.code == "respiration":
+        return _reviewed_empty_respiration_shell(surface, payload, result)
+    return False
+
+
+def _explicit_null(container: Mapping[str, Any], key: str) -> bool:
+    return key in container and container[key] is None
+
+
+def _reviewed_empty_sleep_shell(
+    surface: GarminSyncSurface, payload: Any, result: GarminNormalizationResult
+) -> bool:
+    """Reviewed empty sleep: DTO object with explicit-null duration and nap, no data."""
+
+    if not isinstance(payload, Mapping):
+        return False
+    dto = payload.get("dailySleepDTO")
+    if not isinstance(dto, Mapping):
+        return False
+    if not _explicit_null(dto, "sleepTimeSeconds"):
+        return False
+    if not _explicit_null(dto, "napTimeSeconds"):
+        return False
+    if _recognized_sleep_duration_or_stage(result.records):
+        return False
+    return not _has_expected_metric(surface, result.records, payload)
+
+
+def _recognized_sleep_duration_or_stage(records: Sequence[GarminRecordDTO]) -> bool:
+    for record in records:
+        duration = record.metric("sleep_duration_seconds")
+        if duration is not None and duration.has_value:
+            return True
+        stages = record.metric("sleep_stages")
+        if stages is not None and stages.has_value and stages.collection:
+            return True
+    return False
+
+
+def _reviewed_empty_respiration_shell(
+    surface: GarminSyncSurface, payload: Any, result: GarminNormalizationResult
+) -> bool:
+    """Reviewed empty respiration: null avg, no accepted scalars/series, no bpm."""
+
+    if not isinstance(payload, Mapping):
+        return False
+    if not _explicit_null(payload, "avgSleepRespirationValue"):
+        return False
+    if "respiration" in payload or "respirationRate" in payload:
+        return False
+    if "respirationValues" in payload:
+        return False
+    if _series_samples(payload, ("respirationValues",), surface_code="respiration"):
+        return False
+    return not _has_expected_metric(surface, result.records, payload)
 
 
 def _reviewed_empty_body_battery_levels(payload: Mapping[str, Any]) -> bool:

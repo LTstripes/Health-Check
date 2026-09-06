@@ -691,6 +691,139 @@ def test_expected_metric_missing_is_unknown_not_present(tmp_path: Path):
         engine.dispose()
 
 
+def test_reviewed_empty_sleep_shell_is_confirmed_empty(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_sleep_data": _reviewed_empty_sleep()}),
+    )
+    sleep = next(item for item in report.attempts if item.surface == "sleep")
+    assert sleep.coverage_status == "confirmed_empty"
+    assert sleep.status is GarminSyncStatus.EMPTY
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            coverage = next(
+                item
+                for item in session.scalars(select(CoverageInterval))
+                if item.metric_code == "sleep"
+            )
+            assert coverage.status == "confirmed_empty"
+            state = next(
+                item
+                for item in session.scalars(select(SyncStreamState))
+                if item.stream_code == "sleep"
+            )
+            assert state.last_success_at is not None
+            values = [
+                item.value_number
+                for item in session.scalars(
+                    select(GarminRecordMetric).where(
+                        GarminRecordMetric.metric_code == "sleep_duration_seconds",
+                        GarminRecordMetric.value_number.is_not(None),
+                    )
+                )
+            ]
+            assert values == []
+    finally:
+        engine.dispose()
+
+
+def test_sleep_zero_duration_is_present_not_empty(tmp_path: Path):
+    payload = _reviewed_empty_sleep()
+    payload["dailySleepDTO"]["sleepTimeSeconds"] = 0
+    report = _run(tmp_path, FakeSyncClient(responses={"get_sleep_data": payload}))
+    sleep = next(item for item in report.attempts if item.surface == "sleep")
+    assert sleep.coverage_status == "present"
+    assert sleep.status is GarminSyncStatus.SUCCEEDED
+
+
+def test_sleep_zero_nap_without_duration_stays_unknown(tmp_path: Path):
+    payload = _reviewed_empty_sleep()
+    payload["dailySleepDTO"]["napTimeSeconds"] = 0
+    report = _run(tmp_path, FakeSyncClient(responses={"get_sleep_data": payload}))
+    sleep = next(item for item in report.attempts if item.surface == "sleep")
+    assert sleep.coverage_status == "unknown"
+    assert sleep.status is GarminSyncStatus.PARTIAL
+
+
+def test_sleep_null_duration_with_stages_stays_unknown(tmp_path: Path):
+    payload = _reviewed_empty_sleep()
+    payload["levels"] = [
+        {
+            "startTimeGMT": "2099-01-01T21:30:00Z",
+            "endTimeGMT": "2099-01-01T23:00:00Z",
+            "activityLevel": "deep",
+        }
+    ]
+    report = _run(tmp_path, FakeSyncClient(responses={"get_sleep_data": payload}))
+    sleep = next(item for item in report.attempts if item.surface == "sleep")
+    assert sleep.coverage_status == "unknown"
+    assert sleep.status is GarminSyncStatus.PARTIAL
+
+
+def test_reviewed_empty_respiration_shell_is_confirmed_empty(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_respiration_data": _reviewed_empty_respiration()}),
+    )
+    respiration = next(item for item in report.attempts if item.surface == "respiration")
+    assert respiration.coverage_status == "confirmed_empty"
+    assert respiration.status is GarminSyncStatus.EMPTY
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            coverage = next(
+                item
+                for item in session.scalars(select(CoverageInterval))
+                if item.metric_code == "respiration"
+            )
+            assert coverage.status == "confirmed_empty"
+            values = [
+                item.value_number
+                for item in session.scalars(
+                    select(GarminRecordMetric).where(
+                        GarminRecordMetric.metric_code == "respiration_bpm",
+                        GarminRecordMetric.value_number.is_not(None),
+                    )
+                )
+            ]
+            assert values == []
+    finally:
+        engine.dispose()
+
+
+def test_respiration_zero_scalar_is_present_not_empty(tmp_path: Path):
+    payload = _reviewed_empty_respiration()
+    payload["respiration"] = 0
+    report = _run(tmp_path, FakeSyncClient(responses={"get_respiration_data": payload}))
+    respiration = next(item for item in report.attempts if item.surface == "respiration")
+    assert respiration.coverage_status == "present"
+    assert respiration.status is GarminSyncStatus.SUCCEEDED
+
+
+def test_respiration_missing_avg_stays_unknown(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(
+            responses={
+                "get_respiration_data": {"calendarDate": "2099-01-02"},
+            }
+        ),
+    )
+    respiration = next(item for item in report.attempts if item.surface == "respiration")
+    assert respiration.coverage_status == "unknown"
+    assert respiration.status is GarminSyncStatus.PARTIAL
+
+
+def test_respiration_unrecognized_series_stays_unknown(tmp_path: Path):
+    payload = _reviewed_empty_respiration()
+    payload["respirationValues"] = [{"unexpected": True}]
+    report = _run(tmp_path, FakeSyncClient(responses={"get_respiration_data": payload}))
+    respiration = next(item for item in report.attempts if item.surface == "respiration")
+    assert respiration.coverage_status == "unknown"
+    assert respiration.status is GarminSyncStatus.PARTIAL
+
+
 def test_shape_drift_does_not_advance_successful_checkpoint(tmp_path: Path):
     client = FakeSyncClient(
         responses={
@@ -881,6 +1014,21 @@ def _production_activity(day: str = "2099-01-02") -> list[dict[str, Any]]:
 
 def _null_heart_rate(day: str = "2099-01-02") -> dict[str, Any]:
     return {"calendarDate": day, "heartRateValues": None}
+
+
+def _reviewed_empty_sleep(day: str = "2099-01-02") -> dict[str, Any]:
+    return {
+        "calendarDate": day,
+        "dailySleepDTO": {
+            "calendarDate": day,
+            "sleepTimeSeconds": None,
+            "napTimeSeconds": None,
+        },
+    }
+
+
+def _reviewed_empty_respiration(day: str = "2099-01-02") -> dict[str, Any]:
+    return {"calendarDate": day, "avgSleepRespirationValue": None}
 
 
 def _body_battery_descriptors(*keys: str) -> list[dict[str, Any]]:
