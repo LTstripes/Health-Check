@@ -56,7 +56,7 @@ uv run ruff check .
 uv run pytest
 ```
 
-The canonical Windows launcher prepares the external runtime, applies the checked-in Alembic migrations to SQLite with WAL/foreign-key pragmas, and starts the loopback listener on `127.0.0.1:8000`:
+The canonical Windows launcher prepares the external runtime, applies the checked-in Alembic migrations to SQLite with WAL/foreign-key pragmas, and starts the loopback listener on `127.0.0.1:8120`:
 
 ```powershell
 .\scripts\start.ps1

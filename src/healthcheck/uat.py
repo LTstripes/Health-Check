@@ -24,7 +24,7 @@ class _HttpResult:
 
 def run_smoke(
     *,
-    ui_url: str = "http://127.0.0.1:8000",
+    ui_url: str = "http://127.0.0.1:8120",
     ingest_url: str | None = None,
     timeout: float = 3.0,
 ) -> list[SmokeResult]:
