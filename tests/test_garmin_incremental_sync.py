@@ -879,6 +879,47 @@ def _production_activity(day: str = "2099-01-02") -> list[dict[str, Any]]:
     ]
 
 
+def _null_heart_rate(day: str = "2099-01-02") -> dict[str, Any]:
+    return {"calendarDate": day, "heartRateValues": None}
+
+
+def _body_battery_descriptors(*keys: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "bodyBatteryValueDescriptorIndex": index,
+            "bodyBatteryValueDescriptorKey": key,
+        }
+        for index, key in enumerate(keys)
+    ]
+
+
+def _all_null_body_battery(day: str = "2099-01-02") -> list[dict[str, Any]]:
+    return [
+        {
+            "calendarDate": day,
+            "bodyBatteryValueDescriptorDTOList": _body_battery_descriptors(
+                "millis", "bodyBatteryLevel"
+            ),
+            "bodyBatteryValuesArray": [
+                [1_735_804_800_000 + offset, None] for offset in range(0, 6 * 60_000, 60_000)
+            ],
+        }
+    ]
+
+
+def _unrecognized_body_battery(day: str = "2099-01-02") -> list[dict[str, Any]]:
+    return [
+        {
+            "calendarDate": day,
+            "bodyBatteryValueDescriptorDTOList": _body_battery_descriptors("unexpected", "shell"),
+            "bodyBatteryValuesArray": [
+                [1_735_804_800_000, {"unexpected": True}],
+                [1_735_804_860_000, {"unexpected": True}],
+            ],
+        }
+    ]
+
+
 def test_private_key_guard_allows_provider_fields_and_rejects_secrets() -> None:
     serialize_garmin_payload({"activities": _production_activity()})
     with pytest.raises(ValueError, match="private or credential-shaped"):
@@ -931,6 +972,61 @@ def test_heart_rate_shape_drift_stays_unknown_not_empty(tmp_path: Path):
                     "calendarDate": "2099-01-02",
                     "heartRateValues": [{"unexpected": True}],
                 },
+            }
+        ),
+    )
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.coverage_status == "unknown"
+    assert heart.status is GarminSyncStatus.PARTIAL
+
+
+def test_null_heart_rate_series_is_confirmed_empty(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_heart_rates": _null_heart_rate()}),
+    )
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.coverage_status == "confirmed_empty"
+    assert heart.status is GarminSyncStatus.EMPTY
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            coverage = next(
+                item
+                for item in session.scalars(select(CoverageInterval))
+                if item.metric_code == "heart_rate"
+            )
+            assert coverage.status == "confirmed_empty"
+            samples = list(
+                session.scalars(
+                    select(GarminSourceRecord).where(
+                        GarminSourceRecord.source_path.like("payload.heartRateValues[%]")
+                    )
+                )
+            )
+            assert samples == []
+    finally:
+        engine.dispose()
+
+
+def test_null_heart_rate_with_scalar_alias_stays_present(tmp_path: Path):
+    payload = _null_heart_rate()
+    payload["heartRate"] = 72
+    report = _run(tmp_path, FakeSyncClient(responses={"get_heart_rates": payload}))
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.coverage_status == "present"
+    assert heart.status is GarminSyncStatus.SUCCEEDED
+
+
+def test_heart_rate_object_shell_stays_unknown(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(
+            responses={
+                "get_heart_rates": {
+                    "calendarDate": "2099-01-02",
+                    "heartRateValues": {"unexpected": True},
+                }
             }
         ),
     )
@@ -1010,6 +1106,118 @@ def test_body_battery_undated_item_is_unknown(tmp_path: Path):
         FakeSyncClient(
             responses={
                 "get_body_battery": [{"bodyBatteryValuesArray": [[0, 64], [60, 70]]}],
+            }
+        ),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "unknown"
+    assert battery.status is GarminSyncStatus.PARTIAL
+
+
+def test_body_battery_all_null_levels_are_confirmed_empty(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_body_battery": _all_null_body_battery()}),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "confirmed_empty"
+    assert battery.status is GarminSyncStatus.EMPTY
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            coverage = next(
+                item
+                for item in session.scalars(select(CoverageInterval))
+                if item.metric_code == "body_battery"
+            )
+            assert coverage.status == "confirmed_empty"
+            values = [
+                item.value_number
+                for item in session.scalars(
+                    select(GarminRecordMetric).where(
+                        GarminRecordMetric.metric_code == "body_battery",
+                        GarminRecordMetric.value_number.is_not(None),
+                    )
+                )
+            ]
+            assert values == []
+    finally:
+        engine.dispose()
+
+
+def test_body_battery_all_null_levels_do_not_use_another_day(tmp_path: Path):
+    other_day = _production_body_battery("2099-01-01")[0]
+    matching_day = _all_null_body_battery()[0]
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_body_battery": [other_day, matching_day]}),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "confirmed_empty"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            values = [
+                item.value_number
+                for item in session.scalars(
+                    select(GarminRecordMetric).where(
+                        GarminRecordMetric.metric_code == "body_battery",
+                        GarminRecordMetric.value_number.is_not(None),
+                    )
+                )
+            ]
+            assert values == []
+    finally:
+        engine.dispose()
+
+
+def test_body_battery_mixed_null_and_level_is_present(tmp_path: Path):
+    payload = _all_null_body_battery()
+    payload[0]["bodyBatteryValuesArray"][-1][1] = 70
+    report = _run(tmp_path, FakeSyncClient(responses={"get_body_battery": payload}))
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "present"
+    assert battery.status is GarminSyncStatus.SUCCEEDED
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            values = {
+                item.value_number
+                for item in session.scalars(
+                    select(GarminRecordMetric).where(
+                        GarminRecordMetric.metric_code == "body_battery"
+                    )
+                )
+            }
+            assert 70 in values
+    finally:
+        engine.dispose()
+
+
+def test_body_battery_unrecognized_shape_stays_unknown(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_body_battery": _unrecognized_body_battery()}),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "unknown"
+    assert battery.status is GarminSyncStatus.PARTIAL
+
+
+def test_body_battery_all_null_without_descriptors_stays_unknown(tmp_path: Path):
+    report = _run(
+        tmp_path,
+        FakeSyncClient(
+            responses={
+                "get_body_battery": [
+                    {
+                        "calendarDate": "2099-01-02",
+                        "bodyBatteryValuesArray": [
+                            [1_735_804_800_000, None],
+                            [1_735_804_860_000, None],
+                        ],
+                    }
+                ]
             }
         ),
     )
