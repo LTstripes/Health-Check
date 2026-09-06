@@ -472,10 +472,10 @@ class GarminHistoricalBackfill:
                     else None,
                     succeeded=False,
                 )
-            remaining_chunk_count -= 1
-            remaining_day_count -= plan.day_count
             if abort_reason is not None:
                 break
+            remaining_chunk_count -= 1
+            remaining_day_count -= plan.day_count
 
         if abort_reason is None:
             remaining_chunk_count = 0

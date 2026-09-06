@@ -174,7 +174,8 @@ def test_interruption_resume_skips_successful_chunks(tmp_path: Path):
     assert interrupted.abort_reason == "request_budget_exhausted"
     assert interrupted.status is GarminSyncStatus.PARTIAL
     assert interrupted.request_count == 1
-    assert interrupted.remaining_chunk_count >= 1
+    assert interrupted.remaining_chunk_count == 2
+    assert interrupted.remaining_day_count == 2
     first_success = next(
         item
         for item in interrupted.attempts
@@ -185,6 +186,8 @@ def test_interruption_resume_skips_successful_chunks(tmp_path: Path):
     resumed_client = DatedFakeSyncClient()
     resumed = _run_backfill(tmp_path, resumed_client)
     assert resumed.status is GarminSyncStatus.SUCCEEDED
+    assert resumed.remaining_chunk_count == 0
+    assert resumed.remaining_day_count == 0
     skipped = [item for item in resumed.attempts if item.skipped]
     assert any(item.day == "2098-12-20" and item.skipped for item in skipped)
     fetched_days = [
@@ -213,6 +216,40 @@ def test_interruption_resume_skips_successful_chunks(tmp_path: Path):
             assert not failed_or_missing
     finally:
         engine.dispose()
+
+
+def test_repeated_low_budget_resumptions_keep_exact_remaining_work(tmp_path: Path):
+    for expected_remaining in (2, 1):
+        report = _run_backfill(tmp_path, DatedFakeSyncClient(), max_provider_requests=1)
+        assert report.status is GarminSyncStatus.PARTIAL
+        assert report.abort_reason == "request_budget_exhausted"
+        assert report.remaining_chunk_count == expected_remaining
+        assert report.remaining_day_count == expected_remaining
+        payload = report.as_dict()["backfill"]
+        assert payload["remaining_chunk_count"] == expected_remaining
+        assert payload["remaining_day_count"] == expected_remaining
+        assert payload["remaining_chunk_count"] > 0
+        assert payload["remaining_day_count"] > 0
+
+    final = _run_backfill(tmp_path, DatedFakeSyncClient(), max_provider_requests=1)
+    assert final.status is GarminSyncStatus.SUCCEEDED
+    assert final.abort_reason is None
+    assert final.remaining_chunk_count == 0
+    assert final.remaining_day_count == 0
+
+    only_chunk = _run_backfill(
+        tmp_path,
+        DatedFakeSyncClient(),
+        start=date(2098, 11, 1),
+        end=date(2098, 11, 2),
+        chunk_days=7,
+        max_provider_requests=1,
+    )
+    assert only_chunk.status is GarminSyncStatus.PARTIAL
+    assert only_chunk.abort_reason == "request_budget_exhausted"
+    assert only_chunk.chunks[0].day_count == 2
+    assert only_chunk.remaining_chunk_count == 1
+    assert only_chunk.remaining_day_count == 2
 
 
 def test_overlapping_rerun_is_idempotent(tmp_path: Path):
