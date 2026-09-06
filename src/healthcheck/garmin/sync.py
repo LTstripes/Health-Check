@@ -178,6 +178,19 @@ _SERIES_METRIC: dict[str, tuple[str, str, str]] = {
     "spo2": ("spo2", "spo2_percent", "%"),
     "respiration": ("respiration", "respiration_bpm", "breaths/min"),
 }
+_BODY_BATTERY_TIME_DESCRIPTOR_NAMES = (
+    "millis",
+    "timestamp",
+    "time",
+    "startgmt",
+    "starttimestampgmt",
+)
+_BODY_BATTERY_LEVEL_DESCRIPTOR_NAMES = (
+    "bodybatterylevel",
+    "bodybattery",
+    "level",
+    "value",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -588,12 +601,8 @@ def _series_item_stamp_value(
     item: Any, descriptors: Mapping[str, int]
 ) -> tuple[Any, Any]:
     if _is_sequence(item) and len(item) >= 2:
-        time_index = _descriptor_index(
-            descriptors, ("millis", "timestamp", "time", "startgmt", "starttimestampgmt")
-        )
-        level_index = _descriptor_index(
-            descriptors, ("bodybatterylevel", "bodybattery", "level", "value")
-        )
+        time_index = _descriptor_index(descriptors, _BODY_BATTERY_TIME_DESCRIPTOR_NAMES)
+        level_index = _descriptor_index(descriptors, _BODY_BATTERY_LEVEL_DESCRIPTOR_NAMES)
         stamp = item[time_index] if time_index is not None and time_index < len(item) else item[0]
         if level_index is not None and level_index < len(item):
             value = item[level_index]
@@ -906,15 +915,45 @@ def _explicit_empty_series(
     mapping = _normalize_provider_payload(surface, payload, day=day)
     if not isinstance(mapping, Mapping):
         return False
+    if surface.code == "body_battery" and _reviewed_empty_body_battery_levels(mapping):
+        return True
     seen = False
     for key in keys:
         if key not in mapping:
             continue
         seen = True
         raw = mapping[key]
-        if not _is_sequence(raw) or len(raw) > 0:
+        if not _is_reviewed_empty_series_field(surface, raw):
             return False
     return seen
+
+
+def _is_reviewed_empty_series_field(surface: GarminSyncSurface, raw: Any) -> bool:
+    if _is_sequence(raw) and len(raw) == 0:
+        return True
+    # Reviewed live empty HR is `heartRateValues: null` as well as `[]`.
+    return surface.code == "heart_rate" and raw is None
+
+
+def _reviewed_empty_body_battery_levels(payload: Mapping[str, Any]) -> bool:
+    """True only for matching-day BB with recognized time+level schema and all-null levels."""
+
+    raw = payload.get("bodyBatteryValuesArray")
+    if not _is_sequence(raw) or not raw:
+        return False
+    descriptors = _series_descriptors(payload)
+    time_index = _descriptor_index(descriptors, _BODY_BATTERY_TIME_DESCRIPTOR_NAMES)
+    level_index = _descriptor_index(descriptors, _BODY_BATTERY_LEVEL_DESCRIPTOR_NAMES)
+    if time_index is None or level_index is None or time_index == level_index:
+        return False
+    for item in raw:
+        if not _is_sequence(item):
+            return False
+        if time_index >= len(item) or level_index >= len(item):
+            return False
+        if item[level_index] is not None:
+            return False
+    return True
 
 
 def _attempt_status_for(coverage_status: str) -> GarminSyncStatus:

@@ -48,9 +48,12 @@ from healthcheck.garmin.sync import (
 from test_garmin_incremental_sync import (
     AuthenticationError,
     FakeSyncClient,
+    _all_null_body_battery,
     _engine_factory,
+    _null_heart_rate,
     _production_activity,
     _production_body_battery,
+    _unrecognized_body_battery,
     raw_fixture,
 )
 from test_garmin_incremental_sync import (
@@ -674,3 +677,114 @@ def test_unknown_heart_rate_shape_is_not_skipped_on_rerun(tmp_path: Path):
     retry_heart = next(item for item in retry.attempts if item.surface == "heart_rate")
     assert retry_heart.coverage_status == "unknown"
     assert retry_heart.skipped is False
+
+
+def test_unknown_body_battery_shape_is_not_skipped_on_rerun(tmp_path: Path):
+    responses = {"get_body_battery": _unrecognized_body_battery()}
+    first = _run_backfill(
+        tmp_path,
+        DatedFakeSyncClient(responses=responses),
+        start=START,
+        end=START,
+        streams=["body_battery"],
+        chunk_days=1,
+    )
+    battery = next(item for item in first.attempts if item.surface == "body_battery")
+    assert battery.coverage_status == "unknown"
+    retry_client = DatedFakeSyncClient(responses=responses)
+    retry = _run_backfill(
+        tmp_path,
+        retry_client,
+        start=START,
+        end=START,
+        streams=["body_battery"],
+        chunk_days=1,
+    )
+    assert retry_client.calls
+    retry_battery = next(item for item in retry.attempts if item.surface == "body_battery")
+    assert retry_battery.coverage_status == "unknown"
+    assert retry_battery.skipped is False
+
+
+def test_capped_historical_run_converges_null_hr_and_all_null_body_battery(
+    tmp_path: Path,
+):
+    streams = ["heart_rate", "body_battery"]
+    responses = {
+        "get_heart_rates": _null_heart_rate(),
+        "get_body_battery": _all_null_body_battery(),
+    }
+    remaining = True
+    start = START
+    end = END
+    runs = 0
+    while remaining:
+        runs += 1
+        assert runs <= 8
+        client = DatedFakeSyncClient(responses=responses)
+        report = _run_backfill(
+            tmp_path,
+            client,
+            start=start,
+            end=end,
+            streams=streams,
+            chunk_days=1,
+            max_provider_requests=3,
+        )
+        remaining = report.status is GarminSyncStatus.PARTIAL
+        if remaining:
+            assert report.remaining_chunk_count >= 1
+            assert report.remaining_day_count >= 1
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    by_surface: dict[str, list[str | None]] = {}
+    for item in report.attempts:
+        by_surface.setdefault(item.surface, []).append(item.coverage_status)
+    assert set(by_surface["heart_rate"]) <= {"confirmed_empty"}
+    assert set(by_surface["body_battery"]) <= {"confirmed_empty"}
+    assert "confirmed_empty" in by_surface["heart_rate"]
+    assert "confirmed_empty" in by_surface["body_battery"]
+
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            first_records = session.scalar(select(func.count(GarminSourceRecord.id)))
+            first_observations = session.scalar(select(func.count(GarminPayloadObservation.id)))
+            states = {item.stream_code for item in session.scalars(select(SyncStreamState))}
+            assert f"{HISTORICAL_CHECKPOINT_NAMESPACE}:heart_rate" in states
+            assert f"{HISTORICAL_CHECKPOINT_NAMESPACE}:body_battery" in states
+            assert "heart_rate" not in states
+            assert "body_battery" not in states
+            coverage: dict[str, set[str]] = {}
+            for item in session.scalars(select(CoverageInterval)):
+                coverage.setdefault(item.metric_code, set()).add(item.status)
+            assert coverage.get("heart_rate") == {"confirmed_empty"}
+            assert coverage.get("body_battery") == {"confirmed_empty"}
+    finally:
+        engine.dispose()
+
+    rerun_client = DatedFakeSyncClient(responses=responses)
+    rerun = _run_backfill(
+        tmp_path,
+        rerun_client,
+        start=start,
+        end=end,
+        streams=streams,
+        chunk_days=1,
+    )
+    assert rerun.status is GarminSyncStatus.SUCCEEDED
+    assert rerun.request_count == 0
+    assert rerun_client.calls == []
+    assert all(item.skipped for item in rerun.attempts if item.surface in streams)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count(GarminSourceRecord.id))) == first_records
+            assert (
+                session.scalar(select(func.count(GarminPayloadObservation.id)))
+                == first_observations
+            )
+            states = {item.stream_code for item in session.scalars(select(SyncStreamState))}
+            assert "heart_rate" not in states
+            assert "body_battery" not in states
+    finally:
+        engine.dispose()
