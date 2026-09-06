@@ -42,6 +42,7 @@ from healthcheck.garmin.contracts import (
     CAPABILITY_FIXTURE_CONTRACT_VERSION,
     GarminCapabilityFixture,
     GarminCapabilityFixtureError,
+    is_forbidden_payload_key,
 )
 
 NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v1"
@@ -53,24 +54,6 @@ ALLOWED_SOURCE_KINDS = frozenset({SYNTHETIC_SOURCE_KIND, PROVIDER_SOURCE_KIND})
 _MISSING = object()
 _DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SAFE_TEXT_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]*$")
-_FORBIDDEN_KEY_PARTS = frozenset(
-    {
-        "access_token",
-        "authorization",
-        "bearer",
-        "client_secret",
-        "cookie",
-        "credential",
-        "email",
-        "mfa",
-        "otp",
-        "password",
-        "refresh_token",
-        "secret",
-        "token",
-        "username",
-    }
-)
 
 
 class GarminFieldState(StrEnum):
@@ -841,7 +824,7 @@ _INTRADAY_SCALARS = (
     ),
 )
 
-_CALENDAR_PATHS = ("calendarDate", "dailySleepDTO.calendarDate")
+_CALENDAR_PATHS = ("calendarDate", "date", "dailySleepDTO.calendarDate")
 _COMMON_TIME_PATHS = (
     "startTimeGMT",
     "startTimeLocal",
@@ -1960,6 +1943,8 @@ def _record_id(raw: Mapping[str, Any], stream: GarminStream) -> tuple[str | None
         return None, None
     if isinstance(value, str) and value.strip():
         return value.strip(), path
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value), path
     return None, path
 
 
@@ -2046,6 +2031,7 @@ def _known_roots(stream: GarminStream) -> set[str]:
     if stream is GarminStream.INTRADAY:
         roots.update(
             {
+                "date",
                 "heartRateValues",
                 "heartRateValue",
                 "avgStressLevel",
@@ -2053,8 +2039,13 @@ def _known_roots(stream: GarminStream) -> set[str]:
                 "stressValuesArray",
                 "stressValues",
                 "bodyBatteryValuesArray",
+                "bodyBatteryValueDescriptorDTOList",
                 "charged",
                 "drained",
+                "startTimestampGMT",
+                "startTimestampLocal",
+                "endTimestampGMT",
+                "endTimestampLocal",
                 "averageSpO2",
                 "lastSevenDaysAvgSpO2",
                 "spo2Values",
@@ -2166,8 +2157,7 @@ def _shape_name(value: Any) -> str:
 def _contains_forbidden_key(value: Any) -> bool:
     if isinstance(value, Mapping):
         for key, nested in value.items():
-            key_text = str(key).strip().lower()
-            if any(part in key_text for part in _FORBIDDEN_KEY_PARTS):
+            if is_forbidden_payload_key(key):
                 return True
             if _contains_forbidden_key(nested):
                 return True
@@ -2291,7 +2281,7 @@ def _diag(code: str, path: str | None, severity: str) -> GarminDiagnostic:
         "activity_type_shape_drift": "activity type must be text",
         "duplicate_activity_id": "activity id is duplicated in the envelope",
         "empty_record": "record contains no source fields",
-        "record_id_shape_drift": "record identity field must be non-empty text",
+        "record_id_shape_drift": "record identity field must be non-empty text or a whole number",
         "invalid_calendar_date": "calendar date is not a valid date-only value",
         "invalid_datetime": "timestamp is not a valid ISO temporal value",
         "paired_time_mismatch": "paired local and GMT times disagree on the UTC instant",

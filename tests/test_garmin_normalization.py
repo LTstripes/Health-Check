@@ -249,6 +249,21 @@ def test_semantic_key_ignores_unknown_order_but_tracks_present_values() -> None:
     assert first != changed
 
 
+def test_numeric_provider_activity_id_is_stable_text_identity() -> None:
+    payload = raw_fixture("activity")["payload"]
+    payload["activities"][0]["activityId"] = 1987654321
+
+    first = normalize_garmin_payload(payload, stream="activity")
+    second = normalize_garmin_payload(json.loads(json.dumps(payload)), stream="activity")
+
+    assert first.ok and second.ok
+    assert first.records[0].record_id == "1987654321"
+    assert first.idempotency_keys == second.idempotency_keys
+    assert first.records[0].metric("duration_seconds").value == 3600
+    dumped = json.dumps(first.as_dict())
+    assert "1987654321" in dumped
+
+
 def test_invalid_or_raw_inputs_fail_closed_without_payload_dump() -> None:
     invalid = normalize_garmin_payload({"source_kind": "owner-live", "payload": {}})
     assert invalid.status is GarminParseStatus.INVALID

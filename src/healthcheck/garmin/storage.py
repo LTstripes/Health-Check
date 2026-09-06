@@ -9,26 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from uuid import uuid4
 
-from healthcheck.garmin.contracts import GarminCapabilityFixture
-
-_FORBIDDEN_KEY_PARTS = frozenset(
-    {
-        "access_token",
-        "authorization",
-        "bearer",
-        "client_secret",
-        "cookie",
-        "credential",
-        "email",
-        "mfa",
-        "otp",
-        "password",
-        "refresh_token",
-        "secret",
-        "token",
-        "username",
-    }
-)
+from healthcheck.garmin.contracts import GarminCapabilityFixture, is_forbidden_payload_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,10 +158,9 @@ def _json_value(value: object) -> object:
 def _reject_private_keys(value: object, path: str = "payload") -> None:
     if isinstance(value, Mapping):
         for key, nested in value.items():
-            key_text = str(key).strip().lower()
-            if any(part in key_text for part in _FORBIDDEN_KEY_PARTS):
+            if is_forbidden_payload_key(key):
                 raise ValueError(
-                    f"private or credential-shaped payload key is not accepted: {path}"
+                    "private or credential-shaped payload key is not accepted"
                 )
             _reject_private_keys(nested, f"{path}.{key}")
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):

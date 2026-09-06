@@ -10,6 +10,7 @@ Vivoactive 5 capability.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,8 @@ _FORBIDDEN_KEY_PARTS = frozenset(
         "username",
     }
 )
+_SHORT_FORBIDDEN_TOKENS = frozenset(part for part in _FORBIDDEN_KEY_PARTS if len(part) <= 3)
+_KEY_TOKEN_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 
 
 class GarminCapabilityFixtureError(ValueError):
@@ -251,11 +254,43 @@ def _read_path(value: Any, path: str) -> Any:
     return current
 
 
+def is_forbidden_payload_key(key: object) -> bool:
+    """Return True when a mapping key is credential or token shaped.
+
+    Short secret tokens such as ``mfa`` match only as whole key tokens after
+    camelCase and separator splits. Longer fragments still match as
+    substrings so keys like ``ownerEmail`` and ``refreshToken`` stay
+    fail-closed.
+    """
+
+    key_text = str(key).strip()
+    if not key_text:
+        return False
+    lowered = key_text.lower()
+    tokens = _payload_key_tokens(key_text)
+    for part in _FORBIDDEN_KEY_PARTS:
+        if part in _SHORT_FORBIDDEN_TOKENS:
+            if part == lowered or part in tokens:
+                return True
+        elif part in lowered:
+            return True
+    return False
+
+
+def _payload_key_tokens(key_text: str) -> frozenset[str]:
+    tokens: set[str] = set()
+    for piece in re.split(r"[^A-Za-z0-9]+", key_text):
+        if not piece:
+            continue
+        tokens.add(piece.lower())
+        tokens.update(match.group(0).lower() for match in _KEY_TOKEN_RE.finditer(piece))
+    return frozenset(tokens)
+
+
 def _reject_forbidden_keys(value: Any, path: str = "fixture") -> None:
     if isinstance(value, Mapping):
         for key, nested in value.items():
-            key_text = str(key).strip().lower()
-            if any(part in key_text for part in _FORBIDDEN_KEY_PARTS):
+            if is_forbidden_payload_key(key):
                 raise GarminCapabilityFixtureError(
                     f"forbidden credential/private key in synthetic fixture: {path}.{key}"
                 )
@@ -296,5 +331,6 @@ __all__ = [
     "CAPABILITY_FIXTURE_CONTRACT_VERSION",
     "GarminCapabilityFixture",
     "GarminCapabilityFixtureError",
+    "is_forbidden_payload_key",
     "load_synthetic_fixture",
 ]
