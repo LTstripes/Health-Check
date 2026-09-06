@@ -40,9 +40,9 @@ raw evidence -> typed source records -> versioned canonical selection
 
 ## Current status
 
-The R01 bootstrap runtime is in place. Domain features are intentionally added in later task branches. The approved vertical slice is **R01 — Weight & Body Composition**, which will build the reusable core, import historical Xiaomi screenshots with confirmation, accept the openScale-sync webhook contract, compute conservative weight/body-composition analytics, and provide a minimal dashboard.
+**R01 — Weight & Body Composition is released to canonical `main`.** It provides the reusable local runtime/core, historical Xiaomi screenshot import with owner confirmation and provenance, the isolated openScale-sync ingest contract, conservative deterministic weight/body-composition analytics, the local dashboard, owner UAT tooling, and safe local profile backup/restore. The default local listeners are UI `127.0.0.1:8120` and optional ingest `127.0.0.1:8121`, with explicit overrides still supported.
 
-R01 deliberately excludes Garmin ingestion, Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery.
+**R02 — Garmin ingestion is the active next release.** Capability contracts, normalization/persistence groundwork, owner-assisted authentication, and a bounded live capability probe have been validated on separate accepted task branches; they must be reconstructed onto a fresh R02 integration line before production sync/backfill is implemented. Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery remain later work.
 
 ## Local bootstrap
 
