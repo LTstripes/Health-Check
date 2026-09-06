@@ -4,7 +4,7 @@ The roadmap follows usable vertical slices. Each release adds value on the Windo
 
 Future ideas that are intentionally not committed to a release yet live in [Backlog Ideas](BACKLOG_IDEAS.md).
 
-**Current planning focus:** R01 is released to stable `main`. Complete the bounded post-R01 consolidation/R01.1 safety follow-ups, then create a fresh `integration/r02-garmin` from canonical `main` and reconstruct the already accepted Garmin contract/live-spike layers before production R02 ingestion work begins.
+**Current planning focus:** R01 and R02 are released to stable `main`. Before R03 analytics begins, complete pre-R03 hardening in order: #56 collection reconciliation/version-aware reprocessing, then #55 metric/time/analytic-coverage and reproducible evidence-manifest contract. After those two foundations are accepted, start deterministic Garmin analytics and activity comparison in R03.
 
 ## R00 — Final architecture (complete)
 
@@ -32,44 +32,60 @@ Delivered the first useful product and the reusable Health-Check core:
 
 The mandatory R01 owner gate passed on integrated candidate `058639919c4b5e13c420e7c016d292843afa10dc`. Final closeout evidence, including owner-assisted historical Xiaomi migration and explicit UNVERIFIED live-device/provider items, is recorded in [R01 Release Closeout](R01_RELEASE_CLOSEOUT.md).
 
-R01 release PR #40 merged to stable `main`; R01 tracker #13 is closed. Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted AI/SQL remain outside R01.
+R01 release PR #40 merged to stable `main`; R01 tracker #13 is closed. Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted AI/SQL remained outside R01.
 
 ### Post-R01 bounded follow-ups
 
-Before the main R02 implementation wave:
+After R01 release, accepted bounded hardening/polish work was revalidated against the then-current stable line rather than merged blindly from stale branches. Those follow-ups are historical and do not reopen R01.
 
-- integrate the accepted safe local profile backup/restore tooling (#27) after revalidation on current `main`;
-- change default local ports to owner-approved `8120/8121` (#32), preserving explicit overrides and route isolation;
-- optionally integrate the accepted dashboard visual polish (#26) after current-main revalidation;
-- complete the post-release documentation/lineage consolidation tracked by #41.
+## R02 — Garmin ingestion and backfill (released)
 
-These are not reasons to reopen R01; they are post-release hardening/quality follow-ups.
+R02 delivered the production Garmin acquisition layer:
 
-## R02 — Garmin ingestion and backfill (next active release)
+- owner-assisted initial sign-in/MFA and durable protected token/session storage outside Git;
+- capability contracts that distinguish available client methods from actual owner device/account evidence;
+- raw/source payload observations with immutable acquisition and normalization provenance;
+- typed daily/sleep/activity/intraday normalization and persistence;
+- incremental sync with bounded trailing-window resync;
+- bounded historical backfill with request caps, resumability and coverage-driven skipping;
+- explicit `present`, `confirmed_empty`, `unknown` and failure/unavailable semantics;
+- historical/incremental checkpoint isolation;
+- exact completed-rerun idempotency and privacy-safe owner diagnostics.
 
-Production objective:
+Historical lineage was deliberately reconstructed onto a fresh `integration/r02-garmin` after R01 release rather than merging the earlier diverged preparation stack directly. The accepted preparation layers were #28, #29, #30, #31 and #36.
 
-- Start from the R00-reviewed `python-garminconnect` `0.3.12`/SHA pin; change it only if concrete live evidence requires an explicit decision.
-- User-assisted initial sign-in/MFA and durable protected token/session storage outside Git.
-- Raw/source records, typed daily/sleep/activity/intraday entities, incremental sync, trailing-window resync, backfill, idempotency, and stream coverage.
-- Preserve only metrics produced/evidenced by this device/account; an available client method is not evidence of device capability.
+The owner release gate #52 found several real-provider convergence defects that green synthetic CI had not proven. Focused repair rounds #53, #57 and #59 were integrated into the R02 line and the same external owner runtime was resumed rather than reset.
 
-Accepted preparation already exists on held/diverged task branches:
+Final release evidence proved:
 
-- #28 — capability inventory + synthetic contract fixtures: accepted;
-- #29 — normalization/idempotency/time/source contract: accepted;
-- #30 — Garmin persistence/raw-observation contract: accepted;
-- #31 — owner-assisted Windows auth/session and bounded live capability spike: owner live objective achieved;
-- #36 — live response-shape/capability reconciliation: owner rerun PASS.
+- historical backfill `succeeded`;
+- exact rerun of completed historical coverage made `0` provider requests and left persisted current/observation counts unchanged;
+- normal incremental `garmin-sync` succeeded afterward;
+- historical and incremental checkpoint namespaces remained isolated;
+- privacy gate passed with no private Garmin evidence entering Git/CI/issues.
 
-These branches must **not** be merged directly into current `main`. After post-R01 consolidation, create fresh `integration/r02-garmin` from the then-current canonical `main` and reconstruct accepted semantics in order `#28 -> #29 -> #30 -> #31 -> #36`, preserving the real accepted #28 lineage and rerunning exact-head CI/migration/privacy checks. Only after that foundation is canonical should production sync/backfill orchestration start.
+R02 release PR #61 merged accepted integration SHA `aea777e418d8d16c275a860c31b11c72641a73e6` to stable `main`. Released stable SHA: `d3b2fa316242ac11a7ba5851fdc99656cdf8e534`. Release PR CI `34049514818` and exact post-merge `main` CI `34049649157` both succeeded. #52 is closed completed.
+
+Full sanitized release history, including the accepted residual duplicate-coverage semantics, is recorded in [R02 Release Closeout](R02_RELEASE_CLOSEOUT.md).
+
+### Pre-R03 hardening
+
+Before R03 deterministic analytics consumes Garmin current records:
+
+1. **#56 — Garmin collection reconciliation and reprocessing policy.** Make current collections converge deterministically under provider corrections, reorder/insert/remove events, timestamp/value corrections, stale replay, and normalization-rule upgrades. Define authoritative collection replacement/tombstoning and explicit bounded version-aware reprocessing without weakening normal historical coverage skipping.
+2. **#55 — Garmin metric, time, and analytic coverage contract.** Make analytic meaning explicit: daily average vs maximum vs trailing aggregate vs samples; local/UTC/offset time semantics; metric-level analytic availability rather than surface-level `present`; and a reproducible R03 input DTO/evidence manifest whose old calculations remain auditable after later source corrections.
+
+These are post-release hardening tasks, not reasons to reopen R02.
 
 ## R03 — Garmin analytics and activity comparison
 
-- Personal baselines, trends, percentiles, anomalies, and lag semantics.
-- Cycling/session comparison with comparable fields and coverage.
-- Garmin-specific score presentation with provenance and no medical overclaim.
-- Expand dashboard and deterministic query service.
+After #56 and #55:
+
+- personal baselines, trends, percentiles, anomalies, and lag semantics;
+- cycling/session comparison with genuinely comparable fields and explicit coverage;
+- Garmin-specific score presentation with provenance and no medical overclaim;
+- deterministic read/query service over versioned evidence manifests;
+- dashboard expansion for Garmin trends/comparisons without making the LLM responsible for raw-series mathematics.
 
 ## R04 — Google Health / Fitbit ingestion
 
