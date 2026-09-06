@@ -197,6 +197,7 @@ class GarminSyncAttempt:
     device_attribution: str = GarminDeviceAttribution.UNATTRIBUTED.value
     error: GarminSafeError | None = None
     not_run_reason: str | None = None
+    skipped: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -216,6 +217,8 @@ class GarminSyncAttempt:
         }
         if self.not_run_reason is not None:
             payload["not_run_reason"] = self.not_run_reason
+        if self.skipped:
+            payload["skipped"] = True
         return payload
 
 
@@ -305,7 +308,7 @@ def validate_sync_date(value: str | date | None, *, default: date | None = None)
 
 
 def validate_trailing_window_days(value: int | None) -> int:
-    """Keep the incremental window bounded; historical backfill is out of scope."""
+    """Keep the incremental window bounded; historical backfill is a separate command."""
 
     days = DEFAULT_TRAILING_WINDOW_DAYS if value is None else value
     if not isinstance(days, int) or isinstance(days, bool):
@@ -777,16 +780,27 @@ class GarminIncrementalSync:
         auth_result: GarminAuthResult | None = None,
         clock: Callable[[], datetime] | None = None,
         max_provider_requests: int = MAX_SYNC_PROVIDER_REQUESTS,
+        run_stream: str = INCREMENTAL_RUN_STREAM,
+        checkpoint_namespace: str | None = None,
+        skip_complete_coverage: bool = False,
     ) -> None:
         self.settings = settings
         self.client = client
         self.auth_result = auth_result or GarminAuthResult(status=GarminAuthStatus.AUTHENTICATED)
         self.clock = clock or (lambda: datetime.now(UTC))
         self.max_provider_requests = max_provider_requests
+        self.run_stream = run_stream
+        self.checkpoint_namespace = checkpoint_namespace
+        self.skip_complete_coverage = skip_complete_coverage
         if self.max_provider_requests < 1:
             raise ValueError("max_provider_requests must be positive")
         if self.max_provider_requests > MAX_SYNC_PROVIDER_REQUESTS:
             raise ValueError("max_provider_requests exceeds the hard incremental cap")
+
+    def _state_stream_code(self, surface: GarminSyncSurface) -> str:
+        if self.checkpoint_namespace:
+            return f"{self.checkpoint_namespace}:{surface.code}"
+        return surface.code
 
     def run(
         self,
@@ -850,8 +864,6 @@ class GarminIncrementalSync:
             )
 
         budget = _SyncBudget(max_requests=self.max_provider_requests)
-        attempts: list[GarminSyncAttempt] = []
-        abort_reason: str | None = None
         with factory() as session:
             provider = repositories_for(session).providers.get_or_create(
                 GARMIN_PROVIDER_CODE,
@@ -862,7 +874,7 @@ class GarminIncrementalSync:
             requested_end = _day_bounds(window_end)[1]
             run = repositories_for(session).sync.create_run(
                 provider_id=provider.id,
-                stream_code=INCREMENTAL_RUN_STREAM,
+                stream_code=self.run_stream,
                 requested_start=requested_start,
                 requested_end=requested_end,
             )
@@ -871,53 +883,18 @@ class GarminIncrementalSync:
             provider_id = provider.id
 
         days = _calendar_days(window_start, window_end)
-        with _disable_provider_retries(self.client):
-            for day in days:
-                if abort_reason is not None:
-                    break
-                for surface in PRODUCTION_SYNC_SURFACES:
-                    if not surface.per_day:
-                        continue
-                    attempt = self._sync_surface(
-                        factory,
-                        store,
-                        provider_id=provider_id,
-                        sync_run_id=sync_run_id,
-                        surface=surface,
-                        day=day,
-                        window_start=window_start,
-                        window_end=window_end,
-                        trailing_window_days=trailing_window_days,
-                        budget=budget,
-                    )
-                    attempts.append(attempt)
-                    if attempt.status is GarminSyncStatus.REAUTH_REQUIRED:
-                        abort_reason = "reauth_required"
-                        break
-                    if attempt.not_run_reason == "request_budget_exhausted":
-                        abort_reason = "request_budget_exhausted"
-                        break
-            if abort_reason is None:
-                activity_surface = next(
-                    item for item in PRODUCTION_SYNC_SURFACES if item.code == "activities"
-                )
-                attempt = self._sync_surface(
-                    factory,
-                    store,
-                    provider_id=provider_id,
-                    sync_run_id=sync_run_id,
-                    surface=activity_surface,
-                    day=None,
-                    window_start=window_start,
-                    window_end=window_end,
-                    trailing_window_days=trailing_window_days,
-                    budget=budget,
-                )
-                attempts.append(attempt)
-                if attempt.status is GarminSyncStatus.REAUTH_REQUIRED:
-                    abort_reason = "reauth_required"
-                elif attempt.not_run_reason == "request_budget_exhausted":
-                    abort_reason = "request_budget_exhausted"
+        attempts, abort_reason = self._ingest_window(
+            factory,
+            store,
+            provider_id=provider_id,
+            sync_run_id=sync_run_id,
+            window_start=window_start,
+            window_end=window_end,
+            trailing_window_days=trailing_window_days,
+            budget=budget,
+            surfaces=PRODUCTION_SYNC_SURFACES,
+            days=days,
+        )
 
         if abort_reason is not None:
             attempts.extend(_not_run_remainder(attempts, days, abort_reason))
@@ -987,7 +964,7 @@ class GarminIncrementalSync:
                 )
                 run = repositories_for(session).sync.create_run(
                     provider_id=provider.id,
-                    stream_code=INCREMENTAL_RUN_STREAM,
+                    stream_code=self.run_stream,
                     requested_start=_day_bounds(window_start)[0],
                     requested_end=_day_bounds(window_end)[1],
                 )
@@ -1006,6 +983,106 @@ class GarminIncrementalSync:
         except Exception:
             return None
 
+    def _ingest_window(
+        self,
+        factory,
+        store: ContentAddressedGarminPayloadStore,
+        *,
+        provider_id: str,
+        sync_run_id: str,
+        window_start: date,
+        window_end: date,
+        trailing_window_days: int,
+        budget: _SyncBudget,
+        surfaces: Sequence[GarminSyncSurface],
+        days: Sequence[date],
+    ) -> tuple[list[GarminSyncAttempt], str | None]:
+        attempts: list[GarminSyncAttempt] = []
+        abort_reason: str | None = None
+        with _disable_provider_retries(self.client):
+            for day in days:
+                if abort_reason is not None:
+                    break
+                for surface in surfaces:
+                    if not surface.per_day:
+                        continue
+                    attempt = self._sync_surface(
+                        factory,
+                        store,
+                        provider_id=provider_id,
+                        sync_run_id=sync_run_id,
+                        surface=surface,
+                        day=day,
+                        window_start=window_start,
+                        window_end=window_end,
+                        trailing_window_days=trailing_window_days,
+                        budget=budget,
+                    )
+                    attempts.append(attempt)
+                    if attempt.status is GarminSyncStatus.REAUTH_REQUIRED:
+                        abort_reason = "reauth_required"
+                        break
+                    if attempt.not_run_reason == "request_budget_exhausted":
+                        abort_reason = "request_budget_exhausted"
+                        break
+            if abort_reason is None:
+                activity_surface = next((item for item in surfaces if not item.per_day), None)
+                if activity_surface is not None:
+                    attempt = self._sync_surface(
+                        factory,
+                        store,
+                        provider_id=provider_id,
+                        sync_run_id=sync_run_id,
+                        surface=activity_surface,
+                        day=None,
+                        window_start=window_start,
+                        window_end=window_end,
+                        trailing_window_days=trailing_window_days,
+                        budget=budget,
+                    )
+                    attempts.append(attempt)
+                    if attempt.status is GarminSyncStatus.REAUTH_REQUIRED:
+                        abort_reason = "reauth_required"
+                    elif attempt.not_run_reason == "request_budget_exhausted":
+                        abort_reason = "request_budget_exhausted"
+        return attempts, abort_reason
+
+    def _completed_coverage_status(
+        self,
+        factory,
+        *,
+        provider_id: str,
+        surface: GarminSyncSurface,
+        window_start: date,
+        window_end: date,
+    ) -> str | None:
+        interval_start, _ = _day_bounds(window_start)
+        _, interval_end = _day_bounds(window_end)
+        with factory() as session:
+            rows = repositories_for(session).coverage.list(
+                provider_id=provider_id,
+                stream_code=surface.stream.value,
+                metric_code=surface.code,
+                interval_start=interval_start,
+                interval_end=interval_end,
+            )
+        present = False
+        empty = False
+        for row in rows:
+            start = restore_stored_utc(row.interval_start)
+            end = restore_stored_utc(row.interval_end)
+            if start != interval_start or end != interval_end or row.resolution != "day":
+                continue
+            if row.status == "present":
+                present = True
+            elif row.status == "confirmed_empty":
+                empty = True
+        if present:
+            return "present"
+        if empty:
+            return "confirmed_empty"
+        return None
+
     def _sync_surface(
         self,
         factory,
@@ -1022,6 +1099,27 @@ class GarminIncrementalSync:
     ) -> GarminSyncAttempt:
         if surface.method not in _ALLOWED_METHODS or surface.method in _FORBIDDEN_METHODS:
             raise RuntimeError("attempted Garmin method outside the incremental allowlist")
+        coverage_start = window_start if day is None else day
+        coverage_end = window_end if day is None else day
+        if self.skip_complete_coverage:
+            completed = self._completed_coverage_status(
+                factory,
+                provider_id=provider_id,
+                surface=surface,
+                window_start=coverage_start,
+                window_end=coverage_end,
+            )
+            if completed is not None:
+                return GarminSyncAttempt(
+                    surface=surface.code,
+                    stream=surface.stream.value,
+                    method=surface.method,
+                    day=day.isoformat() if day is not None else None,
+                    status=_attempt_status_for(completed),
+                    coverage_status=completed,
+                    replayed=True,
+                    skipped=True,
+                )
         if budget.remaining <= 0:
             return GarminSyncAttempt(
                 surface=surface.code,
@@ -1386,7 +1484,7 @@ class GarminIncrementalSync:
             select(SyncStreamState).where(
                 SyncStreamState.provider_id == provider_id,
                 SyncStreamState.acquisition_source_id.is_(None),
-                SyncStreamState.stream_code == surface.code,
+                SyncStreamState.stream_code == self._state_stream_code(surface),
             )
         )
         watermark = None
@@ -1409,7 +1507,7 @@ class GarminIncrementalSync:
         provenance.sync.get_or_create_state(
             provider_id=provider_id,
             acquisition_source_id=None,
-            stream_code=surface.code,
+            stream_code=self._state_stream_code(surface),
             cursor=cursor,
             watermark=watermark,
             trailing_window_days=trailing_window_days,
@@ -1423,10 +1521,11 @@ def _not_run_remainder(
     attempts: Sequence[GarminSyncAttempt],
     days: Sequence[date],
     abort_reason: str,
+    surfaces: Sequence[GarminSyncSurface] = PRODUCTION_SYNC_SURFACES,
 ) -> tuple[GarminSyncAttempt, ...]:
     seen = {(item.surface, item.day) for item in attempts}
     remainder: list[GarminSyncAttempt] = []
-    for surface in PRODUCTION_SYNC_SURFACES:
+    for surface in surfaces:
         if surface.per_day:
             for day in days:
                 key = (surface.code, day.isoformat())
