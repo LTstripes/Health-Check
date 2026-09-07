@@ -876,6 +876,13 @@ def _resolve_observation_for_record(
             raise AnalyticInputAssemblyError(
                 "analytic observation source does not match the record"
             )
+        if (
+            record.ingest_event_id is not None
+            and observation.ingest_event_id != record.ingest_event_id
+        ):
+            raise AnalyticInputAssemblyError(
+                "analytic observation ingest event does not match the record"
+            )
         return observation
 
     candidates = list(

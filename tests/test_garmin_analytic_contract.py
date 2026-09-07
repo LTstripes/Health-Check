@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import pytest
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import GarminSourceRecord
+from healthcheck.db.repositories import repositories_for
 from healthcheck.garmin.analytic_contract import (
     ANALYTIC_INPUT_CONTRACT_VERSION,
     ANALYTIC_RULE_VERSION,
@@ -600,3 +602,91 @@ def test_storage_backed_assembler_fails_closed_on_missing_metric(
             record_id=outcome.records[0].id,
             metric_code="sleep_stages",
         )
+
+def test_storage_backed_assembler_rejects_mismatched_observation_ingest_event(
+    analytic_persistence_database,
+) -> None:
+    """Same raw bytes in events A/B: explicit observation A fails when record is on B."""
+
+    _paths, session, store = analytic_persistence_database
+    fixture_value = load_synthetic_fixture(FIXTURE_ROOT / "sleep.json")
+    payload = (FIXTURE_ROOT / "sleep.json").read_bytes()
+    result_v1 = normalize_garmin_payload(fixture_value)
+    repository = GarminPersistenceRepository(session, payload_store=store)
+    source = repository.sources.get_or_create(result_v1.source)
+    provenance = repositories_for(session)
+    first_run = provenance.sync.create_run(
+        provider_id=source.provider_id,
+        acquisition_source_id=source.acquisition_source_id,
+        stream_code="sleep",
+        requested_start=datetime(2099, 1, 1, tzinfo=UTC),
+        requested_end=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    second_run = provenance.sync.create_run(
+        provider_id=source.provider_id,
+        acquisition_source_id=source.acquisition_source_id,
+        stream_code="sleep",
+        requested_start=datetime(2099, 1, 2, tzinfo=UTC),
+        requested_end=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+
+    first = repository.persist_result(
+        result_v1,
+        payload=payload,
+        source_filename="sleep-window-1.json",
+        received_at=datetime(2099, 1, 3, 12, tzinfo=UTC),
+        source_window_start_utc=datetime(2099, 1, 1, tzinfo=UTC),
+        source_window_end_utc=datetime(2099, 1, 3, tzinfo=UTC),
+        sync_run_id=first_run.id,
+        source_contract_version=fixture_value.contract_version,
+    )
+    session.commit()
+    observation_a_id = first.observation.id
+    ingest_event_a = first.ingest_event_id
+    assert ingest_event_a is not None
+
+    result_v2 = replace(result_v1, contract_version="r02-garmin-normalization-contract-v2")
+    second = repository.persist_result(
+        result_v2,
+        payload=payload,
+        source_filename="sleep-window-2.json",
+        received_at=datetime(2099, 1, 4, 12, tzinfo=UTC),
+        source_window_start_utc=datetime(2099, 1, 2, tzinfo=UTC),
+        source_window_end_utc=datetime(2099, 1, 4, tzinfo=UTC),
+        sync_run_id=second_run.id,
+        source_contract_version=fixture_value.contract_version,
+    )
+    session.commit()
+    observation_b_id = second.observation.id
+    ingest_event_b = second.ingest_event_id
+    assert observation_b_id != observation_a_id
+    assert ingest_event_b is not None
+    assert ingest_event_b != ingest_event_a
+    assert first.raw_payload.id == second.raw_payload.id
+
+    record = session.get(GarminSourceRecord, first.records[0].id)
+    assert record is not None
+    assert record.ingest_event_id == ingest_event_b
+    assert record.raw_payload_id == second.raw_payload.id
+
+    with pytest.raises(
+        AnalyticInputAssemblyError,
+        match="analytic observation ingest event does not match the record",
+    ):
+        build_analytic_input_from_storage(
+            session,
+            record_id=record.id,
+            metric_code="sleep_duration_seconds",
+            observation_id=observation_a_id,
+            operational_surface_present=True,
+        )
+
+    accepted = build_analytic_input_from_storage(
+        session,
+        record_id=record.id,
+        metric_code="sleep_duration_seconds",
+        observation_id=observation_b_id,
+        operational_surface_present=True,
+    )
+    assert accepted.evidence.observation_id == observation_b_id
+    assert accepted.evidence.raw_payload_id == second.raw_payload.id
