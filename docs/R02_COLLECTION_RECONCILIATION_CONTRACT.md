@@ -50,6 +50,13 @@ current member of that window. Present members in a complete collection un-retir
 previously retired identity. Present members in an incomplete fetch may update or
 un-retire themselves but must not retire absences.
 
+An incomplete activity fetch cannot produce successful acquisition coverage: an
+otherwise usable prefix is recorded as `unknown`, with `partial` attempt/run status
+and no advancement of the successful checkpoint. Historical resume re-fetches the
+window from page zero with a bounded budget; complete-page replay remains idempotent.
+A terminal short/empty page is required before coverage can become complete.
+The page cap stays bounded; a window exceeding it must be split into smaller ranges.
+
 Retired rows stay in the current-projection table with `projection_status=retired`.
 Raw payloads and observation rows are never deleted.
 
