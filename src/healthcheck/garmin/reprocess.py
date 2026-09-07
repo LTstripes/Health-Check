@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -271,14 +271,18 @@ class GarminCollectionReprocessor:
                 _history_gaps(session, start=start, end=end, surfaces=surfaces)
             )
 
-        remaining = max(0, len(candidates) - cap)
-        bounded = candidates[:cap]
+        eligible: list[GarminPayloadObservation] = []
+        skipped_current = 0
+        for observation in candidates:
+            if _window_already_current(factory, observation):
+                skipped_current += 1
+            else:
+                eligible.append(observation)
+        eligible.sort(key=_observation_sort_key, reverse=True)
+        remaining = max(0, len(eligible) - cap)
+        bounded = list(reversed(eligible[:cap]))
         if dry_run:
-            skipped = superseded + sum(
-                1
-                for observation in bounded
-                if _window_already_current(factory, observation)
-            )
+            skipped = superseded + skipped_current
             return GarminReprocessReport(
                 status="planned",
                 start=start.isoformat(),
@@ -312,17 +316,19 @@ class GarminCollectionReprocessor:
             sync_run_id = run.id
 
         processed = 0
-        skipped = superseded
+        skipped = superseded + skipped_current
         inserted = 0
         updated = 0
         retired = 0
         abort_reason = "observation_budget_exhausted" if remaining else None
         for observation in bounded:
-            if _window_already_current(factory, observation):
-                skipped += 1
-                continue
             outcome = self._reprocess_observation(
-                factory, store, observation, sync_run_id=sync_run_id
+                factory,
+                store,
+                observation,
+                sync_run_id=sync_run_id,
+                request_start=start,
+                request_end=end,
             )
             if outcome is None:
                 continue
@@ -378,6 +384,8 @@ class GarminCollectionReprocessor:
         observation: GarminPayloadObservation,
         *,
         sync_run_id: str,
+        request_start: date,
+        request_end: date,
     ) -> Any:
         surface = _SURFACE_BY_FILENAME.get(observation.source_filename or "")
         if surface is None:
@@ -386,10 +394,7 @@ class GarminCollectionReprocessor:
         window_end = restore_stored_utc(observation.source_window_end_utc)
         if window_start is None or window_end is None:
             return None
-        observed_at = restore_stored_utc(observation.received_at)
-        received_at = self.clock()
-        if observed_at is not None and received_at <= observed_at:
-            received_at = observed_at + timedelta(seconds=1)
+        received_at = restore_stored_utc(observation.received_at) or self.clock()
         with factory() as session:
             artifact = session.get(RawArtifact, observation.raw_artifact_id)
             source = session.get(GarminSource, observation.garmin_source_id)
@@ -407,7 +412,14 @@ class GarminCollectionReprocessor:
                 source_instance_id=source.source_instance_id,
             )
         payload = json.loads(raw_bytes.decode("utf-8"))
-        day = None if not surface.per_day else window_start.date()
+        obs_start = window_start.date()
+        obs_end = (window_end - timedelta(microseconds=1)).date()
+        scope_start = max(obs_start, request_start)
+        scope_end = min(obs_end, request_end)
+        if scope_start > scope_end:
+            return None
+        clipped = (scope_start, scope_end) != (obs_start, obs_end)
+        day = None if not surface.per_day else scope_start
         normalized_payload = _normalize_provider_payload(surface, payload, day=day)
         result = normalize_garmin_payload(
             normalized_payload,
@@ -415,9 +427,9 @@ class GarminCollectionReprocessor:
             source_identity=identity,
         )
         result = _prepare_normalization_result(surface, payload, result, day=day)
+        result = _filter_result_to_range(result, scope_start, scope_end, clipped=clipped)
         coverage_status = _coverage_status_for(surface, result, payload, day=day)
-        local_start = window_start.date()
-        local_end = (window_end - timedelta(microseconds=1)).date()
+        fetch_complete = _reconstruct_fetch_complete(surface, payload) and not clipped
         with factory() as session:
             persistence = GarminPersistenceRepository(session, payload_store=store)
             outcome = persistence.persist_result(
@@ -433,9 +445,9 @@ class GarminCollectionReprocessor:
                 collection_scope=_collection_scope(
                     surface,
                     day=day,
-                    window_start=local_start,
-                    window_end=local_end,
-                    fetch_complete=_reconstruct_fetch_complete(surface, payload),
+                    window_start=scope_start,
+                    window_end=scope_end,
+                    fetch_complete=fetch_complete,
                     coverage_status=coverage_status,
                 ),
             )
@@ -471,15 +483,15 @@ def _latest_observations_per_window(
         current = latest.get(key)
         if current is None or _observation_is_newer(observation, current):
             latest[key] = observation
-    candidates = sorted(
-        latest.values(),
-        key=lambda item: (
-            restore_stored_utc(item.received_at) or datetime.min.replace(tzinfo=UTC),
-            item.id,
-        ),
-        reverse=True,
-    )
+    candidates = sorted(latest.values(), key=_observation_sort_key, reverse=True)
     return candidates, max(0, len(observations) - len(candidates))
+
+
+def _observation_sort_key(observation: GarminPayloadObservation) -> tuple[datetime, str]:
+    return (
+        restore_stored_utc(observation.received_at) or datetime.min.replace(tzinfo=UTC),
+        observation.id,
+    )
 
 
 def _observation_is_newer(
@@ -513,6 +525,26 @@ def _reconstruct_fetch_complete(surface: GarminSyncSurface, payload: Any) -> boo
     if not items:
         return True
     return len(items) % ACTIVITY_PAGE_SIZE != 0
+
+
+def _filter_result_to_range(result: Any, start: date, end: date, *, clipped: bool) -> Any:
+    """Keep only current-projection members inside the requested local-date span."""
+
+    kept = []
+    for record in result.records:
+        local = record.temporal.local_date
+        if local is None and record.temporal.measured_at_utc is not None:
+            local = record.temporal.measured_at_utc.date()
+        if local is None:
+            if clipped:
+                continue
+            kept.append(record)
+            continue
+        if start <= local <= end:
+            kept.append(record)
+    if len(kept) == len(result.records):
+        return result
+    return replace(result, records=tuple(kept))
 
 
 def _activity_items(payload: Any) -> list[Any] | None:

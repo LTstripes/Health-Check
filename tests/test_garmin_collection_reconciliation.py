@@ -17,6 +17,7 @@ from healthcheck import cli
 from healthcheck.config import Settings
 from healthcheck.db.models import (
     GarminPayloadObservation,
+    GarminRecordMetric,
     GarminSource,
     GarminSourceRecord,
     SyncStreamState,
@@ -58,12 +59,17 @@ def _hr(samples: list[Any], *, day: str = "2099-01-02") -> dict[str, Any]:
     }
 
 
-def _activity(activity_id: Any, *, start: str = "2099-01-02T08:00:00Z") -> dict[str, Any]:
+def _activity(
+    activity_id: Any,
+    *,
+    start: str = "2099-01-02T08:00:00Z",
+    duration: int = 3600,
+) -> dict[str, Any]:
     return {
         "activityId": activity_id,
         "activityType": {"typeKey": "cycling"},
         "startTimeGMT": start,
-        "duration": 3600,
+        "duration": duration,
         "device": {"model": "Vivoactive 5"},
     }
 
@@ -602,10 +608,20 @@ def test_reprocess_reconstructs_activity_completeness_fail_closed() -> None:
     assert _reconstruct_fetch_complete(activities, {"not": "a-list"}) is False
 
 
-def _persist_activity_payload(tmp_path: Path, activities: list[Any], *, complete: bool) -> None:
+def _persist_activity_payload(
+    tmp_path: Path,
+    activities: list[Any],
+    *,
+    complete: bool,
+    received_at: datetime | None = None,
+    window_start: date | None = None,
+    window_end: date | None = None,
+) -> None:
     paths = resolve_runtime_paths(Settings(data_dir=tmp_path / "runtime"))
     engine, factory = _engine_factory(tmp_path)
     surface = next(item for item in PRODUCTION_SYNC_SURFACES if item.code == "activities")
+    scope_start = window_start or AS_OF
+    scope_end = window_end or AS_OF
     try:
         with factory() as session:
             source_id = session.scalar(
@@ -628,7 +644,8 @@ def _persist_activity_payload(tmp_path: Path, activities: list[Any], *, complete
                 normalized, stream=surface.stream, source_identity=identity
             )
             result = _prepare_normalization_result(surface, activities, result, day=None)
-            window_start, window_end = _day_bounds(AS_OF)
+            bounds_start, _ = _day_bounds(scope_start)
+            _, bounds_end = _day_bounds(scope_end)
             GarminPersistenceRepository(
                 session,
                 payload_store=ContentAddressedGarminPayloadStore(paths.root / "artifacts"),
@@ -637,15 +654,15 @@ def _persist_activity_payload(tmp_path: Path, activities: list[Any], *, complete
                 payload={"activities": activities},
                 stream_code=surface.stream,
                 source_identity=identity,
-                received_at=datetime(2099, 1, 2, 15, 0, tzinfo=UTC),
-                source_window_start_utc=window_start,
-                source_window_end_utc=window_end,
+                received_at=received_at or datetime(2099, 1, 2, 15, 0, tzinfo=UTC),
+                source_window_start_utc=bounds_start,
+                source_window_end_utc=bounds_end,
                 source_filename="activities.json",
                 collection_scope=_collection_scope(
                     surface,
                     day=None,
-                    window_start=AS_OF,
-                    window_end=AS_OF,
+                    window_start=scope_start,
+                    window_end=scope_end,
                     fetch_complete=complete,
                     coverage_status="present",
                 ),
@@ -653,6 +670,153 @@ def _persist_activity_payload(tmp_path: Path, activities: list[Any], *, complete
             session.commit()
     finally:
         engine.dispose()
+
+
+def test_offline_reprocess_overlapping_activity_windows_keep_newer_correction(
+    tmp_path: Path,
+):
+    day_one = date(2099, 1, 1)
+    day_two = date(2099, 1, 2)
+    assert _run(
+        tmp_path,
+        _client(activities=[_activity(101, start="2099-01-02T08:00:00Z")]),
+        clock=lambda: datetime(2099, 1, 1, 10, 0, tzinfo=UTC),
+    ).status is GarminSyncStatus.SUCCEEDED
+    _persist_activity_payload(
+        tmp_path,
+        [
+            _activity(101, start="2099-01-01T08:00:00Z", duration=3600),
+            _activity(102, start="2099-01-02T10:00:00Z", duration=3600),
+        ],
+        complete=True,
+        received_at=datetime(2099, 1, 1, 12, 0, tzinfo=UTC),
+        window_start=day_one,
+        window_end=date(2099, 1, 3),
+    )
+    _persist_activity_payload(
+        tmp_path,
+        [_activity(102, start="2099-01-02T10:00:00Z", duration=9999)],
+        complete=True,
+        received_at=datetime(2099, 1, 2, 16, 0, tzinfo=UTC),
+        window_start=day_two,
+        window_end=day_two,
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            for row in _activity_rows(session):
+                row.reconciliation_contract_version = PRE_RECONCILIATION_CONTRACT_VERSION
+            session.commit()
+    finally:
+        engine.dispose()
+
+    report = run_garmin_reprocess(
+        Settings(data_dir=tmp_path / "runtime"),
+        start=day_one,
+        end=day_two,
+        streams=["activities"],
+    )
+    assert report.status == "succeeded"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            current = {
+                row.external_record_id: row
+                for row in _activity_rows(session)
+                if row.projection_status == PROJECTION_CURRENT
+            }
+            assert "102" in current
+            assert _activity_duration(session, current["102"].id) == 9999.0
+    finally:
+        engine.dispose()
+
+
+def test_offline_reprocess_does_not_mutate_outside_requested_activity_range(
+    tmp_path: Path,
+):
+    day_one = date(2099, 1, 1)
+    day_two = date(2099, 1, 2)
+    bootstrap = _run(
+        tmp_path,
+        _client(activities=[_activity(101, start="2099-01-01T08:00:00Z")]),
+        as_of=day_one,
+        clock=lambda: datetime(2099, 1, 1, 10, 0, tzinfo=UTC),
+    )
+    assert bootstrap.status in {GarminSyncStatus.SUCCEEDED, GarminSyncStatus.PARTIAL}
+    _persist_activity_payload(
+        tmp_path,
+        [
+            _activity(101, start="2099-01-01T08:00:00Z", duration=3600),
+            _activity(102, start="2099-01-02T10:00:00Z", duration=4800),
+        ],
+        complete=True,
+        received_at=datetime(2099, 1, 2, 12, 0, tzinfo=UTC),
+        window_start=day_one,
+        window_end=day_two,
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            outside = next(
+                row
+                for row in _activity_rows(session)
+                if row.external_record_id == "101"
+            )
+            snapshot = (
+                outside.id,
+                outside.projection_status,
+                outside.reconciliation_contract_version,
+                outside.updated_at,
+                _activity_duration(session, outside.id),
+            )
+            for row in _activity_rows(session):
+                row.reconciliation_contract_version = PRE_RECONCILIATION_CONTRACT_VERSION
+            session.commit()
+            snapshot = (
+                snapshot[0],
+                snapshot[1],
+                PRE_RECONCILIATION_CONTRACT_VERSION,
+                session.get(GarminSourceRecord, snapshot[0]).updated_at,
+                snapshot[4],
+            )
+    finally:
+        engine.dispose()
+
+    report = run_garmin_reprocess(
+        Settings(data_dir=tmp_path / "runtime"),
+        start=day_two,
+        end=day_two,
+        streams=["activities"],
+    )
+    assert report.status == "succeeded"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            outside = session.get(GarminSourceRecord, snapshot[0])
+            assert outside is not None
+            assert outside.projection_status == snapshot[1]
+            assert outside.reconciliation_contract_version == snapshot[2]
+            assert outside.updated_at == snapshot[3]
+            assert _activity_duration(session, outside.id) == snapshot[4]
+            inside = next(
+                row
+                for row in _activity_rows(session)
+                if row.external_record_id == "102"
+                and row.projection_status == PROJECTION_CURRENT
+            )
+            assert inside.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
+    finally:
+        engine.dispose()
+
+
+def _activity_duration(session, record_id: str) -> float | None:
+    metric = session.scalar(
+        select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == record_id,
+            GarminRecordMetric.metric_code == "duration_seconds",
+        )
+    )
+    return None if metric is None else metric.value_number
 
 
 def test_cli_reprocess_rejects_sync_flags(tmp_path: Path, capsys):

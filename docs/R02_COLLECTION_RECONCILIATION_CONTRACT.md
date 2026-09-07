@@ -79,6 +79,13 @@ That skip is unchanged unless reprocessing is explicitly requested.
 - Offline reprocess applies only the newest observation in each
   source/surface/window. Older observations remain immutable provenance and are
   not replayed into current state.
+- Eligibility is computed from the pre-run state. Overlapping activity windows
+  with different bounds are then applied in original `received_at` order so a
+  newer provider observation wins every shared current identity. A write from
+  an older eligible window in the same run cannot skip a newer eligible one.
+- `garmin-reprocess --start/--end` is a hard current-projection boundary.
+  A multi-day stored activity observation is clipped to the requested local
+  dates; clipped collections are fail-closed for absence retirement.
 - Collection completeness is reconstructed fail-closed: a stored activity list
   whose last page is full is not treated as authoritative, so truncated or
   budget-stopped fetches cannot retire absent members during reprocess.
