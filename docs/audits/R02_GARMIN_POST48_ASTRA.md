@@ -125,3 +125,54 @@ print('synthetic_runtime',str(root))
 Probe output: pagination first_status=succeeded / first_requests=1 / remaining=0 / rerun_requests=0 / second page never requested; reorder changes both unchanged timestamp keys; naive-time UTC invented/local evidence lost; typed aggregate path loses max identity; mixed-shape coverage present; late device changes source partition. Assertions all passed.
 
 Targeted existing tests: `.venv\Scripts\python.exe -m pytest tests/test_garmin_incremental_sync.py tests/test_garmin_historical_backfill.py tests/test_garmin_normalization.py tests/test_garmin_persistence.py -q --basetemp=D:\Codex\Garmin\audit-post48-tests-20260907` — **92 passed in 86.18s**, exit 0. Environment: `uv sync --locked`, CPython 3.13.15, pinned dependency unchanged. Full suite deliberately not run: no code change; targeted tests plus direct reproduction settle the blocking verdict. No owner-live verification.
+
+## Checkpoint 4 — #49 contract and final verdict
+
+**VERDICT: BLOCKED for the pinned `integration/r02-garmin` baseline** because of B1, a reproduced silent-completion/resume defect. This is a completed targeted review, not a partial review and not a claim that #49 remains unimplemented.
+
+### Critical temporal / baseline qualification
+
+CONFIRMED by GitHub compare API: current `main` `c6f48d26a9eefee73b52f68835d931cce7b18388` is eleven commits ahead of audited integration and includes R02 release closeout plus #56 through PR #63. Thus this integration branch is now historical/staging-only under AGENTS.md. The prompt's future-#49 premise is stale. We deliberately honored its explicit requested integration baseline; no finding here certifies or rejects the newer main implementation. #56 commit messages mention truncation/collection changes, but those messages alone are not code evidence. Whether B1 or other gaps remain on main is **NOT CHECKED**. Do not file a duplicate fix or launch an implementation from this old integration without an exact current-baseline review and Integrator routing. No baseline silently changed mid-audit.
+
+### Existing #49 dependencies and fulfilled preconditions
+
+CONFIRMED: accepted provider auth facade; production surface allowlist; reusable GarminIncrementalSync ingestion; normalization DTOs; raw/observation/typed persistence; coverage and sync state repositories; deterministic explicit date bounds and request budget; CLI report serialization. #48 is an ancestor of baseline. #49 already reuses these and namespaces historical checkpoint state, with dry-run before auth/runtime mutation through CLI. Targeted tests confirm multi-chunk resume, overlapping idempotency, explicit input bounds, checkpoint isolation and empty/unknown/failure distinctions.
+
+Not sufficient: green existing tests or source observation retention do not establish full activity pagination completeness, sample collection authority or metric-level analytic completeness. B1 demonstrates the missing acceptance case.
+
+### Minimal safe implementation / maintenance contract for #49
+
+This is a review handoff, not permission to implement now. On a freshly supplied accepted SHA:
+
+- **Allowed scope:** explicit owner-invoked one-time date range + accepted stream set; bounded chunks, request/page limits, sanitized dry-run/progress, deterministic interruption/resume, shared ingestion invocation and historical checkpoint namespace. A separately authorized B1 repair should change completeness propagation and its regression only.
+- **Forbidden scope:** second provider/auth/normalization stack; scheduler; FIT/GPS; new capabilities/metrics; R03 calculations; dashboard redesign; dependency changes; unrelated R01 semantics; production/private data; destructive evidence rewriting; PR/merge/main mutation.
+- **Invariants:** raw/observation history retained; current stable value correction converges; missing/null/zero and unknown/confirmed_empty/unavailable/failed remain separate; device attribution only from payload evidence; incremental trailing behavior/state unchanged; coverage success means the requested acquisition unit has actually completed, not merely one valid member arrived; watermark never substitutes for a gap ledger.
+- **Fail closed:** pagination budget/page cap without terminal-page evidence must not yield complete coverage/success/skip-on-resume; continuation state must be deterministic (bounded refetch is acceptable). Preserve prior valid data on partial/error, and retain replayable partial evidence if supported. Unknown shapes stay refetchable. Do not classify unavailable as empty. Metric-level completeness must not be inferred from acquisition present. Never delete absent samples/activities until the accepted complete-collection authority rule applies.
+- **Required acceptance tests:** (1) multi-chunk bounded plan/dry-run with zero provider calls; (2) interruption with exact nonzero outstanding work, then convergence and zero-request completed rerun; (3) full activity page ending exactly at request budget and at page cap, plus incomplete second page/error and terminal empty page; (4) unknown/failed/404/reviewed-empty to valid transitions without premature successful checkpoint; (5) overlapping ranges and id-less value correction with immutable history; (6) incremental/historical isolation and date boundaries; (7) reorder/insert/remove/stale replay only against the accepted collection contract, not invented in #49; (8) CLI JSON/status parity with service and privacy assertions. Existing issue-level Ruff/full pytest/Alembic/exact-head CI obligations apply to a future code change, not claimed by this docs-only audit.
+- **STOP conditions:** baseline absent/stale/historical instead of newly assigned accepted ref; unresolved collection-completeness semantics; proposed inference of timezone/device/aggregate meaning; need for schema/dependency/capability expansion; test shows successful coverage for truncated data or rollback of newer current state; need to access owner data. Escalate the concrete issue with evidence; no broad refactoring.
+
+### Ambiguities to resolve before further implementation
+
+1. No future #49 launch exists at current GitHub state: it is closed. Integrator must name the current task and exact baseline; do not recreate already delivered work.
+2. Define completion separately from attempt exhaustion. On this baseline remaining_chunk/day_count can be zero while status remains partial/failed; it must not be described as unresolved-count zero. B1 is worse: status itself is false success.
+3. Keep operational coverage distinct from analytic availability; use #55 for source field/aggregation/local-time contracts.
+4. Use accepted #56 collection/version/reprocessing semantics on a current baseline; completed historical coverage is intentionally skipped by ordinary rerun and is not a live-refresh guarantee.
+
+### Confirmed blockers
+
+Only **B1** is designated a #49 blocker in this bounded audit. Sample identity/time/aggregate issues are confirmed limitations of this old baseline and existing pre-R03 follow-up scope; they are not used to reopen all accepted R02 work or reject current main without inspection.
+
+### Follow-ups (at most five)
+
+1. Verify B1 against exact current main/#56 code before assigning any repair; preserve the full-page budget regression.
+2. #55: aggregate/source field identity, naive/offset sample time, metric analytic coverage.
+3. #56: verify delivered reorder/removal/stale/reprocess guarantees on its accepted baseline; no duplicate implementation.
+4. Define late device-attribution cross-partition read/supersession policy without guessing source equivalence.
+5. Make progress versus unresolved coverage and aged-out gaps explicit in any future consumer; do not infer complete history from watermark or remaining=0.
+
+### Verification and limitations
+
+- 92 targeted tests passed; compact synthetic probes reproduced B1 and five bounded semantic observations. Exact script embedded above.
+- No full suite, live Garmin, owner runtime, HTTP/browser UAT, main-code audit, new schema checks or new exact-head CI claim. These are explicit scope limits, not unfinished prerequisites for the pinned-baseline verdict.
+- Normalization exceptions can precede raw retention; mixed malformed series are not a proven analytic-complete contract. No speculative production fix was made.
+- Delivery changes only `docs/audits/R02_GARMIN_POST48_ASTRA.md`; four chronological commits/checkpoints, each pushed. Final SHA is supplied by delivery response/remote read-back (not self-embedded in its own commit).
