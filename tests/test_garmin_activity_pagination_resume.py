@@ -38,8 +38,12 @@ def test_activity_pagination_resumes_unread_page(tmp_path: Path, monkeypatch, hi
     def run(page_budget):
         if historical:
             return run_garmin_historical_backfill(
-                Settings(data_dir=tmp_path / "runtime"), client=client,
-                start=AS_OF, end=AS_OF, streams=["activities"], chunk_days=1,
+                Settings(data_dir=tmp_path / "runtime"),
+                client=client,
+                start=AS_OF,
+                end=AS_OF,
+                streams=["activities"],
+                chunk_days=1,
                 max_provider_requests=page_budget,
             )
         # Nine accepted per-day surfaces run before the activities surface.
@@ -50,14 +54,21 @@ def test_activity_pagination_resumes_unread_page(tmp_path: Path, monkeypatch, hi
         try:
             with factory() as session:
                 rows = _activity_rows(session)
-                current = {r.external_record_id: r.id for r in rows
-                           if r.projection_status == "current"}
-                state = session.scalar(select(SyncStreamState).where(
-                    SyncStreamState.stream_code == state_code))
+                current = {
+                    r.external_record_id: r.id for r in rows if r.projection_status == "current"
+                }
+                state = session.scalar(
+                    select(SyncStreamState).where(SyncStreamState.stream_code == state_code)
+                )
                 success = (state.cursor, state.watermark, state.last_success_at)
-                observations = {r.id for r in session.scalars(
-                    select(GarminPayloadObservation).where(
-                        GarminPayloadObservation.stream_code == "activity"))}
+                observations = {
+                    r.id
+                    for r in session.scalars(
+                        select(GarminPayloadObservation).where(
+                            GarminPayloadObservation.stream_code == "activity"
+                        )
+                    )
+                }
                 state_codes = set(session.scalars(select(SyncStreamState.stream_code)))
                 return current, len(rows), success, observations, state_codes
         finally:
@@ -74,8 +85,9 @@ def test_activity_pagination_resumes_unread_page(tmp_path: Path, monkeypatch, hi
     assert first.status is GarminSyncStatus.PARTIAL
     assert attempt.coverage_status == "unknown"
     assert success == (None, None, None)
-    assert ("activities" not in codes) if historical else (
-        "garmin_historical:activities" not in codes)
+    assert (
+        ("activities" not in codes) if historical else ("garmin_historical:activities" not in codes)
+    )
 
     monkeypatch.setattr("healthcheck.garmin.sync.MAX_ACTIVITY_PAGES", 2)
     second = run(2)
