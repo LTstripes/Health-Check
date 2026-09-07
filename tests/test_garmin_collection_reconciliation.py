@@ -731,6 +731,130 @@ def test_offline_reprocess_overlapping_activity_windows_keep_newer_correction(
         engine.dispose()
 
 
+def test_offline_reprocess_bounded_resume_converges_overlapping_activity_windows(
+    tmp_path: Path,
+):
+    day_one = date(2099, 1, 1)
+    day_two = date(2099, 1, 2)
+    day_three = date(2099, 1, 3)
+    assert _run(
+        tmp_path,
+        _client(activities=[_activity(101, start="2099-01-02T08:00:00Z")]),
+        clock=lambda: datetime(2099, 1, 1, 10, 0, tzinfo=UTC),
+    ).status is GarminSyncStatus.SUCCEEDED
+    _persist_activity_payload(
+        tmp_path,
+        [
+            _activity(101, start="2099-01-01T08:00:00Z", duration=3600),
+            _activity(102, start="2099-01-02T10:00:00Z", duration=3600),
+            _activity(103, start="2099-01-03T08:00:00Z", duration=1200),
+        ],
+        complete=True,
+        received_at=datetime(2099, 1, 1, 12, 0, tzinfo=UTC),
+        window_start=day_one,
+        window_end=day_three,
+    )
+    _persist_activity_payload(
+        tmp_path,
+        [_activity(102, start="2099-01-02T10:00:00Z", duration=9999)],
+        complete=True,
+        received_at=datetime(2099, 1, 2, 16, 0, tzinfo=UTC),
+        window_start=day_two,
+        window_end=day_two,
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            for row in _activity_rows(session):
+                row.reconciliation_contract_version = PRE_RECONCILIATION_CONTRACT_VERSION
+            outside = next(
+                row for row in _activity_rows(session) if row.external_record_id == "103"
+            )
+            outside_snapshot = (
+                outside.id,
+                outside.projection_status,
+                PRE_RECONCILIATION_CONTRACT_VERSION,
+                _activity_duration(session, outside.id),
+            )
+            session.commit()
+    finally:
+        engine.dispose()
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    first = run_garmin_reprocess(
+        settings,
+        start=day_one,
+        end=day_two,
+        streams=["activities"],
+        max_observations=1,
+    )
+    assert first.status == "partial"
+    assert first.remaining_observation_count >= 1
+
+    last = first
+    for _ in range(4):
+        last = run_garmin_reprocess(
+            settings,
+            start=day_one,
+            end=day_two,
+            streams=["activities"],
+            max_observations=1,
+        )
+        if last.remaining_observation_count == 0:
+            break
+    assert last.remaining_observation_count == 0
+
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            current = {
+                row.external_record_id: row
+                for row in _activity_rows(session)
+                if row.projection_status == PROJECTION_CURRENT
+            }
+            assert current["101"].reconciliation_contract_version == (
+                RECONCILIATION_CONTRACT_VERSION
+            )
+            assert current["102"].reconciliation_contract_version == (
+                RECONCILIATION_CONTRACT_VERSION
+            )
+            assert _activity_duration(session, current["102"].id) == 9999.0
+            outside = session.get(GarminSourceRecord, outside_snapshot[0])
+            assert outside is not None
+            assert outside.projection_status == outside_snapshot[1]
+            assert outside.reconciliation_contract_version == outside_snapshot[2]
+            assert _activity_duration(session, outside.id) == outside_snapshot[3]
+    finally:
+        engine.dispose()
+
+    again = run_garmin_reprocess(
+        settings,
+        start=day_one,
+        end=day_two,
+        streams=["activities"],
+        max_observations=1,
+    )
+    assert again.processed_count == 0
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            current = {
+                row.external_record_id: row
+                for row in _activity_rows(session)
+                if row.projection_status == PROJECTION_CURRENT
+            }
+            assert _activity_duration(session, current["102"].id) == 9999.0
+            assert current["101"].reconciliation_contract_version == (
+                RECONCILIATION_CONTRACT_VERSION
+            )
+            outside = session.get(GarminSourceRecord, outside_snapshot[0])
+            assert outside is not None
+            assert outside.reconciliation_contract_version == PRE_RECONCILIATION_CONTRACT_VERSION
+            assert _activity_duration(session, outside.id) == 1200.0
+    finally:
+        engine.dispose()
+
+
 def test_offline_reprocess_does_not_mutate_outside_requested_activity_range(
     tmp_path: Path,
 ):

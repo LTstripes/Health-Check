@@ -274,13 +274,15 @@ class GarminCollectionReprocessor:
         eligible: list[GarminPayloadObservation] = []
         skipped_current = 0
         for observation in candidates:
-            if _window_already_current(factory, observation):
+            if _window_already_current(
+                factory, observation, request_start=start, request_end=end
+            ):
                 skipped_current += 1
             else:
                 eligible.append(observation)
-        eligible.sort(key=_observation_sort_key, reverse=True)
+        eligible.sort(key=_observation_sort_key)
         remaining = max(0, len(eligible) - cap)
-        bounded = list(reversed(eligible[:cap]))
+        bounded = eligible[:cap]
         if dry_run:
             skipped = superseded + skipped_current
             return GarminReprocessReport(
@@ -560,13 +562,21 @@ def _activity_items(payload: Any) -> list[Any] | None:
     return None
 
 
-def _window_already_current(factory, observation: GarminPayloadObservation) -> bool:
+def _window_already_current(
+    factory,
+    observation: GarminPayloadObservation,
+    *,
+    request_start: date,
+    request_end: date,
+) -> bool:
     window_start = restore_stored_utc(observation.source_window_start_utc)
     window_end = restore_stored_utc(observation.source_window_end_utc)
     if window_start is None or window_end is None:
         return False
-    local_start = window_start.date()
-    local_end = (window_end - timedelta(microseconds=1)).date()
+    local_start = max(window_start.date(), request_start)
+    local_end = min((window_end - timedelta(microseconds=1)).date(), request_end)
+    if local_start > local_end:
+        return True
     surface = _SURFACE_BY_FILENAME.get(observation.source_filename or "")
     if surface is None:
         return False
@@ -583,11 +593,26 @@ def _window_already_current(factory, observation: GarminPayloadObservation) -> b
             )
         )
         if rows:
-            return all(
-                row.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
-                and row.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
-                for row in rows
-            )
+            observed_at = restore_stored_utc(observation.received_at)
+            for row in rows:
+                projected = restore_stored_utc(row.projection_observed_at) or restore_stored_utc(
+                    row.last_seen_at
+                )
+                if (
+                    observed_at is not None
+                    and projected is not None
+                    and observed_at < projected
+                ):
+                    continue
+                version_current = (
+                    row.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
+                    and row.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
+                )
+                if not version_current:
+                    return False
+                if observed_at is not None and (projected is None or observed_at > projected):
+                    return False
+            return True
         siblings = [
             item
             for item in session.scalars(

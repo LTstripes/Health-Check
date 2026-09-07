@@ -80,9 +80,12 @@ That skip is unchanged unless reprocessing is explicitly requested.
   source/surface/window. Older observations remain immutable provenance and are
   not replayed into current state.
 - Eligibility is computed from the pre-run state. Overlapping activity windows
-  with different bounds are then applied in original `received_at` order so a
-  newer provider observation wins every shared current identity. A write from
-  an older eligible window in the same run cannot skip a newer eligible one.
+  with different bounds are applied and bounded-resumed in original `received_at`
+  order so a newer provider observation wins every shared current identity.
+  A write from an older eligible window cannot skip a newer eligible one, in the
+  same run or a later bounded invocation. An observation remains eligible when
+  any in-window current row is still on an older version or an older
+  `projection_observed_at`.
 - `garmin-reprocess --start/--end` is a hard current-projection boundary.
   A multi-day stored activity observation is clipped to the requested local
   dates; clipped collections are fail-closed for absence retirement.

@@ -1163,56 +1163,53 @@ class GarminPersistenceRepository:
         inserted_count = 0
         updated_count = 0
         retired_count = 0
-        if collection_stale:
-            for record in result.records:
-                signature = canonical_json(record.as_dict())
-                previous_signature = seen_records.get(record.idempotency_key)
-                if previous_signature is not None:
-                    if previous_signature != signature:
-                        raise ValueError(
-                            "one Garmin result contains conflicting duplicate identities"
-                        )
+        for record in result.records:
+            signature = canonical_json(record.as_dict())
+            previous_signature = seen_records.get(record.idempotency_key)
+            if previous_signature is not None:
+                if previous_signature != signature:
+                    raise ValueError(
+                        "one Garmin result contains conflicting duplicate identities"
+                    )
+                continue
+            seen_records[record.idempotency_key] = signature
+            existing = self.records.get_by_idempotency_key(
+                garmin_source_id=source_row.id,
+                idempotency_key=record.idempotency_key,
+            )
+            if existing is not None:
+                projected = _datetime_key(existing.projection_observed_at) or _datetime_key(
+                    existing.last_seen_at
+                )
+                if projected is not None and seen_at < projected:
+                    records.append(existing)
                     continue
-                seen_records[record.idempotency_key] = signature
-                current = self.records.get_by_idempotency_key(
-                    garmin_source_id=source_row.id,
-                    idempotency_key=record.idempotency_key,
-                )
-                if current is not None:
-                    records.append(current)
-        else:
-            for record in result.records:
-                signature = canonical_json(record.as_dict())
-                previous_signature = seen_records.get(record.idempotency_key)
-                if previous_signature is not None:
-                    if previous_signature != signature:
-                        raise ValueError(
-                            "one Garmin result contains conflicting duplicate identities"
-                        )
-                    continue
-                seen_records[record.idempotency_key] = signature
-                stored_record, inserted, updated = self.records.upsert(
-                    garmin_source_id=source_row.id,
-                    raw_payload_id=raw_payload.id,
-                    record=record,
-                    ingest_event_id=event_id,
-                    seen_at=seen_at,
-                    normalization_contract_version=normalized_normalization_contract_version,
-                    reconciliation_contract_version=reconciliation_contract_version,
-                    collection_scope=collection_scope,
-                    source=source,
-                )
-                records.append(stored_record)
-                inserted_count += int(inserted)
-                updated_count += int(updated)
-            if collection_scope is not None and collection_scope.complete:
-                retired_count = self.records.retire_absent_members(
-                    garmin_source_id=source_row.id,
-                    source=source,
-                    collection_scope=collection_scope,
-                    incoming_keys=seen_records,
-                    retired_at=seen_at,
-                )
+            stored_record, inserted, updated = self.records.upsert(
+                garmin_source_id=source_row.id,
+                raw_payload_id=raw_payload.id,
+                record=record,
+                ingest_event_id=event_id,
+                seen_at=seen_at,
+                normalization_contract_version=normalized_normalization_contract_version,
+                reconciliation_contract_version=reconciliation_contract_version,
+                collection_scope=collection_scope,
+                source=source,
+            )
+            records.append(stored_record)
+            inserted_count += int(inserted)
+            updated_count += int(updated)
+        if (
+            collection_scope is not None
+            and collection_scope.complete
+            and not collection_stale
+        ):
+            retired_count = self.records.retire_absent_members(
+                garmin_source_id=source_row.id,
+                source=source,
+                collection_scope=collection_scope,
+                incoming_keys=seen_records,
+                retired_at=seen_at,
+            )
 
         if batch is not None and event is not None:
             final_status = "failed" if result.status.value == "invalid" else "committed"
@@ -1245,7 +1242,7 @@ class GarminPersistenceRepository:
             ingest_batch_id=batch.id if batch is not None else None,
             ingest_event_id=event_id,
             retired_count=retired_count,
-            stale_ignored=collection_stale,
+            stale_ignored=collection_stale and inserted_count == 0 and updated_count == 0,
         )
 
     def _replay_current_records(
