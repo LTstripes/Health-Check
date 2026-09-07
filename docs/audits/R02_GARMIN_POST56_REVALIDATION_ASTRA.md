@@ -93,3 +93,86 @@ assert first==second and all(third[k]==v for k,v in first.items()) and [n1,n2,n3
 print('F2',json.dumps(dict(total_rows=[n1,n2,n3],original_ids_preserved=True,duplicate_rows=0)))
 
 ```
+
+## Checkpoint C — F3/F4 and final verdict
+
+### F3 — RISK (confirmed semantic defect; not an accepted contract)
+
+Current `sync.py:860 _sample_temporal` attaches UTC to naive strings/datetimes. Independent adapter probes reproduce it on **heart_rate, stress, body_battery, spo2, respiration** sample surfaces. Each naive sample becomes a UTC instant, original local evidence is absent, requested local date stays unchanged. Aware sample offset evidence is also not retained.
+
+Boundary probe: naive `2099-01-02T00:30:00` vs explicitly offset `2099-01-02T00:30:00+03:00` produces different UTC dates while both stored local dates remain the requested day. Thus it does not shift the request-day column in ordinary day fetches, but can shift UTC-day grouping, ordering against correctly zoned samples, lag/duration calculations and analytic day attribution. Without a supplied day, fallback date is derived from the assumed UTC instant. The true offset of a naive provider sample is unknown; this probe does not claim it is +03:00, it demonstrates why assuming UTC is unsafe.
+
+This is a confirmed code/normalization-contract mismatch (`R02_NORMALIZATION_CONTRACT.md:34` forbids invented timezone), not ACCEPTED CONTRACT. Classified RISK because actual owner payload incidence is unverified and this session does not implement analytics. #55 explicitly requires the correction before R03. Sleep/RHR/HRV/daily summary singleton timestamps are not claimed affected by this shared sample helper; no extra surface audit performed.
+
+### F4 — R03 CONTRACT GAP (CONFIRMED)
+
+`present` is operational surface acquisition coverage, intentionally not proof of metric-level analytical sufficiency. Current `sync.py:908 _has_expected_metric` needs any expected value. `588 _parse_series` drops malformed/non-numeric samples. Probe with one valid + one malformed HR sample gives one parsed sample, coverage=present, and `_collection_scope(... fetch_complete=True)` complete=True. This complete flag authorizes collection reconciliation; it is not an analytic completeness certificate.
+
+Aggregate-only probes still map `maxStressLevel` to typed `payload.stress` and `lastSevenDaysAvgSpO2` to typed `payload.spo2`, both present. Treating those as a daily mean or treating present as a full sample series can therefore produce false health conclusions. Raw provenance survives, but raw retention by itself does not provide a safe analytic metric definition.
+
+Separate mechanisms now present: collection authority/current-retired state, reconciliation versions, explicit reprocess, history gaps. None is a metric-specific sufficiency/aggregation/exclusion/evidence-manifest API. Scoped search of current Garmin code plus current ROADMAP:73-78 and open GitHub #55 confirm that the bounded analytic availability + input DTO/manifest contract remains a prerequisite, not a delivered feature of #56. R03 must use that future accepted contract; it must not consume surface present as sufficiency. No R03 implementation or new broad review performed.
+
+### F3/F4 reproducible probe
+
+Command `.venv\Scripts\python.exe .pytest-tmp/semantic_probe.py` — exit 0, all assertions passed (assertions describe current behavior, not desired correctness).
+
+```python
+from datetime import date
+import json
+from healthcheck.garmin.sync import (PRODUCTION_SYNC_SURFACES, _normalize_provider_payload, _prepare_normalization_result, _source_identity_for, _coverage_status_for, _collection_scope, _sample_temporal)
+from healthcheck.garmin.normalization import normalize_garmin_payload
+DAY=date(2099,1,2)
+def normalize(code,payload):
+    s=next(s for s in PRODUCTION_SYNC_SURFACES if s.code==code)
+    r=normalize_garmin_payload(_normalize_provider_payload(s,payload,day=DAY),stream=s.stream,source_identity=_source_identity_for(payload))
+    return s,_prepare_normalization_result(s,payload,r,day=DAY)
+fields={'heart_rate':'heartRateValues','stress':'stressValuesArray','body_battery':'bodyBatteryValuesArray','spo2':'spo2Values','respiration':'respirationValues'}
+for code,field in fields.items():
+    p={'calendarDate':str(DAY),field:[['2099-01-02T00:30:00',60]]}
+    s,r=normalize(code,p)
+    sample=next(r for r in r.records if r.source_path.startswith('payload.'+field+'['))
+    t=sample.temporal
+    assert t.measured_at_utc is not None and t.source_local_timestamp is None and t.local_date==DAY
+    print('F3',code,'naive_promoted_to_utc; local_evidence_missing; request_day_retained')
+naive=_sample_temporal('2099-01-02T00:30:00',day=DAY,fallback=None)
+aware=_sample_temporal('2099-01-02T00:30:00+03:00',day=DAY,fallback=None)
+assert naive.measured_at_utc.date()!=aware.measured_at_utc.date()
+assert naive.local_date==aware.local_date==DAY
+print('F3_day_boundary',json.dumps(dict(utc_date_differs=True,requested_local_date_unchanged=True,aware_offset_lost=aware.source_utc_offset_minutes is None)))
+p={'calendarDate':str(DAY),'heartRateValues':[['2099-01-02T08:00:00Z',60],['bad','bad']]}
+s,r=normalize('heart_rate',p); coverage=_coverage_status_for(s,r,p,day=DAY)
+scope=_collection_scope(s,day=DAY,window_start=DAY,window_end=DAY,fetch_complete=True,coverage_status=coverage)
+assert coverage=='present' and scope.complete
+samples=[x for x in r.records if x.source_path.startswith('payload.heartRateValues[')]
+assert len(samples)==1
+print('F4_mixed',json.dumps(dict(raw_samples=2,parsed_samples=1,coverage=coverage,collection_complete=scope.complete)))
+for code,field,metric in [('stress','maxStressLevel','stress'),('spo2','lastSevenDaysAvgSpO2','spo2_percent')]:
+    p={'calendarDate':str(DAY),field:80}; s,r=normalize(code,p)
+    m=next(m for x in r.records for m in x.metrics if m.metric_code==metric and m.has_value)
+    assert _coverage_status_for(s,r,p,day=DAY)=='present'
+    print('F4_aggregate',json.dumps(dict(surface=code,original_field=field,typed_field=m.field_path,coverage='present')))
+```
+
+## Final disposition
+
+| Finding | Current main verdict | Old-only / remaining |
+| --- | --- | --- |
+| F1 | STILL REPRODUCIBLE | Still current blocker; #56 changed retirement protection, not false-success/resume. |
+| F2 | FIXED | Old integration finding resolved for timestamp/token-backed reorder/insert, including persisted row identity. |
+| F3 | RISK | Confirmed current naive-to-UTC defect; existing #55 prerequisite, no owner-incidence claim. |
+| F4 | R03 CONTRACT GAP | Deliberate operational coverage meaning; safe analytic sufficiency contract remains in #55. |
+
+**OVERALL: BLOCKED.** F1 remains a reproduced current-main ingestion/resume blocker. Additionally #55 is required before R03 can safely consume metric/time/completeness semantics. No claim that all #56 behavior was reviewed, and no duplicate implementation requested for fixed F2.
+
+Required follow-ups (two only):
+1. Focused F1 fix: carry pagination incompleteness into run status, successful checkpoint and coverage-skip/resume. Regression must prove unread page is fetched on subsequent invocation and cannot remain hidden behind present; cover request budget/page cap. Audit does not implement the fix.
+2. Finish existing #55 for F3/F4: evidence-based sample time, distinct aggregate identities, metric analytic sufficiency/exclusions and reproducible input manifest. Do not invent a second analytics stack in this audit.
+
+## Delivery / validation
+
+- Current reviewed remote main: `c6f48d26a9eefee73b52f68835d931cce7b18388`.
+- Audit branch: `audit/r02-garmin-post56-revalidation-astra`.
+- Only changed file: `docs/audits/R02_GARMIN_POST56_REVALIDATION_ASTRA.md`.
+- Checkpoints A, B, C committed and pushed separately; final commit SHA reported outside its own content and verified by remote read-back.
+- Locked environment (CPython 3.13.15), two targeted existing tests passed; F1/F2 persisted probes and F3/F4 adapter probes passed their observed-behavior assertions. No full suite needed/run.
+- No production edits, live provider calls, private runtime access, PR or merge. Scope is exactly F1–F4. `git diff --check` clean; final tracked working tree checked at handoff.
