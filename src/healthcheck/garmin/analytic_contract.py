@@ -11,14 +11,30 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
 from enum import StrEnum
 from numbers import Real
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from healthcheck.db.models import (
+    GarminPayloadObservation,
+    GarminRawPayload,
+    GarminRecordMetric,
+    GarminSource,
+    GarminSourceRecord,
+)
+from healthcheck.db.repositories import restore_stored_utc
+from healthcheck.garmin.capabilities import CapabilityStatus, GarminStream
 from healthcheck.garmin.normalization import (
     GarminFieldState,
     GarminMetricDTO,
+    GarminParseStatus,
     GarminRecordDTO,
+    GarminSleepStageDTO,
+    GarminSourceIdentity,
     GarminTemporalDTO,
     GarminTemporalPrecision,
 )
@@ -487,6 +503,7 @@ class AnalyticSelectedValue:
     field_path: str | None
     aggregate_kind: str
     window: str
+    collection: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -497,6 +514,7 @@ class AnalyticSelectedValue:
             "field_path": self.field_path,
             "aggregate_kind": self.aggregate_kind,
             "window": self.window,
+            "collection": [dict(item) for item in self.collection],
         }
 
 
@@ -559,6 +577,7 @@ def build_analytic_input_dto(
     algorithm_identity: str | None = None,
     rule_version: str = ANALYTIC_RULE_VERSION,
     extra_exclusions: Sequence[AnalyticExclusion] = (),
+    selected_collection: Sequence[Mapping[str, Any]] = (),
 ) -> AnalyticInputDTO:
     """Build a frozen analytic input DTO; same evidence+rule => same manifest hash."""
 
@@ -576,6 +595,7 @@ def build_analytic_input_dto(
         field_path=field_path,
         aggregate_kind=definition.aggregate_kind.value,
         window=definition.window,
+        collection=canonicalize_collection_values(selected_collection),
     )
     temporal_semantics = project_analytic_temporal(temporal) if temporal is not None else None
     exclusions = tuple(coverage.exclusions) + tuple(extra_exclusions)
@@ -633,11 +653,7 @@ def build_analytic_input_from_metric(
     return build_analytic_input_dto(
         metric_code=metric.metric_code,
         selected_state=metric.state.value,
-        selected_value=(
-            metric.value
-            if isinstance(metric.value, (int, float, str)) or metric.value is None
-            else str(metric.value)
-        ),
+        selected_value=_freeze_selected_scalar(metric.value),
         field_path=metric.field_path,
         temporal=record.temporal,
         records=(record,),
@@ -647,6 +663,7 @@ def build_analytic_input_from_metric(
         provider_code=record.source.provider_code,
         algorithm_identity=metric.capability_code,
         rule_version=rule_version,
+        selected_collection=canonicalize_metric_collection(metric),
     )
 
 
@@ -668,6 +685,358 @@ def substitute_aggregate_is_forbidden(
     return any(item.aggregate_kind != requested.aggregate_kind for item in siblings)
 
 
+class AnalyticInputAssemblyError(ValueError):
+    """Fail-closed error while assembling analytic input from storage."""
+
+
+def canonicalize_collection_values(
+    values: Sequence[Mapping[str, Any]] | None,
+) -> tuple[dict[str, Any], ...]:
+    """Return deterministic JSON-round-tripped collection mappings for hashing."""
+
+    if not values:
+        return ()
+    normalized: list[dict[str, Any]] = []
+    for item in values:
+        if not isinstance(item, Mapping):
+            raise TypeError("selected collection entries must be mappings")
+        normalized.append(json.loads(_stable_json(dict(item))))
+    return tuple(normalized)
+
+
+def canonicalize_metric_collection(metric: GarminMetricDTO) -> tuple[dict[str, Any], ...]:
+    """Freeze collection-valued metric input (at minimum sleep_stages intervals)."""
+
+    if not metric.collection:
+        return ()
+    return canonicalize_collection_values([item.as_dict() for item in metric.collection])
+
+
+def _freeze_selected_scalar(value: Any) -> int | float | str | None:
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float, str)) or value is None:
+        return value
+    return str(value)
+
+
+def _temporal_from_mapping(payload: Mapping[str, Any]) -> GarminTemporalDTO:
+    measured = payload.get("measured_at_utc")
+    measured_at_utc: datetime | None
+    if measured is None:
+        measured_at_utc = None
+    elif isinstance(measured, datetime):
+        measured_at_utc = measured
+    else:
+        measured_at_utc = datetime.fromisoformat(str(measured))
+    local_date_value = payload.get("local_date")
+    local_date: date | None
+    if local_date_value is None:
+        local_date = None
+    elif isinstance(local_date_value, date) and not isinstance(local_date_value, datetime):
+        local_date = local_date_value
+    else:
+        local_date = date.fromisoformat(str(local_date_value))
+    return GarminTemporalDTO(
+        precision=GarminTemporalPrecision(str(payload.get("precision") or "unknown")),
+        measured_at_utc=measured_at_utc,
+        local_wall_time=payload.get("local_wall_time"),
+        local_date=local_date,
+        source_field=payload.get("source_field"),
+        local_date_source=payload.get("local_date_source"),
+        source_local_timestamp=payload.get("source_local_timestamp"),
+        source_timezone=payload.get("source_timezone"),
+        source_utc_offset_minutes=payload.get("source_utc_offset_minutes"),
+        source_local_field=payload.get("source_local_field"),
+        source_utc_field=payload.get("source_utc_field"),
+    )
+
+
+def _sleep_stages_from_canonical(
+    values: Sequence[Mapping[str, Any]],
+) -> tuple[GarminSleepStageDTO, ...]:
+    stages: list[GarminSleepStageDTO] = []
+    for item in values:
+        if not isinstance(item, Mapping):
+            raise AnalyticInputAssemblyError("sleep stage collection entry must be a mapping")
+        start = item.get("start")
+        end = item.get("end")
+        if not isinstance(start, Mapping) or not isinstance(end, Mapping):
+            raise AnalyticInputAssemblyError("sleep stage intervals require start/end temporals")
+        stages.append(
+            GarminSleepStageDTO(
+                start=_temporal_from_mapping(start),
+                end=_temporal_from_mapping(end),
+                activity_level=item.get("activity_level"),
+            )
+        )
+    return tuple(stages)
+
+
+def _scalar_from_metric_row(row: GarminRecordMetric) -> int | float | str | None:
+    if row.value_number is not None:
+        number = float(row.value_number)
+        if number.is_integer():
+            return int(number)
+        return number
+    if row.value_text is not None:
+        return row.value_text
+    return None
+
+
+def _metric_dto_from_row(row: GarminRecordMetric) -> GarminMetricDTO:
+    collection: tuple[GarminSleepStageDTO, ...] = ()
+    if row.collection_json:
+        try:
+            payload = json.loads(row.collection_json)
+        except json.JSONDecodeError as exc:
+            raise AnalyticInputAssemblyError(
+                "persisted metric collection_json is not valid JSON"
+            ) from exc
+        if not isinstance(payload, list):
+            raise AnalyticInputAssemblyError(
+                "persisted metric collection_json must be a JSON array"
+            )
+        if row.metric_code == "sleep_stages":
+            collection = _sleep_stages_from_canonical(payload)
+        elif payload:
+            raise AnalyticInputAssemblyError(
+                f"unsupported persisted collection metric: {row.metric_code}"
+            )
+    capability_status = None
+    if row.capability_status:
+        capability_status = CapabilityStatus(row.capability_status)
+    return GarminMetricDTO(
+        capability_code=row.capability_code,
+        metric_code=row.metric_code,
+        field_path=row.field_path,
+        state=GarminFieldState(row.state),
+        value=_scalar_from_metric_row(row),
+        unit=row.unit,
+        reason=row.reason,
+        capability_status=capability_status,
+        source_device_attributed=bool(row.source_device_attributed),
+        collection=collection,
+    )
+
+
+def _record_dto_from_storage(
+    record: GarminSourceRecord,
+    source: GarminSource,
+    metric: GarminMetricDTO,
+) -> GarminRecordDTO:
+    return GarminRecordDTO(
+        stream=GarminStream(record.stream_code),
+        source=GarminSourceIdentity(
+            source_kind=source.source_kind,
+            provider_code=source.provider_code,
+            device_attributed=bool(source.device_attributed),
+            device_code=source.device_code,
+            device_model=source.device_model,
+            source_instance_id=source.source_instance_id,
+        ),
+        temporal=GarminTemporalDTO(
+            precision=GarminTemporalPrecision(record.temporal_precision),
+            measured_at_utc=restore_stored_utc(record.source_timestamp_utc),
+            local_wall_time=record.local_wall_time,
+            local_date=record.source_local_date,
+            source_field=record.source_field,
+            source_local_timestamp=record.source_local_timestamp,
+            source_timezone=record.source_timezone,
+            source_utc_offset_minutes=record.source_utc_offset_minutes,
+            source_local_field=record.source_local_field,
+            source_utc_field=record.source_utc_field,
+        ),
+        idempotency_key=record.idempotency_key,
+        record_id=record.external_record_id,
+        activity_type=record.activity_type,
+        record_index=record.record_index,
+        metrics=(metric,),
+        status=GarminParseStatus(record.record_status),
+        source_path=record.source_path,
+    )
+
+
+def _resolve_observation_for_record(
+    session: Session,
+    *,
+    record: GarminSourceRecord,
+    raw_payload: GarminRawPayload,
+    observation_id: str | None = None,
+) -> GarminPayloadObservation:
+    if observation_id is not None:
+        observation = session.get(GarminPayloadObservation, observation_id)
+        if observation is None:
+            raise AnalyticInputAssemblyError("Garmin observation not found for analytic input")
+        if observation.garmin_raw_payload_id != raw_payload.id:
+            raise AnalyticInputAssemblyError(
+                "analytic observation does not match the record raw payload"
+            )
+        if observation.garmin_source_id != record.garmin_source_id:
+            raise AnalyticInputAssemblyError(
+                "analytic observation source does not match the record"
+            )
+        return observation
+
+    candidates = list(
+        session.scalars(
+            select(GarminPayloadObservation)
+            .where(GarminPayloadObservation.garmin_raw_payload_id == raw_payload.id)
+            .order_by(
+                GarminPayloadObservation.received_at,
+                GarminPayloadObservation.id,
+            )
+        )
+    )
+    if not candidates:
+        raise AnalyticInputAssemblyError(
+            "no Garmin observation provenance found for the record raw payload"
+        )
+    if record.ingest_event_id is not None:
+        matched = [row for row in candidates if row.ingest_event_id == record.ingest_event_id]
+        if len(matched) == 1:
+            return matched[0]
+        if len(matched) > 1:
+            raise AnalyticInputAssemblyError(
+                "ambiguous Garmin observation provenance for ingest event"
+            )
+    if len(candidates) == 1:
+        return candidates[0]
+    raise AnalyticInputAssemblyError(
+        "ambiguous Garmin observation provenance for the record raw payload"
+    )
+
+
+def build_analytic_evidence_ref_from_storage(
+    session: Session,
+    *,
+    record_id: str | None = None,
+    metric_row_id: str | None = None,
+    metric_code: str | None = None,
+    observation_id: str | None = None,
+) -> tuple[
+    AnalyticEvidenceRef,
+    GarminSourceRecord,
+    GarminRecordMetric,
+    GarminRawPayload,
+    GarminPayloadObservation,
+]:
+    """Join persisted record/metric/raw/observation rows into an evidence ref."""
+
+    metric_row: GarminRecordMetric | None = None
+    record: GarminSourceRecord | None = None
+
+    if metric_row_id is not None:
+        metric_row = session.get(GarminRecordMetric, metric_row_id)
+        if metric_row is None:
+            raise AnalyticInputAssemblyError("Garmin metric row not found for analytic input")
+        record = session.get(GarminSourceRecord, metric_row.record_id)
+        if record is None:
+            raise AnalyticInputAssemblyError("Garmin source record missing for metric row")
+        if record_id is not None and record.id != record_id:
+            raise AnalyticInputAssemblyError("metric row does not belong to the requested record")
+        if metric_code is not None and metric_row.metric_code != metric_code:
+            raise AnalyticInputAssemblyError("metric row does not match the requested metric code")
+    else:
+        if record_id is None or metric_code is None:
+            raise AnalyticInputAssemblyError(
+                "analytic input storage locator requires metric_row_id or record_id+metric_code"
+            )
+        record = session.get(GarminSourceRecord, record_id)
+        if record is None:
+            raise AnalyticInputAssemblyError("Garmin source record not found for analytic input")
+        metric_row = session.scalar(
+            select(GarminRecordMetric).where(
+                GarminRecordMetric.record_id == record.id,
+                GarminRecordMetric.metric_code == metric_code.strip(),
+            )
+        )
+        if metric_row is None:
+            raise AnalyticInputAssemblyError(
+                "Garmin metric row not found for the requested record/metric code"
+            )
+
+    assert record is not None and metric_row is not None
+    raw_payload = session.get(GarminRawPayload, record.raw_payload_id)
+    if raw_payload is None:
+        raise AnalyticInputAssemblyError(
+            "Garmin raw payload missing for the current source record"
+        )
+    if raw_payload.garmin_source_id != record.garmin_source_id:
+        raise AnalyticInputAssemblyError(
+            "raw payload source does not match the source record"
+        )
+    if not raw_payload.content_hash or len(raw_payload.content_hash) < 32:
+        raise AnalyticInputAssemblyError("raw payload content hash is missing or too short")
+
+    observation = _resolve_observation_for_record(
+        session,
+        record=record,
+        raw_payload=raw_payload,
+        observation_id=observation_id,
+    )
+    if observation.garmin_raw_payload_id != raw_payload.id:
+        raise AnalyticInputAssemblyError("observation raw payload mismatch")
+    if observation.raw_artifact_id != raw_payload.raw_artifact_id:
+        raise AnalyticInputAssemblyError("observation raw artifact mismatch")
+    if observation.garmin_source_id != record.garmin_source_id:
+        raise AnalyticInputAssemblyError("observation source mismatch")
+
+    evidence = AnalyticEvidenceRef(
+        raw_payload_id=raw_payload.id,
+        content_hash=raw_payload.content_hash,
+        observation_id=observation.id,
+        observation_key=observation.observation_key,
+        record_id=record.id,
+        idempotency_key=record.idempotency_key,
+        metric_row_id=metric_row.id,
+        field_path=metric_row.field_path,
+        normalization_contract_version=record.normalization_contract_version,
+        reconciliation_contract_version=record.reconciliation_contract_version,
+        projection_status=record.projection_status,
+    )
+    return evidence, record, metric_row, raw_payload, observation
+
+
+def build_analytic_input_from_storage(
+    session: Session,
+    *,
+    record_id: str | None = None,
+    metric_row_id: str | None = None,
+    metric_code: str | None = None,
+    observation_id: str | None = None,
+    operational_surface_present: bool = False,
+    rule_version: str = ANALYTIC_RULE_VERSION,
+) -> AnalyticInputDTO:
+    """Build a frozen analytic input DTO from persisted Garmin evidence.
+
+    Bounded producer-side reader over existing storage. Not a second store, not
+    generic event sourcing, and not an inbound verify_manifest loader.
+    """
+
+    evidence, record, metric_row, _raw_payload, _observation = (
+        build_analytic_evidence_ref_from_storage(
+            session,
+            record_id=record_id,
+            metric_row_id=metric_row_id,
+            metric_code=metric_code,
+            observation_id=observation_id,
+        )
+    )
+    source = session.get(GarminSource, record.garmin_source_id)
+    if source is None:
+        raise AnalyticInputAssemblyError("Garmin source missing for analytic input record")
+    metric = _metric_dto_from_row(metric_row)
+    record_dto = _record_dto_from_storage(record, source, metric)
+    return build_analytic_input_from_metric(
+        record_dto,
+        metric,
+        evidence=evidence,
+        operational_surface_present=operational_surface_present,
+        rule_version=rule_version,
+    )
+
+
 def coerce_selected_number(value: Any) -> int | float | None:
     """Coerce a finite numeric selected value; booleans are rejected."""
 
@@ -687,14 +1056,19 @@ __all__ = [
     "AnalyticAvailability",
     "AnalyticEvidenceRef",
     "AnalyticExclusion",
+    "AnalyticInputAssemblyError",
     "AnalyticInputDTO",
     "AnalyticMetricDefinition",
     "AnalyticSelectedValue",
     "AnalyticTemporalSemantics",
     "MetricAnalyticCoverage",
     "SURFACE_ANALYTIC_METRIC_CODES",
+    "build_analytic_evidence_ref_from_storage",
     "build_analytic_input_dto",
     "build_analytic_input_from_metric",
+    "build_analytic_input_from_storage",
+    "canonicalize_collection_values",
+    "canonicalize_metric_collection",
     "coerce_selected_number",
     "evaluate_metric_analytic_coverage",
     "evaluate_sleep_metric_family_coverage",

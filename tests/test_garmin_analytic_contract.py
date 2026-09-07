@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import copy
+import json
 from datetime import UTC, date, datetime, timedelta, timezone
+from pathlib import Path
 
+import pytest
+
+from healthcheck.config import Settings
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.models import GarminSourceRecord
 from healthcheck.garmin.analytic_contract import (
     ANALYTIC_INPUT_CONTRACT_VERSION,
     ANALYTIC_RULE_VERSION,
     AggregateKind,
     AnalyticAvailability,
     AnalyticEvidenceRef,
+    AnalyticInputAssemblyError,
     build_analytic_input_dto,
     build_analytic_input_from_metric,
+    build_analytic_input_from_storage,
     evaluate_metric_analytic_coverage,
     evaluate_sleep_metric_family_coverage,
     get_analytic_metric_definition,
@@ -20,17 +30,24 @@ from healthcheck.garmin.analytic_contract import (
     substitute_aggregate_is_forbidden,
 )
 from healthcheck.garmin.capabilities import GarminStream
+from healthcheck.garmin.contracts import load_synthetic_fixture
 from healthcheck.garmin.normalization import (
     GarminFieldState,
     GarminMetricDTO,
     GarminParseStatus,
     GarminRecordDTO,
+    GarminSleepStageDTO,
     GarminSourceIdentity,
     GarminTemporalDTO,
     GarminTemporalPrecision,
     normalize_garmin_payload,
 )
+from healthcheck.garmin.persistence import GarminPersistenceRepository
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.garmin.sync import _sample_temporal, _sample_token
+from healthcheck.runtime import prepare_runtime
+
+FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "garmin"
 
 
 def _source() -> GarminSourceIdentity:
@@ -364,3 +381,222 @@ def test_resolve_aggregate_kind_field_path_fallback() -> None:
         is AggregateKind.TRAILING_AGGREGATE
     )
     assert resolve_aggregate_kind("custom", "payload.stressValuesArray") is AggregateKind.SAMPLE
+
+
+@pytest.fixture
+def analytic_persistence_database(tmp_path):
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
+    migrate_database(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        factory = create_session_factory(engine)
+        with factory() as session:
+            yield paths, session, ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+    finally:
+        engine.dispose()
+
+
+def _persist_fixture(session, store, name: str, *, payload=None, received_at=None):
+    if payload is None:
+        value = load_synthetic_fixture(FIXTURE_ROOT / f"{name}.json")
+        raw: object = (FIXTURE_ROOT / f"{name}.json").read_bytes()
+        source_contract_version = value.contract_version
+    else:
+        value = payload
+        raw = payload
+        source_contract_version = (
+            payload.get("fixture_contract_version") if isinstance(payload, dict) else None
+        )
+    result = normalize_garmin_payload(value)
+    return GarminPersistenceRepository(session, payload_store=store).persist_result(
+        result,
+        payload=raw,
+        received_at=received_at,
+        source_contract_version=source_contract_version,
+    )
+
+
+def test_sleep_stages_collection_is_frozen_into_manifest_hash() -> None:
+    result = normalize_garmin_payload(load_synthetic_fixture(FIXTURE_ROOT / "sleep.json"))
+    record = result.records[0]
+    metric = record.metric("sleep_stages")
+    assert metric is not None
+    assert metric.value is None
+    assert len(metric.collection) == 2
+    evidence = _evidence(field_path=metric.field_path, metric_row_id="metric-stages")
+    first = build_analytic_input_from_metric(record, metric, evidence=evidence)
+    second = build_analytic_input_from_metric(record, metric, evidence=evidence)
+    assert first.selected.value is None
+    assert len(first.selected.collection) == 2
+    assert first.selected.collection[0]["activity_level"] == "deep"
+    assert first.selected.collection[0]["start"]["measured_at_utc"] == (
+        "2099-01-01T21:30:00+00:00"
+    )
+    assert first.selected.collection[1]["end"]["measured_at_utc"] == (
+        "2099-01-02T06:45:00+00:00"
+    )
+    assert first.manifest_hash == second.manifest_hash
+    assert "collection" in first.as_dict()["selected"]
+    assert first.as_dict()["selected"]["collection"][0]["activity_level"] == "deep"
+
+    altered_stages = (
+        GarminSleepStageDTO(
+            start=metric.collection[0].start,
+            end=metric.collection[0].end,
+            activity_level="rem",
+        ),
+        metric.collection[1],
+    )
+    altered_metric = GarminMetricDTO(
+        capability_code=metric.capability_code,
+        metric_code=metric.metric_code,
+        field_path=metric.field_path,
+        state=metric.state,
+        value=metric.value,
+        unit=metric.unit,
+        collection=altered_stages,
+        capability_status=metric.capability_status,
+        source_device_attributed=metric.source_device_attributed,
+    )
+    altered = build_analytic_input_from_metric(record, altered_metric, evidence=evidence)
+    assert altered.manifest_hash != first.manifest_hash
+    assert altered.selected.collection[0]["activity_level"] == "rem"
+
+
+def test_storage_backed_manifest_survives_later_current_correction(
+    analytic_persistence_database,
+) -> None:
+    _paths, session, store = analytic_persistence_database
+    first_payload = json.loads((FIXTURE_ROOT / "sleep.json").read_text(encoding="utf-8"))
+    first_payload["payload"]["id"] = "sleep-session-analytic-1"
+    first = _persist_fixture(
+        session,
+        store,
+        "sleep",
+        payload=first_payload,
+        received_at=datetime(2099, 1, 3, 12, 0, tzinfo=UTC),
+    )
+    session.commit()
+    record_id = first.records[0].id
+    observation_a_id = first.observation.id
+    raw_a_id = first.raw_payload.id
+    content_a = first.raw_payload.content_hash
+
+    original = build_analytic_input_from_storage(
+        session,
+        record_id=record_id,
+        metric_code="sleep_stages",
+        operational_surface_present=True,
+    )
+    frozen = copy.deepcopy(original.as_dict())
+    assert frozen["evidence"]["observation_id"] == observation_a_id
+    assert frozen["evidence"]["raw_payload_id"] == raw_a_id
+    assert frozen["evidence"]["content_hash"] == content_a
+    assert frozen["selected"]["value"] is None
+    assert len(frozen["selected"]["collection"]) == 2
+    assert frozen["selected"]["collection"][0]["activity_level"] == "deep"
+    assert frozen["selected"]["collection"][0]["start"]["measured_at_utc"] == (
+        "2099-01-01T21:30:00+00:00"
+    )
+    assert frozen["selected"]["collection"][1]["end"]["measured_at_utc"] == (
+        "2099-01-02T06:45:00+00:00"
+    )
+    original_hash = frozen["manifest_hash"]
+    duration_a = build_analytic_input_from_storage(
+        session,
+        record_id=record_id,
+        metric_code="sleep_duration_seconds",
+        operational_surface_present=True,
+    )
+    assert duration_a.selected.value == 28800
+    duration_a_hash = duration_a.manifest_hash
+
+    corrected_payload = json.loads((FIXTURE_ROOT / "sleep.json").read_text(encoding="utf-8"))
+    corrected_payload["payload"]["id"] = "sleep-session-analytic-1"
+    corrected_payload["fixture_id"] = "synthetic-vivoactive-5-sleep-001-corrected"
+    corrected_payload["payload"]["dailySleepDTO"]["sleepTimeSeconds"] = 30000
+    corrected_payload["payload"]["dailySleepDTO"]["sleepScores"]["overall"]["value"] = 70
+    corrected_payload["payload"]["levels"] = [
+        {
+            "startTimeGMT": "2099-01-01T22:00:00Z",
+            "endTimeGMT": "2099-01-01T23:30:00Z",
+            "activityLevel": "light",
+        },
+        {
+            "startTimeGMT": "2099-01-02T04:00:00Z",
+            "endTimeGMT": "2099-01-02T06:00:00Z",
+            "activityLevel": "rem",
+        },
+    ]
+    second = _persist_fixture(
+        session,
+        store,
+        "sleep",
+        payload=corrected_payload,
+        received_at=datetime(2099, 1, 4, 12, 0, tzinfo=UTC),
+    )
+    session.commit()
+    assert second.updated_count == 1
+    assert second.records[0].id == record_id
+    assert second.observation.id != observation_a_id
+    assert second.raw_payload.id != raw_a_id
+    assert second.raw_payload.content_hash != content_a
+
+    current = session.get(GarminSourceRecord, record_id)
+    assert current is not None
+    assert current.raw_payload_id == second.raw_payload.id
+
+    # Already-recorded manifests stay pointed at immutable observation A.
+    assert frozen["evidence"]["observation_id"] == observation_a_id
+    assert frozen["evidence"]["content_hash"] == content_a
+    assert frozen["selected"]["collection"][0]["activity_level"] == "deep"
+    assert frozen["manifest_hash"] == original_hash
+    assert duration_a.as_dict()["manifest_hash"] == duration_a_hash
+    assert duration_a.as_dict()["selected"]["value"] == 28800
+
+    rebuilt = build_analytic_input_from_storage(
+        session,
+        record_id=record_id,
+        metric_code="sleep_stages",
+        operational_surface_present=True,
+    )
+    assert rebuilt.evidence.observation_id == second.observation.id
+    assert rebuilt.evidence.raw_payload_id == second.raw_payload.id
+    assert rebuilt.evidence.content_hash == second.raw_payload.content_hash
+    assert rebuilt.selected.collection[0]["activity_level"] == "light"
+    assert rebuilt.selected.collection[0]["start"]["measured_at_utc"] == (
+        "2099-01-01T22:00:00+00:00"
+    )
+    assert rebuilt.selected.collection[1]["activity_level"] == "rem"
+    assert rebuilt.manifest_hash != original_hash
+
+    rebuilt_duration = build_analytic_input_from_storage(
+        session,
+        record_id=record_id,
+        metric_code="sleep_duration_seconds",
+        operational_surface_present=True,
+    )
+    assert rebuilt_duration.selected.value == 30000
+    assert rebuilt_duration.manifest_hash != duration_a_hash
+
+    # Same metric-row locator still rebuilds the post-correction current input.
+    by_metric_row = build_analytic_input_from_storage(
+        session,
+        metric_row_id=rebuilt.evidence.metric_row_id,
+        operational_surface_present=True,
+    )
+    assert by_metric_row.manifest_hash == rebuilt.manifest_hash
+
+
+def test_storage_backed_assembler_fails_closed_on_missing_metric(
+    analytic_persistence_database,
+) -> None:
+    _paths, session, store = analytic_persistence_database
+    outcome = _persist_fixture(session, store, "daily_health")
+    session.commit()
+    with pytest.raises(AnalyticInputAssemblyError, match="metric row not found"):
+        build_analytic_input_from_storage(
+            session,
+            record_id=outcome.records[0].id,
+            metric_code="sleep_stages",
+        )

@@ -92,6 +92,13 @@ manifest that points at immutable raw/observation evidence and the selected
 values frozen at analysis time. This is not a second Garmin store and not generic
 event sourcing.
 
+Producer-side storage grounding: `build_analytic_input_from_storage()` takes a
+persisted record/metric locator, joins the existing raw-payload + observation
+provenance chain, constructs `AnalyticEvidenceRef` itself, and fails closed on
+missing or mismatched provenance. Selected input freezes scalars and, for
+collection-valued metrics such as `sleep_stages`, the canonical stage-interval
+collection used by the calculation.
+
 ## Non-goals
 
 - LLM mathematics or free-form SQL analytics;
