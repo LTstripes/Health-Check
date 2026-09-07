@@ -183,7 +183,7 @@ def test_each_garmin_stream_has_a_separate_typed_projection(persistence_database
     stress = session.scalar(
         select(GarminRecordMetric).where(
             GarminRecordMetric.record_id == intraday.records[0].id,
-            GarminRecordMetric.metric_code == "stress",
+            GarminRecordMetric.metric_code == "stress_sample",
         )
     )
     assert zero is not None and zero.state == "value" and zero.value_number == 0

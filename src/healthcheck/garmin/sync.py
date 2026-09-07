@@ -154,9 +154,9 @@ SURFACE_EXPECTED_METRICS: dict[str, tuple[str, ...]] = {
     "heart_rate": ("heart_rate_bpm",),
     "resting_heart_rate": ("resting_heart_rate_bpm",),
     "hrv_status": ("hrv_weekly_average_ms",),
-    "stress": ("stress",),
+    "stress": ("stress_sample", "stress_daily_average", "stress_daily_maximum"),
     "body_battery": ("body_battery",),
-    "spo2": ("spo2_percent",),
+    "spo2": ("spo2_sample", "spo2_daily_average", "spo2_trailing_7d_average"),
     "respiration": ("respiration_bpm",),
     "activities": ("duration_seconds",),
 }
@@ -169,16 +169,14 @@ _SERIES_FIELDS: dict[str, tuple[str, ...]] = {
 }
 _SERIES_SCALAR_ALIASES: dict[str, str] = {
     "heart_rate": "heartRate",
-    "stress": "stress",
     "body_battery": "bodyBattery",
-    "spo2": "spo2",
     "respiration": "respiration",
 }
 _SERIES_METRIC: dict[str, tuple[str, str, str]] = {
     "heart_rate": ("heart_rate", "heart_rate_bpm", "bpm"),
-    "stress": ("stress", "stress", "points"),
+    "stress": ("stress", "stress_sample", "points"),
     "body_battery": ("body_battery", "body_battery", "points"),
-    "spo2": ("spo2", "spo2_percent", "%"),
+    "spo2": ("spo2", "spo2_sample", "%"),
     "respiration": ("respiration", "respiration_bpm", "breaths/min"),
 }
 _BODY_BATTERY_TIME_DESCRIPTOR_NAMES = (
@@ -504,18 +502,8 @@ def _adapt_known_provider_shape(
             adapted["startTimeGMT"] = adapted["startTimestampGMT"]
         if "startTimeLocal" not in adapted and "startTimestampLocal" in adapted:
             adapted["startTimeLocal"] = adapted["startTimestampLocal"]
-    if surface.code == "stress" and "stress" not in adapted:
-        for key in ("avgStressLevel", "maxStressLevel"):
-            value = adapted.get(key)
-            if _is_finite_number(value):
-                adapted["stress"] = value
-                break
-    if surface.code == "spo2" and "spo2" not in adapted:
-        for key in ("averageSpO2", "lastSevenDaysAvgSpO2"):
-            value = adapted.get(key)
-            if _is_finite_number(value):
-                adapted["spo2"] = value
-                break
+    # Stress/SpO2 aggregates stay on their reviewed fields. Do not collapse
+    # daily average/maximum/trailing aggregates into a sample alias.
     if surface.code == "respiration" and "respiration" not in adapted:
         value = adapted.get("avgSleepRespirationValue")
         if _is_finite_number(value):
@@ -811,8 +799,9 @@ def _sample_token(stamp: Any) -> str | None:
     if stamp is None:
         return None
     if isinstance(stamp, datetime):
-        measured = stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
-        return f"stamp:{measured.astimezone(UTC).isoformat()}"
+        if stamp.tzinfo is not None and stamp.utcoffset() is not None:
+            return f"stamp:{stamp.astimezone(UTC).isoformat()}"
+        return f"stamp:{stamp.replace(tzinfo=None).isoformat()}"
     if isinstance(stamp, str):
         text = stamp.strip()
         return f"stamp:{text}" if text else None
@@ -860,13 +849,33 @@ def _collection_scope(
 def _sample_temporal(
     stamp: Any, *, day: date | None, fallback: GarminTemporalDTO | None
 ) -> GarminTemporalDTO:
+    """Project one series stamp without inventing UTC for local-only naive values."""
+
     if isinstance(stamp, datetime):
-        measured = stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+        if stamp.tzinfo is not None and stamp.utcoffset() is not None:
+            measured = stamp.astimezone(UTC)
+            local_wall = stamp.replace(tzinfo=None).isoformat()
+            offset = int(stamp.utcoffset().total_seconds() // 60)
+            return GarminTemporalDTO(
+                precision=GarminTemporalPrecision.UTC_INSTANT,
+                measured_at_utc=measured,
+                local_date=day or stamp.date(),
+                source_field="payload.series",
+                local_wall_time=local_wall,
+                source_local_timestamp=stamp.isoformat(),
+                source_utc_offset_minutes=offset,
+                source_local_field="payload.series",
+                source_utc_field="payload.series",
+            )
+        wall = stamp.replace(tzinfo=None).isoformat()
         return GarminTemporalDTO(
-            precision=GarminTemporalPrecision.UTC_INSTANT,
-            measured_at_utc=measured.astimezone(UTC),
-            local_date=day or measured.astimezone(UTC).date(),
+            precision=GarminTemporalPrecision.LOCAL_WALL_TIME,
+            local_wall_time=wall,
+            local_date=day or stamp.date(),
             source_field="payload.series",
+            local_date_source="calendarDate" if day is not None else "local_wall_time",
+            source_local_timestamp=wall,
+            source_local_field="payload.series",
         )
     if isinstance(stamp, str):
         text = stamp.strip()
@@ -876,14 +885,28 @@ def _sample_temporal(
         except ValueError:
             parsed = None
         if parsed is not None:
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=UTC)
+            if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+                measured = parsed.astimezone(UTC)
+                return GarminTemporalDTO(
+                    precision=GarminTemporalPrecision.UTC_INSTANT,
+                    measured_at_utc=measured,
+                    local_date=day or parsed.date(),
+                    source_field="payload.series",
+                    local_wall_time=parsed.replace(tzinfo=None).isoformat(),
+                    source_local_timestamp=text,
+                    source_utc_offset_minutes=int(parsed.utcoffset().total_seconds() // 60),
+                    source_local_field="payload.series",
+                    source_utc_field="payload.series",
+                )
+            wall = parsed.isoformat()
             return GarminTemporalDTO(
-                precision=GarminTemporalPrecision.UTC_INSTANT,
-                measured_at_utc=parsed.astimezone(UTC),
-                local_date=day or parsed.astimezone(UTC).date(),
+                precision=GarminTemporalPrecision.LOCAL_WALL_TIME,
+                local_wall_time=wall,
+                local_date=day or parsed.date(),
                 source_field="payload.series",
-                source_local_timestamp=text if parsed.tzinfo is None else None,
+                local_date_source="calendarDate" if day is not None else "local_wall_time",
+                source_local_timestamp=text,
+                source_local_field="payload.series",
             )
     if isinstance(stamp, Real) and not isinstance(stamp, bool) and stamp >= 1_000_000_000:
         seconds = float(stamp) / 1000.0 if stamp >= 1_000_000_000_000 else float(stamp)
@@ -893,6 +916,7 @@ def _sample_temporal(
             measured_at_utc=measured,
             local_date=day or measured.date(),
             source_field="payload.series",
+            source_utc_field="payload.series",
         )
     if day is not None:
         return GarminTemporalDTO(
