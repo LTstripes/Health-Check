@@ -79,7 +79,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0007_garmin_collection_reconciliation",
+        "migration_revision": "0008_garmin_observation_reconciliation_version",
         "ready": True,
     }
 
@@ -751,12 +751,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0007_garmin_collection_reconciliation"
+        == "0008_garmin_observation_reconciliation_version"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0007_garmin_collection_reconciliation"
+        == "0008_garmin_observation_reconciliation_version"
     )
 
     engine = create_sqlite_engine(paths)
@@ -846,7 +846,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0007_garmin_collection_reconciliation"
+            == "0008_garmin_observation_reconciliation_version"
         )
     finally:
         engine.dispose()

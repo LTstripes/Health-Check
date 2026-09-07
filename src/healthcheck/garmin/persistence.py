@@ -392,6 +392,7 @@ class GarminPayloadObservationRepository:
         source_window_end_utc: datetime | None = None,
         source_filename: str | None = None,
         received_at: datetime | None = None,
+        reconciliation_contract_version: str = RECONCILIATION_CONTRACT_VERSION,
     ) -> GarminPayloadObservation:
         normalized_stream = GarminStream(stream_code).value
         normalized_status = GarminPayloadStatus(parse_status).value
@@ -427,6 +428,9 @@ class GarminPayloadObservationRepository:
             source_contract_version=source_contract_version,
             normalization_contract_version=_required_text(
                 normalization_contract_version, "normalization contract version"
+            ),
+            reconciliation_contract_version=_required_text(
+                reconciliation_contract_version, "reconciliation contract version"
             ),
             fixture_id=fixture_id,
             parse_status=normalized_status,
@@ -1064,6 +1068,7 @@ class GarminPersistenceRepository:
                 source_window_end_utc=normalized_window_end,
                 source_filename=source_filename,
                 received_at=received_at,
+                reconciliation_contract_version=reconciliation_contract_version,
             )
             records = self._replay_current_records(
                 source_id=source_row.id,
@@ -1143,6 +1148,7 @@ class GarminPersistenceRepository:
             source_window_end_utc=normalized_window_end,
             source_filename=source_filename,
             received_at=received_at,
+            reconciliation_contract_version=reconciliation_contract_version,
         )
 
         seen_at = start_or_now(received_at)

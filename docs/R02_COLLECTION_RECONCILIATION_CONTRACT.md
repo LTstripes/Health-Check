@@ -76,6 +76,15 @@ That skip is unchanged unless reprocessing is explicitly requested.
 - `garmin-reprocess` is an offline, bounded command. It re-normalizes stored raw
   artifacts for an explicit date range and does not call Garmin, write incremental
   checkpoints, or write historical checkpoints.
+- Offline reprocess applies only the newest observation in each
+  source/surface/window. Older observations remain immutable provenance and are
+  not replayed into current state.
+- Collection completeness is reconstructed fail-closed: a stored activity list
+  whose last page is full is not treated as authoritative, so truncated or
+  budget-stopped fetches cannot retire absent members during reprocess.
+- Version-aware skip is represented for empty collections by the newest
+  observation's reconciliation and normalization versions. It does not invent
+  current rows.
 
 Reprocess is bounded by the requested local-date span and a max observation cap.
 Days in the requested range with no `present` / `confirmed_empty` coverage that

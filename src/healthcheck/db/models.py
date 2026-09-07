@@ -398,6 +398,12 @@ class GarminPayloadObservation(Base):
     payload_format: Mapped[str] = mapped_column(String(20), nullable=False)
     source_contract_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
     normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    reconciliation_contract_version: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        default="r02-garmin-pre-collection-reconciliation",
+        server_default=text("'r02-garmin-pre-collection-reconciliation'"),
+    )
     fixture_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     parse_status: Mapped[str] = mapped_column(String(20), nullable=False)
     record_count: Mapped[int] = mapped_column(Integer, nullable=False)

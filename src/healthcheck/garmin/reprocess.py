@@ -8,7 +8,7 @@ or historical checkpoints.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -39,6 +39,7 @@ from healthcheck.garmin.persistence import (
 )
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.garmin.sync import (
+    ACTIVITY_PAGE_SIZE,
     DEFAULT_TRAILING_WINDOW_DAYS,
     PRODUCTION_SYNC_SURFACES,
     GarminSyncSurface,
@@ -265,17 +266,18 @@ class GarminCollectionReprocessor:
                 if observation.source_filename not in filenames:
                     continue
                 selected.append(observation)
+            candidates, superseded = _latest_observations_per_window(selected)
             history_gaps = tuple(
                 _history_gaps(session, start=start, end=end, surfaces=surfaces)
             )
 
-        remaining = max(0, len(selected) - cap)
-        bounded = selected[:cap]
+        remaining = max(0, len(candidates) - cap)
+        bounded = candidates[:cap]
         if dry_run:
-            skipped = sum(
+            skipped = superseded + sum(
                 1
                 for observation in bounded
-                if _observation_already_current(factory, observation)
+                if _window_already_current(factory, observation)
             )
             return GarminReprocessReport(
                 status="planned",
@@ -310,13 +312,13 @@ class GarminCollectionReprocessor:
             sync_run_id = run.id
 
         processed = 0
-        skipped = 0
+        skipped = superseded
         inserted = 0
         updated = 0
         retired = 0
         abort_reason = "observation_budget_exhausted" if remaining else None
         for observation in bounded:
-            if _observation_already_current(factory, observation):
+            if _window_already_current(factory, observation):
                 skipped += 1
                 continue
             outcome = self._reprocess_observation(
@@ -384,6 +386,10 @@ class GarminCollectionReprocessor:
         window_end = restore_stored_utc(observation.source_window_end_utc)
         if window_start is None or window_end is None:
             return None
+        observed_at = restore_stored_utc(observation.received_at)
+        received_at = self.clock()
+        if observed_at is not None and received_at <= observed_at:
+            received_at = observed_at + timedelta(seconds=1)
         with factory() as session:
             artifact = session.get(RawArtifact, observation.raw_artifact_id)
             source = session.get(GarminSource, observation.garmin_source_id)
@@ -419,7 +425,7 @@ class GarminCollectionReprocessor:
                 payload=raw_bytes,
                 stream_code=surface.stream,
                 source_identity=identity,
-                received_at=self.clock(),
+                received_at=received_at,
                 source_window_start_utc=window_start,
                 source_window_end_utc=window_end,
                 sync_run_id=sync_run_id,
@@ -429,7 +435,7 @@ class GarminCollectionReprocessor:
                     day=day,
                     window_start=local_start,
                     window_end=local_end,
-                    fetch_complete=True,
+                    fetch_complete=_reconstruct_fetch_complete(surface, payload),
                     coverage_status=coverage_status,
                 ),
             )
@@ -437,7 +443,92 @@ class GarminCollectionReprocessor:
             return outcome
 
 
-def _observation_already_current(factory, observation: GarminPayloadObservation) -> bool:
+def _observation_window_key(observation: GarminPayloadObservation) -> tuple[str, str, str, str]:
+    start = restore_stored_utc(observation.source_window_start_utc)
+    end = restore_stored_utc(observation.source_window_end_utc)
+    start_text = start.isoformat() if start is not None else ""
+    end_text = end.isoformat() if end is not None else ""
+    return (
+        observation.garmin_source_id,
+        observation.source_filename or "",
+        start_text,
+        end_text,
+    )
+
+
+def _latest_observations_per_window(
+    observations: Sequence[GarminPayloadObservation],
+) -> tuple[list[GarminPayloadObservation], int]:
+    """Keep only the newest observation in each source/surface/window.
+
+    Older observations in the same window are provenance, not reprocess inputs.
+    Applying them first would stamp current versions and skip a later correction.
+    """
+
+    latest: dict[tuple[str, str, str, str], GarminPayloadObservation] = {}
+    for observation in observations:
+        key = _observation_window_key(observation)
+        current = latest.get(key)
+        if current is None or _observation_is_newer(observation, current):
+            latest[key] = observation
+    candidates = sorted(
+        latest.values(),
+        key=lambda item: (
+            restore_stored_utc(item.received_at) or datetime.min.replace(tzinfo=UTC),
+            item.id,
+        ),
+        reverse=True,
+    )
+    return candidates, max(0, len(observations) - len(candidates))
+
+
+def _observation_is_newer(
+    candidate: GarminPayloadObservation, current: GarminPayloadObservation
+) -> bool:
+    candidate_at = restore_stored_utc(candidate.received_at)
+    current_at = restore_stored_utc(current.received_at)
+    if candidate_at != current_at:
+        if candidate_at is None:
+            return False
+        if current_at is None:
+            return True
+        return candidate_at > current_at
+    return candidate.id > current.id
+
+
+def _reconstruct_fetch_complete(surface: GarminSyncSurface, payload: Any) -> bool:
+    """Rebuild original collection completeness, fail-closed when unprovable.
+
+    Per-day surfaces are single-request fetches. Activity lists are complete only
+    when the reconstructed last page is short or the collection is empty. A full
+    last page may be truncated pagination or a budget stop, so it is not
+    authoritative enough to retire absent members.
+    """
+
+    if surface.code != "activities":
+        return True
+    items = _activity_items(payload)
+    if items is None:
+        return False
+    if not items:
+        return True
+    return len(items) % ACTIVITY_PAGE_SIZE != 0
+
+
+def _activity_items(payload: Any) -> list[Any] | None:
+    if isinstance(payload, Sequence) and not isinstance(
+        payload, (str, bytes, bytearray, Mapping)
+    ):
+        return list(payload)
+    if isinstance(payload, Mapping):
+        raw = payload.get("activities")
+        if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray, Mapping)):
+            return list(raw)
+        return None
+    return None
+
+
+def _window_already_current(factory, observation: GarminPayloadObservation) -> bool:
     window_start = restore_stored_utc(observation.source_window_start_utc)
     window_end = restore_stored_utc(observation.source_window_end_utc)
     if window_start is None or window_end is None:
@@ -459,12 +550,31 @@ def _observation_already_current(factory, observation: GarminPayloadObservation)
                 )
             )
         )
-        if not rows:
+        if rows:
+            return all(
+                row.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
+                and row.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
+                for row in rows
+            )
+        siblings = [
+            item
+            for item in session.scalars(
+                select(GarminPayloadObservation).where(
+                    GarminPayloadObservation.garmin_source_id == observation.garmin_source_id,
+                    GarminPayloadObservation.source_filename == observation.source_filename,
+                )
+            )
+            if _observation_window_key(item) == _observation_window_key(observation)
+        ]
+        if not siblings:
             return False
-        return all(
-            row.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
-            and row.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
-            for row in rows
+        latest = siblings[0]
+        for item in siblings[1:]:
+            if _observation_is_newer(item, latest):
+                latest = item
+        return (
+            latest.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
+            and latest.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
         )
 
 
