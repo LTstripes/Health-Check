@@ -507,6 +507,7 @@ class GarminRecordDTO:
     record_id: str | None = None
     activity_type: str | None = None
     record_index: int | None = None
+    sample_token: str | None = None
     metrics: tuple[GarminMetricDTO, ...] = ()
     unknown_fields: tuple[GarminUnknownFieldDTO, ...] = ()
     diagnostics: tuple[GarminDiagnostic, ...] = ()
@@ -930,23 +931,48 @@ def stable_garmin_reconciliation_key(
     """Stable current-projection key that does not include mutable metric values.
 
     Provider record IDs still win.  Id-less production records reconcile by
-    source, stream, surface, temporal identity and optional sample identity so
-    a trailing-window value correction updates one current row.
+    source, stream, surface, temporal identity and a stable sample token when
+    one exists.  Array position is last-resort identity only when no record id
+    and no sample token are available.
     """
 
     normalized_record_id = _optional_text(record_id)
     if normalized_record_id is not None:
         return stable_garmin_idempotency_key(source, stream, normalized_record_id)
-    payload = {
+    payload: dict[str, Any] = {
         "kind": "reconcile",
         "source_instance_id": _source_instance_value(source),
         "stream": GarminStream(stream).value,
         "surface": _required_text(surface, "reconciliation surface"),
         "time": temporal.time_key() if temporal is not None else "unknown-time",
-        "sample_index": sample_index,
-        "sample_token": _optional_text(sample_token),
     }
+    token = _optional_text(sample_token)
+    if token is not None:
+        payload["sample_token"] = token
+    elif sample_index is not None:
+        payload["sample_index"] = sample_index
     return f"garmin:v1:reconcile:{_digest(payload)}"
+
+
+def stable_garmin_collection_key(
+    source: GarminSourceIdentity | str,
+    stream: GarminStream | str,
+    *,
+    surface: str,
+    window_start: date,
+    window_end: date,
+) -> str:
+    """Identity of one authoritative collection window, excluding member samples."""
+
+    payload = {
+        "kind": "collection",
+        "source_instance_id": _source_instance_value(source),
+        "stream": GarminStream(stream).value,
+        "surface": _required_text(surface, "collection surface"),
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+    }
+    return f"garmin:v1:collection:{_digest(payload)}"
 
 
 def normalize_garmin_payload(
@@ -2335,6 +2361,8 @@ __all__ = [
     "parse_garmin_time",
     "parse_garmin_timestamp",
     "parse_synthetic_garmin_payload",
+    "stable_garmin_collection_key",
     "stable_garmin_idempotency_key",
+    "stable_garmin_reconciliation_key",
     "stable_idempotency_key",
 ]

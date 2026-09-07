@@ -320,10 +320,12 @@ class GarminHistoricalBackfill:
         streams: Sequence[str] | None = None,
         chunk_days: int | None = None,
         dry_run: bool = False,
+        reprocess: bool = False,
     ) -> GarminBackfillReport:
         start_date, end_date = validate_backfill_range(start, end)
         surfaces = resolve_backfill_surfaces(streams)
         days = validate_backfill_chunk_days(chunk_days)
+        self.ingest.reprocess_outdated = reprocess
         chunks = plan_backfill_chunks(start_date, end_date, chunk_days=days, surfaces=surfaces)
         if dry_run:
             return GarminBackfillReport(
@@ -578,6 +580,7 @@ def run_garmin_historical_backfill(
     chunk_days: int | None = None,
     dry_run: bool = False,
     max_provider_requests: int = MAX_BACKFILL_PROVIDER_REQUESTS,
+    reprocess: bool = False,
 ) -> GarminBackfillReport:
     """Run or plan one owner-invoked historical Garmin backfill."""
 
@@ -592,4 +595,5 @@ def run_garmin_historical_backfill(
         streams=streams,
         chunk_days=chunk_days,
         dry_run=dry_run,
+        reprocess=reprocess,
     )

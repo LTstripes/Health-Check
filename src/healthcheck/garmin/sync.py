@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
-from healthcheck.db.models import SyncStreamState
+from healthcheck.db.models import GarminSource, GarminSourceRecord, SyncStreamState
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.garmin.auth import (
     GarminAuthResult,
@@ -58,6 +58,9 @@ from healthcheck.garmin.normalization import (
 )
 from healthcheck.garmin.persistence import (
     GARMIN_COVERAGE_RULE_VERSION,
+    PROJECTION_CURRENT,
+    RECONCILIATION_CONTRACT_VERSION,
+    GarminCollectionScope,
     GarminPersistenceRepository,
 )
 from healthcheck.garmin.redaction import GarminDeviceAttribution, infer_device_attribution
@@ -727,15 +730,18 @@ def _prepare_normalization_result(
 
 
 def _reconcile_record(surface: GarminSyncSurface, record: GarminRecordDTO) -> GarminRecordDTO:
+    sample_token = record.sample_token or _temporal_sample_token(record.temporal)
     return replace(
         record,
+        sample_token=sample_token,
         idempotency_key=stable_garmin_reconciliation_key(
             record.source,
             record.stream,
             surface=surface.code,
             temporal=record.temporal,
             record_id=record.record_id,
-            sample_index=record.record_index,
+            sample_token=sample_token,
+            sample_index=None if sample_token or record.record_id else record.record_index,
         ),
     )
 
@@ -783,13 +789,14 @@ def _series_records(
                 stream=surface.stream,
                 source=result.source,
                 temporal=temporal,
+                sample_token=_sample_token(stamp),
                 idempotency_key=stable_garmin_reconciliation_key(
                     result.source,
                     surface.stream,
                     surface=surface.code,
                     temporal=temporal,
-                    sample_index=index,
-                    sample_token=_sample_token(stamp, index),
+                    sample_token=_sample_token(stamp),
+                    sample_index=None if _sample_token(stamp) else index,
                 ),
                 record_index=index,
                 metrics=(metric,),
@@ -800,10 +807,54 @@ def _series_records(
     return tuple(records)
 
 
-def _sample_token(stamp: Any, index: int) -> str:
+def _sample_token(stamp: Any) -> str | None:
     if stamp is None:
-        return f"index:{index}"
-    return f"stamp:{stamp}"
+        return None
+    if isinstance(stamp, datetime):
+        measured = stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+        return f"stamp:{measured.astimezone(UTC).isoformat()}"
+    if isinstance(stamp, str):
+        text = stamp.strip()
+        return f"stamp:{text}" if text else None
+    if isinstance(stamp, Real) and not isinstance(stamp, bool):
+        return f"stamp:{stamp}"
+    return None
+
+
+def _temporal_sample_token(temporal: GarminTemporalDTO | None) -> str | None:
+    if temporal is None or temporal.measured_at_utc is None:
+        return None
+    return f"stamp:{temporal.measured_at_utc.astimezone(UTC).isoformat()}"
+
+
+def _collection_scope(
+    surface: GarminSyncSurface,
+    *,
+    day: date | None,
+    window_start: date,
+    window_end: date,
+    fetch_complete: bool,
+    coverage_status: str,
+) -> GarminCollectionScope:
+    prefixes = tuple(f"payload.{name}" for name in _SERIES_FIELDS.get(surface.code, ()))
+    if surface.code == "activities":
+        kind = "activity_window"
+        start, end = window_start, window_end
+    elif prefixes:
+        kind = "day_series"
+        start = end = day or window_end
+    else:
+        kind = "day_singleton"
+        start = end = day or window_end
+    return GarminCollectionScope(
+        surface=surface.code,
+        stream=surface.stream.value,
+        kind=kind,
+        window_start=start,
+        window_end=end,
+        complete=fetch_complete and coverage_status in {"present", "confirmed_empty"},
+        source_path_prefixes=prefixes,
+    )
 
 
 def _sample_temporal(
@@ -1050,6 +1101,7 @@ class GarminIncrementalSync:
         run_stream: str = INCREMENTAL_RUN_STREAM,
         checkpoint_namespace: str | None = None,
         skip_complete_coverage: bool = False,
+        reprocess_outdated: bool = False,
     ) -> None:
         self.settings = settings
         self.client = client
@@ -1059,6 +1111,7 @@ class GarminIncrementalSync:
         self.run_stream = run_stream
         self.checkpoint_namespace = checkpoint_namespace
         self.skip_complete_coverage = skip_complete_coverage
+        self.reprocess_outdated = reprocess_outdated
         if self.max_provider_requests < 1:
             raise ValueError("max_provider_requests must be positive")
         if self.max_provider_requests > MAX_SYNC_PROVIDER_REQUESTS:
@@ -1350,6 +1403,35 @@ class GarminIncrementalSync:
             return "confirmed_empty"
         return None
 
+    def _surface_reconciliation_is_current(
+        self,
+        factory,
+        *,
+        provider_id: str,
+        surface: GarminSyncSurface,
+        window_start: date,
+        window_end: date,
+    ) -> bool:
+        with factory() as session:
+            rows = list(
+                session.scalars(
+                    select(GarminSourceRecord)
+                    .join(GarminSource, GarminSource.id == GarminSourceRecord.garmin_source_id)
+                    .where(
+                        GarminSource.provider_id == provider_id,
+                        GarminSourceRecord.surface_code == surface.code,
+                        GarminSourceRecord.projection_status == PROJECTION_CURRENT,
+                        GarminSourceRecord.source_local_date >= window_start,
+                        GarminSourceRecord.source_local_date <= window_end,
+                    )
+                )
+            )
+        if not rows:
+            return False
+        return all(
+            row.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION for row in rows
+        )
+
     def _sync_surface(
         self,
         factory,
@@ -1376,7 +1458,17 @@ class GarminIncrementalSync:
                 window_start=coverage_start,
                 window_end=coverage_end,
             )
-            if completed is not None:
+            if completed is not None and (
+                not self.reprocess_outdated
+                or completed != "present"
+                or self._surface_reconciliation_is_current(
+                    factory,
+                    provider_id=provider_id,
+                    surface=surface,
+                    window_start=coverage_start,
+                    window_end=coverage_end,
+                )
+            ):
                 return GarminSyncAttempt(
                     surface=surface.code,
                     stream=surface.stream.value,
@@ -1398,7 +1490,9 @@ class GarminIncrementalSync:
                 not_run_reason="request_budget_exhausted",
             )
 
-        fetched, error, request_count = self._fetch(surface, day, window_start, window_end, budget)
+        fetched, error, request_count, fetch_complete = self._fetch(
+            surface, day, window_start, window_end, budget
+        )
         if error is not None and error.error_class == "authentication":
             self._record_failure_checkpoint(
                 factory,
@@ -1475,6 +1569,7 @@ class GarminIncrementalSync:
             trailing_window_days=trailing_window_days,
             payload=fetched,
             request_count=request_count,
+            fetch_complete=fetch_complete,
         )
 
     def _fetch(
@@ -1484,14 +1579,14 @@ class GarminIncrementalSync:
         window_start: date,
         window_end: date,
         budget: _SyncBudget,
-    ) -> tuple[Any, GarminSafeError | None, int]:
+    ) -> tuple[Any, GarminSafeError | None, int, bool]:
         if surface.code == "activities":
             return self._fetch_activities(window_start, window_end, budget)
         if not budget.consume():
-            return None, None, 0
+            return None, None, 0, False
         method = getattr(self.client, surface.method, None)
         if not callable(method):
-            return None, GarminSafeError("runtime", "method_unavailable"), 1
+            return None, GarminSafeError("runtime", "method_unavailable"), 1, False
         day_text = (day or window_end).isoformat()
         try:
             with _silence_provider_logging():
@@ -1500,25 +1595,27 @@ class GarminIncrementalSync:
                 else:
                     payload = method(day_text)
         except Exception as exc:
-            return None, classify_garmin_error(exc), 1
-        return payload, None, 1
+            return None, classify_garmin_error(exc), 1, False
+        return payload, None, 1, True
 
     def _fetch_activities(
         self,
         window_start: date,
         window_end: date,
         budget: _SyncBudget,
-    ) -> tuple[Any, GarminSafeError | None, int]:
+    ) -> tuple[Any, GarminSafeError | None, int, bool]:
         endpoint = getattr(self.client, _ACTIVITY_ENDPOINT_ATTRIBUTE, None)
         connectapi = getattr(self.client, "connectapi", None)
         if endpoint != _ACTIVITY_ENDPOINT or not callable(connectapi):
-            return None, GarminSafeError("runtime", "method_unavailable"), 0
+            return None, GarminSafeError("runtime", "method_unavailable"), 0, False
         collected: list[Any] = []
         used = 0
+        complete = True
         for page in range(MAX_ACTIVITY_PAGES):
             if not budget.consume():
                 if used == 0:
-                    return None, None, 0
+                    return None, None, 0, False
+                complete = False
                 break
             used += 1
             try:
@@ -1533,7 +1630,7 @@ class GarminIncrementalSync:
                         },
                     )
             except Exception as exc:
-                return None, classify_garmin_error(exc), used
+                return None, classify_garmin_error(exc), used, False
             if page_payload is None:
                 break
             if _is_sequence(page_payload):
@@ -1541,11 +1638,13 @@ class GarminIncrementalSync:
             elif isinstance(page_payload, Mapping) and _is_sequence(page_payload.get("activities")):
                 items = list(page_payload["activities"])
             else:
-                return page_payload, None, used
+                return page_payload, None, used, False
             collected.extend(items)
             if len(items) < ACTIVITY_PAGE_SIZE:
                 break
-        return collected, None, used
+            if page == MAX_ACTIVITY_PAGES - 1:
+                complete = False
+        return collected, None, used, complete
 
     def _persist_payload(
         self,
@@ -1561,6 +1660,7 @@ class GarminIncrementalSync:
         trailing_window_days: int,
         payload: Any,
         request_count: int,
+        fetch_complete: bool,
     ) -> GarminSyncAttempt:
         attribution = infer_device_attribution(payload).status
         identity = _source_identity_for(payload)
@@ -1608,6 +1708,7 @@ class GarminIncrementalSync:
         try:
             with factory() as session:
                 persistence = GarminPersistenceRepository(session, payload_store=store)
+                coverage_status = _coverage_status_for(surface, result, payload, day=day)
                 outcome = persistence.persist_result(
                     result,
                     payload=raw_bytes,
@@ -1618,8 +1719,15 @@ class GarminIncrementalSync:
                     source_window_end_utc=window_end_utc,
                     sync_run_id=sync_run_id,
                     source_filename=f"{surface.code}.json",
+                    collection_scope=_collection_scope(
+                        surface,
+                        day=day,
+                        window_start=window_start,
+                        window_end=window_end,
+                        fetch_complete=fetch_complete,
+                        coverage_status=coverage_status,
+                    ),
                 )
-                coverage_status = _coverage_status_for(surface, result, payload, day=day)
                 self._write_checkpoint(
                     session,
                     provider_id=provider_id,

@@ -16,6 +16,10 @@ from healthcheck.garmin.auth import GarminAuthService
 from healthcheck.garmin.backfill import GarminHistoricalBackfill, plan_garmin_historical_backfill
 from healthcheck.garmin.probe import GarminCapabilityProbe, validate_probe_dates
 from healthcheck.garmin.redaction import redact_garmin_payload, validate_external_export_paths
+from healthcheck.garmin.reprocess import (
+    MAX_REPROCESS_OBSERVATIONS,
+    GarminCollectionReprocessor,
+)
 from healthcheck.garmin.sync import GarminIncrementalSync, GarminSyncStatus
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
@@ -49,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-redact",
             "garmin-sync",
             "garmin-backfill",
+            "garmin-reprocess",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -72,6 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stream", action="append", dest="streams")
     parser.add_argument("--chunk-days", type=int)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--reprocess", action="store_true")
+    parser.add_argument("--max-observations", type=int)
     parser.add_argument("--input")
     return parser
 
@@ -159,6 +166,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_sync(args, settings)
     if args.command == "garmin-backfill":
         return _run_garmin_backfill(args, settings)
+    if args.command == "garmin-reprocess":
+        return _run_garmin_reprocess(args, settings)
     if args.command == "seed-demo":
         try:
             result = seed_demo(settings, reset=args.reset)
@@ -285,6 +294,10 @@ def _run_garmin_sync(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.dates is not None and len(args.dates) != 1:
             raise ValueError("garmin-sync accepts exactly one --date")
+        if args.reprocess:
+            raise ValueError("garmin-sync does not use --reprocess")
+        if args.max_observations is not None:
+            raise ValueError("garmin-sync does not use --max-observations")
         service = GarminAuthService(settings, is_cn=args.is_cn)
         client, auth_result = service.load_existing()
         report = GarminIncrementalSync(
@@ -329,6 +342,8 @@ def _run_garmin_backfill(args: argparse.Namespace, settings: Settings) -> int:
             raise ValueError("garmin-backfill uses --start and --end, not --date")
         if args.trailing_window_days is not None:
             raise ValueError("garmin-backfill does not use --trailing-window-days")
+        if args.max_observations is not None:
+            raise ValueError("garmin-backfill does not use --max-observations")
         if args.dry_run:
             report = plan_garmin_historical_backfill(
                 start=args.start,
@@ -348,6 +363,7 @@ def _run_garmin_backfill(args: argparse.Namespace, settings: Settings) -> int:
                 end=args.end,
                 streams=args.streams,
                 chunk_days=args.chunk_days,
+                reprocess=args.reprocess,
             )
     except (OSError, ValueError):
         print(
@@ -395,6 +411,48 @@ def _run_garmin_redact(args: argparse.Namespace) -> int:
         return 2
     print("garmin-redact: sanitized shape written; raw values were not copied")
     return 0
+
+
+def _run_garmin_reprocess(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.dates:
+            raise ValueError("garmin-reprocess uses --start and --end, not --date")
+        if args.trailing_window_days is not None:
+            raise ValueError("garmin-reprocess does not use --trailing-window-days")
+        report = GarminCollectionReprocessor(
+            settings,
+            max_observations=args.max_observations or MAX_REPROCESS_OBSERVATIONS,
+        ).run(
+            start=args.start,
+            end=args.end,
+            streams=args.streams,
+            dry_run=args.dry_run,
+            max_observations=args.max_observations,
+        )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r02-garmin-collection-reprocess-v1",
+                    "error": {
+                        "error_class": "input",
+                        "error_code": "invalid_reprocess_request",
+                        "http_status": None,
+                    },
+                    "privacy": {
+                        "raw_values_emitted": False,
+                        "private_identifiers_emitted": False,
+                        "tokens_emitted": False,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    if report.dry_run or report.status == "succeeded":
+        return 0
+    return 1
 
 
 if __name__ == "__main__":

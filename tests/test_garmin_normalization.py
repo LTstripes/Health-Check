@@ -13,11 +13,13 @@ from healthcheck.garmin.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
     GarminFieldState,
     GarminParseStatus,
+    GarminTemporalDTO,
     GarminTemporalPrecision,
     garmin_source_identity,
     normalize_garmin_payload,
     parse_garmin_time,
     stable_garmin_idempotency_key,
+    stable_garmin_reconciliation_key,
 )
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "garmin"
@@ -247,6 +249,53 @@ def test_semantic_key_ignores_unknown_order_but_tracks_present_values() -> None:
 
     assert first == second
     assert first != changed
+
+
+def test_reconciliation_key_prefers_sample_token_over_array_index() -> None:
+    source = garmin_source_identity(
+        device_attributed=True,
+        device_code="garmin_vivoactive_5",
+        device_model="Vivoactive 5",
+    )
+    temporal = GarminTemporalDTO(
+        precision=GarminTemporalPrecision.UTC_INSTANT,
+        measured_at_utc=datetime(2099, 1, 2, 8, 0, tzinfo=UTC),
+        local_date=date(2099, 1, 2),
+    )
+    first = stable_garmin_reconciliation_key(
+        source,
+        "intraday",
+        surface="heart_rate",
+        temporal=temporal,
+        sample_token="stamp:2099-01-02T08:00:00+00:00",
+        sample_index=0,
+    )
+    reordered = stable_garmin_reconciliation_key(
+        source,
+        "intraday",
+        surface="heart_rate",
+        temporal=temporal,
+        sample_token="stamp:2099-01-02T08:00:00+00:00",
+        sample_index=3,
+    )
+    corrected_time = stable_garmin_reconciliation_key(
+        source,
+        "intraday",
+        surface="heart_rate",
+        temporal=temporal,
+        sample_token="stamp:2099-01-02T08:05:00+00:00",
+        sample_index=0,
+    )
+    index_only = stable_garmin_reconciliation_key(
+        source,
+        "intraday",
+        surface="heart_rate",
+        temporal=temporal,
+        sample_index=0,
+    )
+    assert first == reordered
+    assert first != corrected_time
+    assert first != index_only
 
 
 def test_numeric_provider_activity_id_is_stable_text_identity() -> None:
