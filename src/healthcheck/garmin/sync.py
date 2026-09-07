@@ -1733,6 +1733,11 @@ class GarminIncrementalSync:
             with factory() as session:
                 persistence = GarminPersistenceRepository(session, payload_store=store)
                 coverage_status = _coverage_status_for(surface, result, payload, day=day)
+                # A valid prefix is not completed acquisition. Keep it refetchable
+                # by backfill and do not advance the successful stream checkpoint.
+                if surface.code == "activities" and not fetch_complete:
+                    if coverage_status in {"present", "confirmed_empty"}:
+                        coverage_status = "unknown"
                 outcome = persistence.persist_result(
                     result,
                     payload=raw_bytes,
