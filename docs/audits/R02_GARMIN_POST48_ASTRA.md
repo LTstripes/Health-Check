@@ -19,3 +19,25 @@ Understood invariants: missing/null/zero differ; unknown/empty/unavailable diffe
 Initial inspection targets (not findings yet): sample identity and timestamp fallback; aggregate aliases vs field provenance; source identity change when device evidence appears; authoritative empty/removal vs existing current rows; coverage-skip versioning; watermark vs unresolved earlier dates. Historical contract markdown still describes synthetic-only/semantic-value identity and must not be mistaken for the full production orchestration contract.
 
 NOT CHECKED yet: implementation invariants, tests, eight scenarios, final #49 minimum contract. Owner-live behavior remains UNVERIFIED in this session.
+
+## Checkpoint 2 — static sync/normalization audit
+
+### C1 — CONFIRMED / PASS: bounded shared orchestration and state isolation
+`garmin/backfill.py:292 GarminHistoricalBackfill.__init__` uses GarminIncrementalSync with `garmin_historical` namespace and coverage skip. `sync.py:1253 _ingest_window`, `1480 _fetch`, `369 _disable_provider_retries` bound application requests/retries; auth abort is explicit. `sync.py:1737 _write_checkpoint` changes success cursor/watermark only for present/confirmed_empty; failures preserve prior success state. Per-day surfaces are actually requested per day, not inferred from a sparse multi-day list. Watermark is latest successful date, not a contiguous-history proof; normal sync computes a fixed trailing interval and does not backfill gaps outside it.
+
+### C2 — BLOCKER candidate pending reproduction: truncated activities can become complete
+`sync.py:1506 _fetch_activities` breaks at exhausted budget after a nonempty full page, or exits MAX_ACTIVITY_PAGES, then returns `collected, None, used` without incomplete marker. `881 _coverage_status_for` accepts any expected duration metric; `1550 _persist_payload` writes successful coverage. `1317 _completed_coverage_status` then lets historical resume skip that exact interval. Static path is unambiguous; synthetic end-to-end probe will establish classification. This is directly within #49 bounded/resumable correctness, unlike analytic follow-ups.
+
+### C3 — CONFIRMED semantic gaps; RISK for future consumers
+- `sync.py:729 _reconcile_record` rekeys every sample with mutable `record_index`, discarding the sample_token supplied by `743 _series_records`; normalization.py:920 key also includes sample_index. Reorder/insertion can fork unchanged timestamp records. Persistence upserts received members only (`persistence.py:484`, `persist_result`) and does not retire absent collection members. Empty/removal/timestamp correction therefore is not a complete current-collection reconciliation policy. #56 explicitly tracks this scope, but its CLOSED state does not establish its presence in this pinned integration.
+- `sync.py:809 _sample_temporal` attaches UTC to naive strings/datetimes, loses aware source-offset/local evidence, and assigns date-only request-day fallback to unstamped samples. This violates local-only no-invented-UTC intent; exact real provider exposure is UNKNOWN without live input (not needed/authorized here).
+- `sync.py:488 _adapt_known_provider_shape` maps avg/max stress and daily/seven-day SpO2 into the same alias; `528 _summary_scalar` takes the last array element rather than a defined statistic/time ordering. Typed scalar field provenance reports the alias, while original field survives in raw evidence. Do not consume this as an analytic daily average. #55 is the existing bounded follow-up.
+- `_source_identity_for` changes source identity on later target-device evidence. Identity partitions are honest, but same event can have both unattributed and attributed current rows without a supersession relation. No automatic cross-source dedup is justified without an explicit contract.
+
+### C4 — CONFIRMED / PASS with limits: immutable evidence and replay
+`persistence.py:805 persist_result`, `301 GarminPayloadObservationRepository`, `1068 _replay_current_records`: raw content and logical observations retained; exact existing observation replay returns current projection without replacing it. New observations can update existing stable keys. This does not prove receive-order independence for old payload reacquired under a new sync-run observation; retain that distinction in tests/report. Production `source_kind=provider` is explicitly passed by sync; raw fixture defaults remain synthetic.
+
+### C5 — CONFIRMED operational/analytic distinction
+`sync.py:857 _has_expected_metric` is existential (sleep duration or any expected value); `585 _parse_series` filters non-numeric samples. Thus present is acquisition-level, not complete series/score/stage/metric coverage. Unknown drift with no expected value remains refetchable, but mixed valid/invalid members can still be present. This needs explicit worker/consumer limits; no invented zero occurs in the inspected scalar-state path.
+
+Checkpoint 2 is static evidence, not a claim that tests passed. Next: eight bounded scenarios, focused existing tests and a compact reproduction script. No production edits.
