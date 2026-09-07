@@ -72,6 +72,11 @@ and null are not. A semantic fallback cannot disambiguate two genuinely identica
 records, so callers must retain the diagnostic/source context rather than inventing an ordinal
 identity.
 
+Production current-projection identity for id-less series uses
+`stable_garmin_reconciliation_key`. A provider timestamp/token is preferred over array
+position. Index is last-resort only when no record id and no sample token exist. See the
+[collection reconciliation contract](R02_COLLECTION_RECONCILIATION_CONTRACT.md).
+
 ## Result states
 
 - `ok`: all parsed records are structurally usable;

@@ -268,6 +268,13 @@ class GarminMetricState(StrEnum):
     INVALID = "invalid"
 
 
+class GarminProjectionStatus(StrEnum):
+    """Current-projection membership for one Garmin source-record identity."""
+
+    CURRENT = "current"
+    RETIRED = "retired"
+
+
 class GarminRawPayload(Base):
     """Immutable source payload metadata linked to a content-addressed artifact."""
 
@@ -391,6 +398,12 @@ class GarminPayloadObservation(Base):
     payload_format: Mapped[str] = mapped_column(String(20), nullable=False)
     source_contract_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
     normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    reconciliation_contract_version: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        default="r02-garmin-pre-collection-reconciliation",
+        server_default=text("'r02-garmin-pre-collection-reconciliation'"),
+    )
     fixture_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     parse_status: Mapped[str] = mapped_column(String(20), nullable=False)
     record_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -453,6 +466,15 @@ class GarminSourceRecord(Base):
             "OR temporal_precision IN ('unknown', 'date')",
             name="temporal_precision_consistency",
         ),
+        CheckConstraint(
+            "projection_status IN ('current', 'retired')",
+            name="projection_status_allowed",
+        ),
+        CheckConstraint(
+            "(projection_status = 'current' AND retired_at IS NULL AND retire_reason IS NULL) "
+            "OR (projection_status = 'retired' AND retired_at IS NOT NULL)",
+            name="projection_retirement_consistency",
+        ),
         Index(
             "ix_garmin_source_records_stream_date",
             "garmin_source_id",
@@ -464,6 +486,18 @@ class GarminSourceRecord(Base):
             "garmin_source_id",
             "stream_code",
             "external_record_id",
+        ),
+        Index(
+            "ix_garmin_source_records_collection",
+            "garmin_source_id",
+            "collection_key",
+            "projection_status",
+        ),
+        Index(
+            "ix_garmin_source_records_surface_date",
+            "garmin_source_id",
+            "surface_code",
+            "source_local_date",
         ),
     )
 
@@ -499,6 +533,22 @@ class GarminSourceRecord(Base):
     normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
     diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     unknown_fields_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    surface_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    collection_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    projection_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="current", server_default=text("'current'")
+    )
+    projection_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retire_reason: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reconciliation_contract_version: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        default="r02-garmin-pre-collection-reconciliation",
+        server_default=text("'r02-garmin-pre-collection-reconciliation'"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

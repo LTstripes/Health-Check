@@ -25,13 +25,21 @@ hash reuses one canonical raw row and one content-addressed artifact, while a di
 window, sync run, source filename, or normalization interpretation creates another observation
 row. Exact retries converge on the observation key and do not create another row.
 
-A normalized record is an idempotent current projection keyed by the stable #29 key: exact
-observation retries do not create another parent, typed marker, metric row, or sleep stage. A new
-observation with the same stable source-record ID may update that current projection, including
-its current ingest-event and normalization-version pointers. Replaying an older observation never
-replays its payload into the current projection, so it cannot roll a newer projection backward.
-An id-less semantic record follows the #29 semantic key and therefore creates a different
-projection only when its present typed metric set or temporal identity changes.
+A normalized record is an idempotent current projection keyed by the stable #29 key, or by the
+collection reconciliation key for id-less production series: exact observation retries do not
+create another parent, typed marker, metric row, or sleep stage. A newer observation with the
+same stable source-record ID may update that current projection, including its current
+ingest-event, normalization-version, and reconciliation-version pointers. Replaying an older
+observation never replays its payload into the current projection, so it cannot roll a newer
+projection backward, un-retire a superseded member, or insert a member a newer complete
+collection already retired. An id-less semantic record follows the #29 semantic key and therefore
+creates a different projection only when its present typed metric set or temporal identity
+changes.
+
+An authoritative complete collection may retire current members that are absent from the new
+response. Partial, unknown, failed, or truncated fetches never retire prior valid members.
+Retirement is a current-projection status; raw payloads and observations stay immutable. See the
+[collection reconciliation contract](R02_COLLECTION_RECONCILIATION_CONTRACT.md).
 
 The persistence facade can also create the ordinary R01 `provider_sync` batch/event atomically.
 Invalid results still retain their raw evidence and sanitized failure state; no partial typed

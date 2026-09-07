@@ -106,7 +106,7 @@ The physical scale, input provider/application, and body-composition algorithm a
 
 R02 uses the community `python-garminconnect` package as a pinned runtime dependency rather than building another private HTTP client. Initial sign-in/MFA is user-assisted; reusable auth state is stored outside Git. Each stream has explicit backfill and trailing-window reconciliation because unofficial endpoints and late provider updates do not provide a universal durable cursor.
 
-Garmin payloads map into typed scalar, sleep, activity, and series entities. A library method only proves that a client endpoint exists; it does not prove that Vivoactive 5 produces the metric. Live account fixtures decide availability, and unknown/unsupported values remain unavailable.
+Garmin payloads map into typed scalar, sleep, activity, and series entities. A library method only proves that a client endpoint exists; it does not prove that Vivoactive 5 produces the metric. Live account fixtures decide availability, and unknown/unsupported values remain unavailable. Current series identity prefers a stable provider timestamp/token over array position; an authoritative complete collection may retire absent members, and parser upgrades reprocess stored raw evidence only when explicitly requested. The incremental watermark is not contiguous history.
 
 ### Google Fitbit / Google Health
 
@@ -181,7 +181,8 @@ Each provider/stream defines:
 - semantic fingerprint fallback;
 - initial backfill interval;
 - incremental watermark/cursor;
-- explicit trailing reconciliation window;
+- explicit trailing reconciliation window, without treating that watermark as contiguous history;
+- stable collection identity and authoritative retirement, with version-aware reprocessing of stored raw evidence;
 - retry/backoff and failure classification;
 - source coverage calculation.
 

@@ -10,10 +10,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
@@ -51,6 +51,7 @@ from healthcheck.garmin.normalization import (
     GarminRecordDTO,
     GarminSourceIdentity,
     GarminTemporalDTO,
+    stable_garmin_collection_key,
 )
 from healthcheck.garmin.storage import (
     ContentAddressedGarminPayloadStore,
@@ -59,11 +60,38 @@ from healthcheck.garmin.storage import (
 )
 
 PERSISTENCE_CONTRACT_VERSION = "r02-garmin-persistence-contract-v1"
+RECONCILIATION_CONTRACT_VERSION = "r02-garmin-collection-reconciliation-v1"
+PRE_RECONCILIATION_CONTRACT_VERSION = "r02-garmin-pre-collection-reconciliation"
+PROJECTION_CURRENT = "current"
+PROJECTION_RETIRED = "retired"
+RETIRE_REASON_AUTHORITATIVE = "authoritative_collection_replacement"
 GARMIN_INPUT_METHOD = "provider_api"
 GARMIN_SOURCE_APPLICATION = "python-garminconnect"
 GARMIN_COVERAGE_RULE_VERSION = "garmin-coverage-v1"
 
 RawGarminPayload = bytes | bytearray | Mapping[str, object] | GarminCapabilityFixture
+
+
+@dataclass(frozen=True, slots=True)
+class GarminCollectionScope:
+    """Authoritative window for one provider collection (series, day, or activities)."""
+
+    surface: str
+    stream: str
+    kind: str
+    window_start: date
+    window_end: date
+    complete: bool
+    source_path_prefixes: tuple[str, ...] = ()
+
+    def collection_key(self, source: GarminSourceIdentity | str) -> str:
+        return stable_garmin_collection_key(
+            source,
+            self.stream,
+            surface=self.surface,
+            window_start=self.window_start,
+            window_end=self.window_end,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +107,8 @@ class GarminPersistenceOutcome:
     replayed: bool
     ingest_batch_id: str | None = None
     ingest_event_id: str | None = None
+    retired_count: int = 0
+    stale_ignored: bool = False
 
 
 class GarminSourceRepository:
@@ -362,6 +392,7 @@ class GarminPayloadObservationRepository:
         source_window_end_utc: datetime | None = None,
         source_filename: str | None = None,
         received_at: datetime | None = None,
+        reconciliation_contract_version: str = RECONCILIATION_CONTRACT_VERSION,
     ) -> GarminPayloadObservation:
         normalized_stream = GarminStream(stream_code).value
         normalized_status = GarminPayloadStatus(parse_status).value
@@ -397,6 +428,9 @@ class GarminPayloadObservationRepository:
             source_contract_version=source_contract_version,
             normalization_contract_version=_required_text(
                 normalization_contract_version, "normalization contract version"
+            ),
+            reconciliation_contract_version=_required_text(
+                reconciliation_contract_version, "reconciliation contract version"
             ),
             fixture_id=fixture_id,
             parse_status=normalized_status,
@@ -481,6 +515,102 @@ class GarminSourceRecordRepository:
             )
         )
 
+    def list_collection_members(
+        self,
+        *,
+        garmin_source_id: str,
+        source: GarminSourceIdentity | str,
+        collection_scope: GarminCollectionScope,
+        current_only: bool = False,
+    ) -> list[GarminSourceRecord]:
+        conditions = [GarminSourceRecord.garmin_source_id == garmin_source_id]
+        if current_only:
+            conditions.append(GarminSourceRecord.projection_status == PROJECTION_CURRENT)
+        if collection_scope.kind == "activity_window":
+            start_utc = datetime(
+                collection_scope.window_start.year,
+                collection_scope.window_start.month,
+                collection_scope.window_start.day,
+                tzinfo=UTC,
+            )
+            end_utc = datetime(
+                collection_scope.window_end.year,
+                collection_scope.window_end.month,
+                collection_scope.window_end.day,
+                tzinfo=UTC,
+            ) + timedelta(days=1)
+            conditions.extend(
+                [
+                    GarminSourceRecord.stream_code == GarminStream.ACTIVITY.value,
+                    or_(
+                        and_(
+                            GarminSourceRecord.source_local_date >= collection_scope.window_start,
+                            GarminSourceRecord.source_local_date <= collection_scope.window_end,
+                        ),
+                        and_(
+                            GarminSourceRecord.source_timestamp_utc.is_not(None),
+                            GarminSourceRecord.source_timestamp_utc >= start_utc,
+                            GarminSourceRecord.source_timestamp_utc < end_utc,
+                        ),
+                    ),
+                ]
+            )
+        else:
+            membership = [
+                GarminSourceRecord.collection_key == collection_scope.collection_key(source),
+                and_(
+                    GarminSourceRecord.surface_code == collection_scope.surface,
+                    GarminSourceRecord.source_local_date >= collection_scope.window_start,
+                    GarminSourceRecord.source_local_date <= collection_scope.window_end,
+                ),
+            ]
+            if collection_scope.source_path_prefixes:
+                membership.append(
+                    and_(
+                        GarminSourceRecord.stream_code == collection_scope.stream,
+                        GarminSourceRecord.source_local_date >= collection_scope.window_start,
+                        GarminSourceRecord.source_local_date <= collection_scope.window_end,
+                        or_(
+                            *[
+                                GarminSourceRecord.source_path.startswith(prefix)
+                                for prefix in collection_scope.source_path_prefixes
+                            ]
+                        ),
+                    )
+                )
+            conditions.append(or_(*membership))
+        return list(self.session.scalars(select(GarminSourceRecord).where(*conditions)))
+
+    def retire_absent_members(
+        self,
+        *,
+        garmin_source_id: str,
+        source: GarminSourceIdentity | str,
+        collection_scope: GarminCollectionScope,
+        incoming_keys: Iterable[str],
+        retired_at: datetime,
+    ) -> int:
+        incoming = set(incoming_keys)
+        retired_at_utc = start_or_now(retired_at)
+        count = 0
+        for row in self.list_collection_members(
+            garmin_source_id=garmin_source_id,
+            source=source,
+            collection_scope=collection_scope,
+            current_only=True,
+        ):
+            if row.idempotency_key in incoming:
+                continue
+            row.projection_status = PROJECTION_RETIRED
+            row.retired_at = retired_at_utc
+            row.retire_reason = RETIRE_REASON_AUTHORITATIVE
+            row.projection_observed_at = retired_at_utc
+            row.updated_at = retired_at_utc
+            count += 1
+        if count:
+            self.session.flush()
+        return count
+
     def upsert(
         self,
         *,
@@ -490,6 +620,9 @@ class GarminSourceRecordRepository:
         ingest_event_id: str | None = None,
         seen_at: datetime | None = None,
         normalization_contract_version: str = NORMALIZATION_CONTRACT_VERSION,
+        reconciliation_contract_version: str = RECONCILIATION_CONTRACT_VERSION,
+        collection_scope: GarminCollectionScope | None = None,
+        source: GarminSourceIdentity | str | None = None,
     ) -> tuple[GarminSourceRecord, bool, bool]:
         if not isinstance(record, GarminRecordDTO):
             raise TypeError("GarminSourceRecordRepository expects a GarminRecordDTO")
@@ -500,6 +633,10 @@ class GarminSourceRecordRepository:
             record=record,
             ingest_event_id=ingest_event_id,
             normalization_contract_version=normalization_contract_version,
+            reconciliation_contract_version=reconciliation_contract_version,
+            collection_scope=collection_scope,
+            source=source if source is not None else record.source,
+            seen_at=start_or_now(seen_at),
         )
         existing = self.get_by_idempotency_key(
             garmin_source_id=garmin_source_id,
@@ -819,6 +956,9 @@ class GarminPersistenceRepository:
         sync_run_id: str | None = None,
         ingest_event_id: str | None = None,
         create_ingest_event: bool = True,
+        collection_scope: GarminCollectionScope | None = None,
+        reconciliation_contract_version: str = RECONCILIATION_CONTRACT_VERSION,
+        allow_per_row_stale_reconciliation: bool = False,
     ) -> GarminPersistenceOutcome:
         if not isinstance(result, GarminNormalizationResult):
             raise TypeError("GarminPersistenceRepository expects a GarminNormalizationResult")
@@ -929,6 +1069,7 @@ class GarminPersistenceRepository:
                 source_window_end_utc=normalized_window_end,
                 source_filename=source_filename,
                 received_at=received_at,
+                reconciliation_contract_version=reconciliation_contract_version,
             )
             records = self._replay_current_records(
                 source_id=source_row.id,
@@ -946,6 +1087,8 @@ class GarminPersistenceRepository:
                 updated_count=0,
                 replayed=True,
                 ingest_event_id=observation.ingest_event_id,
+                retired_count=0,
+                stale_ignored=False,
             )
 
         if event is None and create_ingest_event:
@@ -1006,32 +1149,88 @@ class GarminPersistenceRepository:
             source_window_end_utc=normalized_window_end,
             source_filename=source_filename,
             received_at=received_at,
+            reconciliation_contract_version=reconciliation_contract_version,
         )
 
         seen_at = start_or_now(received_at)
+        collection_stale = self._collection_is_stale(
+            source_id=source_row.id,
+            source=source,
+            collection_scope=collection_scope,
+            received_at=seen_at,
+        )
         seen_records: dict[str, str] = {}
         records: list[GarminSourceRecord] = []
         inserted_count = 0
         updated_count = 0
-        for record in result.records:
-            signature = canonical_json(record.as_dict())
-            previous_signature = seen_records.get(record.idempotency_key)
-            if previous_signature is not None:
-                if previous_signature != signature:
-                    raise ValueError("one Garmin result contains conflicting duplicate identities")
-                continue
-            seen_records[record.idempotency_key] = signature
-            stored_record, inserted, updated = self.records.upsert(
-                garmin_source_id=source_row.id,
-                raw_payload_id=raw_payload.id,
-                record=record,
-                ingest_event_id=event_id,
-                seen_at=seen_at,
-                normalization_contract_version=normalized_normalization_contract_version,
-            )
-            records.append(stored_record)
-            inserted_count += int(inserted)
-            updated_count += int(updated)
+        retired_count = 0
+        # Sync/backfill stay fail-closed on a stale whole collection. Per-row stale
+        # reconciliation is only for offline garmin-reprocess bounded overlapping resume.
+        if collection_stale and not allow_per_row_stale_reconciliation:
+            for record in result.records:
+                signature = canonical_json(record.as_dict())
+                previous_signature = seen_records.get(record.idempotency_key)
+                if previous_signature is not None:
+                    if previous_signature != signature:
+                        raise ValueError(
+                            "one Garmin result contains conflicting duplicate identities"
+                        )
+                    continue
+                seen_records[record.idempotency_key] = signature
+                current = self.records.get_by_idempotency_key(
+                    garmin_source_id=source_row.id,
+                    idempotency_key=record.idempotency_key,
+                )
+                if current is not None:
+                    records.append(current)
+        else:
+            for record in result.records:
+                signature = canonical_json(record.as_dict())
+                previous_signature = seen_records.get(record.idempotency_key)
+                if previous_signature is not None:
+                    if previous_signature != signature:
+                        raise ValueError(
+                            "one Garmin result contains conflicting duplicate identities"
+                        )
+                    continue
+                seen_records[record.idempotency_key] = signature
+                existing = self.records.get_by_idempotency_key(
+                    garmin_source_id=source_row.id,
+                    idempotency_key=record.idempotency_key,
+                )
+                if existing is not None:
+                    projected = _datetime_key(existing.projection_observed_at) or _datetime_key(
+                        existing.last_seen_at
+                    )
+                    if projected is not None and seen_at < projected:
+                        records.append(existing)
+                        continue
+                stored_record, inserted, updated = self.records.upsert(
+                    garmin_source_id=source_row.id,
+                    raw_payload_id=raw_payload.id,
+                    record=record,
+                    ingest_event_id=event_id,
+                    seen_at=seen_at,
+                    normalization_contract_version=normalized_normalization_contract_version,
+                    reconciliation_contract_version=reconciliation_contract_version,
+                    collection_scope=collection_scope,
+                    source=source,
+                )
+                records.append(stored_record)
+                inserted_count += int(inserted)
+                updated_count += int(updated)
+            if (
+                collection_scope is not None
+                and collection_scope.complete
+                and not collection_stale
+            ):
+                retired_count = self.records.retire_absent_members(
+                    garmin_source_id=source_row.id,
+                    source=source,
+                    collection_scope=collection_scope,
+                    incoming_keys=seen_records,
+                    retired_at=seen_at,
+                )
 
         if batch is not None and event is not None:
             final_status = "failed" if result.status.value == "invalid" else "committed"
@@ -1063,6 +1262,12 @@ class GarminPersistenceRepository:
             replayed=False,
             ingest_batch_id=batch.id if batch is not None else None,
             ingest_event_id=event_id,
+            retired_count=retired_count,
+            stale_ignored=(
+                collection_stale
+                if not allow_per_row_stale_reconciliation
+                else collection_stale and inserted_count == 0 and updated_count == 0
+            ),
         )
 
     def _replay_current_records(
@@ -1106,6 +1311,28 @@ class GarminPersistenceRepository:
             records.append(current)
         return tuple(records)
 
+    def _collection_is_stale(
+        self,
+        *,
+        source_id: str,
+        source: GarminSourceIdentity,
+        collection_scope: GarminCollectionScope | None,
+        received_at: datetime,
+    ) -> bool:
+        if collection_scope is None:
+            return False
+        latest: datetime | None = None
+        for row in self.records.list_collection_members(
+            garmin_source_id=source_id,
+            source=source,
+            collection_scope=collection_scope,
+            current_only=False,
+        ):
+            observed = _datetime_key(row.projection_observed_at) or _datetime_key(row.last_seen_at)
+            if observed is not None and (latest is None or observed > latest):
+                latest = observed
+        return latest is not None and received_at < latest
+
     persist = persist_result
     upsert_result = persist_result
 
@@ -1146,8 +1373,17 @@ def _record_values(
     record: GarminRecordDTO,
     ingest_event_id: str | None,
     normalization_contract_version: str,
+    reconciliation_contract_version: str,
+    collection_scope: GarminCollectionScope | None,
+    source: GarminSourceIdentity | str,
+    seen_at: datetime,
 ) -> dict[str, Any]:
     temporal = record.temporal
+    collection_key = None
+    surface_code = None
+    if collection_scope is not None:
+        collection_key = collection_scope.collection_key(source)
+        surface_code = collection_scope.surface
     return {
         "garmin_source_id": garmin_source_id,
         "raw_payload_id": raw_payload_id,
@@ -1159,7 +1395,8 @@ def _record_values(
         "activity_type": record.activity_type,
         "source_path": record.source_path,
         "temporal_precision": temporal.precision.value,
-        "source_local_date": temporal.local_date,
+        "source_local_date": temporal.local_date
+        or (temporal.measured_at_utc.date() if temporal.measured_at_utc is not None else None),
         "source_timestamp_utc": _as_utc(temporal.measured_at_utc),
         "local_wall_time": temporal.local_wall_time,
         "source_local_timestamp": temporal.source_local_timestamp,
@@ -1174,6 +1411,15 @@ def _record_values(
         ),
         "diagnostics_json": _json_list_or_none(item.as_dict() for item in record.diagnostics),
         "unknown_fields_json": _json_list_or_none(item.as_dict() for item in record.unknown_fields),
+        "surface_code": surface_code,
+        "collection_key": collection_key,
+        "projection_status": PROJECTION_CURRENT,
+        "projection_observed_at": seen_at,
+        "retired_at": None,
+        "retire_reason": None,
+        "reconciliation_contract_version": _required_text(
+            reconciliation_contract_version, "reconciliation contract version"
+        ),
     }
 
 
@@ -1381,6 +1627,7 @@ __all__ = [
     "GARMIN_COVERAGE_RULE_VERSION",
     "GARMIN_INPUT_METHOD",
     "GARMIN_SOURCE_APPLICATION",
+    "GarminCollectionScope",
     "GarminCoverageRepository",
     "GarminPayloadObservationRepository",
     "GarminPersistenceOutcome",
@@ -1391,6 +1638,10 @@ __all__ = [
     "GarminSourceRecordRepository",
     "GarminSourceRepository",
     "PERSISTENCE_CONTRACT_VERSION",
+    "PRE_RECONCILIATION_CONTRACT_VERSION",
+    "PROJECTION_CURRENT",
+    "PROJECTION_RETIRED",
+    "RECONCILIATION_CONTRACT_VERSION",
     "build_garmin_observation_key",
     "garmin_persistence_for",
 ]
