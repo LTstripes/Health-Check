@@ -547,7 +547,7 @@ def test_missing_null_and_zero_stay_distinct(tmp_path: Path):
                 by_code.setdefault(item.metric_code, []).append(item)
             heart = next(item for item in by_code["heart_rate_bpm"] if item.state == "value")
             assert heart.value_number == 0
-            stress_metric = next(item for item in by_code["stress"] if item.state == "null")
+            stress_metric = next(item for item in by_code["stress_sample"] if item.state == "null")
             assert stress_metric.value_number is None
             missing = [item for item in metrics if item.state == "missing"]
             assert missing
