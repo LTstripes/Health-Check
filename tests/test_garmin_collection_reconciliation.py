@@ -672,6 +672,44 @@ def _persist_activity_payload(
         engine.dispose()
 
 
+def test_stale_older_collection_cannot_add_unseen_extra_member(tmp_path: Path):
+    """Sync/backfill whole-collection stale must not insert an unseen extra identity."""
+
+    day = date(2099, 1, 2)
+    assert _run(
+        tmp_path,
+        _client(activities=[_activity(101, start="2099-01-02T08:00:00Z", duration=3600)]),
+        clock=lambda: datetime(2099, 1, 2, 18, 0, tzinfo=UTC),
+    ).status is GarminSyncStatus.SUCCEEDED
+
+    _persist_activity_payload(
+        tmp_path,
+        [
+            _activity(101, start="2099-01-02T08:00:00Z", duration=1800),
+            _activity(102, start="2099-01-02T12:00:00Z", duration=2400),
+        ],
+        complete=True,
+        received_at=datetime(2099, 1, 2, 10, 0, tzinfo=UTC),
+        window_start=day,
+        window_end=day,
+    )
+
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            current = {
+                row.external_record_id: row
+                for row in _activity_rows(session)
+                if row.projection_status == PROJECTION_CURRENT
+            }
+            assert "101" in current
+            assert "102" not in current
+            assert _activity_duration(session, current["101"].id) == 3600.0
+            assert all(row.external_record_id != "102" for row in _activity_rows(session))
+    finally:
+        engine.dispose()
+
+
 def test_offline_reprocess_overlapping_activity_windows_keep_newer_correction(
     tmp_path: Path,
 ):

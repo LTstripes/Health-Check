@@ -86,6 +86,12 @@ That skip is unchanged unless reprocessing is explicitly requested.
   same run or a later bounded invocation. An observation remains eligible when
   any in-window current row is still on an older version or an older
   `projection_observed_at`.
+- Ordinary sync/backfill persistence keeps a **whole-collection** stale guard:
+  when the incoming collection is older than current projections in scope, it is
+  fail-closed and must not insert unseen extra members. Per-row stale
+  reconciliation (skip only newer shared identities while still applying other
+  eligible rows) is reserved for the offline `garmin-reprocess` path that needs
+  it for bounded overlapping resume.
 - `garmin-reprocess --start/--end` is a hard current-projection boundary.
   A multi-day stored activity observation is clipped to the requested local
   dates; clipped collections are fail-closed for absence retirement.

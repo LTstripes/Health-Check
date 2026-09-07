@@ -452,6 +452,7 @@ class GarminCollectionReprocessor:
                     fetch_complete=fetch_complete,
                     coverage_status=coverage_status,
                 ),
+                allow_per_row_stale_reconciliation=True,
             )
             session.commit()
             return outcome
