@@ -52,6 +52,7 @@ class AggregateKind(StrEnum):
     TRAILING_AGGREGATE = "trailing_aggregate"
     SAMPLE = "sample"
     SESSION_TOTAL = "session_total"
+    SESSION_AVERAGE = "session_average"
     UNKNOWN = "unknown"
 
 
@@ -184,6 +185,82 @@ ANALYTIC_METRIC_REGISTRY: dict[str, AnalyticMetricDefinition] = {
         source_field_paths=("dailySleepDTO.napTimeSeconds",),
         description="Nap duration; independent of overnight sleep duration presence.",
     ),
+    # R03-02 activity/session comparison identities (narrow extension).
+    "duration_seconds": AnalyticMetricDefinition(
+        metric_code="duration_seconds",
+        capability_code="activities",
+        unit="seconds",
+        aggregate_kind=AggregateKind.SESSION_TOTAL,
+        window="activity_session",
+        source_field_paths=("duration", "durationSeconds"),
+        description="Activity session total duration in seconds.",
+    ),
+    "distance_meters": AnalyticMetricDefinition(
+        metric_code="distance_meters",
+        capability_code="activities",
+        unit="meters",
+        aggregate_kind=AggregateKind.SESSION_TOTAL,
+        window="activity_session",
+        source_field_paths=("distance", "distanceMeters"),
+        description="Activity session total distance in meters.",
+    ),
+    "speed_mps": AnalyticMetricDefinition(
+        metric_code="speed_mps",
+        capability_code="cycling_metrics",
+        unit="m/s",
+        aggregate_kind=AggregateKind.SESSION_AVERAGE,
+        window="activity_session",
+        source_field_paths=("averageSpeed", "metrics.speedMps"),
+        description="Provider session average speed; never substitute distance/duration.",
+    ),
+    "heart_rate_bpm": AnalyticMetricDefinition(
+        metric_code="heart_rate_bpm",
+        capability_code="cycling_metrics",
+        unit="bpm",
+        aggregate_kind=AggregateKind.SESSION_AVERAGE,
+        window="activity_session",
+        source_field_paths=("averageHR", "metrics.heartRateBpm"),
+        description="Provider session average heart rate for an activity session.",
+    ),
+    "power_watts": AnalyticMetricDefinition(
+        metric_code="power_watts",
+        capability_code="cycling_metrics",
+        unit="watts",
+        aggregate_kind=AggregateKind.SESSION_AVERAGE,
+        window="activity_session",
+        source_field_paths=("avgPower", "metrics.powerWatts"),
+        description="Provider session average power when source-field semantics are unambiguous.",
+    ),
+    "cadence_rpm": AnalyticMetricDefinition(
+        metric_code="cadence_rpm",
+        capability_code="cycling_metrics",
+        unit="rpm",
+        aggregate_kind=AggregateKind.SESSION_AVERAGE,
+        window="activity_session",
+        source_field_paths=("metrics.cadenceRpm",),
+        description=(
+            "Provider session average cadence only when the persisted source field "
+            "is unambiguous RPM (not running steps/min)."
+        ),
+    ),
+    "training_effect": AnalyticMetricDefinition(
+        metric_code="training_effect",
+        capability_code="training_effect",
+        unit="points",
+        aggregate_kind=AggregateKind.SESSION_TOTAL,
+        window="activity_session",
+        source_field_paths=("aerobicTrainingEffect", "trainingEffect"),
+        description="Garmin/provider-native training effect score; not a custom score.",
+    ),
+    "acute_training_load": AnalyticMetricDefinition(
+        metric_code="acute_training_load",
+        capability_code="acute_training_load",
+        unit="points",
+        aggregate_kind=AggregateKind.SESSION_TOTAL,
+        window="activity_session",
+        source_field_paths=("activityTrainingLoad", "trainingLoad"),
+        description="Garmin/provider-native acute training load; not a custom score.",
+    ),
 }
 
 # Operational surface acquisition may succeed when any related metric is usable.
@@ -195,6 +272,16 @@ SURFACE_ANALYTIC_METRIC_CODES: dict[str, tuple[str, ...]] = {
         "sleep_score",
         "sleep_stages",
         "nap_duration_seconds",
+    ),
+    "activities": (
+        "duration_seconds",
+        "distance_meters",
+        "speed_mps",
+        "heart_rate_bpm",
+        "power_watts",
+        "cadence_rpm",
+        "training_effect",
+        "acute_training_load",
     ),
 }
 
@@ -224,6 +311,29 @@ def resolve_aggregate_kind(metric_code: str, field_path: str | None = None) -> A
         return AggregateKind.TRAILING_AGGREGATE
     if leaf in {"stress", "stressLevel", "spo2", "spo2Percent"} or "Values" in leaf:
         return AggregateKind.SAMPLE
+    if leaf in {
+        "averageSpeed",
+        "speedMps",
+        "averageHR",
+        "heartRateBpm",
+        "avgPower",
+        "powerWatts",
+        "cadenceRpm",
+        "averageBikeCadence",
+        "avgBikeCadence",
+    }:
+        return AggregateKind.SESSION_AVERAGE
+    if leaf in {
+        "duration",
+        "durationSeconds",
+        "distance",
+        "distanceMeters",
+        "aerobicTrainingEffect",
+        "trainingEffect",
+        "activityTrainingLoad",
+        "trainingLoad",
+    }:
+        return AggregateKind.SESSION_TOTAL
     return AggregateKind.UNKNOWN
 
 
