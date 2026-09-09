@@ -1,5 +1,6 @@
 """Pure R01 analytics contracts."""
 
+
 from healthcheck.analytics.coverage import (
     COVERAGE_RULE_VERSION,
     COVERAGE_STATUSES,
@@ -16,6 +17,23 @@ from healthcheck.analytics.coverage import (
     calculate_coverage,
     coverage_summary,
     resolve_coverage_status,
+)
+from healthcheck.analytics.garmin_baselines import (
+    MAX_SERIES_CALENDAR_DAYS,
+    MAX_SERIES_SELECTED_POINTS,
+    R03_01_ALGORITHM,
+    R03_01_RULE_VERSION,
+    GarminScalarAnalyticsError,
+    GarminScalarSeriesResult,
+    GarminSeriesPointCapError,
+    GarminSeriesQuery,
+    GarminSeriesWindowError,
+    analyze_garmin_metric_series,
+    compute_garmin_scalar_series,
+    modified_robust_z,
+    personal_midrank_percentile,
+    theil_sen_slope_per_day,
+    type7_quantile,
 )
 from healthcheck.analytics.weight import (
     BODY_COMPOSITION_ALGORITHM,
@@ -56,6 +74,22 @@ from healthcheck.analytics.weight import (
 )
 
 __all__ = [
+    "MAX_SERIES_CALENDAR_DAYS",
+    "MAX_SERIES_SELECTED_POINTS",
+    "R03_01_ALGORITHM",
+    "R03_01_RULE_VERSION",
+    "GarminScalarAnalyticsError",
+    "GarminScalarSeriesResult",
+    "GarminSeriesPointCapError",
+    "GarminSeriesQuery",
+    "GarminSeriesWindowError",
+    "analyze_garmin_metric_series",
+    "compute_garmin_scalar_series",
+    "modified_robust_z",
+    "personal_midrank_percentile",
+    "theil_sen_slope_per_day",
+    "type7_quantile",
+
     "BODY_COMPOSITION_ALGORITHM",
     "BODY_FAT_METRIC_CODES",
     "COVERAGE_STATUSES",
