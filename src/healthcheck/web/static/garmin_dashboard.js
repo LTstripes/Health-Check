@@ -368,6 +368,27 @@
     );
 
     const availability = series.availability || {};
+    const exclusions = availability.exclusions || [];
+    const exclusionItems = exclusions
+      .map(function (item) {
+        const reason = item.reason_code || "excluded";
+        const chipClass =
+          reason === "ambiguous_daily_aggregate"
+            ? "status-chip ambiguous_daily_aggregate excluded"
+            : "status-chip excluded";
+        const datePart = item.analytic_date ? " @ " + item.analytic_date : "";
+        const detailPart = item.detail ? " — " + item.detail : "";
+        return (
+          '<li><span class="' +
+          chipClass +
+          '">' +
+          escapeHtml(reason) +
+          "</span>" +
+          escapeHtml(datePart + detailPart) +
+          "</li>"
+        );
+      })
+      .join("");
     setHtml(
       "series-coverage",
       "<p><strong>Coverage</strong></p><ul>" +
@@ -377,6 +398,8 @@
         (availability.usable_count ?? "unavailable") +
         ", zero=" +
         (availability.zero_count ?? "unavailable") +
+        ", excluded=" +
+        (availability.excluded_count ?? "unavailable") +
         ", missing=" +
         (availability.missing_count ?? "unavailable") +
         ", null=" +
@@ -388,16 +411,33 @@
         ", not_computable=" +
         (availability.not_computable_count ?? "unavailable") +
         "</li>" +
+        "<li>Exclusions (API reason codes; ambiguous is not zero): " +
+        (exclusions.length
+          ? "count=" +
+            (availability.excluded_count ?? exclusions.length) +
+            "<ul class=\"exclusion-list\">" +
+            exclusionItems +
+            "</ul>"
+          : "none") +
+        "</li>" +
         "<li>Point statuses: " +
         points
           .slice(0, 40)
           .map(function (point) {
+            const reason =
+              point.status === "excluded" && point.exclusion_reason
+                ? ":" + point.exclusion_reason
+                : "";
+            const chipClass =
+              point.status === "excluded" && point.exclusion_reason === "ambiguous_daily_aggregate"
+                ? "status-chip excluded ambiguous_daily_aggregate"
+                : "status-chip " + escapeHtml(point.status || "");
             return (
-              '<span class="status-chip ' +
-              escapeHtml(point.status || "") +
+              '<span class="' +
+              chipClass +
               '">' +
-              escapeHtml((point.analytic_date || "?") + ":" + (point.status || "unknown")) +
-              (point.status === "zero" ? "=0" : point.value === null || point.value === undefined ? "" : "") +
+              escapeHtml((point.analytic_date || "?") + ":" + (point.status || "unknown") + reason) +
+              (point.status === "zero" ? "=0" : "") +
               "</span>"
             );
           })
@@ -547,6 +587,12 @@
         (coverage.candidate_x_count ?? "unavailable") +
         ", y=" +
         (coverage.candidate_y_count ?? "unavailable") +
+        ", zero_x=" +
+        (coverage.zero_x_participation_count ?? "unavailable") +
+        ", zero_y=" +
+        (coverage.zero_y_participation_count ?? "unavailable") +
+        "; exclusion_counts=" +
+        formatExclusionCounts(coverage.exclusion_counts) +
         "</td><td class=\"muted\">" +
         escapeHtml(lag.reason || "") +
         "</td></tr>";
@@ -559,6 +605,30 @@
       "result-identity",
       (body.algorithm || "?") + " / " + (body.rule_version || "?") + " / " + (body.result_hash || "?")
     );
+  }
+
+
+  function formatExclusionCounts(counts) {
+    if (!counts || typeof counts !== "object") return "none";
+    const keys = Object.keys(counts);
+    if (!keys.length) return "none";
+    return keys
+      .map(function (key) {
+        const chipClass =
+          key.indexOf("ambiguous") >= 0
+            ? "status-chip ambiguous_daily_aggregate excluded"
+            : "status-chip excluded";
+        return (
+          '<span class="' +
+          chipClass +
+          '">' +
+          escapeHtml(key) +
+          "=" +
+          escapeHtml(String(counts[key])) +
+          "</span>"
+        );
+      })
+      .join(" ");
   }
 
   function formatAvailable(block, whenAvailable) {

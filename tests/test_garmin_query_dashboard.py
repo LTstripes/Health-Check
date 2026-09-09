@@ -638,3 +638,165 @@ def test_nav_and_no_network_side_effects(tmp_path, monkeypatch):
         assert client.get("/api/garmin/dashboard").status_code == 200
         assert client.get("/").status_code == 200
     assert calls == []
+
+
+def test_scalar_exclusions_and_lag_exclusion_counts_visible_in_ui(tmp_path):
+    """UI must surface API excluded_count/exclusions and lag exclusion_counts.
+
+    ambiguous_daily_aggregate remains visibly distinct from zero; presentation
+    consumes already-computed R03 fields only (no UI-side analytics).
+    """
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            # Two current rows for the same analytic date => ambiguous exclusion.
+            _persist(
+                session,
+                store,
+                _stress_payload(
+                    "2099-08-01",
+                    avg=10,
+                    spo2_avg=90,
+                    fixture_suffix="-amb-a",
+                    extra_payload={"note": "a"},
+                ),
+                received_at=datetime(2099, 8, 2, 1, tzinfo=UTC),
+            )
+            _persist(
+                session,
+                store,
+                _stress_payload(
+                    "2099-08-01",
+                    avg=90,
+                    spo2_avg=91,
+                    fixture_suffix="-amb-b",
+                    extra_payload={"note": "b"},
+                ),
+                received_at=datetime(2099, 8, 2, 2, tzinfo=UTC),
+            )
+            # Explicit zero on a different day (must stay distinct from excluded).
+            _persist(
+                session,
+                store,
+                _stress_payload(
+                    "2099-08-02",
+                    avg=0,
+                    spo2_avg=92,
+                    fixture_suffix="-zero",
+                ),
+                received_at=datetime(2099, 8, 2, 3, tzinfo=UTC),
+            )
+            # Additional unambiguous usable days for lag pairing coverage.
+            for index, day in enumerate(
+                ["2099-08-03", "2099-08-04", "2099-08-05", "2099-08-06"], start=4
+            ):
+                _persist(
+                    session,
+                    store,
+                    _stress_payload(
+                        day,
+                        avg=10 * index,
+                        spo2_avg=90 + index,
+                        fixture_suffix=f"-d{index}",
+                    ),
+                    received_at=datetime(2099, 8, 2, index, tzinfo=UTC),
+                )
+            session.commit()
+            source_id = session.scalars(select(GarminSource)).one().id
+    finally:
+        engine.dispose()
+
+    with TestClient(app) as client:
+        series = client.get(
+            "/api/garmin/series",
+            params={
+                "garmin_source_id": source_id,
+                "metric_code": "stress_daily_average",
+                "start_date": "2099-08-01",
+                "end_date": "2099-08-06",
+            },
+        )
+        assert series.status_code == 200, series.text
+        body = series.json()
+        availability = body["availability"]
+        assert availability["excluded_count"] >= 2
+        assert availability["zero_count"] >= 1
+        assert availability["excluded_count"] != availability["zero_count"]
+        reasons = [item["reason_code"] for item in availability["exclusions"]]
+        assert "ambiguous_daily_aggregate" in reasons
+        assert any(
+            item.get("analytic_date") == "2099-08-01"
+            and item["reason_code"] == "ambiguous_daily_aggregate"
+            for item in availability["exclusions"]
+        )
+        by_date = {point["analytic_date"]: point for point in body["points"]}
+        # Multiple excluded points share the ambiguous date; pick any.
+        amb_points = [
+            point
+            for point in body["points"]
+            if point["analytic_date"] == "2099-08-01"
+        ]
+        assert amb_points
+        assert all(point["status"] == "excluded" for point in amb_points)
+        assert all(
+            point["exclusion_reason"] == "ambiguous_daily_aggregate" for point in amb_points
+        )
+        assert all(point["value"] is None for point in amb_points)
+        assert by_date["2099-08-02"]["status"] == "zero"
+        assert by_date["2099-08-02"]["value"] == 0
+
+        page = client.get(
+            "/garmin",
+            params={
+                "garmin_source_id": source_id,
+                "metric_code": "stress_daily_average",
+                "start_date": "2099-08-01",
+                "end_date": "2099-08-06",
+            },
+        )
+        assert page.status_code == 200
+        # Embedded dashboard payload carries already-computed exclusion fields.
+        assert "excluded_count" in page.text
+        assert "ambiguous_daily_aggregate" in page.text
+        assert '"status": "zero"' in page.text or '"status":"zero"' in page.text
+
+        js = client.get("/static/garmin_dashboard.js")
+        assert js.status_code == 200
+        js_text = js.text
+        assert "excluded_count" in js_text
+        assert "availability.exclusions" in js_text or "exclusions" in js_text
+        assert "ambiguous_daily_aggregate" in js_text
+        assert "exclusion_counts" in js_text
+        assert "formatExclusionCounts" in js_text
+        # Zero presentation remains separate from excluded/ambiguous chips.
+        assert 'status === "zero"' in js_text or "status === \"zero\"" in js_text
+
+        css = client.get("/static/dashboard.css")
+        assert css.status_code == 200
+        assert "ambiguous_daily_aggregate" in css.text
+        assert ".status-chip.excluded" in css.text
+        assert ".status-chip.zero" in css.text
+
+        lag = client.get(
+            "/api/garmin/lagged-association",
+            params={
+                "garmin_source_id": source_id,
+                "x_metric_code": "stress_daily_average",
+                "y_metric_code": "spo2_daily_average",
+                "start_date": "2099-08-01",
+                "end_date": "2099-08-06",
+                "lag_days": "0",
+            },
+        )
+        assert lag.status_code == 200, lag.text
+        lag_body = lag.json()
+        assert lag_body["lags"]
+        coverage = lag_body["lags"][0]["coverage"]
+        assert "exclusion_counts" in coverage
+        assert isinstance(coverage["exclusion_counts"], dict)
+        # Ambiguous same-date X rows are counted by R03; UI must not recompute.
+        assert coverage["exclusion_counts"].get("x_ambiguous_metric_date", 0) >= 1
+        _assert_no_secrets(body)
+        _assert_no_secrets(lag_body)

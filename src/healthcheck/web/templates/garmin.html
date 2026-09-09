@@ -81,6 +81,7 @@
   <div id="series-chart" class="chart" aria-label="Garmin scalar series chart"></div>
   <div id="series-summary"></div>
   <div id="series-coverage"></div>
+  <p class="muted">Coverage renders API <code>excluded_count</code> and <code>exclusions[]</code> reason codes (including <code>ambiguous_daily_aggregate</code>) separately from zero. UI does not recompute analytics.</p>
 </section>
 
 <section class="card">
@@ -137,6 +138,7 @@
     <button type="submit">Load associations</button>
   </form>
   <div id="lag-result"></div>
+  <p class="muted">Per-lag coverage shows API <code>exclusion_counts</code> as returned by R03-03; no UI-side pairing stats.</p>
 </section>
 
 <section class="card">
