@@ -38,6 +38,13 @@ R03_01_TREND_METHOD = "theil_sen_median_pairwise_per_day_v1"
 R03_01_DEVIATION_METHOD = "modified_robust_z_mad_v1"
 
 MAX_SERIES_CALENDAR_DAYS = 400
+# Hard cap on selected/candidate analytic input rows for one R03-01 query.
+# Calendar-day bound alone is insufficient for sample metrics (stress_sample,
+# spo2_sample): a valid <=400-day window can still select thousands of current
+# rows, and Theil-Sen is O(n^2). v1 fail-closes above this deterministic
+# ceiling (no silent truncate/sample). 2000 keeps pairwise work bounded
+# (~2e6 slopes) while remaining comparable to the calendar bound for aggregates.
+MAX_SERIES_SELECTED_POINTS = 2000
 PERCENTILE_MIN_USABLE = 5
 TREND_MIN_USABLE = 3
 TREND_MIN_DISTINCT_DATES = 3
@@ -70,6 +77,13 @@ class GarminSeriesWindowError(GarminScalarAnalyticsError):
 
     def __init__(self, message: str) -> None:
         super().__init__("window_exceeds_max_calendar_days", message)
+
+
+class GarminSeriesPointCapError(GarminScalarAnalyticsError):
+    """Selected/candidate analytic inputs exceed the hard R03-01 point bound."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("selected_points_exceed_max", message)
 
 
 def calendar_day_span(start_date: date, end_date: date) -> int:
@@ -165,6 +179,7 @@ class GarminSeriesQuery:
             "end_date": self.end_date.isoformat(),
             "garmin_source_id": self.garmin_source_id,
             "max_calendar_days": MAX_SERIES_CALENDAR_DAYS,
+            "max_selected_points": MAX_SERIES_SELECTED_POINTS,
         }
 
 
@@ -667,7 +682,19 @@ def compute_garmin_scalar_series(
     )
     definition = _validate_query(query)
 
-    rows = list(session.execute(_candidate_statement(query)).all())
+    # Fail-closed selected-point bound before assembly / Theil-Sen / frozen result.
+    # Fetch cap+1 so over-cap is detected without materializing an unbounded set
+    # and without silently truncating to the cap.
+    rows = list(
+        session.execute(
+            _candidate_statement(query).limit(MAX_SERIES_SELECTED_POINTS + 1)
+        ).all()
+    )
+    if len(rows) > MAX_SERIES_SELECTED_POINTS:
+        raise GarminSeriesPointCapError(
+            f"selected at least {len(rows)} candidate analytic inputs; "
+            f"max allowed is {MAX_SERIES_SELECTED_POINTS}"
+        )
     assembled: list[AnalyticInputDTO] = []
     for metric_row, _record in rows:
         dto = build_analytic_input_from_storage(
@@ -903,6 +930,7 @@ def analyze_garmin_metric_series(
 __all__ = [
     "DEVIATION_MIN_USABLE",
     "MAX_SERIES_CALENDAR_DAYS",
+    "MAX_SERIES_SELECTED_POINTS",
     "PERCENTILE_MIN_USABLE",
     "PERSONAL_BASELINE_DEVIATION_ABS_Z",
     "R03_01_ALGORITHM",
@@ -918,6 +946,7 @@ __all__ = [
     "GarminScalarAnalyticsError",
     "GarminScalarSeriesResult",
     "GarminSeriesPoint",
+    "GarminSeriesPointCapError",
     "GarminSeriesQuery",
     "GarminSeriesWindowError",
     "PersonalBaselineStats",

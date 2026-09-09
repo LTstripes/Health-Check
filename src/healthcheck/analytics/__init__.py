@@ -20,10 +20,12 @@ from healthcheck.analytics.coverage import (
 )
 from healthcheck.analytics.garmin_baselines import (
     MAX_SERIES_CALENDAR_DAYS,
+    MAX_SERIES_SELECTED_POINTS,
     R03_01_ALGORITHM,
     R03_01_RULE_VERSION,
     GarminScalarAnalyticsError,
     GarminScalarSeriesResult,
+    GarminSeriesPointCapError,
     GarminSeriesQuery,
     GarminSeriesWindowError,
     analyze_garmin_metric_series,
@@ -73,10 +75,12 @@ from healthcheck.analytics.weight import (
 
 __all__ = [
     "MAX_SERIES_CALENDAR_DAYS",
+    "MAX_SERIES_SELECTED_POINTS",
     "R03_01_ALGORITHM",
     "R03_01_RULE_VERSION",
     "GarminScalarAnalyticsError",
     "GarminScalarSeriesResult",
+    "GarminSeriesPointCapError",
     "GarminSeriesQuery",
     "GarminSeriesWindowError",
     "analyze_garmin_metric_series",

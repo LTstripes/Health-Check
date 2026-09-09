@@ -10,11 +10,14 @@ from pathlib import Path
 
 import pytest
 
+from healthcheck.analytics import garmin_baselines as garmin_baselines_module
 from healthcheck.analytics.garmin_baselines import (
     MAX_SERIES_CALENDAR_DAYS,
+    MAX_SERIES_SELECTED_POINTS,
     R03_01_ALGORITHM,
     R03_01_RULE_VERSION,
     GarminScalarAnalyticsError,
+    GarminSeriesPointCapError,
     GarminSeriesWindowError,
     compute_garmin_scalar_series,
     modified_robust_z,
@@ -119,6 +122,34 @@ def _source_id(session) -> str:
     assert row is not None
     return row.garmin_source_id
 
+
+
+def _persist_stress_samples(session, store, *, day: str, count: int) -> str:
+    """Persist ``count`` distinct stress_sample rows inside one calendar day."""
+
+    source_id = None
+    for index in range(count):
+        payload = _stress_payload(
+            day,
+            avg=None,
+            maximum=None,
+            sample=10 + index,
+            spo2_avg=None,
+            spo2_trail=None,
+            spo2_sample=None,
+            fixture_suffix=f"-sample-{index}",
+            extra_payload={"startTimeGMT": f"{day}T{index:02d}:00:00.000"},
+        )
+        outcome = _persist(
+            session,
+            store,
+            payload,
+            received_at=datetime(2099, 1, 1, 12, index, tzinfo=UTC),
+        )
+        source_id = outcome.records[0].garmin_source_id
+    session.commit()
+    assert source_id is not None
+    return source_id
 
 def test_type7_quantiles_and_midrank_percentile_with_ties() -> None:
     values = [1.0, 2.0, 2.0, 3.0, 10.0]
@@ -611,3 +642,50 @@ def test_trailing_spo2_not_substituted_for_daily(baselines_database) -> None:
     assert daily.points[0].value is None
     assert trailing.points[0].status == "usable"
     assert trailing.points[0].value == 97
+
+def test_selected_point_cap_constant_is_documented_v1_bound() -> None:
+    assert MAX_SERIES_SELECTED_POINTS == 2000
+    assert MAX_SERIES_SELECTED_POINTS > MAX_SERIES_CALENDAR_DAYS
+
+
+def test_over_selected_point_cap_sample_rows_rejected(
+    baselines_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """<=400-day window with >cap sample rows fail-closes (no silent truncate)."""
+
+    monkeypatch.setattr(garmin_baselines_module, "MAX_SERIES_SELECTED_POINTS", 5)
+    _paths, session, store = baselines_database
+    source_id = _persist_stress_samples(session, store, day="2099-06-01", count=6)
+    start = date(2099, 6, 1)
+    end = date(2099, 6, 10)
+    assert (end - start).days + 1 <= MAX_SERIES_CALENDAR_DAYS
+    with pytest.raises(GarminSeriesPointCapError, match="max allowed is 5") as raised:
+        compute_garmin_scalar_series(
+            session,
+            metric_code="stress_sample",
+            start_date=start,
+            end_date=end,
+            garmin_source_id=source_id,
+        )
+    assert raised.value.reason_code == "selected_points_exceed_max"
+
+
+def test_exactly_at_selected_point_cap_is_deterministic(
+    baselines_database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(garmin_baselines_module, "MAX_SERIES_SELECTED_POINTS", 5)
+    _paths, session, store = baselines_database
+    source_id = _persist_stress_samples(session, store, day="2099-07-01", count=5)
+    kwargs = {
+        "metric_code": "stress_sample",
+        "start_date": date(2099, 7, 1),
+        "end_date": date(2099, 7, 1),
+        "garmin_source_id": source_id,
+    }
+    first = compute_garmin_scalar_series(session, **kwargs)
+    second = compute_garmin_scalar_series(session, **kwargs)
+    assert first.availability.candidate_count == 5
+    assert first.availability.usable_count == 5
+    assert first.query.as_dict()["max_selected_points"] == 5
+    assert first.result_hash == second.result_hash
+    assert first.as_dict() == second.as_dict()
