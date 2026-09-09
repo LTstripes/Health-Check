@@ -18,6 +18,18 @@ from healthcheck.analytics.coverage import (
     coverage_summary,
     resolve_coverage_status,
 )
+from healthcheck.analytics.garmin_activity_comparison import (
+    ACTIVITY_COMPARISON_METRIC_CODES,
+    MAX_SELECTED_ACTIVITIES,
+    MIN_SELECTED_ACTIVITIES,
+    R03_02_ALGORITHM,
+    R03_02_RULE_VERSION,
+    GarminActivityComparisonError,
+    GarminActivityComparisonQuery,
+    GarminActivityComparisonResult,
+    analyze_garmin_activity_comparison,
+    compute_garmin_activity_comparison,
+)
 from healthcheck.analytics.garmin_baselines import (
     MAX_SERIES_CALENDAR_DAYS,
     MAX_SERIES_SELECTED_POINTS,
@@ -74,16 +86,26 @@ from healthcheck.analytics.weight import (
 )
 
 __all__ = [
+    "ACTIVITY_COMPARISON_METRIC_CODES",
+    "MAX_SELECTED_ACTIVITIES",
     "MAX_SERIES_CALENDAR_DAYS",
     "MAX_SERIES_SELECTED_POINTS",
+    "MIN_SELECTED_ACTIVITIES",
     "R03_01_ALGORITHM",
     "R03_01_RULE_VERSION",
+    "R03_02_ALGORITHM",
+    "R03_02_RULE_VERSION",
+    "GarminActivityComparisonError",
+    "GarminActivityComparisonQuery",
+    "GarminActivityComparisonResult",
     "GarminScalarAnalyticsError",
     "GarminScalarSeriesResult",
     "GarminSeriesPointCapError",
     "GarminSeriesQuery",
     "GarminSeriesWindowError",
+    "analyze_garmin_activity_comparison",
     "analyze_garmin_metric_series",
+    "compute_garmin_activity_comparison",
     "compute_garmin_scalar_series",
     "modified_robust_z",
     "personal_midrank_percentile",

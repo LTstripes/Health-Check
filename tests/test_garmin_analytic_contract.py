@@ -383,6 +383,15 @@ def test_resolve_aggregate_kind_field_path_fallback() -> None:
         is AggregateKind.TRAILING_AGGREGATE
     )
     assert resolve_aggregate_kind("custom", "payload.stressValuesArray") is AggregateKind.SAMPLE
+    assert (
+        resolve_aggregate_kind("custom", "payload.aerobicTrainingEffect")
+        is AggregateKind.PROVIDER_SESSION_SCORE
+    )
+    assert (
+        resolve_aggregate_kind("custom", "payload.activityTrainingLoad")
+        is AggregateKind.PROVIDER_SESSION_LOAD
+    )
+    assert resolve_aggregate_kind("custom", "payload.duration") is AggregateKind.SESSION_TOTAL
 
 
 @pytest.fixture
