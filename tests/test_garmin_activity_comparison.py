@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
 from healthcheck.analytics.garmin_activity_comparison import (
     ACTIVITY_COMPARISON_METRIC_CODES,
@@ -19,10 +20,11 @@ from healthcheck.analytics.garmin_activity_comparison import (
     GarminActivityComparisonError,
     cadence_source_field_is_unambiguous,
     compute_garmin_activity_comparison,
+    source_field_matches_reviewed,
 )
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
-from healthcheck.db.models import GarminSourceRecord
+from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
 from healthcheck.db.repositories import repositories_for
 from healthcheck.garmin.analytic_contract import (
     AggregateKind,
@@ -159,15 +161,27 @@ def test_registry_activity_identities_are_distinct() -> None:
     assert get_analytic_metric_definition("heart_rate_bpm").aggregate_kind is (
         AggregateKind.SESSION_AVERAGE
     )
-    assert get_analytic_metric_definition("training_effect").capability_code == "training_effect"
-    assert (
-        get_analytic_metric_definition("acute_training_load").capability_code
-        == "acute_training_load"
-    )
+    te = get_analytic_metric_definition("training_effect")
+    atl = get_analytic_metric_definition("acute_training_load")
+    assert te.capability_code == "training_effect"
+    assert atl.capability_code == "acute_training_load"
+    assert te.aggregate_kind is AggregateKind.PROVIDER_SESSION_SCORE
+    assert atl.aggregate_kind is AggregateKind.PROVIDER_SESSION_LOAD
+    assert te.aggregate_kind is not AggregateKind.SESSION_TOTAL
+    assert te.aggregate_kind is not AggregateKind.SESSION_AVERAGE
+    assert atl.aggregate_kind is not AggregateKind.SESSION_TOTAL
+    assert atl.aggregate_kind is not AggregateKind.SESSION_AVERAGE
+    assert te.aggregate_kind != atl.aggregate_kind
     assert not cadence_source_field_is_unambiguous(
         "payload.activities.averageRunningCadenceInStepsPerMinute"
     )
     assert cadence_source_field_is_unambiguous("payload.activities.metrics.cadenceRpm")
+    assert source_field_matches_reviewed(
+        "activities.0.aerobicTrainingEffect", te.source_field_paths
+    )
+    assert not source_field_matches_reviewed(
+        "activities.0.unreviewedTrainingEffect", te.source_field_paths
+    )
 
 
 def test_selection_bounds_and_rejects(comparison_database) -> None:
@@ -617,6 +631,16 @@ def test_provider_native_scores_not_merged(comparison_database) -> None:
     assert te.reference_value == 2.0
     assert te.compared_value == 3.0
     assert atl.absolute_delta == 15
+    assert te.aggregate_kind == AggregateKind.PROVIDER_SESSION_SCORE.value
+    assert atl.aggregate_kind == AggregateKind.PROVIDER_SESSION_LOAD.value
+    assert te.aggregate_kind != AggregateKind.SESSION_TOTAL.value
+    assert te.aggregate_kind != AggregateKind.SESSION_AVERAGE.value
+    assert atl.aggregate_kind != AggregateKind.SESSION_TOTAL.value
+    assert atl.aggregate_kind != AggregateKind.SESSION_AVERAGE.value
+    ref_te = _metric_map(result.sessions[0])["training_effect"]
+    ref_atl = _metric_map(result.sessions[0])["acute_training_load"]
+    assert ref_te.aggregate_kind == AggregateKind.PROVIDER_SESSION_SCORE.value
+    assert ref_atl.aggregate_kind == AggregateKind.PROVIDER_SESSION_LOAD.value
     # No combined custom score field in result.
     payload = result.as_dict()
     blob = json.dumps(payload)
@@ -624,6 +648,29 @@ def test_provider_native_scores_not_merged(comparison_database) -> None:
     assert "custom_score" not in blob.lower()
     assert "fitness" not in blob.lower()
     assert te.metric_code != atl.metric_code
+
+
+def test_provider_score_load_kinds_do_not_collapse_with_session_totals() -> None:
+    te = get_analytic_metric_definition("training_effect")
+    atl = get_analytic_metric_definition("acute_training_load")
+    duration = get_analytic_metric_definition("duration_seconds")
+    speed = get_analytic_metric_definition("speed_mps")
+    assert te.aggregate_kind is AggregateKind.PROVIDER_SESSION_SCORE
+    assert atl.aggregate_kind is AggregateKind.PROVIDER_SESSION_LOAD
+    assert duration.aggregate_kind is AggregateKind.SESSION_TOTAL
+    assert speed.aggregate_kind is AggregateKind.SESSION_AVERAGE
+    assert te.aggregate_kind != duration.aggregate_kind
+    assert te.aggregate_kind != speed.aggregate_kind
+    assert atl.aggregate_kind != duration.aggregate_kind
+    assert atl.aggregate_kind != speed.aggregate_kind
+    assert te.aggregate_kind.value not in {
+        AggregateKind.SESSION_TOTAL.value,
+        AggregateKind.SESSION_AVERAGE.value,
+    }
+    assert atl.aggregate_kind.value not in {
+        AggregateKind.SESSION_TOTAL.value,
+        AggregateKind.SESSION_AVERAGE.value,
+    }
 
 
 def test_correction_freezes_old_serialized_result(comparison_database) -> None:
@@ -839,6 +886,56 @@ def test_ambiguous_running_cadence_is_unsupported(comparison_database) -> None:
     assert ref_cad.reason == "ambiguous_cadence_source_field"
     assert ref_cad.comparable is False
     assert _delta_map(result.comparisons[0])["cadence_rpm"].status == "not_computable"
+
+
+def test_unreviewed_source_field_fail_closed(comparison_database) -> None:
+    _paths, session, store = comparison_database
+    left, right = _persist_pair(
+        session,
+        store,
+        _activity_payload(
+            activity_id="src-ref",
+            average_hr=120,
+            training_effect=2.0,
+            training_load=40,
+        ),
+        _activity_payload(
+            activity_id="src-cmp",
+            average_hr=130,
+            training_effect=3.0,
+            training_load=55,
+        ),
+    )
+    # Otherwise matching metric/unit/aggregation/window, but unreviewed source path.
+    for record in (left, right):
+        row = session.scalar(
+            select(GarminRecordMetric).where(
+                GarminRecordMetric.record_id == record.id,
+                GarminRecordMetric.metric_code == "heart_rate_bpm",
+            )
+        )
+        assert row is not None
+        row.field_path = "activities.0.unreviewedAverageHeartRate"
+    session.commit()
+
+    result = compute_garmin_activity_comparison(
+        session,
+        garmin_source_id=left.garmin_source_id,
+        activity_record_ids=[left.id, right.id],
+        reference_activity_id=left.id,
+    )
+    ref_hr = _metric_map(result.sessions[0])["heart_rate_bpm"]
+    cmp_hr = _metric_map(result.sessions[1])["heart_rate_bpm"]
+    assert ref_hr.status == "unsupported"
+    assert cmp_hr.status == "unsupported"
+    assert ref_hr.reason == "unreviewed_source_field"
+    assert cmp_hr.reason == "unreviewed_source_field"
+    assert ref_hr.comparable is False
+    assert cmp_hr.comparable is False
+    assert _delta_map(result.comparisons[0])["heart_rate_bpm"].status == "not_computable"
+    # Reviewed TE/load paths remain comparable.
+    assert _delta_map(result.comparisons[0])["training_effect"].status == "compared"
+    assert _delta_map(result.comparisons[0])["acute_training_load"].status == "compared"
 
 
 def test_all_reviewed_metric_codes_listed() -> None:

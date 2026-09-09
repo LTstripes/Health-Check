@@ -53,6 +53,8 @@ class AggregateKind(StrEnum):
     SAMPLE = "sample"
     SESSION_TOTAL = "session_total"
     SESSION_AVERAGE = "session_average"
+    PROVIDER_SESSION_SCORE = "provider_session_score"
+    PROVIDER_SESSION_LOAD = "provider_session_load"
     UNKNOWN = "unknown"
 
 
@@ -237,7 +239,13 @@ ANALYTIC_METRIC_REGISTRY: dict[str, AnalyticMetricDefinition] = {
         unit="rpm",
         aggregate_kind=AggregateKind.SESSION_AVERAGE,
         window="activity_session",
-        source_field_paths=("metrics.cadenceRpm",),
+        source_field_paths=(
+            "metrics.cadenceRpm",
+            "cadenceRpm",
+            "averageBikeCadence",
+            "avgBikeCadence",
+            "bikeCadence",
+        ),
         description=(
             "Provider session average cadence only when the persisted source field "
             "is unambiguous RPM (not running steps/min)."
@@ -247,7 +255,7 @@ ANALYTIC_METRIC_REGISTRY: dict[str, AnalyticMetricDefinition] = {
         metric_code="training_effect",
         capability_code="training_effect",
         unit="points",
-        aggregate_kind=AggregateKind.SESSION_TOTAL,
+        aggregate_kind=AggregateKind.PROVIDER_SESSION_SCORE,
         window="activity_session",
         source_field_paths=("aerobicTrainingEffect", "trainingEffect"),
         description="Garmin/provider-native training effect score; not a custom score.",
@@ -256,7 +264,7 @@ ANALYTIC_METRIC_REGISTRY: dict[str, AnalyticMetricDefinition] = {
         metric_code="acute_training_load",
         capability_code="acute_training_load",
         unit="points",
-        aggregate_kind=AggregateKind.SESSION_TOTAL,
+        aggregate_kind=AggregateKind.PROVIDER_SESSION_LOAD,
         window="activity_session",
         source_field_paths=("activityTrainingLoad", "trainingLoad"),
         description="Garmin/provider-native acute training load; not a custom score.",
@@ -328,12 +336,12 @@ def resolve_aggregate_kind(metric_code: str, field_path: str | None = None) -> A
         "durationSeconds",
         "distance",
         "distanceMeters",
-        "aerobicTrainingEffect",
-        "trainingEffect",
-        "activityTrainingLoad",
-        "trainingLoad",
     }:
         return AggregateKind.SESSION_TOTAL
+    if leaf in {"aerobicTrainingEffect", "trainingEffect"}:
+        return AggregateKind.PROVIDER_SESSION_SCORE
+    if leaf in {"activityTrainingLoad", "trainingLoad"}:
+        return AggregateKind.PROVIDER_SESSION_LOAD
     return AggregateKind.UNKNOWN
 
 

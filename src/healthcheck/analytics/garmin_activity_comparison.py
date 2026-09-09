@@ -292,6 +292,30 @@ def _field_leaf(field_path: str | None) -> str:
     return field_path.rsplit(".", 1)[-1]
 
 
+def source_field_matches_reviewed(
+    field_path: str | None, reviewed_paths: tuple[str, ...]
+) -> bool:
+    """Return True when ``field_path`` matches a reviewed source path or alias.
+
+    Matching is deterministic suffix/identity against reviewed aliases (including
+    dotted aliases such as ``metrics.speedMps``). Leaf-only coincidence with a
+    multi-segment reviewed path is not accepted.
+    """
+
+    if not field_path:
+        return False
+    path = field_path.strip()
+    if not path:
+        return False
+    for alias in reviewed_paths:
+        reviewed = alias.strip()
+        if not reviewed:
+            continue
+        if path == reviewed or path.endswith("." + reviewed):
+            return True
+    return False
+
+
 def cadence_source_field_is_unambiguous(field_path: str | None) -> bool:
     """Return True only for reviewed unambiguous cadence RPM source leaves."""
 
@@ -459,6 +483,7 @@ def _metric_supported_for_dto(
         return False, "window_mismatch"
     if selected.unit != definition.unit:
         return False, "unit_mismatch"
+    # Preserve cadence special-casing before general source-path fail-closed.
     if metric_code == "cadence_rpm" and not cadence_source_field_is_unambiguous(
         selected.field_path
     ):
@@ -468,6 +493,10 @@ def _metric_supported_for_dto(
         leaf = _field_leaf(selected.field_path)
         if leaf not in {"averageSpeed", "speedMps"}:
             return False, "unsupported_speed_source_field"
+    if not source_field_matches_reviewed(
+        selected.field_path, definition.source_field_paths
+    ):
+        return False, "unreviewed_source_field"
     return True, None
 
 
@@ -875,5 +904,6 @@ __all__ = [
     "SessionMetricCoverage",
     "analyze_garmin_activity_comparison",
     "cadence_source_field_is_unambiguous",
+    "source_field_matches_reviewed",
     "compute_garmin_activity_comparison",
 ]
