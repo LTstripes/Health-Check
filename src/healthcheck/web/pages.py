@@ -17,6 +17,7 @@ from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
+from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
 from healthcheck.web.query import (
     WeightQueryService,
@@ -76,6 +77,36 @@ def dashboard_page(request: Request) -> HTMLResponse:
             return _persist_error(request, "dashboard")
         payload = empty_dashboard_payload(reason="database_unavailable")
     return render(request, "dashboard.html", {"payload": payload, "page": "dashboard"})
+
+
+@router.get("/garmin", response_class=HTMLResponse)
+def garmin_dashboard_page(
+    request: Request,
+    garmin_source_id: str | None = None,
+    metric_code: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> HTMLResponse:
+    try:
+        with session_scope(request_engine(request)) as session:
+            service = GarminQueryService(session, request.app.state.settings)
+            payload = service.dashboard(
+                garmin_source_id=garmin_source_id,
+                metric_code=metric_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
+    except GarminQueryError as exc:
+        return render_error(
+            request, code=exc.code, message=exc.message, status_code=exc.status_code
+        )
+    except SQLAlchemyError as exc:
+        if not database_unavailable(exc):
+            return _persist_error(request, "garmin_dashboard")
+        from healthcheck.web.garmin_query import unavailable_dashboard_payload
+
+        payload = unavailable_dashboard_payload(reason="database_unavailable")
+    return render(request, "garmin.html", {"payload": payload, "page": "garmin"})
 
 
 @router.get("/imports", response_class=HTMLResponse)
