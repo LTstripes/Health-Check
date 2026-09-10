@@ -83,3 +83,33 @@ button:disabled { background: #8aa8a7; cursor: not-allowed; }
   .top { flex-direction: column; align-items: flex-start; }
   .event-head img { max-width: 100%; }
 }
+
+/* Garmin dashboard extras */
+.block-label { display: block; width: 100%; }
+.block-label select[multiple] { min-width: 320px; width: 100%; }
+.status-chip {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #eee6d8;
+  font-size: 0.85rem;
+}
+.status-chip.zero { background: #e8f0ff; }
+.status-chip.missing, .status-chip.null, .status-chip.not_computable,
+.status-chip.partial, .status-chip.invalid, .status-chip.ambiguous {
+  background: #f7e6c8;
+  color: var(--unavailable);
+}
+/* Excluded / ambiguous_daily_aggregate must stay visually distinct from zero. */
+.status-chip.excluded {
+  background: #f3d6d6;
+  color: var(--unavailable);
+}
+.status-chip.ambiguous_daily_aggregate {
+  background: #efc4c4;
+  border: 1px solid #b85c5c;
+  color: #7a1f1f;
+  font-weight: 600;
+}
+.exclusion-list { margin: 0.35rem 0 0 1rem; }
+.garmin-table td.code { font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
