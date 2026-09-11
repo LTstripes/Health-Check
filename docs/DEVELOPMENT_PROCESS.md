@@ -4,25 +4,68 @@ This document defines how Health-Check work is planned, implemented by external 
 
 The workflow intentionally reuses lessons from `LTstripes/hermes-finance`, while reducing unnecessary rebases and central-log merge conflicts.
 
+Execution-mode semantics are additionally defined in `docs/AGENT_ORCHESTRATION.md`.
+
 ## 1. Core operating model
 
-Normal flow:
+Normal manual/brokered flow:
 
 1. Owner discusses a need with the Integrator (ChatGPT/Lera).
 2. Integrator classifies complexity/model routing and creates/updates the authoritative GitHub issue.
 3. Integrator chooses the release integration baseline, task branch and assigned local workspace.
-4. Integrator sends the owner a short copyable launch prompt.
-5. Owner launches the selected worker in Codex, Grok Build or Hermes.
+4. Integrator sends the Owner a short copyable launch prompt.
+5. Owner launches the selected Worker in Codex, Grok Build, Hermes or another selected client.
 6. Worker reads `AGENTS.md`, the issue and the active release spec when one is designated; implements only the task; tests; commits/pushes its task branch; returns a completion report.
 7. Owner forwards that report to the Integrator.
 8. Integrator reads the actual GitHub branch/diff/check evidence, reviews it and decides ACCEPT / FIXES REQUIRED / REJECT.
 9. Accepted work is merged by the Integrator into the current release integration branch (or `main` for a deliberately tiny standalone task).
 10. Integrator updates engineering history and any canonical docs made stale.
-11. At release gate, owner-only preview/UAT validates the integrated release.
+11. At release gate, Owner-only preview/UAT validates the integrated release.
 12. Integrator reviews and merges the release integration PR into `main`, then reads back canonical state and exact post-merge CI.
 13. The completed release integration line becomes historical/staging-only; the next release starts from the new canonical `main`.
 
-Workers implement. The Integrator owns acceptance, GitHub integration and durable engineering history.
+Workers implement. The Integrator owns project acceptance, GitHub integration and durable engineering history.
+
+### 1.1 Owner execution intent
+
+- `дай задачу для Grok` -> manual Grok Worker;
+- `дай задачу для Hermes` -> manual Hermes Worker;
+- `дай задачу для <model/client>` -> manual Worker unless orchestration is explicitly requested;
+- `Codex без оркестрации` -> manual Codex Worker;
+- `дай задачу для Codex` -> Codex `$delivery-loop` single-task route by default;
+- `дай серию задач для Codex` -> explicitly bounded Codex `$delivery-loop` queue.
+
+The Integrator honors the requested implementation route while continuing to perform GitHub-side issue/PR/review/merge mechanics directly when available.
+
+### 1.2 Codex `$delivery-loop` route
+
+For an orchestrated Codex task, the strong root acts as **Execution Orchestrator** and delegates implementation to the locally configured **Worker**. The root does not duplicate delegated write work.
+
+For every task the launch packet specifies:
+
+- issue/task ID;
+- active release/integration context;
+- exact baseline;
+- task branch;
+- physical workspace;
+- queue mode;
+- dependency status;
+- independent-review requirement.
+
+The root reviews actual candidate/check evidence after the Worker returns. A separate Reviewer is used when project routing requires independent review, when the Owner/Integrator explicitly requests it, or when justified execution risk raises the review bar. Such risk does not authorize scope expansion: architecture/privacy/canonical-data/health-semantics expansion remains STOP + Integrator re-scope.
+
+Automatic remediation is bounded to two cycles. Internal results are `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED`, or `BLOCKED_FOR_INTEGRATION`. `INTERNAL_ACCEPT` never equals project `ACCEPT`.
+
+For an explicitly authorized independent queue:
+
+- every task keeps its own branch/workspace/exact baseline;
+- a previous candidate is not an implicit baseline for the next task;
+- one task reaches `INTERNAL_ACCEPT` before the next eligible task starts;
+- if a task requires prior integration and no safe dependency strategy was supplied, it becomes `BLOCKED_FOR_INTEGRATION`;
+- that blocks the affected dependency chain, not unrelated explicitly listed eligible tasks;
+- the Orchestrator must not invent stacked history, merge the integration branch or select replacement backlog work.
+
+Codex returns per-task evidence plus one final queue report covering every authorized task. That queue report is not batch project acceptance.
 
 ## 2. Branch strategy
 
@@ -55,9 +98,9 @@ A task branch starts from an exact pinned SHA of the release integration branch.
 
 ### Parallel work
 
-Only genuinely independent scopes run in parallel. If task B depends on task A's schema/API, task B starts only after A is integrated unless the issue explicitly provides a stable contract fixture.
+Only genuinely independent scopes run in parallel. If task B depends on task A's schema/API, task B starts only after A is integrated unless the issue explicitly provides a stable contract fixture or the Integrator explicitly supplies a safe dependency/baseline strategy.
 
-A task does not rebase continuously. If integration advances while a worker is coding, the worker stays on the pinned baseline. At review time the Integrator decides whether:
+A task does not rebase continuously. If integration advances while a Worker is coding, the Worker stays on the pinned baseline. At review time the Integrator decides whether:
 
 - candidate is independent and can merge cleanly as-is;
 - one refresh/retest pass is needed;
@@ -71,7 +114,7 @@ For stacked accepted work created before the previous release completed, reconst
 
 GitHub is canonical. Local paths are execution/preview locations, not sources of truth.
 
-`D:\Garmin` is the owner-only parent root. It contains separate main and UAT checkouts; the parent directory itself is not a mutable Git checkout.
+`D:\Garmin` is the Owner-only parent root. It contains separate main and UAT checkouts; the parent directory itself is not a mutable Git checkout.
 
 ### Owner canonical checkout
 
@@ -79,7 +122,7 @@ GitHub is canonical. Local paths are execution/preview locations, not sources of
 
 Purpose:
 
-- owner/integrator stable checkout of accepted `main`;
+- Owner/Integrator stable checkout of accepted `main`;
 - convenient local read/run point after releases;
 - never a development-agent workspace.
 
@@ -91,12 +134,12 @@ Other coding agents must not access, branch-switch, reset or use this checkout.
 
 Purpose:
 
-- owner-only checkout of the current release integration candidate;
+- Owner-only checkout of the current release integration candidate;
 - browser/manual preview;
 - live S400/Garmin/Fitbit probes when their release reaches that gate;
 - private UAT data profiles.
 
-Coding workers must not use this workspace.
+Coding Workers/Execution Orchestrators must not use this workspace.
 
 Runtime/private data remains outside Git checkout, preferably through release/profile-specific `HEALTHCHECK_DATA_DIR`, for example `%LOCALAPPDATA%\Health-Check\uat` and later `%LOCALAPPDATA%\Health-Check\prod`. Do not reuse one private database across arbitrary branches.
 
@@ -130,24 +173,24 @@ If these machine paths change, the issue/Integrator launch note may override the
 
 ## 4. Workspace creation rules for workers
 
-A worker may create only the task directory explicitly assigned below its client root. It may clone/fetch the repository there and check out the assigned branch/baseline.
+A Worker may create only the task directory explicitly assigned below its client root. It may clone/fetch the repository there and check out the assigned branch/baseline.
 
-Workers must not:
+Workers, Delegates and Execution Orchestrators must not:
 
 - inspect `D:\Garmin\Garmin-Main` or `D:\Garmin\Garmin-UAT`;
 - reuse another task directory;
 - create sibling roots elsewhere on disk;
-- link private owner runtime/data into a dev clone;
+- link private Owner runtime/data into a dev clone;
 - switch/reset a working tree currently used by another session.
 
-Parallel Hermes bots/delegates follow the same invariant. Multiple simultaneous writers require separate sub-workspaces/branches; a supervising Hermes session remains accountable for the final candidate and reports all delegates used.
+Parallel Hermes bots/Delegates follow the same invariant. Multiple simultaneous writers require separate sub-workspaces/branches; a supervising Hermes Worker remains accountable for the final candidate and reports all Delegates used.
 
 ## 5. Task definition
 
 The Integrator creates a GitHub issue before implementation. It should include:
 
 - release/task ID and objective;
-- complexity/risk class and recommended executor;
+- complexity/risk class and recommended executor/route;
 - target integration branch and exact baseline SHA;
 - dependencies;
 - required source documents;
@@ -157,31 +200,57 @@ The Integrator creates a GitHub issue before implementation. It should include:
 - exact expected verification;
 - expected completion report.
 
-Task requirements live in GitHub, not only in chat. If scope changes, the issue body or an explicit `Integrator note` comment is updated before the worker implements the new requirement.
+Task requirements live in GitHub, not only in chat. If scope changes, the issue body or an explicit `Integrator note` comment is updated before the Worker implements the new requirement.
 
 ## 6. Launch prompt convention
 
-The Integrator sends the owner a short prompt, normally like:
+### Manual Worker
+
+The Integrator sends the Owner a short prompt, normally like:
 
 ```text
 Health-Check task #NN — <title>
 Complexity: C2 / Normal
-Recommended executor: Luna High (alternative: Grok High)
+Recommended executor: <client/model>
 
 Repo: https://github.com/LTstripes/Health-Check
 Issue: <URL>
 Target integration: integration/<active-release> @ <SHA>
 Branch: task/<issue>-<slug>
-Workspace: D:\Codex\Garmin\workspaces\<issue>-<slug>
+Workspace: <assigned workspace>
 
-Read AGENTS.md, the issue and the active release spec if one is designated. Implement only the issue. Run the required checks. Commit/push only the task branch. Do not merge or modify main/integration. Return the canonical completion report with exact final SHA.
+Read AGENTS.md, the issue and the active release spec if one is designated. Implement only the issue. Run the required checks. Commit/push only the task branch. Do not merge or modify main/integration. Return the Worker completion report with exact final SHA.
 ```
 
-The issue contains details; the launch prompt is a locator, not a second specification.
+### Codex `$delivery-loop` single task
 
-## 7. Worker completion -> Integrator review
+The prompt additionally states:
 
-The owner forwards the worker's completion report. The Integrator does not accept that summary as proof.
+- explicit `$delivery-loop`;
+- `queue_mode=single`;
+- root = Execution Orchestrator;
+- implementation belongs to the local configured Worker;
+- independent-review requirement;
+- max two remediation cycles;
+- `INTERNAL_ACCEPT != project ACCEPT`;
+- no implicit integration/main merge authority.
+
+### Codex `$delivery-loop` queue
+
+One queue launch packet may list several explicitly authorized tasks. It must state exact baseline/branch/workspace/dependency/review data for every task and require:
+
+- progression only through listed eligible items;
+- `INTERNAL_ACCEPT` before advancing;
+- `BLOCKED_FOR_INTEGRATION` for unresolved dependency integration gaps;
+- unrelated explicitly listed eligible tasks may continue;
+- no invented tasks/stacking/merge;
+- per-task evidence plus one final queue report.
+
+The issue contains details; launch prompts are locators/execution contracts, not second specifications.
+
+## 7. Worker / Orchestrator completion -> Integrator review
+
+The Owner forwards the Worker completion report or Codex queue report. The Integrator does not accept that summary as proof.
 
 Integrator checks, as applicable:
 
@@ -192,6 +261,7 @@ Integrator checks, as applicable:
 - privacy/secrets/runtime-data boundary;
 - migrations/schema/data semantics;
 - docs made stale;
+- whether required independent review actually ran;
 - whether integration branch moved and whether refresh is needed.
 
 Possible verdicts:
@@ -200,17 +270,19 @@ Possible verdicts:
 - **FIXES REQUIRED** — same issue/candidate remains open with explicit findings.
 - **REJECT** — approach/candidate is not integrated; reason is preserved in history.
 
-A reviewer never silently repairs a candidate and then calls the original worker's result accepted. Trivial Integrator-owned documentation/metadata fixes may be explicit separate commits; behavioral fixes become a follow-up worker pass/task.
+`INTERNAL_ACCEPT` is only an internal Codex delivery-loop verdict and never substitutes for this Integrator decision.
+
+A Reviewer never silently repairs a candidate and then calls the original Worker's result accepted. Trivial Integrator-owned documentation/metadata fixes may be explicit separate commits; behavioral fixes become a follow-up Worker pass/task.
 
 ## 8. Engineering history — everything useful is retained
 
-`docs/EXECUTION_HISTORY.md` is maintained by the Integrator, not by parallel workers.
+`docs/EXECUTION_HISTORY.md` is maintained by the Integrator, not by parallel Workers/Execution Orchestrators.
 
 Record both successful and useful failed/rejected attempts. Each entry should capture:
 
 - date;
 - release/task/issue;
-- executor client/model and any Hermes delegates/fallbacks;
+- executor client/model and any Hermes Delegates/fallbacks or Codex root/Worker/Reviewer attribution when known;
 - complexity/routing decision;
 - baseline/integration SHA;
 - task branch and candidate SHA;
@@ -244,11 +316,13 @@ If Hermes starts with one model and falls back/delegates to another, record the 
 
 `Step 3.7 Flash -> DeepSeek V4 Flash fallback`
 
+If Codex orchestrates, preserve runtime-reported root/Worker/Reviewer attribution when known.
+
 That history is useful for later model benchmarks and the eventual story of how the project was built.
 
 ## 10. Release integration and UAT
 
-`docs/R01_OWNER_UAT.md` is the historical owner checklist for R01. Future releases should use their own release-specific UAT checklist/issue rather than treating the R01 checklist as current by default.
+`docs/R01_OWNER_UAT.md` is the historical Owner checklist for R01. Future releases should use their own release-specific UAT checklist/issue rather than treating the R01 checklist as current by default.
 
 When all planned tasks for a release are integrated:
 
@@ -260,7 +334,7 @@ When all planned tasks for a release are integrated:
 6. Integrator opens/reviews integration -> `main` PR.
 7. Accepted release is merged to `main`.
 8. Exact post-merge `main` CI is checked and canonical `main` is read back.
-9. `D:\Garmin\Garmin-Main` is fast-forwarded to canonical `main` by the owner when convenient; GitHub remains canonical.
+9. `D:\Garmin\Garmin-Main` is fast-forwarded to canonical `main` by the Owner when convenient; GitHub remains canonical.
 10. Release documentation/history is synchronized.
 11. The completed integration branch is no longer used as the next release baseline; create the next release integration branch from current `main`.
 
@@ -276,15 +350,17 @@ When intentionally comparing models on the same task:
 
 Benchmark candidates are not automatically merged; the Integrator selects or synthesizes the accepted approach.
 
-## 12. Future Hermes automation
+## 12. Current Codex and future provider automation
 
-Later we may automate issue pickup, worker/reviewer bots and integration inside Hermes. The same contracts remain:
+Codex `$delivery-loop` is now a supported execution mode under `docs/AGENT_ORCHESTRATION.md`.
+
+Later we may automate issue pickup, Worker/Reviewer bots and integration inside Hermes or another provider-neutral orchestration layer. The same contracts remain:
 
 - issue is authority;
 - isolated workspace/branch per writer;
-- delegates cannot self-accept;
+- Delegates cannot self-accept;
 - final Integrator gate remains explicit;
 - execution history records the delegation chain;
-- private owner runtime remains outside bot workspaces.
+- private Owner runtime remains outside bot workspaces.
 
 Automation may remove manual message shuttling; it must not remove accountability or evidence.

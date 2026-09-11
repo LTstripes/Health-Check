@@ -12,8 +12,9 @@ When documents disagree, use this order:
 4. The active GitHub issue and explicit Integrator notes — task-specific scope and acceptance criteria.
 5. `docs/DEVELOPMENT_PROCESS.md` — branch/workspace/review protocol.
 6. `docs/MODEL_ROUTING.md` — complexity/routing/escalation protocol.
-7. `docs/DECISIONS_AND_OPEN_QUESTIONS.md` — current decisions and live verification items.
-8. `docs/BACKLOG_IDEAS.md` and historical/audit material — context only unless promoted into an active spec.
+7. `docs/AGENT_ORCHESTRATION.md` — execution modes and project-facing orchestration contract.
+8. `docs/DECISIONS_AND_OPEN_QUESTIONS.md` — current decisions and live verification items.
+9. `docs/BACKLOG_IDEAS.md` and historical/audit material — context only unless promoted into an active spec.
 
 If no new release implementation spec has been promoted yet, use architecture + roadmap + the active GitHub issue/Integrator note; do not silently treat the previous release spec as current.
 
@@ -22,24 +23,28 @@ A task issue may narrow an architecture/spec but may not silently override a hig
 ## Roles
 
 - **Owner** — chooses product direction and may perform private/live UAT.
-- **Integrator** — currently ChatGPT/Lera in the normal workflow. Creates task specs, chooses routing, manages GitHub, reviews candidates, accepts/rejects, merges, updates durable logs/docs.
-- **Worker** — Codex, Grok Build, Hermes/its delegates, or another assigned coding agent. Implements only the assigned issue and does not self-accept.
-- **Reviewer** — independently validates a candidate. Does not silently modify the candidate under review.
+- **Integrator** — currently ChatGPT/Lera in the normal workflow. Creates task specs, chooses routing, manages GitHub, reviews candidates, accepts/rejects, merges and updates durable logs/docs.
+- **Execution Orchestrator** — optional execution-local coordinator. May plan, delegate, internally review/remediate and coordinate only an explicitly authorized queue. Does not own project acceptance or canonical integration.
+- **Worker** — one accountable implementation writer for one candidate. Does not self-accept.
+- **Delegate** — bounded helper below an Orchestrator/Worker. Does not self-accept.
+- **Reviewer** — independently validates a candidate without silently modifying it.
 
-The default principle is: **workers provide the hands; the Integrator owns acceptance and repository integration.**
+The default principle remains: **Workers provide the hands; the Integrator owns project acceptance and repository integration.** Root/Orchestrator self-review is not called independent review.
 
 ## Task prompt authority
 
 The GitHub issue is the authoritative task specification. A launch prompt sent by the Integrator is intentionally short and normally contains only:
 
 - issue number/link;
-- assigned model/client and complexity;
+- assigned execution route/client and complexity;
 - assigned physical workspace root/task directory;
 - task branch and exact baseline/integration SHA;
-- instruction to read this file, the active release spec (when one is designated) and the issue;
-- instruction to run required checks, commit/push only the task branch and return the exact final SHA.
+- instruction to read this file, the active release spec (when designated) and the issue;
+- instruction to run required checks, commit/push only the task branch and return exact candidate evidence.
 
-Do not duplicate the whole issue in chat prompts. If requirements change, the Integrator updates the issue or adds an explicit Integrator note in GitHub; chat-only requirement drift is not authoritative.
+Do not duplicate the whole issue in chat prompts. If requirements change, the Integrator updates the issue or adds an explicit Integrator note; chat-only requirement drift is not authoritative.
+
+A Codex `$delivery-loop` queue may list several tasks in one launch packet only under `docs/AGENT_ORCHESTRATION.md` isolation/dependency rules.
 
 ## Git ownership
 
@@ -48,10 +53,11 @@ Do not duplicate the whole issue in chat prompts. If requirements change, the In
 - A release integration branch is a staging/coordination line, never a second source of truth.
 - After a release is merged to `main`, its integration branch becomes historical/staging-only. The next release integration branch starts from the then-current canonical `main`, not from the old integration branch or an arbitrary stacked task branch.
 - Worker branches are isolated, normally `task/<issue>-<slug>`, from an exact pinned integration SHA.
-- A worker may commit and push only its assigned task branch.
-- Workers do not merge, force-push, delete branches/tags, retarget PRs or alter repository settings unless explicitly delegated.
-- By default workers do not create PRs; the Integrator handles PR creation/review/merge through GitHub.
-- Reviewers do not mutate the candidate they are independently reviewing.
+- A Worker may commit and push only its assigned task branch.
+- Workers/Execution Orchestrators do not merge, force-push, delete branches/tags, retarget PRs or alter repository settings unless explicitly delegated.
+- By default Workers do not create PRs; the Integrator handles PR creation/review/merge through GitHub.
+- Reviewers do not mutate the candidate they independently review.
+- An Execution Orchestrator does not become a second writer after delegation.
 
 ## Stale-base and parallel-work policy
 
@@ -68,33 +74,37 @@ A task stays pinned to its assigned baseline while it is being implemented. Do n
 
 One active write/verification task owns one physical working tree. Branch isolation alone is not sufficient for parallel sessions.
 
-Current owner workstation assignments are documented in `docs/DEVELOPMENT_PROCESS.md`. Each local agent uses a task-specific clone/worktree under its own assigned root. The owner canonical and UAT workspaces are forbidden agent development workspaces.
+Current Owner workstation assignments are documented in `docs/DEVELOPMENT_PROCESS.md`. Each local agent uses a task-specific clone/worktree under its own assigned root. The Owner canonical and UAT workspaces are forbidden agent development workspaces.
 
 Agents must not create, move, rename, inspect or delete sibling workspaces outside their assigned task directory unless the Integrator explicitly assigns that filesystem operation.
 
 ## Runtime/private-data isolation — hard invariant
 
-Development-agent workspaces must not contain or access real personal health data or owner credentials, including:
+Development-agent workspaces must not contain or access real personal health data or Owner credentials, including:
 
 - real Health-Check SQLite databases or sidecars;
-- Xiaomi/Garmin/Fitbit payloads from the owner's account unless explicitly sanitized for a private owner-only probe;
+- Xiaomi/Garmin/Fitbit payloads from the Owner's account unless explicitly sanitized for a private Owner-only probe;
 - screenshots/photos containing real measurements;
 - tokens, bind keys, MAC/key material, refresh tokens or secrets;
 - private lab/medical documents;
-- owner UAT runtime data;
+- Owner UAT runtime data;
 - symlinks/junctions/hardlinks to any of the above.
 
-Repository and normal agent tests use synthetic fixtures only. Private/live verification is owner/integrator controlled and is reported as `UNVERIFIED` until actually performed.
+Repository and normal agent tests use synthetic fixtures only. Private/live verification is Owner/Integrator controlled and is reported as `UNVERIFIED` until actually performed.
 
 ## Scope discipline
 
 - Do only the assigned issue.
-- Do not start the next roadmap item automatically.
+- A normal Worker does not start the next roadmap item automatically.
+- An Execution Orchestrator may advance only to the next **explicitly listed eligible task** when an authorized `$delivery-loop` queue is active and the prior task reached `INTERNAL_ACCEPT`.
+- The Orchestrator must not discover/invent extra roadmap/backlog work.
+- `BLOCKED_FOR_INTEGRATION` blocks the affected dependency chain, not unrelated explicitly listed eligible queue items.
 - Do not perform unrelated cleanup "while here".
 - Do not add unused infrastructure for future releases.
 - Do not reinterpret product/health semantics without an issue/ADR decision.
 - Missing/unknown/unavailable data is never silently converted to zero.
 - Do not make diagnosis or causal claims from wearable/BIA associations.
+- If justified risk discovered during execution implies architecture, privacy, canonical-data or health-semantics expansion, STOP and return to the Integrator for re-scope.
 
 ## Verification
 
@@ -111,12 +121,14 @@ Minimum completion discipline:
 
 Do not claim a full suite, browser smoke, live provider test or device verification unless it actually ran.
 
-## Completion report from a worker
+Independent review is required when `docs/MODEL_ROUTING.md` says so, when Owner/Integrator explicitly requests it, or when justified execution risk raises the review bar under project policy. Evidence counts as independent review only when a separate Reviewer actually ran.
 
-Return one concise report containing:
+## Completion reporting
+
+A normal Worker returns one concise per-task report containing:
 
 - task/issue ID;
-- runtime-reported client/model (and delegates/fallbacks if applicable);
+- runtime-reported client/model (and Delegates/fallbacks if applicable);
 - baseline SHA and target integration branch;
 - task branch and physical workspace;
 - exact final candidate SHA;
@@ -127,7 +139,9 @@ Return one concise report containing:
 - working-tree status;
 - confirmation that `main` and unrelated branches/workspaces were not modified.
 
-Do not edit `docs/EXECUTION_HISTORY.md` as a normal worker. The Integrator records accepted, rejected and abandoned attempts centrally after review to avoid parallel merge conflicts and preserve neutral history.
+An orchestrated queue additionally returns one final queue report listing every authorized task, its final internal state, candidate SHA where applicable, review path and unresolved Integrator action. That queue report is not batch project acceptance.
+
+Do not edit `docs/EXECUTION_HISTORY.md` as a normal Worker/Execution Orchestrator. The Integrator records accepted, rejected and abandoned attempts centrally after review.
 
 ## Durable history and decisions
 
@@ -138,6 +152,8 @@ Do not edit `docs/EXECUTION_HISTORY.md` as a normal worker. The Integrator recor
 
 ## Delivery
 
-A worker delivers a pushed task branch and completion report. The Integrator then inspects GitHub diff/evidence, requests fixes or rejects/accepts, merges accepted work into the current integration branch, updates execution history and affected canonical docs, and eventually opens the release integration -> `main` PR.
+A Worker delivers a pushed task branch and completion report. The Integrator then inspects GitHub diff/evidence, requests fixes or rejects/accepts, merges accepted work into the current integration branch, updates execution history and affected canonical docs, and eventually opens the release integration -> `main` PR.
+
+`INTERNAL_ACCEPT` from an Execution Orchestrator is evidence only and does not authorize integration.
 
 After a release merge to `main`, canonical `main` must be read back, exact post-merge CI checked, release/UAT status recorded, and the next release must restart from the new canonical `main` rather than continuing from the old release integration branch.
