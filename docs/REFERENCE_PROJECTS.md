@@ -1,153 +1,220 @@
 # Reference Projects and Reuse Strategy
 
-Snapshot date: **2026-09-02**. Every conclusion below is tied to a full commit SHA. Before copying code in a later release, recheck the exact file license, preserve required notices, and record the source commit in that implementation PR.
+Snapshot refreshed: **2026-09-12**. Detailed reuse approvals remain tied to the reviewed source SHAs below. A newer upstream head recorded in this document or in an audit is **not** an automatic repin and does not expand the code-copy/reuse boundary.
 
-Health-Check itself has no LICENSE at baseline `2ff87de963f022dfdbfb4960276b09635888501a`. R00 recommends choosing a project license before incorporating donor code; this branch does not create one.
+Health-Check is MIT licensed. Before copying code in a later release, recheck the exact upstream file and license at the exact commit, preserve required notices, and record that provenance in the implementation PR/task evidence.
+
+The full 2026-09-12 upstream comparison, including old/current SHAs, deltas and adversarial regression ideas, is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md).
 
 ## Final classification
 
-| Project | Pinned source | Verified license at pin | Final use |
+| Project | Reviewed source | Verified license at reviewed source | Final use |
 |---|---|---|---|
-| [`python-garminconnect`](https://github.com/cyberjunky/python-garminconnect/tree/981d150caeda7d632224a75f3895c08df27a2a34) | `981d150caeda7d632224a75f3895c08df27a2a34` (`0.3.12`) | MIT | **DIRECT runtime dependency** in R02, pinned; do not write a competing client. |
-| [`garmin-stats-ai`](https://github.com/dandwhelan/garmin-stats-ai/tree/936974ac8c78781e7d0075040f459ea7676b3819) | `936974ac8c78781e7d0075040f459ea7676b3819` | Root MIT; bundled `garmin-grafana/` BSD-3-Clause | **Selective donor**: tiny pure statistics may be direct; adapt transforms/sync/lag/activity/test semantics; do not adopt the product. |
+| [`python-garminconnect`](https://github.com/cyberjunky/python-garminconnect/tree/981d150caeda7d632224a75f3895c08df27a2a34) | `981d150caeda7d632224a75f3895c08df27a2a34` (`0.3.12`) | MIT | **DIRECT runtime dependency** in released R02, pinned; do not write a competing client. Upstream `0.3.13` is a separate future upgrade decision, not an implicit repin. |
+| [`garmin-stats-ai`](https://github.com/dandwhelan/garmin-stats-ai/tree/936974ac8c78781e7d0075040f459ea7676b3819) | `936974ac8c78781e7d0075040f459ea7676b3819` | Root MIT; bundled `garmin-grafana/` BSD-3-Clause | **Selective donor/reference**: tiny pure statistics may be direct after file-level review; adapt transforms/sync/lag/activity/test semantics; do not adopt product/medical claims. |
 | [`fettle`](https://github.com/Deekshith-Dade/fettle/tree/82929df268124f0a3470b180adbbbeb0802d03cd) | `82929df268124f0a3470b180adbbbeb0802d03cd` | MIT | **Selective donor** for Google Health v4 registry/client/sync/sleep/test patterns. No module-level direct reuse approved. |
-| [`healthquery`](https://github.com/nikira-studio/healthquery/tree/f175148f67cb954fc4db2e026e497984dfccac29) | `f175148f67cb954fc4db2e026e497984dfccac29` | MIT | **Selective pattern donor** for raw batch replay, migrations, and typed MCP shapes; reject its generic SQL and capability boundary. |
-| [`garmin_ai`](https://github.com/TolmachevKirill/garmin_ai/tree/ca6d298cc4a7e4e95e036c76dce69d211a47aeee) | `ca6d298cc4a7e4e95e036c76dce69d211a47aeee` | **UNVERIFIED**: no LICENSE/COPYING in pinned tree | **REFERENCE ONLY**; no code copying. |
-| [`openScale`](https://github.com/oliexdev/openScale/tree/6613db5838e4674a19652441073f82b3ee3d7009) | `6613db5838e4674a19652441073f82b3ee3d7009`; stable S400 code also in `v3.1.2` | GPL-3.0 | **EXTERNAL Android component**; use its BLE/output boundary, copy no code into core. |
-| [`openScale-sync`](https://github.com/oliexdev/openScale-sync/tree/32e38651cf78bbf230e33d17abb00b147130f305) | `32e38651cf78bbf230e33d17abb00b147130f305`; one unreleased commit after `v0.6.2` | GPL-3.0 | **EXTERNAL Android component**; implement its generic-webhook receiver contract. |
-| [`open-wearables`](https://github.com/the-momentum/open-wearables/tree/72351e24de045e87da4fe4fd86142494e304e17b) | `72351e24de045e87da4fe4fd86142494e304e17b` | MIT | **ARCHITECTURE/SELECTIVE PATTERN**: typed MCP-over-API, provider registry/chunking; reject SaaS infrastructure and unsafe derived math. |
+| [`healthquery`](https://github.com/nikira-studio/healthquery/tree/f175148f67cb954fc4db2e026e497984dfccac29) | `f175148f67cb954fc4db2e026e497984dfccac29` | MIT | **Selective pattern donor** for raw batch replay, migrations and typed MCP shapes; reject its generic SQL/capability boundary. |
+| [`garmin_ai`](https://github.com/TolmachevKirill/garmin_ai/tree/ca6d298cc4a7e4e95e036c76dce69d211a47aeee) | `ca6d298cc4a7e4e95e036c76dce69d211a47aeee` | **UNVERIFIED**: no LICENSE/COPYING in reviewed tree | **REFERENCE ONLY**; no code copying. |
+| [`openScale`](https://github.com/oliexdev/openScale/tree/6613db5838e4674a19652441073f82b3ee3d7009) | `6613db5838e4674a19652441073f82b3ee3d7009`; stable S400 code also in `v3.1.2` | GPL-3.0 | **EXTERNAL Android component**; use its BLE/output boundary, copy no code into core. Current upstream has moved to an identity-based API-v3 measurement model; re-audit before future Xiaomi ingest changes. |
+| [`openScale-sync`](https://github.com/oliexdev/openScale-sync/tree/32e38651cf78bbf230e33d17abb00b147130f305) | `32e38651cf78bbf230e33d17abb00b147130f305` | GPL-3.0 | **EXTERNAL Android component**; implement/maintain a compatible generic-webhook receiver contract, but re-audit current API-v3 identity semantics before changing the released R01 path. |
+| [`open-wearables`](https://github.com/the-momentum/open-wearables/tree/72351e24de045e87da4fe4fd86142494e304e17b) | `72351e24de045e87da4fe4fd86142494e304e17b` | MIT | **ARCHITECTURE/SELECTIVE PATTERN**: typed MCP-over-API, provider registry/chunking, sync diagnostics; reject SaaS infrastructure and unsafe derived math. Current upstream observations are secondary evidence only. |
+| [`haelan`](https://github.com/bardesss/haelan/tree/89d512115acc9b1529a6380399a0d451556da0b1) | `89d512115acc9b1529a6380399a0d451556da0b1` (`1.6.0`) | **AGPL-3.0** | **REFERENCE ONLY / NO CODE COPYING**: adversarial Google Health v4 observations; raw/cache/derived rebuild patterns; correction/rederive; bounded shared query layer; source-staleness idea. |
 | [`VitaSync`](https://github.com/biosync-io/vitasync/tree/f299cd134edea8effca9ac52436fc83d439792b6) | `f299cd134edea8effca9ac52436fc83d439792b6` | AGPL-3.0 | **REFERENCE ONLY**; do not copy. Product/infrastructure mismatch. |
 
 Network/process separation reduces code-incorporation risk but does not settle every licensing obligation. Distribution choices must still comply with each program's license.
 
+## Evidence discipline for active R04 work
+
+`fettle`, `open-wearables` and `haelan` are useful **adversarial references**, not authorities for Google Health behavior. R04-00/#81 keeps its stricter rule: current first-party Google documentation is required for material provider/API/OAuth/policy conclusions; owner-live evidence is used only where the official contract remains ambiguous.
+
+A donor implementation may suggest that we ask about string-encoded integer fields, proto3 zero omission, irregular data-type names, source-family behavior, pagination or historical lookback, but it may not turn an official UNKNOWN into a Health-Check fact.
+
 ## `python-garminconnect`
 
-Current `0.3.12` replaced the deprecated `garth` login path with its native authentication engine. Runtime dependencies at the pin are `curl_cffi`, `requests`, and `ua-generator`; `garth` is not one of them. The client supports MFA continuation, token persistence/refresh, daily/range endpoints, and activity downloads. Raw typed APIs are still marked experimental.
+The reviewed R02 dependency `0.3.12` replaced the deprecated `garth` login path with its native authentication engine. Runtime dependencies at that pin are `curl_cffi`, `requests`, and `ua-generator`; `garth` is not one of them. The client supports MFA continuation, token persistence/refresh, daily/range endpoints, and activity downloads. Raw typed APIs are still treated conservatively.
 
 Health-Check decision:
 
-- pin `0.3.12` plus the audited SHA in R02;
-- allowlist read/download methods only;
+- keep released R02 pinned to `0.3.12 @ 981d150caeda7d632224a75f3895c08df27a2a34` until an explicit dependency-upgrade task exists;
+- allowlist only the read/download methods Health-Check actually needs;
 - wrap returned payloads behind Health-Check raw/source/typed contracts;
-- store reusable credentials with Windows-appropriate at-rest protection;
-- use a trailing resync window and live account contract fixtures;
-- never infer device support from a method name.
+- keep reusable credentials outside Git with Windows-appropriate at-rest protection;
+- preserve trailing reconciliation/live-account contract tests;
+- never infer Vivoactive/device support from a library method name.
 
-The separate `garth` repository at `f99159a15c4c9463ce215a60ba9f7cb21f94a3b7` / final `v0.8.0` is deprecated and states that new logins do not work. Do not preserve old `garth` branches found in donor code.
+### 2026-09-12 upstream watch
+
+Upstream is now `0.3.13 @ 6569a424c9d44cc93fdd1b0444cc878d1a630866`, 19 commits past our reviewed pin. Changes relevant to us include activities-response normalization, an activity-subtype filter, token-store login recovery when the social profile lacks a usable `displayName`, and removal of debug logging that serialized a personal social-profile response.
+
+Those are reasons to create a bounded upgrade task later, **not** reasons to silently change a stable R02 dependency. Any bump must rerun auth/session-reuse and activity-shape regressions plus owner-live verification. New write-side APIs such as gear creation stay outside our allowlist.
+
+The separate `garth` repository remains deprecated; do not revive old donor branches that depend on it.
 
 ## `garmin-stats-ai`
 
 ### DIRECT (small, audited, attributed)
 
-- Only `pearson_r_p`, `benjamini_hochberg`, and `finalize_correlations` from [`garmin-insights/src/garmin_insights/stats_utils.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/stats_utils.py), with [`test_stats_utils.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_stats_utils.py) and [`test_stats_utils_no_scipy.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_stats_utils_no_scipy.py).
+At the reviewed pin, only tiny pure statistical helpers such as `pearson_r_p`, `benjamini_hochberg`, and `finalize_correlations` were candidates for direct reuse after exact-file license/provenance review. Do not copy the whole utility module: it mixes conversions, heuristics, lag/product policy and hard-coded thresholds.
 
-Do not copy the module wholesale: it also contains conversion/age heuristics, lag policy, pandas helpers, and hard-coded minimum-pair policy. Thresholds are Health-Check product policy, not scientific constants. Direct reuse waits for a Health-Check license and retained MIT notice.
+### ADAPT / REFERENCE
 
-### ADAPT
+Useful reviewed patterns include:
 
-- [`garmin-grafana/src/garmin_grafana/transforms.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-grafana/src/garmin_grafana/transforms.py): wake-date sleep semantics, missing-not-zero behavior, and extraction fixtures; translate into typed Health-Check entities. The nested BSD-3-Clause notice applies. Relevant tests: [`test_garmin_transforms.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_garmin_transforms.py) and [`test_sleep_intraday_ingest.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_sleep_intraday_ingest.py).
-- [`garmin-grafana/src/garmin_grafana/garmin_fetch.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-grafana/src/garmin_grafana/garmin_fetch.py): historical windows, trailing seven-day reconciliation, and original FIT handling; remove obsolete `garth`, global config, unbounded dependency, and side effects. Review [`test_token_owner.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_token_owner.py).
-- [`garmin-grafana/src/garmin_grafana/sqlite_manager.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-grafana/src/garmin_grafana/sqlite_manager.py): natural-key/upsert idea, not its schema.
-- [`garmin-insights/src/garmin_insights/tools/analysis_tools.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/tools/analysis_tools.py) plus `stats_utils.NEXT_DAY_LAG_METRICS`: actual next-calendar-date join, real-day slopes, Cohen's d, and experiment shape. Relevant tests: [`test_analysis_engine.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_analysis_engine.py) and [`test_experiments.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_experiments.py).
-- [`garmin-insights/src/garmin_insights/tools/query_tools.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/tools/query_tools.py) aggregation helpers for a new explicit activity-comparison service; validate against [`test_query_tools_helpers.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_query_tools_helpers.py). There is no turnkey donor `compare_activities` to copy.
+- wake-date sleep semantics and missing-not-zero transforms;
+- historical/trailing reconciliation ideas without obsolete `garth` or global side effects;
+- natural-key/upsert concepts, not its storage schema;
+- real-calendar lag joins, slopes/effect-size/experiment shapes after Health-Check-specific policy review;
+- activity-query aggregation helpers as reference for an explicit comparison service;
+- scanner/evidence-tier/confounder metadata as a communication pattern, not a source of medical thresholds;
+- adapter/registry and malformed-frame test style for hardware integrations.
 
-### REFERENCE
+Do not adopt its Fitdays/Lefu formulas or vectors as Xiaomi S400 evidence, and do not adopt author-specific illness/health rules as validated physiology.
 
-- [`garmin-insights/src/garmin_insights/insights/proactive.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/insights/proactive.py) scanner/evidence-tier/confounder metadata; review [`test_proactive_scanner.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_proactive_scanner.py) and [`test_proactive_scans.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_proactive_scans.py) without adopting thresholds/claims.
-- [`garmin-insights/src/garmin_insights/db/cache.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/db/cache.py) and [`db/memory.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/db/memory.py) baseline/experiment storage shapes; review [`test_cache_builder.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_cache_builder.py) and [`test_experiments.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_experiments.py).
-- [`garmin-insights/src/garmin_insights/scales/base.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/scales/base.py) and [`scales/registry.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/scales/registry.py) adapter/registry and defensive malformed-frame test style; review [`test_scale_adapters.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_scale_adapters.py), [`test_scale_api.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_scale_api.py), and [`test_scale_readings_store.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_scale_readings_store.py) as patterns only.
+### 2026-09-12 upstream watch
 
-### IGNORE
+Current checked head `b648f015e5bd914d27f82c19021e187473639068` adds substantial overnight-series analytics. The feature is reference material for later deeper analytics; the **bugs found while building it** are even more useful as adversarial tests:
 
-- obsolete `garth` logic;
-- write/upload/delete/schedule paths;
-- Anthropic-specific agent/deployment/cloudflared/systemd surface;
-- health/illness rules and thresholds as-is;
-- [`garmin-insights/src/garmin_insights/scales/lefu.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/scales/lefu.py) (Fitdays/Lefu FFB0), [`scales/composition.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/scales/composition.py) (ported non-S400 formulas), and their golden vectors as S400 evidence. The pinned [`scales/registry.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/src/garmin_insights/scales/registry.py) registers only `lefu`; [`test_scale_adapters.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_scale_adapters.py), [`test_scale_api.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_scale_api.py), and [`test_scale_readings_store.py`](https://raw.githubusercontent.com/dandwhelan/garmin-stats-ai/936974ac8c78781e7d0075040f459ea7676b3819/garmin-insights/tests/test_scale_readings_store.py) are not Xiaomi S400 contract fixtures.
+- historical local time must not be classified using today's fixed UTC offset;
+- partial sibling rows sharing a natural identity must not overwrite another observed field with `NULL` merely because a later fragment omits it;
+- synthetic fixtures must match the same typed persistence schema production readers consume;
+- late/recent data must invalidate affected derived/cache output explicitly.
+
+Do not import the project's medical/screening thresholds, alcohol/late-meal signatures or causal narrative.
 
 ## `fettle`
 
-### DIRECT
-
-No complete module is approved for direct transfer. Tiny pure helpers or synthetic fixtures may be copied only after file-level review and MIT attribution.
+No upstream delta was observed since the reviewed pin as of 2026-09-12.
 
 ### ADAPT
 
-- [`backend/app/config.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/config.py): closed Google Health data-type registry, corrected against official scope mapping.
-- [`backend/app/health_client.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/health_client.py): pagination and bounded rollup windows.
-- [`backend/app/sync.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/sync.py): per-stream failure isolation concept plus sleep wake-day/stage parsing; replace its watermark/replay mechanics.
-- [`backend/mcp_server.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/mcp_server.py): bounded typed metric vocabulary and deterministic-tool direction.
-- neutral fixtures/semantics from [`test_sync_sleep.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/tests/test_sync_sleep.py) and [`test_partial_day.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/tests/test_partial_day.py): missing is not zero, CLASSIC versus STAGES, wake-date/offset handling, and incomplete-current-day exclusion.
+- closed Google Health data-type registry shape, corrected against official scope mapping;
+- pagination and bounded rollup windows;
+- per-stream failure isolation plus sleep wake-day/stage parsing;
+- bounded typed MCP vocabulary/deterministic-tool direction;
+- neutral test semantics: missing is not zero, CLASSIC versus STAGES, wake-date/offset handling, incomplete-current-day exclusion.
 
-Do not adapt the actual pinned watermark policy: rollups re-read only the last watermark day, while daily-list, sleep, and exercise paths re-fetch full history, and the watermark is date-only. R04 needs a bounded per-type backfill/cursor plus an explicit multi-day reconciliation window.
+Do not adapt its actual watermark policy: some paths re-read only the watermark day while others re-fetch broad history, and the watermark is date-only. R04 needs an explicit bounded per-type/source-family sync/backfill/reconciliation contract.
 
-### REFERENCE
+### REFERENCE ONLY
 
-- [`readiness.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/readiness.py), [`sleep_analysis.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/sleep_analysis.py), insights, and anomaly ideas as explicitly local heuristics, not Fitbit proprietary algorithms or validated physiology.
+Readiness/sleep/anomaly ideas may be inspected as local heuristics, not Fitbit proprietary algorithms or validated physiology.
 
 ### IGNORE / REPLACE
 
-- [`auth.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/auth.py) OAuth implementation: plaintext token/client JSON, process-wide insecure transport, repeated consent, missing explicit state persistence/validation, and no PKCE.
-- [`store.py`](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/store.py) storage model: metric/day primary keys overwrite competing source evidence; generic leaf extraction lacks device/algorithm/canonical provenance; inline DDL is not the migration strategy.
-- Homemade readiness/sleep-score formulas, prescription expectations, and author-specific constants, including tests that pin those values.
-- coach, Vital Age, goals/schedules, Matter lighting, macOS launchd, unrelated UI/opencode functionality.
+- its reviewed OAuth implementation with plaintext token/client JSON, repeated consent and insufficient state/PKCE discipline;
+- storage that overwrites competing source evidence behind generic metric/day keys;
+- homemade readiness/sleep formulas and author-specific constants;
+- unrelated coach/Vital Age/goals/Matter/macOS functionality.
 
-The pinned config also requests a nutrition scope without registering a nutrition stream and maps one sleep-temperature derivation to the wrong official scope. Health-Check derives least-privilege consent from enabled implemented streams and verifies every mapping against official Google documentation.
+Any Google scope/data-type statement must be rechecked against current official Google documentation for R04.
 
 ## `healthquery`
+
+No upstream delta was observed since the reviewed pin as of 2026-09-12.
 
 Useful patterns:
 
 - WAL and numbered migrations;
-- raw ingest batch retention/replay/idempotency;
-- separate-looking ingest/read authentication concepts;
-- typed [`mcp_server.py`](https://raw.githubusercontent.com/nikira-studio/healthquery/f175148f67cb954fc4db2e026e497984dfccac29/backend/mcp_server.py) query shapes/tests.
+- raw ingest-batch retention/replay/idempotency;
+- distinct-looking ingest/read capability concepts;
+- typed MCP query shapes/tests.
 
-Do not transfer its security boundary unchanged:
+Do not transfer its security boundary unchanged. Its generic SQL guard proves SELECT/no mutation but does not adequately allowlist tables/columns, runs through an ordinary writable connection, and can expose raw/config/schema state. Its nominal read router also contained a settings-mutating route at the reviewed pin.
 
-- the generic [`sql_guard.py`](https://raw.githubusercontent.com/nikira-studio/healthquery/f175148f67cb954fc4db2e026e497984dfccac29/backend/services/sql_guard.py) proves SELECT/no mutation but does not allowlist tables/columns;
-- it runs through the ordinary [`database.py`](https://raw.githubusercontent.com/nikira-studio/healthquery/f175148f67cb954fc4db2e026e497984dfccac29/backend/db/database.py) writable connection;
-- raw/config/schema data, including [`operational_settings.py`](https://raw.githubusercontent.com/nikira-studio/healthquery/f175148f67cb954fc4db2e026e497984dfccac29/backend/services/operational_settings.py), can be read;
-- the nominal [`read_api.py`](https://raw.githubusercontent.com/nikira-studio/healthquery/f175148f67cb954fc4db2e026e497984dfccac29/backend/routers/read_api.py) router also contains a settings-mutating `PUT` route.
-
-Health-Check uses route-level read/ingest/import-write/admin capabilities and typed analytics DTOs. Optional future SQL needs a genuinely read-only connection, allowlisted analytic views, AST/authorizer/time/row/byte constraints, and no raw/config/secret visibility.
+Health-Check keeps typed deterministic read DTOs as the normal AI boundary. Any future optional SQL needs a genuinely read-only connection, allowlisted analytic views, AST/authorizer/time/row/byte constraints, and no raw/config/secret visibility.
 
 ## `openScale` and `openScale-sync`
 
-The stable [`MiScaleS400Handler.kt`](https://github.com/oliexdev/openScale/blob/6613db5838e4674a19652441073f82b3ee3d7009/android_app/app/src/main/java/com/health/openscale/core/bluetooth/scales/MiScaleS400Handler.kt#L237-L369) verifies:
+The reviewed S400 line verifies the important hardware boundary:
 
 - encrypted broadcast-only BLE;
 - MAC plus 16-byte bind key;
-- dual-frequency impedance packets, weight, and heart rate;
-- openScale's own public-equation composition pipeline and reliability categories.
+- dual-frequency impedance packets, weight and heart rate;
+- openScale's own public-equation composition pipeline/reliability categories rather than the proprietary Xiaomi-app algorithm.
 
-openScale does not reproduce the proprietary Xiaomi S400 app algorithm. Its S400 handler has no “original Xiaomi app” formula selector; that option belongs to an older mono-frequency handler. Algorithm/reliability metadata is not fully propagated into the persisted/exported measurement, so Health-Check records the installed openScale version/configuration separately and treats missing values carefully.
+Health-Check therefore keeps openScale/openScale-sync external GPL applications and records their provenance/version rather than copying their code or silently presenting openScale-derived composition as Xiaomi-app-equivalent.
 
-The [`WebhookSync.kt`](https://github.com/oliexdev/openScale-sync/blob/32e38651cf78bbf230e33d17abb00b147130f305/src/app/src/main/java/com/health/openscale/sync/core/sync/WebhookSync.kt#L17-L92) generic webhook is richer than the current Health Connect mapping: it can carry raw impedances, heart rate, muscle, visceral-fat index, ECW/ICW, protein/BCM, generic values, and `isDerived`. It does not carry a schema version, physical device, algorithm, reliability, request ID, or signature. Convenience missing values may be serialized as zero; `values[]` presence is authoritative.
+At the reviewed webhook contract, the generic webhook carried richer values than the Health Connect mapping, including raw impedances, HR, muscle, visceral-fat index, ECW/ICW, protein/BCM, generic values and `isDerived`. The sender is retry/reconcile capable but not exactly-once; Health-Check owns durable receiver idempotency/tombstone semantics.
 
-openScale-sync retries/reconciles but is not exactly-once. Its configured authorization string is copied verbatim into the `Authorization` header. Health-Check therefore configures a stable sender-instance UUID and binds a random rotatable `Bearer` token to it; secret rotation never changes data identity. It durably persists the envelope and per-item outcomes before 2xx, upserts insert/update by `(source_instance, userId, id)`, and records delete/clear as tombstones.
+### 2026-09-12 API-v3 change watch
+
+Current upstream openScale is `573beb1d3588bd73597fb8a2da7474bf465157d2`; openScale-sync is on the `0.6.3` line at `afff7625c6a1cfc946caf76da87d7bc418a29270`.
+
+The material change is an identity-based measurement vocabulary: stable namespaced identities (`builtin.*`, `ble.*`, `user.*`) replace the older generic key/type identity, and openScale-sync treats this as **API v3**. S400-specific generic types now include ECW/ICW/BCM use cases.
+
+Current `WebhookSync.kt` still emits convenience top-level fields (`weight`, `body_fat`, `water`, `muscle`) plus `values[]` items containing a backend key, name, unit, `isDerived`, and optional numeric/text value. Because convenience fields can derive missing values to zero, `values[]`/explicit presence remains the safer semantic signal.
+
+Health-Check action: do **not** reopen R01 solely because upstream changed. Before any future Xiaomi/openScale ingest task, re-audit the exact installed openScale/openScale-sync pair and current v3 webhook payload. Do not silently map every new BLE identity to an existing canonical metric.
+
+A separate upstream bug also reinforces our missing-data rule: publishing weight-only data while composition was absent interacted with donor-side value inheritance and made old composition look current. Health-Check must not add cross-measurement carry-forward without an explicit visible derivation contract.
 
 ## `open-wearables`
 
-Adapt selectively:
+At the reviewed pin, useful patterns were:
 
-- [typed bounded MCP](https://raw.githubusercontent.com/the-momentum/open-wearables/72351e24de045e87da4fe4fd86142494e304e17b/mcp/README.md) calls authenticated REST rather than a shared database;
-- [`timeseries.py`](https://raw.githubusercontent.com/the-momentum/open-wearables/72351e24de045e87da4fe4fd86142494e304e17b/mcp/app/tools/timeseries.py) cursor/page ceiling;
-- Google v4 registry/list/reconcile/rollup chunking in [`data_247.py`](https://raw.githubusercontent.com/the-momentum/open-wearables/72351e24de045e87da4fe4fd86142494e304e17b/backend/app/services/providers/google/health_api/data_247.py);
-- per-metric savepoint/failure isolation;
-- source/device attribution and raw-payload reference concepts.
+- typed bounded MCP over authenticated API rather than direct shared-database access;
+- cursor/page ceilings for time-series reads;
+- Google-v4 registry/list/reconcile/rollup chunking as questions to check against official Google docs;
+- per-metric failure isolation;
+- source/device attribution and raw-payload-reference concepts.
 
-Do not adopt:
+Do not adopt multi-user SaaS/Celery/Postgres/Redis/S3 infrastructure, provider OAuth choices that conflict with Health-Check's accepted R04 contract, or unsafe physiology derivations.
 
-- multi-user SaaS/provider infrastructure, Celery/Postgres/Redis/S3;
-- its direct OAuth choices where PKCE/consent behavior conflicts with the final Health-Check decision;
-- unsafe physiology derivations such as reconstructing RR/RMSSD from unsuitable sparse HR data.
+### 2026-09-12 upstream watch
+
+Current checked head is `53de57cade876df104720c0c5be07bbf462a55b1` (`0.8`), 37 commits past our reviewed pin. New patterns worth retaining as references:
+
+- explicit `SyncRun` and per-data-type sync tracking/status;
+- source/recording-source attribution on activity records;
+- migration-chain CI that rejects multiple Alembic heads and re-parenting an already-merged migration in a way that could make an existing owner database silently skip a new migration.
+
+Open Wearables also documents provider historical-range observations. These remain secondary evidence; e.g. its claim that cloud Google Health has no documented lookback limit must be independently established from first-party Google material in #81 or left UNKNOWN.
+
+## `haelan`
+
+Reviewed: `bardesss/haelan @ 89d512115acc9b1529a6380399a0d451556da0b1` (`1.6.0`). Root license: **AGPL-3.0**.
+
+Health-Check decision: **REFERENCE ONLY / NO CODE COPYING** into the MIT core.
+
+Useful architectural/adversarial ideas:
+
+- archive terminal provider evidence before parsing;
+- centralize provider data-type irregularities rather than duplicating them in mappers;
+- local-day-aligned bounded sync windows plus a trailing re-fetch window for late uploads;
+- fail closed on unreadable/schema-drift responses and hold the cursor/coverage boundary back;
+- keep provider-reconciled/rollup rows semantically different from a locally reproducible merge;
+- apply reversible overrides during derivation rather than destroying raw/source evidence;
+- transactionally mark affected days dirty for re-derivation;
+- one bounded typed query layer shared by HTTP/CLI/MCP adapters;
+- open agent/query storage read-only and do not run migrations as a side effect of a read surface;
+- detect future **source staleness/freshness** so a source that silently stops reporting is not presented merely as a thinner chart.
+
+For R04, Haelan's Google-v4 observations about irregular naming, string-encoded integers and proto3 omitted-zero behavior are an **adversarial checklist only**. #81 must confirm them from first-party Google evidence or preserve UNKNOWN.
+
+Source staleness is a future product/backlog candidate and should be metric/source-aware: a daily/intraday sensor going silent differs from an intentionally sparse source such as weekly weight. It is not an R04 implementation requirement.
 
 ## `VitaSync` and `garmin_ai`
 
-VitaSync is conceptually useful for encrypted tokens, hashed API keys, streaming/idempotent sync, and typed MCP ideas. Its inspected [`apps/mcp/src/index.ts`](https://raw.githubusercontent.com/biosync-io/vitasync/f299cd134edea8effca9ac52436fc83d439792b6/apps/mcp/src/index.ts), AGPL license, direct-database MCP caveats, and multi-tenant queues/platform surface make it reference-only.
+Neither changed from the reviewed pin as of the 2026-09-12 refresh.
 
-`garmin_ai` remains useful through its pinned [`README.en.md`](https://raw.githubusercontent.com/TolmachevKirill/garmin_ai/ca6d298cc4a7e4e95e036c76dce69d211a47aeee/README.en.md) and source as a reference for raw-first/FIT fallback, Windows scheduling/packaging, Telegram, and explicit read-vs-write human-in-the-loop concepts. No root license was present at the pinned SHA, so no code may be copied. Its model-computes-from-raw MCP posture also conflicts with Health-Check's deterministic analytics boundary.
+VitaSync remains conceptually useful for encrypted-token, hashed-key, streaming/idempotent-sync and typed-MCP ideas. Its AGPL license, direct-database MCP caveats and multi-tenant platform surface keep it reference-only.
+
+`garmin_ai` remains useful as a reference for raw-first/FIT fallback, Windows scheduling/packaging, Telegram, and explicit read-vs-write human-in-the-loop ideas. No root license was present at the reviewed SHA, so no code may be copied. Its model-computes-from-raw MCP posture also conflicts with Health-Check's deterministic analytics boundary.
+
+## Cross-project adversarial regression catalogue
+
+The 2026-09-12 refresh adds these reusable failure classes to the watch list. Encode them only in an owning implementation task whose data shape actually makes the regression meaningful:
+
+1. historical timestamp classified using today's UTC offset;
+2. a partial sibling/upsert nulling a field observed in another fragment;
+3. provider shape drift accidentally treated as an empty successful window;
+4. proto3 omitted zero confused with missing;
+5. string-encoded numeric field rejected or silently mistyped;
+6. synthetic fixture schema drifting away from production persistence;
+7. late-arriving evidence not invalidating recent derived/cache output;
+8. provider aggregate mislabeled as a locally reproducible merge;
+9. a source silently stops reporting but appears only as a thinning chart;
+10. convenience zero/default fields overriding a more authoritative explicit-presence/generic-value model.
 
 ## Reuse gate for every later PR
 
@@ -157,4 +224,5 @@ VitaSync is conceptually useful for encrypted tokens, hashed API keys, streaming
 4. Preserve copyright/license notices and provenance.
 5. Port semantics into Health-Check's source/canonical/coverage model rather than importing a donor schema.
 6. Re-test with synthetic Health-Check fixtures.
-7. Never reuse a health threshold, formula, or device claim solely because a donor test passes.
+7. Never reuse a health threshold, formula, provider fact, or device claim solely because a donor test passes.
+8. A newer upstream head is observation only until an explicit task re-audits and approves the exact reuse boundary.
