@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Garmin dashboard — Health-Check{% endblock %}
+{% block content %}
+<section class="bia-banner" role="note">
+  {{ payload.wording.disclaimer }}
+</section>
+
+<section class="hero">
+  <div>
+    <h1>Garmin analytics</h1>
+    <p class="muted">Read-only presentation of accepted R03-01/02/03 results. UI formats values; it does not recompute analytics.</p>
+  </div>
+  <dl class="current">
+    <div>
+      <dt>Source selection</dt>
+      <dd id="source-status">
+        {% set sel = payload.source_selection %}
+        {% if sel.status == 'no_data' %}
+          <span class="unavailable">no data</span>
+          <span class="muted">({{ sel.reason or 'no_garmin_sources' }})</span>
+        {% elif sel.status == 'require_selection' %}
+          <span class="unavailable">select a source</span>
+          <span class="muted">(multiple Garmin sources; no silent merge)</span>
+        {% else %}
+          <code>{{ sel.selected_source_id }}</code>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Result identity</dt>
+      <dd id="result-identity" class="muted">algorithm / rule / hash appear after a query</dd>
+    </div>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Source</h2>
+  <form id="source-form" class="inline-edit">
+    <label>
+      Garmin source
+      <select id="garmin-source-id" name="garmin_source_id">
+        <option value="">—</option>
+        {% for source in payload.source_selection.sources %}
+        <option value="{{ source.id }}"
+          {% if payload.source_selection.selected_source_id == source.id %}selected{% endif %}>
+          {{ source.provider_code }} · {{ source.device_model or source.source_instance_id }} · {{ source.id[:8] }}…
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Use source</button>
+  </form>
+  <p class="muted">Zero sources → honest no-data. One source → deterministic selection. Many sources → explicit choice required.</p>
+</section>
+
+<section class="card">
+  <h2>Scalar series / baseline / trend (R03-01)</h2>
+  <form id="series-form" class="inline-edit">
+    <label>
+      Metric
+      <select id="metric-code" name="metric_code">
+        {% for metric in payload.scalar_metrics %}
+        <option value="{{ metric.metric_code }}"
+          {% if payload.defaults.metric_code == metric.metric_code %}selected{% endif %}>
+          {% if metric.provider_native %}★ {% endif %}{{ metric.display_name }} ({{ metric.metric_code }})
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Start
+      <input type="date" id="series-start" name="start_date" value="{{ payload.defaults.start_date or '' }}">
+    </label>
+    <label>
+      End
+      <input type="date" id="series-end" name="end_date" value="{{ payload.defaults.end_date or '' }}">
+    </label>
+    <button type="submit">Load series</button>
+  </form>
+  <p id="metric-wording" class="muted"></p>
+  <div id="series-chart" class="chart" aria-label="Garmin scalar series chart"></div>
+  <div id="series-summary"></div>
+  <div id="series-coverage"></div>
+  <p class="muted">Coverage renders API <code>excluded_count</code> and <code>exclusions[]</code> reason codes (including <code>ambiguous_daily_aggregate</code>) separately from zero. UI does not recompute analytics.</p>
+</section>
+
+<section class="card">
+  <h2>Activity comparison (R03-02)</h2>
+  <p class="muted">{{ payload.wording.activity }}</p>
+  <form id="activity-form" class="inline-edit">
+    <label class="block-label">
+      Activity records (2..20)
+      <select id="activity-ids" multiple size="6"></select>
+    </label>
+    <label>
+      Reference activity
+      <select id="reference-activity-id"></select>
+    </label>
+    <button type="submit">Compare sessions</button>
+  </form>
+  <div id="activity-result"></div>
+</section>
+
+<section class="card">
+  <h2>Lagged association (R03-03)</h2>
+  <p class="muted">{{ payload.wording.association }}</p>
+  <form id="lag-form" class="inline-edit">
+    <label>
+      X metric
+      <select id="x-metric-code">
+        {% for metric in payload.lag_eligible_metrics %}
+        <option value="{{ metric.metric_code }}">{{ metric.display_name }} ({{ metric.metric_code }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Y metric
+      <select id="y-metric-code">
+        {% for metric in payload.lag_eligible_metrics %}
+        <option value="{{ metric.metric_code }}" {% if loop.index0 == 1 %}selected{% endif %}>
+          {{ metric.display_name }} ({{ metric.metric_code }})
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Start
+      <input type="date" id="lag-start" value="{{ payload.defaults.start_date or '' }}">
+    </label>
+    <label>
+      End
+      <input type="date" id="lag-end" value="{{ payload.defaults.end_date or '' }}">
+    </label>
+    <label>
+      Lags (0..14, comma-separated)
+      <input type="text" id="lag-days" value="{{ payload.defaults.lag_days | join(',') }}">
+    </label>
+    <button type="submit">Load associations</button>
+  </form>
+  <div id="lag-result"></div>
+  <p class="muted">Per-lag coverage shows API <code>exclusion_counts</code> as returned by R03-03; no UI-side pairing stats.</p>
+</section>
+
+<section class="card">
+  <h2>Provider-native scores</h2>
+  <ul id="native-score-list">
+    {% for code, label in payload.native_score_labels.items() %}
+    <li>
+      <strong>{{ label.display_name }}</strong>
+      (<code>{{ code }}</code>) — {{ label.wording }}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted">Training effect / acute training load are activity-session values, not daily readiness. Sleep score is not stages/duration completeness.</p>
+</section>
+
+<script id="garmin-dashboard-data" type="application/json">{{ payload | tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/garmin_dashboard.js"></script>
+{% endblock %}
