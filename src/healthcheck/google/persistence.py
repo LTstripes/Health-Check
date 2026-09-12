@@ -637,12 +637,24 @@ class GoogleSourceRecordRepository:
                 sleep_stages_state=record.sleep_stages_state,
                 out_of_bed_state=record.out_of_bed_state,
             )
-            if record.sleep_interval is not None:
+            if (
+                record.sleep_interval is not None
+                and record.sleep_interval.state is GoogleMetricState.VALUE
+            ):
                 _upsert_sleep_interval(
                     self.session,
                     sleep_record_id=row.id,
                     interval=record.sleep_interval,
                     ordinal=0,
+                )
+            elif (
+                record.sleep_interval is not None
+                and record.sleep_interval.state is GoogleMetricState.NULL
+            ):
+                _clear_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_session",
                 )
             if record.sleep_stages_state is GoogleMetricState.VALUE:
                 _replace_sleep_intervals(
@@ -651,12 +663,24 @@ class GoogleSourceRecordRepository:
                     interval_kind="sleep_stage",
                     intervals=record.sleep_stages,
                 )
+            elif record.sleep_stages_state is GoogleMetricState.NULL:
+                _clear_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_stage",
+                )
             if record.out_of_bed_state is GoogleMetricState.VALUE:
                 _replace_sleep_intervals(
                     self.session,
                     sleep_record_id=row.id,
                     interval_kind="sleep_out_of_bed",
                     intervals=record.out_of_bed_segments,
+                )
+            elif record.out_of_bed_state is GoogleMetricState.NULL:
+                _clear_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_out_of_bed",
                 )
             return
 
@@ -1210,18 +1234,46 @@ def _upsert_sleep_field_states(
     sleep_stages_state: GoogleMetricState,
     out_of_bed_state: GoogleMetricState,
 ) -> None:
-    values = {
-        "sleep_record_id": sleep_record_id,
-        "sleep_interval_state": GoogleMetricState(sleep_interval_state).value,
-        "sleep_stages_state": GoogleMetricState(sleep_stages_state).value,
-        "out_of_bed_state": GoogleMetricState(out_of_bed_state).value,
+    incoming = {
+        "sleep_interval_state": GoogleMetricState(sleep_interval_state),
+        "sleep_stages_state": GoogleMetricState(sleep_stages_state),
+        "out_of_bed_state": GoogleMetricState(out_of_bed_state),
     }
     row = session.get(GoogleSleepFieldState, sleep_record_id)
     if row is None:
-        session.add(GoogleSleepFieldState(**values))
+        session.add(
+            GoogleSleepFieldState(
+                sleep_record_id=sleep_record_id,
+                **{field_name: state.value for field_name, state in incoming.items()},
+            )
+        )
         return
-    for field_name, value in values.items():
-        setattr(row, field_name, value)
+    for field_name, state in incoming.items():
+        # A partial provider observation describes only the fields it carries.
+        # MISSING and INVALID therefore cannot displace an accepted current
+        # state; VALUE and NULL remain authoritative for this dimension.
+        if state in {GoogleMetricState.MISSING, GoogleMetricState.INVALID}:
+            continue
+        setattr(row, field_name, state.value)
+
+
+def _clear_sleep_intervals(
+    session: Session, *, sleep_record_id: str, interval_kind: str
+) -> None:
+    if interval_kind not in {"sleep_session", "sleep_stage", "sleep_out_of_bed"}:
+        raise ValueError("Google sleep interval clearing kind is not supported")
+    existing = list(
+        session.scalars(
+            select(GoogleSleepInterval).where(
+                GoogleSleepInterval.sleep_record_id == sleep_record_id,
+                GoogleSleepInterval.interval_kind == interval_kind,
+            )
+        )
+    )
+    for row in existing:
+        session.delete(row)
+    if existing:
+        session.flush()
 
 
 def _replace_sleep_intervals(
@@ -1233,17 +1285,11 @@ def _replace_sleep_intervals(
 ) -> None:
     if interval_kind not in {"sleep_stage", "sleep_out_of_bed"}:
         raise ValueError("Google sleep interval replacement kind is not supported")
-    existing = list(
-        session.scalars(
-            select(GoogleSleepInterval).where(
-                GoogleSleepInterval.sleep_record_id == sleep_record_id,
-                GoogleSleepInterval.interval_kind == interval_kind,
-            )
-        )
+    _clear_sleep_intervals(
+        session,
+        sleep_record_id=sleep_record_id,
+        interval_kind=interval_kind,
     )
-    for row in existing:
-        session.delete(row)
-    session.flush()
     for ordinal, interval in enumerate(intervals):
         _upsert_sleep_interval(
             session,

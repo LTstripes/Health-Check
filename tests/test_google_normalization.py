@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
@@ -772,6 +773,248 @@ def test_partial_sibling_fragment_does_not_erase_accepted_metric(normalization_d
     assert metric is not None
     assert metric.state == "value"
     assert metric.value_number == 55
+
+
+def _sleep_row_snapshot(session, sleep_record_id):
+    return tuple(
+        (
+            row.id,
+            row.interval_kind,
+            row.ordinal,
+            row.interval_state,
+            row.stage_type,
+            row.create_time,
+            row.update_time,
+            row.start_at_utc,
+            row.end_at_utc,
+            row.start_local_date,
+            row.end_local_date,
+            row.start_source_field,
+            row.end_source_field,
+            row.start_temporal_json,
+            row.end_temporal_json,
+        )
+        for row in session.scalars(
+            select(GoogleSleepInterval)
+            .where(GoogleSleepInterval.sleep_record_id == sleep_record_id)
+            .order_by(GoogleSleepInterval.interval_kind, GoogleSleepInterval.ordinal)
+        )
+    )
+
+
+def _assert_sleep_projection_consistent(session, sleep_record_id):
+    field_state = session.get(GoogleSleepFieldState, sleep_record_id)
+    assert field_state is not None
+    rows = list(
+        session.scalars(
+            select(GoogleSleepInterval).where(
+                GoogleSleepInterval.sleep_record_id == sleep_record_id
+            )
+        )
+    )
+    by_kind = {
+        kind: [row for row in rows if row.interval_kind == kind]
+        for kind in ("sleep_session", "sleep_stage", "sleep_out_of_bed")
+    }
+    for field_name, interval_kind in (
+        ("sleep_interval_state", "sleep_session"),
+        ("sleep_stages_state", "sleep_stage"),
+        ("out_of_bed_state", "sleep_out_of_bed"),
+    ):
+        state = getattr(field_state, field_name)
+        kind_rows = by_kind[interval_kind]
+        if state == GoogleMetricState.VALUE.value:
+            if interval_kind == "sleep_session":
+                assert len(kind_rows) == 1
+                assert kind_rows[0].interval_state == GoogleMetricState.VALUE.value
+            else:
+                assert all(row.interval_state == GoogleMetricState.VALUE.value for row in kind_rows)
+        else:
+            assert kind_rows == []
+
+
+def test_sleep_typed_children_merge_missing_siblings_and_clear_empty_values(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    full_result, first = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.SLEEP),
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+    record_id = first.records[0].id
+    assert full_result.records[0].sleep_stages
+    assert full_result.records[0].out_of_bed_segments
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert field_state is not None
+    assert field_state.sleep_stages_state == GoogleMetricState.VALUE.value
+    assert field_state.out_of_bed_state == GoogleMetricState.VALUE.value
+    initial_rows = _sleep_row_snapshot(session, record_id)
+    _assert_sleep_projection_consistent(session, record_id)
+
+    omitted = _sleep_component()
+    omitted.pop("stages")
+    omitted.pop("outOfBedSegments")
+    partial_result, partial = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.SLEEP, component=omitted),
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    session.commit()
+    assert partial_result.status.value == "ok"
+    assert partial_result.records[0].sleep_stages_state is GoogleMetricState.MISSING
+    assert partial_result.records[0].out_of_bed_state is GoogleMetricState.MISSING
+    assert partial.records[0].id == record_id
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert field_state is not None
+    assert field_state.sleep_interval_state == GoogleMetricState.VALUE.value
+    assert field_state.sleep_stages_state == GoogleMetricState.VALUE.value
+    assert field_state.out_of_bed_state == GoogleMetricState.VALUE.value
+    assert _sleep_row_snapshot(session, record_id) == initial_rows
+    _assert_sleep_projection_consistent(session, record_id)
+
+    empty_stages = _sleep_component()
+    empty_stages["stages"] = []
+    empty_stages.pop("outOfBedSegments")
+    _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.SLEEP, component=empty_stages),
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 5, tzinfo=UTC),
+    )
+    session.commit()
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert field_state is not None
+    assert field_state.sleep_stages_state == GoogleMetricState.VALUE.value
+    assert field_state.out_of_bed_state == GoogleMetricState.VALUE.value
+    rows_after_empty_stages = _sleep_row_snapshot(session, record_id)
+    assert not any(row[1] == "sleep_stage" for row in rows_after_empty_stages)
+    assert [row for row in rows_after_empty_stages if row[1] == "sleep_out_of_bed"] == [
+        row for row in initial_rows if row[1] == "sleep_out_of_bed"
+    ]
+    _assert_sleep_projection_consistent(session, record_id)
+
+    empty_out_of_bed = _sleep_component()
+    empty_out_of_bed["outOfBedSegments"] = []
+    empty_out_of_bed.pop("stages")
+    _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.SLEEP, component=empty_out_of_bed),
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 6, tzinfo=UTC),
+    )
+    session.commit()
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert field_state is not None
+    assert field_state.sleep_stages_state == GoogleMetricState.VALUE.value
+    assert field_state.out_of_bed_state == GoogleMetricState.VALUE.value
+    final_rows = _sleep_row_snapshot(session, record_id)
+    assert not any(row[1] == "sleep_stage" for row in final_rows)
+    assert not any(row[1] == "sleep_out_of_bed" for row in final_rows)
+    _assert_sleep_projection_consistent(session, record_id)
+
+
+def test_sleep_primary_interval_missing_and_null_are_non_destructive_and_consistent(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    full_result, first = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.SLEEP),
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+    record_id = first.records[0].id
+    full_record = full_result.records[0]
+    assert full_record.sleep_interval is not None
+    initial_rows = _sleep_row_snapshot(session, record_id)
+
+    def persist_partial(record, payload_name, received_at):
+        return GooglePersistenceRepository(session, payload_store=store).persist_observation(
+            identity=_identity(),
+            query=GoogleQueryContext(GoogleQueryMode.LIST),
+            stream=GoogleStream.SLEEP,
+            payload={"synthetic": payload_name},
+            records=(record,),
+            parse_status="partial",
+            normalization_contract_version=NORMALIZATION_CONTRACT_VERSION,
+            received_at=received_at,
+            create_ingest_event=False,
+        )
+
+    missing_interval = replace(
+        full_record,
+        sleep_interval=replace(full_record.sleep_interval, state=GoogleMetricState.MISSING),
+        sleep_stages_state=GoogleMetricState.MISSING,
+        out_of_bed_state=GoogleMetricState.MISSING,
+    )
+    missing_outcome = persist_partial(
+        missing_interval,
+        "sleep-missing-interval",
+        datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    session.commit()
+    assert missing_outcome.records[0].id == record_id
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert field_state is not None
+    assert field_state.sleep_interval_state == GoogleMetricState.VALUE.value
+    assert field_state.sleep_stages_state == GoogleMetricState.VALUE.value
+    assert field_state.out_of_bed_state == GoogleMetricState.VALUE.value
+    assert _sleep_row_snapshot(session, record_id) == initial_rows
+    _assert_sleep_projection_consistent(session, record_id)
+
+    null_interval = replace(
+        full_record,
+        sleep_interval=replace(full_record.sleep_interval, state=GoogleMetricState.NULL),
+        sleep_stages_state=GoogleMetricState.MISSING,
+        out_of_bed_state=GoogleMetricState.MISSING,
+    )
+    persist_partial(
+        null_interval,
+        "sleep-null-interval",
+        datetime(2099, 1, 5, tzinfo=UTC),
+    )
+    session.commit()
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert field_state is not None
+    assert field_state.sleep_interval_state == GoogleMetricState.NULL.value
+    assert field_state.sleep_stages_state == GoogleMetricState.VALUE.value
+    assert field_state.out_of_bed_state == GoogleMetricState.VALUE.value
+    assert not any(row[1] == "sleep_session" for row in _sleep_row_snapshot(session, record_id))
+    _assert_sleep_projection_consistent(session, record_id)
+
+    null_stages = replace(
+        full_record,
+        sleep_interval=replace(full_record.sleep_interval, state=GoogleMetricState.MISSING),
+        sleep_stages=(),
+        sleep_stages_state=GoogleMetricState.NULL,
+        out_of_bed_segments=(),
+        out_of_bed_state=GoogleMetricState.MISSING,
+    )
+    persist_partial(
+        null_stages,
+        "sleep-null-stages",
+        datetime(2099, 1, 6, tzinfo=UTC),
+    )
+    session.commit()
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert field_state is not None
+    assert field_state.sleep_interval_state == GoogleMetricState.NULL.value
+    assert field_state.sleep_stages_state == GoogleMetricState.NULL.value
+    assert field_state.out_of_bed_state == GoogleMetricState.VALUE.value
+    rows = _sleep_row_snapshot(session, record_id)
+    assert not any(row[1] in {"sleep_session", "sleep_stage"} for row in rows)
+    assert any(row[1] == "sleep_out_of_bed" for row in rows)
+    _assert_sleep_projection_consistent(session, record_id)
 
 
 def test_shape_drift_is_invalid_and_does_not_replace_current(normalization_database):
