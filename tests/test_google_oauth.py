@@ -8,7 +8,7 @@ import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
 
@@ -20,6 +20,7 @@ from healthcheck.google.auth import (
     DEFAULT_GOOGLE_OAUTH_REDIRECT_URI,
     DEFAULT_SCOPE_ORDER,
     GOOGLE_TOKEN_ENDPOINT,
+    SCOPE_SETTINGS,
     SCOPE_SLEEP,
     GoogleAuthService,
     GoogleAuthStatus,
@@ -37,6 +38,8 @@ from healthcheck.google.probe import (
     SURFACE_SPECS,
     GoogleCapabilityProbe,
     GoogleProbeStatus,
+    GoogleRecordType,
+    build_data_point_filter,
     summarize_structural_evidence,
     validate_probe_window,
 )
@@ -127,26 +130,22 @@ class FakeTransport:
     def _api_response(self, url: str) -> GoogleHttpResponse:
         if self.api_mode == "auth_failed":
             return GoogleHttpResponse(401, b'{"error":"unauthorized"}')
-        if "/users/me/pairedDevices" in url:
-            return GoogleHttpResponse(
-                200,
-                json.dumps(
-                    {
-                        "pairedDevices": [
-                            {
-                                "name": "devices/synthetic",
-                                "device": {"manufacturer": "Fitbit", "model": "Air"},
-                            }
-                        ]
-                    }
-                ).encode(),
-            )
-        if url.rstrip("/").endswith("/users/me"):
+        # Correct identity endpoint is users.getIdentity (/users/me/identity).
+        # Bare /users/me must fail so regressions catch the wrong path.
+        if "/users/me/identity" in url:
             return GoogleHttpResponse(
                 200, json.dumps({"name": "users/me"}).encode()
             )
+        if url.rstrip("/").endswith("/users/me"):
+            return GoogleHttpResponse(404, b'{"error":"not_found"}')
+        if "/users/me/pairedDevices" in url:
+            # R04 accepted scopes omit settings.readonly; probe must not call this.
+            return GoogleHttpResponse(403, b'{"error":"MISSING_OAUTH_SCOPE"}')
         for spec in SURFACE_SPECS:
             if spec.data_type and f"/dataTypes/{spec.data_type}/" in url:
+                # Reject the obsolete generic filter if a caller regresses.
+                if "dataPoint.interval.start_time_civil" in unquote(url):
+                    return GoogleHttpResponse(400, b'{"error":"INVALID_DATA_POINT_FILTER"}')
                 if spec.code in self.list_payloads:
                     body = self.list_payloads[spec.code]
                 else:
@@ -455,8 +454,14 @@ def test_10_probe_respects_request_ceiling_and_bounded_window(tmp_path: Path) ->
     probe._request_count = MAX_PROVIDER_REQUESTS
     report = probe.run(["2026-09-10"])
     assert report.abort_reason == "request_ceiling"
+    by_code = {item.code: item for item in report.capabilities}
+    # paired_devices lacks settings.readonly under R04 accepted scopes.
+    assert by_code["paired_devices"].status is GoogleProbeStatus.SCOPE_REQUIRED
+    assert by_code["paired_devices"].not_run_reason == "scope_required"
     assert all(
-        item.status is GoogleProbeStatus.BUDGET_EXCEEDED for item in report.capabilities
+        item.status is GoogleProbeStatus.BUDGET_EXCEEDED
+        for code, item in by_code.items()
+        if code != "paired_devices"
     )
 
 
@@ -582,3 +587,128 @@ def test_cli_google_auth_rejects_checkout_data_dir(
     out = capsys.readouterr().out
     assert "unsafe_storage_path" in out
     assert SYNTHETIC_SECRET not in out
+
+
+def test_blocker_identity_uses_get_identity_not_users_me(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    service = make_service(tmp_path, transport)
+    _seed_tokens(service)
+    report = GoogleCapabilityProbe(service, transport=transport).run(["2026-09-10"])
+    identity_urls = [
+        call["url"]
+        for call in transport.calls
+        if "health.googleapis.com" in call["url"] and "/users/me" in call["url"]
+        and "/dataTypes/" not in call["url"]
+        and "pairedDevices" not in call["url"]
+    ]
+    assert identity_urls, "identity request missing"
+    assert all(url.rstrip("/").endswith("/users/me/identity") for url in identity_urls)
+    assert not any(url.rstrip("/").endswith("/users/me") for url in identity_urls)
+    by_code = {item.code: item for item in report.capabilities}
+    assert by_code["identity"].status is GoogleProbeStatus.SUCCEEDED
+    assert by_code["identity"].request_succeeded is True
+
+
+def test_blocker_paired_devices_scope_required_without_http_under_accepted_scopes(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport()
+    service = make_service(tmp_path, transport)
+    _seed_tokens(service, scopes=" ".join(DEFAULT_SCOPE_ORDER))
+    assert SCOPE_SETTINGS not in ALLOWED_SCOPES
+    report = GoogleCapabilityProbe(service, transport=transport).run(
+        ["2026-09-10"],
+        granted_scopes=ALLOWED_SCOPES,
+    )
+    by_code = {item.code: item for item in report.capabilities}
+    paired = by_code["paired_devices"]
+    assert paired.required_scope == SCOPE_SETTINGS
+    assert paired.scope_granted is False
+    assert paired.status is GoogleProbeStatus.SCOPE_REQUIRED
+    assert paired.not_run_reason == "scope_required"
+    assert paired.status is not GoogleProbeStatus.REAUTH_REQUIRED
+    assert not any("pairedDevices" in call["url"] for call in transport.calls)
+    # Unrelated granted surfaces still probed.
+    assert by_code["sleep"].request_succeeded is True
+    assert by_code["heart_rate"].request_succeeded is True
+
+
+def test_blocker_data_point_filters_are_record_type_specific(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    service = make_service(tmp_path, transport)
+    _seed_tokens(service)
+    report = GoogleCapabilityProbe(service, transport=transport).run(["2026-09-10"])
+    assert report.window_start == "2026-09-10"
+    assert report.window_end_exclusive == "2026-09-11"
+
+    expected = {
+        "sleep": (
+            'sleep.interval.civil_end_time >= "2026-09-10" AND '
+            'sleep.interval.civil_end_time < "2026-09-11"'
+        ),
+        "heart-rate": (
+            'heart_rate.sample_time.civil_time >= "2026-09-10" AND '
+            'heart_rate.sample_time.civil_time < "2026-09-11"'
+        ),
+        "heart-rate-variability": (
+            'heart_rate_variability.sample_time.civil_time >= "2026-09-10" AND '
+            'heart_rate_variability.sample_time.civil_time < "2026-09-11"'
+        ),
+        "daily-heart-rate-variability": (
+            'daily_heart_rate_variability.date >= "2026-09-10" AND '
+            'daily_heart_rate_variability.date < "2026-09-11"'
+        ),
+        "daily-resting-heart-rate": (
+            'daily_resting_heart_rate.date >= "2026-09-10" AND '
+            'daily_resting_heart_rate.date < "2026-09-11"'
+        ),
+        "oxygen-saturation": (
+            'oxygen_saturation.sample_time.civil_time >= "2026-09-10" AND '
+            'oxygen_saturation.sample_time.civil_time < "2026-09-11"'
+        ),
+        "daily-oxygen-saturation": (
+            'daily_oxygen_saturation.date >= "2026-09-10" AND '
+            'daily_oxygen_saturation.date < "2026-09-11"'
+        ),
+        "respiratory-rate-sleep-summary": (
+            'respiratory_rate_sleep_summary.sample_time.civil_time >= "2026-09-10" AND '
+            'respiratory_rate_sleep_summary.sample_time.civil_time < "2026-09-11"'
+        ),
+        "daily-respiratory-rate": (
+            'daily_respiratory_rate.date >= "2026-09-10" AND '
+            'daily_respiratory_rate.date < "2026-09-11"'
+        ),
+    }
+
+    list_calls = [
+        call
+        for call in transport.calls
+        if "health.googleapis.com" in call["url"] and "/dataTypes/" in call["url"]
+    ]
+    assert len(list_calls) == len(expected)
+    seen: dict[str, str] = {}
+    for call in list_calls:
+        parsed = urlparse(call["url"])
+        data_type = parsed.path.rstrip("/").split("/")[-2]
+        query = parse_qs(parsed.query)
+        filter_value = query["filter"][0]
+        seen[data_type] = filter_value
+        assert "dataPoint.interval.start_time_civil" not in filter_value
+        assert expected[data_type] == filter_value
+        assert parsed.path.endswith(f"/dataTypes/{data_type}/dataPoints")
+    assert set(seen) == set(expected)
+
+    # Helper-level contract for each SURFACE_SPECS list surface.
+    for spec in SURFACE_SPECS:
+        if spec.operation != "list":
+            continue
+        built = build_data_point_filter(
+            spec, window_start="2026-09-10", window_end_exclusive="2026-09-11"
+        )
+        assert built == expected[spec.data_type]
+        if spec.record_type is GoogleRecordType.SLEEP_SESSION:
+            assert "interval.civil_end_time" in built
+        elif spec.record_type is GoogleRecordType.SAMPLE:
+            assert "sample_time.civil_time" in built
+        elif spec.record_type is GoogleRecordType.DAILY:
+            assert built.startswith(spec.data_type.replace("-", "_") + ".date")

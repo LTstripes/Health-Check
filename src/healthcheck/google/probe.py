@@ -18,6 +18,7 @@ from urllib.parse import urlencode
 from healthcheck.google.auth import (
     ALLOWED_SCOPES,
     SCOPE_METRICS,
+    SCOPE_SETTINGS,
     SCOPE_SLEEP,
     GoogleAuthResult,
     GoogleAuthService,
@@ -87,26 +88,52 @@ class GoogleProbeStatus(StrEnum):
     BUDGET_EXCEEDED = "budget_exceeded"
 
 
+class GoogleRecordType(StrEnum):
+    """Google Health filter record-type families used by the capability probe."""
+
+    IDENTITY = "identity"
+    PAIRED_DEVICES = "paired_devices"
+    SLEEP_SESSION = "sleep_session"
+    SAMPLE = "sample"
+    DAILY = "daily"
+
+
 @dataclass(frozen=True, slots=True)
 class GoogleSurfaceSpec:
     code: str
     data_type: str
-    operation: str  # list | sleep_sessions | identity | paired_devices
+    operation: str  # list | identity | paired_devices
     required_scope: str
     display_name: str
+    record_type: GoogleRecordType
 
 
 SURFACE_SPECS: tuple[GoogleSurfaceSpec, ...] = (
-    GoogleSurfaceSpec("identity", "", "identity", SCOPE_METRICS, "Identity"),
-    GoogleSurfaceSpec("paired_devices", "", "paired_devices", SCOPE_METRICS, "Paired devices"),
-    GoogleSurfaceSpec("sleep", "sleep", "list", SCOPE_SLEEP, "Sleep"),
-    GoogleSurfaceSpec("heart_rate", "heart-rate", "list", SCOPE_METRICS, "Heart rate"),
+    GoogleSurfaceSpec(
+        "identity", "", "identity", SCOPE_METRICS, "Identity", GoogleRecordType.IDENTITY
+    ),
+    # users.pairedDevices.list requires settings.readonly; R04 does not request it.
+    GoogleSurfaceSpec(
+        "paired_devices",
+        "",
+        "paired_devices",
+        SCOPE_SETTINGS,
+        "Paired devices",
+        GoogleRecordType.PAIRED_DEVICES,
+    ),
+    GoogleSurfaceSpec(
+        "sleep", "sleep", "list", SCOPE_SLEEP, "Sleep", GoogleRecordType.SLEEP_SESSION
+    ),
+    GoogleSurfaceSpec(
+        "heart_rate", "heart-rate", "list", SCOPE_METRICS, "Heart rate", GoogleRecordType.SAMPLE
+    ),
     GoogleSurfaceSpec(
         "heart_rate_variability",
         "heart-rate-variability",
         "list",
         SCOPE_METRICS,
         "Heart rate variability",
+        GoogleRecordType.SAMPLE,
     ),
     GoogleSurfaceSpec(
         "daily_heart_rate_variability",
@@ -114,6 +141,7 @@ SURFACE_SPECS: tuple[GoogleSurfaceSpec, ...] = (
         "list",
         SCOPE_METRICS,
         "Daily heart rate variability",
+        GoogleRecordType.DAILY,
     ),
     GoogleSurfaceSpec(
         "daily_resting_heart_rate",
@@ -121,6 +149,7 @@ SURFACE_SPECS: tuple[GoogleSurfaceSpec, ...] = (
         "list",
         SCOPE_METRICS,
         "Daily resting heart rate",
+        GoogleRecordType.DAILY,
     ),
     GoogleSurfaceSpec(
         "oxygen_saturation",
@@ -128,6 +157,7 @@ SURFACE_SPECS: tuple[GoogleSurfaceSpec, ...] = (
         "list",
         SCOPE_METRICS,
         "Oxygen saturation",
+        GoogleRecordType.SAMPLE,
     ),
     GoogleSurfaceSpec(
         "daily_oxygen_saturation",
@@ -135,6 +165,7 @@ SURFACE_SPECS: tuple[GoogleSurfaceSpec, ...] = (
         "list",
         SCOPE_METRICS,
         "Daily oxygen saturation",
+        GoogleRecordType.DAILY,
     ),
     GoogleSurfaceSpec(
         "respiratory_rate_sleep_summary",
@@ -142,6 +173,7 @@ SURFACE_SPECS: tuple[GoogleSurfaceSpec, ...] = (
         "list",
         SCOPE_METRICS,
         "Respiratory rate sleep summary",
+        GoogleRecordType.SAMPLE,
     ),
     GoogleSurfaceSpec(
         "daily_respiratory_rate",
@@ -149,6 +181,7 @@ SURFACE_SPECS: tuple[GoogleSurfaceSpec, ...] = (
         "list",
         SCOPE_METRICS,
         "Daily respiratory rate",
+        GoogleRecordType.DAILY,
     ),
 )
 
@@ -173,6 +206,42 @@ def validate_probe_window(values: Sequence[str] | None) -> tuple[str, str]:
     # Exclusive upper bound for Google Health filters.
     exclusive_end = end + timedelta(days=1)
     return start.isoformat(), exclusive_end.isoformat()
+
+
+def data_type_filter_identity(data_type: str) -> str:
+    """Convert kebab-case URL data type to snake_case filter identity."""
+
+    if not data_type or "/" in data_type or " " in data_type:
+        raise ValueError("data type for filter identity is invalid")
+    return data_type.replace("-", "_")
+
+
+def build_data_point_filter(
+    spec: GoogleSurfaceSpec,
+    *,
+    window_start: str,
+    window_end_exclusive: str,
+) -> str:
+    """Build an inclusive-lower / exclusive-upper civil filter for one surface.
+
+    Paths use kebab-case data types; filter identifiers use snake_case.
+    """
+
+    if spec.operation != "list" or not spec.data_type:
+        raise ValueError("data-point filters are only defined for list surfaces")
+    identity = data_type_filter_identity(spec.data_type)
+    if spec.record_type is GoogleRecordType.SLEEP_SESSION:
+        field = f"{identity}.interval.civil_end_time"
+    elif spec.record_type is GoogleRecordType.SAMPLE:
+        field = f"{identity}.sample_time.civil_time"
+    elif spec.record_type is GoogleRecordType.DAILY:
+        field = f"{identity}.date"
+    else:
+        raise ValueError(f"no list filter mapping for record type {spec.record_type}")
+    return (
+        f'{field} >= "{window_start}" AND '
+        f'{field} < "{window_end_exclusive}"'
+    )
 
 
 def _is_sensitive_key(key: str) -> bool:
@@ -444,25 +513,10 @@ class GoogleCapabilityProbe:
         observations: list[GoogleCapabilityObservation] = []
         abort_reason: str | None = None
         for spec in SURFACE_SPECS:
-            if self._request_count >= MAX_PROVIDER_REQUESTS:
-                abort_reason = "request_ceiling"
-                observations.append(
-                    GoogleCapabilityObservation(
-                        code=spec.code,
-                        display_name=spec.display_name,
-                        data_type=spec.data_type,
-                        operation=spec.operation,
-                        required_scope=spec.required_scope,
-                        scope_granted=spec.required_scope in scopes,
-                        request_succeeded=None,
-                        status=GoogleProbeStatus.BUDGET_EXCEEDED,
-                        evidence={},
-                        not_run_reason="request_ceiling",
-                    )
-                )
-                continue
             scope_ok = spec.required_scope in scopes
             if not scope_ok:
+                # Missing-scope surfaces (e.g. paired_devices needing settings.readonly)
+                # stay explicit scope_required and never become generic reauth_required.
                 observations.append(
                     GoogleCapabilityObservation(
                         code=spec.code,
@@ -475,6 +529,23 @@ class GoogleCapabilityProbe:
                         status=GoogleProbeStatus.SCOPE_REQUIRED,
                         evidence={},
                         not_run_reason="scope_required",
+                    )
+                )
+                continue
+            if self._request_count >= MAX_PROVIDER_REQUESTS:
+                abort_reason = "request_ceiling"
+                observations.append(
+                    GoogleCapabilityObservation(
+                        code=spec.code,
+                        display_name=spec.display_name,
+                        data_type=spec.data_type,
+                        operation=spec.operation,
+                        required_scope=spec.required_scope,
+                        scope_granted=True,
+                        request_succeeded=None,
+                        status=GoogleProbeStatus.BUDGET_EXCEEDED,
+                        evidence={},
+                        not_run_reason="request_ceiling",
                     )
                 )
                 continue
@@ -654,15 +725,17 @@ class GoogleCapabilityProbe:
             "Accept": "application/json",
         }
         if spec.operation == "identity":
-            url = f"{GOOGLE_API_ROOT}/users/me"
+            # users.getIdentity — not GET /users/me.
+            url = f"{GOOGLE_API_ROOT}/users/me/identity"
             return self.transport.request("GET", url, headers=headers)
         if spec.operation == "paired_devices":
+            # Only reachable when settings.readonly is granted; R04 does not request it.
             url = f"{GOOGLE_API_ROOT}/users/me/pairedDevices"
             return self.transport.request("GET", url, headers=headers)
-        # list data points with inclusive lower / exclusive upper civil bounds.
-        filter_value = (
-            f'dataPoint.interval.start_time_civil >= "{window_start}" AND '
-            f'dataPoint.interval.start_time_civil < "{window_end}"'
+        filter_value = build_data_point_filter(
+            spec,
+            window_start=window_start,
+            window_end_exclusive=window_end,
         )
         query = urlencode({"filter": filter_value, "pageSize": "25"})
         url = (
@@ -681,6 +754,10 @@ __all__ = [
     "GoogleCapabilityProbe",
     "GoogleCapabilityReport",
     "GoogleProbeStatus",
+    "GoogleRecordType",
+    "GoogleSurfaceSpec",
+    "build_data_point_filter",
+    "data_type_filter_identity",
     "summarize_structural_evidence",
     "validate_probe_window",
 ]

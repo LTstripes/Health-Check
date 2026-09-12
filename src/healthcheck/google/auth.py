@@ -54,6 +54,8 @@ SCOPE_SLEEP = "https://www.googleapis.com/auth/googlehealth.sleep.readonly"
 SCOPE_METRICS = (
     "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly"
 )
+# Documented for pairedDevices.list only. R04 must NOT request/authorize this scope.
+SCOPE_SETTINGS = "https://www.googleapis.com/auth/googlehealth.settings.readonly"
 ALLOWED_SCOPES: frozenset[str] = frozenset({SCOPE_SLEEP, SCOPE_METRICS})
 DEFAULT_SCOPE_ORDER: tuple[str, ...] = (SCOPE_SLEEP, SCOPE_METRICS)
 
@@ -1004,6 +1006,9 @@ __all__ = [
     "AUTH_CONTRACT_VERSION",
     "DEFAULT_GOOGLE_OAUTH_REDIRECT_URI",
     "DEFAULT_SCOPE_ORDER",
+    "SCOPE_METRICS",
+    "SCOPE_SETTINGS",
+    "SCOPE_SLEEP",
     "GOOGLE_AUTH_STORAGE",
     "GOOGLE_CLIENT_FILENAME",
     "GOOGLE_TOKEN_FILENAME",
