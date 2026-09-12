@@ -1801,6 +1801,317 @@ class GoogleSleepRecord(Base):
     wake_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
 
+class GoogleSleepFieldState(Base):
+    """Presence state for typed sleep interval collections."""
+
+    __tablename__ = "google_sleep_field_states"
+    __table_args__ = (
+        CheckConstraint(
+            "sleep_interval_state IN ('missing', 'null', 'value', 'invalid')",
+            name="sleep_interval_state_allowed",
+        ),
+        CheckConstraint(
+            "sleep_stages_state IN ('missing', 'null', 'value', 'invalid')",
+            name="sleep_stages_state_allowed",
+        ),
+        CheckConstraint(
+            "out_of_bed_state IN ('missing', 'null', 'value', 'invalid')",
+            name="out_of_bed_state_allowed",
+        ),
+    )
+
+    sleep_record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("google_sleep_records.record_id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    sleep_interval_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    sleep_stages_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    out_of_bed_state: Mapped[str] = mapped_column(String(20), nullable=False)
+
+
+class GoogleRecordInterval(Base):
+    """Typed interval for the accepted heart-rate rollup projections."""
+
+    __tablename__ = "google_record_intervals"
+    __table_args__ = (
+        UniqueConstraint(
+            "record_id",
+            "interval_kind",
+            "ordinal",
+            name="uq_google_record_intervals_kind_ordinal",
+        ),
+        CheckConstraint(
+            "interval_kind IN ('roll_up', 'daily_roll_up')",
+            name="interval_kind_allowed",
+        ),
+        CheckConstraint(
+            "interval_state IN ('missing', 'null', 'value', 'invalid')",
+            name="interval_state_allowed",
+        ),
+        CheckConstraint("ordinal >= 0", name="ordinal_nonnegative"),
+        CheckConstraint(
+            "start_precision IN ('unknown', 'date', 'instant', 'local')",
+            name="record_interval_start_precision_allowed",
+        ),
+        CheckConstraint(
+            "start_state IN ('missing', 'null', 'value', 'invalid')",
+            name="record_interval_start_state_allowed",
+        ),
+        CheckConstraint(
+            "start_utc_offset_minutes IS NULL OR "
+            "(start_utc_offset_minutes >= -1439 AND start_utc_offset_minutes <= 1439)",
+            name="record_interval_start_offset_range",
+        ),
+        CheckConstraint(
+            "end_precision IN ('unknown', 'date', 'instant', 'local')",
+            name="record_interval_end_precision_allowed",
+        ),
+        CheckConstraint(
+            "end_state IN ('missing', 'null', 'value', 'invalid')",
+            name="record_interval_end_state_allowed",
+        ),
+        CheckConstraint(
+            "end_utc_offset_minutes IS NULL OR "
+            "(end_utc_offset_minutes >= -1439 AND end_utc_offset_minutes <= 1439)",
+            name="record_interval_end_offset_range",
+        ),
+        CheckConstraint(
+            "start_at_utc IS NULL OR end_at_utc IS NULL OR end_at_utc > start_at_utc",
+            name="interval_order",
+        ),
+        Index("ix_google_record_intervals_start", "record_id", "start_at_utc"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("google_source_records.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    interval_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    interval_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    end_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    start_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    end_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    start_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    start_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    start_local_wall_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_local_wall_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_source_timestamp: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_source_timestamp: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_source_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_source_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_source_local_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_source_local_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_source_utc_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_source_utc_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_temporal_json: Mapped[str] = mapped_column(Text, nullable=False)
+    end_temporal_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class GoogleSleepInterval(Base):
+    """Typed Google sleep-session, stage, and out-of-bed interval evidence."""
+
+    __tablename__ = "google_sleep_intervals"
+    __table_args__ = (
+        UniqueConstraint(
+            "sleep_record_id",
+            "interval_kind",
+            "ordinal",
+            name="uq_google_sleep_intervals_kind_ordinal",
+        ),
+        CheckConstraint(
+            "interval_kind IN ('sleep_session', 'sleep_stage', 'sleep_out_of_bed')",
+            name="interval_kind_allowed",
+        ),
+        CheckConstraint(
+            "interval_state IN ('missing', 'null', 'value', 'invalid')",
+            name="interval_state_allowed",
+        ),
+        CheckConstraint("ordinal >= 0", name="ordinal_nonnegative"),
+        CheckConstraint(
+            "(interval_kind = 'sleep_stage' AND stage_type IS NOT NULL) OR "
+            "(interval_kind <> 'sleep_stage' AND stage_type IS NULL)",
+            name="stage_type_consistency",
+        ),
+        CheckConstraint(
+            "start_precision IN ('unknown', 'date', 'instant', 'local')",
+            name="sleep_interval_start_precision_allowed",
+        ),
+        CheckConstraint(
+            "start_state IN ('missing', 'null', 'value', 'invalid')",
+            name="sleep_interval_start_state_allowed",
+        ),
+        CheckConstraint(
+            "start_utc_offset_minutes IS NULL OR "
+            "(start_utc_offset_minutes >= -1439 AND start_utc_offset_minutes <= 1439)",
+            name="sleep_interval_start_offset_range",
+        ),
+        CheckConstraint(
+            "end_precision IN ('unknown', 'date', 'instant', 'local')",
+            name="sleep_interval_end_precision_allowed",
+        ),
+        CheckConstraint(
+            "end_state IN ('missing', 'null', 'value', 'invalid')",
+            name="sleep_interval_end_state_allowed",
+        ),
+        CheckConstraint(
+            "end_utc_offset_minutes IS NULL OR "
+            "(end_utc_offset_minutes >= -1439 AND end_utc_offset_minutes <= 1439)",
+            name="sleep_interval_end_offset_range",
+        ),
+        CheckConstraint(
+            "start_at_utc IS NULL OR end_at_utc IS NULL OR end_at_utc > start_at_utc",
+            name="interval_order",
+        ),
+        Index("ix_google_sleep_intervals_start", "sleep_record_id", "start_at_utc"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    sleep_record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("google_sleep_records.record_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    interval_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    interval_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage_type: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    create_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    update_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    end_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    start_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    end_state: Mapped[str] = mapped_column(String(20), nullable=False)
+    start_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    start_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    start_local_wall_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_local_wall_time: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_source_timestamp: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_source_timestamp: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_source_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    start_source_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_source_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_source_local_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_source_local_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_source_utc_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_source_utc_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_temporal_json: Mapped[str] = mapped_column(Text, nullable=False)
+    end_temporal_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class GoogleRecordSourceEvidence(Base):
+    """Bounded dataSource evidence embedded in a Google source record."""
+
+    __tablename__ = "google_record_source_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('missing', 'null', 'value', 'invalid')",
+            name="state_allowed",
+        ),
+    )
+
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("google_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    state: Mapped[str] = mapped_column(String(20), nullable=False)
+    field_path: Mapped[str] = mapped_column(String(255), nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class GoogleNormalizationAttempt(Base):
+    """Immutable bounded normalization attempt for offline v1/v2 replay."""
+
+    __tablename__ = "google_normalization_attempts"
+    __table_args__ = (
+        UniqueConstraint("attempt_key", name="uq_google_normalization_attempts_key"),
+        CheckConstraint(
+            "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
+            "'daily_resting_hr', 'spo2', 'daily_spo2', "
+            "'respiratory_rate_sleep', 'daily_respiratory_rate')",
+            name="stream_code_allowed",
+        ),
+        CheckConstraint(
+            "query_mode IN ('list', 'reconcile', 'rollUp', 'dailyRollUp')",
+            name="query_mode_allowed",
+        ),
+        CheckConstraint(
+            "data_source_family IS NULL OR ("
+            "length(data_source_family) > 0 AND "
+            "data_source_family LIKE 'users/%/dataSourceFamilies/%')",
+            name="data_source_family_resource",
+        ),
+        CheckConstraint(
+            "parse_status IN ('ok', 'partial', 'empty', 'invalid')",
+            name="parse_status_allowed",
+        ),
+        CheckConstraint("record_count >= 0", name="record_count_nonnegative"),
+        CheckConstraint("length(attempt_key) >= 32", name="attempt_key_min_length"),
+        Index(
+            "ix_google_normalization_attempts_observation_version",
+            "observation_id",
+            "normalization_contract_version",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    google_source_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("google_sources.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    google_raw_payload_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("google_raw_payloads.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    observation_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("google_payload_observations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    attempt_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    stream_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    query_mode: Mapped[str] = mapped_column(String(40), nullable=False)
+    data_source_family: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_contract_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    normalization_contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    parse_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    record_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    projection_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    projection_json: Mapped[str] = mapped_column(Text, nullable=False)
+    diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unknown_fields_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
 class GoogleRecordMetric(Base):
     """Scalar metric registry attached to a typed Google source record."""
 
@@ -1832,8 +2143,6 @@ class GoogleRecordMetric(Base):
     collection_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-
-
 __all__ = [
     "AcquisitionSource",
     "Base",
@@ -1860,11 +2169,16 @@ __all__ = [
     "GoogleMetricState",
     "GooglePayloadObservation",
     "GooglePayloadStatus",
+    "GoogleNormalizationAttempt",
     "GoogleProjectionStatus",
     "GoogleQueryMode",
     "GoogleRawPayload",
+    "GoogleRecordInterval",
     "GoogleRecordMetric",
+    "GoogleRecordSourceEvidence",
     "GoogleSleepRecord",
+    "GoogleSleepFieldState",
+    "GoogleSleepInterval",
     "GoogleSource",
     "GoogleSourceKind",
     "GoogleSourceRecord",

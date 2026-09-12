@@ -48,7 +48,7 @@ from healthcheck.google.persistence import GooglePersistenceRepository
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.runtime import prepare_runtime
 
-HEAD = "0009_google_persistence_contract"
+HEAD = "0010_google_typed_normalization"
 PRE_R04 = "0008_garmin_observation_reconciliation_version"
 GOOGLE_TABLES = {
     "google_sources",
@@ -57,6 +57,11 @@ GOOGLE_TABLES = {
     "google_source_records",
     "google_sleep_records",
     "google_record_metrics",
+    "google_record_intervals",
+    "google_sleep_intervals",
+    "google_sleep_field_states",
+    "google_record_source_evidence",
+    "google_normalization_attempts",
 }
 FITBIT_DATASOURCE = (
     "users/me/dataSources/raw:com.google.heart_rate.bpm:com.fitbit.Fitbit:ABC123"
@@ -327,6 +332,52 @@ def test_populated_pre_r04_database_upgrades_preserving_r01_r03(tmp_path):
                 == snapshot["raw_artifacts"]
             )
             assert conn.execute(text("SELECT COUNT(*) FROM google_sources")).scalar() == 0
+    finally:
+        engine.dispose()
+
+
+def test_populated_0009_google_shell_upgrades_to_0010_without_loss(tmp_path):
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
+    config = _alembic_config(paths)
+    command.upgrade(config, "0009_google_persistence_contract")
+    engine = create_sqlite_engine(paths)
+    try:
+        factory = create_session_factory(engine)
+        with factory() as session:
+            outcome = _repo(
+                session,
+                ContentAddressedGooglePayloadStore(paths.root / "artifacts"),
+            ).persist_observation(
+                identity=_fitbit_identity(),
+                query=_query(GoogleQueryMode.LIST),
+                stream=GoogleStream.HEART_RATE,
+                payload={"dataPoints": []},
+                records=(),
+                create_ingest_event=False,
+                received_at=datetime(2099, 1, 2, tzinfo=UTC),
+            )
+            session.commit()
+            source_id = outcome.source.id
+            raw_payload_id = outcome.raw_payload.id
+            observation_id = outcome.observation.id
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_sqlite_engine(paths)
+    try:
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT id FROM google_sources")).scalar() == source_id
+            assert (
+                conn.execute(text("SELECT id FROM google_raw_payloads")).scalar()
+                == raw_payload_id
+            )
+            assert (
+                conn.execute(text("SELECT id FROM google_payload_observations")).scalar()
+                == observation_id
+            )
+            assert conn.execute(text("SELECT COUNT(*) FROM google_record_intervals")).scalar() == 0
+            assert conn.execute(text("PRAGMA foreign_key_check")).fetchall() == []
     finally:
         engine.dispose()
 
