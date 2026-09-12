@@ -621,6 +621,12 @@ def test_core_schema_tables_unchanged_by_photo_import(photo_env):
         "garmin_fit_records",
         "garmin_record_metrics",
         "garmin_sleep_stage_intervals",
+        "google_sources",
+        "google_raw_payloads",
+        "google_payload_observations",
+        "google_source_records",
+        "google_sleep_records",
+        "google_record_metrics",
         "alembic_version",
     }
     assert set(inspect(engine).get_table_names()) == expected
