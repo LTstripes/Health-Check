@@ -75,9 +75,10 @@ class FakeTransport:
         *,
         headers: Mapping[str, str] | None = None,
         form: Mapping[str, str] | None = None,
+        json_body: Mapping[str, Any] | None = None,
         timeout: float = 30.0,
     ) -> GoogleHttpResponse:
-        del timeout
+        del timeout, json_body
         safe_headers = {
             key: ("<redacted>" if key.lower() == "authorization" else value)
             for key, value in dict(headers or {}).items()

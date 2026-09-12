@@ -22,7 +22,17 @@ from healthcheck.garmin.reprocess import (
 )
 from healthcheck.garmin.sync import GarminIncrementalSync, GarminSyncStatus
 from healthcheck.google.auth import GoogleAuthService
+from healthcheck.google.backfill import (
+    GoogleHistoricalBackfill,
+    plan_google_historical_backfill,
+)
 from healthcheck.google.probe import GoogleCapabilityProbe, validate_probe_window
+from healthcheck.google.sync import (
+    GoogleHealthSync,
+    GoogleRunKind,
+    GoogleSyncStatus,
+    run_google_refresh,
+)
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.profile_backup import (
@@ -58,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-reprocess",
             "google-auth",
             "google-capabilities",
+            "google-sync",
+            "google-backfill",
+            "google-refresh",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -84,6 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reprocess", action="store_true")
     parser.add_argument("--max-observations", type=int)
     parser.add_argument("--input")
+    parser.add_argument("--family")
+    parser.add_argument("--query-mode")
     return parser
 
 
@@ -170,6 +185,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_google_auth(args, settings)
     if args.command == "google-capabilities":
         return _run_google_capabilities(args, settings)
+    if args.command == "google-sync":
+        return _run_google_sync(args, settings)
+    if args.command == "google-backfill":
+        return _run_google_backfill(args, settings)
+    if args.command == "google-refresh":
+        return _run_google_refresh(args, settings)
     if args.command == "garmin-sync":
         return _run_garmin_sync(args, settings)
     if args.command == "garmin-backfill":
@@ -298,6 +319,152 @@ def _run_google_capabilities(args: argparse.Namespace, settings: Settings) -> in
         return 2
     print(report.to_json(), end="")
     return 0 if report.auth.ok else 1
+
+
+def _google_error_payload(contract_version: str, error_code: str) -> dict[str, object]:
+    return {
+        "contract_version": contract_version,
+        "error": {
+            "error_class": "input",
+            "error_code": error_code,
+            "http_status": None,
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+            "health_timestamps_emitted": False,
+            "page_tokens_emitted": False,
+            "string_encoded_numerics_logged_as_values": False,
+        },
+    }
+
+
+def _google_cli_exit(status: GoogleSyncStatus) -> int:
+    if status is GoogleSyncStatus.SUCCEEDED:
+        return 0
+    return 1
+
+
+def _run_google_sync(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.trailing_window_days is not None:
+            raise ValueError("google-sync does not use a trailing window")
+        if args.reprocess:
+            raise ValueError("google-sync does not use --reprocess")
+        if args.max_observations is not None:
+            raise ValueError("google-sync does not use --max-observations")
+        if args.dry_run:
+            raise ValueError("google-sync does not use --dry-run")
+        if args.dates and (args.start or args.end):
+            raise ValueError("google-sync accepts --date or --start/--end, not both")
+        if args.dates is not None and len(args.dates) != 1:
+            raise ValueError("google-sync accepts exactly one --date")
+        service = GoogleAuthService(settings)
+        report = GoogleHealthSync(
+            settings,
+            auth_service=service,
+            run_kind=GoogleRunKind.INCREMENTAL,
+        ).run(
+            as_of=args.dates[0] if args.dates else None,
+            start=args.start,
+            end=args.end,
+            streams=args.streams,
+            query_mode=args.query_mode,
+            data_source_family=args.family,
+        )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                _google_error_payload("r04-google-sync-coverage-v1", "invalid_sync_request"),
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    return _google_cli_exit(report.status)
+
+
+def _run_google_backfill(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.dates:
+            raise ValueError("google-backfill uses --start and --end, not --date")
+        if args.trailing_window_days is not None:
+            raise ValueError("google-backfill does not use a trailing window")
+        if args.max_observations is not None:
+            raise ValueError("google-backfill does not use --max-observations")
+        if args.reprocess:
+            raise ValueError("google-backfill does not use --reprocess")
+        if args.dry_run:
+            report = plan_google_historical_backfill(
+                start=args.start,
+                end=args.end,
+                streams=args.streams,
+                chunk_days=args.chunk_days,
+                query_mode=args.query_mode,
+                data_source_family=args.family,
+            )
+        else:
+            service = GoogleAuthService(settings)
+            report = GoogleHistoricalBackfill(
+                settings,
+                auth_service=service,
+            ).run(
+                start=args.start,
+                end=args.end,
+                streams=args.streams,
+                chunk_days=args.chunk_days,
+                query_mode=args.query_mode,
+                data_source_family=args.family,
+            )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                _google_error_payload(
+                    "r04-google-historical-backfill-v1", "invalid_backfill_request"
+                ),
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    if report.dry_run:
+        return 0
+    return _google_cli_exit(report.status)
+
+
+def _run_google_refresh(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.dates:
+            raise ValueError("google-refresh uses --start and --end, not --date")
+        if args.trailing_window_days is not None:
+            raise ValueError("google-refresh does not use a trailing window")
+        if args.max_observations is not None:
+            raise ValueError("google-refresh does not use --max-observations")
+        if args.reprocess:
+            raise ValueError("google-refresh does not use --reprocess")
+        if args.dry_run:
+            raise ValueError("google-refresh does not use --dry-run")
+        service = GoogleAuthService(settings)
+        report = run_google_refresh(
+            settings,
+            start=args.start,
+            end=args.end,
+            auth_service=service,
+            streams=args.streams,
+            query_mode=args.query_mode,
+            data_source_family=args.family,
+        )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                _google_error_payload("r04-google-sync-coverage-v1", "invalid_refresh_request"),
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    return _google_cli_exit(report.status)
 
 
 def _run_garmin_auth(args: argparse.Namespace, settings: Settings) -> int:

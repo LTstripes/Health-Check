@@ -169,6 +169,7 @@ class GoogleHttpTransport(Protocol):
         *,
         headers: Mapping[str, str] | None = None,
         form: Mapping[str, str] | None = None,
+        json_body: Mapping[str, Any] | None = None,
         timeout: float = 30.0,
     ) -> GoogleHttpResponse:
         """Perform one HTTP request and return status/body."""
@@ -184,14 +185,28 @@ class UrllibGoogleHttpTransport:
         *,
         headers: Mapping[str, str] | None = None,
         form: Mapping[str, str] | None = None,
+        json_body: Mapping[str, Any] | None = None,
         timeout: float = 30.0,
     ) -> GoogleHttpResponse:
-        data = None if form is None else urlencode(dict(form)).encode("utf-8")
+        if form is not None and json_body is not None:
+            raise ValueError("Google HTTP transport cannot send form and JSON together")
+        header_items = dict(headers or {})
+        header_names = {key.lower() for key in header_items}
+        if json_body is not None:
+            data = json.dumps(dict(json_body), ensure_ascii=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        elif form is not None:
+            data = urlencode(dict(form)).encode("utf-8")
+        else:
+            data = None
         request = Request(url, data=data, method=method.upper())
-        for key, value in dict(headers or {}).items():
+        for key, value in header_items.items():
             # Never log; set only for the outbound request object.
             request.add_header(key, value)
-        if form is not None and "content-type" not in {k.lower() for k in (headers or {})}:
+        if json_body is not None and "content-type" not in header_names:
+            request.add_header("Content-Type", "application/json")
+        elif form is not None and "content-type" not in header_names:
             request.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urlopen(request, timeout=timeout) as response:  # noqa: S310 — owner URL constants
