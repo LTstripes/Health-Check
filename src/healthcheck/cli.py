@@ -21,6 +21,8 @@ from healthcheck.garmin.reprocess import (
     GarminCollectionReprocessor,
 )
 from healthcheck.garmin.sync import GarminIncrementalSync, GarminSyncStatus
+from healthcheck.google.auth import GoogleAuthService
+from healthcheck.google.probe import GoogleCapabilityProbe, validate_probe_window
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.profile_backup import (
@@ -54,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-sync",
             "garmin-backfill",
             "garmin-reprocess",
+            "google-auth",
+            "google-capabilities",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -162,6 +166,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_auth(args, settings)
     if args.command == "garmin-capabilities":
         return _run_garmin_capabilities(args, settings)
+    if args.command == "google-auth":
+        return _run_google_auth(args, settings)
+    if args.command == "google-capabilities":
+        return _run_google_capabilities(args, settings)
     if args.command == "garmin-sync":
         return _run_garmin_sync(args, settings)
     if args.command == "garmin-backfill":
@@ -230,6 +238,66 @@ def main(argv: Sequence[str] | None = None) -> int:
     log_event("runtime_starting", operation="serve", service=service, status="ok")
     uvicorn.run(app, host=host, port=port, log_config=None)
     return 0
+
+
+def _run_google_auth(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        result = GoogleAuthService(settings).bootstrap(force_reauth=args.force_reauth)
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r04-google-web-oauth-v1",
+                    "status": "failed",
+                    "token_health": "unknown",
+                    "session_reused": False,
+                    "force_reauth": bool(args.force_reauth),
+                    "storage": "rejected",
+                    "client_type": "web_application",
+                    "error": {
+                        "error_class": "storage",
+                        "error_code": "unsafe_storage_path",
+                        "http_status": None,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(json.dumps(result.as_dict(), ensure_ascii=True, sort_keys=True))
+    return 0 if result.ok else 1
+
+
+def _run_google_capabilities(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        validate_probe_window(args.dates)
+        service = GoogleAuthService(settings)
+        auth_result = service.token_health()
+        report = GoogleCapabilityProbe(service).run(args.dates, auth_result=auth_result)
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r04-google-capability-spike-v1",
+                    "error": {
+                        "error_class": "input",
+                        "error_code": "invalid_probe_request",
+                        "http_status": None,
+                    },
+                    "privacy": {
+                        "raw_values_emitted": False,
+                        "private_identifiers_emitted": False,
+                        "tokens_emitted": False,
+                        "health_timestamps_emitted": False,
+                        "string_encoded_numerics_logged_as_values": False,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    return 0 if report.auth.ok else 1
 
 
 def _run_garmin_auth(args: argparse.Namespace, settings: Settings) -> int:
