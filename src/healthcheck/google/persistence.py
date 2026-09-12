@@ -8,8 +8,10 @@ backfill, or analytics behavior, and it never writes ``garmin_*`` tables.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+import json
+import re
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,10 +19,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
+    GoogleNormalizationAttempt,
     GooglePayloadObservation,
     GooglePayloadStatus,
     GoogleRawPayload,
+    GoogleRecordInterval,
     GoogleRecordMetric,
+    GoogleRecordSourceEvidence,
+    GoogleSleepFieldState,
+    GoogleSleepInterval,
     GoogleSleepRecord,
     GoogleSource,
     GoogleSourceKind,
@@ -36,13 +43,17 @@ from healthcheck.google.contracts import (
     OBSERVATION_KEY_VERSION,
     PERSISTENCE_CONTRACT_VERSION,
     SOURCE_CONTRACT_VERSION,
+    GoogleDataSourceDTO,
+    GoogleIntervalDTO,
     GoogleMetricDTO,
     GoogleMetricState,
     GoogleQueryContext,
     GoogleQueryMode,
     GoogleRecordDTO,
+    GoogleSleepStageDTO,
     GoogleSourceIdentity,
     GoogleStream,
+    GoogleTemporalDTO,
 )
 from healthcheck.google.storage import (
     ContentAddressedGooglePayloadStore,
@@ -67,6 +78,7 @@ class GooglePersistenceOutcome:
     replayed: bool
     ingest_batch_id: str | None = None
     ingest_event_id: str | None = None
+    normalization_attempt: GoogleNormalizationAttempt | None = None
 
 
 class GoogleSourceRepository:
@@ -385,6 +397,108 @@ class GooglePayloadObservationRepository:
         return observation
 
 
+class GoogleNormalizationAttemptRepository:
+    """Append-only repository for bounded normalization-version attempts."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get(self, attempt_id: str) -> GoogleNormalizationAttempt | None:
+        return self.session.get(GoogleNormalizationAttempt, attempt_id)
+
+    def get_by_key(self, attempt_key: str) -> GoogleNormalizationAttempt | None:
+        return self.session.scalar(
+            select(GoogleNormalizationAttempt).where(
+                GoogleNormalizationAttempt.attempt_key
+                == _required_text(attempt_key, "Google normalization attempt key")
+            )
+        )
+
+    def list_for_observation(self, observation_id: str) -> list[GoogleNormalizationAttempt]:
+        return list(
+            self.session.scalars(
+                select(GoogleNormalizationAttempt)
+                .where(GoogleNormalizationAttempt.observation_id == observation_id)
+                .order_by(
+                    GoogleNormalizationAttempt.normalization_contract_version,
+                    GoogleNormalizationAttempt.attempted_at,
+                    GoogleNormalizationAttempt.id,
+                )
+            )
+        )
+
+    def create(
+        self,
+        *,
+        google_source_id: str,
+        google_raw_payload_id: str,
+        observation_id: str,
+        attempt_key: str,
+        stream_code: str | GoogleStream,
+        query_mode: str | GoogleQueryMode,
+        data_source_family: str | None,
+        source_contract_version: str | None,
+        normalization_contract_version: str,
+        parse_status: str | GooglePayloadStatus,
+        record_count: int,
+        projection_fingerprint: str,
+        projection_json: str,
+        diagnostics_json: str | None,
+        unknown_fields_json: str | None,
+        attempted_at: datetime | None = None,
+    ) -> GoogleNormalizationAttempt:
+        normalized_key = _required_text(attempt_key, "Google normalization attempt key")
+        if len(normalized_key) < 32:
+            raise ValueError("Google normalization attempt key must be at least 32 characters")
+        if record_count < 0:
+            raise ValueError("Google normalization attempt record_count must be nonnegative")
+        existing = self.get_by_key(normalized_key)
+        if existing is not None:
+            for field_name, expected in {
+                "google_source_id": google_source_id,
+                "google_raw_payload_id": google_raw_payload_id,
+                "observation_id": observation_id,
+                "stream_code": GoogleStream(stream_code).value,
+                "query_mode": GoogleQueryMode(query_mode).value,
+                "data_source_family": data_source_family,
+                "normalization_contract_version": normalization_contract_version,
+                "parse_status": GooglePayloadStatus(parse_status).value,
+                "record_count": record_count,
+                "projection_fingerprint": projection_fingerprint,
+                "projection_json": projection_json,
+            }.items():
+                if getattr(existing, field_name) != expected:
+                    raise ValueError(
+                        "Google normalization attempt key is linked to conflicting evidence"
+                    )
+            return existing
+        attempt = GoogleNormalizationAttempt(
+            google_source_id=google_source_id,
+            google_raw_payload_id=google_raw_payload_id,
+            observation_id=observation_id,
+            attempt_key=normalized_key,
+            stream_code=GoogleStream(stream_code).value,
+            query_mode=GoogleQueryMode(query_mode).value,
+            data_source_family=data_source_family,
+            source_contract_version=source_contract_version,
+            normalization_contract_version=_required_text(
+                normalization_contract_version, "normalization contract version"
+            ),
+            parse_status=GooglePayloadStatus(parse_status).value,
+            record_count=record_count,
+            projection_fingerprint=_required_text(
+                projection_fingerprint, "Google projection fingerprint"
+            ),
+            projection_json=_required_text(projection_json, "Google projection JSON"),
+            diagnostics_json=diagnostics_json,
+            unknown_fields_json=unknown_fields_json,
+            attempted_at=start_or_now(attempted_at),
+        )
+        self.session.add(attempt)
+        self.session.flush()
+        return attempt
+
+
 class GoogleSourceRecordRepository:
     """Upsert current typed projections while preserving raw payload history."""
 
@@ -412,6 +526,31 @@ class GoogleSourceRecordRepository:
                 .order_by(GoogleRecordMetric.metric_code, GoogleRecordMetric.id)
             )
         )
+
+    def intervals_for(self, record_id: str) -> list[GoogleRecordInterval]:
+        return list(
+            self.session.scalars(
+                select(GoogleRecordInterval)
+                .where(GoogleRecordInterval.record_id == record_id)
+                .order_by(GoogleRecordInterval.interval_kind, GoogleRecordInterval.ordinal)
+            )
+        )
+
+    def sleep_intervals_for(self, record_id: str) -> list[GoogleSleepInterval]:
+        return list(
+            self.session.scalars(
+                select(GoogleSleepInterval)
+                .join(
+                    GoogleSleepRecord,
+                    GoogleSleepRecord.record_id == GoogleSleepInterval.sleep_record_id,
+                )
+                .where(GoogleSleepRecord.record_id == record_id)
+                .order_by(GoogleSleepInterval.interval_kind, GoogleSleepInterval.ordinal)
+            )
+        )
+
+    def source_evidence_for(self, record_id: str) -> GoogleRecordSourceEvidence | None:
+        return self.session.get(GoogleRecordSourceEvidence, record_id)
 
     def upsert(
         self,
@@ -452,13 +591,18 @@ class GoogleSourceRecordRepository:
             self.session.add(row)
             self.session.flush()
             self._upsert_typed_child(row, record)
+            self._upsert_source_evidence(row.id, record.data_source)
             self._upsert_metrics(row.id, record.metrics)
             return row, True, False
 
         projected = _datetime_key(existing.projection_observed_at) or _datetime_key(
             existing.last_seen_at
         )
-        if projected is not None and seen_at < projected:
+        current_version = _normalization_version_rank(existing.normalization_contract_version)
+        incoming_version = _normalization_version_rank(normalization_contract_version)
+        if current_version > incoming_version or (
+            current_version == incoming_version and projected is not None and seen_at < projected
+        ):
             return existing, False, False
         for field_name, value in values.items():
             if field_name in {"id", "created_at"}:
@@ -467,18 +611,104 @@ class GoogleSourceRecordRepository:
         existing.updated_at = seen_at
         self.session.flush()
         self._upsert_typed_child(existing, record)
+        self._upsert_source_evidence(existing.id, record.data_source)
         self._upsert_metrics(existing.id, record.metrics)
         return existing, False, True
 
     def _upsert_typed_child(self, row: GoogleSourceRecord, record: GoogleRecordDTO) -> None:
-        if record.stream is not GoogleStream.SLEEP:
+        if record.stream is GoogleStream.SLEEP:
+            typed = self.session.get(GoogleSleepRecord, row.id)
+            wake_date = record.wake_date or record.temporal.local_date
+            if typed is None:
+                typed = GoogleSleepRecord(record_id=row.id, wake_date=wake_date)
+                self.session.add(typed)
+                self.session.flush()
+            elif wake_date is not None:
+                typed.wake_date = wake_date
+
+            _upsert_sleep_field_states(
+                self.session,
+                sleep_record_id=row.id,
+                sleep_interval_state=(
+                    record.sleep_interval.state
+                    if record.sleep_interval is not None
+                    else GoogleMetricState.MISSING
+                ),
+                sleep_stages_state=record.sleep_stages_state,
+                out_of_bed_state=record.out_of_bed_state,
+            )
+            if (
+                record.sleep_interval is not None
+                and record.sleep_interval.state is GoogleMetricState.VALUE
+            ):
+                _upsert_sleep_interval(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval=record.sleep_interval,
+                    ordinal=0,
+                )
+            elif (
+                record.sleep_interval is not None
+                and record.sleep_interval.state is GoogleMetricState.NULL
+            ):
+                _clear_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_session",
+                )
+            if record.sleep_stages_state is GoogleMetricState.VALUE:
+                _replace_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_stage",
+                    intervals=record.sleep_stages,
+                )
+            elif record.sleep_stages_state is GoogleMetricState.NULL:
+                _clear_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_stage",
+                )
+            if record.out_of_bed_state is GoogleMetricState.VALUE:
+                _replace_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_out_of_bed",
+                    intervals=record.out_of_bed_segments,
+                )
+            elif record.out_of_bed_state is GoogleMetricState.NULL:
+                _clear_sleep_intervals(
+                    self.session,
+                    sleep_record_id=row.id,
+                    interval_kind="sleep_out_of_bed",
+                )
             return
-        typed = self.session.get(GoogleSleepRecord, row.id)
-        wake_date = record.wake_date or record.temporal.local_date
-        if typed is None:
-            self.session.add(GoogleSleepRecord(record_id=row.id, wake_date=wake_date))
-        else:
-            typed.wake_date = wake_date
+
+        if record.interval is not None:
+            _upsert_record_interval(self.session, record_id=row.id, interval=record.interval)
+
+    def _upsert_source_evidence(
+        self, record_id: str, data_source: GoogleDataSourceDTO | None
+    ) -> None:
+        if data_source is None:
+            return
+        evidence = self.session.get(GoogleRecordSourceEvidence, record_id)
+        if evidence is None:
+            self.session.add(
+                GoogleRecordSourceEvidence(
+                    record_id=record_id,
+                    state=data_source.state.value,
+                    field_path=data_source.field_path,
+                    evidence_json=canonical_json(data_source.as_dict()),
+                )
+            )
+            return
+        if data_source.state is GoogleMetricState.MISSING:
+            return
+        merged = _merge_data_source_evidence(evidence.evidence_json, data_source.as_dict())
+        evidence.state = str(merged["state"])
+        evidence.field_path = str(merged["field_path"])
+        evidence.evidence_json = canonical_json(merged)
 
     def _upsert_metrics(self, record_id: str, metrics: Iterable[GoogleMetricDTO]) -> None:
         incoming = {metric.metric_code: metric for metric in metrics}
@@ -489,6 +719,9 @@ class GoogleSourceRecordRepository:
             )
         }
         for metric in incoming.values():
+            stored = existing.get(metric.metric_code)
+            if metric.state is GoogleMetricState.MISSING and stored is not None:
+                continue
             values = {
                 "metric_code": metric.metric_code,
                 "field_path": metric.field_path,
@@ -505,15 +738,11 @@ class GoogleSourceRecordRepository:
                 if metric.state is GoogleMetricState.VALUE
                 else None,
             }
-            stored = existing.get(metric.metric_code)
             if stored is None:
                 self.session.add(GoogleRecordMetric(record_id=record_id, **values))
             else:
                 for field_name, value in values.items():
                     setattr(stored, field_name, value)
-        for metric_code, stored in existing.items():
-            if metric_code not in incoming:
-                self.session.delete(stored)
 
 
 class GooglePersistenceRepository:
@@ -530,6 +759,7 @@ class GooglePersistenceRepository:
         self.sources = GoogleSourceRepository(session)
         self.raw_payloads = GoogleRawPayloadRepository(session)
         self.observations = GooglePayloadObservationRepository(session)
+        self.attempts = GoogleNormalizationAttemptRepository(session)
         self.records = GoogleSourceRecordRepository(session)
         self.payload_store = payload_store
 
@@ -812,6 +1042,84 @@ class GooglePersistenceRepository:
             ingest_event_id=event_id,
         )
 
+    def persist_result(
+        self,
+        result: object,
+        *,
+        identity: GoogleSourceIdentity | None = None,
+        payload: RawGooglePayload | None = None,
+        media_type: str = "application/json",
+        payload_format: str | None = None,
+        fixture_id: str | None = None,
+        source_filename: str | None = None,
+        received_at: datetime | None = None,
+        source_window_start_utc: datetime | None = None,
+        source_window_end_utc: datetime | None = None,
+        sync_run_id: str | None = None,
+        ingest_event_id: str | None = None,
+        create_ingest_event: bool = True,
+    ) -> GooglePersistenceOutcome:
+        """Persist one explicit normalization result and its immutable attempt."""
+
+        from healthcheck.google.normalization import GoogleNormalizationResult
+
+        if not isinstance(result, GoogleNormalizationResult):
+            raise TypeError("Google persistence requires a GoogleNormalizationResult")
+        resolved_identity = identity or result.source_identity
+        if resolved_identity is None:
+            raise ValueError("Google normalization result requires explicit source identity")
+        if payload is None:
+            raise ValueError("Google normalization persistence requires the original payload")
+        diagnostics = tuple(item.as_dict() for item in result.diagnostics)
+        unknown_fields = tuple(result.unknown_fields)
+        outcome = self.persist_observation(
+            identity=resolved_identity,
+            query=result.query,
+            stream=result.stream,
+            payload=payload,
+            records=result.records,
+            parse_status=result.status,
+            media_type=media_type,
+            payload_format=payload_format,
+            source_contract_version=result.source_contract_version,
+            normalization_contract_version=result.normalization_contract_version,
+            fixture_id=fixture_id,
+            source_filename=source_filename,
+            received_at=received_at,
+            source_window_start_utc=source_window_start_utc,
+            source_window_end_utc=source_window_end_utc,
+            sync_run_id=sync_run_id,
+            ingest_event_id=ingest_event_id,
+            create_ingest_event=create_ingest_event,
+            diagnostics=diagnostics,
+            unknown_fields=unknown_fields,
+        )
+        attempt = self.attempts.create(
+            google_source_id=outcome.source.id,
+            google_raw_payload_id=outcome.raw_payload.id,
+            observation_id=outcome.observation.id,
+            attempt_key=build_google_normalization_attempt_key(
+                observation_id=outcome.observation.id,
+                normalization_contract_version=result.normalization_contract_version,
+            ),
+            stream_code=result.stream,
+            query_mode=result.query.query_mode,
+            data_source_family=result.query.data_source_family,
+            source_contract_version=result.source_contract_version,
+            normalization_contract_version=result.normalization_contract_version,
+            parse_status=result.status,
+            record_count=len(result.records),
+            projection_fingerprint=result.projection_fingerprint,
+            projection_json=canonical_json(result.as_dict()),
+            diagnostics_json=_json_list_or_none(diagnostics),
+            unknown_fields_json=_json_list_or_none(unknown_fields),
+            attempted_at=received_at,
+        )
+        return replace(outcome, normalization_attempt=attempt)
+
+    persist_normalized_result = persist_result
+    persist_normalization = persist_result
+
     persist = persist_observation
 
     def _store_payload(
@@ -838,6 +1146,224 @@ def google_persistence_for(
     """Build the persistence facade for an existing transaction session."""
 
     return GooglePersistenceRepository(session, payload_store=payload_store)
+
+
+def _upsert_record_interval(
+    session: Session, *, record_id: str, interval: GoogleIntervalDTO
+) -> None:
+    kind = interval.interval_kind.value
+    if kind not in {"roll_up", "daily_roll_up"}:
+        raise ValueError("Google record intervals must be roll-up intervals")
+    row = session.scalar(
+        select(GoogleRecordInterval).where(
+            GoogleRecordInterval.record_id == record_id,
+            GoogleRecordInterval.interval_kind == kind,
+            GoogleRecordInterval.ordinal == 0,
+        )
+    )
+    values = {
+        "record_id": record_id,
+        "interval_kind": kind,
+        "interval_state": interval.state.value,
+        "ordinal": 0,
+        **_interval_endpoint_values(interval.start, "start"),
+        **_interval_endpoint_values(interval.end, "end"),
+    }
+    if row is None:
+        session.add(GoogleRecordInterval(**values))
+    else:
+        for field_name, value in values.items():
+            setattr(row, field_name, value)
+
+
+def _upsert_sleep_interval(
+    session: Session,
+    *,
+    sleep_record_id: str,
+    interval: GoogleIntervalDTO | GoogleSleepStageDTO,
+    ordinal: int,
+) -> None:
+    if isinstance(interval, GoogleSleepStageDTO):
+        kind = "sleep_stage"
+        interval_state = GoogleMetricState.VALUE
+        start = interval.start
+        end = interval.end
+        stage_type = interval.stage_type
+        create_time = interval.create_time
+        update_time = interval.update_time
+    else:
+        kind = interval.interval_kind.value
+        if kind not in {"sleep_session", "sleep_out_of_bed"}:
+            raise ValueError("Google sleep interval kind is not supported")
+        interval_state = interval.state
+        start = interval.start
+        end = interval.end
+        stage_type = None
+        create_time = None
+        update_time = None
+    row = session.scalar(
+        select(GoogleSleepInterval).where(
+            GoogleSleepInterval.sleep_record_id == sleep_record_id,
+            GoogleSleepInterval.interval_kind == kind,
+            GoogleSleepInterval.ordinal == ordinal,
+        )
+    )
+    values = {
+        "sleep_record_id": sleep_record_id,
+        "interval_kind": kind,
+        "interval_state": interval_state.value,
+        "ordinal": ordinal,
+        "stage_type": stage_type,
+        "create_time": create_time,
+        "update_time": update_time,
+        **_interval_endpoint_values(start, "start"),
+        **_interval_endpoint_values(end, "end"),
+    }
+    if row is None:
+        session.add(GoogleSleepInterval(**values))
+    else:
+        for field_name, value in values.items():
+            setattr(row, field_name, value)
+
+
+def _upsert_sleep_field_states(
+    session: Session,
+    *,
+    sleep_record_id: str,
+    sleep_interval_state: GoogleMetricState,
+    sleep_stages_state: GoogleMetricState,
+    out_of_bed_state: GoogleMetricState,
+) -> None:
+    incoming = {
+        "sleep_interval_state": GoogleMetricState(sleep_interval_state),
+        "sleep_stages_state": GoogleMetricState(sleep_stages_state),
+        "out_of_bed_state": GoogleMetricState(out_of_bed_state),
+    }
+    row = session.get(GoogleSleepFieldState, sleep_record_id)
+    if row is None:
+        session.add(
+            GoogleSleepFieldState(
+                sleep_record_id=sleep_record_id,
+                **{field_name: state.value for field_name, state in incoming.items()},
+            )
+        )
+        return
+    for field_name, state in incoming.items():
+        # A partial provider observation describes only the fields it carries.
+        # MISSING and INVALID therefore cannot displace an accepted current
+        # state; VALUE and NULL remain authoritative for this dimension.
+        if state in {GoogleMetricState.MISSING, GoogleMetricState.INVALID}:
+            continue
+        setattr(row, field_name, state.value)
+
+
+def _clear_sleep_intervals(
+    session: Session, *, sleep_record_id: str, interval_kind: str
+) -> None:
+    if interval_kind not in {"sleep_session", "sleep_stage", "sleep_out_of_bed"}:
+        raise ValueError("Google sleep interval clearing kind is not supported")
+    existing = list(
+        session.scalars(
+            select(GoogleSleepInterval).where(
+                GoogleSleepInterval.sleep_record_id == sleep_record_id,
+                GoogleSleepInterval.interval_kind == interval_kind,
+            )
+        )
+    )
+    for row in existing:
+        session.delete(row)
+    if existing:
+        session.flush()
+
+
+def _replace_sleep_intervals(
+    session: Session,
+    *,
+    sleep_record_id: str,
+    interval_kind: str,
+    intervals: Sequence[GoogleIntervalDTO] | Sequence[GoogleSleepStageDTO],
+) -> None:
+    if interval_kind not in {"sleep_stage", "sleep_out_of_bed"}:
+        raise ValueError("Google sleep interval replacement kind is not supported")
+    _clear_sleep_intervals(
+        session,
+        sleep_record_id=sleep_record_id,
+        interval_kind=interval_kind,
+    )
+    for ordinal, interval in enumerate(intervals):
+        _upsert_sleep_interval(
+            session,
+            sleep_record_id=sleep_record_id,
+            interval=interval,
+            ordinal=ordinal,
+        )
+
+
+def _interval_endpoint_values(temporal: GoogleTemporalDTO, prefix: str) -> dict[str, object]:
+    """Project one DTO endpoint without losing its exact field provenance."""
+
+    if not isinstance(temporal, GoogleTemporalDTO):
+        raise TypeError("Google interval endpoint must be temporal evidence")
+    as_dict = temporal.as_dict()
+    return {
+        f"{prefix}_precision": temporal.precision.value,
+        f"{prefix}_state": temporal.state.value,
+        f"{prefix}_at_utc": _as_utc(temporal.measured_at_utc),
+        f"{prefix}_local_date": temporal.local_date,
+        f"{prefix}_local_wall_time": temporal.local_wall_time,
+        f"{prefix}_source_timestamp": temporal.source_local_timestamp,
+        f"{prefix}_utc_offset_minutes": temporal.source_utc_offset_minutes,
+        f"{prefix}_source_timezone": temporal.source_timezone,
+        f"{prefix}_source_field": temporal.source_field,
+        f"{prefix}_source_local_field": temporal.source_local_field,
+        f"{prefix}_source_utc_field": temporal.source_utc_field,
+        f"{prefix}_temporal_json": canonical_json(as_dict),
+    }
+
+
+def _merge_data_source_evidence(
+    existing_json: str, incoming: Mapping[str, object]
+) -> dict[str, object]:
+    try:
+        existing = json.loads(existing_json)
+    except (TypeError, json.JSONDecodeError):
+        existing = {}
+    if not isinstance(existing, Mapping) or incoming.get("state") != GoogleMetricState.VALUE.value:
+        return dict(incoming)
+    previous_fields = {
+        str(item.get("metric_code")): item
+        for item in existing.get("fields", ())
+        if isinstance(item, Mapping) and item.get("metric_code") is not None
+    }
+    merged_fields: list[Mapping[str, object]] = []
+    for item in incoming.get("fields", ()):
+        if not isinstance(item, Mapping):
+            continue
+        code = str(item.get("metric_code", ""))
+        if item.get("state") == GoogleMetricState.MISSING.value and code in previous_fields:
+            merged_fields.append(previous_fields[code])
+        else:
+            merged_fields.append(item)
+        previous_fields.pop(code, None)
+    merged_fields.extend(previous_fields.values())
+    merged_fields.sort(
+        key=lambda item: (str(item.get("metric_code", "")), str(item.get("field_path", "")))
+    )
+    return {
+        "state": incoming.get("state"),
+        "field_path": incoming.get("field_path"),
+        "fields": merged_fields,
+    }
+
+
+def _normalization_version_rank(version: str) -> tuple[int, int, str]:
+    """Order the old #86 shell below explicit #87 versions, then by vN."""
+
+    normalized = _required_text(version, "normalization contract version")
+    match = re.search(r"-v(\d+)$", normalized)
+    revision = int(match.group(1)) if match else 0
+    family_rank = 0 if "persistence-shell" in normalized else 1
+    return family_rank, revision, normalized
 
 
 def build_google_observation_key(
@@ -896,6 +1422,22 @@ def build_google_observation_key(
     return f"{OBSERVATION_KEY_VERSION}:{digest}"
 
 
+def build_google_normalization_attempt_key(
+    *, observation_id: str, normalization_contract_version: str
+) -> str:
+    """Identify one bounded normalization version attempt for an observation."""
+
+    payload = {
+        "version": "google-normalization-attempt-v1",
+        "observation_id": _required_text(observation_id, "Google observation id"),
+        "normalization_contract_version": _required_text(
+            normalization_contract_version, "normalization contract version"
+        ),
+    }
+    digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return f"google-normalization-attempt-v1:{digest}"
+
+
 def build_google_record_identity_key(
     *,
     stream_code: str | GoogleStream,
@@ -943,8 +1485,7 @@ def _record_values(
         "external_record_id": record.external_record_id,
         "record_index": record.record_index,
         "temporal_precision": temporal.precision.value,
-        "source_local_date": temporal.local_date
-        or (temporal.measured_at_utc.date() if temporal.measured_at_utc is not None else None),
+        "source_local_date": temporal.local_date,
         "source_timestamp_utc": _as_utc(temporal.measured_at_utc),
         "local_wall_time": temporal.local_wall_time,
         "source_local_timestamp": temporal.source_local_timestamp,
@@ -958,6 +1499,8 @@ def _record_values(
         "normalization_contract_version": _required_text(
             normalization_contract_version, "normalization contract version"
         ),
+        "diagnostics_json": _json_list_or_none(record.diagnostics),
+        "unknown_fields_json": _json_list_or_none(record.unknown_fields),
         "projection_status": PROJECTION_CURRENT,
         "projection_observed_at": seen_at,
         "retired_at": None,
@@ -1030,8 +1573,10 @@ __all__ = [
     "GOOGLE_SOURCE_APPLICATION",
     "GooglePersistenceOutcome",
     "GooglePersistenceRepository",
+    "GoogleNormalizationAttemptRepository",
     "GooglePayloadObservationRepository",
     "GoogleRawPayloadRepository",
+    "build_google_normalization_attempt_key",
     "GoogleSourceRecordRepository",
     "GoogleSourceRepository",
     "PERSISTENCE_CONTRACT_VERSION",
