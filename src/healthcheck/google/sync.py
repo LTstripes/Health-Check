@@ -515,6 +515,20 @@ def source_identity_from_point(
     return query_level_source_identity(query)
 
 
+def identities_from_points(
+    points: Sequence[Any], query: GoogleQueryContext
+) -> tuple[GoogleSourceIdentity, ...]:
+    """Unique source identities present on one page; empty if no points."""
+
+    grouped: dict[str, GoogleSourceIdentity] = {}
+    for point in points:
+        if not isinstance(point, Mapping):
+            continue
+        identity = source_identity_from_point(point, query)
+        grouped[identity.source_instance_id] = identity
+    return tuple(grouped.values())
+
+
 def _optional_text(value: object) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -1600,7 +1614,33 @@ class GoogleHealthSync:
             )
             return None
         parse_status = GooglePayloadStatus.EMPTY if continue_empty else result.status
-        if not upsert_records or continue_empty or not result.records:
+        if not upsert_records:
+            staging_identities = identities_from_points(points, query)
+            if not staging_identities:
+                return 0, 0
+            inserted = 0
+            updated = 0
+            with factory() as session:
+                repo = google_persistence_for(session, payload_store=store)
+                for staging_identity in staging_identities:
+                    outcome = repo.persist_observation(
+                        identity=staging_identity,
+                        query=query,
+                        stream=surface.stream,
+                        payload=payload,
+                        records=(),
+                        parse_status=parse_status,
+                        source_window_start_utc=window_start,
+                        source_window_end_utc=window_end,
+                        sync_run_id=sync_run_id,
+                        diagnostics=tuple(item.as_dict() for item in result.diagnostics),
+                        unknown_fields=result.unknown_fields,
+                    )
+                    inserted += outcome.inserted_count
+                    updated += outcome.updated_count
+                session.commit()
+            return inserted, updated
+        if continue_empty or not result.records:
             with factory() as session:
                 repo = google_persistence_for(session, payload_store=store)
                 outcome = repo.persist_observation(
@@ -1989,6 +2029,7 @@ __all__ = [
     "RETRY_BACKOFF_SECONDS",
     "SLEEP_PAGE_SIZE",
     "SYNC_CONTRACT_VERSION",
+    "UNATTRIBUTED_SOURCE_INSTANCE",
     "GoogleHealthSync",
     "GoogleRunKind",
     "GoogleSyncAttempt",
@@ -1997,6 +2038,7 @@ __all__ = [
     "GoogleSyncSurface",
     "checkpoint_stream_code",
     "inclusive_to_exclusive_end",
+    "identities_from_points",
     "query_level_source_identity",
     "source_identity_from_point",
     "parse_data_source_family",

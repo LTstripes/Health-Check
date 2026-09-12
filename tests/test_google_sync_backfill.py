@@ -52,6 +52,7 @@ from healthcheck.google.sync import (
     MAX_SYNC_PROVIDER_REQUESTS,
     RETRY_BACKOFF_SECONDS,
     SLEEP_PAGE_SIZE,
+    UNATTRIBUTED_SOURCE_INSTANCE,
     GoogleHealthSync,
     GoogleRunKind,
     GoogleSyncStatus,
@@ -1025,6 +1026,41 @@ def test_budget_stopped_refresh_restarts_and_applies_page1_correction(tmp_path) 
         engine.dispose()
 
 
+def test_refresh_named_datasource_does_not_create_unattributed_source(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    point = _hr_point(name="hr-1", bpm="72", data_source=_named_data_source(SOURCE_A))
+    transport.queue("heart-rate", {"dataPoints": [point]})
+    settings, incremental = _sync(tmp_path, transport)
+    incremental.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    transport.queue(
+        "heart-rate",
+        {"dataPoints": [point], "nextPageToken": "p2"},
+    )
+    transport.queue("heart-rate", {"dataPoints": []}, page_token="p2")
+    report = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+    )
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            instances = {
+                row.source_instance_id for row in session.scalars(select(GoogleSource))
+            }
+            assert instances == {SOURCE_A}
+            assert UNATTRIBUTED_SOURCE_INSTANCE not in instances
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 1
+    finally:
+        engine.dispose()
+
+
 def test_historical_backfill_budget_exhaustion_is_not_success(tmp_path) -> None:
     transport = FakeGoogleHealthTransport()
     transport.queue("heart-rate", {"dataPoints": [_hr_point(name="hr-1", bpm="41")]})
@@ -1046,6 +1082,34 @@ def test_historical_backfill_budget_exhaustion_is_not_success(tmp_path) -> None:
     assert report.abort_reason == "request_ceiling"
     assert any(item.status is GoogleSyncStatus.NOT_RUN for item in report.attempts)
     assert any(
+        item.status in {GoogleSyncStatus.SUCCEEDED, GoogleSyncStatus.EMPTY}
+        for item in report.attempts
+    )
+
+
+def test_historical_backfill_exact_budget_for_completed_work_is_success(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", {"dataPoints": [_hr_point(name="hr-1", bpm="41")]})
+    transport.queue("heart-rate", {"dataPoints": [_hr_point(name="hr-2", bpm="42")]})
+    settings, _service = _sync(tmp_path, transport)
+    report = GoogleHistoricalBackfill(
+        settings,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        max_provider_requests=2,
+    ).run(
+        start="2099-01-01",
+        end="2099-01-02",
+        streams=["heart_rate"],
+        chunk_days=1,
+    )
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.abort_reason is None
+    assert report.request_count == 2
+    assert all(item.status is not GoogleSyncStatus.NOT_RUN for item in report.attempts)
+    assert all(
         item.status in {GoogleSyncStatus.SUCCEEDED, GoogleSyncStatus.EMPTY}
         for item in report.attempts
     )

@@ -221,8 +221,6 @@ class GoogleHistoricalBackfill:
             attempts.extend(report.attempts)
             if report.abort_reason == "reauth_required":
                 abort_reason = "reauth_required"
-            elif remaining_budget < 1 and abort_reason is None:
-                abort_reason = "request_ceiling"
         status = _roll_up_status(attempts, abort_reason)
         skipped = sum(1 for item in attempts if item.skipped)
         return GoogleSyncReport(
