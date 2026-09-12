@@ -21,7 +21,9 @@ from healthcheck.db.models import (
     GooglePayloadObservation,
     GoogleRawPayload,
     GoogleRecordMetric,
+    GoogleSource,
     GoogleSourceRecord,
+    RawArtifact,
     SyncStreamState,
 )
 from healthcheck.google.auth import (
@@ -94,10 +96,23 @@ def _data_source() -> dict[str, object]:
     }
 
 
-def _hr_point(*, name: str, bpm: str, hour: int = 8) -> dict[str, object]:
+def _named_data_source(resource: str, **overrides: object) -> dict[str, object]:
+    value = _data_source()
+    value["name"] = resource
+    value.update(overrides)
+    return value
+
+
+def _hr_point(
+    *,
+    name: str,
+    bpm: str,
+    hour: int = 8,
+    data_source: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     return {
         "name": name,
-        "dataSource": _data_source(),
+        "dataSource": dict(data_source) if data_source is not None else _data_source(),
         "heartRate": {"sampleTime": _sample_time(hour=hour), "beatsPerMinute": bpm},
     }
 
@@ -162,6 +177,18 @@ class FakeGoogleHealthTransport:
         else:
             response = GoogleHttpResponse(status, json.dumps(dict(payload)).encode())
         self._queues.setdefault(key, []).append(response)
+
+    def queue_raw(
+        self,
+        data_type: str,
+        body: bytes,
+        *,
+        status: int = 200,
+        page_token: str | None = None,
+        operation: str = "list",
+    ) -> None:
+        key = (operation, data_type, page_token or "")
+        self._queues.setdefault(key, []).append(GoogleHttpResponse(status, body))
 
     def request(
         self,
@@ -848,3 +875,241 @@ def test_auth_service_constructor_still_accepts_seeded_tokens(tmp_path) -> None:
     ).run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
     assert report.auth is not None
     assert report.attempts[0].coverage_status == "confirmed_empty"
+
+
+SOURCE_A = "users/me/dataSources/raw:com.google.heart_rate.bpm:fitbit:AAA"
+SOURCE_B = "users/me/dataSources/raw:com.google.heart_rate.bpm:pixel:BBB"
+
+
+def _artifact_bodies(settings: Settings, session) -> list[bytes]:
+    paths = prepare_runtime(settings)
+    bodies: list[bytes] = []
+    for row in session.scalars(select(GoogleRawPayload)):
+        artifact = session.get(RawArtifact, row.raw_artifact_id)
+        assert artifact is not None
+        bodies.append((paths.root / "artifacts" / artifact.relative_storage_path).read_bytes())
+    return bodies
+
+
+def test_two_explicit_datasources_same_type_remain_distinct(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    transport.queue(
+        "heart-rate",
+        {
+            "dataPoints": [
+                _hr_point(
+                    name="hr-a",
+                    bpm="61",
+                    hour=7,
+                    data_source=_named_data_source(SOURCE_A),
+                ),
+                _hr_point(
+                    name="hr-b",
+                    bpm="62",
+                    hour=8,
+                    data_source=_named_data_source(SOURCE_B, platform="FITBIT"),
+                ),
+            ]
+        },
+    )
+    settings, service = _sync(tmp_path, transport)
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            sources = list(session.scalars(select(GoogleSource)))
+            instances = {row.source_instance_id for row in sources}
+            assert instances == {SOURCE_A, SOURCE_B}
+            assert all(row.source_kind == "data_source" for row in sources)
+            assert "users/me/dataTypes/heart-rate" not in instances
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 2
+    finally:
+        engine.dispose()
+
+
+def test_same_explicit_source_across_acquisition_contexts_is_one_logical_source(
+    tmp_path,
+) -> None:
+    transport = FakeGoogleHealthTransport()
+    point = _hr_point(
+        name="hr-shared",
+        bpm="70",
+        data_source=_named_data_source(SOURCE_A),
+    )
+    transport.queue("heart-rate", {"dataPoints": [point]})
+    settings, service = _sync(tmp_path, transport)
+    first = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert first.status is GoogleSyncStatus.SUCCEEDED
+    transport.queue("heart-rate", {"dataPoints": [point]})
+    second = service.run(
+        start=AS_OF,
+        end=AS_OF,
+        streams=["heart_rate"],
+        data_source_family=FAMILY_GOOGLE_WEARABLES,
+    )
+    assert second.status is GoogleSyncStatus.SUCCEEDED
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            sources = list(session.scalars(select(GoogleSource)))
+            assert [row.source_instance_id for row in sources] == [SOURCE_A]
+            records = list(session.scalars(select(GoogleSourceRecord)))
+            assert len(records) == 2
+            families = {row.data_source_family for row in records}
+            assert None in families
+            assert FAMILY_GOOGLE_WEARABLES in families
+    finally:
+        engine.dispose()
+
+
+def test_budget_stopped_refresh_restarts_and_applies_page1_correction(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    original = _hr_point(name="hr-1", bpm="72", data_source=_named_data_source(SOURCE_A))
+    corrected = _hr_point(name="hr-1", bpm="81", data_source=_named_data_source(SOURCE_A))
+    transport.queue("heart-rate", {"dataPoints": [original]})
+    settings, incremental = _sync(tmp_path, transport)
+    incremental.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    page1 = {"dataPoints": [corrected], "nextPageToken": "p2"}
+    page2 = {"dataPoints": []}
+    transport.queue("heart-rate", page1)
+    first = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        max_provider_requests=1,
+    )
+    assert first.status is GoogleSyncStatus.PARTIAL
+    assert first.attempts[0].resume_cursor_present is False
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            metric = session.scalar(
+                select(GoogleRecordMetric).where(GoogleRecordMetric.metric_code == "heart_rate_bpm")
+            )
+            assert metric is not None
+            assert metric.value_number == 72
+            raw_before = session.scalar(select(func.count()).select_from(GoogleRawPayload))
+    finally:
+        engine.dispose()
+    transport.queue("heart-rate", page1)
+    transport.queue("heart-rate", page2, page_token="p2")
+    second = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+    )
+    assert second.status is GoogleSyncStatus.SUCCEEDED
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            metric = session.scalar(
+                select(GoogleRecordMetric).where(GoogleRecordMetric.metric_code == "heart_rate_bpm")
+            )
+            assert metric is not None
+            assert metric.value_number == 81
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 1
+            raw_after = session.scalar(select(func.count()).select_from(GoogleRawPayload))
+            assert raw_after > raw_before
+    finally:
+        engine.dispose()
+
+
+def test_historical_backfill_budget_exhaustion_is_not_success(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", {"dataPoints": [_hr_point(name="hr-1", bpm="41")]})
+    settings, _service = _sync(tmp_path, transport)
+    report = GoogleHistoricalBackfill(
+        settings,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        max_provider_requests=1,
+    ).run(
+        start="2099-01-01",
+        end="2099-01-02",
+        streams=["heart_rate"],
+        chunk_days=1,
+    )
+    assert report.status is GoogleSyncStatus.PARTIAL
+    assert report.abort_reason == "request_ceiling"
+    assert any(item.status is GoogleSyncStatus.NOT_RUN for item in report.attempts)
+    assert any(
+        item.status in {GoogleSyncStatus.SUCCEEDED, GoogleSyncStatus.EMPTY}
+        for item in report.attempts
+    )
+
+
+def test_historical_backfill_failed_then_success_is_not_success(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", 500)
+    settings, _service = _sync(tmp_path, transport)
+    report = GoogleHistoricalBackfill(
+        settings,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+    ).run(
+        start="2099-01-01",
+        end="2099-01-02",
+        streams=["heart_rate"],
+        chunk_days=1,
+    )
+    assert report.status is GoogleSyncStatus.PARTIAL
+    statuses = {item.status for item in report.attempts}
+    assert GoogleSyncStatus.FAILED in statuses
+    assert GoogleSyncStatus.EMPTY in statuses or GoogleSyncStatus.SUCCEEDED in statuses
+
+
+def test_invalid_json_terminal_body_is_retained_locally(tmp_path) -> None:
+    marker = b"<<<not-json-terminal-body>>>"
+    transport = FakeGoogleHealthTransport()
+    transport.queue_raw("heart-rate", marker, status=200)
+    settings, service = _sync(tmp_path, transport)
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.attempts[0].coverage_status == "failed"
+    dumped = report.to_json()
+    assert "not-json-terminal-body" not in dumped
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            bodies = _artifact_bodies(settings, session)
+            assert marker in bodies
+            coverage = list(session.scalars(select(CoverageInterval)))
+            assert all(row.status != "present" for row in coverage)
+            assert all(row.status != "confirmed_empty" for row in coverage)
+    finally:
+        engine.dispose()
+
+
+def test_provider_error_body_is_retained_locally(tmp_path) -> None:
+    marker = b'{"error":"terminal-provider-body"}'
+    transport = FakeGoogleHealthTransport()
+    transport.queue_raw("heart-rate", marker, status=500)
+    settings, service = _sync(tmp_path, transport)
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert report.status is GoogleSyncStatus.FAILED
+    dumped = report.to_json()
+    assert "terminal-provider-body" not in dumped
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            bodies = _artifact_bodies(settings, session)
+            assert marker in bodies
+            coverage = list(session.scalars(select(CoverageInterval)))
+            assert all(row.status not in {"present", "confirmed_empty"} for row in coverage)
+    finally:
+        engine.dispose()

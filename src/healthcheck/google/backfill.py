@@ -25,6 +25,7 @@ from healthcheck.google.sync import (
     GoogleSyncAttempt,
     GoogleSyncReport,
     GoogleSyncStatus,
+    _roll_up_status,
     inclusive_to_exclusive_end,
     parse_data_source_family,
     parse_google_streams,
@@ -174,6 +175,8 @@ class GoogleHistoricalBackfill:
         remaining_budget = self.max_provider_requests
         for chunk in chunks:
             if abort_reason == "reauth_required" or remaining_budget < 1:
+                if remaining_budget < 1 and abort_reason != "reauth_required":
+                    abort_reason = abort_reason or "request_ceiling"
                 for surface in surfaces:
                     attempts.append(
                         GoogleSyncAttempt(
@@ -218,12 +221,9 @@ class GoogleHistoricalBackfill:
             attempts.extend(report.attempts)
             if report.abort_reason == "reauth_required":
                 abort_reason = "reauth_required"
-        status = last_report.status if last_report is not None else GoogleSyncStatus.EMPTY
-        if abort_reason == "reauth_required":
-            status = GoogleSyncStatus.REAUTH_REQUIRED
-        elif any(item.status is GoogleSyncStatus.PARTIAL for item in attempts) or abort_reason:
-            if status is GoogleSyncStatus.SUCCEEDED:
-                status = GoogleSyncStatus.PARTIAL
+            elif remaining_budget < 1 and abort_reason is None:
+                abort_reason = "request_ceiling"
+        status = _roll_up_status(attempts, abort_reason)
         skipped = sum(1 for item in attempts if item.skipped)
         return GoogleSyncReport(
             auth=last_report.auth if last_report is not None else self.auth_result,

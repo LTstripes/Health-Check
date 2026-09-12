@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -49,7 +49,7 @@ from healthcheck.google.contracts import (
 from healthcheck.google.normalization import (
     normalize_google_payload,
 )
-from healthcheck.google.persistence import google_persistence_for
+from healthcheck.google.persistence import RawGooglePayload, google_persistence_for
 from healthcheck.google.probe import (
     GOOGLE_API_ROOT,
     GoogleRecordType,
@@ -80,6 +80,7 @@ RETRY_STATUS_CODES = frozenset({429, 504})
 RETRY_BACKOFF_SECONDS = (0.25, 0.5, 1.0)
 HEART_RATE_ROLLUP_MAX_DAYS = 14
 DEFAULT_ROLLUP_WINDOW_SIZE = "60s"
+UNATTRIBUTED_SOURCE_INSTANCE = "unattributed"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _FAMILY_SHORT = {
     "google-wearables": FAMILY_GOOGLE_WEARABLES,
@@ -458,23 +459,88 @@ def checkpoint_stream_code(
     return f"google:{namespace}:{stream.value}:{query_mode.value}:{family_key}"
 
 
-def default_source_identity(
-    surface: GoogleSyncSurface, query: GoogleQueryContext
-) -> GoogleSourceIdentity:
-    if query.data_source_family and query.query_mode in {
-        GoogleQueryMode.RECONCILE,
-        GoogleQueryMode.ROLL_UP,
-        GoogleQueryMode.DAILY_ROLL_UP,
-    }:
+def query_level_source_identity(query: GoogleQueryContext) -> GoogleSourceIdentity:
+    """Identity when a response has no explicit provider dataSource metadata.
+
+    Data type is never used as source identity. Family-level queries stay
+    family_aggregate; otherwise the source is honestly unattributed.
+    """
+
+    if query.data_source_family:
         return GoogleSourceIdentity(
             source_kind=GoogleSourceKind.FAMILY_AGGREGATE,
             source_instance_id=query.data_source_family,
         )
     return GoogleSourceIdentity(
         source_kind=GoogleSourceKind.DATA_SOURCE,
-        source_instance_id=f"users/me/dataTypes/{surface.data_type}",
-        data_source_name=f"users/me/dataTypes/{surface.data_type}",
+        source_instance_id=UNATTRIBUTED_SOURCE_INSTANCE,
     )
+
+
+def default_source_identity(
+    surface: GoogleSyncSurface, query: GoogleQueryContext
+) -> GoogleSourceIdentity:
+    del surface
+    return query_level_source_identity(query)
+
+
+def source_identity_from_point(
+    point: Mapping[str, Any] | None, query: GoogleQueryContext
+) -> GoogleSourceIdentity:
+    """Stable source identity from explicit provider dataSource metadata only."""
+
+    if not isinstance(point, Mapping):
+        return query_level_source_identity(query)
+    data_source = point.get("dataSource")
+    if not isinstance(data_source, Mapping):
+        return query_level_source_identity(query)
+    name = data_source.get("name")
+    if isinstance(name, str) and name.strip():
+        instance = name.strip()
+        return GoogleSourceIdentity(
+            source_kind=GoogleSourceKind.DATA_SOURCE,
+            source_instance_id=instance,
+            data_source_name=instance,
+            platform=_optional_text(data_source.get("platform")),
+            recording_method=_optional_text(data_source.get("recordingMethod")),
+        )
+    fingerprint = _explicit_source_fingerprint(data_source)
+    if fingerprint is not None:
+        return GoogleSourceIdentity(
+            source_kind=GoogleSourceKind.DATA_SOURCE,
+            source_instance_id=fingerprint,
+            platform=_optional_text(data_source.get("platform")),
+            recording_method=_optional_text(data_source.get("recordingMethod")),
+        )
+    return query_level_source_identity(query)
+
+
+def _optional_text(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def _explicit_source_fingerprint(data_source: Mapping[str, Any]) -> str | None:
+    parts: list[str] = []
+    for key in ("platform", "recordingMethod"):
+        text = _optional_text(data_source.get(key))
+        if text is not None:
+            parts.append(f"{key}={text}")
+    device = data_source.get("device")
+    if isinstance(device, Mapping):
+        for key in ("manufacturer", "displayName", "formFactor"):
+            text = _optional_text(device.get(key))
+            if text is not None:
+                parts.append(f"device.{key}={text}")
+    application = data_source.get("application")
+    if isinstance(application, Mapping):
+        text = _optional_text(application.get("packageName"))
+        if text is not None:
+            parts.append(f"application.packageName={text}")
+    if not parts:
+        return None
+    return "unattributed:" + ";".join(parts)
 
 
 def parse_page_envelope(
@@ -1018,13 +1084,15 @@ class GoogleHealthSync:
                     skipped=True,
                 )
 
-        resume_token = self._resume_token(
-            factory,
-            provider_id=provider_id,
-            state_code=state_code,
-            window_start=window_start,
-            window_end_exclusive=window_end_exclusive,
-        )
+        resume_token = None
+        if self.run_kind is not GoogleRunKind.REFRESH:
+            resume_token = self._resume_token(
+                factory,
+                provider_id=provider_id,
+                state_code=state_code,
+                window_start=window_start,
+                window_end_exclusive=window_end_exclusive,
+            )
         pages: list[dict[str, Any]] = []
         collected: list[Any] = []
         page_count = 0
@@ -1033,7 +1101,7 @@ class GoogleHealthSync:
         updated = 0
         persist_records = self.run_kind is not GoogleRunKind.REFRESH
         next_token = resume_token
-        identity = default_source_identity(surface, query)
+        identity = query_level_source_identity(query)
 
         while True:
             if page_count >= MAX_PAGES_PER_FETCH:
@@ -1046,7 +1114,7 @@ class GoogleHealthSync:
                     coverage_status="unknown",
                     complete=False,
                     observed_count=len(collected),
-                    cursor=self._cursor_payload(
+                    cursor=self._incomplete_cursor(
                         next_token, window_start, window_end_exclusive
                     ),
                 )
@@ -1064,7 +1132,7 @@ class GoogleHealthSync:
                     updated_count=updated,
                     page_count=page_count,
                     request_count=request_count,
-                    resume_cursor_present=bool(next_token),
+                    resume_cursor_present=self._resume_cursor_flag(next_token),
                     error=GoogleSafeError("budget", "page_ceiling"),
                 )
             if budget.remaining() <= 0:
@@ -1077,7 +1145,7 @@ class GoogleHealthSync:
                     coverage_status="unknown",
                     complete=False,
                     observed_count=len(collected),
-                    cursor=self._cursor_payload(
+                    cursor=self._incomplete_cursor(
                         next_token, window_start, window_end_exclusive
                     ),
                 )
@@ -1095,7 +1163,7 @@ class GoogleHealthSync:
                     updated_count=updated,
                     page_count=page_count,
                     request_count=request_count,
-                    resume_cursor_present=True,
+                    resume_cursor_present=self._resume_cursor_flag(next_token),
                     error=GoogleSafeError("budget", "request_ceiling"),
                 )
 
@@ -1109,7 +1177,26 @@ class GoogleHealthSync:
                 budget=budget,
             )
             request_count += consumed
-            if error is not None and error.error_code == "authentication_failed":
+            if error is not None:
+                if response is not None:
+                    self._persist_terminal(
+                        factory,
+                        store,
+                        identity=identity,
+                        query=query,
+                        surface=surface,
+                        payload=response.body,
+                        parse_invalid=True,
+                        window_start=start_utc,
+                        window_end=end_utc,
+                        sync_run_id=sync_run_id,
+                        records=(),
+                    )
+                status = (
+                    GoogleSyncStatus.REAUTH_REQUIRED
+                    if error.error_code == "authentication_failed"
+                    else GoogleSyncStatus.FAILED
+                )
                 self._write_checkpoint(
                     factory,
                     provider_id=provider_id,
@@ -1119,7 +1206,7 @@ class GoogleHealthSync:
                     coverage_status="failed",
                     complete=False,
                     observed_count=len(collected),
-                    cursor=self._cursor_payload(
+                    cursor=self._incomplete_cursor(
                         next_token, window_start, window_end_exclusive
                     ),
                 )
@@ -1130,47 +1217,18 @@ class GoogleHealthSync:
                     data_source_family=data_source_family,
                     window_start=window_start.isoformat(),
                     window_end_exclusive=window_end_exclusive.isoformat(),
-                    status=GoogleSyncStatus.REAUTH_REQUIRED,
+                    status=status,
                     coverage_status="failed",
                     record_count=len(collected),
                     inserted_count=inserted,
                     updated_count=updated,
                     page_count=page_count,
                     request_count=request_count,
-                    resume_cursor_present=bool(next_token),
+                    resume_cursor_present=self._resume_cursor_flag(next_token),
                     error=error,
                 )
-            if error is not None or response is None:
-                self._write_checkpoint(
-                    factory,
-                    provider_id=provider_id,
-                    state_code=state_code,
-                    window_start=start_utc,
-                    window_end=end_utc,
-                    coverage_status="failed",
-                    complete=False,
-                    observed_count=len(collected),
-                    cursor=self._cursor_payload(
-                        next_token, window_start, window_end_exclusive
-                    ),
-                )
-                return GoogleSyncAttempt(
-                    stream=surface.code,
-                    data_type=surface.data_type,
-                    query_mode=query_mode.value,
-                    data_source_family=data_source_family,
-                    window_start=window_start.isoformat(),
-                    window_end_exclusive=window_end_exclusive.isoformat(),
-                    status=GoogleSyncStatus.FAILED,
-                    coverage_status="failed",
-                    record_count=len(collected),
-                    inserted_count=inserted,
-                    updated_count=updated,
-                    page_count=page_count,
-                    request_count=request_count,
-                    resume_cursor_present=bool(next_token),
-                    error=error or GoogleSafeError("provider", "provider_error"),
-                )
+            assert response is not None
+            raw_body = response.body
             try:
                 payload = response.json()
             except Exception:
@@ -1182,7 +1240,7 @@ class GoogleHealthSync:
                     identity=identity,
                     query=query,
                     surface=surface,
-                    payload={"invalid": True},
+                    payload=raw_body,
                     parse_invalid=True,
                     window_start=start_utc,
                     window_end=end_utc,
@@ -1422,7 +1480,7 @@ class GoogleHealthSync:
                 return None, last_error, consumed
             if response.status in {401, 403}:
                 return (
-                    None,
+                    response,
                     GoogleSafeError("authentication", "authentication_failed", response.status),
                     consumed,
                 )
@@ -1432,10 +1490,10 @@ class GoogleHealthSync:
                     delay_index = min(attempt_index, len(RETRY_BACKOFF_SECONDS) - 1)
                     self.sleeper(RETRY_BACKOFF_SECONDS[delay_index])
                     continue
-                return None, last_error, consumed
+                return response, last_error, consumed
             if response.status >= 400:
                 return (
-                    None,
+                    response,
                     GoogleSafeError("provider", "provider_error", response.status),
                     consumed,
                 )
@@ -1524,7 +1582,7 @@ class GoogleHealthSync:
         points, _token, kind = parse_page_envelope(payload, query.query_mode)
         continue_empty = kind == "continue" and not points
         result = normalize_google_payload(
-            payload, stream=surface.stream, query=query, source_identity=identity
+            payload, stream=surface.stream, query=query, source_identity=None
         )
         if result.status is GooglePayloadStatus.INVALID and not continue_empty:
             self._persist_terminal(
@@ -1541,28 +1599,16 @@ class GoogleHealthSync:
                 records=(),
             )
             return None
-        records = result.records if upsert_records and not continue_empty else ()
-        parse_status = (
-            GooglePayloadStatus.EMPTY if continue_empty else result.status
-        )
-        with factory() as session:
-            repo = google_persistence_for(session, payload_store=store)
-            if upsert_records and records:
-                outcome = repo.persist_result(
-                    result,
-                    identity=identity,
-                    payload=payload,
-                    source_window_start_utc=window_start,
-                    source_window_end_utc=window_end,
-                    sync_run_id=sync_run_id,
-                )
-            else:
+        parse_status = GooglePayloadStatus.EMPTY if continue_empty else result.status
+        if not upsert_records or continue_empty or not result.records:
+            with factory() as session:
+                repo = google_persistence_for(session, payload_store=store)
                 outcome = repo.persist_observation(
                     identity=identity,
                     query=query,
                     stream=surface.stream,
                     payload=payload,
-                    records=records,
+                    records=(),
                     parse_status=parse_status,
                     source_window_start_utc=window_start,
                     source_window_end_utc=window_end,
@@ -1570,8 +1616,43 @@ class GoogleHealthSync:
                     diagnostics=tuple(item.as_dict() for item in result.diagnostics),
                     unknown_fields=result.unknown_fields,
                 )
+                session.commit()
+                return outcome.inserted_count, outcome.updated_count
+
+        points_by_name: dict[str, Mapping[str, Any]] = {}
+        for point in points:
+            if not isinstance(point, Mapping):
+                continue
+            raw_name = point.get("name") or point.get("dataPointName")
+            if isinstance(raw_name, str) and raw_name.strip():
+                points_by_name[raw_name.strip()] = point
+        grouped: dict[str, tuple[GoogleSourceIdentity, list[Any]]] = {}
+        for record in result.records:
+            point = points_by_name.get(record.external_record_id or "")
+            record_identity = source_identity_from_point(point, query)
+            bucket = grouped.setdefault(record_identity.source_instance_id, (record_identity, []))
+            bucket[1].append(record)
+
+        inserted = 0
+        updated = 0
+        with factory() as session:
+            repo = google_persistence_for(session, payload_store=store)
+            for record_identity, records in grouped.values():
+                grouped_result = replace(
+                    result, records=tuple(records), source_identity=record_identity
+                )
+                outcome = repo.persist_result(
+                    grouped_result,
+                    identity=record_identity,
+                    payload=payload,
+                    source_window_start_utc=window_start,
+                    source_window_end_utc=window_end,
+                    sync_run_id=sync_run_id,
+                )
+                inserted += outcome.inserted_count
+                updated += outcome.updated_count
             session.commit()
-            return outcome.inserted_count, outcome.updated_count
+        return inserted, updated
 
     def _persist_terminal(
         self,
@@ -1581,7 +1662,7 @@ class GoogleHealthSync:
         identity: GoogleSourceIdentity,
         query: GoogleQueryContext,
         surface: GoogleSyncSurface,
-        payload: Mapping[str, Any],
+        payload: RawGooglePayload,
         parse_invalid: bool,
         window_start: datetime,
         window_end: datetime,
@@ -1590,6 +1671,11 @@ class GoogleHealthSync:
     ) -> None:
         from healthcheck.db.models import GooglePayloadStatus
 
+        media_type = "application/json"
+        payload_format = "json"
+        if isinstance(payload, (bytes, bytearray)):
+            media_type = "application/octet-stream"
+            payload_format = "binary"
         with factory() as session:
             repo = google_persistence_for(session, payload_store=store)
             repo.persist_observation(
@@ -1601,11 +1687,25 @@ class GoogleHealthSync:
                 parse_status=(
                     GooglePayloadStatus.INVALID if parse_invalid else GooglePayloadStatus.PARTIAL
                 ),
+                media_type=media_type,
+                payload_format=payload_format,
                 source_window_start_utc=window_start,
                 source_window_end_utc=window_end,
                 sync_run_id=sync_run_id,
             )
             session.commit()
+
+    def _incomplete_cursor(
+        self, page_token: str | None, window_start: date, window_end_exclusive: date
+    ) -> str | None:
+        if self.run_kind is GoogleRunKind.REFRESH:
+            return None
+        return self._cursor_payload(page_token, window_start, window_end_exclusive)
+
+    def _resume_cursor_flag(self, page_token: str | None) -> bool:
+        if self.run_kind is GoogleRunKind.REFRESH:
+            return False
+        return bool(page_token)
 
     def _stream_watermark_window(
         self,
@@ -1897,6 +1997,8 @@ __all__ = [
     "GoogleSyncSurface",
     "checkpoint_stream_code",
     "inclusive_to_exclusive_end",
+    "query_level_source_identity",
+    "source_identity_from_point",
     "parse_data_source_family",
     "parse_google_streams",
     "parse_page_envelope",
