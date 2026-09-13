@@ -1615,13 +1615,9 @@ def _sleep_revision_can_replace(
     incoming_state, incoming_time = _sleep_revision_for_record(incoming)
     if existing_state is GoogleMetricState.VALUE and existing_time is not None:
         if incoming_state is not GoogleMetricState.VALUE or incoming_time is None:
-            # An explicit NULL is a field-state correction; MISSING/INVALID
-            # remain non-destructive and do not need to replace the row.
-            return incoming.sleep_interval is not None and incoming.sleep_interval.state in {
-                GoogleMetricState.NULL,
-                GoogleMetricState.MISSING,
-                GoogleMetricState.INVALID,
-            }
+            # An unusable incoming revision cannot replace an accepted
+            # projection, including explicit interval field-state evidence.
+            return False
         if incoming_time > existing_time:
             return True
         if incoming_time < existing_time:
