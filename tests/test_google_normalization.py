@@ -1485,6 +1485,111 @@ def test_replay_partitions_mixed_source_page_after_sqlite_round_trip(normalizati
         fresh_engine.dispose()
 
 
+@pytest.mark.parametrize("query_mode", (GoogleQueryMode.LIST, GoogleQueryMode.RECONCILE))
+def test_replay_keeps_persisted_complete_empty_page_idempotent(normalization_database, query_mode):
+    _paths, session, store = normalization_database
+    query = GoogleQueryContext(query_mode)
+    outcome = GooglePersistenceRepository(session, payload_store=store).persist_observation(
+        identity=_identity(),
+        query=query,
+        stream=GoogleStream.HEART_RATE,
+        payload={},
+        parse_status=GooglePayloadStatus.EMPTY,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+
+    first = replay_google_observations(
+        session,
+        payload_store=store,
+        observation_ids=[outcome.observation.id],
+        normalization_contract_version=outcome.observation.normalization_contract_version,
+    )[0]
+    second = replay_google_observations(
+        session,
+        payload_store=store,
+        observation_ids=[outcome.observation.id],
+        normalization_contract_version=outcome.observation.normalization_contract_version,
+    )[0]
+    session.commit()
+
+    assert first.replayed is True
+    assert second.replayed is True
+    assert first.inserted_count == first.updated_count == 0
+    assert second.inserted_count == second.updated_count == 0
+    assert session.scalar(select(func.count(GoogleSourceRecord.id))) == 0
+    assert session.scalar(select(func.count(GooglePayloadObservation.id))) == 1
+    assert session.scalar(select(func.count(GoogleNormalizationAttempt.id))) == 1
+
+
+def test_replay_keeps_persisted_continuation_page_idempotent(normalization_database):
+    _paths, session, store = normalization_database
+    query = GoogleQueryContext(GoogleQueryMode.LIST)
+    payload = {"nextPageToken": "synthetic-page-token"}
+    invalid = normalize_google_payload(
+        payload, stream=GoogleStream.HEART_RATE, query=query
+    )
+    outcome = GooglePersistenceRepository(session, payload_store=store).persist_observation(
+        identity=_identity(),
+        query=query,
+        stream=GoogleStream.HEART_RATE,
+        payload=payload,
+        parse_status=GooglePayloadStatus.EMPTY,
+        diagnostics=tuple(item.as_dict() for item in invalid.diagnostics),
+        unknown_fields=invalid.unknown_fields,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+
+    first = replay_google_observations(
+        session,
+        payload_store=store,
+        observation_ids=[outcome.observation.id],
+        normalization_contract_version=outcome.observation.normalization_contract_version,
+    )[0]
+    second = replay_google_observations(
+        session,
+        payload_store=store,
+        observation_ids=[outcome.observation.id],
+        normalization_contract_version=outcome.observation.normalization_contract_version,
+    )[0]
+    session.commit()
+
+    assert first.replayed is True
+    assert second.replayed is True
+    assert first.inserted_count == first.updated_count == 0
+    assert second.inserted_count == second.updated_count == 0
+    assert session.scalar(select(func.count(GoogleSourceRecord.id))) == 0
+    assert session.scalar(select(func.count(GooglePayloadObservation.id))) == 1
+    assert session.scalar(select(func.count(GoogleNormalizationAttempt.id))) == 1
+
+
+def test_replay_uses_observation_membership_after_current_projection_changes(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    payload = _payload(GoogleStream.HEART_RATE)
+    _result, outcome = _persist_result(session, store, payload)
+    session.commit()
+    current = outcome.records[0]
+    current.external_record_id = "synthetic-current-correction"
+    session.commit()
+
+    replayed = replay_google_observations(
+        session,
+        payload_store=store,
+        observation_ids=[outcome.observation.id],
+        normalization_contract_version="r04-google-normalization-contract-v2",
+    )[0]
+    session.commit()
+
+    assert replayed.updated_count == 1
+    assert session.scalar(select(func.count(GoogleSourceRecord.id))) == 1
+    assert session.scalar(select(func.count(GoogleNormalizationAttempt.id))) == 2
+    restored = session.scalar(select(GoogleSourceRecord.external_record_id))
+    assert restored == "synthetic-record-01"
+
+
 def test_replay_unresolvable_source_membership_fails_closed(normalization_database):
     _paths, session, store = normalization_database
     source_a = "users/me/dataSources/raw:com.google.heart_rate.bpm:fitbit:synthetic-a"
@@ -1495,7 +1600,6 @@ def test_replay_unresolvable_source_membership_fails_closed(normalization_databa
     )
     payload["dataPoints"].append(
         {
-            "name": "synthetic-record-unknown",
             "heartRate": _component(GoogleStream.HEART_RATE),
         }
     )

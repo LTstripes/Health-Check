@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
@@ -12,11 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
+    GoogleNormalizationAttempt,
     GooglePayloadObservation,
     GoogleRawPayload,
     GoogleSource,
     GoogleSourceKind,
-    GoogleSourceRecord,
     RawArtifact,
 )
 from healthcheck.db.repositories import restore_stored_utc
@@ -26,9 +25,13 @@ from healthcheck.google.contracts import (
 )
 from healthcheck.google.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
+    GoogleNormalizationDiagnostic,
     normalize_google_payload,
 )
-from healthcheck.google.persistence import GooglePersistenceOutcome, GooglePersistenceRepository
+from healthcheck.google.persistence import (
+    GooglePersistenceOutcome,
+    GooglePersistenceRepository,
+)
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.google.sync import query_level_source_identity, source_identity_from_point
 
@@ -100,10 +103,12 @@ class GoogleNormalizationReplayer:
             content,
             query=query,
             identity=identity,
-            persisted_records=_persisted_source_records(self.session, observation, query),
+            observation_record_names=_observation_record_names(self.session, observation),
         )
         result = normalize_google_payload(
-            content,
+            partition.normalization_payload
+            if partition.normalization_payload is not None
+            else content,
             stream=observation.stream_code,
             query=query,
             source_identity=identity,
@@ -111,6 +116,12 @@ class GoogleNormalizationReplayer:
             or raw.source_contract_version,
             normalization_contract_version=normalization_contract_version,
         )
+        if partition.normalization_payload is not None:
+            result = replace(
+                result,
+                diagnostics=_observation_diagnostics(observation),
+                unknown_fields=_observation_unknown_fields(observation),
+            )
         records = (
             result.records
             if partition.all_points_selected
@@ -160,33 +171,84 @@ def replay_google_observations(
 replay_google_normalization = replay_google_observations
 
 
-def _persisted_source_records(
+def _observation_record_names(
     session: Session,
     observation: GooglePayloadObservation,
-    query: GoogleQueryContext,
-) -> Mapping[str, tuple[GoogleSourceRecord, ...]]:
-    """Index current persisted records that can disambiguate replay points."""
+) -> frozenset[str] | None:
+    """Read immutable record membership evidence tied to one observation."""
 
-    conditions = [
-        GoogleSourceRecord.google_source_id == observation.google_source_id,
-        GoogleSourceRecord.stream_code == observation.stream_code,
-        GoogleSourceRecord.query_mode == query.query_mode.value,
-    ]
-    if query.data_source_family is None:
-        conditions.append(GoogleSourceRecord.data_source_family.is_(None))
-    else:
-        conditions.append(GoogleSourceRecord.data_source_family == query.data_source_family)
-    by_external_id: dict[str, list[GoogleSourceRecord]] = defaultdict(list)
-    for record in session.scalars(select(GoogleSourceRecord).where(*conditions)):
-        if record.external_record_id:
-            by_external_id[record.external_record_id].append(record)
-    return {key: tuple(value) for key, value in by_external_id.items()}
+    attempts = session.scalars(
+        select(GoogleNormalizationAttempt)
+        .where(GoogleNormalizationAttempt.observation_id == observation.id)
+        .order_by(
+            GoogleNormalizationAttempt.normalization_contract_version,
+            GoogleNormalizationAttempt.attempted_at,
+            GoogleNormalizationAttempt.id,
+        )
+    )
+    evidence_sets: list[frozenset[str]] = []
+    for attempt in attempts:
+        if attempt.parse_status == "invalid":
+            continue
+        try:
+            projection = json.loads(attempt.projection_json)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(projection, Mapping):
+            return None
+        records = projection.get("records")
+        if not isinstance(records, list) or len(records) != attempt.record_count:
+            return None
+        names: set[str] = set()
+        for record in records:
+            if not isinstance(record, Mapping):
+                return None
+            name = record.get("external_record_id")
+            if not isinstance(name, str) or not name.strip():
+                return None
+            names.add(name.strip())
+        evidence_sets.append(frozenset(names))
+    if not evidence_sets or any(item != evidence_sets[0] for item in evidence_sets[1:]):
+        return None
+    return evidence_sets[0]
+
+
+def _observation_diagnostics(
+    observation: GooglePayloadObservation,
+) -> tuple[GoogleNormalizationDiagnostic, ...]:
+    if observation.diagnostics_json is None:
+        return ()
+    try:
+        values = json.loads(observation.diagnostics_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("Google replay cannot restore observation diagnostics") from exc
+    if not isinstance(values, list):
+        raise ValueError("Google replay cannot restore observation diagnostics")
+    try:
+        return tuple(GoogleNormalizationDiagnostic(**value) for value in values)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Google replay cannot restore observation diagnostics") from exc
+
+
+def _observation_unknown_fields(
+    observation: GooglePayloadObservation,
+) -> tuple[Mapping[str, object], ...]:
+    if observation.unknown_fields_json is None:
+        return ()
+    try:
+        values = json.loads(observation.unknown_fields_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("Google replay cannot restore observation unknown fields") from exc
+    if not isinstance(values, list) or any(not isinstance(value, Mapping) for value in values):
+        raise ValueError("Google replay cannot restore observation unknown fields")
+    return tuple(values)
 
 
 @dataclass(frozen=True, slots=True)
 class _ReplayPartition:
     selected_record_names: frozenset[str]
     all_points_selected: bool = False
+    normalization_payload: Mapping[str, object] | None = None
 
 
 def _partition_replay_payload(
@@ -194,7 +256,7 @@ def _partition_replay_payload(
     *,
     query: GoogleQueryContext,
     identity: GoogleSourceIdentity,
-    persisted_records: Mapping[str, tuple[GoogleSourceRecord, ...]],
+    observation_record_names: frozenset[str] | None,
 ) -> _ReplayPartition:
     """Reconstruct the selected source's record membership from page evidence."""
 
@@ -208,8 +270,23 @@ def _partition_replay_payload(
     envelope = (
         "rollupDataPoints" if query.query_mode.value in {"rollUp", "dailyRollUp"} else "dataPoints"
     )
-    points = decoded.get(envelope)
-    if not isinstance(points, list):
+    missing = object()
+    raw_points = decoded.get(envelope, missing)
+    token = decoded.get("nextPageToken")
+    has_token = isinstance(token, str) and bool(token.strip())
+    if raw_points is missing:
+        if (not decoded and query.query_mode.value in {"list", "reconcile"}) or has_token:
+            points: list[object] = []
+            normalization_payload = {**decoded, envelope: []}
+        else:
+            raise ValueError("Google replay cannot establish source membership")
+    elif raw_points is None and has_token:
+        points = []
+        normalization_payload = {**decoded, envelope: []}
+    elif isinstance(raw_points, list):
+        points = raw_points
+        normalization_payload = None
+    else:
         raise ValueError("Google replay cannot establish source membership")
 
     fallback = query_level_source_identity(query)
@@ -240,22 +317,23 @@ def _partition_replay_payload(
                     selected_point_count += 1
             continue
 
-        matches = persisted_records.get(point_name, ()) if point_name is not None else ()
+        if _source_partition_key(point_identity) == _source_partition_key(identity):
+            if point_name is None:
+                unresolved = True
+            else:
+                selected_names.add(point_name)
+                selected_point_count += 1
+            continue
+
+        if observation_record_names is not None:
+            if point_name is None:
+                unresolved = True
+            elif point_name in observation_record_names:
+                selected_names.add(point_name)
+                selected_point_count += 1
+            continue
+
         if _source_partition_key(point_identity) != _source_partition_key(fallback):
-            if _source_partition_key(point_identity) == _source_partition_key(identity):
-                if point_name is None:
-                    unresolved = True
-                else:
-                    selected_names.add(point_name)
-                    selected_point_count += 1
-            elif len(matches) == 1:
-                # Older observations can have a fingerprint-only dataSource
-                # while their stable source identity was supplied externally.
-                if point_name is None:
-                    unresolved = True
-                else:
-                    selected_names.add(point_name)
-                    selected_point_count += 1
             continue
 
         if identity.source_kind is GoogleSourceKind.FAMILY_AGGREGATE:
@@ -267,14 +345,7 @@ def _partition_replay_payload(
                 unresolved = True
             continue
 
-        if len(matches) == 1:
-            if point_name is None:
-                unresolved = True
-            else:
-                selected_names.add(point_name)
-                selected_point_count += 1
-        else:
-            unresolved = True
+        unresolved = True
 
     if identity.source_kind is GoogleSourceKind.FAMILY_AGGREGATE and explicit_source_seen:
         unresolved = True
@@ -287,6 +358,7 @@ def _partition_replay_payload(
             identity.source_kind is GoogleSourceKind.FAMILY_AGGREGATE
             and selected_point_count == len(points)
         ),
+        normalization_payload=normalization_payload,
     )
 
 
