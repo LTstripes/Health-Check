@@ -70,6 +70,19 @@ def test_acknowledged_forward_extension_passes(tmp_path: Path) -> None:
     validate_migration_ancestry(location, accepted_chain)
 
 
+def test_acknowledged_revision_not_protected_head_fails(tmp_path: Path) -> None:
+    location = _synthetic_migrations(tmp_path)
+    revision, _accepted_chain = _acknowledged_synthetic_0011(location)
+    accepted_chain = (
+        *ACCEPTED_MIGRATION_CHAIN[:-1],
+        (revision, ACCEPTED_MIGRATION_HEAD),
+        ACCEPTED_MIGRATION_CHAIN[-1],
+    )
+
+    with pytest.raises(MigrationAncestryError, match="expected accepted Alembic head"):
+        validate_migration_ancestry(location, accepted_chain)
+
+
 def test_multiple_heads_fail_without_mutating_repository_migrations(tmp_path: Path) -> None:
     location = _synthetic_migrations(tmp_path)
     _write_revision(

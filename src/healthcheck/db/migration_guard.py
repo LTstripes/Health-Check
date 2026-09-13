@@ -117,6 +117,10 @@ def validate_migration_ancestry(
 
     if len(heads) != 1:
         errors.append(f"expected exactly one Alembic head; found {heads!r}")
+    elif heads[0] != accepted_head:
+        errors.append(
+            f"expected accepted Alembic head {accepted_head!r}; found {heads[0]!r}"
+        )
 
     errors.extend(_unacknowledged_revision_errors(actual, accepted_ids, accepted_head))
 
