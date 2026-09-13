@@ -570,6 +570,7 @@ class GoogleSourceRecordRepository:
             query_mode=query.query_mode,
             data_source_family=query.data_source_family,
             idempotency_key=record.idempotency_key,
+            external_record_id=record.external_record_id,
         )
         values = _record_values(
             google_source_id=google_source_id,
@@ -586,6 +587,14 @@ class GoogleSourceRecordRepository:
         existing = self.get_by_identity_key(
             google_source_id=google_source_id, record_identity_key=identity_key
         )
+        if record.stream is GoogleStream.SLEEP and record.external_record_id:
+            existing = self._find_or_adopt_sleep_identity(
+                google_source_id=google_source_id,
+                external_record_id=record.external_record_id,
+                logical_identity_key=identity_key,
+                exact=existing,
+                seen_at=seen_at,
+            )
         if existing is None:
             row = GoogleSourceRecord(**values)
             self.session.add(row)
@@ -595,13 +604,21 @@ class GoogleSourceRecordRepository:
             self._upsert_metrics(row.id, record.metrics)
             return row, True, False
 
+        if record.stream is GoogleStream.SLEEP and not _sleep_revision_can_replace(
+            self.session, existing, record
+        ):
+            return existing, False, False
+
         projected = _datetime_key(existing.projection_observed_at) or _datetime_key(
             existing.last_seen_at
         )
         current_version = _normalization_version_rank(existing.normalization_contract_version)
         incoming_version = _normalization_version_rank(normalization_contract_version)
         if current_version > incoming_version or (
-            current_version == incoming_version and projected is not None and seen_at < projected
+            record.stream is not GoogleStream.SLEEP
+            and current_version == incoming_version
+            and projected is not None
+            and seen_at < projected
         ):
             return existing, False, False
         for field_name, value in values.items():
@@ -614,6 +631,59 @@ class GoogleSourceRecordRepository:
         self._upsert_source_evidence(existing.id, record.data_source)
         self._upsert_metrics(existing.id, record.metrics)
         return existing, False, True
+
+    def _find_or_adopt_sleep_identity(
+        self,
+        *,
+        google_source_id: str,
+        external_record_id: str,
+        logical_identity_key: str,
+        exact: GoogleSourceRecord | None,
+        seen_at: datetime,
+    ) -> GoogleSourceRecord | None:
+        """Return one current logical sleep row and retire legacy duplicates.
+
+        Before this repair, the same stable provider id could have one row per
+        interval revision (and per query context).  Reusing the strongest
+        existing row preserves its id and typed evidence; losing rows remain
+        auditable and are only marked retired.
+        """
+
+        candidates = list(
+            self.session.scalars(
+                select(GoogleSourceRecord).where(
+                    GoogleSourceRecord.google_source_id == google_source_id,
+                    GoogleSourceRecord.stream_code == GoogleStream.SLEEP.value,
+                    GoogleSourceRecord.external_record_id == external_record_id,
+                    GoogleSourceRecord.projection_status == PROJECTION_CURRENT,
+                )
+            )
+        )
+        if (
+            exact is not None
+            and exact.projection_status == PROJECTION_CURRENT
+            and all(candidate.id != exact.id for candidate in candidates)
+        ):
+            candidates.append(exact)
+        winner = _select_sleep_legacy_winner(self.session, candidates)
+        if winner is None and exact is not None:
+            winner = exact
+        if winner is None:
+            return None
+        if winner.projection_status != PROJECTION_CURRENT:
+            winner.projection_status = PROJECTION_CURRENT
+            winner.retired_at = None
+            winner.retire_reason = None
+        if winner.record_identity_key != logical_identity_key:
+            winner.record_identity_key = logical_identity_key
+        for candidate in candidates:
+            if candidate.id == winner.id:
+                continue
+            candidate.projection_status = "retired"
+            candidate.retired_at = seen_at
+            candidate.retire_reason = "superseded_logical_session"
+        self.session.flush()
+        return winner
 
     def _upsert_typed_child(self, row: GoogleSourceRecord, record: GoogleRecordDTO) -> None:
         if record.stream is GoogleStream.SLEEP:
@@ -895,10 +965,19 @@ class GooglePersistenceRepository:
                     query_mode=query.query_mode,
                     data_source_family=query.data_source_family,
                     idempotency_key=record.idempotency_key,
+                    external_record_id=record.external_record_id,
                 )
                 stored_record = self.records.get_by_identity_key(
                     google_source_id=source_row.id, record_identity_key=identity_key
                 )
+                if record.stream is GoogleStream.SLEEP and record.external_record_id:
+                    stored_record = self.records._find_or_adopt_sleep_identity(
+                        google_source_id=source_row.id,
+                        external_record_id=record.external_record_id,
+                        logical_identity_key=identity_key,
+                        exact=stored_record,
+                        seen_at=start_or_now(received_at),
+                    )
                 if stored_record is not None:
                     current_records.append(stored_record)
             return GooglePersistenceOutcome(
@@ -982,17 +1061,14 @@ class GooglePersistenceRepository:
             seen_keys: dict[str, str] = {}
             for record in normalized_records:
                 signature = canonical_json(
-                    {
-                        "idempotency_key": record.idempotency_key,
-                        "external_record_id": record.external_record_id,
-                        "status": record.status.value,
-                    }
+                    {"record": record.as_dict()}
                 )
                 identity_key = build_google_record_identity_key(
                     stream_code=record.stream,
                     query_mode=query.query_mode,
                     data_source_family=query.data_source_family,
                     idempotency_key=record.idempotency_key,
+                    external_record_id=record.external_record_id,
                 )
                 previous = seen_keys.get(identity_key)
                 if previous is not None:
@@ -1444,18 +1520,160 @@ def build_google_record_identity_key(
     query_mode: str | GoogleQueryMode,
     data_source_family: str | None,
     idempotency_key: str,
+    external_record_id: str | None = None,
 ) -> str:
-    """Keep list evidence distinct from reconcile/rollup of the same fact."""
+    """Build a physical source-record identity, separate from revision content.
+
+    Sleep sessions with a provider id deliberately omit query/family context:
+    those fields describe acquisition, not a second physical session.  Other
+    records retain the pre-existing context-sensitive identity contract.
+    """
+
+    stream = GoogleStream(stream_code)
+    normalized_external_id = (
+        external_record_id.strip() if isinstance(external_record_id, str) else None
+    )
+    if stream is GoogleStream.SLEEP and normalized_external_id:
+        payload = {
+            "version": "google-sleep-logical-session-v1",
+            "stream_code": stream.value,
+            "external_record_id": normalized_external_id,
+        }
+        digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+        return f"google-sleep-logical-session-v1:{digest}"
 
     payload = {
         "version": "google-record-v1",
-        "stream_code": GoogleStream(stream_code).value,
+        "stream_code": stream.value,
         "query_mode": GoogleQueryMode(query_mode).value,
         "data_source_family": data_source_family,
         "idempotency_key": _required_text(idempotency_key, "Google record idempotency key"),
     }
     digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
     return f"google-record-v1:{digest}"
+
+
+def _sleep_revision_from_metric(
+    state: str | GoogleMetricState | None, value_text: object
+) -> tuple[GoogleMetricState, datetime | None]:
+    """Parse provider revision evidence without treating malformed text as time."""
+
+    try:
+        normalized_state = (
+            GoogleMetricState(state) if state is not None else GoogleMetricState.MISSING
+        )
+    except ValueError:
+        return GoogleMetricState.INVALID, None
+    if normalized_state is not GoogleMetricState.VALUE:
+        return normalized_state, None
+    if not isinstance(value_text, str) or not value_text.strip():
+        return GoogleMetricState.INVALID, None
+    text = value_text.strip()
+    try:
+        parsed = datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+    except ValueError:
+        return GoogleMetricState.INVALID, None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return GoogleMetricState.INVALID, None
+    return GoogleMetricState.VALUE, parsed.astimezone(UTC)
+
+
+def _sleep_revision_for_record(
+    record: GoogleRecordDTO,
+) -> tuple[GoogleMetricState, datetime | None]:
+    for metric in record.metrics:
+        if metric.metric_code == "sleep_update_time":
+            return _sleep_revision_from_metric(metric.state, metric.value_text)
+    return GoogleMetricState.MISSING, None
+
+
+def _sleep_revision_for_row(
+    session: Session, row: GoogleSourceRecord
+) -> tuple[GoogleMetricState, datetime | None]:
+    metric = session.scalar(
+        select(GoogleRecordMetric).where(
+            GoogleRecordMetric.record_id == row.id,
+            GoogleRecordMetric.metric_code == "sleep_update_time",
+        )
+    )
+    if metric is None:
+        return GoogleMetricState.MISSING, None
+    return _sleep_revision_from_metric(metric.state, metric.value_text)
+
+
+def _sleep_revision_can_replace(
+    session: Session, existing: GoogleSourceRecord, incoming: GoogleRecordDTO
+) -> bool:
+    """Accept only a strictly stronger provider revision.
+
+    A valid provider update time outranks receive order.  Missing, invalid,
+    or equal revision metadata is fail-closed: exact retries are harmless and
+    changed content cannot silently replace the accepted projection.
+    """
+
+    existing_state, existing_time = _sleep_revision_for_row(session, existing)
+    incoming_state, incoming_time = _sleep_revision_for_record(incoming)
+    if existing_state is GoogleMetricState.VALUE and existing_time is not None:
+        if incoming_state is not GoogleMetricState.VALUE or incoming_time is None:
+            # An unusable incoming revision cannot replace an accepted
+            # projection, including explicit interval field-state evidence.
+            return False
+        if incoming_time > existing_time:
+            return True
+        if incoming_time < existing_time:
+            return False
+        # Equal provider revisions may carry an explicit partial field update,
+        # but a changed primary interval is ambiguous and must fail closed.
+        return _sleep_primary_interval_unchanged(session, existing.id, incoming)
+    return incoming_state is GoogleMetricState.VALUE and incoming_time is not None
+
+
+def _sleep_primary_interval_unchanged(
+    session: Session, record_id: str, incoming: GoogleRecordDTO
+) -> bool:
+    interval = incoming.sleep_interval
+    if interval is None or interval.state is not GoogleMetricState.VALUE:
+        return True
+    current = session.scalar(
+        select(GoogleSleepInterval).where(
+            GoogleSleepInterval.sleep_record_id == record_id,
+            GoogleSleepInterval.interval_kind == "sleep_session",
+            GoogleSleepInterval.ordinal == 0,
+        )
+    )
+    if current is None:
+        return False
+    return (
+        current.start_temporal_json == canonical_json(interval.start.as_dict())
+        and current.end_temporal_json == canonical_json(interval.end.as_dict())
+    )
+
+
+def _select_sleep_legacy_winner(
+    session: Session, candidates: Sequence[GoogleSourceRecord]
+) -> GoogleSourceRecord | None:
+    if not candidates:
+        return None
+    with_revision = [
+        (row, revision_time)
+        for row in candidates
+        for state, revision_time in [_sleep_revision_for_row(session, row)]
+        if state is GoogleMetricState.VALUE and revision_time is not None
+    ]
+    if with_revision:
+        latest = max(revision_time for _, revision_time in with_revision)
+        candidates = [row for row, revision_time in with_revision if revision_time == latest]
+    # Equal or unavailable provider revisions have no semantic winner.  Use
+    # the existing projection observation only as a deterministic migration
+    # fallback; it never outranks valid provider revision evidence above.
+    return max(
+        candidates,
+        key=lambda row: (
+            _datetime_key(row.projection_observed_at) or _datetime_key(row.last_seen_at),
+            row.created_at,
+            row.id,
+        ),
+    )
 
 
 def _record_values(

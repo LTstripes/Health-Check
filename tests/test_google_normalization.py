@@ -26,6 +26,7 @@ from healthcheck.db.models import (
     GoogleRecordSourceEvidence,
     GoogleSleepFieldState,
     GoogleSleepInterval,
+    GoogleSleepRecord,
     GoogleSourceKind,
     GoogleSourceRecord,
     ScalarMeasurement,
@@ -35,6 +36,7 @@ from healthcheck.google.contracts import (
     FAMILY_GOOGLE_SOURCES,
     FAMILY_GOOGLE_WEARABLES,
     GoogleMetricState,
+    GooglePayloadStatus,
     GoogleQueryContext,
     GoogleQueryMode,
     GoogleSourceIdentity,
@@ -273,6 +275,309 @@ def test_sleep_session_stages_and_wake_date_are_typed():
     assert record.wake_date == date(2099, 1, 2)
     assert record.external_record_id == "synthetic-record-01"
     assert not any(metric.metric_code == "sleep_stages" for metric in record.metrics)
+
+
+def test_sleep_logical_identity_ignores_mutable_interval_revision_content():
+    original = _payload(GoogleStream.SLEEP)
+    corrected = json.loads(json.dumps(original))
+    interval = corrected["dataPoints"][0]["sleep"]["interval"]
+    interval["endTime"] = "2099-01-02T05:30:00Z"
+    interval["civilEndTime"] = _civil(hour=8, minute=30)
+    corrected["dataPoints"][0]["sleep"]["updateTime"] = "2099-01-02T08:05:00Z"
+
+    first = normalize_google_payload(original, stream=GoogleStream.SLEEP)
+    second = normalize_google_payload(corrected, stream=GoogleStream.SLEEP)
+
+    assert first.records[0].external_record_id == second.records[0].external_record_id
+    assert first.records[0].idempotency_key == second.records[0].idempotency_key
+    assert first.records[0].sleep_interval.end.local_date == date(2099, 1, 2)
+    assert second.records[0].sleep_interval.end.local_wall_time.endswith("08:30:00")
+
+
+def test_unidentified_equal_sleep_records_remain_explicit():
+    component = _sleep_component()
+    del component["metadata"]["externalId"]
+    payload = {
+        "dataPoints": [
+            {"sleep": json.loads(json.dumps(component))},
+            {"sleep": json.loads(json.dumps(component))},
+        ]
+    }
+
+    result = normalize_google_payload(payload, stream=GoogleStream.SLEEP)
+
+    assert result.status.value == "ok"
+    assert len(result.records) == 2
+    assert all(record.external_record_id is None for record in result.records)
+    assert len({record.idempotency_key for record in result.records}) == 2
+
+
+def test_sleep_correction_keeps_one_current_session_and_preserves_observations(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    original = _payload(GoogleStream.SLEEP)
+    corrected = json.loads(json.dumps(original))
+    corrected_point = corrected["dataPoints"][0]
+    corrected_point["dataPointName"] = corrected_point.pop("name")
+    corrected_point.pop("dataSource", None)
+    interval = corrected_point["sleep"]["interval"]
+    interval["endTime"] = "2099-01-03T00:30:00Z"
+    interval["civilEndTime"] = _civil(day=3, hour=3, minute=30)
+    corrected_point["sleep"]["updateTime"] = "2099-01-03T08:05:00Z"
+
+    first_result, first = _persist_result(
+        session,
+        store,
+        original,
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    session.commit()
+    first.records[0].record_identity_key = "google-record-v1:legacy-synthetic-sleep"
+    session.commit()
+    second_result, second = _persist_result(
+        session,
+        store,
+        corrected,
+        stream=GoogleStream.SLEEP,
+        query=GoogleQueryContext(GoogleQueryMode.RECONCILE, FAMILY_GOOGLE_WEARABLES),
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+
+    assert first_result.records[0].idempotency_key == second_result.records[0].idempotency_key
+    assert second.records[0].id == first.records[0].id
+    assert second.updated_count == 1
+    current_rows = list(
+        session.scalars(
+            select(GoogleSourceRecord).where(
+                GoogleSourceRecord.google_source_id == first.source.id,
+                GoogleSourceRecord.stream_code == GoogleStream.SLEEP.value,
+                GoogleSourceRecord.external_record_id == "synthetic-record-01",
+                GoogleSourceRecord.projection_status == "current",
+            )
+        )
+    )
+    assert len(current_rows) == 1
+    typed = session.get(GoogleSleepRecord, first.records[0].id)
+    assert typed is not None
+    assert typed.wake_date == date(2099, 1, 3)
+    assert session.scalar(select(func.count(GoogleRawPayload.id))) == 2
+    assert session.scalar(select(func.count(GooglePayloadObservation.id))) == 2
+
+
+def test_older_sleep_revision_arriving_later_cannot_displace_current(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    latest = _payload(GoogleStream.SLEEP)
+    latest["dataPoints"][0]["sleep"]["updateTime"] = "2099-01-02T08:10:00Z"
+    older = json.loads(json.dumps(latest))
+    older["dataPoints"][0]["sleep"]["interval"]["endTime"] = "2099-01-02T05:15:00Z"
+    older["dataPoints"][0]["sleep"]["interval"]["civilEndTime"] = _civil(hour=8, minute=15)
+    older["dataPoints"][0]["sleep"]["updateTime"] = "2099-01-02T08:05:00Z"
+
+    _latest_result, latest_outcome = _persist_result(
+        session,
+        store,
+        latest,
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+    _older_result, older_outcome = _persist_result(
+        session,
+        store,
+        older,
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 5, tzinfo=UTC),
+    )
+    session.commit()
+
+    assert older_outcome.records[0].id == latest_outcome.records[0].id
+    assert older_outcome.updated_count == 0
+    interval = session.scalar(
+        select(GoogleSleepInterval).where(
+            GoogleSleepInterval.sleep_record_id == latest_outcome.records[0].id,
+            GoogleSleepInterval.interval_kind == "sleep_session",
+        )
+    )
+    assert interval is not None
+    assert interval.end_at_utc == datetime(2099, 1, 2, 5, 0)
+
+
+def test_equal_or_unusable_sleep_revision_cannot_replace_changed_interval(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    original = _payload(GoogleStream.SLEEP)
+    original["dataPoints"][0]["sleep"]["updateTime"] = "2099-01-02T08:10:00Z"
+    equal = json.loads(json.dumps(original))
+    equal["dataPoints"][0]["sleep"]["interval"]["endTime"] = "2099-01-02T05:20:00Z"
+    equal["dataPoints"][0]["sleep"]["interval"]["civilEndTime"] = _civil(hour=8, minute=20)
+    unusable = json.loads(json.dumps(equal))
+    unusable["dataPoints"][0]["sleep"]["updateTime"] = "not-a-timestamp"
+    unusable["dataPoints"][0]["sleep"]["interval"]["endTime"] = "2099-01-02T05:30:00Z"
+    unusable["dataPoints"][0]["sleep"]["interval"]["civilEndTime"] = _civil(hour=8, minute=30)
+
+    _result, first = _persist_result(
+        session,
+        store,
+        original,
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+    _equal_result, equal_outcome = _persist_result(
+        session,
+        store,
+        equal,
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    session.commit()
+    _unusable_result, unusable_outcome = _persist_result(
+        session,
+        store,
+        unusable,
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 5, tzinfo=UTC),
+    )
+    session.commit()
+
+    assert equal_outcome.updated_count == 0
+    assert unusable_outcome.updated_count == 0
+    assert equal_outcome.records[0].id == first.records[0].id
+    interval = session.scalar(
+        select(GoogleSleepInterval).where(
+            GoogleSleepInterval.sleep_record_id == first.records[0].id,
+            GoogleSleepInterval.interval_kind == "sleep_session",
+        )
+    )
+    assert interval is not None
+    assert interval.end_at_utc == datetime(2099, 1, 2, 5, 0)
+
+
+@pytest.mark.parametrize("revision", ("missing", "invalid"))
+@pytest.mark.parametrize(
+    "interval_state",
+    (GoogleMetricState.NULL, GoogleMetricState.MISSING, GoogleMetricState.INVALID),
+)
+def test_unusable_sleep_revision_cannot_replace_accepted_projection_field_state(
+    normalization_database, revision, interval_state
+):
+    _paths, session, store = normalization_database
+    original = _payload(GoogleStream.SLEEP)
+    original["dataPoints"][0]["sleep"]["updateTime"] = "2099-01-02T08:10:00Z"
+    _result, first = _persist_result(
+        session,
+        store,
+        original,
+        stream=GoogleStream.SLEEP,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+
+    record_id = first.records[0].id
+    parent = session.get(GoogleSourceRecord, record_id)
+    typed = session.get(GoogleSleepRecord, record_id)
+    field_state = session.get(GoogleSleepFieldState, record_id)
+    assert parent is not None
+    assert typed is not None
+    assert field_state is not None
+    parent_before = tuple(
+        getattr(parent, column.name) for column in GoogleSourceRecord.__table__.columns
+    )
+    typed_before = tuple(
+        getattr(typed, column.name) for column in GoogleSleepRecord.__table__.columns
+    )
+    field_state_before = tuple(
+        getattr(field_state, column.name) for column in GoogleSleepFieldState.__table__.columns
+    )
+    metrics_before = tuple(
+        tuple(getattr(row, column.name) for column in GoogleRecordMetric.__table__.columns)
+        for row in session.scalars(
+            select(GoogleRecordMetric)
+            .where(GoogleRecordMetric.record_id == record_id)
+            .order_by(GoogleRecordMetric.metric_code, GoogleRecordMetric.id)
+        )
+    )
+    intervals_before = _sleep_row_snapshot(session, record_id)
+    raw_count_before = session.scalar(select(func.count(GoogleRawPayload.id)))
+    observation_count_before = session.scalar(select(func.count(GooglePayloadObservation.id)))
+    attempt_count_before = session.scalar(select(func.count(GoogleNormalizationAttempt.id)))
+
+    incoming = json.loads(json.dumps(original))
+    sleep = incoming["dataPoints"][0]["sleep"]
+    if revision == "missing":
+        del sleep["updateTime"]
+    else:
+        sleep["updateTime"] = "not-a-timestamp"
+    if interval_state is GoogleMetricState.NULL:
+        sleep["interval"] = None
+    elif interval_state is GoogleMetricState.MISSING:
+        del sleep["interval"]
+    else:
+        sleep["interval"] = []
+
+    incoming_result = normalize_google_payload(
+        incoming,
+        stream=GoogleStream.SLEEP,
+        source_identity=_identity(),
+        normalization_contract_version=NORMALIZATION_CONTRACT_VERSION,
+    )
+    assert incoming_result.records
+    # Exercise the record-level typed field states at the persistence boundary;
+    # raw/observation/attempt evidence remains auditable for this input.
+    incoming_result = replace(incoming_result, status=GooglePayloadStatus.OK)
+    outcome = GooglePersistenceRepository(session, payload_store=store).persist_result(
+        incoming_result,
+        payload=incoming,
+        received_at=datetime(2099, 1, 5, tzinfo=UTC),
+    )
+    session.commit()
+
+    assert outcome.updated_count == 0
+    assert outcome.inserted_count == 0
+    assert outcome.records[0].id == record_id
+    assert outcome.normalization_attempt is not None
+    assert session.scalar(select(func.count(GoogleRawPayload.id))) == raw_count_before + 1
+    assert (
+        session.scalar(select(func.count(GooglePayloadObservation.id)))
+        == observation_count_before + 1
+    )
+    assert (
+        session.scalar(select(func.count(GoogleNormalizationAttempt.id)))
+        == attempt_count_before + 1
+    )
+
+    parent_after = session.get(GoogleSourceRecord, record_id)
+    typed_after = session.get(GoogleSleepRecord, record_id)
+    field_state_after = session.get(GoogleSleepFieldState, record_id)
+    assert parent_after is not None
+    assert typed_after is not None
+    assert field_state_after is not None
+    assert parent_before == tuple(
+        getattr(parent_after, column.name) for column in GoogleSourceRecord.__table__.columns
+    )
+    assert typed_before == tuple(
+        getattr(typed_after, column.name) for column in GoogleSleepRecord.__table__.columns
+    )
+    assert field_state_before == tuple(
+        getattr(field_state_after, column.name)
+        for column in GoogleSleepFieldState.__table__.columns
+    )
+    metrics_after = tuple(
+        tuple(getattr(row, column.name) for column in GoogleRecordMetric.__table__.columns)
+        for row in session.scalars(
+            select(GoogleRecordMetric)
+            .where(GoogleRecordMetric.record_id == record_id)
+            .order_by(GoogleRecordMetric.metric_code, GoogleRecordMetric.id)
+        )
+    )
+    assert metrics_before == metrics_after
+    assert intervals_before == _sleep_row_snapshot(session, record_id)
 
 
 def test_missing_null_zero_invalid_nonfinite_and_string_numeric_states():

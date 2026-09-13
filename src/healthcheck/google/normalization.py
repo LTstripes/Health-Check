@@ -404,6 +404,32 @@ def normalize_google_payload(
         )
 
     records.sort(key=lambda item: item.idempotency_key)
+    if normalized_stream is GoogleStream.SLEEP:
+        # An unkeyed sleep record has no provider identity that can survive a
+        # correction.  Keep identical-looking records explicit rather than
+        # treating their interval/date as a guessed logical identity.  The
+        # occurrence is deterministic after canonical sorting and therefore
+        # exact replay remains idempotent.
+        occurrences: dict[str, int] = {}
+        disambiguated: list[GoogleRecordDTO] = []
+        for record in records:
+            if record.external_record_id is not None:
+                disambiguated.append(record)
+                continue
+            occurrence = occurrences.get(record.idempotency_key, 0)
+            occurrences[record.idempotency_key] = occurrence + 1
+            if occurrence:
+                disambiguated.append(
+                    replace(
+                        record,
+                        idempotency_key=_unidentified_occurrence_key(
+                            record.idempotency_key, occurrence
+                        ),
+                    )
+                )
+            else:
+                disambiguated.append(record)
+        records = disambiguated
     records = [replace(item, record_index=index) for index, item in enumerate(records)]
     status = GooglePayloadStatus.OK
     if top_context.material_error or record_material_error:
@@ -429,6 +455,16 @@ def normalize_google_payload(
 
 
 normalize_google_response = normalize_google_payload
+
+
+def _unidentified_occurrence_key(base_key: str, occurrence: int) -> str:
+    payload = {
+        "version": "google-unidentified-sleep-occurrence-v1",
+        "base_key": base_key,
+        "occurrence": occurrence,
+    }
+    digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return "google-source-record-v1:" + digest
 google_normalize = normalize_google_payload
 
 
@@ -717,11 +753,17 @@ def _finish_record(
     out_of_bed_segments: Sequence[GoogleIntervalDTO] = (),
     out_of_bed_state: GoogleMetricState = GoogleMetricState.MISSING,
 ) -> GoogleRecordDTO:
-    identity_basis = {
-        "stream": stream.value,
-        "external_record_id": external_record_id,
-        "semantic": semantic_basis,
-    }
+    if stream is GoogleStream.SLEEP and external_record_id is not None:
+        identity_basis = {
+            "stream": stream.value,
+            "logical_external_record_id": external_record_id,
+        }
+    else:
+        identity_basis = {
+            "stream": stream.value,
+            "external_record_id": external_record_id,
+            "semantic": semantic_basis,
+        }
     idempotency_key = (
         "google-source-record-v1:"
         + hashlib.sha256(canonical_json(identity_basis).encode("utf-8")).hexdigest()
@@ -2149,8 +2191,10 @@ def _normalize_sleep(
         status=_record_status(context),
         data_source=data_source,
         semantic_basis={
-            "start": sleep_interval.start.as_dict() if sleep_interval else None,
-            "end": sleep_interval.end.as_dict() if sleep_interval else None,
+            "interval": sleep_interval.as_dict() if sleep_interval else None,
+            "metrics": [metric.as_dict() for metric in metrics],
+            "stages": [stage.as_dict() for stage in stages],
+            "out_of_bed": [segment.as_dict() for segment in out_segments],
         },
         sleep_interval=sleep_interval,
         sleep_stages=stages,
