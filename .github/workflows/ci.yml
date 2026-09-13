@@ -16,5 +16,6 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - run: uv run python -m healthcheck.db.migration_guard
       - run: uv run ruff check .
       - run: uv run pytest
