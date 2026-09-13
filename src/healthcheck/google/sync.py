@@ -84,6 +84,7 @@ UNATTRIBUTED_SOURCE_INSTANCE = "unattributed"
 PAGE_ENVELOPE_SHAPE_DRIFT = "shape_drift_page_envelope"
 NORMALIZATION_SHAPE_DRIFT = "shape_drift_normalization"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_PAGE_FIELD_MISSING = object()
 _FAMILY_SHORT = {
     "google-wearables": FAMILY_GOOGLE_WEARABLES,
     "google-sources": FAMILY_GOOGLE_SOURCES,
@@ -559,6 +560,62 @@ def _explicit_source_fingerprint(data_source: Mapping[str, Any]) -> str | None:
     return "unattributed:" + ";".join(parts)
 
 
+@dataclass(frozen=True, slots=True)
+class GooglePageEnvelopeStructure:
+    """Privacy-safe structural facts about one decoded provider envelope."""
+
+    envelope_field: str
+    collection_presence: str
+    collection_type: str
+    next_page_token_type: str
+    parser_kind: str
+
+
+def _json_shape_type(value: object) -> str:
+    if value is _PAGE_FIELD_MISSING:
+        return "absent"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, Mapping):
+        return "object"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "other"
+
+
+def classify_page_envelope_structure(
+    payload: Mapping[str, Any], query_mode: GoogleQueryMode
+) -> GooglePageEnvelopeStructure:
+    """Return only allowlisted field presence/type facts for one page envelope."""
+
+    if not isinstance(payload, Mapping):
+        raise TypeError("Google page envelope must be a mapping")
+    key = envelope_key(GoogleQueryMode(query_mode))
+    raw_collection = payload.get(key, _PAGE_FIELD_MISSING)
+    collection_type = _json_shape_type(raw_collection)
+    raw_token = payload.get("nextPageToken", _PAGE_FIELD_MISSING)
+    has_token = isinstance(raw_token, str) and bool(raw_token.strip())
+    if collection_type in {"absent", "null"}:
+        parser_kind = "continue" if has_token else "invalid"
+    elif collection_type == "array":
+        parser_kind = "continue" if has_token else "complete"
+    else:
+        parser_kind = "invalid"
+    return GooglePageEnvelopeStructure(
+        envelope_field=key,
+        collection_presence="missing" if collection_type == "absent" else "present",
+        collection_type=collection_type,
+        next_page_token_type=_json_shape_type(raw_token),
+        parser_kind=parser_kind,
+    )
+
+
 def parse_page_envelope(
     payload: Mapping[str, Any], query_mode: GoogleQueryMode
 ) -> tuple[list[Any], str | None, str]:
@@ -569,19 +626,15 @@ def parse_page_envelope(
     pages can omit ``dataPoints`` while still returning ``nextPageToken``.
     """
 
+    structure = classify_page_envelope_structure(payload, query_mode)
     raw_token = payload.get("nextPageToken")
     token = raw_token.strip() if isinstance(raw_token, str) and raw_token.strip() else None
-    key = envelope_key(query_mode)
-    if key not in payload:
+    if structure.collection_type in {"absent", "null"}:
         if token:
             return [], token, "continue"
         return [], None, "invalid"
-    points = payload[key]
-    if points is None:
-        if token:
-            return [], token, "continue"
-        return [], None, "invalid"
-    if not isinstance(points, list):
+    points = payload[structure.envelope_field]
+    if structure.collection_type != "array":
         return [], None, "invalid"
     if token:
         return points, token, "continue"
