@@ -27,6 +27,7 @@ from healthcheck.db.models import (
     GoogleSleepFieldState,
     GoogleSleepInterval,
     GoogleSleepRecord,
+    GoogleSource,
     GoogleSourceKind,
     GoogleSourceRecord,
     ScalarMeasurement,
@@ -92,6 +93,22 @@ def _data_source(*, platform: str = "GOOGLE_WEB_API") -> dict[str, object]:
         "application": {"packageName": "org.synthetic.health"},
         "platform": platform,
     }
+
+
+def _named_data_source(source_instance_id: str) -> dict[str, object]:
+    value = _data_source()
+    value["name"] = source_instance_id
+    return value
+
+
+def _source_identity(source_instance_id: str) -> GoogleSourceIdentity:
+    return GoogleSourceIdentity(
+        source_kind=GoogleSourceKind.DATA_SOURCE,
+        source_instance_id=source_instance_id,
+        data_source_name=source_instance_id,
+        platform="GOOGLE_WEB_API",
+        recording_method="PASSIVELY_MEASURED",
+    )
 
 
 def _sleep_component() -> dict[str, object]:
@@ -1384,6 +1401,139 @@ def test_versioned_offline_replay_is_deterministic_and_keeps_raw_immutable(norma
     assert session.scalar(select(func.count(GoogleNormalizationAttempt.id))) == 2
     assert session.scalar(select(func.count(GooglePayloadObservation.id))) == 2
     assert session.scalar(select(func.count(GoogleRawPayload.id))) == 1
+
+
+def test_replay_partitions_mixed_source_page_after_sqlite_round_trip(normalization_database):
+    paths, session, store = normalization_database
+    source_a = "users/me/dataSources/raw:com.google.heart_rate.bpm:fitbit:synthetic-a"
+    source_b = "users/me/dataSources/raw:com.google.heart_rate.bpm:pixel:synthetic-b"
+    payload = _payload(
+        GoogleStream.HEART_RATE,
+        data_source=_named_data_source(source_a),
+        name="synthetic-record-a",
+    )
+    payload["dataPoints"].append(
+        {
+            **payload["dataPoints"][0],
+            "name": "synthetic-record-b",
+            "dataSource": _named_data_source(source_b),
+        }
+    )
+    result = normalize_google_payload(
+        payload,
+        stream=GoogleStream.HEART_RATE,
+        query=GoogleQueryContext(GoogleQueryMode.LIST),
+    )
+    records = {record.external_record_id: record for record in result.records}
+    repo = GooglePersistenceRepository(session, payload_store=store)
+    outcomes = {}
+    for source_instance_id in (source_a, source_b):
+        identity = _source_identity(source_instance_id)
+        outcomes[source_instance_id] = repo.persist_result(
+            replace(
+                result,
+                records=(records[f"synthetic-record-{source_instance_id[-1]}"],),
+                source_identity=identity,
+            ),
+            payload=payload,
+            received_at=datetime(2099, 1, 3, 12, tzinfo=UTC),
+            source_window_start_utc=datetime(2099, 1, 2, tzinfo=UTC),
+            source_window_end_utc=datetime(2099, 1, 3, tzinfo=UTC),
+        )
+    session.commit()
+    observation_ids = {
+        source_instance_id: outcome.observation.id
+        for source_instance_id, outcome in outcomes.items()
+    }
+    session.close()
+
+    fresh_engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(fresh_engine)() as fresh_session:
+            fresh_store = ContentAddressedGooglePayloadStore(paths.root / "artifacts")
+            for source_instance_id in (source_a, source_b):
+                replayed = replay_google_observations(
+                    fresh_session,
+                    payload_store=fresh_store,
+                    observation_ids=[observation_ids[source_instance_id]],
+                    normalization_contract_version="r04-google-normalization-contract-v2",
+                )[0]
+                assert replayed.updated_count == 1
+                repeated = replay_google_observations(
+                    fresh_session,
+                    payload_store=fresh_store,
+                    observation_ids=[observation_ids[source_instance_id]],
+                    normalization_contract_version="r04-google-normalization-contract-v2",
+                )[0]
+                assert repeated.replayed is True
+            fresh_session.commit()
+            source_rows = {
+                row.source_instance_id: row.id
+                for row in fresh_session.scalars(select(GoogleSource))
+            }
+            records_by_source = {
+                (row.google_source_id, row.external_record_id)
+                for row in fresh_session.scalars(select(GoogleSourceRecord))
+            }
+            assert records_by_source == {
+                (source_rows[source_a], "synthetic-record-a"),
+                (source_rows[source_b], "synthetic-record-b"),
+            }
+            assert fresh_session.scalar(select(func.count(GoogleSourceRecord.id))) == 2
+            assert fresh_session.scalar(select(func.count(GoogleNormalizationAttempt.id))) == 4
+    finally:
+        fresh_engine.dispose()
+
+
+def test_replay_unresolvable_source_membership_fails_closed(normalization_database):
+    _paths, session, store = normalization_database
+    source_a = "users/me/dataSources/raw:com.google.heart_rate.bpm:fitbit:synthetic-a"
+    payload = _payload(
+        GoogleStream.HEART_RATE,
+        data_source=_named_data_source(source_a),
+        name="synthetic-record-a",
+    )
+    payload["dataPoints"].append(
+        {
+            "name": "synthetic-record-unknown",
+            "heartRate": _component(GoogleStream.HEART_RATE),
+        }
+    )
+    result = normalize_google_payload(
+        payload,
+        stream=GoogleStream.HEART_RATE,
+        query=GoogleQueryContext(GoogleQueryMode.LIST),
+    )
+    record_a = next(
+        record for record in result.records if record.external_record_id == "synthetic-record-a"
+    )
+    outcome = GooglePersistenceRepository(session, payload_store=store).persist_result(
+        replace(result, records=(record_a,), source_identity=_source_identity(source_a)),
+        payload=payload,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+    before_count = session.scalar(select(func.count(GoogleSourceRecord.id)))
+    before_metric = session.scalar(
+        select(GoogleRecordMetric.value_number).where(
+            GoogleRecordMetric.record_id == outcome.records[0].id,
+            GoogleRecordMetric.metric_code == "heart_rate_bpm",
+        )
+    )
+    with pytest.raises(ValueError, match="source membership"):
+        replay_google_observations(
+            session,
+            payload_store=store,
+            observation_ids=[outcome.observation.id],
+            normalization_contract_version="r04-google-normalization-contract-v2",
+        )
+    assert session.scalar(select(func.count(GoogleSourceRecord.id))) == before_count
+    assert session.scalar(
+        select(GoogleRecordMetric.value_number).where(
+            GoogleRecordMetric.record_id == outcome.records[0].id,
+            GoogleRecordMetric.metric_code == "heart_rate_bpm",
+        )
+    ) == before_metric
 
 
 def test_failed_new_version_attempt_keeps_accepted_current(normalization_database):
