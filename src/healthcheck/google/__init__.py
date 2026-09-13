@@ -60,6 +60,11 @@ from healthcheck.google.contracts import (
     GoogleTemporalDTO,
     GoogleTemporalPrecision,
 )
+from healthcheck.google.diagnostics import (
+    GOOGLE_TERMINAL_DIAGNOSTIC_CONTRACT_VERSION,
+    GoogleTerminalEnvelopeDiagnosis,
+    diagnose_latest_invalid_google_envelope,
+)
 from healthcheck.google.normalization import (
     GOOGLE_NORMALIZATION_CONTRACT_VERSION,
     MAX_DIAGNOSTICS,
@@ -121,9 +126,11 @@ from healthcheck.google.sync import (
     SLEEP_PAGE_SIZE,
     SYNC_CONTRACT_VERSION,
     GoogleHealthSync,
+    GooglePageEnvelopeStructure,
     GoogleRunKind,
     GoogleSyncReport,
     GoogleSyncStatus,
+    classify_page_envelope_structure,
     run_google_incremental_sync,
     run_google_refresh,
 )
@@ -148,6 +155,7 @@ __all__ = [
     "GOOGLE_SESSION_PROTECTION_WINDOWS",
     "GOOGLE_SOURCE_APPLICATION",
     "GOOGLE_TOKEN_FILENAME",
+    "GOOGLE_TERMINAL_DIAGNOSTIC_CONTRACT_VERSION",
     "MAX_PROBE_WINDOW_DAYS",
     "MAX_PROVIDER_REQUESTS",
     "MAX_SYNC_PROVIDER_REQUESTS",
@@ -179,6 +187,7 @@ __all__ = [
     "GoogleLocalKeyFileProtection",
     "GoogleMetricDTO",
     "GoogleMetricState",
+    "GooglePageEnvelopeStructure",
     "GoogleDataSourceDTO",
     "GoogleIntervalDTO",
     "GoogleIntervalKind",
@@ -202,6 +211,7 @@ __all__ = [
     "GoogleSourceRecordRepository",
     "GoogleSourceRepository",
     "GoogleSleepStageDTO",
+    "GoogleTerminalEnvelopeDiagnosis",
     "GoogleStream",
     "GoogleSyncReport",
     "GoogleSyncStatus",
@@ -215,7 +225,9 @@ __all__ = [
     "build_google_observation_key",
     "build_google_normalization_attempt_key",
     "build_google_record_identity_key",
+    "classify_page_envelope_structure",
     "default_google_protection",
+    "diagnose_latest_invalid_google_envelope",
     "google_persistence_for",
     "google_normalize",
     "plan_google_historical_backfill",

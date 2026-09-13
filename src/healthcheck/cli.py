@@ -8,9 +8,10 @@ import sys
 from collections.abc import Sequence
 
 import uvicorn
+from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.config import Settings
-from healthcheck.db.engine import migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.demo import DemoSeedError, seed_demo
 from healthcheck.garmin.auth import GarminAuthService
 from healthcheck.garmin.backfill import GarminHistoricalBackfill, plan_garmin_historical_backfill
@@ -26,6 +27,7 @@ from healthcheck.google.backfill import (
     GoogleHistoricalBackfill,
     plan_google_historical_backfill,
 )
+from healthcheck.google.diagnostics import diagnose_latest_invalid_google_envelope
 from healthcheck.google.probe import GoogleCapabilityProbe, validate_probe_window
 from healthcheck.google.sync import (
     GoogleHealthSync,
@@ -71,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
             "google-sync",
             "google-backfill",
             "google-refresh",
+            "google-diagnose-terminal",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -191,6 +194,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_google_backfill(args, settings)
     if args.command == "google-refresh":
         return _run_google_refresh(args, settings)
+    if args.command == "google-diagnose-terminal":
+        return _run_google_diagnose_terminal(args, settings)
     if args.command == "garmin-sync":
         return _run_garmin_sync(args, settings)
     if args.command == "garmin-backfill":
@@ -465,6 +470,60 @@ def _run_google_refresh(args: argparse.Namespace, settings: Settings) -> int:
         return 2
     print(report.to_json(), end="")
     return _google_cli_exit(report.status)
+
+
+def _run_google_diagnose_terminal(args: argparse.Namespace, settings: Settings) -> int:
+    stream = "heart_rate"
+    try:
+        if args.streams and args.streams != [stream]:
+            raise ValueError("google-diagnose-terminal only supports --stream heart_rate")
+        paths = prepare_runtime(settings)
+        engine = create_sqlite_engine(paths)
+        try:
+            factory = create_session_factory(engine)
+            with factory() as session:
+                from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+
+                diagnosis = diagnose_latest_invalid_google_envelope(
+                    session,
+                    payload_store=ContentAddressedGooglePayloadStore(paths.root / "artifacts"),
+                    stream=stream,
+                )
+        finally:
+            engine.dispose()
+    except (OSError, SQLAlchemyError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "r04-google-terminal-envelope-diagnostic-v1",
+                    "status": "unavailable",
+                    "stream": stream,
+                    "query_mode": None,
+                    "diagnosis": {
+                        "stage": "unavailable",
+                        "diagnostic_code": "diagnostic_unavailable",
+                        "envelope_field": None,
+                        "collection_presence": "unknown",
+                        "collection_type": "unknown",
+                        "next_page_token_type": "unknown",
+                        "top_level_type": "unknown",
+                    },
+                    "privacy": {
+                        "raw_values_emitted": False,
+                        "private_identifiers_emitted": False,
+                        "tokens_emitted": False,
+                        "health_timestamps_emitted": False,
+                        "page_tokens_emitted": False,
+                        "string_encoded_numerics_logged_as_values": False,
+                    },
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(diagnosis.to_json(), end="")
+    return 0 if diagnosis.status == "diagnosed" else 1
 
 
 def _run_garmin_auth(args: argparse.Namespace, settings: Settings) -> int:
