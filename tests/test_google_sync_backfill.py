@@ -585,6 +585,8 @@ def test_failed_refresh_leaves_current_projection_and_checkpoint_intact(tmp_path
     )
     assert refresh.status is GoogleSyncStatus.FAILED
     assert refresh.attempts[0].coverage_status == "failed"
+    assert refresh.attempts[0].error is not None
+    assert refresh.attempts[0].error.error_code == "shape_drift_page_envelope"
     engine, factory = _session(settings)
     try:
         with factory() as session:
@@ -608,6 +610,44 @@ def test_failed_refresh_leaves_current_projection_and_checkpoint_intact(tmp_path
             assert raw_count >= 2
     finally:
         engine.dispose()
+
+
+def test_shape_drift_diagnosis_distinguishes_page_envelope_from_normalization(
+    tmp_path,
+) -> None:
+    envelope_transport = FakeGoogleHealthTransport()
+    envelope_transport.queue("heart-rate", {"unexpected": True})
+    _settings, envelope_service = _sync(tmp_path / "envelope", envelope_transport)
+    envelope_report = envelope_service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    normalization_transport = FakeGoogleHealthTransport()
+    normalization_transport.queue(
+        "heart-rate",
+        {
+            "dataPoints": [
+                {
+                    "name": "hr-invalid",
+                    "dataSource": _data_source(),
+                    "heartRate": {"sampleTime": _sample_time()},
+                }
+            ]
+        },
+    )
+    _settings, normalization_service = _sync(tmp_path / "normalization", normalization_transport)
+    normalization_report = normalization_service.run(
+        start=AS_OF, end=AS_OF, streams=["heart_rate"]
+    )
+
+    envelope_error = envelope_report.attempts[0].error
+    normalization_error = normalization_report.attempts[0].error
+    assert envelope_error is not None
+    assert normalization_error is not None
+    assert envelope_error.error_code == "shape_drift_page_envelope"
+    assert normalization_error.error_code == "shape_drift_normalization"
+    assert envelope_error.http_status == 200
+    assert normalization_error.http_status == 200
+    assert envelope_report.to_json().count("shape_drift_page_envelope") == 1
+    assert normalization_report.to_json().count("shape_drift_normalization") == 1
 
 
 def test_source_family_and_query_mode_contexts_remain_separate(tmp_path) -> None:

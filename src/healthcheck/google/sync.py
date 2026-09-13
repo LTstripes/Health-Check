@@ -81,6 +81,8 @@ RETRY_BACKOFF_SECONDS = (0.25, 0.5, 1.0)
 HEART_RATE_ROLLUP_MAX_DAYS = 14
 DEFAULT_ROLLUP_WINDOW_SIZE = "60s"
 UNATTRIBUTED_SOURCE_INSTANCE = "unattributed"
+PAGE_ENVELOPE_SHAPE_DRIFT = "shape_drift_page_envelope"
+NORMALIZATION_SHAPE_DRIFT = "shape_drift_normalization"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _FAMILY_SHORT = {
     "google-wearables": FAMILY_GOOGLE_WEARABLES,
@@ -1337,7 +1339,7 @@ class GoogleHealthSync:
                     updated_count=updated,
                     page_count=page_count,
                     request_count=request_count,
-                    error=GoogleSafeError("provider", "shape_drift", response.status),
+                    error=GoogleSafeError("provider", PAGE_ENVELOPE_SHAPE_DRIFT, response.status),
                 )
 
             collected.extend(points)
@@ -1379,7 +1381,7 @@ class GoogleHealthSync:
                     updated_count=updated,
                     page_count=page_count,
                     request_count=request_count,
-                    error=GoogleSafeError("provider", "shape_drift", response.status),
+                    error=GoogleSafeError("provider", NORMALIZATION_SHAPE_DRIFT, response.status),
                 )
             inserted += outcome[0]
             updated += outcome[1]
@@ -1426,7 +1428,7 @@ class GoogleHealthSync:
                     record_count=len(collected),
                     page_count=page_count,
                     request_count=request_count,
-                    error=GoogleSafeError("provider", "shape_drift"),
+                    error=GoogleSafeError("provider", NORMALIZATION_SHAPE_DRIFT),
                 )
             inserted += refresh_outcome[0]
             updated += refresh_outcome[1]
