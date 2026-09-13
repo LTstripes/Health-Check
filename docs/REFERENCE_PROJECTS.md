@@ -1,10 +1,14 @@
 # Reference Projects and Reuse Strategy
 
-Snapshot refreshed: **2026-09-12**. Detailed reuse approvals remain tied to the reviewed source SHAs below. A newer upstream head recorded in this document or in an audit is **not** an automatic repin and does not expand the code-copy/reuse boundary.
+Snapshot refreshed: **2026-09-13** (post-R04 mechanical closeout for #90; reviewed pins and reuse classifications unchanged since 2026-09-12). Detailed reuse approvals remain tied to the reviewed source SHAs below. A newer upstream head recorded in this document or in an audit is **not** an automatic repin and does not expand the code-copy/reuse boundary.
 
 Health-Check is MIT licensed. Before copying code in a later release, recheck the exact upstream file and license at the exact commit, preserve required notices, and record that provenance in the implementation PR/task evidence.
 
-The full 2026-09-12 upstream comparison, including old/current SHAs, deltas and adversarial regression ideas, is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md).
+The full 2026-09-12 upstream comparison, including old/current SHAs, deltas and adversarial regression ideas, is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md). The 2026-09-13 post-R04 closeout (baseline `integration/r04-google-health @ 767a06a`, no repins, #94 attribution unresolved) is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md).
+
+## 2026-09-13 post-R04 closeout note (#90)
+
+Accepted research verdict: **no R04 reopen blocker**. `python-garminconnect` stays pinned to `0.3.12`; openScale/openScale-sync API-v3, source freshness/staleness, and the 10-class adversarial regression catalogue stay **WATCH / DEFER**. Haelan stays **AGPL-3.0 / REFERENCE ONLY / NO CODE COPYING**. Owner-live source attribution (#94, including Fitbit-specific attribution) is **unresolved** and is not inferred. No follow-up issues were created in this closeout; the Integrator owns any future issue creation.
 
 ## Final classification
 
