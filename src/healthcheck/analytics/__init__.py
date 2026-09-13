@@ -61,6 +61,19 @@ from healthcheck.analytics.garmin_lagged_associations import (
     spearman_midranks,
     spearman_rho,
 )
+from healthcheck.analytics.sleep_pairing import (
+    ALL_COHORTS,
+    DEVICE_PAIR,
+    FAMILY_PAIR,
+    R05_SLEEP_PAIRING_CONTRACT_VERSION,
+    PersistedSleepPairingReader,
+    SleepPair,
+    SleepPairingExclusion,
+    SleepPairingQuery,
+    SleepPairingResult,
+    SleepSourceEligibility,
+    read_persisted_sleep_pairing,
+)
 from healthcheck.analytics.weight import (
     BODY_COMPOSITION_ALGORITHM,
     BODY_FAT_METRIC_CODES,
@@ -101,6 +114,9 @@ from healthcheck.analytics.weight import (
 
 __all__ = [
     "ACTIVITY_COMPARISON_METRIC_CODES",
+    "ALL_COHORTS",
+    "DEVICE_PAIR",
+    "FAMILY_PAIR",
     "MAX_SELECTED_ACTIVITIES",
     "MAX_SERIES_CALENDAR_DAYS",
     "MAX_SERIES_SELECTED_POINTS",
@@ -175,6 +191,13 @@ __all__ = [
     "WeightSeries",
     "WeightSummary",
     "WeightTrendResult",
+    "R05_SLEEP_PAIRING_CONTRACT_VERSION",
+    "PersistedSleepPairingReader",
+    "SleepPair",
+    "SleepPairingExclusion",
+    "SleepPairingQuery",
+    "SleepPairingResult",
+    "SleepSourceEligibility",
     "build_weight_series",
     "build_weight_summary",
     "calculate_coverage",
@@ -188,4 +211,5 @@ __all__ = [
     "similar_weight_comparison",
     "theil_sen_rate",
     "time_aware_ewma",
+    "read_persisted_sleep_pairing",
 ]
