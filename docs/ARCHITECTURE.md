@@ -244,10 +244,10 @@ Context analytics uses event-aligned windows and matched controls rather than a 
 
 Pair comparable metrics separately; do not compare proprietary vendor scores as if they were the same construct.
 
-- Preliminary exploratory report: at least 14 paired nights across at least two weeks.
+- Preliminary exploratory report: exactly 14 paired nights.
 - Provisional canonical-source decision: at least 42 paired nights across at least six weeks, adequate coverage, and no known firmware/method break.
 
-These are engineering gates, not statistical guarantees. For sleep duration, stages, RHR, and HRV, report paired difference/systematic bias, MAE, RMSE, and Bland–Altman limits (or robust quantiles when assumptions fail). Correlation is secondary; Lin's CCC may supplement the stronger gate. A rule change remains reversible/versioned.
+These are engineering evidence gates, not claims that one device is objectively more accurate. For sleep duration, stages, RHR, and HRV, report paired difference/systematic bias, MAE, RMSE, and Bland–Altman limits (or robust quantiles when assumptions fail). Correlation is secondary; Lin's CCC may supplement the stronger gate. A rule change remains reversible/versioned.
 
 ## 11. AI and MCP boundary
 
