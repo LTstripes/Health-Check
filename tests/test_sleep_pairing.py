@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -16,7 +18,7 @@ from healthcheck.analytics.sleep_pairing import (
 )
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
-from healthcheck.db.models import GoogleSourceRecord
+from healthcheck.db.models import GoogleSleepRecord, GoogleSource, GoogleSourceRecord
 from healthcheck.garmin.normalization import normalize_garmin_payload
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
@@ -131,9 +133,17 @@ def _google_payload(
     return {"dataPoints": [point]}
 
 
-def _persist_google(session, paths, *, identity, payload, family=None):
+def _persist_google(
+    session,
+    paths,
+    *,
+    identity,
+    payload,
+    family=None,
+    query_mode=GoogleQueryMode.LIST,
+):
     query = GoogleQueryContext(
-        query_mode=GoogleQueryMode.LIST,
+        query_mode=query_mode,
         data_source_family=family,
     )
     result = normalize_google_payload(
@@ -238,6 +248,29 @@ def test_ambiguous_google_mains_are_excluded_without_latest_selection(pairing_da
     assert any(item.reason == "ambiguous_google_main" for item in result.exclusions)
 
 
+def test_competing_eligible_fitbit_sources_fail_closed(pairing_database):
+    session, paths = pairing_database
+    _persist_garmin(session, paths)
+    _persist_google(
+        session,
+        paths,
+        identity=_google_identity(source_instance_id=f"{FITBIT_SOURCE}:watch-a"),
+        payload=_google_payload(name="fitbit-source-a"),
+    )
+    _persist_google(
+        session,
+        paths,
+        identity=_google_identity(source_instance_id=f"{FITBIT_SOURCE}:watch-b"),
+        payload=_google_payload(name="fitbit-source-b"),
+    )
+    session.commit()
+
+    result = read_persisted_sleep_pairing(session)
+
+    assert result.device_pairs == ()
+    assert any(item.reason == "ambiguous_fitbit_source" for item in result.exclusions)
+
+
 def test_explicit_google_main_outranks_missing_main_fallback(pairing_database):
     session, paths = pairing_database
     _persist_garmin(session, paths)
@@ -285,7 +318,90 @@ def test_nap_and_unknown_main_states_remain_explicit(pairing_database):
     assert "google_nap_state_unknown" in reasons
 
 
-def test_source_query_does_not_use_host_timezone_or_retired_rows(pairing_database):
+def test_missing_wake_date_is_excluded(pairing_database):
+    session, paths = pairing_database
+    _persist_garmin(session, paths)
+    outcome = _persist_google(
+        session,
+        paths,
+        identity=_google_identity(),
+        payload=_google_payload(name="fitbit-missing-wake-date"),
+    )
+    session.get(GoogleSleepRecord, outcome.records[0].id).wake_date = None
+    session.commit()
+
+    result = read_persisted_sleep_pairing(session)
+
+    assert result.device_pairs == ()
+    assert any(item.reason == "wake_date_missing" for item in result.exclusions)
+
+
+def test_manually_edited_true_and_missing_states_remain_explicit(pairing_database):
+    session, paths = pairing_database
+    _persist_garmin(session, paths)
+    _persist_google(
+        session,
+        paths,
+        identity=_google_identity(),
+        payload=_google_payload(name="fitbit-manual-edit", manually_edited=True),
+    )
+    session.commit()
+
+    result = read_persisted_sleep_pairing(session)
+
+    assert len(result.device_pairs) == 1
+    assert result.device_pairs[0].google_manually_edited is True
+
+
+def test_missing_manual_edit_state_is_not_coerced_to_false(pairing_database):
+    session, paths = pairing_database
+    _persist_garmin(session, paths)
+    _persist_google(
+        session,
+        paths,
+        identity=_google_identity(),
+        payload=_google_payload(name="fitbit-missing-manual-edit", manually_edited=None),
+    )
+    session.commit()
+
+    result = read_persisted_sleep_pairing(session)
+
+    assert len(result.device_pairs) == 1
+    assert result.device_pairs[0].google_manually_edited is None
+
+
+def test_list_and_reconcile_share_explicit_source_identity(pairing_database):
+    session, paths = pairing_database
+    _persist_garmin(session, paths)
+    payload = _google_payload(name="fitbit-list-reconcile")
+    identity = _google_identity()
+    _persist_google(
+        session,
+        paths,
+        identity=identity,
+        payload=payload,
+        query_mode=GoogleQueryMode.LIST,
+    )
+    _persist_google(
+        session,
+        paths,
+        identity=identity,
+        payload=payload,
+        query_mode=GoogleQueryMode.RECONCILE,
+    )
+    session.commit()
+
+    result = read_persisted_sleep_pairing(session)
+
+    assert session.scalar(select(func.count()).select_from(GoogleSource)) == 1
+    assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 1
+    assert len(result.device_pairs) == 1
+
+
+def test_source_query_is_host_timezone_invariant(pairing_database, monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("runtime TZ switching is unavailable on this host")
+
     session, paths = pairing_database
     _persist_garmin(session, paths)
     _persist_google(
@@ -296,14 +412,21 @@ def test_source_query_does_not_use_host_timezone_or_retired_rows(pairing_databas
     )
     session.commit()
 
-    first = read_persisted_sleep_pairing(
-        session,
-        SleepPairingQuery(start_date=date(2099, 1, 2), end_date=date(2099, 1, 2)),
-    )
-    second = read_persisted_sleep_pairing(
-        session,
-        SleepPairingQuery(start_date=date(2099, 1, 2), end_date=date(2099, 1, 2)),
-    )
+    query = SleepPairingQuery(start_date=date(2099, 1, 2), end_date=date(2099, 1, 2))
+    original_tz = os.environ.get("TZ")
+    try:
+        monkeypatch.setenv("TZ", "UTC")
+        time.tzset()
+        first = read_persisted_sleep_pairing(session, query)
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+        time.tzset()
+        second = read_persisted_sleep_pairing(session, query)
+    finally:
+        if original_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", original_tz)
+        time.tzset()
 
     assert first.as_dict() == second.as_dict()
     assert len(first.device_pairs) == 1
