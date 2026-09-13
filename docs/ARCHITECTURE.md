@@ -1,321 +1,297 @@
 # Final Target Architecture
 
-This is the canonical implementation architecture after R00. Source verification and disputed findings are recorded in [the R00 audit](audits/R00_FINAL_ARCHITECTURE.md); the first vertical slice is specified in [R01](R01_IMPLEMENTATION_SPEC.md).
+This is the current canonical architecture after released R01–R04. Historical evidence and disputed findings remain in the R00 audit, release issues and release-specific closeouts.
 
 ## 1. System shape
 
 ```text
 Windows laptop
-┌────────────────────────────────────────────────────────────────────┐
-│ Windows Task Scheduler                                             │
-│          │ sync/report commands                                    │
-│          v                                                         │
-│ Health-Check Python runtime (shared deterministic services)        │
-│   ├── provider adapters / explicit import services                 │
-│   ├── typed analytics and canonical rules                          │
-│   ├── loopback dashboard/read/import listener                      │
-│   ├── optional separate private-LAN ingest-only listener           │
-│   ├── report builder -> renderer -> notifier interfaces            │
-│   └── SQLite WAL + local artifact store outside Git                │
-└────────────────────────────────────────────────────────────────────┘
-             ^                       ^                    |
-             |                       |                    v
-       Garmin Connect          Google Health API      external LLM
-                                                        via bounded
-Android phone                                           read tools
-┌──────────────────────────────────────────────┐
-│ Xiaomi S400 -> BLE -> openScale              │
-│                         -> openScale-sync     │
-│                         -> authenticated HTTP│
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ Windows Task Scheduler / explicit owner CLI                     │
+│             │ sync / backfill / refresh / reports               │
+│             v                                                    │
+│ Health-Check Python runtime                                      │
+│   ├── explicit provider adapters (Garmin / Google / imports)     │
+│   ├── immutable raw + typed source evidence                      │
+│   ├── current/canonical versioned selection                      │
+│   ├── deterministic analytics / coverage / agreement             │
+│   ├── loopback UI + read/query APIs                              │
+│   ├── optional isolated ingest-only listener                     │
+│   └── SQLite WAL + local artifact store outside Git              │
+└──────────────────────────────────────────────────────────────────┘
+       ^                     ^                         |
+       |                     |                         v
+ Garmin Connect       Google Health API v4        bounded read-only AI
+
+Android phone
+┌──────────────────────────────────────────────────┐
+│ Xiaomi S400 -> openScale -> openScale-sync      │
+│                         -> Health-Check webhook  │
+└──────────────────────────────────────────────────┘
 ```
 
-One local codebase and database are enough. The loopback UI/read/import ASGI app and optional LAN ingest-only ASGI app run as separate listeners/processes so LAN binding cannot expose dashboard or write/admin routes; both reuse the same application services and SQLite WAL. Do not add Redis, Celery, Kafka, Postgres, containers, Kubernetes, multi-tenancy, or SaaS authentication without a measured need. Long sync/report jobs run as idempotent CLI/application-service commands invoked by Windows Task Scheduler.
+One local codebase/database is enough. No broker, queue, container platform, multi-tenancy or SaaS authentication is added without a demonstrated need.
 
-## 2. Runtime responsibilities
-
-### Windows laptop
+## 2. Runtime boundary
 
 - Python 3.12+, FastAPI/Uvicorn, SQLAlchemy/Alembic, SQLite WAL.
-- Runtime state under `%LOCALAPPDATA%\Health-Check` (configurable), never inside the checkout.
-- Dashboard/read/import listener bound only to loopback.
-- Optional separate private-LAN ingest-only listener/port exposing only webhook plus non-sensitive liveness; stable sender UUID and rotatable credential are independent.
-- Prefer HTTPS or a trusted encrypted private overlay. Plain trusted-LAN HTTP requires explicit opt-in and a confidentiality warning; public exposure is unsupported.
-- Provider tokens/secrets outside Git, ultimately in Windows Credential Manager/DPAPI or an equivalently user-scoped secret store.
-- Source artifacts such as images, raw JSON, and FIT files in a content-addressed local artifact directory with database references.
+- Runtime state under a user-scoped external data directory, never inside the checkout.
+- Loopback UI/read/import listener is distinct from the optional ingest-only listener.
+- Provider credentials/tokens/session files remain external and use Windows user-scoped protection where implemented.
+- Content-addressed raw artifacts/provider evidence remain local; Git contains code, schemas, docs, tests and synthetic fixtures only.
 
-### Android phone
-
-- openScale performs S400 BLE collection.
-- openScale-sync forwards data through its generic webhook.
-- Both are external GPL applications; Health-Check communicates through their published data boundary and does not incorporate their code.
-- Health Connect is a future/secondary bridge, not the preferred S400 path, because it cannot represent the complete openScale record.
-
-No custom Health-Check Android application is required for R01–R05.
-
-## 3. End-to-end data pipeline
+## 3. Data pipeline
 
 ```text
-immutable raw artifact / provider response
-                    |
-                    v
-typed source record with device/provider/algorithm provenance
-                    |
-                    v
-versioned canonical selection (references, never replaces, source data)
-                    |
-                    v
-deterministic analytics + coverage + disagreement
-                    |
-                    v
+immutable raw/provider evidence
+            |
+            v
+typed source record + provider/device/algorithm provenance
+            |
+            v
+current projection / versioned canonical selection
+            |
+            v
+deterministic analytics + coverage + agreement
+            |
+            v
 versioned evidence packet / saved report
-                    |
-           dashboard and bounded AI tools
+            |
+     dashboard / bounded AI
 ```
 
-Raw, source-specific, canonical, derived, and narrative layers are different contracts. Reprocessing creates a new parser/algorithm/rule version while retaining the earlier evidence.
+Raw, source-specific, current/canonical, derived and narrative layers are different contracts. Reprocessing creates new versioned interpretation while preserving original evidence.
 
-## 4. Provider flows
+## 4. Shared provenance rules
+
+The system keeps separate identities for:
+
+- physical device;
+- provider/account/source;
+- acquisition method / source family / query mode;
+- measurement algorithm and version;
+- raw artifact / provider observation;
+- typed source/current projection;
+- canonical rule and derived algorithm.
+
+Acquisition context must never be silently promoted into physical-device identity.
+
+Missing, null, explicit zero, confirmed-empty, unavailable, unknown and invalid remain distinct where the owning contract supports them.
+
+## 5. Provider flows
 
 ### Xiaomi S400
 
-Live path:
+Preferred live path:
 
 ```text
-S400 encrypted BLE broadcast
-  -> openScale on Android (MAC + bind key; openScale S400 calculation)
-  -> openScale-sync generic webhook
-  -> authenticated Health-Check ingest endpoint
-  -> raw request + typed measurement session
+S400 -> openScale -> openScale-sync -> authenticated ingest-only endpoint
 ```
 
 Historical/fallback path:
 
 ```text
-Xiaomi-app screenshot/photo
-  -> immutable local image
-  -> versioned vision extraction
-  -> editable candidate fields
-  -> explicit human confirmation
-  -> typed source measurement
+Xiaomi screenshot/photo -> immutable image -> versioned extraction
+ -> editable candidate -> explicit confirmation -> typed source evidence
 ```
 
-The physical scale, input provider/application, and body-composition algorithm are separate. Xiaomi-app body composition and openScale S400 composition are different, non-equivalent algorithm groups unless a future same-weigh-in overlap study proves and versions a calibration. Weight may remain one series when physical-device/unit identity is clear; algorithm-derived composition may not.
+Xiaomi-app and openScale body-composition algorithms are non-equivalent compatibility groups unless future paired evidence supports a versioned calibration.
 
 ### Garmin
 
-R02 uses the community `python-garminconnect` package as a pinned runtime dependency rather than building another private HTTP client. Initial sign-in/MFA is user-assisted; reusable auth state is stored outside Git. Each stream has explicit backfill and trailing-window reconciliation because unofficial endpoints and late provider updates do not provide a universal durable cursor.
+Garmin uses `python-garminconnect` rather than a second private HTTP client.
 
-Garmin payloads map into typed scalar, sleep, activity, and series entities. A library method only proves that a client endpoint exists; it does not prove that Vivoactive 5 produces the metric. Live account fixtures decide availability, and unknown/unsupported values remain unavailable. Current series identity prefers a stable provider timestamp/token over array position; an authoritative complete collection may retire absent members, and parser upgrades reprocess stored raw evidence only when explicitly requested. The incremental watermark is not contiguous history.
+Released R02/R03 behavior:
 
-### Google Fitbit / Google Health
+- owner-assisted protected session reuse;
+- typed daily/sleep/activity/intraday persistence;
+- bounded incremental sync + trailing reconciliation;
+- bounded resumable historical backfill;
+- explicit historical/incremental coverage/checkpoints;
+- authoritative vs partial collection-reconciliation semantics;
+- version-aware reprocessing;
+- deterministic analytic metric/time/coverage identity;
+- immutable evidence manifests;
+- scalar baseline/trend analytics, activity comparison, lagged associations and read-only dashboard/query paths.
 
-R04 targets Google Health API v4 (`health.googleapis.com`) only. The legacy Fitbit Web API has a September 2026 turn-down milestone; no legacy Fitbit Web API implementation. Accepted external contract: #81 adjudication (`5643609852`); repository-side correction: #82 (`5643533712`, `5643611744`).
+Client method existence never proves Vivoactive 5 capability. Provider/account/device evidence stays explicitly attributed.
 
-R04 requests only the implemented read scopes `googlehealth.sleep.readonly` and `googlehealth.health_metrics_and_measurements.readonly`. Current first-party Google Health docs classify all Google Health API scopes as Restricted. Partial consent is a stream-level capability state.
+### Google Health API v4
 
-Google Health source identity is explicit. `list` / `reconcile` / `rollUp` / `dailyRollUp` and `dataSourceFamily` are acquisition/query/collection context, not stable source identity. The adapter preserves raw `list` records with their `dataSource` platform/device/recording-method metadata and stores reconciled/rollup results separately with the exact query/family. `google-wearables`, `google-sources`, and `all-sources` are different source families: an aggregate from `google-sources` or `all-sources` may include Health Connect, manual, or third-party data and must never be labelled as Fitbit-device evidence. `google-wearables` includes Fitbit trackers and Pixel Watch; even a `google-wearables` aggregate is family-level (`google_wearables_family`) unless returned metadata identifies the physical device. Garmin/Fitbit agreement uses only records attributable to the intended Fitbit device/source.
+R04 is released and uses an explicit `google_*` path over shared runtime/evidence primitives. Garmin-specific tables/contracts are not reused as a generic provider framework.
 
-Exact operation matrix: sample heart-rate supports `list/reconcile/rollUp/dailyRollUp`; the other planned vitals/daily types (HRV + daily HRV, daily resting HR, SpO2 + daily SpO2, respiratory-rate sleep summary + daily respiratory rate) use documented `list/reconcile` surfaces; sleep follows its own documented session operations. Never generalize rollup support. Initial R04 types: sleep; heart rate; HRV + daily HRV; daily resting HR; SpO2 + daily SpO2; respiratory-rate sleep summary + daily respiratory rate.
+#### OAuth/runtime
 
-Sync mechanics: pagination follows `nextPageToken`; sleep page cap is 25; time bounds are inclusive lower / exclusive upper; do not rely on undocumented `list` ordering. Historical querying reaches as far back as recorded, subject to quotas; no invented retention ceiling. Current quotas include 300 requests/minute/user and an unverified-app aggregate cap of 250 QPS / 100 users; Health-Check still imposes its own tighter bounded request budgets/retry ceilings. Parsers must expect documented JSON string-encoded integer fields where applicable. R04 missing sleep/vital data remains missing, never zero; do not generalize true-zero semantics from unrelated data types.
+- Google Web Application / Web Server client.
+- Fixed exactly registered loopback callback.
+- System-browser authorization-code flow with one-use CSRF state.
+- `access_type=offline`; consent prompting only when required by the accepted auth path.
+- Exactly two R04 read scopes: sleep + health metrics/measurements.
+- Client secret/token/session state stored only in the external runtime with Windows user-scoped DPAPI protection.
+- Owner project proven `In production`, External.
 
-R04 reuses the generic evidence/runtime/sync/coverage spine but implements an explicit `google_*` layer. Do not reuse `garmin_*` persistence and do not build a generic provider/EAV framework. R03 analytics stay Garmin-only in R04; cross-source agreement/canonical sleep remains R05.
+#### Source identity
 
-OAuth for one personal account (Web Application / Web Server client per current Google Health product setup; the former Desktop-client assumption is retired):
+`list`, `reconcile`, `rollUp`, `dailyRollUp` and `dataSourceFamily` are acquisition/query context, not stable source/device identity.
 
-1. External Google Cloud project in **Published / In production** status under the documented personal-use/unverified exception (unverified app: warning + 100-user cap). Testing status is unsuitable for routine automation because its offline refresh token is limited to seven days. Track the separate 100-user unverified-app audience cap; it is not the exception definition.
-2. Web Application client with Client ID + Client Secret; secret/session/refresh-token material stays outside Git under the user runtime secret boundary (Windows Credential Manager/DPAPI-equivalent) and never enters worker workspaces/logs/issues. A service account cannot replace the owner's consent.
-3. Local Windows app uses a fixed registered loopback redirect URI (`localhost` / localhost IP), which Google permits for Web Application redirect URIs as an exception to HTTPS. Random-port Desktop callbacks are retired: the exact default port/path is pinned as a fixed, exactly-registered implementation constant (R04-02), not an ephemeral port.
-4. Authorization-code flow in the system browser with a unique one-use CSRF `state` that is persisted and validated; `access_type=offline` with a securely retained refresh token, refreshed on demand for scheduled jobs.
-5. `prompt=consent` only for initial refresh-token acquisition or deliberate scope-set changes.
-6. When scopes change, reauthorize with the complete required set; do not assume installed-app incremental authorization and do not promise Desktop incremental authorization.
-7. Do not make PKCE a universal R04 requirement for this Web Application route unless later current provider evidence requires it.
-8. Surface token health and require manual reconnect on revocation/`invalid_grant`.
+`google-wearables` is family-level evidence and may include more than one wearable class. It is not automatically Fitbit-device proof. Physical Fitbit/device attribution requires explicit persisted provider/device metadata.
 
-Verification/policy and live API access remain a release gate with explicit owner-live acceptance probes (Console setup, fixed-callback authorization, secret/refresh behavior, `dataSource`/device attribution, envelope/pagination shapes, late-arrival behavior), not an excuse to switch to an unsafe token workflow.
+Raw list/source metadata remains distinct from family-reconciled/rollup evidence.
 
-Google Health sleep and physiological records are source data. A local `healthcheck_*` or adapted `fettle_*` score is a derived, versioned metric; it must not be named or displayed as an official Fitbit Sleep Score or Readiness value. No documented provider-native Fitbit Sleep Score / Daily Readiness identity exists in the current Health API; no such claim in R04.
+#### Sync contract
 
-### Life context
+R04 supports:
 
-The canonical object is an event/exposure interval:
+- bounded incremental sync;
+- bounded historical backfill;
+- explicit bounded refresh/reconciliation;
+- provider request budgets and bounded retries;
+- pagination/resume;
+- separate incremental/historical/refresh state;
+- exact completed-window provider skipping when coverage proves no work remains;
+- immutable prior evidence on refresh/correction;
+- privacy-safe structural diagnostics;
+- fail-closed handling for unknown provider shapes.
 
-- original text;
-- start/end plus precision/timezone metadata;
-- capture source;
-- optional tags with `suggested`, `confirmed`, or `rejected` status;
-- parser/model version where structured suggestions were used.
+Time windows are inclusive lower / exclusive upper. Undocumented list ordering is not assumed.
 
-Dashboard/Telegram saves clear text immediately. It asks for clarification only when the date/range or intended event is materially ambiguous. Analytics may use confirmed tags and may use suggested tags only when the lower evidence quality is explicit.
+#### Proven terminal empty-envelope variant
 
-## 5. Canonical logical data model
+Owner-live R04 exposed a list response where the JSON object omitted both the repeated collection field and next-page token. Current ProtoJSON semantics permit omitted empty repeated fields.
+
+Accepted narrow rule:
+
+- LIST/RECONCILE + missing collection + no usable next token => complete empty terminal page;
+- missing collection + usable token => continue pagination;
+- normal array + token/no-token => continue/complete normally;
+- null/non-array/malformed collection => invalid/fail-closed;
+- rollup shapes are not broadened by this exception.
+
+## 6. Logical data model
 
 ### Shared evidence/provenance
 
-- `providers`
-- `physical_devices`
-- `acquisition_sources` (provider + input method + application/configuration)
-- `measurement_algorithms` (producer, version, parameters, compatibility group)
-- `raw_artifacts` (content hash, type, local reference)
-- `ingest_batches` / `ingest_events`
-- `sync_runs` / `sync_stream_state`
+- providers / acquisition sources / physical devices;
+- measurement algorithms;
+- raw artifacts / immutable provider observations;
+- ingest batches/events;
+- sync runs / stream state / coverage.
 
 ### Typed source data
 
-- `measurement_sessions` and `scalar_measurements` for sparse scalar/vendor values;
-- `sleep_sessions` and `sleep_stage_intervals`;
-- `activities` plus FIT/raw-detail references;
-- `series_streams` and bounded time-series chunks/points for intraday data;
-- `context_events` and versioned tag interpretations;
-- later, typed lab documents/results.
+- scalar measurements;
+- sleep sessions / stage intervals;
+- activities;
+- intraday series/chunks/points;
+- Garmin-specific typed source/current records;
+- Google-specific raw/source/typed current records;
+- later context events and lab data.
 
-This is not one EAV table. A scalar metric registry is appropriate for scalar values; intervals, sessions, stages, activities, and high-frequency streams retain their own semantics and constraints.
+This is intentionally not a generic EAV health store.
 
-### Interpretation and output
+### Interpretation/output
 
-- `derived_measurements` with algorithm/version and input references;
-- `canonical_rule_sets`, `canonical_selection_runs`, and `canonical_selections`;
-- `coverage_intervals`/calculated coverage summaries;
-- `report_runs`, evidence-packet snapshots, rendered artifacts, and `delivery_attempts`;
-- later, `experiments` and exposure/evaluation records.
+- current projections and versioned canonical selections;
+- versioned derived measurements;
+- deterministic analytics/evidence manifests;
+- agreement runs and optional canonical-source rules in R05;
+- report/evidence packets and later delivery attempts.
 
-Canonical selections point to immutable source or derived entities. They do not overwrite values. Corrections are append-only superseding revisions. A rule run records its exact input set/rule hash so historical output can be reproduced.
+## 7. Idempotency and synchronization
 
-## 6. Idempotency and synchronization
+Each provider path defines:
 
-Each provider/stream defines:
-
-- stable external ID when available;
+- stable external identity when available;
 - semantic fingerprint fallback;
-- initial backfill interval;
-- incremental watermark/cursor;
-- explicit trailing reconciliation window, without treating that watermark as contiguous history;
-- stable collection identity and authoritative retirement, with version-aware reprocessing of stored raw evidence;
-- retry/backoff and failure classification;
-- source coverage calculation.
+- bounded window/request semantics;
+- checkpoint/coverage namespace;
+- retry/backoff/failure classes;
+- immutable raw observation history;
+- current-projection reconciliation rules;
+- explicit version-aware reprocessing/refresh when accepted.
 
-The raw transport event is persisted before or atomically with normalization. Duplicate retries link to the existing semantic record and succeed without duplicating measurements. Receive order never defines event order. A parser failure keeps replayable raw evidence and a sanitized status.
+Receive order never defines event order. Partial/unknown/failed fetches do not retire accepted current evidence or advance successful checkpoints unless the owning contract explicitly proves completion.
 
-Photo artifacts deduplicate by content hash; semantic measurement deduplication uses source/device/timestamp/metric/algorithm identity so separately transported copies of the same source event converge without conflating genuine equal-valued weigh-ins. For openScale-sync, a stable configured sender-instance UUID is independent of its rotatable bearer secret, so credential rotation cannot fork source identity.
+## 8. Coverage
 
-## 7. Coverage contract
+Coverage accompanies every non-trivial result and may include:
 
-Coverage is returned with every non-trivial analytic/report result:
+- requested vs covered interval;
+- freshness / gaps;
+- usable vs excluded counts;
+- per-source / per-metric status;
+- present / confirmed-empty / unknown / failed / unavailable states;
+- rule/algorithm/version identity.
 
-- requested and actually covered interval;
-- observed versus expected days/nights/sessions when an expectation is meaningful;
-- freshness and longest gaps;
-- per-source/per-algorithm breakdown;
-- failed, unavailable, confirmed-empty, and unknown intervals;
-- rule version and exclusions.
+Operational provider `present` does not imply that every analytic metric is computable.
 
-Sparse voluntary streams such as weekly weight use a configured cadence. Continuous streams use expected time/day coverage. Missing and zero are never interchangeable. Analytics has explicit minimum-count/span gates; an overall `HIGH/MEDIUM/LOW` label, if rendered, is secondary to these facts.
+## 9. Time and lag semantics
 
-## 8. Time and lag semantics
+- Persist real UTC when the source proves it.
+- Preserve original local time/offset/zone evidence where available.
+- Do not invent UTC for local-only timestamps.
+- Preserve date-only precision.
+- Sleep belongs to local wake date.
+- Lag direction is explicit; e.g. X[d] with Y[d+k].
 
-- Persist a UTC instant when one exists, the source local timestamp, numeric offset, and zone identifier when available.
-- Preserve date-only precision rather than inventing a midnight instant.
-- A sleep session is keyed analytically to the local **wake date**.
-- `lag 0` means the same analytic date; `lag +1` means the next analytic date.
-- An exposure on evening X can align with the sleep session waking X+1 and morning HRV on X+1.
-- Travel/timezone policy remains a later feature, but retained offsets allow reprocessing.
+## 10. Deterministic analytics
 
-Lag direction is named in APIs and evidence packets; ambiguous `correlation(metric_a, metric_b, lag=1)` contracts are forbidden.
+The deterministic layer owns:
 
-## 9. Deterministic analytics
+- baseline summaries and quantiles;
+- robust trends/deviations;
+- activity/session comparison;
+- bounded lagged associations;
+- coverage/freshness/exclusions;
+- source agreement and later canonical-source rules;
+- reproducible versioned evidence packets.
 
-Pure Python/SQL services calculate:
+UI and LLM layers may format/explain these results but must not become separate analytics engines.
 
-- summaries, percentiles, baselines, and period comparisons;
-- coverage/freshness and exclusions;
-- trends and robust slopes;
-- anomalies with baseline/sample context;
-- activity/session comparisons;
-- lagged associations and effect sizes;
-- source disagreement/agreement;
-- versioned derived measurements.
+## 11. R05 agreement architecture
 
-R01 weight defaults are fixed in its spec: 21-day-half-life time-aware EWMA for display and trailing-90-day Theil–Sen slope for rate, with minimum evidence gates. Composition derives same-session estimated fat and lean mass and never crosses algorithm groups. Kalman/LOESS/STL are not R01 defaults.
-
-Context analytics uses event-aligned windows and matched controls rather than a year-long boolean Pearson shortcut. Quantitative output includes event count, matching rules, coverage, effect size, and caveats. Structured n-of-1 experiments are a later extension of the same event model.
-
-## 10. Cross-device agreement
-
-Pair comparable metrics separately; do not compare proprietary vendor scores as if they were the same construct.
-
-- Preliminary exploratory report: at least 14 paired nights across at least two weeks.
-- Provisional canonical-source decision: at least 42 paired nights across at least six weeks, adequate coverage, and no known firmware/method break.
-
-These are engineering gates, not statistical guarantees. For sleep duration, stages, RHR, and HRV, report paired difference/systematic bias, MAE, RMSE, and Bland–Altman limits (or robust quantiles when assumptions fail). Correlation is secondary; Lin's CCC may supplement the stronger gate. A rule change remains reversible/versioned.
-
-## 11. AI and MCP boundary
-
-The default AI path is:
+R05 uses:
 
 ```text
-LLM -> typed bounded read tool -> application analytics service
+source evidence
+ -> pairing / eligibility
+ -> comparable metric projection
+ -> immutable versioned agreement run
+ -> optional versioned canonical-source rule
+```
+
+Two cohorts are intentionally different:
+
+- `device_pair`: explicit persisted Fitbit/device attribution; eligible for the strong canonical gate;
+- `family_pair`: broader Google wearable-family evidence; exploratory only.
+
+Agreement is per metric. Provider scores are display-only, not treated as equivalent measurements.
+
+Exploratory gate: 14 paired nights.
+
+Provisional canonical-source gate: 42 valid device-pair nights across at least six weeks plus coverage/stability checks. Canonical default remains Garmin until a reviewed versioned per-metric rule changes it.
+
+## 12. AI boundary
+
+Default AI path:
+
+```text
+LLM -> typed bounded read tool -> deterministic application service
     -> compact versioned evidence packet
 ```
 
-Tools expose period summary, coverage, provenance, weight progress, period comparison, activity comparison, source agreement, and context-event analysis. They use bounded date ranges and return counts/coverage/algorithm/rule versions. The MCP credential authorizes only read DTO endpoints; ingest, context write, import confirmation, settings, and admin routes use separate capabilities.
+No provider credentials, unrestricted raw tables, private runtime paths or years of raw samples are sent merely to let the LLM do mathematics.
 
-The LLM does not receive provider credentials, database paths, unrestricted raw tables, or years of samples to calculate mathematics. It explains observations, alternatives, uncertainty, and practical suggestions without diagnosis.
+## 13. Release and migration safety
 
-Generic SQL is not part of the normal interface. A later expert-only mode would require a separate SQLite `mode=ro` connection, `query_only`, an authorizer/progress deadline, one AST-validated `SELECT`, allowlisted analytic views/columns, required date/row/byte limits, and audit. Raw/config/secret/identity/schema tables remain invisible.
+A release is not complete until:
 
-## 12. Reports and delivery
+- exact accepted candidate is known;
+- exact-head CI is green;
+- owner UAT covers private-runtime/provider behavior where relevant;
+- populated owner DB migration/integrity is checked when schema changes matter;
+- release PR merges the exact accepted candidate to `main`;
+- exact post-main CI is green;
+- sanitized closeout is recorded.
 
-```text
-deterministic report builder
-  -> persisted evidence packet + report revision
-  -> renderer interface
-       -> dashboard/archive
-       -> Telegram
-       -> email
-  -> independent delivery attempts/retries
-```
-
-Weekly, monthly, and annual reports use the same analytics contract. A report is computed once and rendered many ways. Delivery failure does not recompute the report; late-data reprocessing creates a new explicit revision. Every report carries coverage, source/algorithm/rule versions, and non-medical caveats.
-
-## 13. Recovery Score
-
-No Health-Check Recovery Score is currently justified. Preserve Garmin/Fitbit signals with provenance and accumulate cross-source evidence first. A future score is allowed only after a documented user problem, sufficient personal baseline, and validation plan; it must be transparent, component-attributed, versioned, and non-medical.
-
-## 14. Security and license boundaries
-
-- Real data, payloads, documents, databases, and secrets never enter Git or synthetic fixtures.
-- Dashboard/read/import is loopback-only; the separate LAN ingest app has no product routes, uses a stable sender UUID plus independent high-entropy rotatable credential, and has an encrypted-overlay/HTTPS or explicitly warned trusted-private-LAN transport boundary.
-- Log identifiers/counts/status, not authorization material or raw health values by default.
-- Use typed access capabilities: read, ingest, context/import write, and admin are distinct.
-- openScale/openScale-sync remain external GPL programs; do not claim this eliminates every legal obligation for every distribution arrangement.
-- AGPL VitaSync and unlicensed `garmin_ai` are reference-only.
-- Health-Check is licensed under MIT. Donor code is reused only selectively with the attribution, copyright notices, and other obligations required by its source license and exact reused commit.
-
-## 15. Architecture invariants
-
-### MUST
-
-- Retain source provenance and practical raw evidence.
-- Preserve competing source values and historical revisions.
-- Separate physical device, provider/input method, and measurement algorithm.
-- Version parsers, derived algorithms, and canonical rules.
-- Distinguish Xiaomi-app S400 composition from openScale S400 composition.
-- Use typed entities for sessions/intervals/activities/series.
-- Calculate analytics deterministically and return coverage/exclusions.
-- Require explicit confirmation for uncertain image extraction.
-- Permit idempotent replay and historical reprocessing.
-- Keep provider-native and Health-Check-derived scores distinctly named.
-- Gate conclusions on actual device/account data rather than client method availability.
-
-### MUST NOT
-
-- Silently merge incompatible body-composition algorithms.
-- Delete losing source values after canonical selection.
-- Treat missing, unknown, or unsupported measurements as zero.
-- Let an LLM calculate long raw time series or mutate the health store through a read credential.
-- Present a derived score as official Fitbit/Garmin output.
-- Treat endpoint existence as Vivoactive 5 feature support.
-- Copy unlicensed, GPL, or AGPL code into the core contrary to the chosen reuse boundary.
-- Require enterprise infrastructure for this personal application.
-- Present consumer BIA, wearable associations, or LLM interpretation as diagnosis or causation.
+`main` is the only canonical release source. Integration/task branches are staging/history, not product truth.
