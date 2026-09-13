@@ -1,166 +1,169 @@
 # Decisions and Open Questions
 
-R00 turns earlier hypotheses into decisions or explicit `UNVERIFIED` items. An implementation PR may refine mechanics after a live spike, but it must not silently change these invariants.
+This file contains current architecture/product decisions plus only those `UNVERIFIED` items that still matter after released R01–R04 evidence. Historical decision archaeology remains in release issues, audits and Git history.
 
 ## Final decisions
 
-### Product and sequence
+### Product and release sequence
 
 - Health-Check is a single-user personal health observatory on a Windows laptop.
 - Dashboard and AI are equal product interfaces over one deterministic evidence layer.
-- Priority is weight/body composition, then sleep, activity/fitness, then recovery/wellbeing.
-- R01 is the released Weight & Body Composition vertical slice plus the reusable core. Garmin-first was rejected because it would have delayed the highest-priority unique value while Garmin Connect already covered daily Garmin viewing.
-- R01 includes a minimal dashboard and both Xiaomi historical/live contracts; it excludes Garmin, Fitbit, Recovery Score, and full notifications.
-- R02 Garmin ingestion/backfill is the next release line after post-R01 consolidation. Its accepted pre-release contract/live-spike work must be reconstructed onto a fresh R02 integration branch from canonical `main` before production ingestion begins.
+- Priority remains weight/body composition → sleep → activity/fitness → recovery/wellbeing.
+- R01, R02, R03 and R04 are released to canonical `main`.
+- R05 is the next major product release: Garmin / Google wearable sleep agreement and optional reversible per-metric canonical-source rules.
+- A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
 
-- Python 3.12+, FastAPI, SQLite WAL, SQLAlchemy/Alembic, and simple Windows-first operation.
-- One local codebase/database, a loopback UI/read/import listener, and an optional separate LAN ingest-only listener/process plus idempotent scheduled commands; no queue/broker/enterprise deployment.
+- Python 3.12+, FastAPI, SQLite WAL, SQLAlchemy/Alembic, Windows-first local operation.
+- One local codebase/database; loopback dashboard/read/import listener plus optional separate ingest-only listener/process.
+- Long sync/report jobs are explicit idempotent CLI/application-service operations suitable for Windows Task Scheduler.
 - Runtime data/artifacts/secrets live outside Git under a user-scoped data directory.
-- Windows Task Scheduler is the default automation host.
+- No Redis/Celery/Kafka/Postgres/Kubernetes/multi-tenancy without demonstrated need.
 
 ### Data and provenance
 
-- Raw evidence, typed source data, canonical selection, derived analytics, and LLM narrative are separate layers.
+- Raw evidence, typed source data, current/canonical selection, derived analytics and LLM narrative are separate layers.
 - Preserve competing source values and historical revisions.
 - Canonical rules and derived algorithms are versioned/reproducible.
-- Physical device, provider/input method, and measurement algorithm are separate identities.
-- Sleep, stages, activities, intraday series, and context intervals use typed entities rather than one generic EAV table.
-- Missing/unavailable/unknown is never stored or reported as zero.
+- Physical device, provider/input method and measurement algorithm are separate identities.
+- Missing/null/zero/unavailable/unknown are distinct and never collapsed silently.
+- Provider/query family context is not physical-device identity.
 
-### Xiaomi S400
+### Xiaomi S400 / R01
 
-- Preferred live path: S400 → openScale → openScale-sync generic webhook → Health-Check.
-- openScale/openScale-sync remain external GPL-3.0 applications.
-- Webhook is the preferred live acquisition path for the pinned/current contracts because it preserves materially more S400/openScale evidence. This is a transport choice, not a claim that it is canonical truth. Dual-ingesting both paths is forbidden without deterministic deduplication.
-- Xiaomi-app and openScale body-composition algorithms are distinct non-equivalent groups. No crosswalk/calibration exists until an actual overlap study supports a versioned rule.
-- Historical application name/version is evidence-based; unknown is recorded as unknown. Do not assume Mi Fitness when official S400 material points to Xiaomi Home/Mi Home.
-- Photo extraction creates candidates only; human confirmation is distinct from nullable per-field model confidence.
-- openScale-sync insert/update upserts by stable configured sender-instance UUID, user ID, and measurement ID; credential rotation does not change that UUID. A mixed-validity batch durably commits valid items and quarantines invalid items before acknowledging. Delete/clear create tombstones; raw history is not physically deleted.
-- `values[]` presence is authoritative because missing convenience values may appear as numeric zero.
-
-### Weight/body composition analytics
-
-- R01 display trend: daily-median, time-aware EWMA with a 21-day half-life.
-- R01 rate: Theil–Sen slope over the trailing 90 days, requiring at least six observations spanning 42 days.
-- Estimated fat/lean mass uses same-session weight/body-fat inputs and an explicit Health-Check algorithm version.
-- Muscle and lean mass are distinct labels.
-- Recomposition is shown as compatible evidence; R01 does not classify tiny BIA changes as real tissue change.
-- Kalman, LOESS, and STL are not R01 defaults.
-
-### Garmin
-
-- R02 uses pinned `python-garminconnect` `0.3.12`; it does not build another Garmin HTTP client.
-- Current `python-garminconnect` no longer depends on deprecated `garth`.
-- Only read/download methods are allowlisted. Sign-in/MFA is user-assisted; credential state uses Windows-appropriate user-scoped protection and remains outside Git.
-- Garmin sync uses raw retention, idempotency, per-stream coverage, and an explicit trailing reconciliation window.
-- Client endpoint existence is never treated as device capability.
-- Vivoactive 5 Recovery Time is available on the watch but is not promised through Garmin Connect/API for a sole-Vivoactive-5 account.
-- Training Readiness, Training Status, Training Effect, and Acute Load are not treated as Vivoactive 5-produced metrics merely because client schemas expose fields.
-
-#### Owner live evidence snapshot — 2026-09-05
-
-The owner-only R02 discovery spike is now materially verified and no longer wholly `UNVERIFIED`:
-
-- Garmin authentication succeeded on the owner Windows machine and protected session reuse was verified.
-- User-scoped Windows protection for persisted Garmin session state was exercised successfully; implementation agents never received credentials, tokens or raw owner payloads.
-- The bounded capability probe completed at its designed 27-request ceiling for two dates plus one selected activity; retries were disabled and no route/GPS/FIT download was used for the capability decision.
-- Expected metric leaves were observed for sleep summary, sleep score/stages, naps, RHR, HRV, stress, Body Battery, SpO2 and respiration.
-- Training Readiness `score`/`level` was observed as account-level evidence only; `target_device_evidence` remains false.
-- Training Status / Unified Training Status evidence was attributed to `other_device`; endpoint availability is not reclassified as Vivoactive 5 production.
-- VO2 was empty for the selected probe dates.
-- Training Effect and Acute Load leaves were absent on the one selected activity; this remains unknown/selected-activity-specific rather than unsupported-device evidence.
-- Recovery Time remains intentionally not evaluated through the live probe.
-
-This evidence is sufficient to plan production R02 ingestion surfaces, but it does not remove retention/backfill/rate-limit questions or promote account-level/other-device evidence to target-device capability.
-
-### Google Fitbit / OAuth
-
-- R04 targets Google Health API v4 only; legacy Fitbit Web API turn-down is September 2026. Accepted contract: #81 adjudication (`5643609852`) with repository-side correction #82 (`5643533712`, `5643611744`).
-- Request only implemented read scopes `googlehealth.sleep.readonly` and `googlehealth.health_metrics_and_measurements.readonly`; current first-party docs classify all Google Health API scopes as Restricted. Partial consent is a stream capability state.
-- Preserve raw `list` source metadata separately from reconcile/rollup results. `list` / `reconcile` / `rollUp` / `dailyRollUp` and `dataSourceFamily` are acquisition/query context, not stable source identity. `google-wearables` (Fitbit trackers and Pixel Watch), `google-sources`, and `all-sources` are distinct families; ambiguous family aggregates are never labelled as Fitbit-device evidence or used for Garmin/Fitbit device agreement.
-- Operation matrix: sample heart-rate supports `list/reconcile/rollUp/dailyRollUp`; other planned vitals/daily types use `list/reconcile`; sleep uses its documented session operations. Pagination uses `nextPageToken` (sleep cap 25); bounds are inclusive lower / exclusive upper; no reliance on undocumented `list` ordering. History reaches as far back as recorded subject to quotas (300 requests/minute/user; unverified-app aggregate 250 QPS / 100 users) plus Health-Check-owned tighter budgets. Parsers expect documented string-encoded integers; R04 missing data stays missing, never zero.
-- Initial R04 types: sleep; heart rate; HRV + daily HRV; daily resting HR; SpO2 + daily SpO2; respiratory-rate sleep summary + daily respiratory rate.
-- One-user OAuth uses a Web Application / Web Server client per current Google Health product setup (Desktop-client assumption retired): Client ID + Client Secret outside Git under the user runtime secret boundary; fixed registered loopback redirect URI (`localhost` / localhost IP, exact port/path pinned in R04-02); system browser; authorization-code flow with validated one-use CSRF `state`; `access_type=offline` with securely stored refresh token; `prompt=consent` only for initial refresh-token acquisition or deliberate scope-set changes. No Desktop incremental-authorization promise; no universal PKCE requirement for this route unless later provider evidence requires it.
-- One-user automation uses an External, Published/In-production project under the personal-use/unverified exception (unverified warning + 100-user cap; the cap is not the exception definition); Testing 7-day refresh tokens are rejected for routine automation.
-- R04 implements an explicit `google_*` layer reusing the generic evidence/runtime/sync/coverage spine; no reuse of `garmin_*` persistence, no generic provider/EAV framework. R03 analytics stay Garmin-only; cross-source agreement/canonical sleep is R05.
-- Installed-app incremental authorization is not assumed. Scope changes trigger deliberate reauthorization with the complete set.
-- Proprietary Fitbit Sleep Score/Readiness is not exposed by the documented APIs reviewed in R00 and has no documented provider-native identity in the current Health API. Any local/adapted score has a Health-Check/fettle algorithm identity, never a Fitbit/provider identity.
-- fettle OAuth/store are not copied directly; selected Google client/sync/sleep/test semantics are adapted.
-
-### Time, coverage, and agreement
-
-- Store UTC instant plus original local time/offset/zone where available; preserve date-only precision.
-- Sleep belongs to its local wake date.
-- Lag direction is explicit; an evening-X exposure aligns to wake-date-X+1 sleep and morning-X+1 HRV.
-- Coverage is first-class and accompanies analytics/reports.
-- Garmin/Fitbit first exploratory agreement report requires 14 paired nights; a provisional canonical-source decision requires 42 paired nights across at least six weeks plus stability/coverage checks.
-- Agreement uses paired bias/differences, MAE, RMSE, Bland–Altman or robust limits, with correlation secondary. Vendor scores are not treated as equivalent measurements.
-
-### Context, AI, reports, and recovery
-
-- Context is raw free text plus an event/exposure interval and optional suggested/confirmed tags; no mandatory daily diary.
-- Context analysis uses event-aligned/matched-control methods, not a sparse yearly boolean Pearson shortcut.
-- LLM access is typed, bounded, and read-only through application analytics services. The MCP credential cannot mutate settings/imports/context or read raw/config/secret tables.
-- Generic SQL is not a default interface. A future expert mode has a separate read-only database connection, allowlisted views, AST/authorizer and hard limits.
-- A report is computed once, persisted as a versioned evidence packet, then rendered/delivered to dashboard, Telegram, and email.
-- A custom Recovery Score is deferred until accumulated personal data demonstrates a missing decision need.
-
-### License
-
-- Health-Check uses the MIT License from this branch onward.
-- `python-garminconnect` is a direct MIT dependency.
-- MIT/BSD donor code is selective, attributed, and pinned; donor notices/copyright obligations remain applicable when code is incorporated.
-- openScale/openScale-sync are external GPL components; VitaSync is AGPL reference-only; unlicensed `garmin_ai` is reference-only.
-
-## `UNVERIFIED` live items
-
-These are not architecture gaps; they are explicit acceptance probes for the owning release.
-
-### Xiaomi / R01
-
-- Owner's installed openScale/openScale-sync versions, S400 MAC/bind-key flow, profile inputs, bone/BMR choices, and phone-log handling.
-- Real phone-to-laptop webhook envelope and LAN reliability with the installed build.
-- Exact Xiaomi app/version/algorithm behind each historical screenshot.
-- Any numeric Xiaomi/openScale calibration. It must remain absent until paired evidence exists.
-- Whether openScale reliability/timeout information can be recovered outside the current persisted/exported record.
+- Preferred live path remains S400 → openScale → openScale-sync webhook → Health-Check.
+- openScale/openScale-sync remain external GPL applications.
+- Xiaomi-app and openScale body-composition algorithms remain distinct compatibility groups until actual paired evidence supports a versioned calibration.
+- Historical image extraction creates candidates; human confirmation remains distinct from model confidence.
 
 ### Garmin / R02–R03
 
-- MFA-specific branch behavior if the owner account is challenged on a future login; the successful owner login/session-reuse path itself is verified.
-- Endpoint retention depth, practical rate limits and longer-term payload-shape stability during real backfill/incremental sync.
-- Exact nap intervals in owner payloads beyond the summary leaf detected by the bounded probe.
-- Vivoactive 5 `recovery_time` in downloaded ORIGINAL FIT; the current live probe intentionally did not evaluate FIT.
-- VO2 availability outside the selected empty probe dates.
-- Training Effect / Acute Load availability on activities where those leaves are actually produced; absence on the selected activity is not a device-level unsupported verdict.
-- Cycling power/advanced dynamics fields for this device/accessory setup beyond the generic activity evidence already observed.
+- Garmin uses the pinned `python-garminconnect` dependency; no second Garmin HTTP client.
+- Protected owner-assisted auth/session state remains outside Git.
+- Only reviewed read/download semantics are permitted; method existence never proves Vivoactive 5 capability.
+- Garmin ingestion preserves raw/observation/current provenance, explicit coverage and separated incremental/historical checkpoints.
+- Current collection reconciliation is deterministic under accepted authoritative/partial semantics; parser/reconciliation upgrades are explicit and version-aware.
+- R03 analytics consume reviewed metric/time identities and immutable evidence manifests; UI does not reimplement statistics.
+- Garmin-native scores remain provider-native and are not relabelled as a Health-Check readiness/recovery score.
 
-### Google Fitbit / R04
+Post-R04 maintenance #98 may evaluate `python-garminconnect` 0.3.12 → 0.3.15. It is maintenance, not an R04/R05 semantic dependency unless current evidence proves otherwise.
 
-- Successful owner-project Google Health v4 enablement and the exact live data types populated by Fitbit Air.
-- Cloud Console setup and displayed scope classification/evidence for the two R04 read scopes.
-- Successful Web Application client authorization with the chosen exact fixed localhost callback; full authorization-code exchange.
-- Client-secret/refresh-token protection and actual Published/In-Production token behavior; long-lived refresh behavior over more than seven days in the owner's personal-use project.
-- Real `dataSource`/`platform`/device metadata sufficient or insufficient for Fitbit attribution.
-- Real envelope/pagination/string-number shapes for a bounded owner sample.
-- Live sleep-stage/HRV/RHR/SpO2 semantics and backfill depth for the owner account.
-- Longer-term provider correction/late-arrival behavior where current docs remain silent.
-- Verification/audience policy behavior at implementation time; Google policy is external and may change.
+### Google Health / R04
 
-### Agreement / later releases
+R04 is released. Current accepted contract:
 
-- Whether Fitbit should become canonical for any sleep metric; only paired data can decide.
-- Firmware/app/algorithm change points that require separate agreement epochs.
-- Travel/timezone edge cases observed in real history.
+- Google Health API v4 only; no new legacy Fitbit Web API implementation.
+- OAuth uses a **Web Application / Web Server** client with a fixed exactly registered loopback callback.
+- Client secret/token/session material stays outside Git in the external owner runtime and uses Windows user-scoped DPAPI protection.
+- Exactly two read scopes are requested in R04: sleep read-only and health metrics/measurements read-only.
+- Owner Google Auth Platform is `In production`, External; fresh protected re-consent and immediate session reuse were proven.
+- `list`, `reconcile`, `rollUp`, `dailyRollUp` and `dataSourceFamily` are acquisition/query context, not stable source identity.
+- `google-wearables` includes more than one possible Google wearable class and is **not** automatic Fitbit-device proof.
+- Explicit persisted provider/device metadata is required for a physical-device claim.
+- Raw/list source metadata stays separate from family aggregate/reconciled/rollup results.
+- Planned R04 types are sleep, heart rate, HRV/daily HRV, daily resting HR, SpO2/daily SpO2, respiratory-rate sleep summary and daily respiratory rate.
+- Pagination follows `nextPageToken`; sleep page size is bounded; time windows are inclusive-lower / exclusive-upper; undocumented list ordering is never assumed.
+- Historical/incremental/refresh namespaces are distinct.
+- Exact completed-window rerun may skip the provider entirely when coverage proves no work remains.
+- Explicit bounded refresh may re-fetch completed coverage to discover provider corrections while preserving immutable prior evidence.
+- Missing/null/zero/confirmed-empty remain distinct.
+- Unknown provider shapes remain fail-closed.
+
+#### Live terminal-envelope decision from #110
+
+Live owner evidence proved one terminal HTTP-200 LIST shape where the top-level object omitted both `dataPoints` and `nextPageToken`. Under current ProtoJSON semantics, an empty repeated field may be omitted.
+
+Accepted repair is intentionally narrow:
+
+- LIST/RECONCILE + **missing collection** + **no usable next-page token** => complete empty terminal page;
+- missing collection + usable token continues pagination;
+- array collection behaves under normal complete/continue rules;
+- `null`, object, string, number, boolean or other malformed collection shapes remain invalid/fail-closed;
+- rollup shapes are not broadened by this repair.
+
+The live repaired window completed and its exact rerun made 0 provider calls.
+
+### R05 agreement / canonical sleep
+
+Frozen design from #97:
+
+- sleep is paired by local wake date;
+- one main overnight session per source/date; naps excluded from overnight pairing;
+- ambiguous multiple-main sessions fail closed;
+- `device_pair` requires explicit persisted physical/provider metadata sufficient to qualify the intended Fitbit device/source;
+- `family_pair` from `google_wearables_family` is exploratory only and cannot drive a canonical-source switch;
+- manual Google-edited evidence may be exploratory but is excluded from the strong 42-night canonical gate;
+- comparable sleep metrics are projected separately; provider scores are display-only and are not compared as equivalent measurements;
+- difference convention: `google - garmin`;
+- agreement statistics: N, bias, MAE, RMSE, Bland–Altman limits and robust summaries; association is secondary;
+- exploratory gate: 14 paired nights;
+- provisional canonical-source decision: 42 valid `device_pair` nights across at least six weeks plus coverage/stability checks;
+- canonical default remains Garmin until a reviewed versioned per-metric rule explicitly changes it;
+- no automatic canonical switch from N, correlation or coverage alone;
+- R05 may close successfully without a canonical-source change if the evidence is still insufficient.
+
+### Time, coverage and agreement
+
+- Store UTC instant when valid plus original local time/offset/zone when available; preserve date-only/local-only precision rather than inventing UTC.
+- Sleep belongs to its local wake date.
+- Lag direction is explicit.
+- Coverage accompanies every non-trivial analytic/report result.
+- Associations are exploratory and never causal/medical claims.
+
+### AI / reports / context
+
+- LLM access is typed, bounded and read-only through application analytics services.
+- Generic unrestricted SQL is not the default AI interface.
+- Reports are computed from deterministic/versioned evidence before rendering/delivery.
+- Context is a raw free-text event/exposure interval with optional suggested/confirmed tags; no mandatory daily diary.
+
+### License
+
+- Health-Check is MIT.
+- `python-garminconnect` is an MIT dependency.
+- External GPL/AGPL projects remain external/reference-only unless their licensing obligations are explicitly accepted.
+- Donor code/pattern reuse is pinned and reviewed at exact source versions.
+
+## Remaining `UNVERIFIED` / open observations
+
+These are observational gaps, not reasons to rewrite released architecture.
+
+### Xiaomi / R01
+
+- Real owner phone-to-laptop openScale/openScale-sync reliability across long routine operation remains only partially owner-observed.
+- Exact algorithm/application identity behind every historical screenshot may remain unknown where the screenshot itself does not prove it.
+- No Xiaomi↔openScale numeric body-composition calibration exists without paired evidence.
+
+### Garmin / R02–R03
+
+- MFA-specific branch behavior if a future login actually triggers MFA.
+- Longer-term provider payload-shape drift and retention boundaries beyond released owner evidence.
+- Recovery Time / some advanced activity/device fields remain intentionally outside released claims unless separately proven.
+- Whether the 0.3.15 dependency upgrade is still worthwhile must be re-evaluated against current main/upstream under #98.
+
+### Google Health / R04
+
+- Refresh-token durability across a long elapsed interval remains observationally `UNVERIFIED`; immediate protected reuse/refresh and In-Production status are proven.
+- Longer-term provider late-correction frequency/policy remains observational rather than assumed.
+- Exact physical-device attribution may differ per record/surface; R05 must inspect persisted metadata rather than promote family membership.
+- Provider policy/documentation may evolve and must be re-read when behavior or scopes materially change.
+
+### R05 / agreement
+
+- Whether enough explicit Fitbit-attributed sleep evidence exists for `device_pair` qualification.
+- Whether 14-night exploratory coverage can be reached without family-only/manual exclusions dominating.
+- Whether any sleep metric reaches the stronger 42-night/stability gate.
+- Whether Fitbit/Google should replace Garmin as canonical for any metric; this is intentionally unresolved until evidence exists.
+- Firmware/app/algorithm change points may require separate agreement epochs.
 
 ## Deferred owner choices
 
-1. **Email transport.** Pick SMTP/application password or a provider API in R07 based on the owner's account and Windows reliability.
-2. **External AI provider/deployment.** The evidence-packet/tool contract is provider-neutral; select a model/provider when the AI release begins.
-3. **Recovery Score.** Decide only after R05+ data and a written unmet use case.
-4. **Advanced remote access.** Keep loopback/local by default; design remote MCP/API exposure only with an explicit threat model and need.
+1. **Email transport:** choose SMTP/application password vs provider API in R07.
+2. **External AI provider/deployment:** choose when the typed AI release begins.
+3. **Recovery Score:** decide only after R05+ evidence demonstrates a concrete need.
+4. **Advanced remote access:** remain local/loopback by default until a threat model and need exist.
 
 ## Change protocol
 
-Any change to an architecture invariant must cite new primary evidence, identify affected releases/data migrations, and update the R00 audit or add an ADR. A donor README, a method name, or a plausible model answer is not sufficient.
+Any change to an architecture invariant must cite new primary evidence, identify affected releases/migrations and update the owning contract/ADR. A donor README, method name or plausible model answer is not sufficient evidence.

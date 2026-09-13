@@ -2,7 +2,7 @@
 
 ## Product definition
 
-Health-Check is a **single-user, local-first personal health observatory** for one person using a Windows laptop. It combines long-term source evidence, reproducible analytics, life context, and later laboratory data. A visual dashboard and a conversational AI/LLM interface are equal product surfaces over the same deterministic evidence.
+Health-Check is a **single-user, local-first personal health observatory** for one person using a Windows laptop. It combines long-term source evidence, deterministic/reproducible analytics, life context, and later laboratory data. A visual dashboard and a conversational AI interface are equal product surfaces over the same evidence layer.
 
 Health-Check is not:
 
@@ -10,40 +10,64 @@ Health-Check is not:
 - a workout generator or daily wearable dashboard replacement;
 - a mandatory diary or nutrition tracker;
 - a medical diagnosis or treatment system;
-- a universal wearable integration platform.
+- a universal wearable-integration framework.
 
-Local-first means simple ownership, reproducibility, and operation. It is not an absolute prohibition on sending explicitly selected data or compact evidence packets to an external LLM.
+Local-first means the owner controls the runtime, provenance and history. It does not prohibit explicitly selected compact evidence packets from being sent to an external model later.
 
 ## Priority and current outcome
 
-The priority order is fixed:
+Product priorities remain:
 
-1. **Weight and body composition.** The configurable personal target belongs in runtime data outside Git; the product goal is to reduce estimated fat while preserving lean/muscle mass and observe recomposition at similar weight.
-2. **Sleep.** Understand long-term change and links with activity, context, and recovery.
-3. **Physical activity and fitness.** Preserve activities and make cycling comparisons useful.
+1. **Weight and body composition.** Observe sustainable trend/recomposition while preserving provenance and algorithm boundaries.
+2. **Sleep.** Understand long-term change and compare sources honestly.
+3. **Physical activity and fitness.** Preserve activities and make cycling/session comparison useful.
 4. **Recovery and general wellbeing.** Interpret source metrics without inventing a premature universal score.
 
-R01 therefore starts with weight and body composition while building the provider-neutral core needed by Garmin and Fitbit. It is one Health-Check product, not a separate weight application.
+The product has now moved beyond its first slices:
+
+- R01 established the local runtime and weight/body-composition vertical slice;
+- R02 added production Garmin ingestion/backfill;
+- R03 added deterministic Garmin analytics and owner dashboard;
+- R04 added production Google Health API v4 ingestion with owner-live OAuth/sync/backfill/refresh proof.
+
+The next major product step is **R05 cross-source sleep agreement**, not another ingestion framework.
 
 ## Sources
 
-- Xiaomi Body Composition Scale S400: historical screenshots/photo import and an openScale/openScale-sync live path.
-- Garmin Vivoactive 5 / Garmin Connect: later automated history, health metrics, activities, and device-specific scores where the account actually provides them.
-- Google Fitbit Air: later Google health-data integration; sleep is a candidate preferred source only after paired comparison with Garmin.
-- Free-text context: short events or exposure intervals entered through dashboard or Telegram.
-- Later: laboratory results and other personal health documents.
+- **Xiaomi Body Composition Scale S400:** historical screenshot/photo import and openScale/openScale-sync live path.
+- **Garmin Vivoactive 5 / Garmin Connect:** released ingestion, historical backfill, deterministic analytics and owner dashboard.
+- **Google Health API v4:** released ingestion for sleep and supported health metrics/measurements, with preserved source/device metadata and explicit source-family semantics.
+- **Google wearable / Fitbit evidence:** eligible for R05 device-level agreement only when persisted metadata explicitly supports the intended Fitbit/device attribution. Broader `google-wearables` family evidence remains family-level, not automatically Fitbit-device evidence.
+- **Free-text context:** later short events/exposure intervals through dashboard/Telegram.
+- **Later:** laboratory results, medications/supplements and personal health documents.
 
-Every source value remains available. A canonical rule may select one value for a particular metric and period, but selection never deletes competing evidence.
+Every source value remains available. A canonical rule may select one value for one metric/period, but selection never deletes competing evidence.
+
+## Current product question: which sleep source should we trust for which metric?
+
+R05 answers this empirically and per metric. It does not start by assuming Garmin or Fitbit is universally better.
+
+The intended flow is:
+
+1. pair eligible overnight sessions by local wake date;
+2. project only genuinely comparable sleep metrics;
+3. calculate versioned agreement statistics over immutable evidence;
+4. show source overlays and disagreements;
+5. consider a reversible per-metric canonical-source rule only after enough explicit device-attributed evidence exists.
+
+The exploratory gate is 14 paired nights. A provisional canonical-source decision requires 42 valid device-pair nights across at least six weeks plus coverage/stability checks. Correlation alone is never enough.
 
 ## Core usage modes
 
 ### Automatic reviews
 
-- Sunday weekly review.
-- Month-end review on the last calendar day.
-- Annual review at year end.
+Planned recurring reviews remain:
 
-Each review is computed once from a versioned evidence packet, retained in the dashboard archive, and rendered for Telegram and email. Missing coverage is part of the report. A daily briefing is not currently needed.
+- Sunday weekly review;
+- month-end review;
+- annual review.
+
+Each review will be computed from deterministic evidence, then rendered to dashboard/Telegram/email. Missing coverage remains part of the result, not something hidden by prose.
 
 ### Ad-hoc investigation
 
@@ -55,41 +79,42 @@ The user should be able to ask questions such as:
 - Compare recent bicycle rides.
 - How are sleep and activity related?
 - What happened around travel, alcohol, illness, stress, or poor sleep?
-- How far apart are Garmin and Fitbit?
-- What changed over a year?
+- How far apart are Garmin and Google/Fitbit sleep estimates?
+- Which source is currently more stable for a given metric?
 
-Typed analytics tools compute summaries, comparisons, agreement, trends, coverage, and provenance. The LLM explains those results, highlights uncertainty, and suggests practical next steps. It does not calculate years of raw samples or diagnose disease.
+Typed analytics services compute summaries, comparisons, agreement, trends, coverage and provenance. The LLM explains those results and uncertainty; it does not calculate years of raw samples or diagnose disease.
 
 ## Life context without diary friction
 
-The primary object is an event/exposure interval, not a boolean daily questionnaire. The system stores the user's original words, time or date range, capture source, and optional tags. Suggested dates/tags may be accepted or corrected; an unambiguous note should be saved without a confirmation ritual for every tag.
+The primary context object is an event/exposure interval, not a mandatory daily questionnaire. The system stores the user's original wording, time/date range, capture source and optional tags. Unambiguous notes should be cheap to capture; ambiguity may trigger a small confirmation step.
 
-Primary capture paths are dashboard and Telegram. Obsidian is optional later and is not a canonical store. Detailed calorie/macronutrient tracking remains outside the first releases; relevant food or alcohol can be context events.
+Dashboard and Telegram are the intended primary capture paths. Obsidian is optional and not a canonical health store.
 
-## Evidence and health-safety principles
+## Evidence and safety principles
 
 - Preserve raw evidence where practical and always preserve source provenance.
-- Keep physical device, provider/input method, and measurement algorithm distinct.
+- Keep physical device, provider/input method and measurement algorithm distinct.
 - Do not silently compare or merge body-composition series produced by different algorithms.
-- Prefer trends and repeated observations over a single BIA reading.
-- Treat consumer BIA outputs as estimates, not lab measurements.
+- Do not label source-family aggregates as a specific device without explicit metadata.
+- Prefer repeated observations and agreement over single measurements.
+- Treat consumer BIA/wearables as observational instruments, not clinical truth.
 - Treat association as exploratory evidence, not causation.
-- Expose coverage, freshness, disagreement, and confidence alongside conclusions.
-- Represent unavailable evidence as unavailable, never as zero.
+- Expose coverage, freshness, disagreement and computability alongside conclusions.
+- Represent unavailable/missing evidence honestly; never convert it to zero.
 - Keep proprietary provider scores separate from Health-Check-derived metrics.
-- Require human confirmation before uncertain image extraction becomes a measurement.
-- Permit historical reprocessing under new parsers or canonical rules without destroying original evidence.
+- Permit historical reprocessing under new parser/canonical versions without destroying prior evidence.
+- Keep owner secrets, raw payloads and private runtime data outside Git and worker environments.
 
 ## Product boundaries
 
-Dashboard and AI are equal interfaces, but they do not need to arrive in the same release. The dashboard starts in R01. The read-only typed AI/MCP interface follows once several useful deterministic analytics tools exist. Telegram and email are delivery adapters, not analytics dependencies.
+Dashboard and AI are equal interfaces, but analytics truth lives below both. UI/LLM code must not become a second mathematics engine.
 
-No custom Health-Check Recovery Score is scheduled until enough cross-source personal data exists and a concrete unmet need is demonstrated. Any future score must be versioned, transparent, component-attributed, and explicitly non-medical.
+No custom Health-Check Recovery Score is scheduled until R05+ evidence demonstrates a concrete unmet need. Any future score must be transparent, versioned, component-attributed and explicitly non-medical.
 
 ## Future personal health record
 
-Later releases may ingest bloodwork, vitamin/mineral panels, and medical/laboratory documents. The original document stays linked to confirmed structured results, including analyte, result, unit, date, source, and lab-provided reference range. External vision/LLM extraction is permitted, but uncertain fields require confirmation and unsupported diagnoses remain out of scope.
+Later releases may ingest bloodwork, vitamin/mineral panels, medications/supplements and medical/laboratory documents. Original documents remain linked to confirmed structured results. Extraction may use external vision/LLM tools, but uncertain fields require confirmation and unsupported diagnosis remains out of scope.
 
 ## Repository rule
 
-Code, schemas, tests, and synthetic fixtures belong in Git. Real health data, screenshots, raw payloads, tokens, databases, reports, and personal documents do not.
+Code, schemas, tests, synthetic fixtures and sanitized engineering evidence belong in Git. Real health data, screenshots, raw provider payloads, credentials/tokens, databases, generated reports and personal documents do not.

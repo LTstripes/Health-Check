@@ -1,17 +1,36 @@
 # Health-Check
 
-Health-Check is a single-user, local-first personal health observatory. It keeps source evidence from several devices, computes reproducible analytics on a Windows laptop, and exposes the same evidence through a local dashboard and an AI/LLM interface.
+Health-Check is a single-user, local-first personal health observatory for a Windows laptop. It preserves source evidence from personal devices, turns it into reproducible deterministic analytics, and exposes the same evidence through local dashboards and later bounded AI tools.
 
-It is not a SaaS product, workout planner, medical diagnostic system, or replacement for Garmin/Fitbit/Xiaomi daily apps.
+It is not a SaaS product, medical diagnostic system, workout planner, or replacement for Garmin / Google Health / Xiaomi daily apps.
 
-## Product priorities
+## What is released now
 
-1. Weight and body composition.
-2. Sleep.
-3. Physical activity and fitness, especially cycling.
-4. Recovery and general wellbeing.
+Canonical source: `main`.
 
-Planned sources are Garmin Vivoactive 5, Google Fitbit Air through the applicable Google health-data interface, Xiaomi Body Composition Scale S400, and free-text life-context events. Laboratory results and other personal health documents are later work.
+- **R01 — Weight & Body Composition:** Xiaomi screenshot/photo import, openScale/openScale-sync contract, provenance, canonical selection, conservative body-composition analytics, local dashboard, backup/restore.
+- **R02 — Garmin ingestion/backfill:** protected owner session reuse, typed Garmin persistence, bounded incremental sync, resumable historical backfill, coverage/checkpoints and exact-rerun idempotency.
+- **R03 — Garmin analytics/dashboard:** deterministic personal baselines/trends, activity comparison, lagged associations, provider-native metric presentation, reproducible evidence manifests and owner-facing read-only Garmin UI.
+- **R04 — Google Health ingestion:** Google Health API v4 OAuth, protected session storage, source-aware typed persistence, bounded incremental sync/backfill/refresh, coverage/checkpoints, privacy-safe diagnostics and live owner verification.
+
+R04 release lineage:
+
+- release candidate: `406f4044ffb0d010c64a8635d402016ae916fc5a`
+- release PR: #114
+- release merge: `bb5776e98d259cb6256c95bd49d400dc1238af61`
+- post-merge `main` CI: `34768452960` — SUCCESS
+- closeout: [R04 Release Closeout](docs/R04_RELEASE_CLOSEOUT.md)
+
+The final R04 owner gate also proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations.
+
+## Current focus
+
+R04 is complete. The next phase is deliberately split:
+
+1. bounded post-R04 maintenance/hardening where justified (#98 / #99);
+2. **R05 — Garmin / Google wearable agreement and canonical sleep**, using the frozen design from #97 and implementation issues #100–#106.
+
+R05 must stay attribution-conservative: `google-wearables` family evidence is not automatically Fitbit-device evidence. A device-level agreement cohort requires explicit persisted source/device metadata.
 
 ## Architecture in one minute
 
@@ -19,105 +38,82 @@ Planned sources are Garmin Vivoactive 5, Google Fitbit Air through the applicabl
 provider payloads / photos / context
                 |
                 v
-raw evidence -> typed source records -> versioned canonical selection
-                                      |
-                                      v
-                         deterministic analytics
-                                      |
-                                      v
-                  evidence packets and saved reports
-                         /                    \
-                  dashboard              read-only AI
+immutable raw evidence
+                |
+                v
+typed source records + source/device/provenance
+                |
+                v
+versioned current/canonical selection
+                |
+                v
+deterministic analytics + coverage + agreement
+                |
+                v
+versioned evidence packets
+          /                     \
+   local dashboard          bounded read-only AI
 ```
 
-- Runtime: Python 3.12+, FastAPI, SQLite in WAL mode, and a small Windows-first local service.
-- Android: openScale and openScale-sync remain external GPL applications for the S400 path.
-- Source-specific values are retained even when another source becomes canonical.
-- Physical device, provider/input method, and measurement algorithm are separate identities.
-- Xiaomi-app and openScale body-composition values are not silently joined into one curve.
-- Analytics, coverage, and source agreement are calculated deterministically; every confidence value states whether it is rule-derived, model-reported, or human-confirmed and is never invented. The LLM explains compact structured evidence.
-- Weekly, month-end, and annual reports share one report model and are rendered for dashboard, Telegram, and email.
+Core rules:
 
-## Current status
+- runtime: Python 3.12+, FastAPI, SQLite WAL, Windows-first local operation;
+- real runtime data, provider credentials, raw payloads, screenshots, databases and generated reports stay outside Git;
+- physical device, provider/input method and measurement algorithm are separate identities;
+- source-specific evidence survives canonical selection and later reprocessing;
+- missing / null / zero / unavailable / unknown stay distinct;
+- analytics, coverage and agreement are deterministic and versioned; the LLM explains compact evidence rather than doing raw-series mathematics;
+- provider-specific ingestion remains explicit (`garmin_*`, `google_*`) over shared runtime/evidence primitives rather than a generic EAV/provider framework.
 
-**R01 — Weight & Body Composition is released to canonical `main`.** It provides the reusable local runtime/core, historical Xiaomi screenshot import with owner confirmation and provenance, the isolated openScale-sync ingest contract, conservative deterministic weight/body-composition analytics, the local dashboard, owner UAT tooling, and safe local profile backup/restore. The default local listeners are UI `127.0.0.1:8120` and optional ingest `127.0.0.1:8121`, with explicit overrides still supported.
+## Google Health / R04 notes
 
-**R02 — Garmin ingestion and historical backfill is released to canonical `main`.** It provides owner-assisted protected Garmin session reuse, capability/normalization/persistence contracts, incremental sync, bounded resumable historical backfill, explicit coverage semantics, separate historical/incremental checkpoints, and exact completed-rerun idempotency. The owner release gate proved a completed historical range reruns with zero provider requests and unchanged persisted counts, followed by a successful normal incremental sync. Stable release SHA: `d3b2fa316242ac11a7ba5851fdc99656cdf8e534`; full sanitized evidence is in [R02 Release Closeout](docs/R02_RELEASE_CLOSEOUT.md).
+R04 uses Google Health API v4 only and exactly the accepted read scopes for sleep and health metrics/measurements. OAuth uses a Google Web Application client with a fixed registered loopback callback; protected client/token/session state lives only in the external Windows runtime.
 
-**Current planning focus: pre-R03 hardening.** Complete #56 (collection reconciliation and version-aware reprocessing) and then #55 (metric/time/analytic-coverage contract plus reproducible evidence manifests) before deterministic R03 Garmin analytics consumes the released ingestion data. Fitbit ingestion, a custom Recovery Score, and full Telegram/email delivery remain later work.
+Live owner acceptance proved bounded capability, incremental sync, resumable pagination, exact completed-window zero-call rerun, historical backfill and explicit bounded refresh. A real terminal HTTP-200 envelope with omitted empty repeated fields was repaired narrowly under #110; malformed/null/non-array variants remain fail-closed.
+
+Source identity remains conservative. Query mode and `dataSourceFamily` are acquisition context, not device identity. Broader wearable-family evidence must not be labelled Fitbit-device evidence without explicit metadata.
 
 ## Local bootstrap
 
 Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
-From a clean checkout, run:
-
 ```powershell
-uv sync
+uv sync --locked
 uv run ruff check .
 uv run pytest
 ```
 
-The canonical Windows launcher prepares the external runtime, applies the checked-in Alembic migrations to SQLite with WAL/foreign-key pragmas, and starts the loopback listener on `127.0.0.1:8120`:
+Start the canonical Windows runtime:
 
 ```powershell
 .\scripts\start.ps1
 ```
 
-Use `-DataDir C:\Temp\Health-Check` for a temporary runtime directory. Set `-EnableIngest` to start the separate liveness-only ingest listener on `-IngestHost`/`-IngestPort`; it has no UI, import, settings, or product routes. The same operations are directly callable with `uv run python -m healthcheck.cli prepare-runtime`, `migrate`, or `serve --app ui|ingest`.
+Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HEALTHCHECK_DATA_DIR`.
 
-Runtime state defaults to `%LOCALAPPDATA%\Health-Check` and can be overridden with `HEALTHCHECK_DATA_DIR`. No health data, provider credentials, payloads, images, logs, database, or generated reports belong in the repository.
+No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository.
 
-### Real Xiaomi photo extraction
+## Canonical documentation
 
-The normal UI uses the configured real-image extractor. Configure the endpoint
-and model through environment variables before an explicit photo upload or
-reprocess action:
-
-```powershell
-$env:HEALTHCHECK_PHOTO_VISION_BASE_URL = "https://vision.example.invalid/v1"
-$env:HEALTHCHECK_PHOTO_VISION_MODEL = "your-vision-model"
-$env:HEALTHCHECK_PHOTO_VISION_API_KEY = $env:VISION_PROVIDER_SECRET
-```
-
-The endpoint is OpenAI-compatible and receives one image plus a strict R01
-photo schema request. The API key is never written to the repository,
-runtime config, logs, or review UI. If the endpoint/model is not configured,
-the import remains replayable and returns a sanitized
-`extractor_not_configured` diagnostic; the synthetic fake is used only by
-explicit tests and the synthetic demo helper. No provider call is made by
-health checks or read-only pages.
-
-## Canonical product documentation
-
+- [Project Wiki / current state](docs/PROJECT_WIKI.md)
 - [Product Vision](docs/PRODUCT_VISION.md)
-- [Final Architecture](docs/ARCHITECTURE.md)
-- [R00 Final Architecture Audit](docs/audits/R00_FINAL_ARCHITECTURE.md)
-- [R01 Implementation Spec](docs/R01_IMPLEMENTATION_SPEC.md)
-- [R01 Release Closeout](docs/R01_RELEASE_CLOSEOUT.md)
-- [R02 Capability Contract](docs/R02_CAPABILITY_CONTRACT.md)
-- [R02 Normalization Contract](docs/R02_NORMALIZATION_CONTRACT.md)
-- [R02 Persistence Contract](docs/R02_PERSISTENCE_CONTRACT.md)
-- [R02 Release Closeout](docs/R02_RELEASE_CLOSEOUT.md)
-- [Local profile backup and restore](docs/PROFILE_BACKUP.md)
-- [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)
+- [Architecture](docs/ARCHITECTURE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
-- [Backlog Ideas](docs/BACKLOG_IDEAS.md)
+- [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
+- [Verbose historical execution log](docs/EXECUTION_HISTORY.md)
+- [R04 Release Closeout](docs/R04_RELEASE_CLOSEOUT.md)
+- [R04 Google persistence contract](docs/R04_GOOGLE_PERSISTENCE_CONTRACT.md)
+- [R03 analytic input contract](docs/R03_ANALYTIC_INPUT_CONTRACT.md)
+- [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)
+- [Development Process](docs/DEVELOPMENT_PROCESS.md)
+- [Model Routing](docs/MODEL_ROUTING.md)
+- [Agent Orchestration](docs/AGENT_ORCHESTRATION.md)
 
-## Engineering workflow
+## Safety
 
-All coding/review agents must start with [AGENTS.md](AGENTS.md).
-
-- [Development Process](docs/DEVELOPMENT_PROCESS.md) — owner/integrator/worker flow, integration branches, local workspace roots, review/UAT and logging.
-- [Model Routing](docs/MODEL_ROUTING.md) — task complexity and executor/reviewer recommendations.
-- [Execution History](docs/EXECUTION_HISTORY.md) — durable history of implementations, failures, decisions and model attribution for retrospectives.
-- Client-specific worker adapters live under `docs/agents/`.
-
-## Safety and repository hygiene
-
-Real health data, screenshots, databases, provider responses, tokens, credentials, reports, and laboratory documents must never be committed. Consumer wearables and BIA scales are observational tools, not clinical instruments; Health-Check must expose uncertainty and must not present associations as diagnoses or causation.
+Health-Check is an observational personal system. Consumer wearables and BIA scales are not clinical instruments. The product exposes uncertainty, coverage and source disagreement and must not present association as diagnosis or causation.
 
 ## License
 
-Health-Check is licensed under the [MIT License](LICENSE). Reused donor code must still retain any attribution/notices required by its own license and be reviewed at the exact reused source commit.
+Health-Check is licensed under the [MIT License](LICENSE). External donor/library license obligations still apply at the exact reused source version.

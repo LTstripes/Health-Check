@@ -1,156 +1,194 @@
 # Health-Check Roadmap
 
-The roadmap follows usable vertical slices. Each release adds value on the Windows laptop without requiring enterprise infrastructure or discarding source evidence.
+The roadmap is organized as usable vertical releases. Each release must work locally on Windows, preserve source evidence, and remain reproducible without live provider access in CI.
 
-Future ideas that are intentionally not committed to a release yet live in [Backlog Ideas](BACKLOG_IDEAS.md).
+Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md).
 
-**Current planning focus:** R01 and R02 are released to stable `main`. Before R03 analytics begins, complete pre-R03 hardening in order: #56 collection reconciliation/version-aware reprocessing, then #55 metric/time/analytic-coverage and reproducible evidence-manifest contract. After those two foundations are accepted, start deterministic Garmin analytics and activity comparison in R03.
+## Current state
+
+Released to canonical `main`:
+
+- **R01** — Weight & Body Composition
+- **R02** — Garmin ingestion and historical backfill
+- **R03** — deterministic Garmin analytics and owner dashboard
+- **R04** — Google Health API v4 ingestion, sync/backfill/refresh and owner-live release proof
+
+R04 release closeout: [R04_RELEASE_CLOSEOUT.md](R04_RELEASE_CLOSEOUT.md).
+
+**Current planning focus: post-R04 maintenance + R05.**
+
+Before or alongside the first R05 implementation slice, finish only bounded post-R04 work that remains justified:
+
+- **#98** — evaluate the bounded `python-garminconnect` 0.3.12 → 0.3.15 maintenance upgrade after re-reading current `main` and upstream;
+- **#99** — investigate the known order-sensitive OAuth test/global-state leak; fix only if the defect can be reproduced and minimized without masking it.
+
+R05 design is already frozen by #97. Runtime implementation issues #100–#106 start only from released canonical `main` and must respect the exact dependency gates recorded in those issues.
 
 ## R00 — Final architecture (complete)
 
-Outputs:
+Delivered:
 
-- pinned donor/source and license review;
-- final runtime, data, analytics, AI, and report boundaries;
-- device/API uncertainty called out rather than guessed;
-- exact R01 implementation and acceptance contract.
+- product boundary and source-priority decisions;
+- local-first Python/FastAPI/SQLite architecture;
+- provenance/canonical/coverage rules;
+- donor/license audit and exact-source discipline;
+- first implementation contracts.
 
-No product code or production data is part of R00.
+## R01 — Weight & Body Composition (released)
 
-## R01 — Weight & Body Composition vertical slice (released)
+Delivered the reusable core and first useful product slice:
 
-Delivered the first useful product and the reusable Health-Check core:
+- local runtime and migrations;
+- Xiaomi historical screenshot/photo import with confirmation and provenance;
+- openScale/openScale-sync live contract;
+- canonical selection and sparse coverage;
+- deterministic weight/body-composition analytics;
+- local dashboard and safe profile backup/restore.
 
-- Python/FastAPI local application, configuration, SQLite WAL, and migrations;
-- provider/device/input/algorithm provenance model;
-- raw artifact/import records, typed scalar measurements, canonical rule v1, and coverage v1;
-- batch Xiaomi screenshot/photo extraction into editable candidates with explicit confirmation;
-- openScale-sync-compatible authenticated webhook and idempotent ingestion;
-- raw weight, time-aware trend, robust rate, compatible body-composition series, estimated fat/lean mass, and recomposition view;
-- minimal local dashboard with provenance, coverage, import history, and algorithm-discontinuity warnings;
-- synthetic offline tests.
-
-The mandatory R01 owner gate passed on integrated candidate `058639919c4b5e13c420e7c016d292843afa10dc`. Final closeout evidence, including owner-assisted historical Xiaomi migration and explicit UNVERIFIED live-device/provider items, is recorded in [R01 Release Closeout](R01_RELEASE_CLOSEOUT.md).
-
-R01 release PR #40 merged to stable `main`; R01 tracker #13 is closed. Garmin, Fitbit, Recovery Score, full Telegram/email delivery, and unrestricted AI/SQL remained outside R01.
-
-### Post-R01 bounded follow-ups
-
-After R01 release, accepted bounded hardening/polish work was revalidated against the then-current stable line rather than merged blindly from stale branches. Those follow-ups are historical and do not reopen R01.
+See [R01 Release Closeout](R01_RELEASE_CLOSEOUT.md).
 
 ## R02 — Garmin ingestion and backfill (released)
 
-R02 delivered the production Garmin acquisition layer:
+Delivered:
 
-- owner-assisted initial sign-in/MFA and durable protected token/session storage outside Git;
-- capability contracts that distinguish available client methods from actual owner device/account evidence;
-- raw/source payload observations with immutable acquisition and normalization provenance;
-- typed daily/sleep/activity/intraday normalization and persistence;
-- incremental sync with bounded trailing-window resync;
-- bounded historical backfill with request caps, resumability and coverage-driven skipping;
-- explicit `present`, `confirmed_empty`, `unknown` and failure/unavailable semantics;
-- historical/incremental checkpoint isolation;
+- protected owner-assisted Garmin session reuse;
+- reviewed capability, normalization and persistence contracts;
+- typed Garmin current/source/observation records;
+- incremental sync and trailing reconciliation;
+- bounded resumable historical backfill;
+- explicit coverage/checkpoint namespaces;
 - exact completed-rerun idempotency and privacy-safe owner diagnostics.
 
-Historical lineage was deliberately reconstructed onto a fresh `integration/r02-garmin` after R01 release rather than merging the earlier diverged preparation stack directly. The accepted preparation layers were #28, #29, #30, #31 and #36.
+The owner release gate exposed real-provider convergence defects that synthetic CI had not proven; focused repairs were integrated before release.
 
-The owner release gate #52 found several real-provider convergence defects that green synthetic CI had not proven. Focused repair rounds #53, #57 and #59 were integrated into the R02 line and the same external owner runtime was resumed rather than reset.
+See [R02 Release Closeout](R02_RELEASE_CLOSEOUT.md).
 
-Final release evidence proved:
+## R03 — Garmin analytics and activity comparison (released)
 
-- historical backfill `succeeded`;
-- exact rerun of completed historical coverage made `0` provider requests and left persisted current/observation counts unchanged;
-- normal incremental `garmin-sync` succeeded afterward;
-- historical and incremental checkpoint namespaces remained isolated;
-- privacy gate passed with no private Garmin evidence entering Git/CI/issues.
+Delivered the first deterministic owner analytics layer over R02 evidence:
 
-R02 release PR #61 merged accepted integration SHA `aea777e418d8d16c275a860c31b11c72641a73e6` to stable `main`. Released stable SHA: `d3b2fa316242ac11a7ba5851fdc99656cdf8e534`. Release PR CI `34049514818` and exact post-merge `main` CI `34049649157` both succeeded. #52 is closed completed.
+- reviewed analytic metric/time/coverage contract and immutable evidence manifests;
+- scalar personal baselines, quantiles, robust trend and deviation summaries;
+- deterministic activity/cycling session comparison;
+- bounded lagged cross-metric association primitives with explicit lag direction and no causal claims;
+- read-only query service and owner Garmin dashboard;
+- provider-native score wording without inventing a Health-Check readiness/recovery score;
+- populated-database migration hardening before owner UAT.
 
-Full sanitized release history, including the accepted residual duplicate-coverage semantics, is recorded in [R02 Release Closeout](R02_RELEASE_CLOSEOUT.md).
+R03 remains Garmin-only. Cross-source comparison belongs to R05.
 
-### Pre-R03 hardening
+## R04 — Google Health ingestion (released)
 
-Before R03 deterministic analytics consumes Garmin current records:
+Released from `integration/r04-google-health` through PR #114.
 
-1. **#56 — Garmin collection reconciliation and reprocessing policy.** Make current collections converge deterministically under provider corrections, reorder/insert/remove events, timestamp/value corrections, stale replay, and normalization-rule upgrades. Define authoritative collection replacement/tombstoning and explicit bounded version-aware reprocessing without weakening normal historical coverage skipping.
-2. **#55 — Garmin metric, time, and analytic coverage contract.** Make analytic meaning explicit: daily average vs maximum vs trailing aggregate vs samples; local/UTC/offset time semantics; metric-level analytic availability rather than surface-level `present`; and a reproducible R03 input DTO/evidence manifest whose old calculations remain auditable after later source corrections.
+Delivered:
 
-These are post-release hardening tasks, not reasons to reopen R02.
+- Google Health API v4 only; no new legacy Fitbit Web API path;
+- Web Application OAuth with fixed registered loopback callback;
+- exactly the accepted read scopes for sleep and health metrics/measurements;
+- Windows user-scoped protected Google client/token/session state outside Git;
+- explicit `google_*` source/raw/typed persistence and normalization;
+- bounded incremental sync, historical backfill and explicit refresh/reconciliation;
+- coverage, checkpoints, request budgets, resumability and exact completed-window skip semantics;
+- privacy-safe structural diagnostics and fail-closed provider-shape handling;
+- owner-live OAuth/capability, sync/backfill/refresh and populated-DB integrity acceptance.
 
-## R03 — Garmin analytics and activity comparison
+A live terminal HTTP-200 list response with omitted empty repeated fields exposed a provider serialization variant. Focused repair #110 accepts only the proven terminal missing-collection/no-token LIST/RECONCILE case as empty; null/non-array/malformed shapes remain fail-closed.
 
-After #56 and #55:
+Release lineage:
 
-- personal baselines, trends, percentiles, anomalies, and lag semantics;
-- cycling/session comparison with genuinely comparable fields and explicit coverage;
-- Garmin-specific score presentation with provenance and no medical overclaim;
-- deterministic read/query service over versioned evidence manifests;
-- dashboard expansion for Garmin trends/comparisons without making the LLM responsible for raw-series mathematics.
+- candidate `406f4044ffb0d010c64a8635d402016ae916fc5a`
+- release merge `bb5776e98d259cb6256c95bd49d400dc1238af61`
+- post-main CI `34768452960` SUCCESS
+- tracker #80 closed completed
 
-## R04 — Google Health / Fitbit ingestion
+See [R04 Release Closeout](R04_RELEASE_CLOSEOUT.md).
 
-Frozen contract (#84; accepted #81 `5643609852` + #82 `5643533712`/`5643611744`): Google Health API v4 only, legacy Fitbit Web API turn-down September 2026. Web Application / Web Server OAuth with Client ID + Client Secret (outside Git) and a fixed registered localhost loopback callback — Desktop/random-port contract retired; exact port/path pinned in R04-02.
+## R05 — Garmin / Google wearable agreement and canonical sleep (next major release)
 
-- Complete the live API-access and OAuth verification checklist first (Console setup, fixed-callback authorization, secret/refresh protection, Published/In-Production behavior).
-- Request only `googlehealth.sleep.readonly` and `googlehealth.health_metrics_and_measurements.readonly` (all Health scopes Restricted; personal-use/unverified exception with warning + 100-user cap; Testing 7-day tokens rejected for automation).
-- Incremental sync/backfill for data types actually exposed to the account (sleep; heart rate; HRV + daily HRV; daily resting HR; SpO2 + daily SpO2; respiratory-rate sleep summary + daily respiratory rate), preserving raw `list` source metadata separately from family reconcile/rollup results. Sample heart-rate supports `list/reconcile/rollUp/dailyRollUp`; other planned vitals/daily types use `list/reconcile`; sleep uses session operations.
-- Keep `list`/`reconcile`/`rollUp`/`dailyRollUp` and `dataSourceFamily` as query context, not source identity; family aggregates are never Fitbit-device evidence without explicit provider metadata (`google-wearables` includes Pixel Watch). Explicit `google_*` layer reusing the generic spine; no `garmin_*` reuse, no generic provider framework.
-- Raw/source preservation, typed sleep/HR/HRV/RHR/SpO2 data where available, coverage (`nextPageToken`, sleep cap 25, inclusive-lower/exclusive-upper bounds, no ordering reliance, string-encoded integers, missing-never-zero), quotas (300/min/user; 250 QPS / 100 users aggregate) plus tighter Health-Check budgets, and token-health diagnostics.
-- R03 analytics stay Garmin-only; cross-source agreement/canonical sleep is R05.
-- Record that proprietary Fitbit Sleep Score/Readiness is unavailable through the reviewed public API; if a future documented API exposes a provider-native score, keep it distinct from Health-Check/fettle-derived scores.
+Design status: **frozen / ready for implementation from released `main`** (#97).
 
-## R05 — Garmin/Fitbit agreement and canonical sleep
+Core model:
 
-- Pair nights by wake date and compare each comparable metric separately.
-- Bias, limits of agreement, MAE/RMSE, and secondary association statistics.
-- First exploratory report after the documented minimum; a canonical-source change only after the stronger gate and stability checks.
-- Versioned canonical sleep rule and visible per-source overlays.
+```text
+source evidence
+   -> pairing / eligibility
+   -> comparable metric projection
+   -> immutable versioned agreement run
+   -> optional versioned canonical-source rule
+```
+
+Key rules:
+
+- sleep belongs to local wake date;
+- one main overnight session per source/date; naps excluded from overnight pairing;
+- ambiguous multiple-main sessions fail closed;
+- `fitbit_device` cohort requires explicit persisted Fitbit/device metadata;
+- `google_wearables_family` is broader family evidence and remains exploratory only;
+- manual Google-edited evidence may be exploratory but does not count toward the stronger canonical gate;
+- per-metric difference is `google - garmin`;
+- compare duration/timing/time-in-bed/stages/WASO where semantics are actually compatible;
+- RHR/SpO2 may be agreement-only; HRV/respiration are outside R05 v1 unless the accepted issue explicitly changes scope;
+- provider scores are display-only and are never treated as equivalent measurements;
+- agreement statistics include N, bias, MAE, RMSE, Bland–Altman limits and robust summaries; association is secondary;
+- first exploratory report: 14 paired nights;
+- provisional canonical-source decision: 42 valid `device_pair` nights across at least six weeks plus coverage/stability checks;
+- canonical default remains Garmin until a reviewed versioned per-metric rule changes it; there is no automatic switch from N/correlation/coverage alone.
+
+Implementation graph:
+
+- **#100** — source eligibility / night pairing
+- **#101** — comparable sleep projection
+- **#102** — immutable/versioned agreement-run persistence and replay
+- **#103** — agreement statistics + 14/42 gates
+- **#104** — report / source overlays
+- **#105** — versioned canonical-source rule, only after sufficient live `device_pair` evidence
+- **#106** — owner UAT / closeout
+
+R05 may close with an exploratory agreement report even if there is still insufficient evidence to change the canonical source.
 
 ## R06 — Context, Telegram, and read-only AI tools
 
-- Low-friction free-text event/exposure capture through dashboard and Telegram.
-- Suggested vs confirmed dates/tags while preserving raw wording.
-- Typed, read-only analytic/MCP tools that return compact evidence packets.
-- Natural-language investigation over deterministic results; no direct database mutation or raw-series mathematics by the LLM.
+- low-friction free-text event/exposure capture;
+- typed read-only analytic tools that return compact evidence packets;
+- conversational investigation over deterministic results;
+- no unrestricted SQL or raw-series mathematics by the LLM.
 
 ## R07 — Saved reports and delivery
 
-- One deterministic report/evidence model for Sunday, month-end, and annual reviews.
-- Dashboard archive and renderers.
-- Telegram and email notifier adapters with independent delivery retry/audit.
-- Coverage-aware conclusions and reproducible report revisions.
+- one deterministic report/evidence model for weekly, month-end and annual reviews;
+- dashboard archive;
+- Telegram/email renderers and delivery audit/retry.
 
 ## R08 — Deeper personal analytics and experiments
 
-- Event-aligned and matched-control context analysis.
-- Lagged comparisons and effect sizes with explicit sample/coverage gates.
-- Structured n-of-1 experiments.
-- Consider, but do not presume, a transparent Recovery Score only if accumulated data demonstrates an unmet need.
+- event-aligned / matched-control context analysis;
+- lagged comparisons and effect sizes with coverage gates;
+- structured n-of-1 experiments;
+- consider a transparent Recovery Score only if the accumulated data demonstrates a real unmet need.
 
-## R09 — Laboratory, medication, supplement, and document data
+## R09 — Laboratory, medication, supplement and document data
 
-- Original laboratory/medical document provenance outside Git.
-- Candidate extraction, human confirmation, normalized analytes/units/reference ranges, and longitudinal views.
-- Medication/vitamin/supplement exposure timeline with dose, unit, start/end/change events, provenance, and optional adherence observations without a mandatory daily diary.
-- Lab-guided interpretation that can relate confirmed analytes to medication/supplement periods and relevant wearable/body-composition trends.
-- Practical follow-up suggestions and questions to discuss with a clinician/pharmacist, without autonomous diagnosis or prescription changes.
-- Combined lab, medication/supplement, wearable, context, and body-composition evidence without causal overclaiming.
-
-If medication/supplement scope makes R09 too large, split it into a follow-up release while keeping the shared exposure/event model.
+- original document provenance outside Git;
+- confirmed structured analytes/units/reference ranges;
+- medication/supplement exposure timelines;
+- longitudinal lab + wearable + body-composition context without causal overclaiming.
 
 ## R10 — Optional advanced work
 
-- Richer timezone/travel semantics if real data requires it.
-- Additional providers or a mobile application only when they solve a demonstrated need.
-- Advanced AI workflows, secure remote access, or additional notification channels.
-- Optional Obsidian or food-diary summary import.
+- richer timezone/travel semantics when real data requires it;
+- additional providers/mobile app only for demonstrated needs;
+- secure remote access / additional notification channels;
+- optional Obsidian or food-diary summary integration.
 
-## Release gates that apply throughout
+## Release gates that always apply
 
-- No real personal data, screenshots, tokens, or databases in Git or CI fixtures.
-- Every ingestion path is idempotent and reports coverage/failures.
-- Source values survive canonical selection and reprocessing.
-- Derived values name their algorithm/version and input provenance.
-- Missing values remain missing, not zero.
-- New donor code requires license review and attribution at the exact reused commit.
-- A release must work locally on Windows and its automated tests must run without live credentials.
+- no real personal health data, screenshots, tokens, secrets or databases in Git/CI;
+- every ingestion path is bounded, idempotent and coverage-aware;
+- source values survive canonical selection and reprocessing;
+- derived values name algorithm/version and input provenance;
+- missing/null/zero/unavailable/unknown remain distinct;
+- source/device identity claims require explicit evidence;
+- new donor code requires license review at the exact reused source version;
+- owner UAT is required where private runtime/provider behavior is part of release truth;
+- `main` is the only canonical release source.
