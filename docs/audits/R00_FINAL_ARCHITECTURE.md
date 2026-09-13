@@ -240,11 +240,12 @@ Use **Google Health API v4** at `health.googleapis.com`, described by Google as 
 
 Source-family contract follows the official [filters](https://developers.google.com/health/filters): retain raw `list` points and `dataSource` platform/device/recording method; store reconcile/rollup results with the exact `dataSourceFamily` query. `google-sources` can include Health Connect/manual records and `all-sources` can include third-party data, so neither is Fitbit-device evidence. `google-wearables` is still family-level unless returned metadata identifies the intended device. Cross-device agreement excludes ambiguous family aggregates.
 
-Initial read scopes are limited to implemented streams:
+Initial read scopes are limited to implemented streams (R04-00B freeze, #84; accepted #81 `5643609852`):
 
-- `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly`
 - `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly`
 - `https://www.googleapis.com/auth/googlehealth.sleep.readonly`
+
+All Google Health API scopes are Restricted per current first-party docs. The earlier broader activity-scope line is retired for R04; partial consent is a stream-level capability state. Initial R04 types: sleep; heart rate; HRV + daily HRV; daily resting HR; SpO2 + daily SpO2; respiratory-rate sleep summary + daily respiratory rate. Operation matrix: sample heart-rate supports `list/reconcile/rollUp/dailyRollUp`; other planned vitals/daily types use `list/reconcile`; sleep uses session operations. Pagination follows `nextPageToken` (sleep cap 25); bounds are inclusive lower / exclusive upper; no reliance on undocumented `list` ordering. History reaches as far back as recorded subject to quotas (300 requests/minute/user; unverified-app aggregate 250 QPS / 100 users) plus Health-Check-owned tighter budgets. Parsers expect documented string-encoded integers; R04 missing data stays missing, never zero. `list`/`reconcile`/`rollUp`/`dailyRollUp` and `dataSourceFamily` are query context, not source identity; `google-wearables` includes Pixel Watch. R04 implements an explicit `google_*` layer (no `garmin_*` reuse, no generic provider framework); R03 analytics stay Garmin-only, cross-source agreement is R05.
 
 Fettle is the strongest selective donor but not copy-ready. Its [client/pagination](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/health_client.py), registry, [per-stream sync/sleep parsing](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/sync.py), and focused tests are useful. Its [OAuth](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/auth.py) and [store](https://raw.githubusercontent.com/Deekshith-Dade/fettle/82929df268124f0a3470b180adbbbeb0802d03cd/backend/app/store.py) violate the final state/provenance/security model. A pinned scope mapping also requests unused nutrition and misclassifies a sleep-temperature derivation; Health-Check follows official filters.
 
@@ -254,16 +255,16 @@ The exhaustive documented Google Health data types and sleep API expose source s
 
 All Google Health scopes reviewed are restricted. OAuth Testing status limits offline refresh tokens to seven days, so it cannot support unattended weekly/monthly operation.
 
-Realistic one-user path:
+Realistic one-user path (R04-00B freeze, #84; Desktop/random-port contract retired):
 
-1. External Google Cloud project, publishing status **In production**.
+1. External Google Cloud project, publishing status **In production** under the personal-use/unverified exception (unverified warning + 100-user cap).
 2. Use the documented personal-use exception because the owner is the sole user (or, under the policy, only a few personally known users). The separate unverified-app audience cap is 100 users; do not conflate that cap with the exception's definition or claim verification.
-3. Desktop OAuth client and system browser.
-4. Random loopback `127.0.0.1` callback, PKCE S256, cryptographically random one-use state persisted and validated.
+3. Web Application / Web Server OAuth client per current Google Health product setup, with Client ID + Client Secret kept outside Git under the user runtime secret boundary.
+4. Fixed registered loopback `localhost` / localhost-IP callback (Google permits it for Web Application redirect URIs as an HTTPS exception); exact port/path pinned as an exactly-registered constant in R04-02, never an ephemeral random port. System browser; cryptographically random one-use CSRF `state` persisted and validated. No universal PKCE requirement for this route unless later current provider evidence requires it.
 5. `access_type=offline`; retain refresh token in Windows Credential Manager/DPAPI-equivalent storage.
 6. Refresh on demand; expose auth health; owner reconnects on revocation/`invalid_grant`.
-7. Request `prompt=consent` only when obtaining a refresh token or deliberately reauthorizing.
-8. Installed-app incremental authorization is not supported as assumed by fettle; request the complete required scope set on scope changes.
+7. Request `prompt=consent` only when obtaining a refresh token or deliberately reauthorizing for a scope-set change.
+8. Installed-app incremental authorization is not supported as assumed by fettle; request the complete required scope set on scope changes. Do not promise Desktop incremental authorization.
 
 Service accounts cannot replace user consent. In-production refresh tokens are not guaranteed eternal; standard revocation/inactivity/policy conditions still apply. Live owner-project policy/access remains `UNVERIFIED` until R04.
 
@@ -417,10 +418,10 @@ The slice remains small: one codebase/database, a loopback UI/read/import listen
 
 ### R04 Google Fitbit
 
-- [ ] Enable Google Health v4 for the owner project and prove exact scope/data-type access.
-- [ ] Complete desktop loopback PKCE/state flow and partial-consent handling.
+- [ ] Enable Google Health v4 for the owner project and prove exact scope/data-type access for the two R04 read scopes.
+- [ ] Complete Web Application authorization-code flow with the chosen exact fixed localhost callback (Desktop/random-port contract retired); validate CSRF state, `access_type=offline`, and `prompt=consent` scoping; record secret/refresh protection and partial-consent handling.
 - [ ] Observe refresh automation for more than seven days in In-production status.
-- [ ] Record actual backfill limits, score absence, field semantics, and stream coverage.
+- [ ] Record actual backfill limits, score absence, field semantics, and stream coverage, including real `dataSource`/platform/device attribution evidence and envelope/pagination/string-number shapes.
 
 ### R05/later
 

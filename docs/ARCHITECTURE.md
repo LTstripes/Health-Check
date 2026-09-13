@@ -110,23 +110,32 @@ Garmin payloads map into typed scalar, sleep, activity, and series entities. A l
 
 ### Google Fitbit / Google Health
 
-R04 targets Google Health API v4 (`health.googleapis.com`), not a legacy Google Fit pipeline. It requests only the currently implemented read scopes and treats partial consent as a stream-level capability state.
+R04 targets Google Health API v4 (`health.googleapis.com`) only. The legacy Fitbit Web API has a September 2026 turn-down milestone; no legacy Fitbit Web API implementation. Accepted external contract: #81 adjudication (`5643609852`); repository-side correction: #82 (`5643533712`, `5643611744`).
 
-Google Health source identity is explicit. The adapter preserves raw `list` records with their `dataSource` platform/device/recording-method metadata and stores reconciled/rollup results separately with the exact query/family. `google-wearables`, `google-sources`, and `all-sources` are different source families: an aggregate from `google-sources` or `all-sources` may include Health Connect, manual, or third-party data and must never be labelled as Fitbit-device evidence. Even a `google-wearables` aggregate is family-level unless returned metadata identifies the physical device. Garmin/Fitbit agreement uses only records attributable to the intended Fitbit device/source; otherwise label the evidence `google_wearables_family` and exclude it from a device-specific decision.
+R04 requests only the implemented read scopes `googlehealth.sleep.readonly` and `googlehealth.health_metrics_and_measurements.readonly`. Current first-party Google Health docs classify all Google Health API scopes as Restricted. Partial consent is a stream-level capability state.
 
-OAuth for one personal account:
+Google Health source identity is explicit. `list` / `reconcile` / `rollUp` / `dailyRollUp` and `dataSourceFamily` are acquisition/query/collection context, not stable source identity. The adapter preserves raw `list` records with their `dataSource` platform/device/recording-method metadata and stores reconciled/rollup results separately with the exact query/family. `google-wearables`, `google-sources`, and `all-sources` are different source families: an aggregate from `google-sources` or `all-sources` may include Health Connect, manual, or third-party data and must never be labelled as Fitbit-device evidence. `google-wearables` includes Fitbit trackers and Pixel Watch; even a `google-wearables` aggregate is family-level (`google_wearables_family`) unless returned metadata identifies the physical device. Garmin/Fitbit agreement uses only records attributable to the intended Fitbit device/source.
 
-1. External Google Cloud project in **In production** status under the documented personal-use/unverified exception. Track the separate 100-user unverified-app audience cap; it is not the exception definition.
-2. Desktop OAuth client; system browser; random loopback callback on `127.0.0.1`.
-3. Authorization code flow with PKCE S256 and a unique one-use state that is persisted and validated.
-4. Offline access; securely retained refresh token; refresh on demand for scheduled jobs.
-5. `prompt=consent` only for initial refresh-token acquisition or deliberate reauthorization.
-6. When scopes change, reauthorize with the complete required set; do not assume installed-app incremental authorization.
-7. Surface token health and require manual reconnect on revocation/`invalid_grant`.
+Exact operation matrix: sample heart-rate supports `list/reconcile/rollUp/dailyRollUp`; the other planned vitals/daily types (HRV + daily HRV, daily resting HR, SpO2 + daily SpO2, respiratory-rate sleep summary + daily respiratory rate) use documented `list/reconcile` surfaces; sleep follows its own documented session operations. Never generalize rollup support. Initial R04 types: sleep; heart rate; HRV + daily HRV; daily resting HR; SpO2 + daily SpO2; respiratory-rate sleep summary + daily respiratory rate.
 
-Testing status is unsuitable for automation because its offline refresh token is limited to seven days. A service account cannot replace the owner's consent. Verification/policy and live API access remain a release gate, not an excuse to switch to an unsafe token workflow.
+Sync mechanics: pagination follows `nextPageToken`; sleep page cap is 25; time bounds are inclusive lower / exclusive upper; do not rely on undocumented `list` ordering. Historical querying reaches as far back as recorded, subject to quotas; no invented retention ceiling. Current quotas include 300 requests/minute/user and an unverified-app aggregate cap of 250 QPS / 100 users; Health-Check still imposes its own tighter bounded request budgets/retry ceilings. Parsers must expect documented JSON string-encoded integer fields where applicable. R04 missing sleep/vital data remains missing, never zero; do not generalize true-zero semantics from unrelated data types.
 
-Google Health sleep and physiological records are source data. A local `healthcheck_*` or adapted `fettle_*` score is a derived, versioned metric; it must not be named or displayed as an official Fitbit Sleep Score or Readiness value. The documented public interfaces reviewed by R00 did not expose those proprietary scores.
+R04 reuses the generic evidence/runtime/sync/coverage spine but implements an explicit `google_*` layer. Do not reuse `garmin_*` persistence and do not build a generic provider/EAV framework. R03 analytics stay Garmin-only in R04; cross-source agreement/canonical sleep remains R05.
+
+OAuth for one personal account (Web Application / Web Server client per current Google Health product setup; the former Desktop-client assumption is retired):
+
+1. External Google Cloud project in **Published / In production** status under the documented personal-use/unverified exception (unverified app: warning + 100-user cap). Testing status is unsuitable for routine automation because its offline refresh token is limited to seven days. Track the separate 100-user unverified-app audience cap; it is not the exception definition.
+2. Web Application client with Client ID + Client Secret; secret/session/refresh-token material stays outside Git under the user runtime secret boundary (Windows Credential Manager/DPAPI-equivalent) and never enters worker workspaces/logs/issues. A service account cannot replace the owner's consent.
+3. Local Windows app uses a fixed registered loopback redirect URI (`localhost` / localhost IP), which Google permits for Web Application redirect URIs as an exception to HTTPS. Random-port Desktop callbacks are retired: the exact default port/path is pinned as a fixed, exactly-registered implementation constant (R04-02), not an ephemeral port.
+4. Authorization-code flow in the system browser with a unique one-use CSRF `state` that is persisted and validated; `access_type=offline` with a securely retained refresh token, refreshed on demand for scheduled jobs.
+5. `prompt=consent` only for initial refresh-token acquisition or deliberate scope-set changes.
+6. When scopes change, reauthorize with the complete required set; do not assume installed-app incremental authorization and do not promise Desktop incremental authorization.
+7. Do not make PKCE a universal R04 requirement for this Web Application route unless later current provider evidence requires it.
+8. Surface token health and require manual reconnect on revocation/`invalid_grant`.
+
+Verification/policy and live API access remain a release gate with explicit owner-live acceptance probes (Console setup, fixed-callback authorization, secret/refresh behavior, `dataSource`/device attribution, envelope/pagination shapes, late-arrival behavior), not an excuse to switch to an unsafe token workflow.
+
+Google Health sleep and physiological records are source data. A local `healthcheck_*` or adapted `fettle_*` score is a derived, versioned metric; it must not be named or displayed as an official Fitbit Sleep Score or Readiness value. No documented provider-native Fitbit Sleep Score / Daily Readiness identity exists in the current Health API; no such claim in R04.
 
 ### Life context
 

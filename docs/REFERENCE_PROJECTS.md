@@ -1,10 +1,22 @@
 # Reference Projects and Reuse Strategy
 
-Snapshot refreshed: **2026-09-12**. Detailed reuse approvals remain tied to the reviewed source SHAs below. A newer upstream head recorded in this document or in an audit is **not** an automatic repin and does not expand the code-copy/reuse boundary.
+Snapshot refreshed: **2026-09-13** (post-R04 mechanical closeout for #90; reviewed pins and reuse classifications unchanged since 2026-09-12). Detailed reuse approvals remain tied to the reviewed source SHAs below. A newer upstream head recorded in this document or in an audit is **not** an automatic repin and does not expand the code-copy/reuse boundary.
 
 Health-Check is MIT licensed. Before copying code in a later release, recheck the exact upstream file and license at the exact commit, preserve required notices, and record that provenance in the implementation PR/task evidence.
 
-The full 2026-09-12 upstream comparison, including old/current SHAs, deltas and adversarial regression ideas, is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md).
+The full 2026-09-12 upstream comparison, including old/current SHAs, deltas and adversarial regression ideas, is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md). The 2026-09-13 post-R04 closeout (baseline `integration/r04-google-health @ 767a06a`, no repins, #94 attribution unresolved) is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md).
+
+## 2026-09-13 post-R04 closeout note (#90)
+
+Accepted research verdict: **no R04 reopen blocker**. Reviewed pins and reuse classifications are unchanged. Observed upstream heads recorded by the accepted 2026-09-13 research (observation only — not repins):
+
+- `python-garminconnect` — observed `0.3.15 @ 54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5`, including the material sleep-respiration DTO alias fix. Health-Check's reviewed runtime pin stays `0.3.12`; the accepted maintenance disposition is bounded **`0.3.12 → 0.3.15`**, matching #98 (not the older 0.3.13 watch).
+- `haelan` — observed `1.14.0 @ 4fc2bab4136ed46f950c0d2dc3ef1e03c5c50324`. The reviewed pin/license classification stays `1.6.0` / **AGPL-3.0 reference-only, no code copying**. Accepted material deltas are typed MCP/HTTP/read-boundary failure-class ideas, untrusted-text/tool-doc/runtime-budget ideas, and night-detail evidence; source **freshness itself remains not implemented upstream**.
+- `openScale` / `openScale-sync` — clarification preserved: the namespaced `identity` is **internal** between openScale and openScale-sync, while the webhook sends the transformed backend `key` (e.g. `builtin.weight → weight`). The full namespace must not be assumed to cross the HTTP boundary.
+
+Still **WATCH / DEFER**: openScale/openScale-sync API-v3 handling of a future Xiaomi ingest change, source freshness/staleness, and the 10-class adversarial regression catalogue. Owner-live source attribution (#94, including Fitbit-specific attribution) is **unresolved** and is not inferred.
+
+Follow-up dispositions from the accepted #90 report were promoted by the **Integrator**, not by this docs worker: **#96** (guard Alembic migration ancestry before new schema work), **#97** (R05-00 Garmin/Google sleep agreement and canonical-source contract) and **#98** (bounded `python-garminconnect` 0.3.12 → 0.3.15 upgrade). An R06 typed-tool packet remains a future candidate, not an issue created for this closeout.
 
 ## Final classification
 
@@ -49,6 +61,10 @@ Upstream is now `0.3.13 @ 6569a424c9d44cc93fdd1b0444cc878d1a630866`, 19 commits 
 Those are reasons to create a bounded upgrade task later, **not** reasons to silently change a stable R02 dependency. Any bump must rerun auth/session-reuse and activity-shape regressions plus owner-live verification. New write-side APIs such as gear creation stay outside our allowlist.
 
 The separate `garth` repository remains deprecated; do not revive old donor branches that depend on it.
+
+### 2026-09-13 update
+
+The accepted 2026-09-13 refresh observed upstream `0.3.15 @ 54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5`, superseding the 0.3.13 watch above. The material change for us is a **sleep-respiration DTO alias fix**. The accepted maintenance disposition is a bounded **`0.3.12 → 0.3.15`** upgrade tracked as #98; the reviewed runtime pin and allowlist rules above are unchanged by this docs closeout.
 
 ## `garmin-stats-ai`
 
@@ -148,6 +164,10 @@ Health-Check action: do **not** reopen R01 solely because upstream changed. Befo
 
 A separate upstream bug also reinforces our missing-data rule: publishing weight-only data while composition was absent interacted with donor-side value inheritance and made old composition look current. Health-Check must not add cross-measurement carry-forward without an explicit visible derivation contract.
 
+### 2026-09-13 clarification
+
+`identity` is the **internal** measurement vocabulary between openScale and openScale-sync. What the webhook actually sends is the transformed backend `key` (e.g. `builtin.weight → weight`), so the full `builtin.*` / `ble.*` / `user.*` namespace must not be assumed to cross the HTTP boundary or to be reproducible from the receiver side.
+
 ## `open-wearables`
 
 At the reviewed pin, useful patterns were:
@@ -192,6 +212,10 @@ Useful architectural/adversarial ideas:
 For R04, Haelan's Google-v4 observations about irregular naming, string-encoded integers and proto3 omitted-zero behavior are an **adversarial checklist only**. #81 must confirm them from first-party Google evidence or preserve UNKNOWN.
 
 Source staleness is a future product/backlog candidate and should be metric/source-aware: a daily/intraday sensor going silent differs from an intentionally sparse source such as weekly weight. It is not an R04 implementation requirement.
+
+### 2026-09-13 update
+
+Observed upstream head is `1.14.0 @ 4fc2bab4136ed46f950c0d2dc3ef1e03c5c50324`; the reviewed pin stays `1.6.0` and the **AGPL-3.0 reference-only / no-code-copying** classification is unchanged. Accepted material deltas are typed MCP/HTTP/read-boundary failure-class ideas, untrusted-text/tool-doc/runtime-budget ideas, and night-detail evidence. Source **freshness itself is still not implemented upstream**, so it remains a Health-Check design idea rather than a donor capability to copy.
 
 ## `VitaSync` and `garmin_ai`
 

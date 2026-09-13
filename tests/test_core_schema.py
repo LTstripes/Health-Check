@@ -71,6 +71,17 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
         "garmin_fit_records",
         "garmin_record_metrics",
         "garmin_sleep_stage_intervals",
+        "google_sources",
+        "google_raw_payloads",
+        "google_payload_observations",
+        "google_source_records",
+        "google_sleep_records",
+        "google_record_metrics",
+        "google_record_intervals",
+        "google_sleep_intervals",
+        "google_sleep_field_states",
+        "google_record_source_evidence",
+        "google_normalization_attempts",
         "alembic_version",
     }
     table_names = set(inspect(engine).get_table_names())
@@ -79,7 +90,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0008_garmin_observation_reconciliation_version",
+        "migration_revision": "0010_google_typed_normalization",
         "ready": True,
     }
 
@@ -751,12 +762,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0008_garmin_observation_reconciliation_version"
+        == "0010_google_typed_normalization"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0008_garmin_observation_reconciliation_version"
+        == "0010_google_typed_normalization"
     )
 
     engine = create_sqlite_engine(paths)
@@ -846,7 +857,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0008_garmin_observation_reconciliation_version"
+            == "0010_google_typed_normalization"
         )
     finally:
         engine.dispose()

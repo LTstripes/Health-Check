@@ -89,9 +89,14 @@ After #56 and #55:
 
 ## R04 — Google Health / Fitbit ingestion
 
-- Complete the live API-access and OAuth verification checklist first.
-- Incremental sync/backfill for data types actually exposed to the account, preserving raw `list` source metadata separately from family reconcile/rollup results.
-- Raw/source preservation, typed sleep/HR/HRV/RHR/SpO2 data where available, coverage, and token-health diagnostics.
+Frozen contract (#84; accepted #81 `5643609852` + #82 `5643533712`/`5643611744`): Google Health API v4 only, legacy Fitbit Web API turn-down September 2026. Web Application / Web Server OAuth with Client ID + Client Secret (outside Git) and a fixed registered localhost loopback callback — Desktop/random-port contract retired; exact port/path pinned in R04-02.
+
+- Complete the live API-access and OAuth verification checklist first (Console setup, fixed-callback authorization, secret/refresh protection, Published/In-Production behavior).
+- Request only `googlehealth.sleep.readonly` and `googlehealth.health_metrics_and_measurements.readonly` (all Health scopes Restricted; personal-use/unverified exception with warning + 100-user cap; Testing 7-day tokens rejected for automation).
+- Incremental sync/backfill for data types actually exposed to the account (sleep; heart rate; HRV + daily HRV; daily resting HR; SpO2 + daily SpO2; respiratory-rate sleep summary + daily respiratory rate), preserving raw `list` source metadata separately from family reconcile/rollup results. Sample heart-rate supports `list/reconcile/rollUp/dailyRollUp`; other planned vitals/daily types use `list/reconcile`; sleep uses session operations.
+- Keep `list`/`reconcile`/`rollUp`/`dailyRollUp` and `dataSourceFamily` as query context, not source identity; family aggregates are never Fitbit-device evidence without explicit provider metadata (`google-wearables` includes Pixel Watch). Explicit `google_*` layer reusing the generic spine; no `garmin_*` reuse, no generic provider framework.
+- Raw/source preservation, typed sleep/HR/HRV/RHR/SpO2 data where available, coverage (`nextPageToken`, sleep cap 25, inclusive-lower/exclusive-upper bounds, no ordering reliance, string-encoded integers, missing-never-zero), quotas (300/min/user; 250 QPS / 100 users aggregate) plus tighter Health-Check budgets, and token-health diagnostics.
+- R03 analytics stay Garmin-only; cross-source agreement/canonical sleep is R05.
 - Record that proprietary Fitbit Sleep Score/Readiness is unavailable through the reviewed public API; if a future documented API exposes a provider-native score, keep it distinct from Health-Check/fettle-derived scores.
 
 ## R05 — Garmin/Fitbit agreement and canonical sleep
