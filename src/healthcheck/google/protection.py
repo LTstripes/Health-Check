@@ -305,7 +305,7 @@ class GoogleLocalKeyFileProtection:
         key = secrets.token_bytes(32)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
             fd = os.open(path, flags, 0o600)
             try:
                 os.write(fd, key)

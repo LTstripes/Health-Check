@@ -536,7 +536,13 @@ def test_runtime_rejects_checkout_local_google_auth_path() -> None:
         GoogleAuthService(Settings(data_dir=checkout / "runtime"))
 
 
-def test_local_key_protection_round_trip_and_rejects_tamper(tmp_path: Path) -> None:
+def test_local_key_protection_round_trip_and_rejects_tamper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "healthcheck.google.protection.secrets.token_bytes",
+        lambda length: b"\n" + b"A" * (length - 1) if length == 32 else b"B" * length,
+    )
     key_path = tmp_path / "key"
     protection = GoogleLocalKeyFileProtection(key_path)
     envelope = protection.protect('{"access_token":"synthetic"}')
