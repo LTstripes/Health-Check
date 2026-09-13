@@ -60,7 +60,9 @@ def _persist_garmin(session, paths):
     return outcome
 
 
-def _google_identity(*, family: str | None = None) -> GoogleSourceIdentity:
+def _google_identity(
+    *, family: str | None = None, source_instance_id: str = FITBIT_SOURCE
+) -> GoogleSourceIdentity:
     if family is not None:
         return GoogleSourceIdentity(
             source_kind=GoogleSourceKind.FAMILY_AGGREGATE,
@@ -68,7 +70,7 @@ def _google_identity(*, family: str | None = None) -> GoogleSourceIdentity:
         )
     return GoogleSourceIdentity(
         source_kind=GoogleSourceKind.DATA_SOURCE,
-        source_instance_id=FITBIT_SOURCE,
+        source_instance_id=source_instance_id,
         platform="fitbit",
         recording_method="automatic",
     )
@@ -170,6 +172,23 @@ def test_device_pair_uses_record_evidence_without_source_attributed_flag(pairing
     assert session.get(GoogleSourceRecord, outcome.records[0].id).projection_status == "current"
 
 
+def test_device_pair_requires_explicit_fitbit_target_source(pairing_database):
+    session, paths = pairing_database
+    _persist_garmin(session, paths)
+    _persist_google(
+        session,
+        paths,
+        identity=_google_identity(source_instance_id="users/me/dataSources/raw:generic"),
+        payload=_google_payload(name="fitbit-record-with-generic-source"),
+    )
+    session.commit()
+
+    result = read_persisted_sleep_pairing(session)
+
+    assert result.device_pairs == ()
+    assert any(item.reason == "google_target_source_missing" for item in result.exclusions)
+
+
 def test_family_and_all_sources_never_become_device_pairs(pairing_database):
     session, paths = pairing_database
     _persist_garmin(session, paths)
@@ -217,6 +236,29 @@ def test_ambiguous_google_mains_are_excluded_without_latest_selection(pairing_da
 
     assert result.pairs == ()
     assert any(item.reason == "ambiguous_google_main" for item in result.exclusions)
+
+
+def test_explicit_google_main_outranks_missing_main_fallback(pairing_database):
+    session, paths = pairing_database
+    _persist_garmin(session, paths)
+    explicit = _persist_google(
+        session,
+        paths,
+        identity=_google_identity(),
+        payload=_google_payload(name="fitbit-explicit-main", main=True, nap=False),
+    )
+    _persist_google(
+        session,
+        paths,
+        identity=_google_identity(),
+        payload=_google_payload(name="fitbit-missing-main", main=None, nap=False),
+    )
+    session.commit()
+
+    result = read_persisted_sleep_pairing(session)
+
+    assert len(result.device_pairs) == 1
+    assert result.device_pairs[0].google_record_id == explicit.records[0].id
 
 
 def test_nap_and_unknown_main_states_remain_explicit(pairing_database):

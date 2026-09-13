@@ -43,6 +43,8 @@ ALL_COHORTS = "all"
 _UNATTRIBUTED_SOURCE_INSTANCE = "unattributed"
 _CURRENT = "current"
 _VALUE = GoogleMetricState.VALUE.value
+_EXPLICIT_MAIN = "explicit_main"
+_FALLBACK_MAIN = "fallback_main"
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +202,7 @@ class _GoogleCandidate:
     nap_state: str
     main_value: bool | None
     nap_value: bool | None
+    main_selection: str
     manually_edited: bool | None
 
 
@@ -395,6 +398,7 @@ class PersistedSleepPairingReader:
                     nap_state=role[3],
                     main_value=role[4],
                     nap_value=role[5],
+                    main_selection=role[6],
                     manually_edited=_metric_bool(
                         metrics.get(record.id, ()), "sleep_metadata_manually_edited"
                     ),
@@ -449,6 +453,11 @@ class PersistedSleepPairingReader:
         for wake_date in sorted(set(garmin_by_date) | set(google_by_date)):
             garmin_rows = garmin_by_date.get(wake_date, [])
             google_rows = google_by_date.get(wake_date, [])
+            explicit_main_rows = [
+                item for item in google_rows if item.main_selection == _EXPLICIT_MAIN
+            ]
+            if explicit_main_rows:
+                google_rows = explicit_main_rows
             if len(garmin_rows) != 1:
                 if len(garmin_rows) > 1:
                     exclusions.append(
@@ -570,6 +579,9 @@ def _google_source_eligibility(
     basis: dict[str, object] = {
         "google_source_kind": source.source_kind,
         "google_source_instance_id": source.source_instance_id,
+        "google_data_source_name": source.data_source_name,
+        "google_data_source_id": source.data_source_id,
+        "google_source_platform": source.platform,
         "data_source_family": record.data_source_family,
         "record_source_evidence": None,
     }
@@ -626,6 +638,28 @@ def _google_source_eligibility(
     if source.source_instance_id == _UNATTRIBUTED_SOURCE_INSTANCE:
         return SleepSourceEligibility(
             record.id, source.id, "unattributed", None, False, "google_source_unattributed", basis
+        )
+    target_source_state = _explicit_fitbit_target_source(source)
+    basis["explicit_target_source"] = target_source_state
+    if target_source_state == "missing":
+        return SleepSourceEligibility(
+            record.id,
+            source.id,
+            "google_data_source",
+            None,
+            False,
+            "google_target_source_missing",
+            basis,
+        )
+    if target_source_state == "ambiguous":
+        return SleepSourceEligibility(
+            record.id,
+            source.id,
+            "google_data_source",
+            None,
+            False,
+            "google_target_source_ambiguous",
+            basis,
         )
     if evidence is None:
         return SleepSourceEligibility(
@@ -705,6 +739,28 @@ def _google_source_eligibility(
     )
 
 
+def _explicit_fitbit_target_source(source: GoogleSource) -> str:
+    """Classify persisted source identity without promoting record evidence."""
+
+    if not source.source_instance_id or source.source_instance_id.startswith("unattributed:"):
+        return "missing"
+    labels = tuple(
+        value.casefold()
+        for value in (
+            source.source_instance_id,
+            source.data_source_name,
+            source.data_source_id,
+        )
+        if isinstance(value, str) and value.strip()
+    )
+    target_labels = tuple("fitbit" in value for value in labels)
+    if not any(target_labels):
+        return "missing"
+    if any(not is_target for is_target in target_labels):
+        return "ambiguous"
+    return "explicit"
+
+
 def _family_exclusion_reason(source_instance_id: str) -> str:
     if source_instance_id == FAMILY_ALL_SOURCES:
         return "google_all_sources_excluded"
@@ -755,7 +811,7 @@ def _metric_state(metrics: Sequence[GoogleRecordMetric], code: str) -> str:
 
 def _google_main_role(
     metrics: Sequence[GoogleRecordMetric],
-) -> tuple[bool | None, str, str, str, bool | None, bool | None]:
+) -> tuple[bool | None, str, str, str, bool | None, bool | None, str]:
     main_state = _metric_state(metrics, "sleep_metadata_main")
     nap_state = _metric_state(metrics, "sleep_metadata_nap")
     main_value = _metric_bool(metrics, "sleep_metadata_main")
@@ -765,12 +821,12 @@ def _google_main_role(
     if nap_state != _VALUE:
         return None, "google_nap_state_unknown", main_state, nap_state, main_value, nap_value
     if main_state == _VALUE and main_value is True and nap_value is False:
-        return True, "", main_state, nap_state, main_value, nap_value
+        return True, "", main_state, nap_state, main_value, nap_value, _EXPLICIT_MAIN
     if main_state in {GoogleMetricState.MISSING.value, GoogleMetricState.NULL.value}:
-        return True, "", main_state, nap_state, main_value, nap_value
+        return True, "", main_state, nap_state, main_value, nap_value, _FALLBACK_MAIN
     if main_state == _VALUE and main_value is False:
-        return None, "google_non_main", main_state, nap_state, main_value, nap_value
-    return None, "google_main_state_invalid", main_state, nap_state, main_value, nap_value
+        return None, "google_non_main", main_state, nap_state, main_value, nap_value, ""
+    return None, "google_main_state_invalid", main_state, nap_state, main_value, nap_value, ""
 
 
 __all__ = [
