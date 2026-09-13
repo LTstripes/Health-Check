@@ -772,6 +772,37 @@ def test_confirmed_empty_complete_page_without_token(tmp_path) -> None:
     assert report.attempts[0].status is GoogleSyncStatus.EMPTY
 
 
+def test_missing_collection_without_token_is_terminal_empty_only_for_list_reconcile(
+    tmp_path,
+) -> None:
+    for query_mode in (GoogleQueryMode.LIST, GoogleQueryMode.RECONCILE):
+        transport = FakeGoogleHealthTransport()
+        transport.queue("heart-rate", {})
+        _settings, service = _sync(tmp_path / query_mode.value, transport)
+        report = service.run(
+            start=AS_OF,
+            end=AS_OF,
+            streams=["heart_rate"],
+            query_mode=query_mode.value,
+        )
+
+        assert report.attempts[0].coverage_status == "confirmed_empty"
+        assert report.attempts[0].status is GoogleSyncStatus.EMPTY
+        assert parse_page_envelope({}, query_mode) == ([], None, "complete")
+
+    assert parse_page_envelope({}, GoogleQueryMode.ROLL_UP) == ([], None, "invalid")
+    assert parse_page_envelope({"dataPoints": None}, GoogleQueryMode.LIST) == (
+        [],
+        None,
+        "invalid",
+    )
+    assert parse_page_envelope({"dataPoints": {}}, GoogleQueryMode.LIST) == (
+        [],
+        None,
+        "invalid",
+    )
+
+
 def test_no_garmin_writes(tmp_path) -> None:
     transport = FakeGoogleHealthTransport()
     transport.queue("heart-rate", {"dataPoints": [_hr_point(name="hr-1", bpm="40")]})

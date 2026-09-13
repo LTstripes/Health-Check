@@ -596,12 +596,20 @@ def classify_page_envelope_structure(
 
     if not isinstance(payload, Mapping):
         raise TypeError("Google page envelope must be a mapping")
-    key = envelope_key(GoogleQueryMode(query_mode))
+    mode = GoogleQueryMode(query_mode)
+    key = envelope_key(mode)
     raw_collection = payload.get(key, _PAGE_FIELD_MISSING)
     collection_type = _json_shape_type(raw_collection)
     raw_token = payload.get("nextPageToken", _PAGE_FIELD_MISSING)
     has_token = isinstance(raw_token, str) and bool(raw_token.strip())
-    if collection_type in {"absent", "null"}:
+    if (
+        collection_type == "absent"
+        and not has_token
+        and mode in {GoogleQueryMode.LIST, GoogleQueryMode.RECONCILE}
+        and not payload
+    ):
+        parser_kind = "complete"
+    elif collection_type in {"absent", "null"}:
         parser_kind = "continue" if has_token else "invalid"
     elif collection_type == "array":
         parser_kind = "continue" if has_token else "complete"
@@ -621,9 +629,10 @@ def parse_page_envelope(
 ) -> tuple[list[Any], str | None, str]:
     """Classify one Google Health list/rollup page.
 
-    A missing or empty collection WITH a nextPageToken is pagination-continue,
-    not confirmed-empty and not shape-drift.  Observed live heart-rate first
-    pages can omit ``dataPoints`` while still returning ``nextPageToken``.
+    A missing collection without a usable token is terminal complete-empty only
+    for list/reconcile pages.  A missing or null collection WITH a
+    nextPageToken is pagination-continue, not confirmed-empty and not
+    shape-drift.  Other non-array collection types remain invalid.
     """
 
     structure = classify_page_envelope_structure(payload, query_mode)
@@ -632,6 +641,8 @@ def parse_page_envelope(
     if structure.collection_type in {"absent", "null"}:
         if token:
             return [], token, "continue"
+        if structure.parser_kind == "complete":
+            return [], None, "complete"
         return [], None, "invalid"
     points = payload[structure.envelope_field]
     if structure.collection_type != "array":
@@ -1650,25 +1661,33 @@ class GoogleHealthSync:
 
         points, _token, kind = parse_page_envelope(payload, query.query_mode)
         continue_empty = kind == "continue" and not points
-        result = normalize_google_payload(
-            payload, stream=surface.stream, query=query, source_identity=None
-        )
-        if result.status is GooglePayloadStatus.INVALID and not continue_empty:
-            self._persist_terminal(
-                factory,
-                store,
-                identity=identity,
-                query=query,
-                surface=surface,
-                payload=payload,
-                parse_invalid=True,
-                window_start=window_start,
-                window_end=window_end,
-                sync_run_id=sync_run_id,
-                records=(),
+        terminal_empty = kind == "complete" and not points and not payload
+        if terminal_empty:
+            result = None
+        else:
+            result = normalize_google_payload(
+                payload, stream=surface.stream, query=query, source_identity=None
             )
-            return None
-        parse_status = GooglePayloadStatus.EMPTY if continue_empty else result.status
+            if result.status is GooglePayloadStatus.INVALID and not continue_empty:
+                self._persist_terminal(
+                    factory,
+                    store,
+                    identity=identity,
+                    query=query,
+                    surface=surface,
+                    payload=payload,
+                    parse_invalid=True,
+                    window_start=window_start,
+                    window_end=window_end,
+                    sync_run_id=sync_run_id,
+                    records=(),
+                )
+                return None
+        parse_status = (
+            GooglePayloadStatus.EMPTY if continue_empty or terminal_empty else result.status
+        )
+        diagnostics = () if result is None else tuple(item.as_dict() for item in result.diagnostics)
+        unknown_fields = () if result is None else result.unknown_fields
         if not upsert_records:
             staging_identities = identities_from_points(points, query)
             if not staging_identities:
@@ -1688,14 +1707,14 @@ class GoogleHealthSync:
                         source_window_start_utc=window_start,
                         source_window_end_utc=window_end,
                         sync_run_id=sync_run_id,
-                        diagnostics=tuple(item.as_dict() for item in result.diagnostics),
-                        unknown_fields=result.unknown_fields,
+                        diagnostics=diagnostics,
+                        unknown_fields=unknown_fields,
                     )
                     inserted += outcome.inserted_count
                     updated += outcome.updated_count
                 session.commit()
             return inserted, updated
-        if continue_empty or not result.records:
+        if terminal_empty or continue_empty or not result.records:
             with factory() as session:
                 repo = google_persistence_for(session, payload_store=store)
                 outcome = repo.persist_observation(
@@ -1708,8 +1727,8 @@ class GoogleHealthSync:
                     source_window_start_utc=window_start,
                     source_window_end_utc=window_end,
                     sync_run_id=sync_run_id,
-                    diagnostics=tuple(item.as_dict() for item in result.diagnostics),
-                    unknown_fields=result.unknown_fields,
+                    diagnostics=diagnostics,
+                    unknown_fields=unknown_fields,
                 )
                 session.commit()
                 return outcome.inserted_count, outcome.updated_count

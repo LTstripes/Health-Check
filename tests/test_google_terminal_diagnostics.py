@@ -54,7 +54,7 @@ def persisted_invalid_envelope(tmp_path):
 @pytest.mark.parametrize(
     ("payload", "presence", "collection_type", "parser_kind"),
     [
-        ({}, "missing", "absent", "invalid"),
+        ({}, "missing", "absent", "complete"),
         ({"dataPoints": None}, "present", "null", "invalid"),
         ({"dataPoints": {}}, "present", "object", "invalid"),
     ],
@@ -68,6 +68,20 @@ def test_page_envelope_structure_reports_only_safe_categories(
     assert structure.collection_type == collection_type
     assert structure.next_page_token_type == "absent"
     assert structure.parser_kind == parser_kind
+
+
+def test_missing_collection_stays_invalid_for_rollup_pages() -> None:
+    structure = classify_page_envelope_structure({}, "rollUp")
+
+    assert structure.collection_type == "absent"
+    assert structure.parser_kind == "invalid"
+
+
+def test_unknown_sibling_fields_do_not_become_empty_terminal_pages() -> None:
+    structure = classify_page_envelope_structure({"unexpected": True}, "list")
+
+    assert structure.collection_type == "absent"
+    assert structure.parser_kind == "invalid"
 
 
 def test_persisted_invalid_envelope_is_diagnosed_without_exposure(
