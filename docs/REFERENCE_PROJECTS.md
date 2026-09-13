@@ -43,11 +43,11 @@ A donor implementation may suggest that we ask about string-encoded integer fiel
 
 ## `python-garminconnect`
 
-The reviewed R02 dependency `0.3.12` replaced the deprecated `garth` login path with its native authentication engine. Runtime dependencies at that pin are `curl_cffi`, `requests`, and `ua-generator`; `garth` is not one of them. The client supports MFA continuation, token persistence/refresh, daily/range endpoints, and activity downloads. Raw typed APIs are still treated conservatively.
+The reviewed R02 dependency `0.3.12` replaced the deprecated `garth` login path with its native authentication engine. The current bounded maintenance pin is `0.3.15`; runtime dependencies remain `curl_cffi`, `requests`, and `ua-generator`, and `garth` is not one of them. The client supports MFA continuation, token persistence/refresh, daily/range endpoints, and activity downloads. Raw typed APIs are still treated conservatively.
 
 Health-Check decision:
 
-- keep released R02 pinned to `0.3.12 @ 981d150caeda7d632224a75f3895c08df27a2a34` until an explicit dependency-upgrade task exists;
+- keep the bounded current runtime pin at `0.3.15 @ 54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5`; rollback is the previous accepted `0.3.12 @ 981d150caeda7d632224a75f3895c08df27a2a34` pin in `pyproject.toml` and `uv.lock`;
 - allowlist only the read/download methods Health-Check actually needs;
 - wrap returned payloads behind Health-Check raw/source/typed contracts;
 - keep reusable credentials outside Git with Windows-appropriate at-rest protection;
@@ -64,7 +64,7 @@ The separate `garth` repository remains deprecated; do not revive old donor bran
 
 ### 2026-09-13 update
 
-The accepted 2026-09-13 refresh observed upstream `0.3.15 @ 54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5`, superseding the 0.3.13 watch above. The material change for us is a **sleep-respiration DTO alias fix**. The accepted maintenance disposition is a bounded **`0.3.12 → 0.3.15`** upgrade tracked as #98; the reviewed runtime pin and allowlist rules above are unchanged by this docs closeout.
+The accepted 2026-09-13 refresh observed upstream `0.3.15 @ 54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5`, superseding the 0.3.13 watch above. The material upstream change for this repository is a **sleep-respiration DTO alias fix**, but Health-Check does not consume that DTO path, so no product behavior is claimed. The bounded **`0.3.12 → 0.3.15`** upgrade tracked as #98 changes only the dependency/provenance pin; the reviewed runtime semantics and allowlist rules remain unchanged.
 
 ## `garmin-stats-ai`
 

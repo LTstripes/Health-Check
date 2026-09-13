@@ -22,7 +22,7 @@ from typing import Any
 
 CAPABILITY_CONTRACT_VERSION = "r02-garmin-capability-contract-v1"
 GARMIN_PROVIDER_CODE = "garmin_connect"
-GARMINCONNECT_VERSION = "0.3.12"
+GARMINCONNECT_VERSION = "0.3.15"
 VIVOACTIVE_5_DEVICE_CODE = "garmin_vivoactive_5"
 VIVOACTIVE_5_MODEL = "Vivoactive 5"
 OWNER_ACCOUNT_VERIFICATION_NOT_RUN = "not_run"

@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 dependencies = [
     "alembic>=1.14,<2",
     "fastapi>=0.115,<1",
-    "garminconnect @ git+https://github.com/cyberjunky/python-garminconnect.git@981d150caeda7d632224a75f3895c08df27a2a34",
+    "garminconnect @ git+https://github.com/cyberjunky/python-garminconnect.git@54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5",
     "jinja2>=3.1,<4",
     "pydantic-settings>=2.6,<3",
     "python-multipart>=0.0.9,<1",

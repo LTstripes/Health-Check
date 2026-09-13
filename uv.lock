@@ -341,8 +341,8 @@ wheels = [
 
 [[package]]
 name = "garminconnect"
-version = "0.3.12"
-source = { git = "https://github.com/cyberjunky/python-garminconnect.git?rev=981d150caeda7d632224a75f3895c08df27a2a34#981d150caeda7d632224a75f3895c08df27a2a34" }
+version = "0.3.15"
+source = { git = "https://github.com/cyberjunky/python-garminconnect.git?rev=54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5#54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5" }
 dependencies = [
     { name = "curl-cffi" },
     { name = "requests" },
@@ -440,7 +440,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14,<2" },
     { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "garminconnect", git = "https://github.com/cyberjunky/python-garminconnect.git?rev=981d150caeda7d632224a75f3895c08df27a2a34" },
+    { name = "garminconnect", git = "https://github.com/cyberjunky/python-garminconnect.git?rev=54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5" },
     { name = "jinja2", specifier = ">=3.1,<4" },
     { name = "pydantic-settings", specifier = ">=2.6,<3" },
     { name = "python-multipart", specifier = ">=0.0.9,<1" },

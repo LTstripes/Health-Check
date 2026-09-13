@@ -2,6 +2,10 @@
 
 This document freezes the pre-ingestion capability inventory for a Garmin
 Vivoactive 5 and the reviewed `python-garminconnect` `0.3.12` source surface.
+The bounded #98 maintenance upgrade to `0.3.15` changes the dependency pin
+and provenance version only; this capability inventory and its read allowlist
+remain unchanged. The `0.3.12` references below are the frozen review
+baseline, not a new device-capability claim.
 The matrix itself remains an offline/static contract. Issue #31 adds a
 separate owner-assisted authentication and capability-probe harness; it does
 not mutate this matrix or add ingestion, backfill, database/schema work, or a
