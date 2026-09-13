@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -12,9 +11,9 @@ from alembic.script import ScriptDirectory
 MigrationIdentity = tuple[str, str | None]
 MigrationParents = tuple[str, ...]
 
-# This is the accepted lineage at the R04 integration boundary.  Changing this
-# list is intentionally a visible, reviewable acknowledgement of a lineage
-# reconciliation or a new accepted release head.
+# This is the accepted lineage at the R04 integration boundary.  Adding a
+# migration requires extending this list in the same change; an unlisted
+# revision is never an implicitly accepted forward extension.
 ACCEPTED_MIGRATION_CHAIN: tuple[MigrationIdentity, ...] = (
     ("0001_r01_core_schema", None),
     ("0002_canonical_selection_metric_identity", "0001_r01_core_schema"),
@@ -48,62 +47,29 @@ def _format_parents(parents: Iterable[str]) -> str:
     return repr(values[0]) if len(values) == 1 else repr(values)
 
 
-def _forward_extension_errors(
+def _unacknowledged_revision_errors(
     actual: dict[str, MigrationParents],
     accepted_ids: set[str],
     accepted_head: str,
 ) -> list[str]:
-    """Return errors for revisions that are not a linear forward extension."""
+    """Return errors for revisions absent from the protected accepted chain."""
 
     extras = sorted(set(actual) - accepted_ids)
     if not extras:
         return []
 
-    errors: list[str] = []
-    extra_ids = set(extras)
-    children: dict[str, list[str]] = defaultdict(list)
-
+    errors = [
+        f"unacknowledged Alembic revision(s): {tuple(extras)!r}; "
+        "extend the accepted migration chain in the same change"
+    ]
     for revision in extras:
         parents = actual[revision]
-        if len(parents) != 1:
+        if len(parents) == 1 and parents[0] in accepted_ids and parents[0] != accepted_head:
             errors.append(
-                f"new revision {revision!r} has {len(parents)} parent(s); "
-                "only a linear forward extension is accepted"
+                f"unacknowledged revision {revision!r} is behind accepted head: "
+                f"down_revision={parents[0]!r}; expected {accepted_head!r} only after "
+                "explicit accepted-lineage update"
             )
-            continue
-        parent = parents[0]
-        if parent in accepted_ids and parent != accepted_head:
-            errors.append(
-                f"new revision {revision!r} is behind accepted head: "
-                f"down_revision={parent!r}; expected {accepted_head!r} or a new revision"
-            )
-        children[parent].append(revision)
-
-    if len(children[accepted_head]) != 1:
-        errors.append(
-            f"new revisions do not extend accepted head {accepted_head!r} "
-            f"as one linear chain: first children={tuple(sorted(children[accepted_head]))!r}"
-        )
-
-    reached: set[str] = set()
-    current = children[accepted_head][0] if len(children[accepted_head]) == 1 else None
-    while current is not None:
-        if current in reached:
-            errors.append(f"new migration ancestry contains a cycle at {current!r}")
-            break
-        reached.add(current)
-        next_revisions = sorted(children[current])
-        if len(next_revisions) > 1:
-            errors.append(
-                f"new revision {current!r} branches into {tuple(next_revisions)!r}; "
-                "only a linear forward extension is accepted"
-            )
-            break
-        current = next_revisions[0] if next_revisions else None
-
-    disconnected = sorted(extra_ids - reached)
-    if disconnected:
-        errors.append(f"new revisions are disconnected from accepted head: {tuple(disconnected)!r}")
     return errors
 
 
@@ -152,7 +118,7 @@ def validate_migration_ancestry(
     if len(heads) != 1:
         errors.append(f"expected exactly one Alembic head; found {heads!r}")
 
-    errors.extend(_forward_extension_errors(actual, accepted_ids, accepted_head))
+    errors.extend(_unacknowledged_revision_errors(actual, accepted_ids, accepted_head))
 
     if errors:
         raise MigrationAncestryError("; ".join(errors))

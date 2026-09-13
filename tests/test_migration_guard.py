@@ -39,12 +39,18 @@ def _write_revision(location: Path, name: str, revision: str, down_revision: str
     )
 
 
+def _acknowledged_synthetic_0011(location: Path) -> tuple[str, tuple[tuple[str, str | None], ...]]:
+    revision = "0011_r05_synthetic"
+    _write_revision(location, "0011_r05_synthetic.py", revision, ACCEPTED_MIGRATION_HEAD)
+    return revision, (*ACCEPTED_MIGRATION_CHAIN, (revision, ACCEPTED_MIGRATION_HEAD))
+
+
 def test_current_accepted_chain_passes() -> None:
     validate_migration_ancestry()
     assert ACCEPTED_MIGRATION_CHAIN[-1][0] == ACCEPTED_MIGRATION_HEAD
 
 
-def test_linear_forward_extension_from_accepted_head_passes(tmp_path: Path) -> None:
+def test_unacknowledged_forward_extension_fails(tmp_path: Path) -> None:
     location = _synthetic_migrations(tmp_path)
     _write_revision(
         location,
@@ -53,7 +59,15 @@ def test_linear_forward_extension_from_accepted_head_passes(tmp_path: Path) -> N
         ACCEPTED_MIGRATION_HEAD,
     )
 
-    validate_migration_ancestry(location)
+    with pytest.raises(MigrationAncestryError, match="unacknowledged Alembic revision"):
+        validate_migration_ancestry(location)
+
+
+def test_acknowledged_forward_extension_passes(tmp_path: Path) -> None:
+    location = _synthetic_migrations(tmp_path)
+    _revision, accepted_chain = _acknowledged_synthetic_0011(location)
+
+    validate_migration_ancestry(location, accepted_chain)
 
 
 def test_multiple_heads_fail_without_mutating_repository_migrations(tmp_path: Path) -> None:
@@ -93,7 +107,7 @@ def test_inserted_behind_applied_head_fails(tmp_path: Path) -> None:
         "0009_google_persistence_contract",
     )
 
-    with pytest.raises(MigrationAncestryError, match="behind accepted head"):
+    with pytest.raises(MigrationAncestryError, match="unacknowledged revision"):
         validate_migration_ancestry(location)
 
 
@@ -126,3 +140,44 @@ def test_accepted_revision_id_change_fails(tmp_path: Path) -> None:
 
     with pytest.raises(MigrationAncestryError, match="missing or renamed"):
         validate_migration_ancestry(location)
+
+
+def test_acknowledged_new_revision_rename_fails(tmp_path: Path) -> None:
+    location = _synthetic_migrations(tmp_path)
+    revision, accepted_chain = _acknowledged_synthetic_0011(location)
+    migration = location / "versions" / "0011_r05_synthetic.py"
+    migration.write_text(
+        migration.read_text(encoding="utf-8").replace(
+            f"revision = {revision!r}",
+            "revision = '0011_renamed_revision'",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MigrationAncestryError, match="missing or renamed"):
+        validate_migration_ancestry(location, accepted_chain)
+
+
+def test_acknowledged_new_revision_reparenting_fails(tmp_path: Path) -> None:
+    location = _synthetic_migrations(tmp_path)
+    revision, accepted_chain = _acknowledged_synthetic_0011(location)
+    migration = location / "versions" / "0011_r05_synthetic.py"
+    migration.write_text(
+        migration.read_text(encoding="utf-8").replace(
+            f"down_revision = {ACCEPTED_MIGRATION_HEAD!r}",
+            "down_revision = '0009_google_persistence_contract'",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MigrationAncestryError, match=f"accepted revision {revision!r} changed"):
+        validate_migration_ancestry(location, accepted_chain)
+
+
+def test_acknowledged_new_revision_deletion_fails(tmp_path: Path) -> None:
+    location = _synthetic_migrations(tmp_path)
+    _revision, accepted_chain = _acknowledged_synthetic_0011(location)
+    (location / "versions" / "0011_r05_synthetic.py").unlink()
+
+    with pytest.raises(MigrationAncestryError, match="missing or renamed"):
+        validate_migration_ancestry(location, accepted_chain)
