@@ -8,7 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from healthcheck.analytics.sleep_agreement import (
+    AgreementEpoch,
     AgreementObservation,
+    EpochBasis,
     compute_agreement_statistics,
     compute_sleep_agreement,
     observations_from_projections,
@@ -101,6 +103,31 @@ def test_exact_42_device_pair_nights_and_41_day_delta_can_propose_only_after_sta
     assert result.as_dict()["coverage"]["automatic_max_gap_threshold"] is None
 
 
+def test_manual_google_edit_is_exploratory_but_excluded_from_strong_gate():
+    result = compute_agreement_statistics(
+        _observations([0] * 42, google_manually_edited=True)
+    )
+
+    assert result.n == 42
+    assert result.strong_gate_eligible_n == 0
+    assert result.google_manually_edited_n == 42
+    assert result.gate.exploratory == "exploratory"
+    assert result.gate.provisional == "insufficient_n"
+    assert result.gate.canonical_proposal_eligible is False
+    assert result.as_dict()["google_manually_edited_n"] == 42
+
+
+@pytest.mark.parametrize("metric_code", ["resting_heart_rate_bpm", "spo2_daily_average_pct"])
+def test_auxiliary_metrics_never_become_canonical_proposals(metric_code):
+    result = compute_agreement_statistics(
+        _observations([0] * 42, metric_code=metric_code)
+    )
+
+    assert result.n == 42
+    assert result.gate.provisional == "non_canonical_metric"
+    assert result.gate.canonical_proposal_eligible is False
+
+
 def test_family_pair_42_nights_never_qualify_for_provisional_canonical_evidence():
     result = compute_agreement_statistics(_observations([0] * 42, cohort="family_pair"))
 
@@ -181,9 +208,19 @@ def test_coverage_reports_internal_gaps_without_automatic_gap_decision():
 
 
 def test_projection_adapter_keeps_real_epoch_explicit_and_builds_per_group_packet():
-    def projection(wake_date: date, difference: int, metric_code: str):
+    def projection(
+        wake_date: date,
+        difference: int,
+        metric_code: str,
+        *,
+        manually_edited: bool | None = None,
+    ):
         return SimpleNamespace(
-            pair=SimpleNamespace(wake_date=wake_date, cohort="device_pair"),
+            pair=SimpleNamespace(
+                wake_date=wake_date,
+                cohort="device_pair",
+                google_manually_edited=manually_edited,
+            ),
             metric_code=metric_code,
             variant=None,
             status="comparable",
@@ -195,12 +232,20 @@ def test_projection_adapter_keeps_real_epoch_explicit_and_builds_per_group_packe
         )
 
     projections = [
-        projection(date(2099, 1, 1), 2, "sleep_duration_asleep_seconds"),
+        projection(
+            date(2099, 1, 1),
+            2,
+            "sleep_duration_asleep_seconds",
+            manually_edited=True,
+        ),
         projection(date(2099, 1, 1), 4, "sleep_stage_light_seconds"),
     ]
     observations = observations_from_projections(
         projections,
-        epoch_resolver=lambda item: "device-method-epoch-a",
+        epoch_resolver=lambda item: AgreementEpoch(
+            "device-method-epoch-a",
+            EpochBasis("device", "device-registry:garmin-vivoactive-5"),
+        ),
     )
     packet = compute_sleep_agreement(observations)
 
@@ -209,6 +254,84 @@ def test_projection_adapter_keeps_real_epoch_explicit_and_builds_per_group_packe
         "sleep_stage_light_seconds",
     }
     assert all(item.epoch == "device-method-epoch-a" for item in packet.groups)
+    assert packet.groups[0].epoch_basis is not None
+    assert packet.groups[0].epoch_basis.break_kind == "device"
+    assert observations[0].google_manually_edited is True
+    assert observations[0].as_dict()["google_manually_edited"] is True
+
+
+def test_non_default_epoch_requires_typed_real_break_basis():
+    with pytest.raises(ValueError, match="typed break basis"):
+        AgreementObservation(
+            wake_date=date(2099, 1, 1),
+            metric_code="sleep_duration_asleep_seconds",
+            cohort="device_pair",
+            epoch="arbitrary-release-label",
+            difference=0,
+        )
+
+    with pytest.raises(ValueError, match="break_kind"):
+        EpochBasis("parser_release", "release:2026.09")
+
+
+def test_requested_window_reports_leading_trailing_and_empty_gaps():
+    result = compute_agreement_statistics(
+        _observations([0] * 42, start=date(2099, 2, 28)),
+        requested_start_date=date(2099, 1, 1),
+        requested_end_date=date(2099, 4, 10),
+    )
+
+    assert result.coverage.gaps[0].missing_days == 58
+    assert result.coverage.gaps[0].start_date == date(2099, 1, 1)
+    assert result.coverage.gaps[0].end_date == date(2099, 2, 27)
+    assert result.coverage.longest_gap_days == 58
+
+    trailing = compute_agreement_statistics(
+        _observations([0] * 42, start=date(2099, 1, 1)),
+        requested_start_date=date(2099, 1, 1),
+        requested_end_date=date(2099, 4, 10),
+    )
+    assert trailing.coverage.gaps[-1].missing_days == 58
+    assert trailing.coverage.gaps[-1].start_date == date(2099, 2, 12)
+    assert trailing.coverage.gaps[-1].end_date == date(2099, 4, 10)
+
+    empty = compute_agreement_statistics(
+        [
+            AgreementObservation(
+                wake_date=date(2099, 1, 1),
+                metric_code="sleep_duration_asleep_seconds",
+                cohort="device_pair",
+                difference=None,
+                metric_valid=False,
+            )
+        ],
+        requested_start_date=date(2099, 1, 1),
+        requested_end_date=date(2099, 1, 5),
+    )
+    assert empty.coverage.gaps[0].missing_days == 5
+    assert empty.coverage.longest_gap_days == 5
+
+
+def test_source_values_reject_inconsistent_supplied_difference():
+    with pytest.raises(ValueError, match="google_value - garmin_value"):
+        AgreementObservation(
+            wake_date=date(2099, 1, 1),
+            metric_code="sleep_duration_asleep_seconds",
+            cohort="device_pair",
+            difference=99,
+            google_value=110,
+            garmin_value=100,
+        )
+
+    observation = AgreementObservation(
+        wake_date=date(2099, 1, 1),
+        metric_code="sleep_duration_asleep_seconds",
+        cohort="device_pair",
+        difference=None,
+        google_value=110,
+        garmin_value=100,
+    )
+    assert observation.difference == 10
 
 
 def test_classic_and_stages_variants_are_separate_groups():

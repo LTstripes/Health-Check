@@ -47,6 +47,7 @@ ROBUST_LOA_LOW = 0.025
 ROBUST_LOA_HIGH = 0.975
 DEFAULT_EPOCH = "epoch-1"
 _UNSET_VARIANT = object()
+_EPOCH_BREAK_KINDS = frozenset({"measurement", "device", "algorithm_method"})
 
 
 def _as_date(value: date | datetime | str) -> date:
@@ -94,6 +95,82 @@ def _calendar_span_inclusive(first: date | None, last: date | None) -> int | Non
 
 
 @dataclass(frozen=True, slots=True)
+class EpochBasis:
+    """Reviewable evidence for a real measurement epoch boundary."""
+
+    break_kind: str
+    evidence_reference: str
+    detail: str | None = None
+
+    def __post_init__(self) -> None:
+        break_kind = self.break_kind.strip().lower()
+        evidence_reference = self.evidence_reference.strip()
+        if break_kind not in _EPOCH_BREAK_KINDS:
+            raise ValueError(
+                "epoch break_kind must be measurement, device, or algorithm_method"
+            )
+        if not evidence_reference:
+            raise ValueError("epoch evidence_reference must be non-empty")
+        object.__setattr__(self, "break_kind", break_kind)
+        object.__setattr__(self, "evidence_reference", evidence_reference)
+        if self.detail is not None:
+            detail = self.detail.strip()
+            object.__setattr__(self, "detail", detail or None)
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {
+            "break_kind": self.break_kind,
+            "evidence_reference": self.evidence_reference,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AgreementEpoch:
+    """An epoch identity plus typed evidence for non-default splits."""
+
+    identifier: str
+    basis: EpochBasis | None = None
+
+    def __post_init__(self) -> None:
+        identifier = self.identifier.strip()
+        if not identifier:
+            raise ValueError("epoch identifier must be non-empty")
+        if identifier == DEFAULT_EPOCH and self.basis is not None:
+            raise ValueError("default epoch cannot carry a break basis")
+        if identifier != DEFAULT_EPOCH and self.basis is None:
+            raise ValueError("non-default epoch requires a typed break basis")
+        object.__setattr__(self, "identifier", identifier)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "identifier": self.identifier,
+            "basis": self.basis.as_dict() if self.basis else None,
+        }
+
+
+def _coerce_epoch(value: str | AgreementEpoch | None) -> AgreementEpoch:
+    if value is None:
+        return AgreementEpoch(DEFAULT_EPOCH)
+    if isinstance(value, AgreementEpoch):
+        return value
+    if isinstance(value, str):
+        return AgreementEpoch(value)
+    raise TypeError("epoch must be a string or AgreementEpoch")
+
+
+def _frozen_metric_candidate(metric_code: str) -> bool | None:
+    """Resolve accepted #101 metric eligibility without duplicating its table."""
+
+    from healthcheck.analytics.sleep_metrics import get_sleep_metric_definition
+
+    try:
+        return get_sleep_metric_definition(metric_code).canonical_candidate
+    except KeyError:
+        return None
+
+
+@dataclass(frozen=True, slots=True)
 class AgreementObservation:
     """One metric-night supplied to the pure statistics engine.
 
@@ -107,7 +184,8 @@ class AgreementObservation:
     metric_code: str
     cohort: str
     difference: int | float | None = None
-    epoch: str = DEFAULT_EPOCH
+    epoch: str | AgreementEpoch = DEFAULT_EPOCH
+    epoch_basis: EpochBasis | None = None
     variant: str | None = None
     source_eligible: bool = True
     metric_valid: bool = True
@@ -115,38 +193,77 @@ class AgreementObservation:
     google_value: int | float | None = None
     garmin_value: int | float | None = None
     method_break: bool = False
+    google_manually_edited: bool | None = None
+    canonical_candidate: bool | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "wake_date", _as_date(self.wake_date))
         metric_code = self.metric_code.strip()
         cohort = self.cohort.strip()
-        epoch = self.epoch.strip()
-        if not metric_code or not cohort or not epoch:
-            raise ValueError("metric_code, cohort, and epoch must be non-empty")
+        epoch = _coerce_epoch(self.epoch)
+        if not metric_code or not cohort:
+            raise ValueError("metric_code and cohort must be non-empty")
         object.__setattr__(self, "metric_code", metric_code)
         object.__setattr__(self, "cohort", cohort)
-        object.__setattr__(self, "epoch", epoch)
+        if self.epoch_basis is not None and epoch.basis not in (None, self.epoch_basis):
+            raise ValueError("epoch and epoch_basis must describe the same break")
+        epoch_basis = self.epoch_basis or epoch.basis
+        if epoch.identifier != DEFAULT_EPOCH and epoch_basis is None:
+            raise ValueError("non-default epoch requires a typed break basis")
+        object.__setattr__(self, "epoch", epoch.identifier)
+        object.__setattr__(self, "epoch_basis", epoch_basis)
         if self.variant is not None:
             variant = self.variant.strip()
             object.__setattr__(self, "variant", variant or None)
 
+        frozen_candidate = _frozen_metric_candidate(metric_code)
+        if frozen_candidate is not None:
+            object.__setattr__(self, "canonical_candidate", frozen_candidate)
+        elif self.canonical_candidate is None:
+            object.__setattr__(self, "canonical_candidate", True)
+
         difference = _finite(self.difference)
         google = _finite(self.google_value)
         garmin = _finite(self.garmin_value)
-        if difference is None and google is not None and garmin is not None:
-            difference = google - garmin
+        if google is not None and garmin is not None:
+            expected_difference = google - garmin
+            if difference is not None and not math.isclose(
+                difference, expected_difference, rel_tol=0.0, abs_tol=1e-12
+            ):
+                raise ValueError("difference must equal google_value - garmin_value")
+            difference = expected_difference
         object.__setattr__(self, "difference", difference)
         object.__setattr__(self, "google_value", google)
         object.__setattr__(self, "garmin_value", garmin)
         if not self.metric_valid or difference is None:
             object.__setattr__(self, "metric_valid", False)
 
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "wake_date": self.wake_date.isoformat(),
+            "metric_code": self.metric_code,
+            "cohort": self.cohort,
+            "difference": self.difference,
+            "google_value": self.google_value,
+            "garmin_value": self.garmin_value,
+            "epoch": self.epoch,
+            "epoch_basis": self.epoch_basis.as_dict() if self.epoch_basis else None,
+            "variant": self.variant,
+            "source_eligible": self.source_eligible,
+            "metric_valid": self.metric_valid,
+            "exclusion_reason": self.exclusion_reason,
+            "method_break": self.method_break,
+            "google_manually_edited": self.google_manually_edited,
+            "canonical_candidate": self.canonical_candidate,
+        }
+
     @classmethod
     def from_projection(
         cls,
         projection: Any,
         *,
-        epoch: str | None = None,
+        epoch: str | AgreementEpoch | None = None,
+        epoch_basis: EpochBasis | None = None,
         method_break: bool = False,
     ) -> AgreementObservation:
         """Adapt one accepted #101 projection without copying raw payloads."""
@@ -162,7 +279,8 @@ class AgreementObservation:
             metric_code=projection.metric_code,
             cohort=pair.cohort,
             difference=difference,
-            epoch=epoch or getattr(projection, "epoch", DEFAULT_EPOCH),
+            epoch=epoch if epoch is not None else getattr(projection, "epoch", DEFAULT_EPOCH),
+            epoch_basis=epoch_basis or getattr(projection, "epoch_basis", None),
             variant=getattr(projection, "variant", None),
             source_eligible=True,
             metric_valid=comparable and status == "comparable",
@@ -170,14 +288,16 @@ class AgreementObservation:
             google_value=google,
             garmin_value=garmin,
             method_break=method_break or bool(getattr(projection, "method_break", False)),
+            google_manually_edited=getattr(pair, "google_manually_edited", None),
+            canonical_candidate=getattr(projection, "canonical_candidate", None),
         )
 
 
 def observations_from_projections(
     projections: Iterable[Any],
     *,
-    epoch_resolver: Callable[[Any], str] | None = None,
-    epoch_by_wake_date: Mapping[date | str, str] | None = None,
+    epoch_resolver: Callable[[Any], str | AgreementEpoch] | None = None,
+    epoch_by_wake_date: Mapping[date | str, str | AgreementEpoch] | None = None,
 ) -> tuple[AgreementObservation, ...]:
     """Convert #101 projections while requiring explicit epoch semantics.
 
@@ -195,8 +315,16 @@ def observations_from_projections(
             resolved_epoch = epoch_resolver(projection)
         else:
             wake_date = _as_date(projection.pair.wake_date)
-            resolved_epoch = normalized_epochs.get(wake_date, DEFAULT_EPOCH)
-        result.append(AgreementObservation.from_projection(projection, epoch=resolved_epoch))
+            resolved_epoch = normalized_epochs.get(
+                wake_date, getattr(projection, "epoch", DEFAULT_EPOCH)
+            )
+        result.append(
+            AgreementObservation.from_projection(
+                projection,
+                epoch=resolved_epoch,
+                epoch_basis=getattr(projection, "epoch_basis", None),
+            )
+        )
     return tuple(result)
 
 
@@ -357,8 +485,11 @@ class AgreementStatistics:
     metric_code: str
     cohort: str
     epoch: str
+    epoch_basis: EpochBasis | None
     variant: str | None
     n: int
+    strong_gate_eligible_n: int
+    google_manually_edited_n: int
     wake_dates: tuple[date, ...]
     differences: tuple[float, ...]
     first_wake_date: date | None
@@ -394,8 +525,11 @@ class AgreementStatistics:
             "metric_code": self.metric_code,
             "cohort": self.cohort,
             "epoch": self.epoch,
+            "epoch_basis": self.epoch_basis.as_dict() if self.epoch_basis else None,
             "variant": self.variant,
             "n": self.n,
+            "strong_gate_eligible_n": self.strong_gate_eligible_n,
+            "google_manually_edited_n": self.google_manually_edited_n,
             "wake_dates": [item.isoformat() for item in self.wake_dates],
             "differences": list(self.differences),
             "first_wake_date": self.first_wake_date.isoformat() if self.first_wake_date else None,
@@ -551,8 +685,43 @@ def _coverage(
         if len({float(item.difference) for item in candidates}) > 1
     )
     selected_dates = tuple(item[0] for item in selected)
+    window_dates = selected_dates
+    if requested_start_date is not None and requested_end_date is not None:
+        window_dates = tuple(
+            item
+            for item in selected_dates
+            if requested_start_date <= item <= requested_end_date
+        )
     gaps: list[AgreementGap] = []
-    for left, right in zip(selected_dates, selected_dates[1:]):
+    if requested_start_date is not None and requested_end_date is not None:
+        if window_dates:
+            if window_dates[0] > requested_start_date:
+                gap_end = window_dates[0] - timedelta(days=1)
+                gaps.append(
+                    AgreementGap(
+                        requested_start_date,
+                        gap_end,
+                        (gap_end - requested_start_date).days + 1,
+                    )
+                )
+            if window_dates[-1] < requested_end_date:
+                gap_start = window_dates[-1] + timedelta(days=1)
+                gaps.append(
+                    AgreementGap(
+                        gap_start,
+                        requested_end_date,
+                        (requested_end_date - gap_start).days + 1,
+                    )
+                )
+        else:
+            gaps.append(
+                AgreementGap(
+                    requested_start_date,
+                    requested_end_date,
+                    (requested_end_date - requested_start_date).days + 1,
+                )
+            )
+    for left, right in zip(window_dates, window_dates[1:]):
         missing_days = (right - left).days - 1
         if missing_days > 0:
             gaps.append(
@@ -652,7 +821,9 @@ def _stability(
 def _gate(
     *,
     n: int,
+    strong_gate_eligible_n: int,
     cohort: str,
+    canonical_candidate: bool,
     span_delta_days: int | None,
     method_break_present: bool,
     stability: AgreementStability | None,
@@ -662,9 +833,15 @@ def _gate(
     if exploratory == "insufficient_n":
         reasons.append("exploratory_n_below_14")
 
-    if n < PROVISIONAL_MIN_N:
+    if not canonical_candidate:
+        provisional = "non_canonical_metric"
+        reasons.append("metric_not_canonical_candidate")
+    elif strong_gate_eligible_n < PROVISIONAL_MIN_N:
         provisional = "insufficient_n"
-        reasons.append("provisional_n_below_42")
+        if n < PROVISIONAL_MIN_N:
+            reasons.append("provisional_n_below_42")
+        else:
+            reasons.append("strong_gate_n_below_42")
     elif cohort != "device_pair":
         provisional = "not_device_pair"
         reasons.append("provisional_requires_device_pair")
@@ -755,6 +932,15 @@ def compute_agreement_statistics(
         for item in selected_observations
     ):
         raise ValueError("compute_agreement_statistics requires one metric/cohort/epoch/variant")
+    epoch_basis = selected_observations[0].epoch_basis
+    canonical_candidate = bool(selected_observations[0].canonical_candidate)
+    if any(item.epoch_basis != epoch_basis for item in selected_observations):
+        raise ValueError("one epoch cannot have conflicting break bases")
+    if any(
+        bool(item.canonical_candidate) != canonical_candidate
+        for item in selected_observations
+    ):
+        raise ValueError("one agreement group cannot mix canonical metric definitions")
 
     by_date: dict[date, list[AgreementObservation]] = defaultdict(list)
     for item in selected_observations:
@@ -769,6 +955,10 @@ def compute_agreement_statistics(
 
     values = [float(item.difference) for _, item in deduped]
     dates = tuple(item[0] for item in deduped)
+    strong_deduped = [
+        item for item in deduped if item[1].google_manually_edited is not True
+    ]
+    strong_dates = tuple(item[0] for item in strong_deduped)
     summary = _summary(values)
     requested_start = None if requested_start_date is None else _as_date(requested_start_date)
     requested_end = None if requested_end_date is None else _as_date(requested_end_date)
@@ -788,15 +978,21 @@ def compute_agreement_statistics(
         requested_end_date=requested_end,
     )
     provisional_stability = _stability(
-        deduped,
+        strong_deduped,
         full_robust_low=summary[7],
         full_robust_high=summary[8],
     )
     method_break_present = any(item.method_break for item in selected_observations)
     gate = _gate(
         n=len(values),
+        strong_gate_eligible_n=len(strong_deduped),
         cohort=key[1],
-        span_delta_days=_calendar_span_delta(dates[0], dates[-1]) if dates else None,
+        canonical_candidate=canonical_candidate,
+        span_delta_days=(
+            _calendar_span_delta(strong_dates[0], strong_dates[-1])
+            if strong_dates
+            else None
+        ),
         method_break_present=method_break_present,
         stability=provisional_stability,
     )
@@ -805,8 +1001,13 @@ def compute_agreement_statistics(
         metric_code=key[0],
         cohort=key[1],
         epoch=key[2],
+        epoch_basis=epoch_basis,
         variant=key[3],
         n=len(values),
+        strong_gate_eligible_n=len(strong_deduped),
+        google_manually_edited_n=sum(
+            item.google_manually_edited is True for _, item in deduped
+        ),
         wake_dates=dates,
         differences=tuple(values),
         first_wake_date=dates[0] if dates else None,
@@ -835,7 +1036,7 @@ def compute_agreement_statistics(
 def compute_sleep_agreement(
     observations_or_projection_result: Iterable[AgreementObservation] | Any,
     *,
-    epoch_resolver: Callable[[Any], str] | None = None,
+    epoch_resolver: Callable[[Any], str | AgreementEpoch] | None = None,
     requested_start_date: date | datetime | str | None = None,
     requested_end_date: date | datetime | str | None = None,
 ) -> SleepAgreementPacket:
@@ -881,6 +1082,7 @@ build_sleep_agreement_packet = compute_sleep_agreement
 
 __all__ = [
     "AgreementCoverage",
+    "AgreementEpoch",
     "AgreementGate",
     "AgreementGap",
     "AgreementHalfStatistics",
@@ -888,6 +1090,7 @@ __all__ = [
     "AgreementStability",
     "AgreementStatistics",
     "DEFAULT_EPOCH",
+    "EpochBasis",
     "EXPLORATORY_MIN_N",
     "PROVISIONAL_MIN_N",
     "PROVISIONAL_MIN_SPAN_DELTA_DAYS",
