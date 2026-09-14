@@ -390,11 +390,34 @@ class PersistedSleepAgreementService:
             epoch_id or str(source_epoch.get("id")),
             "agreement epoch id",
         )
-        definition_value = rule_definition or source_snapshot.get("rule_definition")
+        source_definition = source_snapshot.get("rule_definition")
+        if not isinstance(source_definition, Mapping):
+            raise ValueError("historical replay requires a rule definition object")
+        definition_value = (
+            source_definition if rule_definition is None else rule_definition
+        )
         if not isinstance(definition_value, Mapping):
             raise ValueError("historical replay requires a rule definition object")
         definition = dict(definition_value)
-        epoch_body = dict(epoch_basis or source_epoch.get("basis") or {})
+        source_epoch_basis = source_epoch.get("basis")
+        epoch_basis_value = source_epoch_basis if epoch_basis is None else epoch_basis
+        if not isinstance(epoch_basis_value, Mapping):
+            raise ValueError("historical replay requires an epoch basis object")
+        epoch_body = dict(epoch_basis_value)
+
+        if (
+            normalized_pairing != source.pairing_version
+            or normalized_metric != source.metric_version
+            or normalized_statistic != source.statistic_version
+            or normalized_rule_name != source.rule_name
+            or normalized_rule_version != source.rule_version
+            or normalized_epoch != source.epoch_id
+            or canonical_json(definition) != canonical_json(source_definition)
+            or canonical_json(epoch_body) != source.epoch_basis_json
+        ):
+            raise ValueError(
+                "changed-version historical replay requires a frozen-DTO recompute path"
+            )
 
         replay_snapshot = json.loads(canonical_json(source_snapshot))
         replay_snapshot["versions"] = {

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from healthcheck.analytics.sleep_agreement import PersistedSleepAgreementService
 from healthcheck.analytics.sleep_metrics import (
@@ -18,6 +18,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import (
     AgreementRuleSet,
+    AgreementRun,
     GarminRecordMetric,
     GoogleRecordMetric,
     GoogleSleepFieldState,
@@ -580,17 +581,45 @@ def test_agreement_replay_is_idempotent_and_correction_supersedes_old_run(projec
     )
     assert service.current(scope_lineage_key=first.run.scope_lineage_key).id == second.id
 
-    changed_version = service.replay(first.id, metric_version="synthetic-metric-v2")
-    same_changed_version = service.replay(
-        first.id, metric_version="synthetic-metric-v2"
+
+
+def test_changed_version_historical_replay_fails_closed_without_stale_publication(
+    projection_database,
+):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    projection = read_persisted_sleep_metric_projection(session)
+    service = PersistedSleepAgreementService(session)
+    first = service.persist(
+        projection,
+        scope_key="synthetic:changed-version-replay",
+        statistic_version="synthetic-stat-v1",
+        rule_version="synthetic-rule-v1",
+        rule_definition={"name": "synthetic", "version": "synthetic-rule-v1"},
+        epoch_id="synthetic-epoch-v1",
+        epoch_basis={"source": "synthetic-fixture"},
     )
-    assert changed_version.run.id != historical.run.id
-    assert same_changed_version.run.id == changed_version.run.id
-    assert changed_version.snapshot["versions"]["metric"] == "synthetic-metric-v2"
-    assert (
-        changed_version.snapshot["projection"]["result_hash"]
-        == historical.snapshot["projection"]["result_hash"]
+    session.commit()
+
+    before_count = session.scalar(select(func.count()).select_from(AgreementRun))
+    changed_requests = (
+        ({"metric_version": "synthetic-metric-v2"}, "metric_version"),
+        ({"statistic_version": "synthetic-stat-v2"}, "statistic_version"),
+        ({"rule_version": "synthetic-rule-v2"}, "rule_version"),
+        ({"epoch_id": "synthetic-epoch-v2"}, "epoch_id"),
     )
+    for request, field in changed_requests:
+        with pytest.raises(ValueError, match="changed-version historical replay"):
+            service.replay(first.id, **request)
+        assert session.scalar(
+            select(func.count())
+            .select_from(AgreementRun)
+            .where(getattr(AgreementRun, field) == next(iter(request.values())))
+        ) == 0
+
+    assert session.scalar(select(func.count()).select_from(AgreementRun)) == before_count
 
 
 def test_failed_agreement_run_is_not_current_and_terminal_rows_are_immutable(projection_database):
