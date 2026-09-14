@@ -44,7 +44,7 @@ The GitHub issue is the authoritative task specification. A launch prompt sent b
 
 Do not duplicate the whole issue in chat prompts. If requirements change, the Integrator updates the issue or adds an explicit Integrator note; chat-only requirement drift is not authoritative.
 
-A Codex `$delivery-loop` queue may list several tasks in one launch packet only under `docs/AGENT_ORCHESTRATION.md` isolation/dependency rules.
+One bounded task defaults to one Worker; orchestration requires explicit activation. Before launch, the Integrator records the execution-mode and compatibility decision under [`docs/AGENT_ORCHESTRATION.md`](docs/AGENT_ORCHESTRATION.md#launch-compatibility-assessment), and the assigned Worker/Orchestrator verifies it before writes. Include applicable Integrator comments and ownership of shared files/interfaces/migrations/versions. A queue or parallel assignment must list only explicitly authorized tasks under that contract.
 
 ## Git ownership
 
@@ -96,9 +96,9 @@ Repository and normal agent tests use synthetic fixtures only. Private/live veri
 
 - Do only the assigned issue.
 - A normal Worker does not start the next roadmap item automatically.
-- An Execution Orchestrator may advance only to the next **explicitly listed eligible task** when an authorized `$delivery-loop` queue is active and the prior task reached `INTERNAL_ACCEPT`.
+- In a sequential `$delivery-loop` queue, an Execution Orchestrator advances only to the next **explicitly listed eligible task** after the prior task reached `INTERNAL_ACCEPT`, subject to the integration-block exception below. Explicit parallel assignments require the launch compatibility assessment and separate acceptance gates.
 - The Orchestrator must not discover/invent extra roadmap/backlog work.
-- `BLOCKED_FOR_INTEGRATION` blocks the affected dependency chain, not unrelated explicitly listed eligible queue items.
+- `BLOCKED_FOR_INTEGRATION` blocks the affected dependency chain. Continue to unrelated explicitly listed eligible queue items only when the launch explicitly enables integration-block continuation; otherwise stop.
 - Do not perform unrelated cleanup "while here".
 - Do not add unused infrastructure for future releases.
 - Do not reinterpret product/health semantics without an issue/ADR decision.
@@ -108,7 +108,7 @@ Repository and normal agent tests use synthetic fixtures only. Private/live veri
 
 ## Verification
 
-Every task must perform the checks specified by the issue/release spec and truthfully report what actually ran.
+Every task must perform the checks specified by the issue/release spec and truthfully report what actually ran. Apply the proportional early contract checkpoint and final-gate scheduling in [`docs/AGENT_ORCHESTRATION.md`](docs/AGENT_ORCHESTRATION.md#early-contract-checkpoint-and-final-gates); this does not waive any required gate.
 
 Minimum completion discipline:
 
