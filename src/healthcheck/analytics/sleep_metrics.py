@@ -37,6 +37,7 @@ from healthcheck.db.models import (
     GarminSleepStageInterval,
     GarminSource,
     GarminSourceRecord,
+    GoogleNormalizationAttempt,
     GooglePayloadObservation,
     GoogleRawPayload,
     GoogleRecordMetric,
@@ -264,6 +265,7 @@ class SleepMetricEvidenceRef:
     observation_candidates: tuple[str, ...] = ()
     field_paths: tuple[str, ...] = ()
     attribution: Mapping[str, object] = field(default_factory=dict)
+    normalization_provenance: Mapping[str, object] = field(default_factory=dict)
     exclusion_basis: str | None = None
     immutable: bool = False
 
@@ -287,6 +289,7 @@ class SleepMetricEvidenceRef:
             "observation_candidates": list(self.observation_candidates),
             "field_paths": list(self.field_paths),
             "attribution": dict(self.attribution),
+            "normalization_provenance": dict(self.normalization_provenance),
             "exclusion_basis": self.exclusion_basis,
             "immutable": self.immutable,
         }
@@ -654,6 +657,143 @@ def _source_attribution(
     return values
 
 
+def _normalization_provenance(
+    session: Session,
+    *,
+    provider: str,
+    raw: GarminRawPayload | GoogleRawPayload | None,
+    record: GarminSourceRecord | GoogleSourceRecord,
+    observation: GarminPayloadObservation | GooglePayloadObservation | None,
+    observation_candidates: Sequence[str],
+    observation_valid: bool,
+) -> dict[str, object]:
+    """Freeze normalization identity without copying provider payload bodies."""
+
+    raw_values: dict[str, object] = {
+        "id": raw.id if raw is not None else None,
+        "raw_artifact_id": getattr(raw, "raw_artifact_id", None),
+        "content_hash": getattr(raw, "content_hash", None),
+        "source_contract_version": getattr(raw, "source_contract_version", None),
+        "normalization_contract_version": getattr(
+            raw, "normalization_contract_version", None
+        ),
+    }
+    observation_values: dict[str, object] = {
+        "id": observation.id if observation is not None else None,
+        "observation_key": getattr(observation, "observation_key", None),
+        "source_contract_version": getattr(
+            observation, "source_contract_version", None
+        ),
+        "normalization_contract_version": getattr(
+            observation, "normalization_contract_version", None
+        ),
+        "reconciliation_contract_version": getattr(
+            observation, "reconciliation_contract_version", None
+        ),
+    }
+    attempts: list[dict[str, object]] = []
+    source_evidence: dict[str, object] = {
+        "record_id": record.id,
+        "state": None,
+        "field_path": None,
+        "evidence_hash": None,
+    }
+    if provider == "google" and observation is not None:
+        attempts = [
+            {
+                "id": item.id,
+                "attempt_key": item.attempt_key,
+                "normalization_contract_version": item.normalization_contract_version,
+                "projection_fingerprint": item.projection_fingerprint,
+                "source_contract_version": item.source_contract_version,
+                "stream_code": item.stream_code,
+                "query_mode": item.query_mode,
+                "data_source_family": item.data_source_family,
+            }
+            for item in session.scalars(
+                select(GoogleNormalizationAttempt)
+                .where(GoogleNormalizationAttempt.observation_id == observation.id)
+                .order_by(
+                    GoogleNormalizationAttempt.normalization_contract_version,
+                    GoogleNormalizationAttempt.attempted_at,
+                    GoogleNormalizationAttempt.id,
+                )
+            )
+        ]
+        evidence_row = session.get(GoogleRecordSourceEvidence, record.id)
+        if evidence_row is not None:
+            parsed_evidence = _json_object(evidence_row.evidence_json)
+            source_evidence = {
+                "record_id": evidence_row.record_id,
+                "state": evidence_row.state,
+                "field_path": evidence_row.field_path,
+                "evidence_hash": (
+                    stable_manifest_hash(parsed_evidence)
+                    if isinstance(parsed_evidence, Mapping)
+                    else None
+                ),
+            }
+    status = "complete"
+    if raw is None or not isinstance(raw_values["content_hash"], str):
+        status = "unavailable"
+    elif len(observation_candidates) != 1:
+        status = "ambiguous"
+    elif not observation_valid:
+        status = "incomplete"
+    elif provider == "google" and not attempts:
+        status = "incomplete"
+    fingerprint = stable_manifest_hash(
+        {
+            "provider": provider,
+            "record_id": record.id,
+            "raw": raw_values,
+            "observation_candidates": list(observation_candidates),
+            "observation": observation_values,
+            "attempts": attempts,
+            "source_evidence": source_evidence,
+            "record_normalization_contract_version": getattr(
+                record, "normalization_contract_version", None
+            ),
+            "record_reconciliation_contract_version": getattr(
+                record, "reconciliation_contract_version", None
+            ),
+        }
+    )
+    return {
+        "status": status,
+        "normalization_contract_version": getattr(
+            record, "normalization_contract_version", None
+        ),
+        "reconciliation_contract_version": getattr(
+            record, "reconciliation_contract_version", None
+        ),
+        "normalization_attempt_id": attempts[0]["id"] if len(attempts) == 1 else None,
+        "normalization_attempt_key": (
+            attempts[0]["attempt_key"] if len(attempts) == 1 else None
+        ),
+        "projection_fingerprint": (
+            attempts[0]["projection_fingerprint"] if len(attempts) == 1 else None
+        ),
+        "normalization_attempts": attempts,
+        "raw_payload": raw_values,
+        "observation": observation_values,
+        "observation_candidates": list(observation_candidates),
+        "source_record": {
+            "id": record.id,
+            "projection_status": getattr(record, "projection_status", None),
+            "record_status": getattr(record, "record_status", None),
+            "normalization_contract_version": getattr(
+                record, "normalization_contract_version", None
+            ),
+            "reconciliation_contract_version": getattr(
+                record, "reconciliation_contract_version", None
+            ),
+        },
+        "source_evidence": source_evidence,
+        "normalization_fingerprint": fingerprint,
+    }
+
+
 def _record_evidence(
     session: Session,
     *,
@@ -675,6 +815,7 @@ def _record_evidence(
     observation_key: str | None = None
     observation_candidates: tuple[str, ...] = ()
     observation_valid = False
+    observation: GarminPayloadObservation | GooglePayloadObservation | None = None
 
     if provider == "garmin":
         candidates = list(
@@ -770,6 +911,15 @@ def _record_evidence(
             if item
         ),
         attribution=_source_attribution(source, record, eligibility),
+        normalization_provenance=_normalization_provenance(
+            session,
+            provider=provider,
+            raw=raw,
+            record=record,
+            observation=observation,
+            observation_candidates=observation_candidates,
+            observation_valid=observation_valid,
+        ),
         exclusion_basis=reason,
         immutable=immutable,
     )
@@ -2065,6 +2215,17 @@ def _auxiliary_outcome(
                 observation_key=None,
                 observation_candidates=candidate_ids,
                 attribution={"candidate_record_ids": list(candidate_ids)},
+                normalization_provenance={
+                    "status": "ambiguous",
+                    "observation_candidates": list(candidate_ids),
+                    "normalization_fingerprint": stable_manifest_hash(
+                        {
+                            "provider": provider,
+                            "record_ids": list(candidate_ids),
+                            "status": "ambiguous",
+                        }
+                    ),
+                },
                 exclusion_basis="auxiliary_record_ambiguous",
                 immutable=False,
             ),
@@ -2666,6 +2827,13 @@ def _empty_evidence(provider: str, record_id: str | None = None) -> SleepMetricE
         content_hash=None,
         observation_id=None,
         observation_key=None,
+        normalization_provenance={
+            "status": "unavailable",
+            "record_id": record_id,
+            "normalization_fingerprint": stable_manifest_hash(
+                {"provider": provider, "record_id": record_id, "status": "unavailable"}
+            ),
+        },
         immutable=False,
     )
 

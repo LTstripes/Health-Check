@@ -67,6 +67,44 @@ def hash_canonical_rule(rule: Any) -> str:
     return hashlib.sha256(canonical_json(rule).encode("utf-8")).hexdigest()
 
 
+def _agreement_hash(value: Any) -> str:
+    """Hash one persisted agreement value using the R05 canonical JSON form."""
+
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _agreement_object(value: str, field_name: str) -> dict[str, Any]:
+    try:
+        decoded = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"persisted agreement {field_name} is malformed") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError(f"persisted agreement {field_name} must be an object")
+    return decoded
+
+
+def _agreement_list(value: str, field_name: str) -> list[Any]:
+    try:
+        decoded = json.loads(value)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"persisted agreement {field_name} is malformed") from exc
+    if not isinstance(decoded, list):
+        raise ValueError(f"persisted agreement {field_name} must be a list")
+    return decoded
+
+
+def _agreement_mapping(value: Any, field_name: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"persisted agreement {field_name} must be an object")
+    return value
+
+
+def _agreement_nonempty_hash(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or len(value) < 32:
+        raise ValueError(f"persisted agreement {field_name} must be a hash")
+    return value
+
+
 def build_input_snapshot_hash(
     records: Mapping[str, str] | Iterable[tuple[str, str]],
 ) -> str:
@@ -2237,6 +2275,40 @@ class AgreementRunRepository:
             )
         )
 
+    @staticmethod
+    def _same_lineage(
+        predecessor: AgreementRun,
+        *,
+        scope_key: str,
+        scope_lineage_key: str,
+        window_key: str,
+        requested_start_date: date | None,
+        requested_end_date: date | None,
+        cohort: str,
+        pairing_version: str,
+        metric_version: str,
+        statistic_version: str,
+        rule_name: str,
+        rule_version: str,
+        epoch_id: str,
+    ) -> bool:
+        """Check the full bounded lineage, not only its derived hash."""
+
+        return (
+            predecessor.scope_key == scope_key
+            and predecessor.scope_lineage_key == scope_lineage_key
+            and predecessor.window_key == window_key
+            and predecessor.requested_start_date == requested_start_date
+            and predecessor.requested_end_date == requested_end_date
+            and predecessor.cohort == cohort
+            and predecessor.pairing_version == pairing_version
+            and predecessor.metric_version == metric_version
+            and predecessor.statistic_version == statistic_version
+            and predecessor.rule_name == rule_name
+            and predecessor.rule_version == rule_version
+            and predecessor.epoch_id == epoch_id
+        )
+
     def latest_successful(self, scope_lineage_key: str) -> AgreementRun | None:
         """Return only the latest successful run in one bounded lineage."""
 
@@ -2245,17 +2317,33 @@ class AgreementRunRepository:
         )
         superseded_in_lineage = select(AgreementRun.supersedes_run_id).where(
             AgreementRun.scope_lineage_key == normalized_lineage,
+            AgreementRun.status == RunStatus.SUCCEEDED.value,
             AgreementRun.supersedes_run_id.is_not(None),
         )
-        return self.session.scalar(
-            select(AgreementRun)
-            .where(
-                AgreementRun.scope_lineage_key == normalized_lineage,
-                AgreementRun.status == RunStatus.SUCCEEDED.value,
-                ~AgreementRun.id.in_(superseded_in_lineage),
+        candidates = list(
+            self.session.scalars(
+                select(AgreementRun)
+                .where(
+                    AgreementRun.scope_lineage_key == normalized_lineage,
+                    AgreementRun.status == RunStatus.SUCCEEDED.value,
+                    ~AgreementRun.id.in_(superseded_in_lineage),
+                )
+                .order_by(AgreementRun.completed_at.desc(), AgreementRun.id.desc())
             )
-            .order_by(AgreementRun.completed_at.desc(), AgreementRun.id.desc())
         )
+        # Historical replays are immutable audit runs, not a refresh of the
+        # canonical current evidence.  Keep them queryable by ID while they
+        # remain outside current publication selection.
+        for candidate in candidates:
+            try:
+                snapshot = json.loads(candidate.input_snapshot_json)
+            except (TypeError, json.JSONDecodeError):
+                # A malformed successful row is never safe to publish.
+                continue
+            if isinstance(snapshot, Mapping) and isinstance(snapshot.get("replay"), Mapping):
+                continue
+            return candidate
+        return None
 
     def get_or_create_rule_set(
         self,
@@ -2320,37 +2408,63 @@ class AgreementRunRepository:
         normalized_scope_lineage = _required_text(
             scope_lineage_key, "agreement scope lineage key"
         )
+        normalized_scope = _required_text(scope_key, "agreement scope key")
+        normalized_window = _required_text(window_key, "agreement window key")
+        normalized_cohort = _required_text(cohort, "agreement cohort")
+        normalized_pairing = _required_text(pairing_version, "agreement pairing version")
+        normalized_metric = _required_text(metric_version, "agreement metric version")
+        normalized_statistic = _required_text(
+            statistic_version, "agreement statistic version"
+        )
+        normalized_rule_version = _required_text(rule_version, "agreement rule version")
+        normalized_epoch = _required_text(epoch_id, "agreement epoch id")
         if supersedes_run_id is not None:
             predecessor = self.get_by_id(supersedes_run_id)
             if predecessor is None:
                 raise KeyError(f"unknown agreement predecessor run {supersedes_run_id}")
             if predecessor.status != RunStatus.SUCCEEDED.value:
                 raise ValueError("only a successful agreement run can be superseded")
-            if predecessor.scope_lineage_key != normalized_scope_lineage:
+            if not self._same_lineage(
+                predecessor,
+                scope_key=normalized_scope,
+                scope_lineage_key=normalized_scope_lineage,
+                window_key=normalized_window,
+                requested_start_date=requested_start_date,
+                requested_end_date=requested_end_date,
+                cohort=normalized_cohort,
+                pairing_version=normalized_pairing,
+                metric_version=normalized_metric,
+                statistic_version=normalized_statistic,
+                rule_name=rule_set.rule_name,
+                rule_version=normalized_rule_version,
+                epoch_id=normalized_epoch,
+            ):
                 raise ValueError(
                     "an agreement run can supersede only the same "
                     "scope/window/cohort/version lineage"
                 )
         run = AgreementRun(
-            scope_key=_required_text(scope_key, "agreement scope key"),
+            scope_key=normalized_scope,
             scope_lineage_key=normalized_scope_lineage,
-            window_key=_required_text(window_key, "agreement window key"),
+            window_key=normalized_window,
             requested_start_date=requested_start_date,
             requested_end_date=requested_end_date,
-            cohort=_required_text(cohort, "agreement cohort"),
-            pairing_version=_required_text(pairing_version, "agreement pairing version"),
-            metric_version=_required_text(metric_version, "agreement metric version"),
-            statistic_version=_required_text(statistic_version, "agreement statistic version"),
+            cohort=normalized_cohort,
+            pairing_version=normalized_pairing,
+            metric_version=normalized_metric,
+            statistic_version=normalized_statistic,
             rule_set_id=rule_set.id,
             rule_name=rule_set.rule_name,
-            rule_version=_required_text(rule_version, "agreement rule version"),
-            epoch_id=_required_text(epoch_id, "agreement epoch id"),
+            rule_version=normalized_rule_version,
+            epoch_id=normalized_epoch,
             epoch_basis_json=_required_text(epoch_basis_json, "agreement epoch basis"),
             input_snapshot_hash=_required_text(input_snapshot_hash, "agreement snapshot hash"),
             input_snapshot_json=_required_text(input_snapshot_json, "agreement snapshot"),
             coverage_json=_required_text(coverage_json, "agreement coverage"),
             identity_hash=normalized_identity,
-            supersedes_run_id=supersedes_run_id,
+            # A construction attempt is not a published successor.  The
+            # edge is attached atomically by finish() only for success.
+            supersedes_run_id=None,
         )
         self.session.add(run)
         self.session.flush()
@@ -2419,6 +2533,11 @@ class AgreementRunRepository:
         self, *, run_id: str, pair_id: str, values: Mapping[str, Any]
     ) -> AgreementMetricResult:
         self._running(run_id)
+        pair = self.session.get(AgreementRunPair, pair_id)
+        if pair is None:
+            raise KeyError(f"unknown agreement pair {pair_id}")
+        if pair.run_id != run_id:
+            raise ValueError("an agreement metric result must reference a pair in its run")
         variant = values.get("variant")
         variant_key = (
             "__none__" if variant is None else _required_text(str(variant), "metric variant")
@@ -2469,6 +2588,403 @@ class AgreementRunRepository:
         self.session.flush()
         return coverage
 
+    def clone_frozen_rows(self, *, source_run_id: str, target_run_id: str) -> dict[str, int]:
+        """Copy only immutable agreement rows into a new running run.
+
+        Historical replay deliberately has no path back to Garmin/Google
+        current tables.  Child IDs are regenerated and metric pair references
+        are remapped to the target run.
+        """
+
+        source = self.get_by_id(source_run_id)
+        if source is None:
+            raise KeyError(f"unknown agreement source run {source_run_id}")
+        if source.status != RunStatus.SUCCEEDED.value:
+            raise ValueError("only a successful agreement run can be replayed")
+        self._running(target_run_id)
+
+        source_pairs = self.pairs_for_run(source_run_id)
+        pair_ids: dict[str, str] = {}
+        for item in source_pairs:
+            copied = AgreementRunPair(
+                id=new_id(),
+                run_id=target_run_id,
+                ordinal=item.ordinal,
+                pair_key=item.pair_key,
+                wake_date=item.wake_date,
+                cohort=item.cohort,
+                source_class=item.source_class,
+                garmin_record_id=item.garmin_record_id,
+                google_record_id=item.google_record_id,
+                garmin_source_id=item.garmin_source_id,
+                google_source_id=item.google_source_id,
+                eligibility_json=item.eligibility_json,
+                pair_json=item.pair_json,
+            )
+            self.session.add(copied)
+            self.session.flush()
+            pair_ids[item.id] = copied.id
+
+        source_exclusions = self.exclusions_for_run(source_run_id)
+        for item in source_exclusions:
+            self.session.add(
+                AgreementRunExclusion(
+                    id=new_id(),
+                    run_id=target_run_id,
+                    ordinal=item.ordinal,
+                    wake_date=item.wake_date,
+                    cohort=item.cohort,
+                    reason=item.reason,
+                    garmin_record_ids_json=item.garmin_record_ids_json,
+                    google_record_ids_json=item.google_record_ids_json,
+                    details_json=item.details_json,
+                    exclusion_json=item.exclusion_json,
+                )
+            )
+            self.session.flush()
+
+        source_metrics = self.metrics_for_run(source_run_id)
+        for item in source_metrics:
+            target_pair_id = pair_ids.get(item.pair_id)
+            if target_pair_id is None:
+                raise ValueError("cannot replay a metric whose frozen pair is missing")
+            self.session.add(
+                AgreementMetricResult(
+                    id=new_id(),
+                    run_id=target_run_id,
+                    pair_id=target_pair_id,
+                    ordinal=item.ordinal,
+                    metric_code=item.metric_code,
+                    variant=item.variant,
+                    variant_key=item.variant_key,
+                    status=item.status,
+                    comparable=item.comparable,
+                    difference_number=item.difference_number,
+                    difference_unit=item.difference_unit,
+                    reason=item.reason,
+                    exclusion_basis=item.exclusion_basis,
+                    garmin_json=item.garmin_json,
+                    google_json=item.google_json,
+                    manifest_json=item.manifest_json,
+                    manifest_hash=item.manifest_hash,
+                )
+            )
+            self.session.flush()
+
+        source_coverage = self.coverage_for_run(source_run_id)
+        for item in source_coverage:
+            self.session.add(
+                AgreementCoverage(
+                    id=new_id(),
+                    run_id=target_run_id,
+                    ordinal=item.ordinal,
+                    metric_code=item.metric_code,
+                    variant=item.variant,
+                    variant_key=item.variant_key,
+                    comparable_count=item.comparable_count,
+                    unavailable_count=item.unavailable_count,
+                    excluded_count=item.excluded_count,
+                    coverage_json=item.coverage_json,
+                )
+            )
+            self.session.flush()
+
+        return {
+            "pair_count": len(source_pairs),
+            "exclusion_count": len(source_exclusions),
+            "metric_count": len(source_metrics),
+            "coverage_count": len(source_coverage),
+        }
+
+    @staticmethod
+    def _validate_metric_side(side: Any, field_name: str) -> Mapping[str, Any]:
+        side_mapping = _agreement_mapping(side, field_name)
+        evidence = _agreement_mapping(side_mapping.get("evidence"), f"{field_name}.evidence")
+        provenance = _agreement_mapping(
+            evidence.get("normalization_provenance"),
+            f"{field_name}.evidence.normalization_provenance",
+        )
+        status = provenance.get("status")
+        if status not in {"complete", "incomplete", "ambiguous", "unavailable"}:
+            raise ValueError(
+                f"persisted agreement {field_name} has invalid normalization provenance"
+            )
+        record_id = side_mapping.get("record_id")
+        if side_mapping.get("eligible") is True and status != "complete":
+            raise ValueError(
+                f"persisted agreement {field_name} is eligible without complete "
+                "normalization provenance"
+            )
+        if record_id is not None and status != "unavailable":
+            _agreement_nonempty_hash(
+                provenance.get("normalization_fingerprint"),
+                f"{field_name}.evidence.normalization_fingerprint",
+            )
+        if status != "complete" and not (
+            side_mapping.get("reason") or side_mapping.get("exclusion_basis")
+        ):
+            raise ValueError(
+                f"persisted agreement {field_name} lacks an unavailable/exclusion reason"
+            )
+        return side_mapping
+
+    def _validate_integrity(
+        self,
+        run: AgreementRun,
+        *,
+        counts: Mapping[str, int | None],
+    ) -> None:
+        """Fail closed unless the frozen snapshot and all child rows agree."""
+
+        snapshot = _agreement_object(run.input_snapshot_json, "input snapshot")
+        if _agreement_hash(snapshot) != run.input_snapshot_hash:
+            raise ValueError("agreement input snapshot hash does not match its persisted body")
+        for key in (
+            "contract_version",
+            "algorithm",
+            "scope_key",
+            "requested_window",
+            "cohort",
+            "versions",
+            "epoch",
+            "rule_definition",
+            "projection",
+        ):
+            if key not in snapshot:
+                raise ValueError(f"agreement input snapshot is missing {key}")
+        if snapshot["scope_key"] != run.scope_key or snapshot["cohort"] != run.cohort:
+            raise ValueError("agreement snapshot scope/cohort does not match the run")
+        window = _agreement_mapping(snapshot["requested_window"], "requested_window")
+        if window.get("window_key") != run.window_key:
+            raise ValueError("agreement snapshot window does not match the run")
+        if window.get("start_date") != (
+            run.requested_start_date.isoformat() if run.requested_start_date else None
+        ) or window.get("end_date") != (
+            run.requested_end_date.isoformat() if run.requested_end_date else None
+        ):
+            raise ValueError("agreement snapshot requested window is inconsistent")
+        versions = _agreement_mapping(snapshot["versions"], "versions")
+        expected_versions = {
+            "pairing": run.pairing_version,
+            "metric": run.metric_version,
+            "statistic": run.statistic_version,
+            "rule_name": run.rule_name,
+            "rule": run.rule_version,
+        }
+        if any(versions.get(key) != value for key, value in expected_versions.items()):
+            raise ValueError("agreement snapshot versions do not match the run")
+        epoch = _agreement_mapping(snapshot["epoch"], "epoch")
+        if epoch.get("id") != run.epoch_id:
+            raise ValueError("agreement snapshot epoch does not match the run")
+        if canonical_json(epoch.get("basis")) != run.epoch_basis_json:
+            raise ValueError("agreement snapshot epoch basis is inconsistent")
+        _agreement_mapping(snapshot["rule_definition"], "rule_definition")
+
+        projection = _agreement_mapping(snapshot["projection"], "projection")
+        projection_keys = (
+            "contract_version",
+            "rule_version",
+            "algorithm",
+            "query",
+            "pairing",
+            "metric_definitions",
+            "projections",
+            "frozen_inputs",
+            "coverage",
+            "excluded_metric_codes",
+            "result_hash",
+        )
+        if any(key not in projection for key in projection_keys):
+            missing = tuple(key for key in projection_keys if key not in projection)
+            raise ValueError(f"agreement projection is missing required fields: {missing!r}")
+        result_hash = _agreement_nonempty_hash(projection["result_hash"], "projection.result_hash")
+        projection_body = dict(projection)
+        projection_body.pop("result_hash")
+        if _agreement_hash(projection_body) != result_hash:
+            raise ValueError("agreement projection result hash does not match its body")
+        pairing = _agreement_mapping(projection["pairing"], "projection.pairing")
+        snapshot_pairs = pairing.get("pairs")
+        snapshot_exclusions = pairing.get("exclusions")
+        if not isinstance(snapshot_pairs, list) or not isinstance(snapshot_exclusions, list):
+            raise ValueError("agreement pairing must contain pair and exclusion lists")
+        projection_rows = projection["projections"]
+        frozen_inputs = projection["frozen_inputs"]
+        coverage_rows = projection["coverage"]
+        if not isinstance(projection_rows, list) or not isinstance(frozen_inputs, list):
+            raise ValueError("agreement projection rows must be lists")
+        if not isinstance(coverage_rows, list):
+            raise ValueError("agreement projection coverage must be a list")
+        if canonical_json(_agreement_list(run.coverage_json, "coverage")) != canonical_json(
+            coverage_rows
+        ):
+            raise ValueError("agreement run coverage does not match its snapshot")
+
+        pairs = self.pairs_for_run(run.id)
+        exclusions = self.exclusions_for_run(run.id)
+        metrics = self.metrics_for_run(run.id)
+        coverages = self.coverage_for_run(run.id)
+        actual_lengths = {
+            "pair_count": len(pairs),
+            "exclusion_count": len(exclusions),
+            "metric_count": len(metrics),
+            "coverage_count": len(coverages),
+        }
+        for name, actual in actual_lengths.items():
+            expected = counts.get(name)
+            if expected is None:
+                raise ValueError(f"successful agreement publication requires {name}")
+            if expected != actual:
+                raise ValueError(f"agreement {name} does not match its child rows")
+            if expected != len(
+                {
+                    "pair_count": snapshot_pairs,
+                    "exclusion_count": snapshot_exclusions,
+                    "metric_count": projection_rows,
+                    "coverage_count": coverage_rows,
+                }[name]
+            ):
+                raise ValueError(f"agreement {name} does not match its frozen snapshot")
+
+        if [item.ordinal for item in pairs] != list(range(len(pairs))):
+            raise ValueError("agreement pair ordinals are incomplete")
+        if [item.ordinal for item in exclusions] != list(range(len(exclusions))):
+            raise ValueError("agreement exclusion ordinals are incomplete")
+        if [item.ordinal for item in metrics] != list(range(len(metrics))):
+            raise ValueError("agreement metric ordinals are incomplete")
+        if [item.ordinal for item in coverages] != list(range(len(coverages))):
+            raise ValueError("agreement coverage ordinals are incomplete")
+
+        pair_by_id: dict[str, Mapping[str, Any]] = {}
+        for index, (row, expected) in enumerate(zip(pairs, snapshot_pairs, strict=True)):
+            expected_mapping = _agreement_mapping(expected, f"projection.pairing.pairs[{index}]")
+            actual_mapping = _agreement_object(row.pair_json, f"pair {row.id}")
+            if canonical_json(actual_mapping) != canonical_json(expected_mapping):
+                raise ValueError("agreement pair row does not match its frozen snapshot")
+            _agreement_mapping(json.loads(row.eligibility_json), f"pair {row.id}.eligibility")
+            pair_by_id[row.id] = actual_mapping
+
+        for index, (row, expected) in enumerate(zip(exclusions, snapshot_exclusions, strict=True)):
+            expected_mapping = _agreement_mapping(
+                expected, f"projection.pairing.exclusions[{index}]"
+            )
+            actual_mapping = _agreement_object(row.exclusion_json, f"exclusion {row.id}")
+            if canonical_json(actual_mapping) != canonical_json(expected_mapping):
+                raise ValueError("agreement exclusion row does not match its frozen snapshot")
+
+        frozen_by_hash: dict[str, Mapping[str, Any]] = {}
+        for index, frozen in enumerate(frozen_inputs):
+            frozen_mapping = _agreement_mapping(frozen, f"projection.frozen_inputs[{index}]")
+            frozen_hash = _agreement_nonempty_hash(
+                frozen_mapping.get("manifest_hash"),
+                f"projection.frozen_inputs[{index}].manifest_hash",
+            )
+            if frozen_hash in frozen_by_hash:
+                raise ValueError("agreement frozen input manifests are not unique")
+            frozen_by_hash[frozen_hash] = frozen_mapping
+
+        derived_coverage: dict[tuple[str, str], dict[str, int]] = {}
+        for index, (row, expected_projection) in enumerate(
+            zip(metrics, projection_rows, strict=True)
+        ):
+            expected_mapping = _agreement_mapping(
+                expected_projection, f"projection.projections[{index}]"
+            )
+            manifest = _agreement_object(row.manifest_json, f"metric manifest {row.id}")
+            manifest_hash = _agreement_nonempty_hash(
+                row.manifest_hash, f"metric {row.id}.manifest_hash"
+            )
+            manifest_body = dict(manifest)
+            embedded_hash = manifest_body.pop("manifest_hash", None)
+            if embedded_hash != manifest_hash or _agreement_hash(manifest_body) != manifest_hash:
+                raise ValueError("agreement metric manifest hash is inconsistent")
+            frozen = frozen_by_hash.get(manifest_hash)
+            if frozen is None:
+                raise ValueError("agreement metric is missing its frozen input manifest")
+            if canonical_json(frozen) != canonical_json(manifest):
+                raise ValueError("agreement metric manifest differs from frozen input")
+            metric_definition = _agreement_mapping(
+                manifest.get("metric_definition"), f"metric {row.id}.metric_definition"
+            )
+            manifest_projection_values = {
+                "metric_code": metric_definition.get("metric_code"),
+                "variant": manifest.get("variant"),
+                "status": manifest.get("status"),
+                "reason": manifest.get("reason"),
+                "difference": manifest.get("difference"),
+                "difference_unit": manifest.get("difference_unit"),
+            }
+            for key, manifest_value in manifest_projection_values.items():
+                if expected_mapping.get(key) != manifest_value:
+                    raise ValueError(f"agreement metric projection field {key} is inconsistent")
+            if row.run_id != run.id or row.pair_id not in pair_by_id:
+                raise ValueError("agreement metric references a pair outside its run")
+            garmin_json = _agreement_object(row.garmin_json, f"metric {row.id}.garmin")
+            google_json = _agreement_object(row.google_json, f"metric {row.id}.google")
+            if canonical_json(garmin_json) != canonical_json(
+                _agreement_mapping(manifest.get("garmin"), f"metric {row.id}.garmin")
+            ) or canonical_json(google_json) != canonical_json(
+                _agreement_mapping(manifest.get("google"), f"metric {row.id}.google")
+            ):
+                raise ValueError("agreement metric side does not match its manifest")
+            if row.metric_code != metric_definition.get("metric_code"):
+                raise ValueError("agreement metric code is inconsistent with its definition")
+            expected_variant_key = (
+                "__none__" if manifest.get("variant") is None else manifest.get("variant")
+            )
+            if row.variant_key != expected_variant_key:
+                raise ValueError("agreement metric variant is inconsistent")
+            if row.status != manifest.get("status") or row.comparable != (
+                row.status == "comparable"
+            ):
+                raise ValueError("agreement metric status/comparability is inconsistent")
+            if (
+                row.difference_number != manifest.get("difference")
+                or row.difference_unit != manifest.get("difference_unit")
+            ):
+                raise ValueError("agreement metric difference is inconsistent")
+            if row.reason != manifest.get("reason") or row.exclusion_basis != manifest.get(
+                "exclusion_basis"
+            ):
+                raise ValueError("agreement metric reason is inconsistent")
+            self._validate_metric_side(manifest.get("garmin"), f"metric {row.id}.garmin")
+            self._validate_metric_side(manifest.get("google"), f"metric {row.id}.google")
+            key = (row.metric_code, row.variant_key)
+            bucket = derived_coverage.setdefault(
+                key, {"comparable": 0, "unavailable": 0, "excluded": 0}
+            )
+            bucket[row.status] += 1
+
+        if len(frozen_by_hash) != len(metrics):
+            raise ValueError("agreement frozen input count does not match metric rows")
+        for index, (row, expected) in enumerate(zip(coverages, coverage_rows, strict=True)):
+            expected_mapping = _agreement_mapping(expected, f"projection.coverage[{index}]")
+            actual_mapping = _agreement_object(row.coverage_json, f"coverage {row.id}")
+            actual_without_ordinal = {
+                key: value for key, value in actual_mapping.items() if key != "ordinal"
+            }
+            if canonical_json(actual_without_ordinal) != canonical_json(expected_mapping):
+                raise ValueError("agreement coverage row does not match its snapshot")
+            if (
+                row.metric_code != expected_mapping.get("metric_code")
+                or row.variant != expected_mapping.get("variant")
+            ):
+                raise ValueError("agreement coverage identity is inconsistent")
+            derived = derived_coverage.get((row.metric_code, row.variant_key), {
+                "comparable": 0,
+                "unavailable": 0,
+                "excluded": 0,
+            })
+            if {
+                "comparable_count": row.comparable_count,
+                "unavailable_count": row.unavailable_count,
+                "excluded_count": row.excluded_count,
+            } != {
+                "comparable_count": derived["comparable"],
+                "unavailable_count": derived["unavailable"],
+                "excluded_count": derived["excluded"],
+            }:
+                raise ValueError("agreement coverage counts are inconsistent with metrics")
+
     def finish(
         self,
         run_id: str,
@@ -2479,6 +2995,7 @@ class AgreementRunRepository:
         metric_count: int | None = None,
         coverage_count: int | None = None,
         failure_reason: str | None = None,
+        supersedes_run_id: str | None = None,
     ) -> AgreementRun:
         run = self.get_by_id(run_id)
         if run is None:
@@ -2502,6 +3019,8 @@ class AgreementRunRepository:
             raise ValueError("a successful agreement run cannot have a failure reason")
         if normalized_status == RunStatus.FAILED.value and not failure_reason:
             raise ValueError("a failed agreement run requires a failure reason")
+        if normalized_status == RunStatus.FAILED.value and supersedes_run_id is not None:
+            raise ValueError("a failed agreement run cannot supersede a predecessor")
         if run.status != RunStatus.RUNNING.value:
             if run.status != normalized_status:
                 raise ValueError("a terminal agreement run cannot change status")
@@ -2509,15 +3028,66 @@ class AgreementRunRepository:
                 raise ValueError("a terminal agreement run is immutable")
             if run.failure_reason != failure_reason:
                 raise ValueError("a terminal agreement run is immutable")
+            if run.supersedes_run_id != supersedes_run_id:
+                raise ValueError("a terminal agreement run is immutable")
             return run
+        if normalized_status == RunStatus.SUCCEEDED.value:
+            self._validate_integrity(run, counts=counts)
+            if supersedes_run_id is not None:
+                predecessor = self.get_by_id(supersedes_run_id)
+                if predecessor is None:
+                    raise KeyError(f"unknown agreement predecessor run {supersedes_run_id}")
+                if predecessor.status != RunStatus.SUCCEEDED.value:
+                    raise ValueError("only a successful agreement run can be superseded")
+                if not self._same_lineage(
+                    predecessor,
+                    scope_key=run.scope_key,
+                    scope_lineage_key=run.scope_lineage_key,
+                    window_key=run.window_key,
+                    requested_start_date=run.requested_start_date,
+                    requested_end_date=run.requested_end_date,
+                    cohort=run.cohort,
+                    pairing_version=run.pairing_version,
+                    metric_version=run.metric_version,
+                    statistic_version=run.statistic_version,
+                    rule_name=run.rule_name,
+                    rule_version=run.rule_version,
+                    epoch_id=run.epoch_id,
+                ):
+                    raise ValueError(
+                        "an agreement run can supersede only the same "
+                        "scope/window/cohort/version lineage"
+                    )
         run.status = normalized_status
         run.pair_count = pair_count
         run.exclusion_count = exclusion_count
         run.metric_count = metric_count
         run.coverage_count = coverage_count
         run.failure_reason = failure_reason
+        run.supersedes_run_id = (
+            supersedes_run_id if normalized_status == RunStatus.SUCCEEDED.value else None
+        )
         run.completed_at = utc_now()
         self.session.flush()
+        return run
+
+    def validate_published(self, run_id: str) -> AgreementRun:
+        """Validate an already successful run before exposing it for replay."""
+
+        run = self.get_by_id(run_id)
+        if run is None:
+            raise KeyError(f"unknown agreement run {run_id}")
+        if run.status != RunStatus.SUCCEEDED.value:
+            raise ValueError("only a completed successful agreement run can be replayed")
+        self._validate_integrity(
+            run,
+            counts={
+                "pair_count": run.pair_count,
+                "exclusion_count": run.exclusion_count,
+                "metric_count": run.metric_count,
+                "coverage_count": run.coverage_count,
+            },
+        )
         return run
 
     def pairs_for_run(self, run_id: str) -> list[AgreementRunPair]:

@@ -311,6 +311,7 @@ class PersistedSleepAgreementService:
             exclusion_count=len(projection.pairing.exclusions),
             metric_count=len(projection.projections),
             coverage_count=len(projection.coverage),
+            supersedes_run_id=supersedes_run_id,
         )
         return AgreementPersistenceResult(run=run, created=True)
 
@@ -326,30 +327,203 @@ class PersistedSleepAgreementService:
             failure_reason=_required_text(reason, "agreement failure reason"),
         )
 
-    def replay(self, run_id: str) -> AgreementReplay:
-        """Reconstruct a completed run exclusively from its frozen rows."""
+    def replay(
+        self,
+        run_id: str,
+        *,
+        pairing_version: str | None = None,
+        metric_version: str | None = None,
+        statistic_version: str | None = None,
+        stat_version: str | None = None,
+        rule_name: str | None = None,
+        rule_version: str | None = None,
+        rule_definition: Mapping[str, Any] | None = None,
+        epoch_id: str | None = None,
+        epoch_basis: Mapping[str, Any] | None = None,
+        supersedes_run_id: str | None = None,
+    ) -> AgreementReplay:
+        """Create or find a versioned run from one persisted snapshot only.
 
-        run = self.repository.get_by_id(run_id)
-        if run is None:
-            raise KeyError(f"unknown agreement run {run_id}")
-        if run.status != RunStatus.SUCCEEDED.value:
-            raise ValueError("only a completed successful agreement run can be replayed")
+        The replay marker and explicit versions make the operation itself
+        semantically idempotent while keeping the source run and its child
+        rows immutable.  Historical replays are audit runs; callers must
+        explicitly provide a successor edge if they intend publication as a
+        current refresh.
+        """
+
+        source = self.repository.validate_published(run_id)
+        source_snapshot = _decode_json(source.input_snapshot_json, "input snapshot")
+        if not isinstance(source_snapshot, dict):
+            raise ValueError("persisted agreement input snapshot must be an object")
+        source_versions = source_snapshot.get("versions")
+        if not isinstance(source_versions, Mapping):
+            raise ValueError("persisted agreement input snapshot has no versions")
+        source_epoch = source_snapshot.get("epoch")
+        if not isinstance(source_epoch, Mapping):
+            raise ValueError("persisted agreement input snapshot has no epoch")
+        if statistic_version is not None and stat_version is not None:
+            if statistic_version != stat_version:
+                raise ValueError("statistic_version and stat_version disagree")
+        normalized_statistic = _required_text(
+            statistic_version
+            or stat_version
+            or str(source_versions.get("statistic")),
+            "agreement statistic version",
+        )
+        normalized_pairing = _required_text(
+            pairing_version or str(source_versions.get("pairing")),
+            "agreement pairing version",
+        )
+        normalized_metric = _required_text(
+            metric_version or str(source_versions.get("metric")),
+            "agreement metric version",
+        )
+        normalized_rule_name = _required_text(
+            rule_name or str(source_versions.get("rule_name")),
+            "agreement rule name",
+        )
+        normalized_rule_version = _required_text(
+            rule_version or str(source_versions.get("rule")),
+            "agreement rule version",
+        )
+        normalized_epoch = _required_text(
+            epoch_id or str(source_epoch.get("id")),
+            "agreement epoch id",
+        )
+        definition_value = rule_definition or source_snapshot.get("rule_definition")
+        if not isinstance(definition_value, Mapping):
+            raise ValueError("historical replay requires a rule definition object")
+        definition = dict(definition_value)
+        epoch_body = dict(epoch_basis or source_epoch.get("basis") or {})
+
+        replay_snapshot = json.loads(canonical_json(source_snapshot))
+        replay_snapshot["versions"] = {
+            "pairing": normalized_pairing,
+            "metric": normalized_metric,
+            "statistic": normalized_statistic,
+            "rule_name": normalized_rule_name,
+            "rule": normalized_rule_version,
+        }
+        replay_snapshot["epoch"] = {"id": normalized_epoch, "basis": epoch_body}
+        replay_snapshot["rule_definition"] = definition
+        previous_replay = source_snapshot.get("replay")
+        if isinstance(previous_replay, Mapping):
+            historical_source_id = _required_text(
+                str(previous_replay.get("source_run_id") or source.id),
+                "historical replay source run ID",
+            )
+            historical_snapshot_hash = _required_text(
+                str(
+                    previous_replay.get("source_snapshot_hash")
+                    or source.input_snapshot_hash
+                ),
+                "historical replay source snapshot hash",
+            )
+        else:
+            historical_source_id = source.id
+            historical_snapshot_hash = source.input_snapshot_hash
+        replay_snapshot["replay"] = {
+            "kind": "historical_persisted_snapshot",
+            "source_run_id": historical_source_id,
+            "source_snapshot_hash": historical_snapshot_hash,
+        }
+        input_snapshot_hash = stable_manifest_hash(replay_snapshot)
+        identity_body = {
+            "operation": "historical_persisted_snapshot_replay",
+            "source_run_id": historical_source_id,
+            "source_snapshot_hash": historical_snapshot_hash,
+            "scope_key": source.scope_key,
+            "window_key": source.window_key,
+            "cohort": source.cohort,
+            "pairing_version": normalized_pairing,
+            "metric_version": normalized_metric,
+            "statistic_version": normalized_statistic,
+            "rule_name": normalized_rule_name,
+            "rule_version": normalized_rule_version,
+            "epoch_id": normalized_epoch,
+            "input_snapshot_hash": input_snapshot_hash,
+        }
+        identity_hash = stable_manifest_hash(identity_body)
+        lineage_key = stable_manifest_hash(
+            {
+                key: identity_body[key]
+                for key in (
+                    "scope_key",
+                    "window_key",
+                    "cohort",
+                    "pairing_version",
+                    "metric_version",
+                    "statistic_version",
+                    "rule_name",
+                    "rule_version",
+                    "epoch_id",
+                )
+            }
+        )
+        rule_set = self.repository.get_or_create_rule_set(
+            rule_name=normalized_rule_name,
+            rule_version=normalized_rule_version,
+            definition=definition,
+        )
+        run, created = self.repository.start_or_get(
+            scope_key=source.scope_key,
+            scope_lineage_key=lineage_key,
+            window_key=source.window_key,
+            requested_start_date=source.requested_start_date,
+            requested_end_date=source.requested_end_date,
+            cohort=source.cohort,
+            pairing_version=normalized_pairing,
+            metric_version=normalized_metric,
+            statistic_version=normalized_statistic,
+            rule_set=rule_set,
+            rule_version=normalized_rule_version,
+            epoch_id=normalized_epoch,
+            epoch_basis_json=canonical_json(epoch_body),
+            input_snapshot_hash=input_snapshot_hash,
+            input_snapshot_json=canonical_json(replay_snapshot),
+            coverage_json=canonical_json(replay_snapshot["projection"]["coverage"]),
+            identity_hash=identity_hash,
+            supersedes_run_id=supersedes_run_id,
+        )
+        if not created:
+            if run.status != RunStatus.SUCCEEDED.value:
+                raise ValueError("historical replay is already being constructed")
+            return self._load_replay(run)
+
+        counts = self.repository.clone_frozen_rows(
+            source_run_id=source.id,
+            target_run_id=run.id,
+        )
+        self.repository.finish(
+            run.id,
+            status=RunStatus.SUCCEEDED,
+            pair_count=counts["pair_count"],
+            exclusion_count=counts["exclusion_count"],
+            metric_count=counts["metric_count"],
+            coverage_count=counts["coverage_count"],
+            supersedes_run_id=supersedes_run_id,
+        )
+        return self._load_replay(run)
+
+    def _load_replay(self, run: AgreementRun) -> AgreementReplay:
+        """Read one already-published run exclusively from agreement rows."""
+
         snapshot = _decode_json(run.input_snapshot_json, "input snapshot")
         pairs = tuple(
             _decode_json(item.pair_json, "pair")
-            for item in self.repository.pairs_for_run(run_id)
+            for item in self.repository.pairs_for_run(run.id)
         )
         exclusions = tuple(
             _decode_json(item.exclusion_json, "exclusion")
-            for item in self.repository.exclusions_for_run(run_id)
+            for item in self.repository.exclusions_for_run(run.id)
         )
         metrics = tuple(
             _decode_json(item.manifest_json, "metric manifest")
-            for item in self.repository.metrics_for_run(run_id)
+            for item in self.repository.metrics_for_run(run.id)
         )
         coverage = tuple(
             _decode_json(item.coverage_json, "coverage")
-            for item in self.repository.coverage_for_run(run_id)
+            for item in self.repository.coverage_for_run(run.id)
         )
         if not isinstance(snapshot, dict):
             raise ValueError("persisted agreement input snapshot must be an object")

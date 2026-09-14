@@ -1294,7 +1294,9 @@ class AgreementRun(Base):
             "ux_agreement_runs_single_successor",
             "supersedes_run_id",
             unique=True,
-            sqlite_where=text("supersedes_run_id IS NOT NULL"),
+            sqlite_where=text(
+                "status = 'succeeded' AND supersedes_run_id IS NOT NULL"
+            ),
         ),
         Index(
             "ux_agreement_runs_success_identity",

@@ -17,6 +17,7 @@ from healthcheck.analytics.sleep_metrics import (
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import (
+    AgreementRuleSet,
     GarminRecordMetric,
     GoogleRecordMetric,
     GoogleSleepFieldState,
@@ -488,11 +489,18 @@ def test_agreement_run_persists_complete_snapshot_and_replays_without_current_ro
     assert first.run.coverage_count == len(projection.coverage)
 
     replay = service.replay(first.id)
+    assert replay.run.id != first.id
+    assert replay.run.supersedes_run_id is None
+    assert replay.run.input_snapshot_hash != first.run.input_snapshot_hash
     assert replay.as_dict()["snapshot"]["projection"]["result_hash"] == projection.result_hash
     assert len(replay.pairs) == len(projection.pairing.pairs)
     assert len(replay.metric_results) == len(projection.projections)
     assert replay.metric_results[0]["manifest_hash"]
     assert "raw_payload_body" not in json.dumps(replay.metric_results)
+
+    same_replay = service.replay(first.id)
+    assert same_replay.run.id == replay.run.id
+    assert same_replay.snapshot == replay.snapshot
 
     # A changed current projection must not alter the historical replay.
     google_duration = session.scalar(
@@ -504,6 +512,7 @@ def test_agreement_run_persists_complete_snapshot_and_replays_without_current_ro
     google_duration.value_number = 1
     session.commit()
     reread = service.replay(first.id)
+    assert reread.run.id == replay.run.id
     assert reread.run.input_snapshot_hash == replay.run.input_snapshot_hash
     assert (
         reread.snapshot["projection"]["result_hash"]
@@ -563,8 +572,24 @@ def test_agreement_replay_is_idempotent_and_correction_supersedes_old_run(projec
     assert second.id != first.id
     assert second.run.supersedes_run_id == first.id
     assert service.repository.latest_successful(first.run.scope_lineage_key).id == second.id
-    assert service.replay(first.id).as_dict()["input_snapshot_hash"] != (
-        service.replay(second.id).as_dict()["input_snapshot_hash"]
+    historical = service.replay(first.id)
+    assert historical.run.id != first.id
+    assert historical.run.id != second.id
+    assert historical.snapshot["projection"]["result_hash"] != (
+        service.replay(second.id).snapshot["projection"]["result_hash"]
+    )
+    assert service.current(scope_lineage_key=first.run.scope_lineage_key).id == second.id
+
+    changed_version = service.replay(first.id, metric_version="synthetic-metric-v2")
+    same_changed_version = service.replay(
+        first.id, metric_version="synthetic-metric-v2"
+    )
+    assert changed_version.run.id != historical.run.id
+    assert same_changed_version.run.id == changed_version.run.id
+    assert changed_version.snapshot["versions"]["metric"] == "synthetic-metric-v2"
+    assert (
+        changed_version.snapshot["projection"]["result_hash"]
+        == historical.snapshot["projection"]["result_hash"]
     )
 
 
@@ -588,16 +613,56 @@ def test_failed_agreement_run_is_not_current_and_terminal_rows_are_immutable(pro
         session.flush()
     session.rollback()
 
-    # The normal service succeeds atomically; a separate running row models a
-    # construction failure and proves it cannot become the current result.
-    rule_set = service.repository.get_or_create_rule_set(
-        rule_name="synthetic-failed",
-        rule_version="v1",
-        definition={"name": "synthetic-failed", "version": "v1"},
-    )
+    # A running successor is not published and does not reserve the durable
+    # successor edge.  Its failure leaves the successful current head intact.
+    predecessor = result.run
+    rule_set = session.get(AgreementRuleSet, predecessor.rule_set_id)
+    assert rule_set is not None
     running, created = service.repository.start_or_get(
-        scope_key="synthetic:failed",
-        scope_lineage_key="synthetic-failed-lineage",
+        scope_key=predecessor.scope_key,
+        scope_lineage_key=predecessor.scope_lineage_key,
+        window_key=predecessor.window_key,
+        requested_start_date=predecessor.requested_start_date,
+        requested_end_date=predecessor.requested_end_date,
+        cohort=predecessor.cohort,
+        pairing_version=predecessor.pairing_version,
+        metric_version=predecessor.metric_version,
+        statistic_version=predecessor.statistic_version,
+        rule_set=rule_set,
+        rule_version=predecessor.rule_version,
+        epoch_id=predecessor.epoch_id,
+        epoch_basis_json=predecessor.epoch_basis_json,
+        input_snapshot_hash="a" * 64,
+        input_snapshot_json="{}",
+        coverage_json="[]",
+        identity_hash="b" * 64,
+        supersedes_run_id=predecessor.id,
+    )
+    assert created is True
+    assert running.supersedes_run_id is None
+    assert service.current(scope_lineage_key=predecessor.scope_lineage_key).id == predecessor.id
+    failed = service.fail(running.id, "synthetic construction failure")
+    session.commit()
+    assert failed.status == "failed"
+    assert failed.supersedes_run_id is None
+    assert service.current(scope_lineage_key=predecessor.scope_lineage_key).id == predecessor.id
+    assert result.run.status == "succeeded"
+
+
+def test_incomplete_agreement_run_cannot_be_published(projection_database):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    service = PersistedSleepAgreementService(session)
+    rule_set = service.repository.get_or_create_rule_set(
+        rule_name="synthetic-incomplete",
+        rule_version="v1",
+        definition={"name": "synthetic-incomplete", "version": "v1"},
+    )
+    run, created = service.repository.start_or_get(
+        scope_key="synthetic:incomplete",
+        scope_lineage_key="synthetic-incomplete-lineage",
         window_key="*:*",
         requested_start_date=None,
         requested_end_date=None,
@@ -609,17 +674,64 @@ def test_failed_agreement_run_is_not_current_and_terminal_rows_are_immutable(pro
         rule_version="v1",
         epoch_id="unknown",
         epoch_basis_json="{\"status\":\"unknown\"}",
-        input_snapshot_hash="a" * 64,
+        input_snapshot_hash="c" * 64,
         input_snapshot_json="{}",
         coverage_json="[]",
-        identity_hash="b" * 64,
+        identity_hash="d" * 64,
     )
     assert created is True
-    failed = service.fail(running.id, "synthetic construction failure")
+    with pytest.raises(ValueError, match="input snapshot|publication"):
+        service.repository.finish(
+            run.id,
+            status="succeeded",
+            pair_count=0,
+            exclusion_count=0,
+            metric_count=0,
+            coverage_count=0,
+        )
+    session.refresh(run)
+    assert run.status == "running"
+    assert service.current(scope_lineage_key="synthetic-incomplete-lineage") is None
+    service.fail(run.id, "synthetic incomplete snapshot")
     session.commit()
-    assert failed.status == "failed"
-    assert service.current(scope_lineage_key="synthetic-failed-lineage") is None
-    assert result.run.status == "succeeded"
+
+
+def test_agreement_metric_cannot_reference_a_pair_from_another_run(projection_database):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    projection = read_persisted_sleep_metric_projection(session)
+    service = PersistedSleepAgreementService(session)
+    first = service.persist(projection, scope_key="synthetic:pair-owner")
+    session.commit()
+    rule_set = session.get(AgreementRuleSet, first.run.rule_set_id)
+    assert rule_set is not None
+    second, created = service.repository.start_or_get(
+        scope_key="synthetic:pair-owner",
+        scope_lineage_key=first.run.scope_lineage_key,
+        window_key=first.run.window_key,
+        requested_start_date=first.run.requested_start_date,
+        requested_end_date=first.run.requested_end_date,
+        cohort=first.run.cohort,
+        pairing_version=first.run.pairing_version,
+        metric_version=first.run.metric_version,
+        statistic_version=first.run.statistic_version,
+        rule_set=rule_set,
+        rule_version=first.run.rule_version,
+        epoch_id=first.run.epoch_id,
+        epoch_basis_json=first.run.epoch_basis_json,
+        input_snapshot_hash="e" * 64,
+        input_snapshot_json=first.run.input_snapshot_json,
+        coverage_json=first.run.coverage_json,
+        identity_hash="f" * 64,
+    )
+    assert created is True
+    pair = service.repository.pairs_for_run(first.id)[0]
+    with pytest.raises(ValueError, match="pair in its run"):
+        service.repository.add_metric_result(run_id=second.id, pair_id=pair.id, values={})
+    service.fail(second.id, "synthetic pair ownership failure")
+    session.commit()
 
 
 def test_manifest_contains_no_raw_payload_body_and_freezes_interval_ids(projection_database):
@@ -646,3 +758,11 @@ def test_manifest_contains_no_raw_payload_body_and_freezes_interval_ids(projecti
     assert light.google.evidence.interval_snapshots[0]["start_at_utc"]
     assert light.google.evidence.content_hash
     assert light.google.evidence.observation_key
+    for evidence in (light.garmin.evidence, light.google.evidence):
+        provenance = evidence.normalization_provenance
+        assert provenance["status"] == "complete"
+        assert provenance["normalization_contract_version"]
+        assert provenance["normalization_fingerprint"]
+        assert provenance["raw_payload"]["content_hash"]
+        assert provenance["observation"]["observation_key"]
+    assert light.google.evidence.normalization_provenance["normalization_attempts"]
