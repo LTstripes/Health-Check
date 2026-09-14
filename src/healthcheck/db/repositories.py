@@ -21,6 +21,12 @@ from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
     AcquisitionSource,
+    AgreementCoverage,
+    AgreementMetricResult,
+    AgreementRuleSet,
+    AgreementRun,
+    AgreementRunExclusion,
+    AgreementRunPair,
     CandidateDecision,
     CanonicalRuleSet,
     CanonicalSelection,
@@ -105,6 +111,15 @@ def _required_text(value: str, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} must not be empty")
     return normalized
+
+
+def _date_or_none(value: date | str | None, field_name: str) -> date | None:
+    if value is None or isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an ISO date") from exc
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -2195,6 +2210,353 @@ class CanonicalSelectionRepository:
         )
 
 
+class AgreementRunRepository:
+    """Append-only persistence adapter for bounded R05 agreement runs."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_by_id(self, run_id: str) -> AgreementRun | None:
+        return self.session.get(AgreementRun, run_id)
+
+    def get_successful(self, identity_hash: str) -> AgreementRun | None:
+        return self.session.scalar(
+            select(AgreementRun).where(
+                AgreementRun.identity_hash
+                == _required_text(identity_hash, "agreement identity hash"),
+                AgreementRun.status == RunStatus.SUCCEEDED.value,
+            )
+        )
+
+    def get_running(self, identity_hash: str) -> AgreementRun | None:
+        return self.session.scalar(
+            select(AgreementRun).where(
+                AgreementRun.identity_hash
+                == _required_text(identity_hash, "agreement identity hash"),
+                AgreementRun.status == RunStatus.RUNNING.value,
+            )
+        )
+
+    def latest_successful(self, scope_lineage_key: str) -> AgreementRun | None:
+        """Return only the latest successful run in one bounded lineage."""
+
+        normalized_lineage = _required_text(
+            scope_lineage_key, "agreement scope lineage key"
+        )
+        superseded_in_lineage = select(AgreementRun.supersedes_run_id).where(
+            AgreementRun.scope_lineage_key == normalized_lineage,
+            AgreementRun.supersedes_run_id.is_not(None),
+        )
+        return self.session.scalar(
+            select(AgreementRun)
+            .where(
+                AgreementRun.scope_lineage_key == normalized_lineage,
+                AgreementRun.status == RunStatus.SUCCEEDED.value,
+                ~AgreementRun.id.in_(superseded_in_lineage),
+            )
+            .order_by(AgreementRun.completed_at.desc(), AgreementRun.id.desc())
+        )
+
+    def get_or_create_rule_set(
+        self,
+        *,
+        rule_name: str,
+        rule_version: str,
+        definition: Any,
+    ) -> AgreementRuleSet:
+        normalized_name = _required_text(rule_name, "agreement rule name")
+        normalized_version = _required_text(rule_version, "agreement rule version")
+        definition_json = canonical_json(definition)
+        rule_hash = hash_canonical_rule(definition)
+        existing = self.session.scalar(
+            select(AgreementRuleSet).where(
+                AgreementRuleSet.rule_name == normalized_name,
+                AgreementRuleSet.rule_version == normalized_version,
+            )
+        )
+        if existing is not None:
+            if existing.rule_hash != rule_hash or existing.rule_definition_json != definition_json:
+                raise ValueError("agreement rule name/version already has a different definition")
+            return existing
+        rule_set = AgreementRuleSet(
+            rule_name=normalized_name,
+            rule_version=normalized_version,
+            rule_definition_json=definition_json,
+            rule_hash=rule_hash,
+        )
+        self.session.add(rule_set)
+        self.session.flush()
+        return rule_set
+
+    def start_or_get(
+        self,
+        *,
+        scope_key: str,
+        scope_lineage_key: str,
+        window_key: str,
+        requested_start_date: date | None,
+        requested_end_date: date | None,
+        cohort: str,
+        pairing_version: str,
+        metric_version: str,
+        statistic_version: str,
+        rule_set: AgreementRuleSet,
+        rule_version: str,
+        epoch_id: str,
+        epoch_basis_json: str,
+        input_snapshot_hash: str,
+        input_snapshot_json: str,
+        coverage_json: str,
+        identity_hash: str,
+        supersedes_run_id: str | None = None,
+    ) -> tuple[AgreementRun, bool]:
+        normalized_identity = _required_text(identity_hash, "agreement identity hash")
+        existing = self.get_successful(normalized_identity)
+        if existing is not None:
+            return existing, False
+        running = self.get_running(normalized_identity)
+        if running is not None:
+            return running, False
+        normalized_scope_lineage = _required_text(
+            scope_lineage_key, "agreement scope lineage key"
+        )
+        if supersedes_run_id is not None:
+            predecessor = self.get_by_id(supersedes_run_id)
+            if predecessor is None:
+                raise KeyError(f"unknown agreement predecessor run {supersedes_run_id}")
+            if predecessor.status != RunStatus.SUCCEEDED.value:
+                raise ValueError("only a successful agreement run can be superseded")
+            if predecessor.scope_lineage_key != normalized_scope_lineage:
+                raise ValueError(
+                    "an agreement run can supersede only the same "
+                    "scope/window/cohort/version lineage"
+                )
+        run = AgreementRun(
+            scope_key=_required_text(scope_key, "agreement scope key"),
+            scope_lineage_key=normalized_scope_lineage,
+            window_key=_required_text(window_key, "agreement window key"),
+            requested_start_date=requested_start_date,
+            requested_end_date=requested_end_date,
+            cohort=_required_text(cohort, "agreement cohort"),
+            pairing_version=_required_text(pairing_version, "agreement pairing version"),
+            metric_version=_required_text(metric_version, "agreement metric version"),
+            statistic_version=_required_text(statistic_version, "agreement statistic version"),
+            rule_set_id=rule_set.id,
+            rule_name=rule_set.rule_name,
+            rule_version=_required_text(rule_version, "agreement rule version"),
+            epoch_id=_required_text(epoch_id, "agreement epoch id"),
+            epoch_basis_json=_required_text(epoch_basis_json, "agreement epoch basis"),
+            input_snapshot_hash=_required_text(input_snapshot_hash, "agreement snapshot hash"),
+            input_snapshot_json=_required_text(input_snapshot_json, "agreement snapshot"),
+            coverage_json=_required_text(coverage_json, "agreement coverage"),
+            identity_hash=normalized_identity,
+            supersedes_run_id=supersedes_run_id,
+        )
+        self.session.add(run)
+        self.session.flush()
+        return run, True
+
+    def _running(self, run_id: str) -> AgreementRun:
+        run = self.get_by_id(run_id)
+        if run is None:
+            raise KeyError(f"unknown agreement run {run_id}")
+        if run.status != RunStatus.RUNNING.value:
+            raise ValueError("only running agreement runs can receive snapshot rows")
+        return run
+
+    def add_pair(self, *, run_id: str, values: Mapping[str, Any]) -> AgreementRunPair:
+        self._running(run_id)
+        pair_key = _required_text(str(values["pair_key"]), "agreement pair key")
+        existing = self.session.scalar(
+            select(AgreementRunPair).where(
+                AgreementRunPair.run_id == run_id,
+                AgreementRunPair.pair_key == pair_key,
+            )
+        )
+        pair_json = canonical_json(values.get("pair", values))
+        eligibility_json = canonical_json(values.get("eligibility", {}))
+        if existing is not None:
+            if existing.pair_json == pair_json and existing.eligibility_json == eligibility_json:
+                return existing
+            raise ValueError("agreement pair key already has a different frozen value")
+        pair = AgreementRunPair(
+            run_id=run_id,
+            ordinal=int(values["ordinal"]),
+            pair_key=pair_key,
+            wake_date=_date_or_none(values["wake_date"], "agreement pair wake date"),
+            cohort=_required_text(str(values["cohort"]), "agreement pair cohort"),
+            source_class=_required_text(str(values["source_class"]), "agreement source class"),
+            garmin_record_id=_required_text(str(values["garmin_record_id"]), "Garmin record ID"),
+            google_record_id=_required_text(str(values["google_record_id"]), "Google record ID"),
+            garmin_source_id=_required_text(str(values["garmin_source_id"]), "Garmin source ID"),
+            google_source_id=_required_text(str(values["google_source_id"]), "Google source ID"),
+            eligibility_json=eligibility_json,
+            pair_json=pair_json,
+        )
+        self.session.add(pair)
+        self.session.flush()
+        return pair
+
+    def add_exclusion(self, *, run_id: str, values: Mapping[str, Any]) -> AgreementRunExclusion:
+        self._running(run_id)
+        exclusion_json = canonical_json(values.get("exclusion", values))
+        exclusion = AgreementRunExclusion(
+            run_id=run_id,
+            ordinal=int(values["ordinal"]),
+            wake_date=_date_or_none(values.get("wake_date"), "agreement exclusion wake date"),
+            cohort=values.get("cohort"),
+            reason=_required_text(str(values["reason"]), "agreement exclusion reason"),
+            garmin_record_ids_json=canonical_json(values.get("garmin_record_ids", [])),
+            google_record_ids_json=canonical_json(values.get("google_record_ids", [])),
+            details_json=canonical_json(values.get("details", {})),
+            exclusion_json=exclusion_json,
+        )
+        self.session.add(exclusion)
+        self.session.flush()
+        return exclusion
+
+    def add_metric_result(
+        self, *, run_id: str, pair_id: str, values: Mapping[str, Any]
+    ) -> AgreementMetricResult:
+        self._running(run_id)
+        variant = values.get("variant")
+        variant_key = (
+            "__none__" if variant is None else _required_text(str(variant), "metric variant")
+        )
+        manifest = values["manifest"]
+        result = AgreementMetricResult(
+            run_id=run_id,
+            pair_id=pair_id,
+            ordinal=int(values["ordinal"]),
+            metric_code=_required_text(str(values["metric_code"]), "agreement metric code"),
+            variant=variant,
+            variant_key=variant_key,
+            status=_required_text(str(values["status"]), "agreement metric status"),
+            comparable=bool(values["comparable"]),
+            difference_number=values.get("difference"),
+            difference_unit=_required_text(
+                str(values["difference_unit"]), "agreement difference unit"
+            ),
+            reason=values.get("reason"),
+            exclusion_basis=values.get("exclusion_basis"),
+            garmin_json=canonical_json(values["garmin"]),
+            google_json=canonical_json(values["google"]),
+            manifest_json=canonical_json(manifest),
+            manifest_hash=_required_text(str(values["manifest_hash"]), "agreement manifest hash"),
+        )
+        self.session.add(result)
+        self.session.flush()
+        return result
+
+    def add_coverage(self, *, run_id: str, values: Mapping[str, Any]) -> AgreementCoverage:
+        self._running(run_id)
+        variant = values.get("variant")
+        variant_key = (
+            "__none__" if variant is None else _required_text(str(variant), "coverage variant")
+        )
+        coverage = AgreementCoverage(
+            run_id=run_id,
+            ordinal=int(values["ordinal"]),
+            metric_code=_required_text(str(values["metric_code"]), "coverage metric code"),
+            variant=variant,
+            variant_key=variant_key,
+            comparable_count=int(values["comparable_count"]),
+            unavailable_count=int(values["unavailable_count"]),
+            excluded_count=int(values["excluded_count"]),
+            coverage_json=canonical_json(values),
+        )
+        self.session.add(coverage)
+        self.session.flush()
+        return coverage
+
+    def finish(
+        self,
+        run_id: str,
+        *,
+        status: str | RunStatus,
+        pair_count: int | None = None,
+        exclusion_count: int | None = None,
+        metric_count: int | None = None,
+        coverage_count: int | None = None,
+        failure_reason: str | None = None,
+    ) -> AgreementRun:
+        run = self.get_by_id(run_id)
+        if run is None:
+            raise KeyError(f"unknown agreement run {run_id}")
+        try:
+            normalized_status = RunStatus(str(status)).value
+        except ValueError as exc:
+            raise ValueError("agreement run status must be running, succeeded, or failed") from exc
+        if normalized_status == RunStatus.RUNNING.value:
+            raise ValueError("agreement run finish status must be succeeded or failed")
+        counts = {
+            "pair_count": pair_count,
+            "exclusion_count": exclusion_count,
+            "metric_count": metric_count,
+            "coverage_count": coverage_count,
+        }
+        for name, value in counts.items():
+            if value is not None and value < 0:
+                raise ValueError(f"{name} must be nonnegative")
+        if normalized_status == RunStatus.SUCCEEDED.value and failure_reason is not None:
+            raise ValueError("a successful agreement run cannot have a failure reason")
+        if normalized_status == RunStatus.FAILED.value and not failure_reason:
+            raise ValueError("a failed agreement run requires a failure reason")
+        if run.status != RunStatus.RUNNING.value:
+            if run.status != normalized_status:
+                raise ValueError("a terminal agreement run cannot change status")
+            if any(getattr(run, name) != value for name, value in counts.items()):
+                raise ValueError("a terminal agreement run is immutable")
+            if run.failure_reason != failure_reason:
+                raise ValueError("a terminal agreement run is immutable")
+            return run
+        run.status = normalized_status
+        run.pair_count = pair_count
+        run.exclusion_count = exclusion_count
+        run.metric_count = metric_count
+        run.coverage_count = coverage_count
+        run.failure_reason = failure_reason
+        run.completed_at = utc_now()
+        self.session.flush()
+        return run
+
+    def pairs_for_run(self, run_id: str) -> list[AgreementRunPair]:
+        return list(
+            self.session.scalars(
+                select(AgreementRunPair)
+                .where(AgreementRunPair.run_id == run_id)
+                .order_by(AgreementRunPair.ordinal, AgreementRunPair.id)
+            )
+        )
+
+    def exclusions_for_run(self, run_id: str) -> list[AgreementRunExclusion]:
+        return list(
+            self.session.scalars(
+                select(AgreementRunExclusion)
+                .where(AgreementRunExclusion.run_id == run_id)
+                .order_by(AgreementRunExclusion.ordinal, AgreementRunExclusion.id)
+            )
+        )
+
+    def metrics_for_run(self, run_id: str) -> list[AgreementMetricResult]:
+        return list(
+            self.session.scalars(
+                select(AgreementMetricResult)
+                .where(AgreementMetricResult.run_id == run_id)
+                .order_by(AgreementMetricResult.ordinal, AgreementMetricResult.id)
+            )
+        )
+
+    def coverage_for_run(self, run_id: str) -> list[AgreementCoverage]:
+        return list(
+            self.session.scalars(
+                select(AgreementCoverage)
+                .where(AgreementCoverage.run_id == run_id)
+                .order_by(AgreementCoverage.ordinal, AgreementCoverage.id)
+            )
+        )
+
+
 class SyncRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -2466,6 +2828,7 @@ class ProvenanceRepositories:
         self.canonical_rule_sets = CanonicalRuleSetRepository(session)
         self.canonical_selection_runs = CanonicalSelectionRunRepository(session)
         self.canonical_selections = CanonicalSelectionRepository(session)
+        self.agreement_runs = AgreementRunRepository(session)
         self.sync = SyncRepository(session)
         self.sync_runs = self.sync
         self.sync_stream_state = self.sync
@@ -2487,6 +2850,7 @@ CoverageIntervalRepository = CoverageRepository
 
 __all__ = [
     "AcquisitionSourceRepository",
+    "AgreementRunRepository",
     "CanonicalSelectionRepository",
     "CanonicalSelectionRunRepository",
     "CanonicalRuleSetRepository",

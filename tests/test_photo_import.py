@@ -632,6 +632,12 @@ def test_core_schema_tables_unchanged_by_photo_import(photo_env):
         "google_sleep_field_states",
         "google_record_source_evidence",
         "google_normalization_attempts",
+        "agreement_rule_sets",
+        "agreement_runs",
+        "agreement_run_pairs",
+        "agreement_run_exclusions",
+        "agreement_metric_results",
+        "agreement_coverages",
         "alembic_version",
     }
     assert set(inspect(engine).get_table_names()) == expected

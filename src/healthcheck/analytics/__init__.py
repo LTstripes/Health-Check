@@ -61,6 +61,16 @@ from healthcheck.analytics.garmin_lagged_associations import (
     spearman_midranks,
     spearman_rho,
 )
+from healthcheck.analytics.sleep_agreement import (
+    R05_SLEEP_AGREEMENT_ALGORITHM,
+    R05_SLEEP_AGREEMENT_CONTRACT_VERSION,
+    R05_SLEEP_AGREEMENT_RULE_NAME,
+    R05_SLEEP_AGREEMENT_RULE_VERSION,
+    R05_SLEEP_AGREEMENT_STATISTIC_VERSION,
+    AgreementPersistenceResult,
+    AgreementReplay,
+    PersistedSleepAgreementService,
+)
 from healthcheck.analytics.sleep_metrics import (
     EXCLUDED_SLEEP_METRIC_CODES,
     R05_EXCLUDED_METRIC_CODES,
@@ -216,6 +226,14 @@ __all__ = [
     "WeightSummary",
     "WeightTrendResult",
     "R05_SLEEP_PAIRING_CONTRACT_VERSION",
+    "R05_SLEEP_AGREEMENT_ALGORITHM",
+    "R05_SLEEP_AGREEMENT_CONTRACT_VERSION",
+    "R05_SLEEP_AGREEMENT_RULE_NAME",
+    "R05_SLEEP_AGREEMENT_RULE_VERSION",
+    "R05_SLEEP_AGREEMENT_STATISTIC_VERSION",
+    "AgreementPersistenceResult",
+    "AgreementReplay",
+    "PersistedSleepAgreementService",
     "R05_EXCLUDED_METRIC_CODES",
     "R05_SLEEP_METRIC_PROJECTION_ALGORITHM",
     "R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION",

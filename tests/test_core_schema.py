@@ -82,6 +82,12 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
         "google_sleep_field_states",
         "google_record_source_evidence",
         "google_normalization_attempts",
+        "agreement_rule_sets",
+        "agreement_runs",
+        "agreement_run_pairs",
+        "agreement_run_exclusions",
+        "agreement_metric_results",
+        "agreement_coverages",
         "alembic_version",
     }
     table_names = set(inspect(engine).get_table_names())
@@ -90,7 +96,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0010_google_typed_normalization",
+        "migration_revision": "0011_r05_agreement_run_persistence",
         "ready": True,
     }
 
@@ -762,12 +768,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0010_google_typed_normalization"
+        == "0011_r05_agreement_run_persistence"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0010_google_typed_normalization"
+        == "0011_r05_agreement_run_persistence"
     )
 
     engine = create_sqlite_engine(paths)
@@ -857,7 +863,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0010_google_typed_normalization"
+            == "0011_r05_agreement_run_persistence"
         )
     finally:
         engine.dispose()

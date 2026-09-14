@@ -1226,6 +1226,261 @@ class CanonicalSelection(Base):
     )
 
 
+class AgreementRuleSet(Base):
+    """Versioned R05 agreement rule/stat contract identity."""
+
+    __tablename__ = "agreement_rule_sets"
+    __table_args__ = (
+        UniqueConstraint(
+            "rule_name", "rule_version", name="uq_agreement_rule_sets_name_version"
+        ),
+        CheckConstraint("length(rule_name) > 0", name="rule_name_nonempty"),
+        CheckConstraint("length(rule_version) > 0", name="rule_version_nonempty"),
+        CheckConstraint("length(rule_hash) >= 32", name="rule_hash_min_length"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    rule_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    rule_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    rule_definition_json: Mapped[str] = mapped_column(Text, nullable=False)
+    rule_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class AgreementRun(Base):
+    """Immutable completed R05 agreement result over one frozen snapshot."""
+
+    __tablename__ = "agreement_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'failed')", name="status_allowed"
+        ),
+        CheckConstraint("length(scope_key) > 0", name="scope_key_nonempty"),
+        CheckConstraint("length(window_key) > 0", name="window_key_nonempty"),
+        CheckConstraint("length(cohort) > 0", name="cohort_nonempty"),
+        CheckConstraint("length(pairing_version) > 0", name="pairing_version_nonempty"),
+        CheckConstraint("length(metric_version) > 0", name="metric_version_nonempty"),
+        CheckConstraint("length(statistic_version) > 0", name="statistic_version_nonempty"),
+        CheckConstraint("length(rule_version) > 0", name="rule_version_nonempty"),
+        CheckConstraint("length(epoch_id) > 0", name="epoch_id_nonempty"),
+        CheckConstraint("length(input_snapshot_hash) >= 32", name="snapshot_hash_min_length"),
+        CheckConstraint("length(identity_hash) >= 32", name="identity_hash_min_length"),
+        CheckConstraint("pair_count IS NULL OR pair_count >= 0", name="pair_count_nonnegative"),
+        CheckConstraint(
+            "exclusion_count IS NULL OR exclusion_count >= 0",
+            name="exclusion_count_nonnegative",
+        ),
+        CheckConstraint(
+            "metric_count IS NULL OR metric_count >= 0", name="metric_count_nonnegative"
+        ),
+        CheckConstraint(
+            "coverage_count IS NULL OR coverage_count >= 0",
+            name="coverage_count_nonnegative",
+        ),
+        CheckConstraint(
+            "(status = 'succeeded' AND completed_at IS NOT NULL AND failure_reason IS NULL) "
+            "OR (status = 'failed' AND completed_at IS NOT NULL AND failure_reason IS NOT NULL) "
+            "OR (status = 'running' AND completed_at IS NULL)",
+            name="status_completion_consistency",
+        ),
+        Index("ix_agreement_runs_scope_status", "scope_lineage_key", "status", "completed_at"),
+        Index("ix_agreement_runs_supersedes", "supersedes_run_id"),
+        Index(
+            "ux_agreement_runs_single_successor",
+            "supersedes_run_id",
+            unique=True,
+            sqlite_where=text("supersedes_run_id IS NOT NULL"),
+        ),
+        Index(
+            "ux_agreement_runs_success_identity",
+            "identity_hash",
+            unique=True,
+            sqlite_where=text("status = 'succeeded'"),
+        ),
+        Index(
+            "ux_agreement_runs_running_identity",
+            "identity_hash",
+            unique=True,
+            sqlite_where=text("status = 'running'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    scope_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    scope_lineage_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    window_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    requested_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    requested_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cohort: Mapped[str] = mapped_column(String(80), nullable=False)
+    pairing_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    metric_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    statistic_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    rule_set_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("agreement_rule_sets.id", ondelete="RESTRICT"), nullable=False
+    )
+    rule_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    rule_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    epoch_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    epoch_basis_json: Mapped[str] = mapped_column(Text, nullable=False)
+    input_snapshot_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    input_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    coverage_json: Mapped[str] = mapped_column(Text, nullable=False)
+    identity_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=RunStatus.RUNNING.value)
+    pair_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exclusion_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metric_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    coverage_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    supersedes_run_id: Mapped[str | None] = mapped_column(
+        String(ID_LENGTH), ForeignKey("agreement_runs.id", ondelete="RESTRICT"), nullable=True
+    )
+
+    @property
+    def snapshot_json(self) -> str:
+        """Compatibility name for the persisted frozen input snapshot."""
+
+        return self.input_snapshot_json
+
+
+class AgreementRunPair(Base):
+    """Frozen accepted pair and eligibility basis belonging to an agreement run."""
+
+    __tablename__ = "agreement_run_pairs"
+    __table_args__ = (
+        UniqueConstraint("run_id", "ordinal", name="uq_agreement_run_pairs_ordinal"),
+        UniqueConstraint("run_id", "pair_key", name="uq_agreement_run_pairs_key"),
+        CheckConstraint("ordinal >= 0", name="ordinal_nonnegative"),
+        CheckConstraint("length(pair_key) > 0", name="pair_key_nonempty"),
+        CheckConstraint("length(cohort) > 0", name="cohort_nonempty"),
+        Index("ix_agreement_run_pairs_wake_date", "run_id", "wake_date"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("agreement_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    pair_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    wake_date: Mapped[date] = mapped_column(Date, nullable=False)
+    cohort: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_class: Mapped[str] = mapped_column(String(80), nullable=False)
+    garmin_record_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
+    google_record_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
+    garmin_source_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
+    google_source_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
+    eligibility_json: Mapped[str] = mapped_column(Text, nullable=False)
+    pair_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class AgreementRunExclusion(Base):
+    """Frozen candidate/exclusion decision belonging to an agreement run."""
+
+    __tablename__ = "agreement_run_exclusions"
+    __table_args__ = (
+        UniqueConstraint("run_id", "ordinal", name="uq_agreement_run_exclusions_ordinal"),
+        CheckConstraint("ordinal >= 0", name="ordinal_nonnegative"),
+        CheckConstraint("length(reason) > 0", name="reason_nonempty"),
+        Index("ix_agreement_run_exclusions_wake_date", "run_id", "wake_date"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("agreement_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    wake_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cohort: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reason: Mapped[str] = mapped_column(String(160), nullable=False)
+    garmin_record_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    google_record_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    details_json: Mapped[str] = mapped_column(Text, nullable=False)
+    exclusion_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class AgreementMetricResult(Base):
+    """Frozen per-pair/per-metric projection and immutable evidence manifest."""
+
+    __tablename__ = "agreement_metric_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "pair_id", "metric_code", "variant_key",
+            name="uq_agreement_metric_results_identity",
+        ),
+        CheckConstraint("ordinal >= 0", name="ordinal_nonnegative"),
+        CheckConstraint(
+            "status IN ('comparable', 'unavailable', 'excluded')", name="status_allowed"
+        ),
+        CheckConstraint("length(metric_code) > 0", name="metric_code_nonempty"),
+        CheckConstraint("length(variant_key) > 0", name="variant_key_nonempty"),
+        CheckConstraint("length(manifest_hash) >= 32", name="manifest_hash_min_length"),
+        Index("ix_agreement_metric_results_run_metric", "run_id", "metric_code", "variant_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("agreement_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    pair_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("agreement_run_pairs.id", ondelete="RESTRICT"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    metric_code: Mapped[str] = mapped_column(String(160), nullable=False)
+    variant: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    variant_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    comparable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    difference_number: Mapped[float | None] = mapped_column(Float, nullable=True)
+    difference_unit: Mapped[str] = mapped_column(String(80), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    exclusion_basis: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    garmin_json: Mapped[str] = mapped_column(Text, nullable=False)
+    google_json: Mapped[str] = mapped_column(Text, nullable=False)
+    manifest_json: Mapped[str] = mapped_column(Text, nullable=False)
+    manifest_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class AgreementCoverage(Base):
+    """Frozen coverage counts used to produce one agreement run."""
+
+    __tablename__ = "agreement_coverages"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "metric_code", "variant_key", name="uq_agreement_coverages_identity"
+        ),
+        CheckConstraint("length(metric_code) > 0", name="metric_code_nonempty"),
+        CheckConstraint("length(variant_key) > 0", name="variant_key_nonempty"),
+        CheckConstraint("comparable_count >= 0", name="comparable_count_nonnegative"),
+        CheckConstraint("unavailable_count >= 0", name="unavailable_count_nonnegative"),
+        CheckConstraint("excluded_count >= 0", name="excluded_count_nonnegative"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("agreement_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    metric_code: Mapped[str] = mapped_column(String(160), nullable=False)
+    variant: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    variant_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    comparable_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    unavailable_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    excluded_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    coverage_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class SyncRun(Base):
     __tablename__ = "sync_runs"
     __table_args__ = (
@@ -2145,6 +2400,12 @@ class GoogleRecordMetric(Base):
 
 __all__ = [
     "AcquisitionSource",
+    "AgreementCoverage",
+    "AgreementMetricResult",
+    "AgreementRuleSet",
+    "AgreementRun",
+    "AgreementRunExclusion",
+    "AgreementRunPair",
     "Base",
     "CandidateDecision",
     "CanonicalRuleSet",

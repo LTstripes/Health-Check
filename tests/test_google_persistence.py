@@ -48,7 +48,7 @@ from healthcheck.google.persistence import GooglePersistenceRepository
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.runtime import prepare_runtime
 
-HEAD = "0010_google_typed_normalization"
+HEAD = "0011_r05_agreement_run_persistence"
 PRE_R04 = "0008_garmin_observation_reconciliation_version"
 GOOGLE_TABLES = {
     "google_sources",

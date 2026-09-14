@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from healthcheck.analytics.sleep_agreement import PersistedSleepAgreementService
 from healthcheck.analytics.sleep_metrics import (
     EXCLUDED_SLEEP_METRIC_CODES,
     read_persisted_sleep_metric_projection,
@@ -456,6 +457,169 @@ def test_google_partial_stage_state_is_not_treated_as_empty_or_zero(projection_d
     assert light.google.reason == "stage_collection_invalid"
     assert waso.google.state == "invalid"
     assert waso.google.value is None
+
+
+def test_agreement_run_persists_complete_snapshot_and_replays_without_current_rows(
+    projection_database,
+):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+
+    projection = read_persisted_sleep_metric_projection(session)
+    service = PersistedSleepAgreementService(session)
+    first = service.persist(
+        projection,
+        scope_key="synthetic:sleep-agreement",
+        statistic_version="synthetic-stat-v1",
+        rule_version="synthetic-rule-v1",
+        rule_definition={"name": "synthetic", "version": "synthetic-rule-v1"},
+        epoch_id="synthetic-epoch-1",
+        epoch_basis={"source": "synthetic-fixture"},
+    )
+    session.commit()
+
+    assert first.created is True
+    assert first.run.status == "succeeded"
+    assert first.run.pair_count == len(projection.pairing.pairs)
+    assert first.run.exclusion_count == len(projection.pairing.exclusions)
+    assert first.run.metric_count == len(projection.projections)
+    assert first.run.coverage_count == len(projection.coverage)
+
+    replay = service.replay(first.id)
+    assert replay.as_dict()["snapshot"]["projection"]["result_hash"] == projection.result_hash
+    assert len(replay.pairs) == len(projection.pairing.pairs)
+    assert len(replay.metric_results) == len(projection.projections)
+    assert replay.metric_results[0]["manifest_hash"]
+    assert "raw_payload_body" not in json.dumps(replay.metric_results)
+
+    # A changed current projection must not alter the historical replay.
+    google_duration = session.scalar(
+        select(GoogleRecordMetric).where(
+            GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep"
+        )
+    )
+    assert google_duration is not None
+    google_duration.value_number = 1
+    session.commit()
+    reread = service.replay(first.id)
+    assert reread.run.input_snapshot_hash == replay.run.input_snapshot_hash
+    assert (
+        reread.snapshot["projection"]["result_hash"]
+        == replay.snapshot["projection"]["result_hash"]
+    )
+    assert len(reread.pairs) == len(replay.pairs)
+    assert len(reread.metric_results) == len(replay.metric_results)
+    assert len(reread.coverage) == len(replay.coverage)
+
+
+def test_agreement_replay_is_idempotent_and_correction_supersedes_old_run(projection_database):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    projection = read_persisted_sleep_metric_projection(session)
+    service = PersistedSleepAgreementService(session)
+    first = service.persist(
+        projection,
+        scope_key="synthetic:correction",
+        statistic_version="synthetic-stat-v1",
+        rule_version="synthetic-rule-v1",
+    )
+    session.commit()
+
+    replayed = service.persist(
+        projection,
+        scope_key="synthetic:correction",
+        statistic_version="synthetic-stat-v1",
+        rule_version="synthetic-rule-v1",
+    )
+    assert replayed.created is False
+    assert replayed.id == first.id
+
+    _persist_garmin(session, paths, fixture=GARMIN_SLEEP_FIXTURE)
+    # The immutable source fixture is intentionally unchanged; correction is
+    # represented by the persisted current-row edit in this synthetic test.
+    garmin_duration = session.scalar(
+        select(GarminRecordMetric).where(
+            GarminRecordMetric.metric_code == "sleep_duration_seconds"
+        )
+    )
+    assert garmin_duration is not None
+    garmin_duration.value_number = 30000
+    session.commit()
+    corrected_projection = read_persisted_sleep_metric_projection(session)
+    second = service.persist(
+        corrected_projection,
+        scope_key="synthetic:correction",
+        statistic_version="synthetic-stat-v1",
+        rule_version="synthetic-rule-v1",
+        supersedes_run_id=first.id,
+    )
+    session.commit()
+
+    assert second.created is True
+    assert second.id != first.id
+    assert second.run.supersedes_run_id == first.id
+    assert service.repository.latest_successful(first.run.scope_lineage_key).id == second.id
+    assert service.replay(first.id).as_dict()["input_snapshot_hash"] != (
+        service.replay(second.id).as_dict()["input_snapshot_hash"]
+    )
+
+
+def test_failed_agreement_run_is_not_current_and_terminal_rows_are_immutable(projection_database):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    projection = read_persisted_sleep_metric_projection(session)
+    service = PersistedSleepAgreementService(session)
+    result = service.persist(
+        projection,
+        scope_key="synthetic:failed",
+        statistic_version="synthetic-stat-v1",
+        rule_version="synthetic-rule-v1",
+    )
+    session.commit()
+
+    result.run.cohort = "mutated"
+    with pytest.raises(Exception):
+        session.flush()
+    session.rollback()
+
+    # The normal service succeeds atomically; a separate running row models a
+    # construction failure and proves it cannot become the current result.
+    rule_set = service.repository.get_or_create_rule_set(
+        rule_name="synthetic-failed",
+        rule_version="v1",
+        definition={"name": "synthetic-failed", "version": "v1"},
+    )
+    running, created = service.repository.start_or_get(
+        scope_key="synthetic:failed",
+        scope_lineage_key="synthetic-failed-lineage",
+        window_key="*:*",
+        requested_start_date=None,
+        requested_end_date=None,
+        cohort="all",
+        pairing_version="pair-v1",
+        metric_version="metric-v1",
+        statistic_version="stat-v1",
+        rule_set=rule_set,
+        rule_version="v1",
+        epoch_id="unknown",
+        epoch_basis_json="{\"status\":\"unknown\"}",
+        input_snapshot_hash="a" * 64,
+        input_snapshot_json="{}",
+        coverage_json="[]",
+        identity_hash="b" * 64,
+    )
+    assert created is True
+    failed = service.fail(running.id, "synthetic construction failure")
+    session.commit()
+    assert failed.status == "failed"
+    assert service.current(scope_lineage_key="synthetic-failed-lineage") is None
+    assert result.run.status == "succeeded"
 
 
 def test_manifest_contains_no_raw_payload_body_and_freezes_interval_ids(projection_database):
