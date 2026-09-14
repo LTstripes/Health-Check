@@ -33,6 +33,8 @@ def _observations(
             cohort=cohort,
             epoch=epoch,
             difference=difference,
+            google_value=100 + difference,
+            garmin_value=100,
             **kwargs,
         )
         for index, difference in enumerate(differences)
@@ -117,6 +119,69 @@ def test_manual_google_edit_is_exploratory_but_excluded_from_strong_gate():
     assert result.as_dict()["google_manually_edited_n"] == 42
 
 
+def test_extreme_manual_edits_change_exploratory_summary_not_strong_stability():
+    baseline = compute_agreement_statistics(_observations([0] * 42))
+    mixed = compute_agreement_statistics(
+        _observations([-100000] * 42, google_manually_edited=True)
+        + _observations([0] * 42, start=date(2099, 2, 12))
+    )
+
+    assert mixed.n == 84
+    assert mixed.bias != baseline.bias
+    assert mixed.strong_gate_eligible_n == 42
+    assert mixed.stability is not None
+    assert mixed.stability.status == baseline.stability.status == "pass"
+    assert mixed.stability.first_half.bias == baseline.stability.first_half.bias == 0
+    assert mixed.stability.second_half.bias == baseline.stability.second_half.bias == 0
+    assert mixed.gate.canonical_proposal_eligible is True
+
+
+def test_difference_only_observations_remain_exploratory_but_not_strong_gate():
+    result = compute_agreement_statistics(
+        [
+            AgreementObservation(
+                wake_date=date(2099, 1, 1) + timedelta(days=index),
+                metric_code="sleep_duration_asleep_seconds",
+                cohort="device_pair",
+                difference=0,
+            )
+            for index in range(42)
+        ]
+    )
+
+    assert result.n == 42
+    assert result.gate.exploratory == "exploratory"
+    assert result.strong_gate_eligible_n == 0
+    assert result.gate.provisional == "insufficient_n"
+    assert result.gate.canonical_proposal_eligible is False
+
+
+def test_projection_derived_verified_observations_can_pass_strong_gate():
+    projections = [
+        SimpleNamespace(
+            pair=SimpleNamespace(
+                wake_date=date(2099, 1, 1) + timedelta(days=index),
+                cohort="device_pair",
+                google_manually_edited=False,
+            ),
+            metric_code="sleep_duration_asleep_seconds",
+            variant=None,
+            status="comparable",
+            comparable=True,
+            difference=0,
+            garmin=SimpleNamespace(value=100),
+            google=SimpleNamespace(value=100),
+        )
+        for index in range(42)
+    ]
+
+    result = compute_agreement_statistics(observations_from_projections(projections))
+
+    assert result.strong_gate_eligible_n == 42
+    assert result.gate.provisional == "eligible_for_provisional_proposal"
+    assert result.gate.canonical_proposal_eligible is True
+
+
 @pytest.mark.parametrize("metric_code", ["resting_heart_rate_bpm", "spo2_daily_average_pct"])
 def test_auxiliary_metrics_never_become_canonical_proposals(metric_code):
     result = compute_agreement_statistics(
@@ -143,6 +208,8 @@ def test_known_method_break_blocks_provisional_gate_but_is_not_inferred_from_par
         metric_code=observations[21].metric_code,
         cohort=observations[21].cohort,
         difference=0,
+        google_value=100,
+        garmin_value=100,
         epoch="epoch-1",
         method_break=True,
     )

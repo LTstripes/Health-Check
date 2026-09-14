@@ -195,6 +195,7 @@ class AgreementObservation:
     method_break: bool = False
     google_manually_edited: bool | None = None
     canonical_candidate: bool | None = None
+    difference_verified: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "wake_date", _as_date(self.wake_date))
@@ -232,9 +233,13 @@ class AgreementObservation:
             ):
                 raise ValueError("difference must equal google_value - garmin_value")
             difference = expected_difference
+            difference_verified = True
+        else:
+            difference_verified = bool(self.difference_verified)
         object.__setattr__(self, "difference", difference)
         object.__setattr__(self, "google_value", google)
         object.__setattr__(self, "garmin_value", garmin)
+        object.__setattr__(self, "difference_verified", difference_verified)
         if not self.metric_valid or difference is None:
             object.__setattr__(self, "metric_valid", False)
 
@@ -255,6 +260,7 @@ class AgreementObservation:
             "method_break": self.method_break,
             "google_manually_edited": self.google_manually_edited,
             "canonical_candidate": self.canonical_candidate,
+            "difference_verified": self.difference_verified,
         }
 
     @classmethod
@@ -290,6 +296,7 @@ class AgreementObservation:
             method_break=method_break or bool(getattr(projection, "method_break", False)),
             google_manually_edited=getattr(pair, "google_manually_edited", None),
             canonical_candidate=getattr(projection, "canonical_candidate", None),
+            difference_verified=True,
         )
 
 
@@ -956,10 +963,13 @@ def compute_agreement_statistics(
     values = [float(item.difference) for _, item in deduped]
     dates = tuple(item[0] for item in deduped)
     strong_deduped = [
-        item for item in deduped if item[1].google_manually_edited is not True
+        item
+        for item in deduped
+        if item[1].google_manually_edited is not True and item[1].difference_verified
     ]
     strong_dates = tuple(item[0] for item in strong_deduped)
     summary = _summary(values)
+    strong_summary = _summary([float(item[1].difference) for item in strong_deduped])
     requested_start = None if requested_start_date is None else _as_date(requested_start_date)
     requested_end = None if requested_end_date is None else _as_date(requested_end_date)
     if (requested_start is None) != (requested_end is None):
@@ -979,8 +989,8 @@ def compute_agreement_statistics(
     )
     provisional_stability = _stability(
         strong_deduped,
-        full_robust_low=summary[7],
-        full_robust_high=summary[8],
+        full_robust_low=strong_summary[7],
+        full_robust_high=strong_summary[8],
     )
     method_break_present = any(item.method_break for item in selected_observations)
     gate = _gate(
