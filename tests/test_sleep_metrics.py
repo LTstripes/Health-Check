@@ -214,9 +214,9 @@ def test_projection_uses_common_units_and_keeps_metric_eligibility_independent(
     assert duration.google.value == 24600
     assert duration.difference == -4200  # google - garmin
     assert stages.status == "unavailable"
-    assert stages.google.reason == "stage_collection_empty"
+    assert stages.google.reason == "typed_stage_collection_required"
     assert waso.status == "unavailable"
-    assert waso.google.reason == "stage_collection_empty"
+    assert waso.google.reason == "typed_stage_collection_required"
     assert start.status == "unavailable"
     assert start.garmin.reason == "timing_precision_unavailable"
     assert end.status == "comparable"
@@ -320,7 +320,9 @@ def test_overlapping_typed_intervals_fail_only_stage_dependent_metrics(projectio
     assert light.google.reason == "stage_interval_overlap"
 
 
-def test_summary_fallback_is_explicit_and_classic_never_uses_stage_metrics(projection_database):
+def test_summary_stage_evidence_fails_closed_and_classic_never_uses_stage_metrics(
+    projection_database,
+):
     session, paths = projection_database
     _persist_garmin(session, paths)
     _persist_google(
@@ -338,9 +340,18 @@ def test_summary_fallback_is_explicit_and_classic_never_uses_stage_metrics(proje
 
     summary_result = read_persisted_sleep_metric_projection(session)
     light = _metric(summary_result, "sleep_stage_light_seconds")
-    assert light.status == "comparable"
+    assert light.status == "unavailable"
     assert light.google.value == 3600
+    assert light.google.eligible is False
+    assert light.google.reason == "typed_stage_collection_required"
     assert light.google.comparison_basis == "summary_only"
+    assert light.google.evidence.metric_row_ids
+
+    waso = _metric(summary_result, "sleep_awake_waso_seconds")
+    assert waso.status == "unavailable"
+    assert waso.google.value == 300
+    assert waso.google.eligible is False
+    assert waso.google.reason == "typed_stage_collection_required"
 
     sleep_type = session.scalar(
         select(GoogleRecordMetric).where(GoogleRecordMetric.metric_code == "sleep_type")
@@ -356,6 +367,35 @@ def test_summary_fallback_is_explicit_and_classic_never_uses_stage_metrics(proje
     assert duration.variant == "CLASSIC"
     assert stage.status == "excluded"
     assert stage.reason == "classic_sleep_excludes_stage_metric"
+
+
+def test_non_succeeded_google_stage_status_fails_closed_without_breaking_independent_metrics(
+    projection_database,
+):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(
+        session,
+        paths,
+        payload=_google_sleep_payload(
+            stages_status="PROCESSING",
+            stages=[
+                _stage("2099-01-01T22:00:00Z", "2099-01-01T23:00:00Z", "LIGHT"),
+            ],
+            summary_stages=[{"type": "LIGHT", "minutes": "60", "count": "1"}],
+        ),
+    )
+    session.commit()
+
+    result = read_persisted_sleep_metric_projection(session)
+    light = _metric(result, "sleep_stage_light_seconds")
+    assert light.status == "unavailable"
+    assert light.google.value == 3600
+    assert light.google.eligible is False
+    assert light.google.reason == "stages_status_not_succeeded"
+    assert light.google.comparison_basis == "summary_only"
+    assert _metric(result, "sleep_duration_asleep_seconds").status == "comparable"
+    assert _metric(result, "sleep_time_in_bed_seconds").status == "comparable"
 
 
 def test_auxiliary_metrics_require_their_own_persisted_daily_rows(projection_database):

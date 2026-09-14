@@ -1471,6 +1471,27 @@ def _summary_stage_input_outcome(
     )
 
 
+def _summary_stage_unavailable_outcome(
+    side: _StoredSleepSide,
+    *,
+    target: str,
+    variant: str | None,
+    reason: str,
+) -> _MetricOutcome:
+    """Retain summary evidence without treating it as stage proof."""
+
+    outcome = _summary_stage_input_outcome(side, target=target, variant=variant)
+    evidence = replace(outcome.evidence, exclusion_basis=reason)
+    return replace(
+        outcome,
+        reason=reason,
+        eligible=False,
+        comparison_basis="summary_only",
+        evidence=evidence,
+        exclusion_basis=reason,
+    )
+
+
 def _google_session_rows(
     side: _StoredSleepSide | None,
 ) -> tuple[GoogleSleepInterval, ...]:
@@ -2146,8 +2167,8 @@ def _stage_projection_outcome(
             comparison_basis="typed_intervals",
         )
     # A typed Google collection is accepted only with STAGES and an explicit
-    # successful stagesStatus.  A valid summary is an intentionally caveated
-    # fallback, never a mixture of typed and summary values.
+    # successful stagesStatus.  Summary totals remain immutable evidence, but
+    # never provide sufficient proof for a stage-derived comparison.
     if collection.state == _INVALID:
         return _stage_input_outcome(
             side,
@@ -2177,7 +2198,21 @@ def _stage_projection_outcome(
             collection=collection,
             comparison_basis="typed_intervals",
         )
-    return _summary_stage_input_outcome(side, target=target, variant=variant)
+    reason = (
+        "stages_status_not_succeeded"
+        if (
+            collection.state == _VALUE
+            and collection.validation.reason is None
+            and collection.validation.rows
+        )
+        else "typed_stage_collection_required"
+    )
+    return _summary_stage_unavailable_outcome(
+        side,
+        target=target,
+        variant=variant,
+        reason=reason,
+    )
 
 
 def _dependency_unavailable(
