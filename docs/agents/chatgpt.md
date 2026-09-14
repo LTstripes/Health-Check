@@ -24,21 +24,21 @@ Honor explicit execution choices:
 - `дай задачу для Grok` -> manual Grok Worker launch;
 - `дай задачу для Hermes` -> manual Hermes Worker launch;
 - `дай задачу для <model/client>` -> manual single-Worker launch unless orchestration is explicitly requested;
-- `дай задачу для Codex` -> Codex `$delivery-loop` single-task launch by default;
-- `дай серию задач для Codex` -> bounded Codex `$delivery-loop` queue;
+- `дай задачу для Codex` -> manual single-Worker launch by default;
+- `дай серию задач для Codex` -> assess the assigned task set and propose an order; automatic execution requires explicit orchestration;
 - `Codex без оркестрации` -> manual Codex Worker launch.
 
 Direct GitHub capability is not a reason to override the Owner's requested implementation surface.
 
 ## Manual Worker launch
 
-Prepare a short locator/execution prompt with issue, exact baseline/target integration context, branch/workspace and required source docs. The GitHub issue/spec remains authoritative.
+First record the [launch compatibility assessment](../AGENT_ORCHESTRATION.md#launch-compatibility-assessment) in the issue/Integrator note, including current comments and shared contract ownership. Then prepare a short locator/execution prompt with issue, exact baseline/target integration context, branch/workspace and required source docs. The GitHub issue/spec remains authoritative.
 
 After the Owner returns the completion report, inspect the actual GitHub candidate and decide `ACCEPT / FIXES REQUIRED / REJECT`.
 
 ## Codex `$delivery-loop` single task
 
-For `дай задачу для Codex`, prepare a single-task launch under [`docs/AGENT_ORCHESTRATION.md`](../AGENT_ORCHESTRATION.md).
+For an explicit `$delivery-loop`/orchestration request, prepare a single-task launch under [`docs/AGENT_ORCHESTRATION.md`](../AGENT_ORCHESTRATION.md).
 
 The packet identifies:
 
@@ -54,7 +54,7 @@ The Codex root is the Execution Orchestrator; implementation belongs to the loca
 
 ## Codex queue
 
-For `дай серию задач для Codex`, first inspect current GitHub issues/state and choose a bounded compatible set.
+For an explicitly orchestrated queue, inspect current GitHub issues/state for the Owner-assigned set and record the compatibility assessment and order. Do not invent extra tasks. Parallel execution requires explicit opt-in and compatible ownership; a sequential queue does not authorize parallel writes.
 
 For every task:
 
@@ -64,14 +64,14 @@ For every task:
 - identify dependencies;
 - state independent-review requirement.
 
-Do not put an unresolved dependent task into an unattended implicit stack. If its dependency requires prior integration and no safe strategy exists, the queue contract uses `BLOCKED_FOR_INTEGRATION` for that chain while unrelated eligible items may continue.
+Do not put an unresolved dependent task into an unattended implicit stack. If its dependency requires prior integration and no safe strategy exists, the queue contract uses `BLOCKED_FOR_INTEGRATION` for that chain while unrelated eligible items may continue only if the launch explicitly enables integration-block continuation.
 
 The queue launch states:
 
 - root = Execution Orchestrator;
 - implementation = local Worker;
 - independent Reviewer when project routing, explicit request or justified risk requires it;
-- max two automatic remediation cycles;
+- completion mode: review-and-stop, or remediate with default one cycle and at most two under the project contract;
 - `INTERNAL_ACCEPT != project ACCEPT`;
 - no implicit merge to integration/main;
 - final queue report plus per-task evidence.

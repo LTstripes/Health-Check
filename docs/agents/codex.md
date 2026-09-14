@@ -16,13 +16,13 @@ Do not use `D:\Garmin`, `D:\Garmin-UAT`, another client's root, or another task 
 
 ## Mode A — manual Worker
 
-Use when the launch explicitly requests `Codex без оркестрации` or otherwise assigns Codex as one Worker.
+Use for an ordinary single-task Codex launch, including `Codex без оркестрации`, unless orchestration is explicitly requested.
 
 ### Start
 
 - Read `AGENTS.md`, the active GitHub issue and the active release spec when one is explicitly designated.
 - Fetch the repository into the assigned task workspace.
-- Verify the exact baseline/integration SHA from the launch prompt before editing.
+- Verify the exact baseline/integration SHA and the issue/Integrator [launch compatibility decision](../AGENT_ORCHESTRATION.md#launch-compatibility-assessment) before editing; read applicable Integrator comments. If shared ownership is unresolved, return that conflict before writes.
 - Check out/create only the assigned task branch.
 - Never infer that a completed prior release integration branch is the new baseline.
 
@@ -41,18 +41,18 @@ Run issue-required checks and return the Worker completion report specified by `
 
 ## Mode B — `$delivery-loop` Execution Orchestrator
 
-When the launch invokes `$delivery-loop` or requests the default orchestrated Codex route, the root session acts as **Execution Orchestrator**.
+When the launch invokes `$delivery-loop` or explicitly requests orchestration, the root session acts as **Execution Orchestrator**.
 
 The root must:
 
 - read project policy/issue/spec before applying local orchestration mechanics;
-- validate exact baseline, branch/workspace, queue mode and review requirement;
+- validate exact baseline, branch/workspace, compatibility/ownership, queue mode, completion mode and review requirement;
 - delegate implementation to the locally configured Worker;
 - not duplicate delegated write work after delegation;
 - wait for the Worker and inspect the actual candidate/diff/check evidence;
 - invoke the locally configured separate read-only Reviewer when project routing requires it, when Owner/Integrator explicitly requests it, or when justified execution risk raises the review requirement;
 - STOP for Integrator re-scope if risk implies architecture, privacy, canonical-data or health-semantics expansion;
-- use at most two automatic remediation cycles;
+- honor review-and-stop; otherwise use the default one remediation cycle and the project conditions for a second, never more than two;
 - return internal verdicts `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED`, or `BLOCKED_FOR_INTEGRATION`;
 - never equate `INTERNAL_ACCEPT` with project `ACCEPT`;
 - never acquire implicit merge authority.
@@ -63,13 +63,13 @@ A child reviewer that inherits writable rights from the parent does not prove en
 
 Only an explicitly authorized queue may advance automatically.
 
-For independent tasks:
+For a sequential independent queue (explicit parallel assignments instead follow the project compatibility contract):
 
 - each task has its own branch/workspace/baseline;
 - the previous task reaches `INTERNAL_ACCEPT` before the next eligible item starts;
 - previous candidate history is not an implicit baseline for the next task.
 
-If a task requires prior integration and no explicit dependency strategy was supplied, mark it `BLOCKED_FOR_INTEGRATION`. That blocks only the affected dependency chain; unrelated explicitly listed eligible tasks may continue.
+If a task requires prior integration and no explicit dependency strategy was supplied, mark it `BLOCKED_FOR_INTEGRATION`. That blocks the affected dependency chain; unrelated explicitly listed eligible tasks may continue only when the launch explicitly enables integration-block continuation.
 
 Return both per-task evidence and one final queue summary.
 

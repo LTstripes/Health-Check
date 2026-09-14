@@ -9,11 +9,21 @@ Complexity: C2 / Normal
 Recommended executor: Luna High
 Alternative: Grok High
 Independent reviewer: not required
+Execution mode: one Worker
+Compatibility: isolated scope; no shared contract changes
 ```
 
 For high-risk work, include the reviewer/escalation requirement.
 
 Execution-mode semantics are defined in [`AGENT_ORCHESTRATION.md`](AGENT_ORCHESTRATION.md).
+
+## Effort and coordination choice
+
+Choose execution mode separately from model strength. One Worker can handle a complex bounded task with required independent review; an orchestrator is justified by explicit queue/review/remediation coordination needs, not by the client name. Record the [launch compatibility assessment](AGENT_ORCHESTRATION.md#launch-compatibility-assessment) before selecting parallel work.
+
+Use the lowest reasoning setting that comfortably handles the bounded contract. Reserve a higher setting for identified unresolved architecture, provenance, replay/state-transition or statistical reasoning; explain that reason in routing. Do not raise every Worker and Reviewer to the maximum because a previous run was slow or blocked. First resolve missing requirements, ownership and runtime readiness. An early strong contract review can be more useful than upgrading a long implementation pass with an incomplete packet.
+
+Concrete model IDs and effort assignments belong to the launch/local configuration. Attribute actual root/Worker/Reviewer settings from available runtime evidence; unknown settings or token costs remain unknown. Reassess after a specific failure, not from wall time alone.
 
 ## Roles
 

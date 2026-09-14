@@ -32,8 +32,8 @@ Workers implement. The Integrator owns project acceptance, GitHub integration an
 - `дай задачу для Hermes` -> manual Hermes Worker;
 - `дай задачу для <model/client>` -> manual Worker unless orchestration is explicitly requested;
 - `Codex без оркестрации` -> manual Codex Worker;
-- `дай задачу для Codex` -> Codex `$delivery-loop` single-task route by default;
-- `дай серию задач для Codex` -> explicitly bounded Codex `$delivery-loop` queue.
+- `дай задачу для Codex` -> manual single-Worker route by default;
+- `дай серию задач для Codex` -> assess the assigned set and propose compatible ordering; automated execution requires an explicit `$delivery-loop`/orchestration launch.
 
 The Integrator honors the requested implementation route while continuing to perform GitHub-side issue/PR/review/merge mechanics directly when available.
 
@@ -54,15 +54,15 @@ For every task the launch packet specifies:
 
 The root reviews actual candidate/check evidence after the Worker returns. A separate Reviewer is used when project routing requires independent review, when the Owner/Integrator explicitly requests it, or when justified execution risk raises the review bar. Such risk does not authorize scope expansion: architecture/privacy/canonical-data/health-semantics expansion remains STOP + Integrator re-scope.
 
-Automatic remediation is bounded to two cycles. Internal results are `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED`, or `BLOCKED_FOR_INTEGRATION`. `INTERNAL_ACCEPT` never equals project `ACCEPT`.
+The launch sets `completion_mode=review-and-stop` (no automatic fixes) or `remediate` (default one cycle; a second only explicitly authorized or demonstrably mechanical and bounded; absolute cap two). Internal results are `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED`, or `BLOCKED_FOR_INTEGRATION`. `INTERNAL_ACCEPT` never equals project `ACCEPT`.
 
 For an explicitly authorized independent queue:
 
 - every task keeps its own branch/workspace/exact baseline;
 - a previous candidate is not an implicit baseline for the next task;
-- one task reaches `INTERNAL_ACCEPT` before the next eligible task starts;
+- in this sequential mode, one task reaches `INTERNAL_ACCEPT` before the next eligible task starts;
 - if a task requires prior integration and no safe dependency strategy was supplied, it becomes `BLOCKED_FOR_INTEGRATION`;
-- that blocks the affected dependency chain, not unrelated explicitly listed eligible tasks;
+- unrelated explicitly listed eligible tasks may continue only if the launch explicitly enables integration-block continuation;
 - the Orchestrator must not invent stacked history, merge the integration branch or select replacement backlog work.
 
 Codex returns per-task evidence plus one final queue report covering every authorized task. That queue report is not batch project acceptance.
@@ -98,7 +98,7 @@ A task branch starts from an exact pinned SHA of the release integration branch.
 
 ### Parallel work
 
-Only genuinely independent scopes run in parallel. If task B depends on task A's schema/API, task B starts only after A is integrated unless the issue explicitly provides a stable contract fixture or the Integrator explicitly supplies a safe dependency/baseline strategy.
+Complete the [launch compatibility assessment](AGENT_ORCHESTRATION.md#launch-compatibility-assessment) and record shared artifact ownership before launch. Parallel execution requires explicit Owner opt-in. Only genuinely independent scopes run in parallel. If task B depends on task A's schema/API, task B starts only after A is integrated unless the issue explicitly provides a stable contract fixture or the Integrator explicitly supplies a safe dependency/baseline strategy.
 
 A task does not rebase continuously. If integration advances while a Worker is coding, the Worker stays on the pinned baseline. At review time the Integrator decides whether:
 
@@ -190,14 +190,16 @@ Parallel Hermes bots/Delegates follow the same invariant. Multiple simultaneous 
 The Integrator creates a GitHub issue before implementation. It should include:
 
 - release/task ID and objective;
-- complexity/risk class and recommended executor/route;
+- complexity/risk class, recommended executor/route and execution-mode rationale;
+- launch compatibility decision: dependencies, shared artifact/contract ownership and safe order or explicitly authorized parallel boundaries;
 - target integration branch and exact baseline SHA;
 - dependencies;
-- required source documents;
+- required source documents and applicable Integrator comment IDs/URLs;
 - in-scope and explicit out-of-scope;
 - acceptance criteria;
 - privacy/live-data boundary;
-- exact expected verification;
+- proportional early contract checkpoint (or why not applicable), exact expected verification and final harness/CI/review ordering;
+- completion/remediation mode for orchestration;
 - expected completion report.
 
 Task requirements live in GitHub, not only in chat. If scope changes, the issue body or an explicit `Integrator note` comment is updated before the Worker implements the new requirement.
@@ -231,7 +233,7 @@ The prompt additionally states:
 - root = Execution Orchestrator;
 - implementation belongs to the local configured Worker;
 - independent-review requirement;
-- max two remediation cycles;
+- explicit completion/remediation mode and budget under `AGENT_ORCHESTRATION.md`;
 - `INTERNAL_ACCEPT != project ACCEPT`;
 - no implicit integration/main merge authority.
 
@@ -242,7 +244,7 @@ One queue launch packet may list several explicitly authorized tasks. It must st
 - progression only through listed eligible items;
 - `INTERNAL_ACCEPT` before advancing;
 - `BLOCKED_FOR_INTEGRATION` for unresolved dependency integration gaps;
-- unrelated explicitly listed eligible tasks may continue;
+- unrelated explicitly listed eligible tasks may continue only with explicit integration-block continuation enabled;
 - no invented tasks/stacking/merge;
 - per-task evidence plus one final queue report.
 
