@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Sleep agreement — Health-Check{% endblock %}
+{% block content %}
+<section class="card agreement-banner" role="note">
+  <h1>Exploratory sleep agreement</h1>
+  <p>Frozen Garmin ↔ Google evidence for owner exploration. Accuracy is not assessed and canonical sleep selection is unchanged.</p>
+</section>
+<section id="agreement-summary" class="card"></section>
+<section id="agreement-groups" class="agreement-groups"></section>
+<section class="card">
+  <h2>Source and data quality</h2>
+  <p class="muted">These are persisted acquisition/coverage facts. Last successful sync and last actual measurement/evidence remain separate.</p>
+  <div id="agreement-quality"></div>
+</section>
+<script id="agreement-data" type="application/json">{{ payload | tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/agreement.js"></script>
+{% endblock %}

@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import func, select
 
 from healthcheck.analytics.sleep_agreement import PersistedSleepAgreementService
+from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
 from healthcheck.analytics.sleep_metrics import (
     EXCLUDED_SLEEP_METRIC_CODES,
     read_persisted_sleep_metric_projection,
@@ -523,6 +524,46 @@ def test_agreement_run_persists_complete_snapshot_and_replays_without_current_ro
     assert len(reread.metric_results) == len(replay.metric_results)
     assert len(reread.coverage) == len(replay.coverage)
 
+
+def test_agreement_report_reads_published_frozen_rows_and_withholds_underpowered_stats(
+    projection_database,
+):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+
+    projection = read_persisted_sleep_metric_projection(session)
+    persisted = PersistedSleepAgreementService(session).persist(
+        projection,
+        scope_key="synthetic:report",
+        statistic_version="synthetic-stat-v1",
+        rule_version="synthetic-rule-v1",
+    )
+    session.commit()
+
+    service = SleepAgreementReportService(session)
+    first = service.report(run_id=persisted.id)
+    duration = next(
+        item for item in first["groups"] if item["metric_code"] == "sleep_duration_asleep_seconds"
+    )
+    assert first["available"] is True
+    assert duration["n"] == 1
+    assert duration["accepted_statistics"] is None
+    assert duration["progress"]["status"] == "accumulating"
+    detail = service.night_detail(persisted.id)
+    assert detail["nights"][0]["wake_date"] == "2099-01-02"
+
+    google_duration = session.scalar(
+        select(GoogleRecordMetric).where(
+            GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep"
+        )
+    )
+    assert google_duration is not None
+    google_duration.value_number = 1
+    session.commit()
+    second = service.report(run_id=persisted.id)
+    assert second["groups"] == first["groups"]
 
 def test_agreement_replay_is_idempotent_and_correction_supersedes_old_run(projection_database):
     session, paths = projection_database

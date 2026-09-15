@@ -17,6 +17,7 @@ from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.extractor import ImageMeasurementExtractor
 from healthcheck.ingestion.photo.vision import build_photo_extractor
 from healthcheck.logging import log_event
+from healthcheck.web.agreement import router as agreement_router
 from healthcheck.web.common import wants_html
 from healthcheck.web.garmin import router as garmin_router
 from healthcheck.web.imports import router as import_router
@@ -44,6 +45,7 @@ def create_ui_app(
     app.include_router(import_router)
     app.include_router(weight_router)
     app.include_router(garmin_router)
+    app.include_router(agreement_router)
     app.include_router(pages_router)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 

@@ -11,6 +11,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
 
+from healthcheck.analytics.sleep_agreement_report import (
+    SleepAgreementReportService,
+    unavailable_report,
+)
 from healthcheck.db.engine import session_scope
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
@@ -77,6 +81,22 @@ def dashboard_page(request: Request) -> HTMLResponse:
             return _persist_error(request, "dashboard")
         payload = empty_dashboard_payload(reason="database_unavailable")
     return render(request, "dashboard.html", {"payload": payload, "page": "dashboard"})
+
+
+@router.get("/agreement", response_class=HTMLResponse)
+def agreement_page(request: Request) -> HTMLResponse:
+    try:
+        with session_scope(request_engine(request)) as session:
+            payload = SleepAgreementReportService(session).report()
+    except SQLAlchemyError as exc:
+        if not database_unavailable(exc):
+            return _persist_error(request, "agreement_report")
+        payload = unavailable_report(reason="database_unavailable")
+    except ValueError as exc:
+        return render_error(
+            request, code="invalid_report_request", message=str(exc), status_code=400
+        )
+    return render(request, "agreement.html", {"payload": payload, "page": "agreement"})
 
 
 @router.get("/garmin", response_class=HTMLResponse)

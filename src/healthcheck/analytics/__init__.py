@@ -71,6 +71,11 @@ from healthcheck.analytics.sleep_agreement import (
     AgreementReplay,
     PersistedSleepAgreementService,
 )
+from healthcheck.analytics.sleep_agreement_report import (
+    REPORT_CONTRACT_VERSION,
+    SleepAgreementReportService,
+    unavailable_report,
+)
 from healthcheck.analytics.sleep_agreement_statistics import (
     R05_SLEEP_AGREEMENT_STATISTICS_ALGORITHM,
     R05_SLEEP_AGREEMENT_STATISTICS_CONTRACT_VERSION,
@@ -258,6 +263,9 @@ __all__ = [
     "AgreementPersistenceResult",
     "AgreementReplay",
     "PersistedSleepAgreementService",
+    "REPORT_CONTRACT_VERSION",
+    "SleepAgreementReportService",
+    "unavailable_report",
     "R05_SLEEP_AGREEMENT_STATISTICS_ALGORITHM",
     "R05_SLEEP_AGREEMENT_STATISTICS_CONTRACT_VERSION",
     "R05_SLEEP_AGREEMENT_STATISTICS_RULE_VERSION",
