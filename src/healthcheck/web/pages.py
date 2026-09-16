@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ from healthcheck.logging import log_event
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
+from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.query import (
     WeightQueryService,
     empty_dashboard_payload,
@@ -97,6 +98,87 @@ def agreement_page(request: Request) -> HTMLResponse:
             request, code="invalid_report_request", message=str(exc), status_code=400
         )
     return render(request, "agreement.html", {"payload": payload, "page": "agreement"})
+
+
+def _brief_period(
+    *, preset: str | None, start_date: str | None, end_date: str | None
+) -> tuple[date, date, str | None]:
+    """Resolve UI period controls without changing stored evidence semantics."""
+
+    if preset is not None:
+        if start_date is not None or end_date is not None:
+            raise ValueError("choose a preset or enter both custom period dates")
+        try:
+            days = {"7": 7, "30": 30, "90": 90}[preset]
+        except KeyError as exc:
+            raise ValueError("preset must be 7, 30, or 90 days") from exc
+        end = date.today()
+        return end - timedelta(days=days - 1), end, preset
+
+    if start_date is None and end_date is None:
+        end = date.today()
+        return end - timedelta(days=29), end, "30"
+    if start_date is None or end_date is None:
+        raise ValueError("custom period requires both start_date and end_date")
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise ValueError("custom period dates must use YYYY-MM-DD") from exc
+    if end < start:
+        raise ValueError("end_date cannot precede start_date")
+    return start, end, None
+
+
+@router.get("/brief", response_class=HTMLResponse)
+def period_brief_page(
+    request: Request,
+    preset: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    garmin_source_id: str | None = None,
+) -> HTMLResponse:
+    try:
+        start, end, selected_preset = _brief_period(
+            preset=preset, start_date=start_date, end_date=end_date
+        )
+        with session_scope(request_engine(request)) as session:
+            service = PeriodBriefService(session, request.app.state.settings)
+            source_selection = service.garmin.resolve_source(garmin_source_id)
+            result = service.build_with_render(
+                start_date=start,
+                end_date=end,
+                garmin_source_id=garmin_source_id,
+                thin_display=True,
+            )
+    except GarminQueryError as exc:
+        return render_error(
+            request, code=exc.code, message=exc.message, status_code=exc.status_code
+        )
+    except ValueError as exc:
+        return render_error(
+            request, code="invalid_period", message=str(exc), status_code=400
+        )
+    except SQLAlchemyError as exc:
+        if not database_unavailable(exc):
+            return _persist_error(request, "period_brief_page")
+        return render_error(
+            request,
+            code="database_unavailable",
+            message="database is not ready",
+            status_code=503,
+        )
+    return render(
+        request,
+        "period_brief.html",
+        {
+            "brief": result["display"],
+            "packet": result["packet"],
+            "source_selection": source_selection,
+            "selected_preset": selected_preset,
+            "page": "brief",
+        },
+    )
 
 
 @router.get("/garmin", response_class=HTMLResponse)

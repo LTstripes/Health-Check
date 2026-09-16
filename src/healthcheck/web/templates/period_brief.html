@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Period Brief — Health-Check{% endblock %}
+{% block content %}
+<section class="hero brief-hero">
+  <div>
+    <p class="eyebrow">Deterministic evidence packet</p>
+    <h1>Period Brief</h1>
+    <p class="muted">A compact local view of the accepted weight, sleep, activity and coverage analytics.</p>
+  </div>
+  <dl class="current">
+    <div>
+      <dt>Requested period</dt>
+      <dd>{{ brief.period.start_date }} → {{ brief.period.end_date }} <span class="muted">({{ brief.period.calendar_days }} days)</span></dd>
+    </div>
+    <div>
+      <dt>Packet state</dt>
+      <dd><span class="status-chip present">available</span></dd>
+    </div>
+  </dl>
+</section>
+
+<section class="card brief-controls">
+  <h2>Choose period</h2>
+  <div class="preset-links" aria-label="Period presets">
+    {% for days in (7, 30, 90) %}
+    <a class="button-link{% if selected_preset == days|string %} selected{% endif %}" href="/brief?preset={{ days }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} days</a>
+    {% endfor %}
+  </div>
+  <form class="inline-edit" method="get" action="/brief">
+    <label>Start <input type="date" name="start_date" value="{{ brief.period.start_date }}" required></label>
+    <label>End <input type="date" name="end_date" value="{{ brief.period.end_date }}" required></label>
+    <button type="submit">Use custom period</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Garmin source</h2>
+  {% if source_selection.status == "require_selection" %}
+  <p class="unavailable">Multiple Garmin sources exist. Choose one; the brief does not silently merge them.</p>
+  {% elif source_selection.status == "selected" %}
+  <p class="muted">The selected source is used for activity and Garmin baseline facts.</p>
+  {% else %}
+  <p class="muted">No Garmin source is persisted for this runtime.</p>
+  {% endif %}
+  <form class="inline-edit" method="get" action="/brief">
+    <input type="hidden" name="start_date" value="{{ brief.period.start_date }}">
+    <input type="hidden" name="end_date" value="{{ brief.period.end_date }}">
+    <label>Source
+      <select name="garmin_source_id">
+        <option value="">— choose source —</option>
+        {% for source in source_selection.sources %}
+        <option value="{{ source.id }}"{% if source_selection.selected_source_id == source.id %} selected{% endif %}>
+          {{ source.provider_code }} · {{ source.device_model or source.source_instance_id }} · {{ source.id[:8] }}…
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Use source</button>
+  </form>
+</section>
+
+{% macro state_chip(section) -%}
+<span class="status-chip {{ section.state }}">{{ section.state }}</span>
+{%- endmacro %}
+{% macro value_text(fact) -%}
+  {% if fact.value is mapping %}<code>{{ fact.value | tojson }}</code>
+  {% elif fact.value is sequence and fact.value is not string %}<code>{{ fact.value | tojson }}</code>
+  {% elif fact.value is none %}<span class="muted">—</span>
+  {% else %}{{ fact.value }}{% if fact.unit %} {{ fact.unit }}{% endif %}{% endif %}
+{%- endmacro %}
+
+<div class="brief-grid">
+  {% set weight = brief.sections.weight %}
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Weight</h2>{{ state_chip(weight) }}</header>
+    <table>
+      <tbody>
+      {% for fact in weight.summary_facts %}
+      <tr><th scope="row">{{ fact.code }}</th><td>{{ value_text(fact) }}{% if fact.reason %} <span class="muted">({{ fact.reason }})</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if weight.display_points %}
+    <h3>Displayed weight points</h3>
+    <table><thead><tr><th>Date</th><th>Weight</th></tr></thead><tbody>
+      {% for point in weight.display_points %}<tr><td>{{ point.observed_date }}</td><td>{{ point.value_kg }} kg</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+    {% if weight.display_thinning %}<p class="muted">Display-only thinning: {{ weight.display_thinning.original_point_count }} analytical points; shown at most {{ weight.display_thinning.max_display_points }}.</p>{% endif %}
+  </section>
+
+  {% set sleep = brief.sections.sleep %}
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Sleep</h2>{{ state_chip(sleep) }}</header>
+    {% for group in sleep.groups %}
+    <article class="brief-subsection">
+      <h3>{{ group.cohort_label }}</h3>
+      <p class="muted">Metric: <code>{{ group.metric_code }}</code>; N={{ group.n if group.n is not none else "—" }}; paired nights={{ group.paired_nights if group.paired_nights is not none else "—" }}</p>
+      {% if group.exploratory_label_required %}<p class="uncertainty-note">{{ group.uncertainty_notice }} This is not Garmin-vs-Fitbit/device agreement and is not canonical-eligible.</p>{% endif %}
+      {% if group.statistics_available %}<p>Accepted statistics: bias={{ group.bias }}, MAE={{ group.mae }}, N={{ group.accepted_statistics_n }}.</p>{% else %}<p class="muted">Statistics unavailable.</p>{% endif %}
+    </article>
+    {% else %}<p class="muted">No sleep group is available for this period.</p>{% endfor %}
+    {% if sleep.summary_facts %}<div class="fact-list">{% for fact in sleep.summary_facts %}<span><strong>{{ fact.code }}</strong>: {{ value_text(fact) }}</span>{% endfor %}</div>{% endif %}
+  </section>
+
+  {% set activity = brief.sections.activity %}
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Activity</h2>{{ state_chip(activity) }}</header>
+    {% for fact in activity.summary_facts %}<p><strong>{{ fact.code }}</strong>: {{ value_text(fact) }}</p>{% endfor %}
+    {% if activity.sessions %}
+    <table><thead><tr><th>Date</th><th>Type</th><th>Record</th></tr></thead><tbody>
+      {% for session in activity.sessions %}<tr><td>{{ session.source_local_date }}</td><td>{{ session.activity_type }}</td><td><code>{{ session.record_id }}</code></td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">No activity sessions are displayed for this state.</p>{% endif %}
+    {% if activity.display_thinning %}<p class="muted">Display-only thinning: {{ activity.display_thinning.original_session_count }} analytical sessions; shown at most {{ activity.display_thinning.max_activity_sessions }}.</p>{% endif %}
+  </section>
+
+  {% set quality = brief.sections.data_quality %}
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Data quality / coverage</h2>{{ state_chip(quality) }}</header>
+    {% for fact in quality.summary_facts %}<p><strong>{{ fact.code }}</strong>: {{ value_text(fact) }}</p>{% endfor %}
+    {% if quality.coverage.weight_sparse_note %}<p class="muted">{{ quality.coverage.weight_sparse_note }}</p>{% endif %}
+    {% if quality.coverage.provider_states %}<h3>Provider states</h3><ul>{% for provider in quality.coverage.provider_states %}<li><code>{{ provider.provider_code }}</code>: <span class="status-chip {{ provider.state }}">{{ provider.state }}</span></li>{% endfor %}</ul>{% endif %}
+    <p class="muted">Present, confirmed_empty, unknown, unavailable and insufficient remain distinct packet states; missing evidence is not rendered as zero.</p>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Notable changes</h2>
+  {% if brief.notable_changes %}<ul>{% for note in brief.notable_changes %}<li><strong>{{ note.summary }}</strong>{% if note.value is defined and note.value is not none %}: {{ note.value }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">None reported by the packet.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Owner actions</h2>
+  {% if brief.owner_actions %}<ul>{% for action in brief.owner_actions %}<li>{{ action.summary }}{% if action.code == "confirm_pending_imports" %} <a href="/imports">Open import review</a>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">None reported by the packet.</p>{% endif %}
+</section>
+
+<details class="card brief-provenance">
+  <summary>Technical provenance</summary>
+  <dl>
+    <div><dt>Contract</dt><dd><code>{{ packet.contract_version }}</code></dd></div>
+    <div><dt>Algorithm</dt><dd><code>{{ packet.algorithm }}</code></dd></div>
+    <div><dt>Result hash</dt><dd><code>{{ packet.result_hash }}</code></dd></div>
+    <div><dt>Display source hash</dt><dd><code>{{ brief.source_result_hash }}</code></dd></div>
+    <div><dt>Referenced contracts</dt><dd><code>{{ packet.contracts_referenced | tojson }}</code></dd></div>
+  </dl>
+  <p class="muted">The rendered lists may be display-thinned. Counts, statistics and the analytical packet hash come from the accepted #119 service.</p>
+</details>
+{% endblock %}
