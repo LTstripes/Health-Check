@@ -6,9 +6,9 @@ This is the compact current-state entry point. Historical contracts and release 
 
 - Canonical branch: `main`
 - Latest released major slice: **R05 — Garmin / Google wearable sleep agreement**
-- R05 canonical SHA: `46e59327e394ae6dbc5a4ecdf42913200124b9e9`
-- R05 exact-main CI: `35130647037` — SUCCESS
-- R05 tracker: #106 — closed completed
+- R05 release SHA: `46e59327e394ae6dbc5a4ecdf42913200124b9e9` (exact-main CI `35130647037` SUCCESS; #106 closed)
+- Current main checkpoint (post-#119): `2c19ca968f84efb5e69c1a859ce6016939e617ca`
+- Exact-main CI at that checkpoint: `35139999279` — SUCCESS
 - R05 closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md)
 - Prior R04 release merge: `bb5776e98d259cb6256c95bd49d400dc1238af61` (CI `34768452960` SUCCESS; #80 closed)
 
@@ -76,16 +76,21 @@ This prevents the project from accidentally comparing Garmin against a mixed Pix
 
 ### Current bounded product focus
 
-- #119 — deterministic period brief v1 (weight/sleep/activity/data-quality evidence packet + thin rendering).
+- #127 — Period Brief local UI v1 (owner-facing local page over the accepted #119 packet; no new analytics).
 
-### Residual maintenance
+### Completed post-R05 / maintenance (not residual backlog)
 
-- #98 — bounded evaluation of `python-garminconnect` 0.3.12 → 0.3.15.
-- #99 — reproduce/minimize the known order-sensitive OAuth test/global-state leak before fixing anything.
+- #119 — deterministic period brief v1 completed on `main @ 2c19ca96…` (CI `35139999279` SUCCESS): weight/sleep/activity/data-quality evidence packet, stable result hash, thin API/text/CLI rendering, accepted R05 sleep-report reuse, full activity inventory repairs.
+- #98 — bounded `python-garminconnect` 0.3.12 → 0.3.15 upgrade — closed completed.
+- #99 — Google auth/sync order-sensitive test hardening — closed completed.
+
+### Separate engineering track (not next health-product release)
+
+- #123–#126 — CI/reliability maintenance (bounded verification, Linux lanes, Windows smoke, required-check enforcement). Mentioned here only as engineering backlog status.
 
 ### R05 disposition (released)
 
-R05/#106 closed on `main @ 46e59327…`. Strict `device_pair` / `family_pair` remain fail-closed. Provider-attribution evidence was insufficient for a canonical switch. `account_wearables_sleep_observations_v1` is exploratory/uncertain-only. #105 deferred/NOT_ELIGIBLE; Garmin remains canonical/default.
+R05/#106 closed on `main @ 46e59327…`. Strict `device_pair` / `family_pair` remain fail-closed. Provider-attribution evidence was insufficient for a canonical switch. `account_wearables_sleep_observations_v1` is exploratory/uncertain-only. #105 deferred/NOT_ELIGIBLE; Garmin remains canonical/default. #105 is not an actionable next implementation merely because it remains open; no Owner action is required unless future live evidence meets its gate.
 
 ## Core engineering rules
 

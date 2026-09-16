@@ -26,11 +26,13 @@ The final R04 owner gate also proved the populated private runtime remained heal
 
 ## Current focus
 
-R05 is released on canonical `main @ 46e59327e394ae6dbc5a4ecdf42913200124b9e9` (exact-main CI `35130647037` SUCCESS; #106 closed). Closeout: [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md).
+R05 is released (exploratory closeout; Garmin canonical/default; #105 deferred/NOT_ELIGIBLE). Closeout: [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md).
 
-Current bounded product focus: **#119 deterministic period brief v1** over existing weight/sleep/activity/coverage analytics (no new health scores, no LLM delivery).
+Post-R05 product closeout: **#119 deterministic period brief v1** is **completed** on canonical `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca` (exact-main CI `35139999279` SUCCESS). Delivered: deterministic weight/sleep/activity/data-quality period brief packet, stable result hash, thin API/text/CLI rendering, accepted direct R05 sleep-report reuse, and full activity inventory repairs. No new health scores; no LLM delivery.
 
-Attribution remains conservative: `google-wearables` family evidence is not automatically Fitbit-device evidence; `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only; Garmin remains canonical/default; #105 remains deferred/NOT_ELIGIBLE.
+Current bounded product focus: **#127 Period Brief local UI v1** (presentation over the accepted #119 contract). Parallel CI/reliability work #123–#126 is a separate maintenance track, not the next health-product release.
+
+Attribution remains conservative: `google-wearables` family evidence is not automatically Fitbit-device evidence; `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only; Garmin remains canonical/default; #105 remains deferred/NOT_ELIGIBLE (not an actionable next implementation unless future live evidence meets its gate).
 
 ## Architecture in one minute
 

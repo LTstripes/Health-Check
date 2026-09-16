@@ -17,9 +17,9 @@ Released to canonical `main`:
 R04 release closeout: [R04_RELEASE_CLOSEOUT.md](R04_RELEASE_CLOSEOUT.md).
 R05 release closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md).
 
-**Current planning focus: post-R05 bounded product work (#119 deterministic period brief) plus residual maintenance (#98 / #99) where still justified.**
+**Current planning focus: post-#119 bounded product work (#127 Period Brief local UI v1).** #98 / #99 are completed maintenance, not residual backlog. Parallel CI/reliability track #123–#126 is separate engineering work, not the next health-product release.
 
-R05 closed on canonical `main @ 46e59327…` with exact-main CI `35130647037` SUCCESS (#106). #105 remains deferred/NOT_ELIGIBLE. `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only.
+R05 closed on canonical `main @ 46e59327…` with exact-main CI `35130647037` SUCCESS (#106). #119 completed on `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca` (exact-main CI `35139999279` SUCCESS). #105 remains deferred/NOT_ELIGIBLE. `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only.
 
 ## R00 — Final architecture (complete)
 
@@ -148,7 +148,12 @@ See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md).
 
 ## Post-R05 bounded product focus
 
-- **#119** — deterministic period brief v1 over existing weight/sleep/activity/coverage analytics (evidence packet + thin rendering; no LLM/Telegram delivery in v1).
+- **#119** — deterministic period brief v1 — **completed** on `main @ 2c19ca96…` (CI `35139999279` SUCCESS): weight/sleep/activity/data-quality evidence packet, stable result hash, thin API/text/CLI rendering; accepted R05 sleep-report reuse and full activity inventory repairs; no LLM/Telegram delivery in v1.
+- **#127** — Period Brief local UI v1 — **current bounded product focus** (presentation over the accepted #119 contract; no new analytics; no invented release number for this slice).
+
+Completed maintenance (not residual backlog): #98 Garmin dependency upgrade; #99 Google auth/sync test hardening.
+
+Separate engineering track (not next health-product release): #123–#126 CI/reliability.
 
 ## R06 — Context, Telegram, and read-only AI tools
 

@@ -31,7 +31,7 @@ The product has now moved beyond its first slices:
 - R04 added production Google Health API v4 ingestion with owner-live OAuth/sync/backfill/refresh proof;
 - R05 delivered exploratory Garmin/Google wearable sleep agreement with strict fail-closed legacy cohorts; Garmin remains canonical/default and #105 stayed deferred/NOT_ELIGIBLE.
 
-The current bounded product focus is the **#119 deterministic period brief** over existing analytics, not another ingestion framework or a new health-score layer.
+#119 delivered the first deterministic period brief over existing analytics (completed on canonical main). The current bounded product focus is **#127 Period Brief local UI v1** so the owner can use that accepted brief from the local application — not another ingestion framework or a new health-score layer.
 
 ## Sources
 
