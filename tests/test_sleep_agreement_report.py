@@ -10,7 +10,10 @@ from fastapi.testclient import TestClient
 
 from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
 from healthcheck.config import Settings
-from healthcheck.db.engine import migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.models import Provider
+from healthcheck.garmin.capabilities import GARMIN_PROVIDER_CODE
+from healthcheck.google.contracts import GOOGLE_PROVIDER_CODE
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.ui_app import create_ui_app
@@ -70,7 +73,7 @@ def _rows(*, cohort: str = "device_pair", count: int = 1, run_id: str = "run-1")
         manifest = {
             "metric_definition": {"canonical_candidate": True},
             "google": {
-                "provider": "google_fit",
+                "provider": GOOGLE_PROVIDER_CODE,
                 "record_id": f"google-{index}",
                 "state": "value",
                 "value": 100 + index,
@@ -80,7 +83,7 @@ def _rows(*, cohort: str = "device_pair", count: int = 1, run_id: str = "run-1")
                 "evidence": {"immutable": True, "source_class": "fitbit_device"},
             },
             "garmin": {
-                "provider": "garmin_connect",
+                "provider": GARMIN_PROVIDER_CODE,
                 "record_id": f"garmin-{index}",
                 "state": "value",
                 "value": 100,
@@ -161,6 +164,56 @@ def test_night_drilldown_uses_frozen_metadata_without_raw_payload_body():
     assert payload["nights"][0]["metrics"][0]["status"] == "comparable"
     assert "raw_payload_body" not in json.dumps(payload)
     assert payload["claims"] == {"accuracy": "not_assessed", "canonical_switch": "not_applied"}
+
+
+def test_source_data_quality_uses_canonical_provider_codes_for_paired_evidence(tmp_path):
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            session.add_all(
+                [
+                    Provider(
+                        id="provider-garmin",
+                        code=GARMIN_PROVIDER_CODE,
+                        display_name="Garmin Connect",
+                        provider_kind="wearable",
+                    ),
+                    Provider(
+                        id="provider-google",
+                        code=GOOGLE_PROVIDER_CODE,
+                        display_name="Google Health",
+                        provider_kind="wearable",
+                    ),
+                    Provider(
+                        id="provider-unrelated",
+                        code="unrelated-provider",
+                        display_name="Unrelated Provider",
+                        provider_kind="other",
+                    ),
+                ]
+            )
+            session.flush()
+            service = SleepAgreementReportService(session)
+            paired_date = date(2099, 1, 14)
+            quality = service._source_data_quality(
+                [(SimpleNamespace(id="run-1"), SimpleNamespace(wake_date=paired_date))],
+                None,
+                None,
+            )
+    finally:
+        engine.dispose()
+
+    by_code = {item["provider_code"]: item for item in quality}
+    assert by_code[GARMIN_PROVIDER_CODE]["last_actual_measurement_or_evidence_date"] == (
+        paired_date.isoformat()
+    )
+    assert by_code[GOOGLE_PROVIDER_CODE]["last_actual_measurement_or_evidence_date"] == (
+        paired_date.isoformat()
+    )
+    assert by_code["unrelated-provider"]["last_actual_measurement_or_evidence_date"] is None
 
 
 def test_empty_report_api_and_owner_page_are_honest(tmp_path):

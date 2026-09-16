@@ -34,6 +34,8 @@ from healthcheck.db.models import (
     SyncStreamState,
 )
 from healthcheck.db.repositories import AgreementRunRepository
+from healthcheck.garmin.capabilities import GARMIN_PROVIDER_CODE
+from healthcheck.google.contracts import GOOGLE_PROVIDER_CODE
 
 REPORT_CONTRACT_VERSION = "r05-05-sleep-agreement-report-v1"
 _COHORT_ORDER = {"device_pair": 0, "family_pair": 1}
@@ -448,8 +450,8 @@ class SleepAgreementReportService:
         intervals = list(self.session.scalars(select(CoverageInterval)))
         latest_evidence_date = max((pair.wake_date for _run, pair in selected_pairs), default=None)
         actual_by_provider = {
-            "garmin_connect": latest_evidence_date,
-            "google_fit": latest_evidence_date,
+            GARMIN_PROVIDER_CODE: latest_evidence_date,
+            GOOGLE_PROVIDER_CODE: latest_evidence_date,
         }
         result = []
         for provider in providers:
