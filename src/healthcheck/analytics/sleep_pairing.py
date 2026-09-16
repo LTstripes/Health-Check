@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from sqlalchemy import select
@@ -39,12 +39,16 @@ from healthcheck.google.contracts import (
 R05_SLEEP_PAIRING_CONTRACT_VERSION = "r05-01-sleep-pairing-v1"
 DEVICE_PAIR = "device_pair"
 FAMILY_PAIR = "family_pair"
+# Opt-in: the legacy `all` selection and its frozen identity remain unchanged.
+ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS = "account_wearables_sleep_observations_v1"
+ACCOUNT_SLEEP_PAIRING_VERSION = "r05-account-wearables-sleep-pairing-v1"
 ALL_COHORTS = "all"
 _UNATTRIBUTED_SOURCE_INSTANCE = "unattributed"
 _CURRENT = "current"
 _VALUE = GoogleMetricState.VALUE.value
 _EXPLICIT_MAIN = "explicit_main"
 _FALLBACK_MAIN = "fallback_main"
+_UNCERTAIN_SESSION = "single_uncertain_session"
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,10 +65,21 @@ class SleepPairingQuery:
         if self.start_date is not None and self.end_date is not None:
             if self.end_date < self.start_date:
                 raise ValueError("sleep pairing end_date cannot precede start_date")
-        if self.cohort not in {ALL_COHORTS, DEVICE_PAIR, FAMILY_PAIR}:
-            raise ValueError("sleep pairing cohort must be all, device_pair, or family_pair")
+        if self.cohort not in {
+            ALL_COHORTS,
+            DEVICE_PAIR,
+            FAMILY_PAIR,
+            ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+        }:
+            raise ValueError("unsupported sleep pairing cohort")
         if any(not isinstance(item, str) or not item.strip() for item in self.google_source_ids):
             raise ValueError("google_source_ids must contain non-empty identifiers")
+
+    @property
+    def contract_version(self) -> str:
+        if self.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+            return ACCOUNT_SLEEP_PAIRING_VERSION
+        return R05_SLEEP_PAIRING_CONTRACT_VERSION
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -73,7 +88,7 @@ class SleepPairingQuery:
             "cohort": self.cohort,
             "garmin_source_id": self.garmin_source_id,
             "google_source_ids": list(self.google_source_ids),
-            "contract_version": R05_SLEEP_PAIRING_CONTRACT_VERSION,
+            "contract_version": self.contract_version,
         }
 
 
@@ -139,6 +154,7 @@ class SleepPair:
     google_nap_state: str
     garmin_source_eligibility: SleepSourceEligibility
     google_source_eligibility: SleepSourceEligibility
+    uncertainty: Mapping[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -154,6 +170,7 @@ class SleepPair:
             "google_nap_state": self.google_nap_state,
             "garmin_source_eligibility": self.garmin_source_eligibility.as_dict(),
             "google_source_eligibility": self.google_source_eligibility.as_dict(),
+            **({"uncertainty": dict(self.uncertainty)} if self.uncertainty is not None else {}),
         }
 
 
@@ -176,7 +193,7 @@ class SleepPairingResult:
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "contract_version": R05_SLEEP_PAIRING_CONTRACT_VERSION,
+            "contract_version": self.query.contract_version,
             "query": self.query.as_dict(),
             "pairs": [item.as_dict() for item in self.pairs],
             "exclusions": [item.as_dict() for item in self.exclusions],
@@ -204,6 +221,7 @@ class _GoogleCandidate:
     nap_value: bool | None
     main_selection: str
     manually_edited: bool | None
+    manually_edited_state: str
 
 
 class PersistedSleepPairingReader:
@@ -254,7 +272,9 @@ class PersistedSleepPairingReader:
             eligible_garmin.append(candidate)
 
         pairs: list[SleepPair] = []
-        for cohort in (DEVICE_PAIR, FAMILY_PAIR):
+        for cohort in (DEVICE_PAIR, FAMILY_PAIR, ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS):
+            if cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS and selection.cohort != cohort:
+                continue
             if selection.cohort not in {ALL_COHORTS, cohort}:
                 continue
             cohort_google = [item for item in google if item.eligibility.cohort == cohort]
@@ -306,7 +326,7 @@ class PersistedSleepPairingReader:
                 record=row[0],
                 typed=row[1],
                 source=row[2],
-                eligibility=_garmin_source_eligibility(row[0], row[2]),
+                eligibility=_garmin_source_eligibility(row[0], row[2], cohort=query.cohort),
             )
             for row in rows
         ]
@@ -344,6 +364,10 @@ class PersistedSleepPairingReader:
                 source,
                 evidence.get(record.id),
             )
+            if query.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+                source_decision = _google_account_eligibility(
+                    source_decision, source, evidence.get(record.id)
+                )
             eligibility.append(source_decision)
             if not source_decision.eligible:
                 exclusions.append(
@@ -377,6 +401,8 @@ class PersistedSleepPairingReader:
                 )
                 continue
             role = _google_main_role(metrics.get(record.id, ()))
+            if query.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+                role = _google_observation_role(metrics.get(record.id, ()))
             if role[0] is None:
                 exclusions.append(
                     SleepPairingExclusion(
@@ -400,6 +426,9 @@ class PersistedSleepPairingReader:
                     nap_value=role[5],
                     main_selection=role[6],
                     manually_edited=_metric_bool(
+                        metrics.get(record.id, ()), "sleep_metadata_manually_edited"
+                    ),
+                    manually_edited_state=_metric_state(
                         metrics.get(record.id, ()), "sleep_metadata_manually_edited"
                     ),
                 )
@@ -453,10 +482,38 @@ class PersistedSleepPairingReader:
         for wake_date in sorted(set(garmin_by_date) | set(google_by_date)):
             garmin_rows = garmin_by_date.get(wake_date, [])
             google_rows = google_by_date.get(wake_date, [])
+            account_observations = cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+            if account_observations:
+                garmin_rows = sorted(garmin_rows, key=lambda item: item.record.id)
+                google_rows = sorted(google_rows, key=lambda item: item.record.id)
+                if len({item.source.id for item in google_rows}) > 1:
+                    exclusions.append(
+                        SleepPairingExclusion(
+                            wake_date=wake_date,
+                            cohort=cohort,
+                            reason="ambiguous_google_source",
+                            garmin_record_ids=tuple(item.record.id for item in garmin_rows),
+                            google_record_ids=tuple(item.record.id for item in google_rows),
+                        )
+                    )
+                    continue
+            candidate_ids = tuple(item.record.id for item in google_rows)
             explicit_main_rows = [
                 item for item in google_rows if item.main_selection == _EXPLICIT_MAIN
             ]
             if explicit_main_rows:
+                if account_observations:
+                    for item in google_rows:
+                        if item.main_selection != _EXPLICIT_MAIN:
+                            exclusions.append(
+                                SleepPairingExclusion(
+                                    wake_date=wake_date,
+                                    cohort=cohort,
+                                    reason="google_explicit_main_preferred",
+                                    google_record_ids=(item.record.id,),
+                                    details={"selection_rule": ACCOUNT_SLEEP_PAIRING_VERSION},
+                                )
+                            )
                 google_rows = explicit_main_rows
             if len(garmin_rows) != 1:
                 if len(garmin_rows) > 1:
@@ -521,6 +578,21 @@ class PersistedSleepPairingReader:
                     google_nap_state=google_row.nap_state,
                     garmin_source_eligibility=garmin_rows[0].eligibility,
                     google_source_eligibility=google_row.eligibility,
+                    uncertainty={
+                        "source_device_attribution_uncertain": True,
+                        "google_session_role_uncertain": (
+                            google_row.main_selection != _EXPLICIT_MAIN
+                        ),
+                        "google_main_value": google_row.main_value,
+                        "google_nap_value": google_row.nap_value,
+                        "google_manually_edited_state": google_row.manually_edited_state,
+                        "selection_rule": ACCOUNT_SLEEP_PAIRING_VERSION,
+                        "google_selection": google_row.main_selection,
+                        "google_candidate_record_ids": list(candidate_ids),
+                        "canonical_eligible": False,
+                    }
+                    if account_observations
+                    else None,
                 )
             )
 
@@ -534,7 +606,7 @@ def read_persisted_sleep_pairing(
 
 
 def _garmin_source_eligibility(
-    record: GarminSourceRecord, source: GarminSource
+    record: GarminSourceRecord, source: GarminSource, *, cohort: str = DEVICE_PAIR
 ) -> SleepSourceEligibility:
     basis = {
         "provider_code": source.provider_code,
@@ -545,6 +617,20 @@ def _garmin_source_eligibility(
         "device_model": source.device_model,
         "record_projection_status": record.projection_status,
     }
+    if cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+        eligible = source.provider_code == "garmin_connect" and source.source_kind in {
+            "provider",
+            "synthetic",
+        }
+        return SleepSourceEligibility(
+            record.id,
+            source.id,
+            "garmin_account",
+            cohort,
+            eligible,
+            None if eligible else "garmin_account_source_ineligible",
+            basis,
+        )
     if (
         source.provider_code != "garmin_connect"
         or not source.device_attributed
@@ -739,6 +825,57 @@ def _google_source_eligibility(
     )
 
 
+def _google_account_eligibility(
+    decision: SleepSourceEligibility,
+    source: GoogleSource,
+    evidence: GoogleRecordSourceEvidence | None,
+) -> SleepSourceEligibility:
+    """Admit identified observations without claiming Fitbit/device attribution."""
+
+    decoded = _decode_source_evidence(evidence) if evidence is not None else None
+    if evidence is not None and (
+        decoded is None or decoded.get("state") not in {_VALUE, "missing", "null"}
+    ):
+        return replace(
+            decision,
+            cohort=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+            eligible=False,
+            reason="google_record_source_evidence_invalid",
+            basis={**decision.basis, "record_source_evidence": decoded},
+        )
+    identified_source = (
+        source.source_kind == GoogleSourceKind.DATA_SOURCE.value
+        and bool(source.source_instance_id)
+        and source.source_instance_id != _UNATTRIBUTED_SOURCE_INSTANCE
+        and not source.source_instance_id.startswith("unattributed:")
+    )
+    if (
+        decision.eligible
+        or identified_source
+        and decision.reason
+        in {
+            "google_target_source_missing",
+            "google_record_source_evidence_missing",
+            "google_record_source_evidence_unavailable",
+            "google_source_not_fitbit",
+            "google_source_device_metadata_missing",
+        }
+    ):
+        return replace(
+            decision,
+            cohort=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+            eligible=True,
+            reason=None,
+            basis={
+                **decision.basis,
+                "record_source_evidence": decoded,
+                "observation_rule": ACCOUNT_SLEEP_PAIRING_VERSION,
+                "device_agreement_eligibility": decision.as_dict(),
+            },
+        )
+    return replace(decision, cohort=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS)
+
+
 def _explicit_fitbit_target_source(source: GoogleSource) -> str:
     """Classify persisted source identity without promoting record evidence."""
 
@@ -809,6 +946,23 @@ def _metric_state(metrics: Sequence[GoogleRecordMetric], code: str) -> str:
     return metric.state if metric is not None else GoogleMetricState.MISSING.value
 
 
+def _google_observation_role(
+    metrics: Sequence[GoogleRecordMetric],
+) -> tuple[bool | None, str, str, str, bool | None, bool | None, str]:
+    """Explicit non-nap main, else a candidate for the singleton-only fallback.
+
+    Even an explicit main=false remains false: the fallback selects an
+    observation, never promotes it to a proven overnight main session.
+    """
+
+    role = _google_main_role(metrics)
+    if role[5] is True:
+        return None, "google_nap_only", *role[2:6], ""
+    if role[4] is True and role[5] is False:
+        return True, "", *role[2:6], _EXPLICIT_MAIN
+    return True, "", *role[2:6], _UNCERTAIN_SESSION
+
+
 def _google_main_role(
     metrics: Sequence[GoogleRecordMetric],
 ) -> tuple[bool | None, str, str, str, bool | None, bool | None, str]:
@@ -830,6 +984,8 @@ def _google_main_role(
 
 
 __all__ = [
+    "ACCOUNT_SLEEP_PAIRING_VERSION",
+    "ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS",
     "ALL_COHORTS",
     "DEVICE_PAIR",
     "FAMILY_PAIR",

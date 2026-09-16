@@ -40,7 +40,7 @@ from healthcheck.analytics.sleep_metrics import (
     R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION,
     SleepMetricProjectionResult,
 )
-from healthcheck.analytics.sleep_pairing import R05_SLEEP_PAIRING_CONTRACT_VERSION
+from healthcheck.analytics.sleep_pairing import ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
 from healthcheck.db.models import AgreementRun, RunStatus
 from healthcheck.db.repositories import AgreementRunRepository, canonical_json
 from healthcheck.garmin.analytic_contract import stable_manifest_hash
@@ -133,7 +133,7 @@ class PersistedSleepAgreementService:
         scope_key: str,
         statistic_version: str | None = None,
         stat_version: str | None = None,
-        pairing_version: str = R05_SLEEP_PAIRING_CONTRACT_VERSION,
+        pairing_version: str | None = None,
         metric_version: str = R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION,
         rule_name: str = R05_SLEEP_AGREEMENT_RULE_NAME,
         rule_version: str = R05_SLEEP_AGREEMENT_RULE_VERSION,
@@ -152,7 +152,15 @@ class PersistedSleepAgreementService:
             "agreement statistic version",
         )
         normalized_scope = _required_text(scope_key, "agreement scope key")
-        normalized_pairing = _required_text(pairing_version, "agreement pairing version")
+        normalized_pairing = _required_text(
+            projection.query.contract_version if pairing_version is None else pairing_version,
+            "agreement pairing version",
+        )
+        if (
+            projection.query.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+            and normalized_pairing != projection.query.contract_version
+        ):
+            raise ValueError("account observations require their versioned pairing rule")
         normalized_metric = _required_text(metric_version, "agreement metric version")
         normalized_rule_name = _required_text(rule_name, "agreement rule name")
         normalized_rule_version = _required_text(rule_version, "agreement rule version")

@@ -57,6 +57,7 @@
       card.innerHTML =
         "<header><h2>" + esc(group.metric_code) + "</h2><span class=\"status-chip " + esc(group.cohort) + "\">" + esc(group.cohort) + "</span></header>" +
         "<p class=\"muted\">" + esc(group.source_attribution.cohort_label) + " · source classes: " + esc((group.source_attribution.source_classes || []).join(", ") || "unknown") + "</p>" +
+        (group.uncertainty_notice ? "<p class=\"unavailable\" role=\"note\">" + esc(group.uncertainty_notice) + "</p>" : "") +
         "<dl class=\"agreement-metrics\"><div><dt>N</dt><dd>" + esc(group.n) + "</dd></div><div><dt>Paired nights</dt><dd>" + esc(group.paired_nights) + "</dd></div><div><dt>Coverage</dt><dd>" + esc(coverage.requested_calendar_nights === null ? "unknown" : coverage.metric_valid_nights + "/" + coverage.requested_calendar_nights) + "</dd></div><div><dt>Progress</dt><dd>" + esc(progress.remaining_n ? "" + progress.remaining_n + " nights to N=14" : "N=14 reached") + "</dd></div></dl>" +
         (stats ? renderStats(stats) : '<p class="unavailable">Accepted statistics are withheld until N=14. Accumulation diagnostics remain available.</p>') +
         (exclusions ? "<p><strong>Metric exclusions</strong></p><ul class=\"exclusion-list\">" + exclusions + "</ul>" : "") +

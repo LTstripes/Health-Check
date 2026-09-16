@@ -20,11 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from healthcheck.analytics.sleep_pairing import (
+    ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
     SleepPair,
     SleepPairingQuery,
     SleepPairingResult,
     SleepSourceEligibility,
     _garmin_source_eligibility,
+    _google_account_eligibility,
     _google_source_eligibility,
     read_persisted_sleep_pairing,
 )
@@ -951,7 +953,7 @@ def _load_garmin_sleep_side(
                 .order_by(GarminSleepStageInterval.ordinal, GarminSleepStageInterval.id)
             )
         )
-    eligibility = _garmin_source_eligibility(record, source)
+    eligibility = _garmin_source_eligibility(record, source, cohort=pair.cohort)
     return _StoredSleepSide(
         provider="garmin",
         source=source,
@@ -998,6 +1000,8 @@ def _load_google_sleep_side(
         )
     evidence_row = session.get(GoogleRecordSourceEvidence, record.id)
     eligibility = _google_source_eligibility(record, source, evidence_row)
+    if pair.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+        eligibility = _google_account_eligibility(eligibility, source, evidence_row)
     return _StoredSleepSide(
         provider="google",
         source=source,

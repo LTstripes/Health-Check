@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from healthcheck.analytics.sleep_pairing import ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+
 R05_SLEEP_AGREEMENT_STATISTICS_CONTRACT_VERSION = "r05-04-sleep-agreement-v1"
 R05_SLEEP_AGREEMENT_STATISTICS_RULE_VERSION = "r05-04-sleep-agreement-rules-v1"
 R05_SLEEP_AGREEMENT_STATISTICS_ALGORITHM = "r05-04-sleep-agreement-statistics-v1"
@@ -208,6 +210,8 @@ class AgreementObservation:
             object.__setattr__(self, "canonical_candidate", frozen_candidate)
         elif self.canonical_candidate is None:
             object.__setattr__(self, "canonical_candidate", True)
+        if cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+            object.__setattr__(self, "canonical_candidate", False)
 
         difference = _finite(self.difference)
         google = _finite(self.google_value)
@@ -812,7 +816,10 @@ def _gate(
     exploratory = "exploratory" if n >= EXPLORATORY_MIN_N else "insufficient_n"
     if exploratory == "insufficient_n":
         reasons.append("exploratory_n_below_14")
-    if not canonical_candidate:
+    if cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+        provisional = "exploratory_only_cohort"
+        reasons.append("account_observations_never_canonical")
+    elif not canonical_candidate:
         provisional = "non_canonical_metric"
         reasons.append("metric_not_canonical_candidate")
     elif strong_gate_eligible_n < PROVISIONAL_MIN_N:
@@ -929,7 +936,9 @@ def compute_agreement_statistics(
     strong_deduped = [
         item
         for item in deduped
-        if item[1].google_manually_edited is not True and item[1].difference_verified
+        if item[1].google_manually_edited is not True
+        and item[1].difference_verified
+        and item[1].cohort != ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
     ]
     strong_dates = tuple(item[0] for item in strong_deduped)
     summary = _summary(values)

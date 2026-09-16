@@ -23,6 +23,7 @@ from healthcheck.analytics.sleep_agreement_statistics import (
     AgreementObservation,
     compute_sleep_agreement,
 )
+from healthcheck.analytics.sleep_pairing import ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
 from healthcheck.db.models import (
     AgreementRun,
     AgreementRunExclusion,
@@ -38,7 +39,20 @@ from healthcheck.garmin.capabilities import GARMIN_PROVIDER_CODE
 from healthcheck.google.contracts import GOOGLE_PROVIDER_CODE
 
 REPORT_CONTRACT_VERSION = "r05-05-sleep-agreement-report-v1"
-_COHORT_ORDER = {"device_pair": 0, "family_pair": 1}
+_COHORT_ORDER = {"device_pair": 0, "family_pair": 1, ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS: 2}
+_COHORT_LABELS = {
+    "device_pair": "Fitbit device pair",
+    "family_pair": "Google wearable family pair",
+    ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS: (
+        "Uncertain Garmin account / Google source or family observations"
+    ),
+}
+ACCOUNT_UNCERTAINTY_NOTICE = (
+    "Source/device attribution and session role may be uncertain; "
+    "not Garmin-vs-Fitbit/device agreement. Exploratory observations only, "
+    "never eligible for canonical selection or the 42-night gate, "
+    "and not evidence of device accuracy or interchangeability."
+)
 
 
 def _json_object(value: str, field_name: str) -> dict[str, Any]:
@@ -140,8 +154,8 @@ class SleepAgreementReportService:
             raise ValueError("report start_date and end_date must be supplied together")
         if start_date is not None and end_date is not None and end_date < start_date:
             raise ValueError("report end_date cannot precede start_date")
-        if cohort not in {"all", "device_pair", "family_pair"}:
-            raise ValueError("report cohort must be all, device_pair, or family_pair")
+        if cohort not in {"all", *_COHORT_ORDER}:
+            raise ValueError("unsupported report cohort")
 
         runs = self._runs(run_id)
         if not runs:
@@ -241,6 +255,16 @@ class SleepAgreementReportService:
                         "google": pair_json.get("google_source_eligibility"),
                     },
                     "google_manually_edited": pair_json.get("google_manually_edited"),
+                    **(
+                        {
+                            "uncertainty": pair_json.get("uncertainty"),
+                            "uncertainty_notice": ACCOUNT_UNCERTAINTY_NOTICE,
+                            "google_main_state": pair_json.get("google_main_state"),
+                            "google_nap_state": pair_json.get("google_nap_state"),
+                        }
+                        if pair.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+                        else {}
+                    ),
                     "metrics": [self._metric_detail(metric) for metric in metric_by_pair[pair.id]],
                 }
             )
@@ -356,12 +380,13 @@ class SleepAgreementReportService:
                             if pair.cohort == pair_cohort
                             and _in_window(pair.wake_date, start_date, end_date)
                         }),
-                        "cohort_label": (
-                            "Fitbit device pair"
-                            if pair_cohort == "device_pair"
-                            else "Google wearable family pair"
-                        ),
+                        "cohort_label": _COHORT_LABELS.get(pair_cohort, pair_cohort),
                     },
+                    **(
+                        {"uncertainty_notice": ACCOUNT_UNCERTAINTY_NOTICE}
+                        if pair_cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+                        else {}
+                    ),
                     "n": stats.n,
                     "paired_nights": stats.coverage.source_eligible_paired_nights,
                     "coverage": stats.coverage.as_dict(),
