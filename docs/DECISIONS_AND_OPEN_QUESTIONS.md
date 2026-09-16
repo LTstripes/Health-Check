@@ -1,6 +1,6 @@
 # Decisions and Open Questions
 
-This file contains current architecture/product decisions plus only those `UNVERIFIED` items that still matter after released R01–R04 evidence. Historical decision archaeology remains in release issues, audits and Git history.
+This file contains current architecture/product decisions plus only those `UNVERIFIED` items that still matter after released R01–R05 evidence. Historical decision archaeology remains in release issues, audits and Git history.
 
 ## Final decisions
 
@@ -9,8 +9,9 @@ This file contains current architecture/product decisions plus only those `UNVER
 - Health-Check is a single-user personal health observatory on a Windows laptop.
 - Dashboard and AI are equal product interfaces over one deterministic evidence layer.
 - Priority remains weight/body composition → sleep → activity/fitness → recovery/wellbeing.
-- R01, R02, R03 and R04 are released to canonical `main`.
-- R05 is the next major product release: Garmin / Google wearable sleep agreement and optional reversible per-metric canonical-source rules.
+- R01, R02, R03, R04 and R05 are released to canonical `main`.
+- R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
+- Current bounded product focus is #119 deterministic period brief v1 over existing analytics.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -149,13 +150,13 @@ These are observational gaps, not reasons to rewrite released architecture.
 - Exact physical-device attribution may differ per record/surface; R05 must inspect persisted metadata rather than promote family membership.
 - Provider policy/documentation may evolve and must be re-read when behavior or scopes materially change.
 
-### R05 / agreement
+### R05 / agreement (post-closeout)
 
-- Whether enough explicit Fitbit-attributed sleep evidence exists for `device_pair` qualification.
-- Whether 14-night exploratory coverage can be reached without family-only/manual exclusions dominating.
-- Whether any sleep metric reaches the stronger 42-night/stability gate.
-- Whether Fitbit/Google should replace Garmin as canonical for any metric; this is intentionally unresolved until evidence exists.
-- Firmware/app/algorithm change points may require separate agreement epochs.
+- Live provider-attribution evidence was insufficient for a canonical switch; Garmin remains default.
+- Strict legacy `device_pair` / `family_pair` remain fail-closed.
+- `account_wearables_sleep_observations_v1` is exploratory/uncertain-only and never canonical-eligible.
+- #105 remains deferred / NOT_ELIGIBLE until stronger explicit device-pair evidence exists.
+- Firmware/app/algorithm change points may still require separate agreement epochs if evidence later accumulates.
 
 ## Deferred owner choices
 

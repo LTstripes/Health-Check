@@ -6,12 +6,19 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from datetime import date
+from pathlib import Path
 
 import uvicorn
 from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import (
+    create_session_factory,
+    create_sqlite_engine,
+    migrate_database,
+    session_scope,
+)
 from healthcheck.demo import DemoSeedError, seed_demo
 from healthcheck.garmin.auth import GarminAuthService
 from healthcheck.garmin.backfill import GarminHistoricalBackfill, plan_garmin_historical_backfill
@@ -74,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
             "google-backfill",
             "google-refresh",
             "google-diagnose-terminal",
+            "period-brief",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -155,8 +163,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"verify-backup: ERROR: {exc}", file=sys.stderr)
             return 2
         print(
-            f"verify-backup: OK; {result.file_count} files; "
-            f"classification={result.classification}"
+            f"verify-backup: OK; {result.file_count} files; classification={result.classification}"
         )
         return 0
 
@@ -178,6 +185,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "garmin-redact":
         return _run_garmin_redact(args)
+    if args.command == "period-brief":
+        return _run_period_brief(args)
 
     settings = _settings(args)
     if args.command == "garmin-auth":
@@ -747,6 +756,44 @@ def _run_garmin_reprocess(args: argparse.Namespace, settings: Settings) -> int:
     if report.dry_run or report.status == "succeeded":
         return 0
     return 1
+
+
+def _run_period_brief(args: argparse.Namespace) -> int:
+    if not args.start or not args.end:
+        print("period-brief: --start and --end are required (YYYY-MM-DD)", file=sys.stderr)
+        return 2
+    try:
+        start_date = date.fromisoformat(args.start)
+        end_date = date.fromisoformat(args.end)
+    except ValueError:
+        print("period-brief: --start/--end must be YYYY-MM-DD", file=sys.stderr)
+        return 2
+    settings = _settings(args)
+    paths = prepare_runtime(settings)
+    configure_logging(paths.logs, settings.log_level)
+    from healthcheck.web.period_brief_query import PeriodBriefService
+
+    engine = create_sqlite_engine(paths.database)
+    try:
+        with session_scope(engine) as session:
+            payload = PeriodBriefService(session, settings).build_with_render(
+                start_date=start_date,
+                end_date=end_date,
+            )
+    except ValueError as exc:
+        print(f"period-brief: ERROR: {exc}", file=sys.stderr)
+        return 2
+    text = payload["rendered_text"]
+    packet_json = json.dumps(payload["packet"], ensure_ascii=True, sort_keys=True, indent=2)
+    if args.output:
+        out = Path(args.output)
+        out.write_text(packet_json + "\n", encoding="utf-8")
+        print(f"period-brief: wrote packet to {out}")
+        print(text, end="")
+        return 0
+    print(packet_json)
+    print(text, end="")
+    return 0
 
 
 if __name__ == "__main__":

@@ -5,11 +5,12 @@ This is the compact current-state entry point. Historical contracts and release 
 ## Current canonical state
 
 - Canonical branch: `main`
-- Latest released major slice: **R04 — Google Health ingestion**
-- R04 release merge: `bb5776e98d259cb6256c95bd49d400dc1238af61`
-- R04 post-merge CI: `34768452960` — SUCCESS
-- R04 tracker: #80 — closed completed
-- R04 closeout: [R04_RELEASE_CLOSEOUT.md](R04_RELEASE_CLOSEOUT.md)
+- Latest released major slice: **R05 — Garmin / Google wearable sleep agreement**
+- R05 canonical SHA: `46e59327e394ae6dbc5a4ecdf42913200124b9e9`
+- R05 exact-main CI: `35130647037` — SUCCESS
+- R05 tracker: #106 — closed completed
+- R05 closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md)
+- Prior R04 release merge: `bb5776e98d259cb6256c95bd49d400dc1238af61` (CI `34768452960` SUCCESS; #80 closed)
 
 ## What the product can do today
 
@@ -64,7 +65,7 @@ No raw owner health data or secrets are part of the repository.
 
 `dataSourceFamily`, `list/reconcile/rollUp/dailyRollUp` and broad `google-wearables` family membership are acquisition context, not proof of one physical Fitbit device.
 
-R05 uses two different cohorts:
+R05 uses two different legacy cohorts (plus an exploratory uncertain account cohort):
 
 - `fitbit_device` / `device_pair`: only explicit persisted source/device metadata can qualify;
 - `google_wearables_family` / `family_pair`: exploratory only, never sufficient for a canonical-source switch.
@@ -73,26 +74,18 @@ This prevents the project from accidentally comparing Garmin against a mixed Pix
 
 ## Next work
 
-### Small post-R04 maintenance
+### Current bounded product focus
+
+- #119 — deterministic period brief v1 (weight/sleep/activity/data-quality evidence packet + thin rendering).
+
+### Residual maintenance
 
 - #98 — bounded evaluation of `python-garminconnect` 0.3.12 → 0.3.15.
 - #99 — reproduce/minimize the known order-sensitive OAuth test/global-state leak before fixing anything.
 
-### R05 — Garmin / Google wearable sleep agreement
+### R05 disposition (released)
 
-Design is frozen in #97.
-
-Implementation graph:
-
-1. #100 — pairing / source eligibility
-2. #101 — comparable sleep projection
-3. #102 — immutable/versioned agreement runs and replay
-4. #103 — statistics + 14/42 gates
-5. #104 — report / overlays
-6. #105 — optional versioned canonical-source rule after sufficient live `device_pair` evidence
-7. #106 — owner UAT / closeout
-
-R05 can succeed with an exploratory agreement report even if there is not yet enough evidence to change the canonical source.
+R05/#106 closed on `main @ 46e59327…`. Strict `device_pair` / `family_pair` remain fail-closed. Provider-attribution evidence was insufficient for a canonical switch. `account_wearables_sleep_observations_v1` is exploratory/uncertain-only. #105 deferred/NOT_ELIGIBLE; Garmin remains canonical/default.
 
 ## Core engineering rules
 
@@ -114,5 +107,6 @@ R05 can succeed with an exploratory agreement report even if there is not yet en
 - [Decisions and Open Questions](DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](EXECUTION_HISTORY_CURRENT.md)
 - [R04 Release Closeout](R04_RELEASE_CLOSEOUT.md)
+- [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md)
 - [Agent Orchestration](AGENT_ORCHESTRATION.md)
 - [Development Process](DEVELOPMENT_PROCESS.md)

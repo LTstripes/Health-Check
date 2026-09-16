@@ -28,9 +28,10 @@ The product has now moved beyond its first slices:
 - R01 established the local runtime and weight/body-composition vertical slice;
 - R02 added production Garmin ingestion/backfill;
 - R03 added deterministic Garmin analytics and owner dashboard;
-- R04 added production Google Health API v4 ingestion with owner-live OAuth/sync/backfill/refresh proof.
+- R04 added production Google Health API v4 ingestion with owner-live OAuth/sync/backfill/refresh proof;
+- R05 delivered exploratory Garmin/Google wearable sleep agreement with strict fail-closed legacy cohorts; Garmin remains canonical/default and #105 stayed deferred/NOT_ELIGIBLE.
 
-The next major product step is **R05 cross-source sleep agreement**, not another ingestion framework.
+The current bounded product focus is the **#119 deterministic period brief** over existing analytics, not another ingestion framework or a new health-score layer.
 
 ## Sources
 
@@ -45,7 +46,7 @@ Every source value remains available. A canonical rule may select one value for 
 
 ## Current product question: which sleep source should we trust for which metric?
 
-R05 answers this empirically and per metric. It does not start by assuming Garmin or Fitbit is universally better.
+R05 posed this empirically and per metric. Accepted closeout evidence was insufficient for a canonical switch; Garmin remains the default until a reviewed per-metric rule changes that.
 
 The intended flow is:
 

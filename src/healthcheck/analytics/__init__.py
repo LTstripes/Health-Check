@@ -61,6 +61,15 @@ from healthcheck.analytics.garmin_lagged_associations import (
     spearman_midranks,
     spearman_rho,
 )
+from healthcheck.analytics.period_brief import (
+    PERIOD_BRIEF_ALGORITHM,
+    PERIOD_BRIEF_CONTRACT_VERSION,
+    PeriodWindow,
+    build_period_brief_packet,
+    normalize_period,
+    render_period_brief_text,
+    thin_period_brief_for_display,
+)
 from healthcheck.analytics.sleep_agreement import (
     R05_SLEEP_AGREEMENT_ALGORITHM,
     R05_SLEEP_AGREEMENT_CONTRACT_VERSION,
@@ -263,7 +272,14 @@ __all__ = [
     "AgreementPersistenceResult",
     "AgreementReplay",
     "PersistedSleepAgreementService",
+    "PERIOD_BRIEF_ALGORITHM",
+    "PERIOD_BRIEF_CONTRACT_VERSION",
+    "PeriodWindow",
     "REPORT_CONTRACT_VERSION",
+    "build_period_brief_packet",
+    "normalize_period",
+    "render_period_brief_text",
+    "thin_period_brief_for_display",
     "SleepAgreementReportService",
     "unavailable_report",
     "R05_SLEEP_AGREEMENT_STATISTICS_ALGORITHM",

@@ -12,17 +12,14 @@ Released to canonical `main`:
 - **R02** — Garmin ingestion and historical backfill
 - **R03** — deterministic Garmin analytics and owner dashboard
 - **R04** — Google Health API v4 ingestion, sync/backfill/refresh and owner-live release proof
+- **R05** — Garmin / Google wearable sleep agreement (exploratory closeout; Garmin canonical/default)
 
 R04 release closeout: [R04_RELEASE_CLOSEOUT.md](R04_RELEASE_CLOSEOUT.md).
+R05 release closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md).
 
-**Current planning focus: post-R04 maintenance + R05.**
+**Current planning focus: post-R05 bounded product work (#119 deterministic period brief) plus residual maintenance (#98 / #99) where still justified.**
 
-Before or alongside the first R05 implementation slice, finish only bounded post-R04 work that remains justified:
-
-- **#98** — evaluate the bounded `python-garminconnect` 0.3.12 → 0.3.15 maintenance upgrade after re-reading current `main` and upstream;
-- **#99** — investigate the known order-sensitive OAuth test/global-state leak; fix only if the defect can be reproduced and minimized without masking it.
-
-R05 design is already frozen by #97. Runtime implementation issues #100–#106 start only from released canonical `main` and must respect the exact dependency gates recorded in those issues.
+R05 closed on canonical `main @ 46e59327…` with exact-main CI `35130647037` SUCCESS (#106). #105 remains deferred/NOT_ELIGIBLE. `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only.
 
 ## R00 — Final architecture (complete)
 
@@ -104,9 +101,9 @@ Release lineage:
 
 See [R04 Release Closeout](R04_RELEASE_CLOSEOUT.md).
 
-## R05 — Garmin / Google wearable agreement and canonical sleep (next major release)
+## R05 — Garmin / Google wearable agreement and canonical sleep (released)
 
-Design status: **frozen / ready for implementation from released `main`** (#97).
+Release status: **released to canonical `main`** (#106 closeout; design #97).
 
 Core model:
 
@@ -145,7 +142,13 @@ Implementation graph:
 - **#105** — versioned canonical-source rule, only after sufficient live `device_pair` evidence
 - **#106** — owner UAT / closeout
 
-R05 may close with an exploratory agreement report even if there is still insufficient evidence to change the canonical source.
+R05 closed with an exploratory agreement report; live evidence was insufficient to change the canonical source. Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
+
+See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md).
+
+## Post-R05 bounded product focus
+
+- **#119** — deterministic period brief v1 over existing weight/sleep/activity/coverage analytics (evidence packet + thin rendering; no LLM/Telegram delivery in v1).
 
 ## R06 — Context, Telegram, and read-only AI tools
 

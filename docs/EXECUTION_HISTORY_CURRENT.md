@@ -157,11 +157,27 @@ R04 release truth is recorded in [R04_RELEASE_CLOSEOUT.md](R04_RELEASE_CLOSEOUT.
 - Populated-database migration checks belong in release gates, not only fresh-DB tests.
 - `main` is the only release source; staging branches are temporary coordination tools.
 
+## R05 — Garmin / Google wearable sleep agreement — released
+
+Main outcomes:
+
+- #100–#104 pairing/projection/persistence/statistics/report contracts;
+- #122 exploratory uncertain account observations cohort, labeled exploratory-only;
+- owner UAT/closeout #106 completed on canonical `main @ 46e59327e394ae6dbc5a4ecdf42913200124b9e9`;
+- exact-main CI `35130647037` SUCCESS;
+- strict legacy `device_pair` / `family_pair` fail-closed;
+- provider-attribution evidence insufficient for canonical switch;
+- #105 deferred / NOT_ELIGIBLE; Garmin remains canonical/default.
+
+Sanitized closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md).
+
 ## Next phase
 
-Short bounded work:
+Current bounded product focus:
+
+- #119 — deterministic period brief v1 over existing weight/sleep/activity/coverage analytics.
+
+Residual maintenance where still justified:
 
 - #98 — evaluate Garmin dependency upgrade 0.3.12 → 0.3.15;
 - #99 — reproduce/minimize the known order-sensitive OAuth test/global-state leak.
-
-Then R05 (#100–#106) implements Garmin/Google wearable sleep agreement under frozen design #97. The first R05 goal is an honest exploratory 14-night agreement report; a canonical-source change requires the stronger 42-night `device_pair` gate and may not happen in the first R05 closeout.

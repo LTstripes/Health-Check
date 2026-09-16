@@ -12,6 +12,7 @@ Canonical source: `main`.
 - **R02 — Garmin ingestion/backfill:** protected owner session reuse, typed Garmin persistence, bounded incremental sync, resumable historical backfill, coverage/checkpoints and exact-rerun idempotency.
 - **R03 — Garmin analytics/dashboard:** deterministic personal baselines/trends, activity comparison, lagged associations, provider-native metric presentation, reproducible evidence manifests and owner-facing read-only Garmin UI.
 - **R04 — Google Health ingestion:** Google Health API v4 OAuth, protected session storage, source-aware typed persistence, bounded incremental sync/backfill/refresh, coverage/checkpoints, privacy-safe diagnostics and live owner verification.
+- **R05 — Garmin / Google wearable sleep agreement:** pairing, comparable projection, immutable agreement runs, statistics/gates, exploratory owner report; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 
 R04 release lineage:
 
@@ -25,12 +26,11 @@ The final R04 owner gate also proved the populated private runtime remained heal
 
 ## Current focus
 
-R04 is complete. The next phase is deliberately split:
+R05 is released on canonical `main @ 46e59327e394ae6dbc5a4ecdf42913200124b9e9` (exact-main CI `35130647037` SUCCESS; #106 closed). Closeout: [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md).
 
-1. bounded post-R04 maintenance/hardening where justified (#98 / #99);
-2. **R05 — Garmin / Google wearable agreement and canonical sleep**, using the frozen design from #97 and implementation issues #100–#106.
+Current bounded product focus: **#119 deterministic period brief v1** over existing weight/sleep/activity/coverage analytics (no new health scores, no LLM delivery).
 
-R05 must stay attribution-conservative: `google-wearables` family evidence is not automatically Fitbit-device evidence. A device-level agreement cohort requires explicit persisted source/device metadata.
+Attribution remains conservative: `google-wearables` family evidence is not automatically Fitbit-device evidence; `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only; Garmin remains canonical/default; #105 remains deferred/NOT_ELIGIBLE.
 
 ## Architecture in one minute
 
