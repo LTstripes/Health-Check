@@ -143,13 +143,21 @@ def test_pre_n14_is_accumulation_only_and_keeps_cohort_visible():
 
 def test_published_run_without_metric_groups_is_unavailable():
     run = _run()
-    payload = _service(run, [], []).report(run_id=run.id)
+    service = _service(run, [], [])
+    service._source_data_quality = lambda _pairs, _start, _end: [
+        {"provider_code": "synthetic-provider", "state": "confirmed_empty"}
+    ]
+    payload = service.report(run_id=run.id)
 
     assert payload["available"] is False
     assert payload["mode"] == "unavailable"
-    assert payload["reason"] == "no_metric_groups"
+    assert payload["reason"] == "published_run_no_metric_groups"
     assert payload["threshold"]["available_groups"] == 0
+    assert payload["runs"][0]["run_id"] == run.id
     assert payload["groups"] == []
+    assert payload["source_data_quality"] == [
+        {"provider_code": "synthetic-provider", "state": "confirmed_empty"}
+    ]
 
 
 def test_n14_exposes_only_canonical_statistics_and_family_pair_stays_exploratory():

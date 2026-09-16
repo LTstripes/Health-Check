@@ -160,21 +160,18 @@ class SleepAgreementReportService:
             run_payloads.append(self._run_payload(run, pairs, exclusions))
             groups.extend(self._groups(run, pairs, start_date, end_date, cohort))
 
-        if not groups:
-            return unavailable_report(reason="no_metric_groups")
-
         selected_pairs = [
             (run, pair)
             for run, pair in all_pairs
             if _in_window(pair.wake_date, start_date, end_date)
             and (cohort == "all" or pair.cohort == cohort)
         ]
-        return {
+        payload = {
             "contract_version": REPORT_CONTRACT_VERSION,
             "available": bool(groups),
             "mode": "exploratory"
             if any(item["progress"]["exploratory_available"] for item in groups)
-            else "accumulating",
+            else "accumulating" if groups else "unavailable",
             "threshold": {
                 "exploratory_n": EXPLORATORY_MIN_N,
                 "available_groups": sum(
@@ -208,6 +205,9 @@ class SleepAgreementReportService:
                 "source_overlays_are_evidence_only": True,
             },
         }
+        if not groups:
+            payload["reason"] = "published_run_no_metric_groups"
+        return payload
 
     def night_detail(
         self,
