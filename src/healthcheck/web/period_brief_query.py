@@ -87,6 +87,16 @@ class PeriodBriefService:
                 period.end_date,
                 PERIOD_BRIEF_ACTIVITY_BASELINE_METRICS,
             )
+            activity_inventory_status = "inventoried"
+        elif (
+            source_selection.get("status") == "no_data"
+            or source_selection.get("reason") == "no_garmin_sources"
+        ):
+            # Source absent: do not conflate with an inventoried empty window.
+            activity_inventory_status = "unavailable"
+        else:
+            # e.g. multiple sources require selection — inventory was not attempted.
+            activity_inventory_status = "unknown"
 
         return build_period_brief_packet(
             period=period,
@@ -95,6 +105,7 @@ class PeriodBriefService:
             activities=activities,
             activity_comparison=comparison,
             activity_selection_policy=selection_policy,
+            activity_inventory_status=activity_inventory_status,
             sleep_baselines=sleep_baselines,
             activity_baselines=activity_baselines,
             import_queue=import_queue,

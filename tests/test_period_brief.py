@@ -185,14 +185,24 @@ def test_missing_unknown_unavailable_zero_remain_distinct():
     weight["trend"]["reason"] = "insufficient_observations"
     weight["trend"]["daily_points"] = []
 
+    # Empty activities without an inventory signal are unknown, not confirmed_empty.
     empty_activity = build_period_brief_packet(
         period=period,
         weight_summary=weight,
         sleep_report=_sleep_report(available=False),
         activities=[],
     )
-    assert empty_activity["sections"]["activity"]["state"] == "confirmed_empty"
+    assert empty_activity["sections"]["activity"]["state"] == "unknown"
     assert empty_activity["sections"]["sleep"]["state"] == "unavailable"
+
+    inventoried_empty = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=_sleep_report(available=False),
+        activities=[],
+        activity_inventory_status="inventoried",
+    )
+    assert inventoried_empty["sections"]["activity"]["state"] == "confirmed_empty"
 
     zero_weight = _weight_summary(
         points=[{"observed_date": "2099-01-02", "value_kg": 0.0}],
@@ -355,6 +365,9 @@ def test_api_period_brief_on_empty_runtime(tmp_path):
         body = response.json()
         assert body["packet"]["contract_version"] == PERIOD_BRIEF_CONTRACT_VERSION
         assert body["packet"]["result_hash"]
+        # Empty runtime has no Garmin source — activity must not claim confirmed_empty.
+        assert body["packet"]["sections"]["activity"]["state"] == "unavailable"
+        assert body["packet"]["sections"]["activity"]["state"] != "confirmed_empty"
         assert "Weight-Check" not in body["rendered_text"]
         assert "period brief" in body["rendered_text"].lower()
         text = client.get(
@@ -363,3 +376,78 @@ def test_api_period_brief_on_empty_runtime(tmp_path):
         )
         assert text.status_code == 200
         assert "Result hash:" in text.text
+
+
+def test_activity_availability_distinguishes_inventory_outcomes():
+    """#119 breaker: missing/not-fetched activity must not be confirmed_empty."""
+
+    period = normalize_period(date(2099, 1, 1), date(2099, 1, 7))
+    weight = _weight_summary()
+    sleep = _sleep_report(available=False)
+
+    no_source = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=sleep,
+        activities=[],
+        activity_inventory_status="unavailable",
+    )
+    assert no_source["sections"]["activity"]["state"] == "unavailable"
+    assert no_source["sections"]["activity"]["state"] != "confirmed_empty"
+    assert no_source["sections"]["activity"]["coverage"]["inventory_status"] == "unavailable"
+
+    not_fetched = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=sleep,
+        activities=[],
+        activity_inventory_status="unknown",
+    )
+    assert not_fetched["sections"]["activity"]["state"] == "unknown"
+    assert not_fetched["sections"]["activity"]["state"] != "confirmed_empty"
+
+    not_requested = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=sleep,
+        activities=[],
+        activity_inventory_status="not_requested",
+    )
+    assert not_requested["sections"]["activity"]["state"] == "not_requested"
+    assert not_requested["sections"]["activity"]["state"] != "confirmed_empty"
+
+    # Default / omitted inventory with empty list also must not claim confirmed_empty.
+    omitted = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=sleep,
+        activities=[],
+    )
+    assert omitted["sections"]["activity"]["state"] != "confirmed_empty"
+    assert omitted["sections"]["activity"]["state"] == "unknown"
+
+    true_empty = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=sleep,
+        activities=[],
+        activity_inventory_status="inventoried",
+    )
+    assert true_empty["sections"]["activity"]["state"] == "confirmed_empty"
+    assert true_empty["sections"]["activity"]["coverage"]["inventory_status"] == "inventoried"
+    assert true_empty["sections"]["activity"]["coverage"]["sessions_in_period"] == 0
+
+    present = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=sleep,
+        activities=[
+            {
+                "record_id": "a1",
+                "activity_type": "running",
+                "source_local_date": "2099-01-03",
+            }
+        ],
+        activity_inventory_status="inventoried",
+    )
+    assert present["sections"]["activity"]["state"] == "present"

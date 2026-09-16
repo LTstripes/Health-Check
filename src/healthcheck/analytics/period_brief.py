@@ -401,6 +401,31 @@ def _sleep_section_from_report(
     }
 
 
+def _activity_section_state(
+    *,
+    has_sessions: bool,
+    inventory_status: str | None,
+) -> str:
+    """Map inventory outcome to brief-local section state.
+
+    ``confirmed_empty`` is reserved for an actual inventory of the window that
+    found no sessions. Missing Garmin source / not inventoried must not use it.
+    """
+
+    if has_sessions:
+        return "present"
+    if inventory_status == "inventoried":
+        return "confirmed_empty"
+    if inventory_status == "unavailable":
+        return "unavailable"
+    if inventory_status == "not_requested":
+        return "not_requested"
+    if inventory_status == "unknown":
+        return "unknown"
+    # No inventory signal: never claim the window was explicitly empty.
+    return "unknown"
+
+
 def _activity_section_from_inventory(
     *,
     period: PeriodWindow,
@@ -408,6 +433,7 @@ def _activity_section_from_inventory(
     comparison: Mapping[str, Any] | None,
     baseline_summaries: Sequence[Mapping[str, Any]] = (),
     selection_policy: str | None = None,
+    inventory_status: str | None = None,
 ) -> dict[str, Any]:
     in_window: list[dict[str, Any]] = []
     type_counts: Counter[str] = Counter()
@@ -434,7 +460,14 @@ def _activity_section_from_inventory(
             }
         )
     in_window.sort(key=lambda row: (row["source_local_date"], row["record_id"] or ""))
-    state = "present" if in_window else "confirmed_empty"
+    resolved_inventory = inventory_status
+    if resolved_inventory is None and in_window:
+        # Sessions were supplied without an explicit inventory flag.
+        resolved_inventory = "inventoried"
+    state = _activity_section_state(
+        has_sessions=bool(in_window),
+        inventory_status=resolved_inventory,
+    )
     comparison_state = "not_requested"
     comparison_snapshot: dict[str, Any] | None = None
     if comparison is not None:
@@ -511,6 +544,7 @@ def _activity_section_from_inventory(
         "coverage": {
             "sessions_in_period": len(in_window),
             "comparison_state": comparison_state,
+            "inventory_status": resolved_inventory or "unknown",
             "period": period.as_dict(),
         },
         "summary_facts": facts,
@@ -773,6 +807,7 @@ def build_period_brief_packet(
     activities: Sequence[Mapping[str, Any]] = (),
     activity_comparison: Mapping[str, Any] | None = None,
     activity_selection_policy: str | None = None,
+    activity_inventory_status: str | None = None,
     sleep_baselines: Sequence[Mapping[str, Any]] = (),
     activity_baselines: Sequence[Mapping[str, Any]] = (),
     import_queue: Mapping[str, Any] | None = None,
@@ -789,6 +824,7 @@ def build_period_brief_packet(
         comparison=activity_comparison,
         baseline_summaries=activity_baselines,
         selection_policy=activity_selection_policy,
+        inventory_status=activity_inventory_status,
     )
     data_quality_section = _data_quality_section(
         period=period,
