@@ -32,19 +32,19 @@ jobs:
           mkdir -p ci-evidence
           {
             echo "# CI identity"
-            printf '%s\n' "- event: \`%s\`" "$GITHUB_EVENT_NAME"
-            printf '%s\n' "- ref: \`%s\`" "$GITHUB_REF"
-            printf '%s\n' "- event SHA: \`%s\`" "$GITHUB_SHA"
-            printf '%s\n' "- checked-out HEAD: \`%s\`" "$(git rev-parse HEAD)"
-            printf '%s\n' "- checked-out tree: \`%s\`" "$(git rev-parse 'HEAD^{tree}')"
-            printf '%s\n' "- PR base ref/SHA: \`%s\` / \`%s\`" "${GITHUB_BASE_REF:-}" "${PR_BASE_SHA:-}"
-            printf '%s\n' "- PR head ref/SHA: \`%s\` / \`%s\`" "${GITHUB_HEAD_REF:-}" "${PR_HEAD_SHA:-}"
-            printf '%s\n' "- workflow run: \`%s\` attempt \`%s\`" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+            printf '%s\n' "- event: \`$GITHUB_EVENT_NAME\`"
+            printf '%s\n' "- ref: \`$GITHUB_REF\`"
+            printf '%s\n' "- event SHA: \`$GITHUB_SHA\`"
+            printf '%s\n' "- checked-out HEAD: \`$(git rev-parse HEAD)\`"
+            printf '%s\n' "- checked-out tree: \`$(git rev-parse 'HEAD^{tree}')\`"
+            printf '%s\n' "- PR base ref/SHA: \`${GITHUB_BASE_REF:-}\` / \`${PR_BASE_SHA:-}\`"
+            printf '%s\n' "- PR head ref/SHA: \`${GITHUB_HEAD_REF:-}\` / \`${PR_HEAD_SHA:-}\`"
+            printf '%s\n' "- workflow run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`"
             printf '%s\n' "- command/selection: \`uv run pytest --durations=25 --durations-min=1.0 --junitxml=ci-evidence/junit.xml\`"
-            printf '%s\n' "- lockfile SHA-256: \`%s\`" "$(sha256sum uv.lock | cut -d ' ' -f 1)"
-            printf '%s\n' "- Python: \`%s\`" "$(python --version 2>&1)"
-            printf '%s\n' "- uv: \`%s\`" "$(uv --version)"
-            printf '%s\n' "- runner: \`%s/%s\`" "$RUNNER_OS" "$RUNNER_ARCH"
+            printf '%s\n' "- lockfile SHA-256: \`$(sha256sum uv.lock | cut -d ' ' -f 1)\`"
+            printf '%s\n' "- Python: \`$(python --version 2>&1)\`"
+            printf '%s\n' "- uv: \`$(uv --version)\`"
+            printf '%s\n' "- runner: \`$RUNNER_OS/$RUNNER_ARCH\`"
           } | tee ci-evidence/metadata.md
           git status --short --branch > ci-evidence/git-status.txt
           sha256sum uv.lock > ci-evidence/uv-lock.sha256
