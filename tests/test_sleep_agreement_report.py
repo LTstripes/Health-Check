@@ -141,6 +141,17 @@ def test_pre_n14_is_accumulation_only_and_keeps_cohort_visible():
     assert group["chart"]["point_count"] == 13
 
 
+def test_published_run_without_metric_groups_is_unavailable():
+    run = _run()
+    payload = _service(run, [], []).report(run_id=run.id)
+
+    assert payload["available"] is False
+    assert payload["mode"] == "unavailable"
+    assert payload["reason"] == "no_metric_groups"
+    assert payload["threshold"]["available_groups"] == 0
+    assert payload["groups"] == []
+
+
 def test_n14_exposes_only_canonical_statistics_and_family_pair_stays_exploratory():
     run = _run()
     pairs, metrics = _rows(cohort="family_pair", count=14)

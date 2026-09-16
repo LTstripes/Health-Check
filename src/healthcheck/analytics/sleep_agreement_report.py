@@ -160,6 +160,9 @@ class SleepAgreementReportService:
             run_payloads.append(self._run_payload(run, pairs, exclusions))
             groups.extend(self._groups(run, pairs, start_date, end_date, cohort))
 
+        if not groups:
+            return unavailable_report(reason="no_metric_groups")
+
         selected_pairs = [
             (run, pair)
             for run, pair in all_pairs
