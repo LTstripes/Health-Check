@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,11 +14,30 @@ from healthcheck.analytics.period_brief import (
     render_period_brief_text,
     thin_period_brief_for_display,
 )
-from healthcheck.analytics.sleep_pairing import ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+from healthcheck.analytics.sleep_agreement import PersistedSleepAgreementService
+from healthcheck.analytics.sleep_agreement_report import (
+    ACCOUNT_UNCERTAINTY_NOTICE,
+    SleepAgreementReportService,
+)
+from healthcheck.analytics.sleep_metrics import read_persisted_sleep_metric_projection
+from healthcheck.analytics.sleep_pairing import (
+    ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+    SleepPairingQuery,
+)
 from healthcheck.config import Settings
-from healthcheck.db.engine import migrate_database
+from healthcheck.db.engine import (
+    create_session_factory,
+    create_sqlite_engine,
+    migrate_database,
+)
+from healthcheck.garmin.normalization import normalize_garmin_payload
+from healthcheck.garmin.persistence import GarminPersistenceRepository
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.runtime import prepare_runtime
+from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.ui_app import create_ui_app
+from test_sleep_account_cohort import COHORT, START, _garmin, _google
+from test_sleep_pairing import pairing_database as pairing_database
 
 
 def _weight_summary(*, points: list[dict] | None = None, rate_available: bool = True):
@@ -71,24 +90,53 @@ def _weight_summary(*, points: list[dict] | None = None, rate_available: bool = 
 
 
 def _sleep_report(*, uncertain: bool = False, available: bool = True):
+    """Fake SleepAgreementReportService group shape (accepted contract, no legacy keys)."""
+
     cohort = ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS if uncertain else "device_pair"
     groups = []
     if available:
-        groups.append(
-            {
-                "run_id": "run-1",
-                "cohort": cohort,
-                "cohort_label": "label",
-                "metric_code": "sleep_duration_seconds",
-                "variant": None,
-                "progress": {
-                    "paired_n": 14 if not uncertain else 3,
-                    "exploratory_available": not uncertain,
-                    "canonical_gate_available": False,
-                },
-                "statistics": {"bias": 1.0, "mae": 2.0, "n": 14} if not uncertain else {},
-            }
-        )
+        n = 14 if not uncertain else 3
+        gate = {
+            "exploratory": "exploratory" if n >= 14 else "insufficient_n",
+            "provisional": ("exploratory_only_cohort" if uncertain else "insufficient_n"),
+            "canonical_proposal_eligible": False,
+            "canonical_switch_applied": False,
+            "reason_codes": (
+                ["account_observations_never_canonical"]
+                if uncertain
+                else ["provisional_n_below_42"]
+            ),
+        }
+        group = {
+            "run_id": "run-1",
+            "cohort": cohort,
+            "metric_code": "sleep_duration_seconds",
+            "variant": None,
+            "source_attribution": {
+                "cohort_label": (
+                    "Uncertain Garmin account / Google source or family observations"
+                    if uncertain
+                    else "Fitbit device pair"
+                ),
+                "source_classes": (["garmin_account"] if uncertain else ["fitbit_device"]),
+            },
+            "n": n,
+            "paired_nights": n,
+            "progress": {
+                "status": "exploratory" if not uncertain else "accumulating",
+                "exploratory_available": not uncertain,
+                "n": n,
+                "required_n": 14,
+                "remaining_n": 0 if not uncertain else 11,
+                "gate": gate,
+            },
+            "accepted_statistics": (
+                {"bias": 1.0, "mae": 2.0, "n": 14, "gate": gate} if not uncertain else None
+            ),
+        }
+        if uncertain:
+            group["uncertainty_notice"] = ACCOUNT_UNCERTAINTY_NOTICE
+        groups.append(group)
     return {
         "contract_version": "r05-05-sleep-agreement-report-v1",
         "available": available and bool(groups),
@@ -451,3 +499,182 @@ def test_activity_availability_distinguishes_inventory_outcomes():
         activity_inventory_status="inventoried",
     )
     assert present["sections"]["activity"]["state"] == "present"
+
+
+def test_sleep_section_consumes_accepted_report_contract_fields():
+    """Fake fixture must use accepted keys; period brief must not need legacy aliases."""
+
+    period = normalize_period(date(2099, 1, 1), date(2099, 1, 14))
+    report = _sleep_report()
+    group = report["groups"][0]
+    assert "cohort_label" not in group
+    assert "statistics" not in group
+    assert "paired_n" not in group["progress"]
+    assert "canonical_gate_available" not in group["progress"]
+    assert group["source_attribution"]["cohort_label"]
+    assert group["accepted_statistics"]["n"] == 14
+    assert group["paired_nights"] == 14
+    assert "gate" in group["progress"]
+
+    packet = build_period_brief_packet(
+        period=period,
+        weight_summary=_weight_summary(),
+        sleep_report=report,
+    )
+    sleep = packet["sections"]["sleep"]
+    compact = sleep["groups"][0]
+    assert compact["cohort_label"] == "Fitbit device pair"
+    assert compact["n"] == 14
+    assert compact["paired_nights"] == 14
+    assert compact["statistics_available"] is True
+    assert compact["accepted_statistics_n"] == 14
+    assert compact["bias"] == 1.0
+    assert compact["mae"] == 2.0
+    assert compact["progress"]["exploratory_available"] is True
+    assert compact["progress"]["gate"]["canonical_proposal_eligible"] is False
+    assert compact["progress"]["gate"]["canonical_switch_applied"] is False
+
+
+def test_period_brief_preserves_accepted_account_observations_report(pairing_database):
+    """Same-path: real SleepAgreementReportService account cohort -> period brief."""
+
+    session, paths = pairing_database
+    count = 14
+    for index in range(count):
+        wake = START + timedelta(days=index)
+        _garmin(session, paths, wake)
+        _google(session, paths, wake)
+    query = SleepPairingQuery(
+        cohort=COHORT,
+        start_date=START,
+        end_date=START + timedelta(days=count - 1),
+    )
+    projection = read_persisted_sleep_metric_projection(session, query)
+    assert len(projection.pairs) == count
+    persisted = PersistedSleepAgreementService(session).persist(
+        projection, scope_key="synthetic:period-brief-account"
+    )
+    session.commit()
+    report = SleepAgreementReportService(session).report(cohort=COHORT, run_id=persisted.id)
+    (duration,) = [
+        item for item in report["groups"] if item["metric_code"] == "sleep_duration_asleep_seconds"
+    ]
+    assert duration["accepted_statistics"]["n"] >= 14
+    assert duration["source_attribution"]["cohort_label"]
+    assert duration["uncertainty_notice"]
+    assert duration["progress"]["gate"]["canonical_proposal_eligible"] is False
+
+    period = normalize_period(START, START + timedelta(days=count - 1))
+    packet = build_period_brief_packet(
+        period=period,
+        weight_summary=_weight_summary(),
+        sleep_report=report,
+    )
+    sleep = packet["sections"]["sleep"]
+    assert ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS in sleep["exploratory_uncertain_cohorts"]
+    compact = next(
+        g for g in sleep["groups"] if g["metric_code"] == "sleep_duration_asleep_seconds"
+    )
+    assert compact["n"] >= 14
+    assert compact["paired_nights"] == duration["paired_nights"]
+    assert compact["accepted_statistics_n"] >= 14
+    assert compact["statistics_available"] is True
+    assert "Uncertain Garmin account" in compact["cohort_label"]
+    assert compact["exploratory_label_required"] is True
+    assert compact["uncertainty_notice"]
+    assert "not Garmin-vs-Fitbit/device agreement" in compact["uncertainty_notice"]
+    assert compact["progress"]["gate"]["canonical_proposal_eligible"] is False
+    assert compact["progress"]["gate"]["provisional"] == "exploratory_only_cohort"
+    assert compact["progress"]["gate"]["canonical_switch_applied"] is False
+    assert any(note["code"] == "uncertain_account_cohort" for note in packet["notable_changes"])
+
+
+def _activity_payload(*, activity_id: str, day: str, activity_type: str = "cycling") -> dict:
+    return {
+        "fixture_contract_version": "r02-garmin-capability-fixture-v1",
+        "fixture_id": f"synthetic-period-brief-activity-{activity_id}",
+        "source_kind": "synthetic",
+        "provider_code": "garmin_connect",
+        "stream_code": "activity",
+        "device": {
+            "attributed": True,
+            "code": "garmin_vivoactive_5",
+            "model": "Vivoactive 5",
+        },
+        "client_methods": ["get_activities_by_date"],
+        "payload_fields": {"activities": "activities"},
+        "payload": {
+            "activities": [
+                {
+                    "activityId": activity_id,
+                    "activityType": {"typeKey": activity_type},
+                    "startTimeGMT": f"{day}T08:00:00Z",
+                    "duration": 1800,
+                    "distance": 5000,
+                    "averageSpeed": 2.7,
+                    "averageHR": 120,
+                }
+            ]
+        },
+    }
+
+
+def test_activity_inventory_does_not_silently_truncate_above_100(tmp_path):
+    """Analytical inventory over a bounded period must remain complete past 100 rows."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            store = ContentAddressedGarminPayloadStore(paths.root / "garmin-artifacts")
+            source_id = None
+            total = 105
+            start = date(2099, 1, 1)
+            for index in range(total):
+                day = (start + timedelta(days=index)).isoformat()
+                payload = _activity_payload(activity_id=f"act-{index}", day=day)
+                outcome = GarminPersistenceRepository(session, payload_store=store).persist_result(
+                    normalize_garmin_payload(payload),
+                    payload=payload,
+                    received_at=datetime(2099, 1, 1, 12, index % 60, tzinfo=UTC),
+                    source_contract_version=payload.get("fixture_contract_version"),
+                )
+                source_id = outcome.records[0].garmin_source_id
+            session.commit()
+            assert source_id is not None
+            end = start + timedelta(days=total - 1)
+            service = PeriodBriefService(session, settings)
+            listed = service._list_activities_in_period(source_id, start, end)
+            assert len(listed) == total
+            packet = service.build(start_date=start, end_date=end, garmin_source_id=source_id)
+            activity = packet["sections"]["activity"]
+            assert activity["coverage"]["inventory_status"] == "inventoried"
+            assert activity["coverage"]["sessions_in_period"] == total
+            count_fact = next(
+                f for f in activity["summary_facts"] if f["code"] == "activity_session_count"
+            )
+            assert count_fact["value"] == total
+            assert len(activity["sessions"]) == total
+            display = thin_period_brief_for_display(packet, max_activity_sessions=10)
+            assert (
+                display["sections"]["activity"]["summary_facts"][
+                    next(
+                        i
+                        for i, f in enumerate(display["sections"]["activity"]["summary_facts"])
+                        if f["code"] == "activity_session_count"
+                    )
+                ]["value"]
+                == total
+            )
+            assert len(display["sections"]["activity"]["sessions"]) == 10
+            assert (
+                display["sections"]["activity"]["display_thinning"]["original_session_count"]
+                == total
+            )
+            assert (
+                display["sections"]["activity"]["display_thinning"]["analytics_unchanged"] is True
+            )
+    finally:
+        engine.dispose()

@@ -132,6 +132,8 @@ class PeriodBriefService:
     def _list_activities_in_period(
         self, garmin_source_id: str, start_date: date, end_date: date
     ) -> list[dict[str, Any]]:
+        # Full date-bounded inventory — no analytical row cap. Display thinning may
+        # still truncate rendered session rows; packet counts must stay complete.
         rows = list(
             self.session.scalars(
                 select(GarminSourceRecord)
@@ -146,7 +148,6 @@ class PeriodBriefService:
                     GarminSourceRecord.source_local_date.asc(),
                     GarminSourceRecord.id.asc(),
                 )
-                .limit(100)
             )
         )
         out: list[dict[str, Any]] = []

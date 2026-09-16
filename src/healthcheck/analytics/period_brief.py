@@ -277,12 +277,29 @@ def _sleep_section_from_report(
         if not isinstance(group, Mapping):
             continue
         cohort = group.get("cohort")
-        label = group.get("cohort_label") or cohort
+        source_attr = (
+            group.get("source_attribution")
+            if isinstance(group.get("source_attribution"), Mapping)
+            else {}
+        )
+        label = source_attr.get("cohort_label") or cohort
+        uncertainty_notice = group.get("uncertainty_notice")
         if cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
             exploratory_cohorts.append(str(cohort))
             label = f"{label} (exploratory-only / uncertain attribution)"
+            if not uncertainty_notice:
+                uncertainty_notice = ACCOUNT_UNCERTAINTY_NOTICE
         progress = group.get("progress") if isinstance(group.get("progress"), Mapping) else {}
-        stats = group.get("statistics") if isinstance(group.get("statistics"), Mapping) else {}
+        gate = progress.get("gate") if isinstance(progress.get("gate"), Mapping) else {}
+        stats = (
+            group.get("accepted_statistics")
+            if isinstance(group.get("accepted_statistics"), Mapping)
+            else None
+        )
+        n = group.get("n")
+        if n is None:
+            n = progress.get("n")
+        paired_nights = group.get("paired_nights")
         compact_groups.append(
             {
                 "run_id": group.get("run_id"),
@@ -291,20 +308,27 @@ def _sleep_section_from_report(
                 "metric_code": group.get("metric_code"),
                 "variant": group.get("variant"),
                 "exploratory_label_required": cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
-                "uncertainty_notice": (
-                    ACCOUNT_UNCERTAINTY_NOTICE
-                    if cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
-                    else None
-                ),
+                "uncertainty_notice": uncertainty_notice,
+                "n": n,
+                "paired_nights": paired_nights,
                 "progress": {
-                    "paired_n": progress.get("paired_n"),
+                    "n": progress.get("n", n),
+                    "required_n": progress.get("required_n"),
+                    "remaining_n": progress.get("remaining_n"),
+                    "status": progress.get("status"),
                     "exploratory_available": progress.get("exploratory_available"),
-                    "canonical_gate_available": progress.get("canonical_gate_available"),
+                    "gate": {
+                        "exploratory": gate.get("exploratory"),
+                        "provisional": gate.get("provisional"),
+                        "canonical_proposal_eligible": gate.get("canonical_proposal_eligible"),
+                        "canonical_switch_applied": gate.get("canonical_switch_applied"),
+                        "reason_codes": list(gate.get("reason_codes") or []),
+                    },
                 },
-                "statistics_available": bool(stats),
+                "statistics_available": stats is not None,
                 "bias": stats.get("bias") if stats else None,
                 "mae": stats.get("mae") if stats else None,
-                "n": stats.get("n") if stats else None,
+                "accepted_statistics_n": stats.get("n") if stats else None,
             }
         )
     if not report.get("available"):
