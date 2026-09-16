@@ -29,6 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git_status="$(git status --short --branch)"
           mkdir -p ci-evidence
           {
             echo "# CI identity"
@@ -46,7 +47,7 @@ jobs:
             printf '%s\n' "- uv: \`$(uv --version)\`"
             printf '%s\n' "- runner: \`$RUNNER_OS/$RUNNER_ARCH\`"
           } | tee ci-evidence/metadata.md
-          git status --short --branch > ci-evidence/git-status.txt
+          printf '%s\n' "$git_status" > ci-evidence/git-status.txt
           sha256sum uv.lock > ci-evidence/uv-lock.sha256
       - run: uv sync --locked
       - run: uv run python -m healthcheck.db.migration_guard

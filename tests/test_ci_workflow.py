@@ -15,6 +15,9 @@ def test_ci_keeps_full_push_and_pull_request_coverage():
     assert "--junitxml=ci-evidence/junit.xml" in WORKFLOW
     assert "setup/call/teardown" in SUMMARY_SCRIPT
     assert "timeout-minutes: 30" in WORKFLOW
+    assert WORKFLOW.index('git_status="$(git status --short --branch)"') < WORKFLOW.index(
+        "mkdir -p ci-evidence"
+    )
 
 
 def test_ci_cancellation_is_limited_to_task_or_pr_lanes():
