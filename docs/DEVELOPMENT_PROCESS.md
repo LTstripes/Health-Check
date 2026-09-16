@@ -366,3 +366,35 @@ Later we may automate issue pickup, Worker/Reviewer bots and integration inside 
 - private Owner runtime remains outside bot workspaces.
 
 Automation may remove manual message shuttling; it must not remove accountability or evidence.
+
+## 13. CI evidence and full-suite gates
+
+The CI workflow keeps both `push` and `pull_request` coverage. Every qualifying
+candidate gate runs the complete pytest collection and suite; selectors,
+deselections, skip rules and automatic failure retries are not a way to reduce
+the wait. The workflow retains the exact checked-out commit and tree, event and
+ref, PR base/head identities when present, command/selection, lockfile digest,
+Python/uv/runner metadata, pytest output, JUnit XML, and built-in setup/call/
+teardown duration evidence. Reports that are missing, malformed or incomplete
+are explicitly incomplete, never successful evidence.
+
+| Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
+| --- | --- | --- | --- | --- |
+| Task push | task branch SHA | Same task branch only | Exact checkout, full suite, timing/JUnit, metadata | Changed tree/config/lock/selection |
+| PR event | PR merge ref plus PR head SHA | Same PR number only | Same evidence, with merge checkout distinct from head | Any changed candidate/configuration |
+| Integration push | integration SHA | No task/PR cancellation | Exact integration checkout and full gate | New integration commit |
+| Main push | main SHA | No task/PR cancellation | Exact post-main checkout and full gate | New main commit |
+
+Concurrency is lane-scoped: PR runs share only their PR number, task-branch
+pushes share only their task ref, and integration/main/other refs do not opt in
+to cancellation. A PR merge ref's checked-out `HEAD` is recorded separately
+from the PR head SHA. A canceled, timed-out or superseded run has no complete
+evidence for its SHA.
+
+Use one full remote candidate gate after frozen code stabilizes, then the exact
+post-integration and post-main gates owned by the Integrator. Run a full local
+suite when the issue or risk requires it; do not repeat an unchanged full suite
+because polling or a log view was lost. Timing evidence is for finding material
+fixture/setup/test costs and environment effects, not for asserting an
+unproven root cause. Once only small, legitimate residual costs remain, stop
+optimizing this maintenance track and report them for a separately scoped task.

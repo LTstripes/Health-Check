@@ -4,18 +4,93 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-push-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/task/')) }}
+
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      - name: Capture CI identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-evidence
+          {
+            echo "# CI identity"
+            printf '%s\n' "- event: \`%s\`" "$GITHUB_EVENT_NAME"
+            printf '%s\n' "- ref: \`%s\`" "$GITHUB_REF"
+            printf '%s\n' "- event SHA: \`%s\`" "$GITHUB_SHA"
+            printf '%s\n' "- checked-out HEAD: \`%s\`" "$(git rev-parse HEAD)"
+            printf '%s\n' "- checked-out tree: \`%s\`" "$(git rev-parse 'HEAD^{tree}')"
+            printf '%s\n' "- PR base ref/SHA: \`%s\` / \`%s\`" "${GITHUB_BASE_REF:-}" "${PR_BASE_SHA:-}"
+            printf '%s\n' "- PR head ref/SHA: \`%s\` / \`%s\`" "${GITHUB_HEAD_REF:-}" "${PR_HEAD_SHA:-}"
+            printf '%s\n' "- workflow run: \`%s\` attempt \`%s\`" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+            printf '%s\n' "- command/selection: \`uv run pytest --durations=25 --durations-min=1.0 --junitxml=ci-evidence/junit.xml\`"
+            printf '%s\n' "- lockfile SHA-256: \`%s\`" "$(sha256sum uv.lock | cut -d ' ' -f 1)"
+            printf '%s\n' "- Python: \`%s\`" "$(python --version 2>&1)"
+            printf '%s\n' "- uv: \`%s\`" "$(uv --version)"
+            printf '%s\n' "- runner: \`%s/%s\`" "$RUNNER_OS" "$RUNNER_ARCH"
+          } | tee ci-evidence/metadata.md
+          git status --short --branch > ci-evidence/git-status.txt
+          sha256sum uv.lock > ci-evidence/uv-lock.sha256
       - run: uv sync --locked
       - run: uv run python -m healthcheck.db.migration_guard
       - run: uv run ruff check .
-      - run: uv run pytest
+      - name: Run full pytest with timing
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          uv run pytest --durations=25 --durations-min=1.0 --junitxml=ci-evidence/junit.xml 2>&1 | tee ci-evidence/pytest.log
+          pytest_status=${PIPESTATUS[0]}
+          printf 'pytest_exit_status=%s\n' "$pytest_status" > ci-evidence/pytest-status.txt
+          exit "$pytest_status"
+      - name: Summarize test evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          uv run python scripts/ci_evidence_summary.py \
+            --junitxml ci-evidence/junit.xml \
+            --pytest-log ci-evidence/pytest.log \
+            --status-file ci-evidence/pytest-status.txt \
+            --output ci-evidence/summary.md
+          summary_status=$?
+          cat ci-evidence/metadata.md >> "$GITHUB_STEP_SUMMARY"
+          cat ci-evidence/summary.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$summary_status"
+      - name: Capture failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "# Failure diagnostics"
+            printf '%s\n' "- git status:"
+            git status --short --branch
+            printf '%s\n' "- filesystem:"
+            df -h .
+            printf '%s\n' "- processors: \`$(nproc)\`"
+          } > ci-evidence/failure-diagnostics.md
+      - name: Upload CI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-evidence
+          if-no-files-found: error
+          retention-days: 14
