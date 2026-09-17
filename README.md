@@ -91,6 +91,11 @@ Start the canonical Windows runtime:
 
 Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HEALTHCHECK_DATA_DIR`.
 
+The bounded manual Garmin + Google owner refresh and its optional Task Scheduler
+setup are documented in [Owner Refresh](docs/OWNER_REFRESH.md). The command
+requires an already-established external runtime and does not create a new
+profile.
+
 No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository.
 
 ## Canonical documentation
@@ -109,6 +114,7 @@ No health data, credentials, payloads, images, logs, database files or generated
 - [Development Process](docs/DEVELOPMENT_PROCESS.md)
 - [Model Routing](docs/MODEL_ROUTING.md)
 - [Agent Orchestration](docs/AGENT_ORCHESTRATION.md)
+- [Owner Refresh](docs/OWNER_REFRESH.md)
 
 ## Safety
 
