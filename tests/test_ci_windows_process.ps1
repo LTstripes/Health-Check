@@ -25,6 +25,53 @@ Assert-True (@($owned.Processes | ForEach-Object Id) -contains 10) "root process
 Assert-True (@($owned.Processes | ForEach-Object Id) -contains 11) "verified child must be retained"
 Assert-Equal 0 @($owned.Errors).Count "unrelated system or malformed records must not block ownership"
 
+$identityById = @{
+    100 = [pscustomobject]@{ Id = 100; Name = "pwsh.exe"; CommandLine = "root" }
+    2 = [pscustomobject]@{ Id = 2; Name = "python.exe"; CommandLine = "child" }
+    90 = [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
+}
+$queryFailure = $false
+$stopOrder = @()
+function Get-CimInstance {
+    param([string]$ClassName, [string]$Filter, [object]$ErrorAction)
+    if ($queryFailure) { throw "synthetic CIM identity query failure" }
+    if ($Filter -match "ProcessId=(\d+)") { return $identityById[[int]$Matches[1]] }
+    throw "unexpected process snapshot query"
+}
+function Stop-Process {
+    param([int]$Id, [switch]$Force, [object]$ErrorAction)
+    $script:stopOrder += $Id
+}
+
+$orderedOwned = @(
+    [pscustomobject]@{ Id = 100; Name = "pwsh.exe"; CommandLine = "root" }
+    [pscustomobject]@{ Id = 2; Name = "python.exe"; CommandLine = "child" }
+    [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
+)
+$orderedCleanup = Stop-OwnedProcesses $orderedOwned
+Assert-Equal "90,2,100" ($stopOrder -join ",") "deepest owned process must stop before root regardless of PID order"
+Assert-Equal 0 @($orderedCleanup.Errors).Count "verified cleanup order must have no errors"
+
+$identityById[90] = [pscustomobject]@{ Id = 90; Name = "unrelated.exe"; CommandLine = "reused" }
+$stopOrder = @()
+$reusedCleanup = Stop-OwnedProcesses $orderedOwned
+Assert-True (@($reusedCleanup.IdentityChangedProcessIds) -contains 90) "reused PID must be reported"
+Assert-True (-not (@($stopOrder) -contains 90)) "reused PID must never be terminated"
+Assert-Equal 0 @($reusedCleanup.Errors).Count "safe reused PID must not be a cleanup error"
+
+$queryFailure = $true
+$queryFailureCleanup = Stop-OwnedProcesses @(
+    [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
+)
+$queryFailure = $false
+Assert-True (@($queryFailureCleanup.Errors).Count -gt 0) "CIM identity query failure must fail closed"
+$identityById[90] = $null
+$naturalExitCleanup = Stop-OwnedProcesses @(
+    [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
+)
+Assert-Equal 0 @($naturalExitCleanup.Errors).Count "missing process is safe after natural exit"
+$identityById[90] = [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
+
 $ownedMalformed = Get-OwnedProcessSnapshot 10 @(
     [pscustomobject]@{ Id = 10; ParentId = 1; Name = "pwsh.exe"; CommandLine = "root" }
     [pscustomobject]@{ Id = $null; ParentId = 10; Name = "malformed.exe"; CommandLine = "owned" }

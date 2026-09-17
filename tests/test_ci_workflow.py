@@ -152,7 +152,7 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
         "started_process_ids": [101, 102],
         "terminated_process_ids": [102, 101],
         "remaining_owned_process_ids": [],
-        "identity_changed_process_ids": [],
+        "identity_changed_process_ids": [6708],
         "errors": [],
     }
     evidence = {
@@ -221,6 +221,63 @@ def test_windows_smoke_validator_accepts_complete_bound_evidence(tmp_path: Path)
         ),
     )
     assert result["dpapi"]["counts"]["skipped"] == 0
+    assert result["cleanup"]["identity_changed_process_ids"] == [6708]
+
+
+def test_windows_smoke_validator_rejects_remaining_owned_process(tmp_path: Path):
+    root, head, tree = _windows_smoke_fixture(tmp_path)
+    artifact = root / "ci-windows-smoke-123-1"
+    evidence_path = artifact / "smoke-evidence.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["cleanup"]["remaining_owned_process_ids"] = [90]
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    cleanup_path = artifact / "cleanup.json"
+    cleanup = json.loads(cleanup_path.read_text(encoding="utf-8"))
+    cleanup["remaining_owned_process_ids"] = [90]
+    cleanup_path.write_text(json.dumps(cleanup), encoding="utf-8")
+    with pytest.raises(ContractError, match="process cleanup evidence"):
+        validate_windows_smoke_artifact(
+            root,
+            job_result="success",
+            head_sha=head,
+            tree_sha=tree,
+            workflow_identity=ExpectedWorkflowIdentity(
+                event_name="push",
+                ref="refs/heads/task/125-ci-windows-smoke",
+                pr_base_ref="",
+                pr_base_sha="",
+                pr_head_ref="",
+                pr_head_sha="",
+            ),
+        )
+
+
+def test_windows_smoke_validator_rejects_invalid_identity_change_list(tmp_path: Path):
+    root, head, tree = _windows_smoke_fixture(tmp_path)
+    artifact = root / "ci-windows-smoke-123-1"
+    evidence_path = artifact / "smoke-evidence.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["cleanup"]["identity_changed_process_ids"] = [0, 0]
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    cleanup_path = artifact / "cleanup.json"
+    cleanup = json.loads(cleanup_path.read_text(encoding="utf-8"))
+    cleanup["identity_changed_process_ids"] = [0, 0]
+    cleanup_path.write_text(json.dumps(cleanup), encoding="utf-8")
+    with pytest.raises(ContractError, match="identity-change evidence"):
+        validate_windows_smoke_artifact(
+            root,
+            job_result="success",
+            head_sha=head,
+            tree_sha=tree,
+            workflow_identity=ExpectedWorkflowIdentity(
+                event_name="push",
+                ref="refs/heads/task/125-ci-windows-smoke",
+                pr_base_ref="",
+                pr_base_sha="",
+                pr_head_ref="",
+                pr_head_sha="",
+            ),
+        )
 
 
 @pytest.mark.parametrize("job_result", ("failure", "cancelled", "skipped"))

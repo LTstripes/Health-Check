@@ -171,7 +171,6 @@ try {
         $processIdentityErrors -join "; "
     } else { $null }
     if ($cleanupEvidence.remaining_owned_process_ids.Count -ne 0 -or
-        $cleanupEvidence.identity_changed_process_ids.Count -ne 0 -or
         $cleanupEvidence.errors.Count -ne 0 -or
         -not $runtimeRemoved -or $processIdentityError) {
         $status = "failed"

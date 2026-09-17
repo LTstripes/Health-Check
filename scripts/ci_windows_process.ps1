@@ -21,6 +21,13 @@ function Get-ParentProcessId {
     return ConvertTo-ProcessId $Value
 }
 
+function Test-CapturedProcessIdentity {
+    param([object]$Process)
+
+    return (-not [string]::IsNullOrWhiteSpace([string]$Process.Name) -and
+        -not [string]::IsNullOrWhiteSpace([string]$Process.CommandLine))
+}
+
 function Get-ProcessSnapshot {
     $processes = @()
     $errors = @()
@@ -96,6 +103,9 @@ function Get-OwnedProcessSnapshot {
             } else {
                 [void]$seen.Add($rootProcessId)
                 $owned += $rootCandidates[0]
+                if (-not (Test-CapturedProcessIdentity $rootCandidates[0])) {
+                    $errors += "harness root PID $rootProcessId has incomplete captured identity"
+                }
             }
         } elseif (@($Snapshot).Count -gt 0) {
             $errors += "harness root PID $rootProcessId is absent from a non-empty process snapshot"
@@ -117,11 +127,14 @@ function Get-OwnedProcessSnapshot {
             }
             [void]$seen.Add($childId)
             $owned += $child
+            if (-not (Test-CapturedProcessIdentity $child)) {
+                $errors += "owned process PID $childId has incomplete captured identity"
+            }
             $pending.Enqueue($childId)
         }
     }
     return [pscustomobject]@{
-        Processes = @($owned | Sort-Object Id -Unique)
+        Processes = @($owned)
         Errors = @($errors)
     }
 }
@@ -132,10 +145,16 @@ function Stop-OwnedProcesses {
     $terminated = @()
     $identityChanged = @()
     $errors = @()
-    foreach ($candidate in @($Owned | Sort-Object @{Expression = { $_.Id }; Descending = $true})) {
+    $orderedOwned = @($Owned)
+    [array]::Reverse($orderedOwned)
+    foreach ($candidate in $orderedOwned) {
         $candidateId = Get-ValidProcessId $candidate.Id
         if ($null -eq $candidateId) {
             $errors += "cleanup candidate has no valid PID"
+            continue
+        }
+        if (-not (Test-CapturedProcessIdentity $candidate)) {
+            $errors += "owned process PID $candidateId has incomplete captured identity"
             continue
         }
         try {

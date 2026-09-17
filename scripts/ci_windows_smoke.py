@@ -189,11 +189,17 @@ def validate_windows_smoke_artifact(
         and cleanup.get("remaining_owned_process_ids") == [],
         "process cleanup evidence is missing or not clean",
     )
+    identity_changed = cleanup.get("identity_changed_process_ids")
     _require(
-        cleanup.get("identity_changed_process_ids") == []
-        and cleanup.get("errors") == [],
-        "process cleanup identity evidence is incomplete",
+        isinstance(identity_changed, list)
+        and all(
+            isinstance(pid, int) and not isinstance(pid, bool) and pid > 0
+            for pid in identity_changed
+        )
+        and len(identity_changed) == len(set(identity_changed)),
+        "process cleanup identity-change evidence is invalid",
     )
+    _require(cleanup.get("errors") == [], "process cleanup errors are not empty")
     _require(
         isinstance(evidence.get("powershell"), dict)
         and bool(evidence["powershell"].get("version")),
