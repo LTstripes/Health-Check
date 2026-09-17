@@ -35,6 +35,165 @@ templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 router = APIRouter()
 
 
+_BRIEF_STATE_LABELS = {
+    "present": "Данные доступны",
+    "confirmed_empty": "За период записей нет",
+    "unknown": "Состояние данных не определено",
+    "unavailable": "Источник данных недоступен",
+    "insufficient": "Недостаточно данных",
+    "not_requested": "Не запрашивалось",
+}
+_BRIEF_FACT_LABELS = {
+    "weight_observation_count": "Измерения веса",
+    "weight_rate_kg_per_week": "Изменение веса в неделю",
+    "weight_trend_available": "Тренд веса",
+    "weight_first_daily_median_kg": "Первое значение веса",
+    "weight_last_daily_median_kg": "Последнее значение веса",
+    "weight_current_kg": "Текущий вес",
+    "body_composition_available": "Состав тела",
+    "sleep_agreement_mode": "Режим сравнения сна",
+    "sleep_agreement_available": "Сравнение сна",
+    "sleep_agreement_group_count": "Группы сна",
+    "sleep_exploratory_uncertain_cohort_present": "Неопределённая когорта сна",
+    "activity_session_count": "Активности",
+    "activity_type_counts": "Типы активностей",
+    "activity_comparison_state": "Сравнение активностей",
+    "weight_coverage_state": "Полнота данных веса",
+    "sleep_coverage_state": "Полнота данных сна",
+    "activity_coverage_state": "Полнота данных активностей",
+    "pending_import_candidates": "Ожидают проверки",
+}
+_BRIEF_REASON_LABELS = {
+    "database_unavailable": "Локальное хранилище данных не готово.",
+    "garmin_source_missing": "Источник Garmin за этот период не найден.",
+    "insufficient_evidence": "Принятых данных недостаточно для этого показателя.",
+    "not_enough_points": "Недостаточно измерений для надёжного показателя.",
+    "no_canonical_weight_run": "Нет принятого канонического расчёта веса.",
+}
+_BRIEF_UNIT_LABELS = {"count": "шт.", "kg/week": "кг/нед.", "kg": "кг"}
+_BRIEF_ACTIVITY_LABELS = {
+    "cycling": "Велосипед",
+    "running": "Бег",
+    "walking": "Ходьба",
+    "swimming": "Плавание",
+    "strength_training": "Силовая тренировка",
+    "unknown": "Другая активность",
+}
+_BRIEF_COHORT_LABELS = {
+    "Fitbit device pair": "Пара устройств Fitbit",
+    "Google wearable family pair": "Семейство устройств Google",
+    "Uncertain Garmin account / Google source or family observations": (
+        "Неопределённые наблюдения Garmin и Google"
+    ),
+}
+
+
+def _brief_owner_state(state: object) -> str:
+    return _BRIEF_STATE_LABELS.get(str(state or "unknown"), "Состояние данных не определено")
+
+
+def _brief_owner_fact(code: object) -> str:
+    token = str(code or "fact")
+    if token.startswith("garmin_sleep_baseline_"):
+        return "Базовая линия сна"
+    if token.startswith("garmin_activity_related_baseline_"):
+        return "Базовая линия активностей"
+    if token.startswith("provider_") and token.endswith("_dq_state"):
+        return "Состояние источника данных"
+    return _BRIEF_FACT_LABELS.get(token, "Показатель периода")
+
+
+def _brief_owner_reason(reason: object) -> str:
+    token = str(reason or "")
+    return _BRIEF_REASON_LABELS.get(token, "Подробности доступны в технических данных.")
+
+
+def _brief_owner_activity(activity_type: object) -> str:
+    token = str(activity_type or "unknown")
+    return _BRIEF_ACTIVITY_LABELS.get(token, token.replace("_", " ").capitalize())
+
+
+def _brief_owner_cohort(label: object) -> str:
+    text = str(label or "Группа сна")
+    for source, translated in _BRIEF_COHORT_LABELS.items():
+        if text.startswith(source):
+            return translated
+    return "Группа сна"
+
+
+def _brief_owner_uncertainty(_: object) -> str:
+    return (
+        "Это исследовательская когорта с неопределённой атрибуцией; "
+        "это не сравнение Garmin и Fitbit/устройств и не основание для выбора "
+        "канонического источника."
+    )
+
+
+def _brief_owner_value(
+    value: object,
+    unit: object = None,
+    availability: object = None,
+    fact_code: object = None,
+) -> str:
+    state = str(availability or "unknown")
+    if value is None:
+        return _brief_owner_state(state)
+    if isinstance(value, bool):
+        if not value and state != "present":
+            return _brief_owner_state(state)
+        return "Да" if value else "Нет"
+    if isinstance(value, dict):
+        if fact_code == "activity_type_counts":
+            return ", ".join(
+                f"{_brief_owner_activity(key)}: {count}"
+                for key, count in sorted(value.items())
+            ) or "Нет записей"
+        return "Детали доступны"
+    if isinstance(value, (list, tuple)):
+        return "Детали доступны"
+    if isinstance(value, str) and value in _BRIEF_STATE_LABELS:
+        return _brief_owner_state(value)
+    rendered_unit = _BRIEF_UNIT_LABELS.get(str(unit), str(unit or ""))
+    return f"{value} {rendered_unit}".strip()
+
+
+def _brief_owner_note(note: object) -> str:
+    code = str((note or {}).get("code") or "") if isinstance(note, dict) else ""
+    return {
+        "weight_rate": "Темп изменения веса доступен.",
+        "weight_trend": "Тренд веса доступен.",
+        "sleep_exploratory_agreement": "Доступна исследовательская оценка согласованности сна.",
+        "uncertain_account_cohort": (
+            "Есть исследовательские данные сна с неопределённой атрибуцией."
+        ),
+        "personal_baseline_deviation": "Обнаружено отклонение от личной базовой линии Garmin.",
+        "activity_comparison": "Доступно детерминированное сравнение активностей.",
+    }.get(code, "Есть важное изменение в данных периода.")
+
+
+def _brief_owner_action(action: object) -> str:
+    code = str((action or {}).get("code") or "") if isinstance(action, dict) else ""
+    return {
+        "confirm_pending_imports": "Есть измерения, ожидающие подтверждения.",
+        "investigate_provider_sync": (
+            "Проверьте синхронизацию источника: данные за период недоступны."
+        ),
+        "restore_weight_canonical_or_coverage": (
+            "Данные веса недоступны: проверьте источник и покрытие периода."
+        ),
+    }.get(code, "Для этого периода требуется проверить данные.")
+
+
+def _brief_has_usable_evidence(brief: object) -> bool:
+    if not isinstance(brief, dict):
+        return False
+    sections = brief.get("sections") or {}
+    return any(
+        (sections.get(name) or {}).get("state") in {"present", "confirmed_empty"}
+        for name in ("weight", "sleep", "activity")
+    )
+
+
 def render(
     request: Request, name: str, context: dict[str, Any], status_code: int = 200
 ) -> HTMLResponse:
@@ -176,6 +335,16 @@ def period_brief_page(
             "packet": result["packet"],
             "source_selection": source_selection,
             "selected_preset": selected_preset,
+            "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"]),
+            "brief_owner_action": _brief_owner_action,
+            "brief_owner_activity": _brief_owner_activity,
+            "brief_owner_cohort": _brief_owner_cohort,
+            "brief_owner_fact": _brief_owner_fact,
+            "brief_owner_note": _brief_owner_note,
+            "brief_owner_reason": _brief_owner_reason,
+            "brief_owner_state": _brief_owner_state,
+            "brief_owner_uncertainty": _brief_owner_uncertainty,
+            "brief_owner_value": _brief_owner_value,
             "page": "brief",
         },
     )
