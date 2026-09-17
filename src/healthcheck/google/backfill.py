@@ -174,7 +174,7 @@ class GoogleHistoricalBackfill:
         last_report: GoogleSyncReport | None = None
         remaining_budget = self.max_provider_requests
         for chunk in chunks:
-            if abort_reason == "reauth_required" or remaining_budget < 1:
+            if abort_reason is not None or remaining_budget < 1:
                 if remaining_budget < 1 and abort_reason != "reauth_required":
                     abort_reason = abort_reason or "request_ceiling"
                 for surface in surfaces:
@@ -221,6 +221,23 @@ class GoogleHistoricalBackfill:
             attempts.extend(report.attempts)
             if report.abort_reason == "reauth_required":
                 abort_reason = "reauth_required"
+                continue
+            bounded_resume = next(
+                (
+                    item.error.error_code
+                    for item in report.attempts
+                    if item.status is GoogleSyncStatus.PARTIAL
+                    and item.resume_cursor_present
+                    and item.error is not None
+                    and item.error.error_class == "budget"
+                    and item.error.error_code in {"page_ceiling", "request_ceiling"}
+                ),
+                None,
+            )
+            if bounded_resume is not None:
+                # Historical windows share one stream checkpoint. Do not let a
+                # later chunk clear the durable cursor for this incomplete one.
+                abort_reason = bounded_resume
         status = _roll_up_status(attempts, abort_reason)
         skipped = sum(1 for item in attempts if item.skipped)
         return GoogleSyncReport(
