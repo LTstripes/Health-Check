@@ -11,7 +11,8 @@ This file contains current architecture/product decisions plus only those `UNVER
 - Priority remains weight/body composition → sleep → activity/fitness → recovery/wellbeing.
 - R01, R02, R03, R04 and R05 are released to canonical `main`.
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
-- #119 deterministic period brief v1 is completed on canonical main; current bounded product focus is #127 Period Brief local UI v1.
+- #119 deterministic period brief v1 is completed on canonical main.
+- Current owner-facing work is split between Period Brief usability/closeout (#127/#133/#129) and the durable Stable Owner Runtime/operations line (#132 with bounded #134/#136/#139/#140 follow-ups).
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -104,6 +105,21 @@ Frozen design from #97:
 - no automatic canonical switch from N, correlation or coverage alone;
 - R05 may close successfully without a canonical-source change if the evidence is still insufficient.
 
+### Period Brief / post-R05
+
+- #119 is the accepted deterministic evidence-packet contract for bounded cross-domain review.
+- Weight/sleep/activity/data-quality facts are assembled deterministically with explicit coverage/unavailable states and stable result identity.
+- Rendering is thin; UI/text/CLI must not reimplement health mathematics or change packet counts/statistics/hash through display thinning.
+- Direct R05 sleep-report reuse is preferred to a compatibility copy of agreement semantics.
+- The owner-facing UI work (#127/#133) is presentation over the accepted packet, not a second analytics engine.
+
+### Stable Owner Runtime / owner operations
+
+- The long-lived product operating model is one durable private Owner runtime accumulating accepted Weight/Garmin/Google/agreement evidence over time; release UAT uses disposable copies rather than becoming the long-lived data source.
+- Existing profiles may be inventoried/reconstructed only through supported backup/restore/import/sync/backfill/recompute paths; direct SQLite grafting is not an acceptable consolidation method.
+- Routine Garmin/Google refresh should remain a bounded explicit operation suitable for Windows Task Scheduler, not a new resident daemon/service.
+- Provider convergence/recovery follow-ups must remain fail-closed: failed/ambiguous days or interrupted runs are not fabricated as successful/empty merely to make an operational summary green.
+
 ### Time, coverage and agreement
 
 - Store UTC instant when valid plus original local time/offset/zone when available; preserve date-only/local-only precision rather than inventing UTC.
@@ -111,6 +127,34 @@ Frozen design from #97:
 - Lag direction is explicit.
 - Coverage accompanies every non-trivial analytic/report result.
 - Associations are exploratory and never causal/medical claims.
+
+### CI, verification and repository integration
+
+The bounded #123–#125 CI maintenance track is accepted and integrated.
+
+Durable verification rules:
+
+- iteration should use targeted checks proportional to the change rather than repeatedly paying for an unchanged full suite;
+- once a candidate is stabilized, the exact candidate receives the accepted remote CI gate;
+- after Integrator ACCEPT, the exact integration head receives its own gate before canonical promotion;
+- `main` receives an exact post-promotion gate;
+- the final GitHub Actions job named **`checks`** is the stable aggregate verdict;
+- `checks` must fail closed on missing/malformed/cross-run evidence, mandatory constituent failure/skip/cancel, provenance mismatch or Linux test-partition drift;
+- Linux completeness is proven through exact nodeid/multiplicity reconciliation across the accepted manifest and three ordinary serial lanes;
+- the focused Windows gate must actually execute native user-scoped DPAPI plus real PowerShell/loopback runtime smoke; a skipped/unavailable Windows DPAPI test is not success;
+- no full Windows pytest matrix, xdist, fixture-template caching or setup-second micro-tuning is justified without a new measured material problem.
+
+Measured outcome: the accepted remote feedback path moved from about `5m02s` to about `2m48s` with focused Windows coverage included, roughly a 44% wall-time reduction while strengthening verification.
+
+#### Repository protection / #126
+
+- The repository remains private.
+- `main` currently has no server-side required-check/branch-protection enforcement under the available GitHub capability.
+- #126 is therefore **BLOCKED / OWNER DECISION REQUIRED**, not complete.
+- Do not make the repository public, change billing/plan or emulate branch protection in YAML as an automatic engineering action.
+- Until capability changes, the Integrator must manually require `checks: SUCCESS` on the exact SHA before advancing shared integration or `main`; green constituent jobs alone are insufficient.
+- Force-push/deletion of integration/canonical history is process-prohibited even when GitHub cannot enforce it server-side.
+- If private-repository protection later becomes available, the minimal intended server policy is: protect canonical `main`, require only the final `checks` aggregator in strict/up-to-date mode, apply protection to admins, and disallow force-push/deletion; do not over-protect task branches or require every constituent lane separately.
 
 ### AI / reports / context
 
@@ -158,12 +202,18 @@ These are observational gaps, not reasons to rewrite released architecture.
 - #105 remains deferred / NOT_ELIGIBLE until stronger explicit device-pair evidence exists; it is not an actionable next implementation merely because it is open, and no Owner action is required unless future live evidence meets its gate.
 - Firmware/app/algorithm change points may still require separate agreement epochs if evidence later accumulates.
 
+### CI / repository enforcement
+
+- Server-side enforcement of the accepted final `checks` gate remains unavailable for this private repository under the current GitHub capability; #126 stays open until the Owner separately changes capability or explicitly decides otherwise.
+- The focused Windows smoke is intentionally not a broad Windows compatibility matrix; it proves the platform/auth/runtime contracts that materially require Windows.
+
 ## Deferred owner choices
 
-1. **Email transport:** choose SMTP/application password vs provider API in R07.
-2. **External AI provider/deployment:** choose when the typed AI release begins.
-3. **Recovery Score:** decide only after R05+ evidence demonstrates a concrete need.
-4. **Advanced remote access:** remain local/loopback by default until a threat model and need exist.
+1. **GitHub private-repository protection:** optionally revisit #126 only if the Owner separately chooses a plan/capability supporting server-side required checks; no upgrade is required merely to continue product development.
+2. **Email transport:** choose SMTP/application password vs provider API in R07.
+3. **External AI provider/deployment:** choose when the typed AI release begins.
+4. **Recovery Score:** decide only after accumulated evidence demonstrates a concrete need.
+5. **Advanced remote access:** remain local/loopback by default until a threat model and need exist.
 
 ## Change protocol
 

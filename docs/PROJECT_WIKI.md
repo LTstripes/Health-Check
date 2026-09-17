@@ -7,9 +7,10 @@ This is the compact current-state entry point. Historical contracts and release 
 - Canonical branch: `main`
 - Latest released major slice: **R05 — Garmin / Google wearable sleep agreement**
 - R05 release SHA: `46e59327e394ae6dbc5a4ecdf42913200124b9e9` (exact-main CI `35130647037` SUCCESS; #106 closed)
-- Current main checkpoint (post-#119): `2c19ca968f84efb5e69c1a859ce6016939e617ca`
-- Exact-main CI at that checkpoint: `35139999279` — SUCCESS
+- Post-R05 deterministic brief checkpoint: `2c19ca968f84efb5e69c1a859ce6016939e617ca` (exact-main CI `35139999279` SUCCESS; #119 closed)
+- CI maintenance implementation accepted on `integration/ci-feedback-v1 @ e7edf3d9c04f137a77f6345a183e87872bac62a7`; exact integration CI `35235216797` — SUCCESS
 - R05 closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md)
+- CI maintenance closeout: [CI_MAINTENANCE_CLOSEOUT_2026-09-17.md](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
 - Prior R04 release merge: `bb5776e98d259cb6256c95bd49d400dc1238af61` (CI `34768452960` SUCCESS; #80 closed)
 
 ## What the product can do today
@@ -44,6 +45,13 @@ This is the compact current-state entry point. Historical contracts and release 
 - coverage/checkpoint/idempotency semantics;
 - privacy-safe structural diagnostics.
 
+### Cross-domain reporting
+
+- deterministic period brief v1 over weight, sleep, activity and data-quality/coverage evidence;
+- stable result hash and reproducible evidence packet;
+- thin API/text/CLI rendering without reimplementing analytics;
+- direct reuse of the accepted R05 sleep report and complete bounded activity inventory semantics.
+
 ## R04 live proof
 
 The owner-live gate proved:
@@ -72,25 +80,58 @@ R05 uses two different legacy cohorts (plus an exploratory uncertain account coh
 
 This prevents the project from accidentally comparing Garmin against a mixed Pixel Watch/Fitbit/family aggregate and calling it Fitbit agreement.
 
-## Next work
+## Engineering reliability / CI
 
-### Current bounded product focus
+The bounded #123–#125 maintenance track is complete.
 
-- #127 — Period Brief local UI v1 (owner-facing local page over the accepted #119 packet; no new analytics).
+What changed:
 
-### Completed post-R05 / maintenance (not residual backlog)
+- evidence became provenance-bound and fail-closed (#123);
+- one long Linux path became three independent balanced serial lanes plus quality (#124);
+- the final `checks` job reconciles the exact expected Linux nodeids/multiplicity rather than trusting subset job labels;
+- a focused Windows runner now executes real native DPAPI, real `start.ps1`, loopback UI/ingest scenarios, path-with-spaces runtime handling and verified root-tree cleanup (#125).
 
-- #119 — deterministic period brief v1 completed on `main @ 2c19ca96…` (CI `35139999279` SUCCESS): weight/sleep/activity/data-quality evidence packet, stable result hash, thin API/text/CLI rendering, accepted R05 sleep-report reuse, full activity inventory repairs.
-- #98 — bounded `python-garminconnect` 0.3.12 → 0.3.15 upgrade — closed completed.
-- #99 — Google auth/sync order-sensitive test hardening — closed completed.
+Representative remote feedback improved from about **5m02s** to about **2m48s** with the Windows gate included — roughly **44% less wall time** while coverage became stronger. The accepted final integration gate reported `890 exact nodeids reconciled across all mandatory jobs` and `WINDOWS_SMOKE_EVIDENCE: PASS`.
 
-### Separate engineering track (not next health-product release)
+Do not continue CI optimization just to shave seconds. Reopen performance work only if a new measured material bottleneck appears.
 
-- #123–#126 — CI/reliability maintenance (bounded verification, Linux lanes, Windows smoke, required-check enforcement). Mentioned here only as engineering backlog status.
+### Required-check enforcement limitation
 
-### R05 disposition (released)
+#126 remains **BLOCKED / OWNER DECISION REQUIRED**. This private repository currently has no server-side branch protection/required-check enforcement under the available GitHub capability. The repository stays private; no billing/plan change is implied by engineering work.
 
-R05/#106 closed on `main @ 46e59327…`. Strict `device_pair` / `family_pair` remain fail-closed. Provider-attribution evidence was insufficient for a canonical switch. `account_wearables_sleep_observations_v1` is exploratory/uncertain-only. #105 deferred/NOT_ELIGIBLE; Garmin remains canonical/default. #105 is not an actionable next implementation merely because it remains open; no Owner action is required unless future live evidence meets its gate.
+Until that changes, the manual Integrator gate is mandatory:
+
+- exact target SHA must have final `checks: SUCCESS` before advancing integration or `main`;
+- constituent green jobs alone are insufficient;
+- only the Integrator advances shared/canonical refs after ACCEPT;
+- force-push/deletion of integration/canonical history is process-prohibited.
+
+## Current work
+
+### Period Brief owner UX
+
+- #127 — Period Brief local UI v1 over the accepted #119 packet;
+- #133 — compact human source labels and summary hierarchy follow-up;
+- #129 — Owner UAT / closeout on real local evidence after accepted UI work.
+
+### Stable Owner Runtime / owner operations
+
+- #132 — establish one durable cross-domain Stable Owner Runtime;
+- #134 — one-command / optional scheduled Garmin + Google refresh;
+- #136 — rebuild and persist the accepted R05 exploratory agreement from Stable Runtime evidence;
+- #139 — converge the remaining Garmin Body Battery sync edge;
+- #140 — supported recovery for stale `running` sync metadata.
+
+### Completed post-R05 / maintenance
+
+- #119 — deterministic period brief v1 — closed completed;
+- #98 — `python-garminconnect` 0.3.12 → 0.3.15 — closed completed;
+- #99 — Google auth/sync order-sensitive test hardening — closed completed;
+- #123–#125 — CI feedback/reliability implementation — closed completed.
+
+### R05 disposition
+
+R05/#106 closed on `main @ 46e59327…`. Strict `device_pair` / `family_pair` remain fail-closed. Provider-attribution evidence was insufficient for a canonical switch. `account_wearables_sleep_observations_v1` is exploratory/uncertain-only. #105 deferred/NOT_ELIGIBLE; Garmin remains canonical/default. #105 is not actionable merely because it remains open; no Owner action is required unless future live evidence meets its gate.
 
 ## Core engineering rules
 
@@ -102,6 +143,7 @@ R05/#106 closed on `main @ 46e59327…`. Strict `device_pair` / `family_pair` re
 - Provider boundaries stay fail-closed on unknown shapes.
 - Missing/null/zero/unavailable/unknown remain distinct.
 - Deterministic analytics own mathematics; UI/LLM explain results rather than reimplementing them.
+- During implementation, use targeted checks; stabilized candidates/integration/main receive exact remote gates.
 
 ## Useful docs
 
@@ -111,6 +153,7 @@ R05/#106 closed on `main @ 46e59327…`. Strict `device_pair` / `family_pair` re
 - [Roadmap](ROADMAP.md)
 - [Decisions and Open Questions](DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](EXECUTION_HISTORY_CURRENT.md)
+- [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
 - [R04 Release Closeout](R04_RELEASE_CLOSEOUT.md)
 - [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md)
 - [Agent Orchestration](AGENT_ORCHESTRATION.md)

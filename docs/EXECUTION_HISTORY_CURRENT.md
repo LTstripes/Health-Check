@@ -175,7 +175,7 @@ Sanitized closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md).
 
 Handoff checkpoint:
 
-- canonical `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca`;
+- accepted pre-maintenance canonical checkpoint `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca`;
 - exact-main CI `35139999279` — SUCCESS;
 - #119 closed completed.
 
@@ -187,12 +187,101 @@ Delivered (product, not a new major release number):
 
 Also closed completed (not residual backlog): #98 Garmin dependency upgrade; #99 Google auth/sync test hardening.
 
-## Next phase
+## 2026-09-16 to 2026-09-17 — CI feedback/reliability maintenance — #123–#126
 
-Current bounded product focus:
+### #123 — evidence/gating foundation
 
-- #127 — Period Brief local UI v1 (local owner page over the accepted #119 contract).
+#123 made remote CI evidence inspectable and fail-closed rather than treating a green job label as the whole proof:
 
-R05 disposition unchanged: exploratory closeout; Garmin canonical/default; #105 deferred/NOT_ELIGIBLE (not actionable next work unless future evidence meets its gate).
+- exact workflow/ref/SHA/tree/attempt/lock provenance;
+- retained JUnit/log/status/timing evidence and contradiction checks;
+- safe task/PR supersession without collapsing canonical/integration commits into one concurrency slot;
+- repair of the observed timestamp-sensitive privacy test flake.
 
-Separate engineering track (not next health-product release): #123–#126 CI/reliability.
+Accepted candidate `e1767bbd6820f183b6e70e78c4f843bcbbd259af`; exact task CI `35183585714` SUCCESS; exact integration CI `35184385269` SUCCESS.
+
+### #124 — balanced Linux lanes / material performance improvement
+
+#124 replaced the dominant serial full-suite wait with quality plus three independent ordinary serial pytest lanes and a stable final `checks` aggregator. A checked manifest and independent collection/execution evidence reconcile exact nodeids/multiplicity; missing/overlapping/stale/substituted test inventory fails closed.
+
+Accepted/integrated candidate `54ba37adc79dfb4cf0c5997a758f868a32d12af6`.
+
+- task CI `35203141032` SUCCESS, about **2m13s**;
+- integration CI `35207859309` SUCCESS, about **2m32s**;
+- candidate inventory `881` exact nodeids, with `880 passed + 1` exact allowlisted Linux-side Windows-DPAPI skip.
+
+The accepted pre-parallel full-run reference was about **5m02s**, so the material serial stall was removed. The Integrator explicitly stopped the performance campaign rather than adding xdist, fixture caching or micro-tuning for seconds.
+
+### #125 — real focused Windows reliability
+
+#125 added a small mandatory Windows job instead of a duplicate full Windows matrix.
+
+Final accepted contracts:
+
+- native Windows user-scoped DPAPI designated regression must actually execute and pass;
+- real `scripts/start.ps1` launch on external synthetic paths containing spaces;
+- real ingest-disabled and ingest-enabled loopback HTTP scenarios with route separation;
+- bounded readiness/HTTP behavior;
+- verified root PID + Name + CommandLine ownership;
+- root-scoped `taskkill /PID <verified-root> /T /F`, never process-name-wide cleanup;
+- post-cleanup root/ports/runtime verification;
+- Windows schema-v2 evidence consumed by final `checks`.
+
+The real hosted runner exposed several lifecycle races. After four distinct cleanup-edge failures, Integrator stopped the patch-by-patch approach and required a bounded root-tree redesign. The final port-state bug was corrected with a deterministic loopback bind/listener probe rather than `ConnectAsync` refusal inference.
+
+Final candidate `e7edf3d9c04f137a77f6345a183e87872bac62a7`.
+
+- exact task CI `35232981949` SUCCESS;
+- native designated DPAPI: `1 passed / 0 skipped`;
+- exact integration CI `35235216797` SUCCESS in about **2m48s**;
+- final integration gate: `checks PASS: 890 exact nodeids reconciled across all mandatory jobs` and `WINDOWS_SMOKE_EVIDENCE: PASS`.
+
+Independent final review used Grok 4.6 as a different model family; Integrator separately re-read code/evidence/refs/CI before ACCEPT. #125 closed completed.
+
+### Net result
+
+Representative accepted wall time moved from about `5m02s` to about `2m48s` with focused Windows coverage included: approximately **44% lower remote feedback wall time** while verification became materially stronger.
+
+Quality improvements are more important than the seconds:
+
+- exact test inventory completeness;
+- same-run provenance-bound evidence;
+- fail-closed final aggregate verdict;
+- real native Windows DPAPI;
+- real Windows PowerShell/HTTP/runtime/cleanup behavior;
+- a clearer development rhythm: targeted iteration → one stabilized candidate gate → exact integration gate → exact main gate.
+
+See [CI_MAINTENANCE_CLOSEOUT_2026-09-17.md](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
+
+### #126 — server-side enforcement blocked by repository capability
+
+#126 verified that the private repository currently cannot enable the desired server-side branch protection/required-check policy under the available GitHub capability. Rulesets return the explicit private-repository GitHub Pro capability 403; an Owner-authorized admin-token review confirmed the same plan/capability blocker for classic protection.
+
+Decision:
+
+- keep repository private;
+- do not purchase/change plan as an implicit engineering action;
+- do not simulate protection with workflow YAML;
+- keep #126 open `BLOCKED / OWNER DECISION REQUIRED`.
+
+Until capability changes, exact-SHA final `checks: SUCCESS` is a mandatory manual Integrator gate before advancing integration or `main`. Green constituent lanes are insufficient; force-push/deletion of canonical/integration history remains process-prohibited.
+
+## Current handoff / next work
+
+### Period Brief owner UX
+
+- #127 — Period Brief local UI v1;
+- #133 — compact human labels / summary hierarchy follow-up;
+- #129 — Owner UAT / closeout after accepted UI work.
+
+### Stable Owner Runtime / owner operations
+
+- #132 — durable cross-domain Stable Owner Runtime;
+- #134 — one-command / optional scheduled provider refresh;
+- #136 — supported R05 agreement rebuild from persisted Stable Runtime evidence;
+- #139 — remaining Garmin Body Battery convergence edge;
+- #140 — supported stale-running sync recovery.
+
+R05 disposition remains unchanged: exploratory closeout; Garmin canonical/default; #105 deferred/NOT_ELIGIBLE and non-actionable until future evidence meets its existing gate.
+
+The CI performance campaign is closed. Future CI optimization requires a new measured material bottleneck, not a desire to shave seconds.

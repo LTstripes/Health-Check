@@ -16,10 +16,16 @@ Released to canonical `main`:
 
 R04 release closeout: [R04_RELEASE_CLOSEOUT.md](R04_RELEASE_CLOSEOUT.md).
 R05 release closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md).
+CI maintenance closeout: [CI_MAINTENANCE_CLOSEOUT_2026-09-17.md](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
 
-**Current planning focus: post-#119 bounded product work (#127 Period Brief local UI v1).** #98 / #99 are completed maintenance, not residual backlog. Parallel CI/reliability track #123–#126 is separate engineering work, not the next health-product release.
+#119 deterministic period brief v1 is completed. Current post-#119 work has two owner-facing lines rather than one new release number:
 
-R05 closed on canonical `main @ 46e59327…` with exact-main CI `35130647037` SUCCESS (#106). #119 completed on `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca` (exact-main CI `35139999279` SUCCESS). #105 remains deferred/NOT_ELIGIBLE. `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only.
+- **Period Brief owner UX:** #127 local UI v1, #133 presentation hierarchy, then #129 Owner UAT/closeout.
+- **Stable Owner Runtime / operations:** #132 durable cross-domain profile, with bounded follow-ups #134/#136/#139/#140 where needed for routine refresh/convergence/recovery.
+
+#98/#99 are completed maintenance, not residual backlog. #123–#125 CI/reliability implementation is also completed; #126 remains an administrative GitHub capability blocker rather than product work.
+
+R05 closed on canonical `main @ 46e59327…` with exact-main CI `35130647037` SUCCESS (#106). #119 completed on `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca` with exact-main CI `35139999279` SUCCESS. #105 remains deferred/NOT_ELIGIBLE. `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only.
 
 ## R00 — Final architecture (complete)
 
@@ -146,14 +152,56 @@ R05 closed with an exploratory agreement report; live evidence was insufficient 
 
 See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md).
 
-## Post-R05 bounded product focus
+## Post-R05 / #119 — deterministic period brief v1 (completed)
 
-- **#119** — deterministic period brief v1 — **completed** on `main @ 2c19ca96…` (CI `35139999279` SUCCESS): weight/sleep/activity/data-quality evidence packet, stable result hash, thin API/text/CLI rendering; accepted R05 sleep-report reuse and full activity inventory repairs; no LLM/Telegram delivery in v1.
-- **#127** — Period Brief local UI v1 — **current bounded product focus** (presentation over the accepted #119 contract; no new analytics; no invented release number for this slice).
+#119 delivered:
 
-Completed maintenance (not residual backlog): #98 Garmin dependency upgrade; #99 Google auth/sync test hardening.
+- deterministic weight/sleep/activity/data-quality evidence packet;
+- stable result hash and reproducible input/provenance contract;
+- thin API/text/CLI rendering;
+- accepted direct R05 sleep-report reuse;
+- full bounded activity inventory semantics without display-thinning corrupting analytical counts;
+- honest missing/unavailable/confirmed-empty distinctions.
 
-Separate engineering track (not next health-product release): #123–#126 CI/reliability.
+No new health score and no LLM/Telegram delivery were introduced.
+
+## Current owner-facing product work
+
+### Period Brief UI and UAT
+
+- **#127** — Period Brief local UI v1 over the accepted #119 packet.
+- **#133** — compact owner-facing source labels, summary hierarchy and deterministic deduplication of repeated uncertainty/notable-change copy.
+- **#129** — Owner-only UAT/closeout over real local evidence after accepted UI work.
+
+This is presentation/product use of already accepted deterministic analytics, not a second report engine.
+
+### Stable Owner Runtime and routine operation
+
+- **#132** — establish one durable cross-domain Stable Owner Runtime so Weight/Garmin/Google/agreement evidence accumulates in one long-lived profile instead of release-isolated UAT profiles.
+- **#134** — one-command and optional Task Scheduler Garmin + Google refresh over that stable profile.
+- **#136** — operator entrypoint to rebuild/persist the accepted R05 exploratory agreement from persisted Stable Runtime evidence without database grafting.
+- **#139** — diagnose/converge the remaining Garmin Body Battery sync edge without weakening fail-closed semantics.
+- **#140** — supported fail-closed recovery for stale/orphaned `running` sync metadata.
+
+These are bounded owner-operability/data-runtime tasks. They do not change the canonical code/data model unless their own issues explicitly authorize a focused implementation.
+
+## Engineering maintenance — CI feedback/reliability closeout
+
+#123–#125 are complete and integrated.
+
+Outcome:
+
+- pre-parallel accepted remote reference: ~`5m02s`;
+- final Windows-inclusive integration: ~`2m48s` (`35235216797`);
+- roughly **44% lower wall time**;
+- final `checks` proves exact Linux nodeid reconciliation and focused Windows evidence;
+- native Windows DPAPI, real PowerShell startup, loopback UI/ingest separation and cleanup are now exercised on a hosted Windows runner.
+
+The performance campaign is stopped by design. No xdist/cache/fixture tuning is planned absent a new material measured problem.
+
+#126 remains **BLOCKED / OWNER DECISION REQUIRED** because private-repository server-side branch protection/required-check enforcement is unavailable under the current GitHub capability. The repository remains private. Until capability changes, exact-SHA `checks: SUCCESS` is a mandatory manual Integrator promotion gate.
+
+See [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
 
 ## R06 — Context, Telegram, and read-only AI tools
 
@@ -161,6 +209,8 @@ Separate engineering track (not next health-product release): #123–#126 CI/rel
 - typed read-only analytic tools that return compact evidence packets;
 - conversational investigation over deterministic results;
 - no unrestricted SQL or raw-series mathematics by the LLM.
+
+R06 remains future direction, not an automatic next launch while current Period Brief/Stable Runtime owner work is still being closed out.
 
 ## R07 — Saved reports and delivery
 
@@ -199,4 +249,5 @@ Separate engineering track (not next health-product release): #123–#126 CI/rel
 - source/device identity claims require explicit evidence;
 - new donor code requires license review at the exact reused source version;
 - owner UAT is required where private runtime/provider behavior is part of release truth;
-- `main` is the only canonical release source.
+- `main` is the only canonical release source;
+- stabilized candidate/integration/main promotion uses the accepted final `checks` gate on the exact SHA; while #126 is blocked, this is enforced by Integrator process rather than GitHub branch protection.
