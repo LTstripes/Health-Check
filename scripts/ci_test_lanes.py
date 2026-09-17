@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
+import shlex
 import subprocess
 import sys
 from collections import Counter
@@ -57,6 +59,15 @@ def _load_json(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ContractError(f"missing, unreadable, or malformed JSON artifact: {path}") from error
+
+
+def _read_required_text(path: Path, label: str) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise ContractError(f"missing or unreadable {label}: {path}") from error
+    _require(bool(text.strip()), f"{label} is empty: {path}")
+    return text
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -219,10 +230,19 @@ def validate_lane_payload(
     _require(payload.get("session_exit_status") == 0, "lane process was failed or incomplete")
     collected = payload.get("collected_nodeids")
     cases = payload.get("cases")
-    _require(isinstance(collected, list) and collected, "lane collected inventory is empty")
+    _require(
+        isinstance(collected, list)
+        and collected
+        and all(isinstance(nodeid, str) and nodeid for nodeid in collected),
+        "lane collected inventory is missing or malformed",
+    )
     _require(isinstance(cases, list), "lane case outcomes are missing")
     case_nodeids = [case.get("nodeid") for case in cases if isinstance(case, dict)]
-    _require(len(case_nodeids) == len(cases), "lane case outcome has invalid shape")
+    _require(
+        len(case_nodeids) == len(cases)
+        and all(isinstance(nodeid, str) and nodeid for nodeid in case_nodeids),
+        "lane case outcome has invalid shape",
+    )
     missing, extra = _counter_delta(Counter(collected), Counter(case_nodeids))
     _require(
         not missing and not extra, f"lane execution mismatch: missing={missing}; extra={extra}"
@@ -237,16 +257,19 @@ def validate_lane_payload(
         phases = case.get("phases")
         _require(isinstance(phases, list) and phases, f"missing phase outcomes for {nodeid}")
         by_when: dict[str, Mapping[str, Any]] = {}
+        phase_order: list[str] = []
         for phase in phases:
             _require(isinstance(phase, dict), f"invalid phase outcome for {nodeid}")
             when = phase.get("when")
             _require(when in {"setup", "call", "teardown"}, f"invalid phase name for {nodeid}")
             _require(when not in by_when, f"duplicate {when} phase for {nodeid}")
+            _require(
+                phase.get("outcome") in {"passed", "skipped", "failed"},
+                f"invalid phase outcome for {nodeid}",
+            )
             _require(not phase.get("wasxfail"), f"xfail/xpass is not allowed: {nodeid}")
             by_when[when] = phase
-        _require(
-            "setup" in by_when and "teardown" in by_when, f"incomplete worker outcome: {nodeid}"
-        )
+            phase_order.append(when)
         failed_phases = [phase for phase in phases if phase.get("outcome") == "failed"]
         if failed_phases:
             kind = (
@@ -254,20 +277,32 @@ def validate_lane_payload(
             )
             counts[kind] += 1
             raise ContractError(f"lane contains {kind}: {nodeid}")
-        skipped = [phase for phase in phases if phase.get("outcome") == "skipped"]
-        if skipped:
-            _require(len(skipped) == 1, f"ambiguous skip outcome: {nodeid}")
-            identity = (nodeid, expected.platform, str(skipped[0].get("reason", "")))
+
+        outcomes = [str(phase.get("outcome")) for phase in phases]
+        passed_pattern = phase_order == ["setup", "call", "teardown"] and outcomes == [
+            "passed",
+            "passed",
+            "passed",
+        ]
+        setup_skip_pattern = phase_order == ["setup", "teardown"] and outcomes == [
+            "skipped",
+            "passed",
+        ]
+        call_skip_pattern = phase_order == ["setup", "call", "teardown"] and outcomes == [
+            "passed",
+            "skipped",
+            "passed",
+        ]
+        _require(
+            passed_pattern or setup_skip_pattern or call_skip_pattern,
+            f"illegal phase outcome structure: {nodeid}",
+        )
+        if setup_skip_pattern or call_skip_pattern:
+            skipped_phase = next(phase for phase in phases if phase.get("outcome") == "skipped")
+            identity = (nodeid, expected.platform, str(skipped_phase.get("reason", "")))
             _require(identity in allowed, f"unexpected skip: {identity}")
             counts["skipped"] += 1
             continue
-        _require(
-            set(by_when) == {"setup", "call", "teardown"}, f"incomplete worker outcome: {nodeid}"
-        )
-        _require(
-            all(phase.get("outcome") == "passed" for phase in phases),
-            f"unexpected phase outcome: {nodeid}",
-        )
         counts["passed"] += 1
     return counts
 
@@ -283,6 +318,163 @@ def _one_directory(root: Path, pattern: str, missing_message: str) -> Path:
     return matches[0]
 
 
+def _artifact_coordinates(path: Path, pattern: str, label: str) -> tuple[str, str]:
+    match = re.fullmatch(pattern, path.name)
+    _require(match is not None, f"malformed {label} artifact directory: {path.name}")
+    assert match is not None
+    return match.group("run"), match.group("attempt")
+
+
+def _parse_metadata(path: Path, *, kind: str) -> dict[str, str]:
+    text = _read_required_text(path, f"{kind} metadata")
+    lines = text.splitlines()
+    _require(lines[0] == f"# CI {kind} identity", f"{kind} metadata header is malformed")
+    fields: dict[str, str] = {}
+    ordinary = re.compile(r"^- ([^:]+): `(.*)`$")
+    workflow = re.compile(r"^- workflow run: `(\d+)` attempt `(\d+)`$")
+    pr_identity = re.compile(r"^- (PR (?:base|head) ref/SHA): `(.*)` / `(.*)`$")
+    for line in lines[1:]:
+        match = workflow.fullmatch(line)
+        if match:
+            key, value = "workflow run", f"{match.group(1)} attempt {match.group(2)}"
+        else:
+            match = pr_identity.fullmatch(line)
+            if match:
+                key, value = match.group(1), f"{match.group(2)} / {match.group(3)}"
+            else:
+                match = ordinary.fullmatch(line)
+                _require(match is not None, f"{kind} metadata line is malformed: {line!r}")
+                assert match is not None
+                key, value = match.group(1), match.group(2)
+        _require(key not in fields, f"{kind} metadata field is duplicated: {key}")
+        fields[key] = value
+    return fields
+
+
+def _validate_metadata(
+    path: Path,
+    *,
+    kind: str,
+    expected: Mapping[str, str],
+    run_id: str,
+    attempt: str,
+) -> None:
+    fields = _parse_metadata(path, kind=kind)
+    expected_fields = dict(expected)
+    expected_fields["workflow run"] = f"{run_id} attempt {attempt}"
+    for field, value in expected_fields.items():
+        _require(fields.get(field) == value, f"{kind} metadata {field} mismatch")
+    for field in ("event", "ref", "Python", "uv", "runner"):
+        _require(bool(fields.get(field)), f"{kind} metadata {field} is missing or empty")
+
+
+def _validate_git_status(path: Path, *, head_sha: str) -> None:
+    lines = _read_required_text(path, "git status evidence").splitlines()
+    fields: dict[str, str] = {}
+    for line in lines:
+        match = re.fullmatch(r"# branch\.([^ ]+) (.+)", line)
+        _require(match is not None, f"git status evidence is malformed or dirty: {line!r}")
+        assert match is not None
+        key, value = match.group(1), match.group(2)
+        _require(key not in fields, f"git status evidence field is duplicated: {key}")
+        fields[key] = value
+    _require(fields.get("oid") == head_sha, "git status evidence HEAD mismatch")
+    _require(bool(fields.get("head")), "git status evidence branch head is missing")
+
+
+def _validate_lock_digest(path: Path, *, lock_sha256: str) -> None:
+    text = _read_required_text(path, "lock digest evidence")
+    match = re.fullmatch(r"([0-9a-f]{64})  uv\.lock\n?", text)
+    _require(match is not None, "lock digest evidence is malformed")
+    assert match is not None
+    _require(match.group(1) == lock_sha256, "lock digest mismatch")
+
+
+def _path_name(value: str) -> str:
+    return value.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _parent_name(value: str) -> str:
+    normalized = value.replace("\\", "/").rstrip("/")
+    parts = normalized.split("/")
+    return parts[-2] if len(parts) >= 2 else ""
+
+
+def _validate_lane_command(
+    path: Path,
+    *,
+    lane_dir: Path,
+    expected: ExpectedProvenance,
+    run_id: str,
+    attempt: str,
+) -> None:
+    text = _read_required_text(path, f"lane {expected.lane} command evidence")
+    _require(len(text.splitlines()) == 1, f"lane {expected.lane} command evidence is malformed")
+    try:
+        tokens = shlex.split(text, posix=True)
+    except ValueError as error:
+        raise ContractError(f"lane {expected.lane} command evidence is malformed") from error
+    _require(len(tokens) >= 3, f"lane {expected.lane} command evidence is malformed")
+    _require(
+        re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", _path_name(tokens[0])) is not None,
+        f"lane {expected.lane} command Python executable is malformed",
+    )
+    _require(
+        tokens[1:3] == ["-m", "pytest"],
+        f"lane {expected.lane} command pytest invocation mismatch",
+    )
+    selection_end = 3 + len(expected.selected_paths)
+    _require(
+        tokens[3:selection_end] == list(expected.selected_paths),
+        f"lane {expected.lane} command selection mismatch",
+    )
+    options = tokens[selection_end:]
+    _require(len(options) >= 7, f"lane {expected.lane} command options are incomplete")
+    _require(
+        options[:2] == ["--durations=25", "--durations-min=1.0"],
+        f"lane {expected.lane} command timing contract mismatch",
+    )
+    expected_artifact_name = lane_dir.name
+    junit = options[2].removeprefix("--junitxml=")
+    basetemp = options[3].removeprefix("--basetemp=")
+    _require(options[2].startswith("--junitxml="), f"lane {expected.lane} command JUnit is missing")
+    _require(
+        _path_name(junit) == "junit.xml" and _parent_name(junit) == expected_artifact_name,
+        f"lane {expected.lane} command JUnit path mismatch",
+    )
+    _require(
+        options[3].startswith("--basetemp="),
+        f"lane {expected.lane} command basetemp is missing",
+    )
+    _require(
+        _path_name(basetemp) == f"pytest-{expected.lane}-{run_id}-{attempt}",
+        f"lane {expected.lane} command basetemp mismatch",
+    )
+    fixed = [
+        "-p",
+        "scripts.ci_lane_plugin",
+    ]
+    _require(options[4:6] == fixed, f"lane {expected.lane} command evidence plugin mismatch")
+    evidence = options[6].removeprefix("--ci-lane-evidence=")
+    _require(
+        options[6].startswith("--ci-lane-evidence=")
+        and _path_name(evidence) == "lane-evidence.json"
+        and _parent_name(evidence) == expected_artifact_name,
+        f"lane {expected.lane} command raw evidence path mismatch",
+    )
+    expected_tail = [
+        "--ci-lane-mode=run",
+        f"--ci-lane-name={expected.lane}",
+        f"--ci-platform={expected.platform}",
+        f"--ci-head-sha={expected.head_sha}",
+        f"--ci-tree-sha={expected.tree_sha}",
+        f"--ci-manifest-sha256={expected.manifest_sha256}",
+        f"--ci-selection-sha256={expected.selection_sha256}",
+        *(f"--ci-selected-path={selected}" for selected in expected.selected_paths),
+    ]
+    _require(options[7:] == expected_tail, f"lane {expected.lane} command provenance mismatch")
+
+
 def validate_gate_artifacts(
     artifacts_root: Path,
     *,
@@ -290,6 +482,7 @@ def validate_gate_artifacts(
     tree_sha: str,
     manifest_sha256: str,
     manifest: LaneManifest | None = None,
+    lock_sha256: str | None = None,
 ) -> dict[str, Any]:
     quality_dir = _one_directory(artifacts_root, "ci-quality-*", "missing quality artifact")
     summary_path = quality_dir / "collection-summary.json"
@@ -308,6 +501,7 @@ def validate_gate_artifacts(
     )
     platform = summary.get("platform", sys.platform)
     if manifest is not None:
+        _require(lock_sha256 is not None, "expected lock digest is required")
         _require(platform == sys.platform, "quality platform provenance mismatch")
         for required in (
             "metadata.md",
@@ -317,6 +511,27 @@ def validate_gate_artifacts(
             "reference-collection.log",
         ):
             _require((quality_dir / required).is_file(), f"missing quality report: {required}")
+        quality_run, quality_attempt = _artifact_coordinates(
+            quality_dir,
+            r"ci-quality-(?P<run>\d+)-(?P<attempt>\d+)",
+            "quality",
+        )
+        _validate_metadata(
+            quality_dir / "metadata.md",
+            kind="quality",
+            expected={
+                "event SHA": head_sha,
+                "checked-out HEAD": head_sha,
+                "checked-out tree": tree_sha,
+                "manifest": "ci/test-lanes.json",
+                "manifest SHA-256": manifest_sha256,
+                "lockfile SHA-256": lock_sha256,
+            },
+            run_id=quality_run,
+            attempt=quality_attempt,
+        )
+        _validate_git_status(quality_dir / "git-status.txt", head_sha=head_sha)
+        _validate_lock_digest(quality_dir / "uv-lock.sha256", lock_sha256=lock_sha256)
         reference_expected = ExpectedProvenance(
             lane="reference",
             platform=platform,
@@ -387,6 +602,18 @@ def validate_gate_artifacts(
             _require(verified.get(field) == expected, f"lane {lane} {field} provenance mismatch")
         expected_nodeids = lanes[lane].get("nodeids", [])
         actual_nodeids = verified.get("nodeids", verified.get("collected_nodeids", []))
+        _require(
+            isinstance(expected_nodeids, list)
+            and expected_nodeids
+            and all(isinstance(nodeid, str) and nodeid for nodeid in expected_nodeids),
+            f"quality lane {lane} inventory is missing or malformed",
+        )
+        _require(
+            isinstance(actual_nodeids, list)
+            and actual_nodeids
+            and all(isinstance(nodeid, str) and nodeid for nodeid in actual_nodeids),
+            f"lane {lane} verified inventory is missing or malformed",
+        )
         missing, extra = _counter_delta(Counter(expected_nodeids), Counter(actual_nodeids))
         _require(
             not missing and not extra,
@@ -423,6 +650,15 @@ def validate_gate_artifacts(
                     (lane_dir / required).is_file(),
                     f"missing lane {lane} report: {required}",
                 )
+            lane_run, lane_attempt = _artifact_coordinates(
+                lane_dir,
+                rf"ci-lane-{re.escape(lane)}-(?P<run>\d+)-(?P<attempt>\d+)",
+                f"lane {lane}",
+            )
+            _require(
+                (lane_run, lane_attempt) == (quality_run, quality_attempt),
+                f"lane {lane} artifact run/attempt mismatch",
+            )
             expected = ExpectedProvenance(
                 lane=lane,
                 platform=platform,
@@ -432,9 +668,46 @@ def validate_gate_artifacts(
                 selection_sha256=selection_sha,
                 selected_paths=selected_paths,
             )
+            assert lock_sha256 is not None
+            _validate_metadata(
+                lane_dir / "metadata.md",
+                kind="lane",
+                expected={
+                    "lane": lane,
+                    "event SHA": head_sha,
+                    "checked-out HEAD": head_sha,
+                    "checked-out tree": tree_sha,
+                    "manifest": "ci/test-lanes.json",
+                    "manifest SHA-256": manifest_sha256,
+                    "selection SHA-256": selection_sha,
+                    "lockfile SHA-256": lock_sha256,
+                },
+                run_id=lane_run,
+                attempt=lane_attempt,
+            )
+            _validate_git_status(lane_dir / "git-status.txt", head_sha=head_sha)
+            _validate_lock_digest(lane_dir / "uv-lock.sha256", lock_sha256=lock_sha256)
+            _validate_lane_command(
+                lane_dir / "command.txt",
+                lane_dir=lane_dir,
+                expected=expected,
+                run_id=lane_run,
+                attempt=lane_attempt,
+            )
             raw_payload = _load_json(lane_dir / "lane-evidence.json")
             counts = validate_lane_payload(
                 raw_payload, expected, allowed_skips=manifest.allowed_skips
+            )
+            raw_nodeids = raw_payload["collected_nodeids"]
+            missing, extra = _counter_delta(Counter(expected_nodeids), Counter(raw_nodeids))
+            _require(
+                not missing and not extra,
+                f"lane {lane} raw inventory mismatch quality: missing={missing}; extra={extra}",
+            )
+            missing, extra = _counter_delta(Counter(actual_nodeids), Counter(raw_nodeids))
+            _require(
+                not missing and not extra,
+                f"lane {lane} raw inventory mismatch verified: missing={missing}; extra={extra}",
             )
             _require(
                 counts == verified.get("counts"),
@@ -753,6 +1026,7 @@ def main() -> int:
                 tree_sha=args.tree_sha,
                 manifest_sha256=manifest.sha256,
                 manifest=manifest,
+                lock_sha256=_sha256_bytes((repo_root / "uv.lock").read_bytes()),
             )
             total = len(result["quality"]["reference_nodeids"])
             print(f"checks PASS: {total} exact nodeids reconciled across all mandatory jobs")

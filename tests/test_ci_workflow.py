@@ -63,6 +63,8 @@ def test_lane_artifacts_keep_timing_junit_metadata_and_distinct_provenance():
     assert "ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}" in test
     assert "if-no-files-found: error" in test
     assert "retention-days: 14" in test
+    assert "git status --porcelain=v2 --branch --untracked-files=all" in test
+    assert "selection SHA-256" in test
 
 
 def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():

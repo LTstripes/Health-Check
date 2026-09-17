@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           quality_dir="$RUNNER_TEMP/ci-quality-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          git_status="$(git status --short --branch)"
+          git_status="$(git status --porcelain=v2 --branch --untracked-files=all)"
           mkdir -p "$quality_dir"
           {
             echo "# CI quality identity"
@@ -110,7 +110,8 @@ jobs:
         run: |
           set -euo pipefail
           lane_dir="$RUNNER_TEMP/ci-lane-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          git_status="$(git status --short --branch)"
+          git_status="$(git status --porcelain=v2 --branch --untracked-files=all)"
+          selection_sha="$(python scripts/ci_test_lanes.py paths --lane "$LANE" | sha256sum | cut -d ' ' -f 1)"
           mkdir -p "$lane_dir"
           {
             echo "# CI lane identity"
@@ -125,6 +126,7 @@ jobs:
             printf '%s\n' "- workflow run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`"
             printf '%s\n' "- manifest: \`ci/test-lanes.json\`"
             printf '%s\n' "- manifest SHA-256: \`$(sha256sum ci/test-lanes.json | cut -d ' ' -f 1)\`"
+            printf '%s\n' "- selection SHA-256: \`$selection_sha\`"
             printf '%s\n' "- lockfile SHA-256: \`$(sha256sum uv.lock | cut -d ' ' -f 1)\`"
             printf '%s\n' "- Python: \`$(python --version 2>&1)\`"
             printf '%s\n' "- uv: \`$(uv --version)\`"
