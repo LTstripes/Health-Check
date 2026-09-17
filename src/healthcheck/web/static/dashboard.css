@@ -78,6 +78,7 @@ button:disabled { background: #8aa8a7; cursor: not-allowed; }
 .provenance { white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
 .preview li { margin: 0.25rem 0; }
 .error-card { border-left: 6px solid var(--alert); }
+.brief-empty-state { border-left: 6px solid var(--warn); background: #fff3df; }
 .agreement-banner { border-left: 6px solid var(--accent); }
 .agreement-groups { display: grid; gap: 1rem; }
 .agreement-group header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }

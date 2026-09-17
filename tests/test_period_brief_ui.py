@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from healthcheck.config import Settings
@@ -30,15 +31,39 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_
         home = client.get("/")
 
     assert page.status_code == 200
-    assert "Period Brief" in page.text
+    assert "Сводка за период" in page.text
     assert f"{start.isoformat()} → {end.isoformat()}" in page.text
     assert 'href="/brief"' in home.text
-    assert "No Garmin source" in page.text
-    assert "unavailable" in page.text
+    assert "Источник Garmin" in page.text
+    assert "За выбранный период нет доступных данных" in page.text
+    assert "Данных за период для сводки пока нет" in page.text
+    assert 'name="garmin_source_id" value=""' in page.text
+    primary = page.text.split("Технические детали", 1)[0]
+    assert "weight_rate_kg_per_week" not in primary
+    assert "sleep_agreement_mode" not in primary
+    assert "activity_comparison_state" not in primary
+    assert "weight_rate_kg_per_week" in page.text
     assert "period-brief-v1" in page.text
     assert "Traceback" not in page.text
     assert "SELECT " not in page.text
     assert "password" not in page.text.lower()
+
+
+@pytest.mark.parametrize(
+    ("state", "label"),
+    [
+        ("present", "Данные доступны"),
+        ("confirmed_empty", "За период записей нет"),
+        ("unknown", "Состояние данных не определено"),
+        ("unavailable", "Источник данных недоступен"),
+        ("insufficient", "Недостаточно данных"),
+        ("not_requested", "Не запрашивалось"),
+    ],
+)
+def test_period_brief_owner_state_labels_remain_distinct(state, label):
+    from healthcheck.web.pages import _brief_owner_state
+
+    assert _brief_owner_state(state) == label
 
 
 def test_period_brief_page_supports_presets_and_custom_period(tmp_path):
