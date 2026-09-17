@@ -195,7 +195,7 @@ def _complete_gate_fixture(
     lock_sha = "e" * 64
     run_id = "123"
     attempt = "1"
-    platform = sys.platform
+    platform = "linux"
     nodeids = {lane: [f"{path}::test_synthetic"] for lane, path in zip(LANES, paths, strict=True)}
 
     quality = artifacts / f"ci-quality-{run_id}-{attempt}"
@@ -407,6 +407,21 @@ def test_manifest_rejects_assignment_gaps_overlap_stale_and_empty(tmp_path, fail
         validate_manifest(_manifest(tmp_path, lanes), tmp_path)
 
 
+@pytest.mark.parametrize("schema_version", (True, "1", 1.0, 2, None))
+def test_manifest_requires_strict_integer_schema_v1(tmp_path, schema_version):
+    paths = [_write_test(tmp_path, f"test_{name}.py") for name in ("a", "b", "c")]
+    manifest_path = _manifest(
+        tmp_path,
+        {lane: [path] for lane, path in zip(LANES, paths, strict=True)},
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = schema_version
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="schema_version must be integer 1"):
+        validate_manifest(manifest_path, tmp_path)
+
+
 def test_collection_reconciliation_rejects_count_preserving_substitution():
     reference = [
         "tests/test_a.py::test_one",
@@ -432,6 +447,15 @@ def test_lane_evidence_rejects_wrong_sha_tree_or_selection(field, value):
     payload[field] = value
 
     with pytest.raises(ContractError, match=field):
+        validate_lane_payload(payload, _expected(), allowed_skips=())
+
+
+@pytest.mark.parametrize("schema_version", (True, "1", 1.0, 2, None))
+def test_lane_evidence_requires_strict_integer_schema_v1(schema_version):
+    payload = _valid_lane_payload()
+    payload["schema_version"] = schema_version
+
+    with pytest.raises(ContractError, match="schema_version must be integer 1"):
         validate_lane_payload(payload, _expected(), allowed_skips=())
 
 
@@ -530,6 +554,7 @@ def test_gate_rejects_missing_or_mismatched_artifacts(tmp_path):
             tree_sha="b" * 40,
             manifest_sha256="c" * 64,
             workflow_identity=_push_identity(),
+            expected_platform="linux",
         )
 
     for lane in LANES:
@@ -558,6 +583,7 @@ def test_gate_rejects_missing_or_mismatched_artifacts(tmp_path):
             tree_sha="b" * 40,
             manifest_sha256="c" * 64,
             workflow_identity=_push_identity(),
+            expected_platform="linux",
         )
 
 
@@ -600,6 +626,7 @@ def test_final_gate_rejects_same_count_raw_lane_inventory_substitution(tmp_path)
             manifest=manifest,
             lock_sha256=lock_sha,
             workflow_identity=_push_identity(),
+            expected_platform="linux",
         )
 
 
@@ -614,6 +641,7 @@ def test_final_gate_accepts_complete_bound_artifacts(tmp_path):
         manifest=manifest,
         lock_sha256=lock_sha,
         workflow_identity=_push_identity(),
+        expected_platform="linux",
     )
 
     assert result["quality"]["reference_nodeids"] == [
@@ -621,6 +649,22 @@ def test_final_gate_accepts_complete_bound_artifacts(tmp_path):
         "tests/test_b.py::test_synthetic",
         "tests/test_c.py::test_synthetic",
     ]
+
+
+def test_final_gate_requires_linux_as_the_explicit_expected_platform(tmp_path):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+
+    with pytest.raises(ContractError, match="platform must be linux"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="win32",
+        )
 
 
 def test_final_gate_accepts_exact_pull_request_identity(tmp_path):
@@ -637,6 +681,7 @@ def test_final_gate_accepts_exact_pull_request_identity(tmp_path):
         manifest=manifest,
         lock_sha256=lock_sha,
         workflow_identity=identity,
+        expected_platform="linux",
     )
 
     assert len(result["quality"]["reference_nodeids"]) == 3
@@ -664,6 +709,7 @@ def test_final_gate_rejects_incoherent_expected_workflow_identity(tmp_path, iden
             manifest=manifest,
             lock_sha256=lock_sha,
             workflow_identity=identity,
+            expected_platform="linux",
         )
 
 
@@ -687,6 +733,7 @@ def test_final_gate_rejects_wrong_pull_request_base_head_identity(tmp_path):
             manifest=manifest,
             lock_sha256=lock_sha,
             workflow_identity=identity,
+            expected_platform="linux",
         )
 
 
@@ -738,11 +785,21 @@ def test_final_gate_rejects_partial_wrong_or_cross_artifact_workflow_identity(
             manifest=manifest,
             lock_sha256=lock_sha,
             workflow_identity=_push_identity(),
+            expected_platform="linux",
         )
 
 
 @pytest.mark.parametrize(
-    "mutation", ("missing_schema", "wrong_schema", "missing_lane", "extra_lane")
+    "mutation",
+    (
+        "missing_schema",
+        "true_schema",
+        "string_schema",
+        "float_schema",
+        "wrong_schema",
+        "missing_lane",
+        "extra_lane",
+    ),
 )
 def test_final_gate_rejects_malformed_quality_summary_shape(tmp_path, mutation):
     artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
@@ -750,6 +807,12 @@ def test_final_gate_rejects_malformed_quality_summary_shape(tmp_path, mutation):
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     if mutation == "missing_schema":
         summary.pop("schema_version")
+    elif mutation == "true_schema":
+        summary["schema_version"] = True
+    elif mutation == "string_schema":
+        summary["schema_version"] = "1"
+    elif mutation == "float_schema":
+        summary["schema_version"] = 1.0
     elif mutation == "wrong_schema":
         summary["schema_version"] = 2
     elif mutation == "missing_lane":
@@ -767,6 +830,75 @@ def test_final_gate_rejects_malformed_quality_summary_shape(tmp_path, mutation):
             manifest=manifest,
             lock_sha256=lock_sha,
             workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "ci-quality-123-1/reference.json",
+        "ci-quality-123-1/garmin-collection.json",
+        "ci-lane-garmin-123-1/lane-evidence.json",
+        "ci-lane-garmin-123-1/verified.json",
+    ),
+)
+def test_final_gate_rejects_boolean_schema_at_every_evidence_boundary(
+    tmp_path, relative_path
+):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    evidence_path = artifacts / relative_path
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = True
+    evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="schema_version must be integer 1"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "value", "remove"),
+    (
+        ("ci-quality-123-1/collection-summary.json", None, True),
+        ("ci-quality-123-1/collection-summary.json", True, False),
+        ("ci-quality-123-1/collection-summary.json", "win32", False),
+        ("ci-quality-123-1/reference.json", True, False),
+        ("ci-quality-123-1/garmin-collection.json", "win32", False),
+        ("ci-lane-garmin-123-1/lane-evidence.json", "win32", False),
+        ("ci-lane-garmin-123-1/verified.json", True, False),
+    ),
+)
+def test_final_gate_rejects_missing_wrong_or_boolean_platform(
+    tmp_path, relative_path, value, remove
+):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    evidence_path = artifacts / relative_path
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if remove:
+        payload.pop("platform")
+    else:
+        payload["platform"] = value
+    evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="platform"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
         )
 
 
@@ -786,6 +918,7 @@ def test_final_gate_validation_is_byte_for_byte_read_only(tmp_path):
         manifest=manifest,
         lock_sha256=lock_sha,
         workflow_identity=_push_identity(),
+        expected_platform="linux",
     )
 
     after = {
@@ -951,4 +1084,5 @@ def test_final_gate_rejects_missing_empty_malformed_or_wrong_retained_identity(
             manifest=manifest,
             lock_sha256=lock_sha,
             workflow_identity=_push_identity(),
+            expected_platform="linux",
         )

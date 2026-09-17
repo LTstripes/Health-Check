@@ -56,6 +56,13 @@ def _require(condition: bool, message: str) -> None:
         raise ContractError(message)
 
 
+def _require_schema_v1(value: Any, label: str) -> None:
+    _require(
+        type(value) is int and value == 1,
+        f"{label} schema_version must be integer 1",
+    )
+
+
 def _sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
@@ -90,7 +97,7 @@ def validate_manifest(path: Path, repo_root: Path) -> LaneManifest:
     _require(bool(raw_bytes), f"lane manifest is missing or empty: {path}")
     payload = _load_json(path)
     _require(isinstance(payload, dict), "lane manifest root must be an object")
-    _require(payload.get("schema_version") == 1, "unsupported lane manifest schema")
+    _require_schema_v1(payload.get("schema_version"), "lane manifest")
     lanes_raw = payload.get("lanes")
     _require(isinstance(lanes_raw, dict), "lane manifest lanes must be an object")
     _require(set(lanes_raw) == set(LANE_NAMES), "lane manifest must define exactly three lanes")
@@ -255,7 +262,7 @@ def _validate_provenance(payload: Mapping[str, Any], expected: ExpectedProvenanc
 def _validate_collection_payload(
     payload: Mapping[str, Any], expected: ExpectedProvenance
 ) -> list[str]:
-    _require(payload.get("schema_version") == 1, "unsupported collection evidence schema")
+    _require_schema_v1(payload.get("schema_version"), "collection evidence")
     _require(payload.get("mode") == "collect", "collection evidence mode mismatch")
     _validate_provenance(payload, expected)
     _require(payload.get("collection_complete") is True, "collection did not complete")
@@ -278,7 +285,7 @@ def validate_lane_payload(
     *,
     allowed_skips: Iterable[Mapping[str, str]],
 ) -> dict[str, int]:
-    _require(payload.get("schema_version") == 1, "unsupported lane evidence schema")
+    _require_schema_v1(payload.get("schema_version"), "lane evidence")
     _require(payload.get("mode") == "run", "lane evidence mode mismatch")
     _validate_provenance(payload, expected)
     _require(payload.get("collection_complete") is True, "lane collection did not complete")
@@ -558,18 +565,17 @@ def validate_gate_artifacts(
     tree_sha: str,
     manifest_sha256: str,
     workflow_identity: ExpectedWorkflowIdentity,
+    expected_platform: str,
     manifest: LaneManifest | None = None,
     lock_sha256: str | None = None,
 ) -> dict[str, Any]:
     _validate_workflow_identity(workflow_identity)
+    _require(expected_platform == "linux", "GitHub workflow gate platform must be linux")
     quality_dir = _one_directory(artifacts_root, "ci-quality-*", "missing quality artifact")
     summary_path = quality_dir / "collection-summary.json"
     summary = _load_json(summary_path)
     _require(isinstance(summary, dict), "quality collection summary is malformed")
-    _require(
-        summary.get("schema_version") == 1,
-        "quality collection summary schema is missing or unsupported",
-    )
+    _require_schema_v1(summary.get("schema_version"), "quality collection summary")
     for field, expected in (
         ("head_sha", head_sha),
         ("tree_sha", tree_sha),
@@ -586,10 +592,14 @@ def validate_gate_artifacts(
         set(lanes) == set(LANE_NAMES),
         "quality collection summary must contain exactly the three mandatory lanes",
     )
-    platform = summary.get("platform", sys.platform)
+    platform = summary.get("platform")
+    _require(
+        isinstance(platform, str) and bool(platform),
+        "quality collection summary platform is missing or malformed",
+    )
+    _require(platform == expected_platform, "quality collection summary platform mismatch")
     if manifest is not None:
         _require(lock_sha256 is not None, "expected lock digest is required")
-        _require(platform == sys.platform, "quality platform provenance mismatch")
         for required in (
             "metadata.md",
             "git-status.txt",
@@ -678,8 +688,9 @@ def validate_gate_artifacts(
             artifacts_root, f"ci-lane-{lane}-*", f"missing lane artifact for {lane}"
         )
         verified = _load_json(lane_dir / "verified.json")
+        _require(isinstance(verified, dict), f"lane {lane} verified evidence is malformed")
+        _require_schema_v1(verified.get("schema_version"), f"lane {lane} verified evidence")
         for field, expected in (
-            ("schema_version", 1),
             ("status", "verified"),
             ("lane", lane),
             ("platform", platform),
@@ -1107,6 +1118,7 @@ def main() -> int:
     gate_parser.add_argument("--pr-base-sha", required=True)
     gate_parser.add_argument("--pr-head-ref", required=True)
     gate_parser.add_argument("--pr-head-sha", required=True)
+    gate_parser.add_argument("--expected-platform", required=True)
     args = parser.parse_args()
 
     repo_root = _repo_root()
@@ -1149,6 +1161,7 @@ def main() -> int:
                     pr_head_ref=args.pr_head_ref,
                     pr_head_sha=args.pr_head_sha,
                 ),
+                expected_platform=args.expected_platform,
                 manifest=manifest,
                 lock_sha256=_sha256_bytes((repo_root / "uv.lock").read_bytes()),
             )

@@ -93,6 +93,7 @@ def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
     assert '--pr-base-sha "$EXPECTED_PR_BASE_SHA"' in checks
     assert '--pr-head-ref "$EXPECTED_PR_HEAD_REF"' in checks
     assert '--pr-head-sha "$EXPECTED_PR_HEAD_SHA"' in checks
+    assert "--expected-platform linux" in checks
 
 
 def test_workflow_has_no_per_candidate_fourth_serial_suite():

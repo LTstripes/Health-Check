@@ -228,4 +228,5 @@ jobs:
             --pr-base-ref "$EXPECTED_PR_BASE_REF" \
             --pr-base-sha "$EXPECTED_PR_BASE_SHA" \
             --pr-head-ref "$EXPECTED_PR_HEAD_REF" \
-            --pr-head-sha "$EXPECTED_PR_HEAD_SHA"
+            --pr-head-sha "$EXPECTED_PR_HEAD_SHA" \
+            --expected-platform linux
