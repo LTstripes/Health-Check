@@ -72,6 +72,7 @@
 {% set activity = brief.sections.activity %}
 {% set quality = brief.sections.data_quality %}
 {% set sleep_uncertainty = brief_sleep_uncertainty(sleep.groups) %}
+{% set coverage_warning = brief_coverage_warning(brief) %}
 {% set notable_changes = brief_notable_changes(brief.notable_changes) %}
 
 <section class="card brief-overview" aria-labelledby="brief-overview-heading">
@@ -96,11 +97,11 @@
   {% if brief.owner_actions %}<ul>{% for action in brief.owner_actions %}<li>{{ brief_owner_action(action) }}{% if action.code == "confirm_pending_imports" %} <a href="/imports">Открыть очередь импорта</a>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Дополнительных действий по этой сводке нет.</p>{% endif %}
 </section>
 
-{% if sleep_uncertainty or quality.state != "present" %}
+{% if sleep_uncertainty or coverage_warning %}
 <section class="card brief-confidence" role="note" aria-labelledby="brief-confidence-heading">
   <h2 id="brief-confidence-heading">Уверенность и покрытие</h2>
   {% if sleep_uncertainty %}<p class="uncertainty-note">{{ sleep_uncertainty }}</p>{% endif %}
-  {% if quality.state != "present" %}<p class="muted">Полнота данных: {{ brief_owner_state(quality.state) }}.</p>{% endif %}
+  {% if coverage_warning %}<p class="muted">{{ coverage_warning }}</p>{% endif %}
 </section>
 {% endif %}
 

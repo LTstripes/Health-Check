@@ -177,6 +177,36 @@ def _brief_sleep_uncertainty(groups: object) -> str | None:
     return None
 
 
+def _brief_coverage_warning(brief: object) -> str | None:
+    """Summarize relevant coverage warnings without changing packet states."""
+
+    if not isinstance(brief, Mapping):
+        return None
+    sections = brief.get("sections")
+    if not isinstance(sections, Mapping):
+        return None
+    warnings: list[str] = []
+    for name in ("weight", "sleep", "activity"):
+        section = sections.get(name)
+        if not isinstance(section, Mapping):
+            continue
+        state = str(section.get("state") or "unknown")
+        if state in {"unknown", "unavailable", "insufficient"}:
+            warnings.append(f"{name}: {_brief_owner_state(state)}")
+    quality = sections.get("data_quality")
+    coverage = quality.get("coverage") if isinstance(quality, Mapping) else None
+    for provider in (coverage or {}).get("provider_states") or []:
+        if not isinstance(provider, Mapping):
+            continue
+        state = str(provider.get("state") or "unknown")
+        if state in {"unknown", "unavailable", "insufficient"}:
+            warnings.append(f"Источник: {_brief_owner_state(state)}")
+    sparse_note = (coverage or {}).get("weight_sparse_note")
+    if sparse_note:
+        warnings.append(str(sparse_note))
+    return " · ".join(dict.fromkeys(warnings)) or None
+
+
 def _brief_notable_changes(notes: object) -> list[dict[str, Any]]:
     """Deduplicate and order packet notices for the owner-facing summary only."""
 
@@ -432,6 +462,7 @@ def period_brief_page(
             "brief_owner_uncertainty": _brief_owner_uncertainty,
             "brief_owner_value": _brief_owner_value,
             "brief_notable_changes": _brief_notable_changes,
+            "brief_coverage_warning": _brief_coverage_warning,
             "brief_sleep_uncertainty": _brief_sleep_uncertainty,
             "brief_source_label": _brief_source_label,
             "page": "brief",
