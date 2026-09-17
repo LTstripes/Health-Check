@@ -71,6 +71,7 @@ def test_windows_smoke_is_focused_and_is_required_by_the_final_gate():
     assert "runs-on: windows-latest" in windows
     assert "shell: pwsh" in windows
     assert "scripts/ci_windows_smoke.ps1" in windows
+    assert "tests/test_ci_windows_process.ps1" in windows
     smoke_script = (Path(__file__).parents[1] / "scripts" / "ci_windows_smoke.ps1").read_text(
         encoding="utf-8"
     )
@@ -152,6 +153,7 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
         "terminated_process_ids": [102, 101],
         "remaining_owned_process_ids": [],
         "identity_changed_process_ids": [],
+        "errors": [],
     }
     evidence = {
         "schema_version": 1,

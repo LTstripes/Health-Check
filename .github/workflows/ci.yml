@@ -199,6 +199,11 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - name: Run Windows process traversal regression
+        shell: pwsh
+        run: >-
+          pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
+          -File tests/test_ci_windows_process.ps1
       - name: Run focused Windows smoke
         shell: pwsh
         env:
