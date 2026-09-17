@@ -14,7 +14,7 @@ _DURATION_RE = re.compile(
 _COLLECTED_RE = re.compile(r"^\s*collected\s+(?P<count>\d+)\s+items?\b")
 _OUTCOME_RE = re.compile(r"\b(?P<count>\d+)\s+(?P<kind>failed|passed|skipped|errors?)\b")
 _DURATION_SUFFIX_RE = re.compile(
-    r"\bin\s+(?P<seconds>\d+(?:\.\d+)?)s(?:\s|=)*$"
+    r"\bin\s+(?P<seconds>\d+(?:\.\d+)?)s\b"
 )
 _STATUS_RE = re.compile(r"^pytest_exit_status=(?P<status>\d+)$")
 

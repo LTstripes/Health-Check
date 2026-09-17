@@ -64,7 +64,7 @@ def test_summary_retains_setup_call_and_teardown_attribution(tmp_path):
         "1.20s setup tests/test_one.py::test_one\n"
         "0.80s call tests/test_one.py::test_one\n"
         "0.10s teardown tests/test_one.py::test_one\n"
-        "================ 1 passed, 1 skipped in 2.0s ================\n",
+        "================ 1 passed, 1 skipped in 2.0s (0:00:02) ================\n",
         encoding="utf-8",
     )
 
