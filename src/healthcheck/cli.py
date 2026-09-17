@@ -12,6 +12,13 @@ from pathlib import Path
 import uvicorn
 from sqlalchemy.exc import SQLAlchemyError
 
+from healthcheck.analytics.sleep_agreement import PersistedSleepAgreementService
+from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
+from healthcheck.analytics.sleep_metrics import read_persisted_sleep_metric_projection
+from healthcheck.analytics.sleep_pairing import (
+    ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+    SleepPairingQuery,
+)
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
     create_session_factory,
@@ -89,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
             "owner-refresh",
             "google-diagnose-terminal",
             "period-brief",
+            "sleep-agreement-build",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -117,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input")
     parser.add_argument("--family")
     parser.add_argument("--query-mode")
+    parser.add_argument(
+        "--cohort",
+        default=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+        help="sleep pairing cohort (default: account_wearables_sleep_observations_v1)",
+    )
     return parser
 
 
@@ -194,6 +207,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_redact(args)
     if args.command == "period-brief":
         return _run_period_brief(args)
+    if args.command == "sleep-agreement-build":
+        return _run_sleep_agreement_build(args, _settings(args))
 
     settings = _settings(args)
     if args.command == "garmin-auth":
@@ -874,6 +889,118 @@ def _run_period_brief(args: argparse.Namespace) -> int:
     print(packet_json)
     print(text, end="")
     return 0
+
+
+def _sleep_agreement_build_error_payload(error_code: str, error_class: str) -> dict[str, object]:
+    return {
+        "contract_version": "r05-06-sleep-agreement-build-v1",
+        "operation": "sleep-agreement-build",
+        "status": "failed",
+        "error": {
+            "error_class": error_class,
+            "error_code": error_code,
+            "http_status": None,
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+        },
+    }
+
+
+def _sleep_agreement_scope_key(query: SleepPairingQuery) -> str:
+    """Build a stable, non-secret persistence identity from explicit command inputs."""
+
+    return (
+        "r05-sleep-agreement-build:"
+        f"{query.cohort}:{query.start_date.isoformat()}:{query.end_date.isoformat()}"
+    )
+
+
+def _run_sleep_agreement_build(args: argparse.Namespace, settings: Settings) -> int:
+    engine = None
+    try:
+        if not args.start or not args.end:
+            raise ValueError("sleep-agreement-build requires --start and --end")
+        start_date = date.fromisoformat(args.start)
+        end_date = date.fromisoformat(args.end)
+        query = SleepPairingQuery(
+            start_date=start_date,
+            end_date=end_date,
+            cohort=args.cohort,
+        )
+        paths = prepare_runtime(settings)
+        if not paths.database.exists():
+            raise ValueError("sleep-agreement-build requires an existing migrated profile")
+        engine = create_sqlite_engine(paths)
+        scope_key = _sleep_agreement_scope_key(query)
+        with session_scope(engine) as session:
+            projection = read_persisted_sleep_metric_projection(session, query)
+            persisted = PersistedSleepAgreementService(session).persist(
+                projection,
+                scope_key=scope_key,
+            )
+            report = SleepAgreementReportService(session).report(
+                start_date=start_date,
+                end_date=end_date,
+                cohort=query.cohort,
+                run_id=persisted.id,
+            )
+            if not report.get("runs"):
+                raise ValueError("sleep-agreement-build could not verify persisted report")
+    except (OSError, SQLAlchemyError, ValueError) as exc:
+        error_code = "invalid_build_request" if isinstance(exc, ValueError) else "build_unavailable"
+        error_class = "input" if isinstance(exc, ValueError) else "runtime"
+        print(
+            json.dumps(
+                _sleep_agreement_build_error_payload(error_code, error_class), sort_keys=True
+            )
+        )
+        return 2
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+    mode = report["mode"]
+    status = (
+        "succeeded"
+        if mode == "exploratory"
+        else "insufficient"
+        if mode == "accumulating"
+        else "unavailable"
+    )
+    payload = {
+        "contract_version": "r05-06-sleep-agreement-build-v1",
+        "operation": "sleep-agreement-build",
+        "status": status,
+        "created": persisted.created,
+        "run_status": persisted.status,
+        "cohort": query.cohort,
+        "window": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+        "pair_count": persisted.run.pair_count,
+        "exclusion_count": persisted.run.exclusion_count,
+        "metric_count": persisted.run.metric_count,
+        "coverage_count": persisted.run.coverage_count,
+        "exploratory_only": query.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+        "canonical_eligible": False
+        if query.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+        else None,
+        "report_verification": {
+            "status": "verified",
+            "contract_version": report["contract_version"],
+            "mode": mode,
+            "available": report["available"],
+            "group_count": len(report["groups"]),
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+        },
+    }
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if status == "succeeded" else 1
 
 
 if __name__ == "__main__":
