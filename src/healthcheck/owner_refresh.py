@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from healthcheck.config import Settings
+from healthcheck.db.engine import database_readiness
 from healthcheck.garmin.auth import GarminAuthService
 from healthcheck.garmin.sync import (
     GarminIncrementalSync,
@@ -19,6 +23,7 @@ from healthcheck.garmin.sync import (
 )
 from healthcheck.google.auth import GoogleAuthService
 from healthcheck.google.sync import GoogleSyncReport, GoogleSyncStatus, run_google_refresh
+from healthcheck.runtime import RuntimePaths, resolve_runtime_paths
 
 OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
 
@@ -30,6 +35,82 @@ class OwnerRefreshStatus(StrEnum):
     PARTIAL = "partial"
     FAILED = "failed"
     REAUTH_REQUIRED = "reauth_required"
+
+
+class OwnerRefreshRuntimeError(ValueError):
+    """The requested path is not an already-established Health-Check runtime."""
+
+    def __init__(self, error_code: str) -> None:
+        super().__init__(error_code)
+        self.error_code = error_code
+
+
+class OwnerRefreshBusyError(RuntimeError):
+    """Another owner refresh currently holds the same-profile lock."""
+
+
+class OwnerRefreshLock:
+    """Non-blocking process lock for one established external runtime profile."""
+
+    def __init__(self, paths: RuntimePaths) -> None:
+        self.path = paths.root / ".owner-refresh.lock"
+        self._handle = None
+
+    def __enter__(self) -> OwnerRefreshLock:
+        try:
+            self._handle = self.path.open("a+b")
+        except OSError as exc:
+            raise OwnerRefreshRuntimeError("runtime_lock_unavailable") from exc
+
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                self._handle.seek(0)
+                msvcrt.locking(self._handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (ImportError, OSError) as exc:
+            self._handle.close()
+            self._handle = None
+            raise OwnerRefreshBusyError from exc
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+        if self._handle is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                self._handle.seek(0)
+                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._handle.close()
+            self._handle = None
+
+
+def require_established_runtime(settings: Settings) -> RuntimePaths:
+    """Validate an existing profile without creating any runtime paths."""
+
+    paths = resolve_runtime_paths(settings)
+    if not paths.root.is_dir():
+        raise OwnerRefreshRuntimeError("runtime_missing")
+    if not paths.config.is_file() or not paths.database.is_file():
+        raise OwnerRefreshRuntimeError("runtime_not_established")
+    try:
+        readiness = database_readiness(paths)
+    except (OSError, SQLAlchemyError) as exc:
+        raise OwnerRefreshRuntimeError("runtime_not_established") from exc
+    if not readiness["ready"]:
+        raise OwnerRefreshRuntimeError("runtime_not_established")
+    return paths
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,27 +193,29 @@ def run_owner_refresh(
     window, while retaining its own refresh/checkpoint semantics.
     """
 
+    paths = require_established_runtime(settings)
     as_of_date = validate_sync_date(as_of)
     window_days = validate_trailing_window_days(trailing_window_days)
     window_start, window_end = compute_sync_window(as_of_date, window_days)
 
-    garmin_auth = GarminAuthService(settings, is_cn=is_cn)
-    garmin_client, garmin_auth_result = garmin_auth.load_existing()
-    garmin = GarminIncrementalSync(
-        settings,
-        client=garmin_client,
-        auth_result=garmin_auth_result,
-    ).run(as_of=as_of_date, trailing_window_days=window_days)
+    with OwnerRefreshLock(paths):
+        garmin_auth = GarminAuthService(settings, is_cn=is_cn)
+        garmin_client, garmin_auth_result = garmin_auth.load_existing()
+        garmin = GarminIncrementalSync(
+            settings,
+            client=garmin_client,
+            auth_result=garmin_auth_result,
+        ).run(as_of=as_of_date, trailing_window_days=window_days)
 
-    google = run_google_refresh(
-        settings,
-        start=window_start,
-        end=window_end,
-        auth_service=GoogleAuthService(settings),
-        streams=streams,
-        query_mode=query_mode,
-        data_source_family=data_source_family,
-    )
+        google = run_google_refresh(
+            settings,
+            start=window_start,
+            end=window_end,
+            auth_service=GoogleAuthService(settings),
+            streams=streams,
+            query_mode=query_mode,
+            data_source_family=data_source_family,
+        )
 
     return OwnerRefreshReport(
         status=_combined_status(garmin.status, google.status),
@@ -147,7 +230,11 @@ def run_owner_refresh(
 
 __all__ = [
     "OWNER_REFRESH_CONTRACT_VERSION",
+    "OwnerRefreshBusyError",
+    "OwnerRefreshLock",
     "OwnerRefreshReport",
+    "OwnerRefreshRuntimeError",
     "OwnerRefreshStatus",
+    "require_established_runtime",
     "run_owner_refresh",
 ]

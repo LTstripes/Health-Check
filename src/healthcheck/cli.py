@@ -44,7 +44,12 @@ from healthcheck.google.sync import (
 )
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
-from healthcheck.owner_refresh import OwnerRefreshStatus, run_owner_refresh
+from healthcheck.owner_refresh import (
+    OwnerRefreshBusyError,
+    OwnerRefreshRuntimeError,
+    OwnerRefreshStatus,
+    run_owner_refresh,
+)
 from healthcheck.profile_backup import (
     ProfileBackupError,
     create_backup,
@@ -551,6 +556,8 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
             raise ValueError("owner-refresh does not use --reprocess")
         if args.max_observations is not None:
             raise ValueError("owner-refresh does not use --max-observations")
+        if args.chunk_days is not None:
+            raise ValueError("owner-refresh does not use --chunk-days")
         report = run_owner_refresh(
             settings,
             as_of=args.dates[0] if args.dates else None,
@@ -560,32 +567,52 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
             query_mode=args.query_mode,
             data_source_family=args.family,
         )
+    except OwnerRefreshBusyError:
+        print(
+            json.dumps(
+                _owner_refresh_error_payload("refresh_already_running", "runtime"),
+                sort_keys=True,
+            )
+        )
+        return 1
+    except OwnerRefreshRuntimeError as exc:
+        print(
+            json.dumps(
+                _owner_refresh_error_payload(exc.error_code, "runtime"),
+                sort_keys=True,
+            )
+        )
+        return 2
     except (OSError, ValueError):
         print(
             json.dumps(
-                {
-                    "contract_version": "healthcheck-owner-refresh-v1",
-                    "operation": "owner-refresh",
-                    "error": {
-                        "error_class": "input",
-                        "error_code": "invalid_refresh_request",
-                        "http_status": None,
-                    },
-                    "privacy": {
-                        "raw_values_emitted": False,
-                        "private_identifiers_emitted": False,
-                        "tokens_emitted": False,
-                        "health_timestamps_emitted": False,
-                        "page_tokens_emitted": False,
-                        "string_encoded_numerics_logged_as_values": False,
-                    },
-                },
+                _owner_refresh_error_payload("invalid_refresh_request", "input"),
                 sort_keys=True,
             )
         )
         return 2
     print(report.to_json(), end="")
     return 0 if report.status is OwnerRefreshStatus.SUCCEEDED else 1
+
+
+def _owner_refresh_error_payload(error_code: str, error_class: str) -> dict[str, object]:
+    return {
+        "contract_version": "healthcheck-owner-refresh-v1",
+        "operation": "owner-refresh",
+        "error": {
+            "error_class": error_class,
+            "error_code": error_code,
+            "http_status": None,
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+            "health_timestamps_emitted": False,
+            "page_tokens_emitted": False,
+            "string_encoded_numerics_logged_as_values": False,
+        },
+    }
 
 
 def _run_garmin_auth(args: argparse.Namespace, settings: Settings) -> int:
