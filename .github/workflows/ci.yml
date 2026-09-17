@@ -9,12 +9,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/task/')) }}
 
 jobs:
-  checks:
+  quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      QUALITY_DIR: ${{ runner.temp }}/ci-quality-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,14 +26,14 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Capture CI identity
+      - name: Capture quality identity
         shell: bash
         run: |
           set -euo pipefail
           git_status="$(git status --short --branch)"
-          mkdir -p ci-evidence
+          mkdir -p "$QUALITY_DIR"
           {
-            echo "# CI identity"
+            echo "# CI quality identity"
             printf '%s\n' "- event: \`$GITHUB_EVENT_NAME\`"
             printf '%s\n' "- ref: \`$GITHUB_REF\`"
             printf '%s\n' "- event SHA: \`$GITHUB_SHA\`"
@@ -41,60 +42,170 @@ jobs:
             printf '%s\n' "- PR base ref/SHA: \`${GITHUB_BASE_REF:-}\` / \`${PR_BASE_SHA:-}\`"
             printf '%s\n' "- PR head ref/SHA: \`${GITHUB_HEAD_REF:-}\` / \`${PR_HEAD_SHA:-}\`"
             printf '%s\n' "- workflow run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`"
-            printf '%s\n' "- command/selection: \`uv run pytest --durations=25 --durations-min=1.0 --junitxml=ci-evidence/junit.xml\`"
+            printf '%s\n' "- manifest: \`ci/test-lanes.json\`"
+            printf '%s\n' "- manifest SHA-256: \`$(sha256sum ci/test-lanes.json | cut -d ' ' -f 1)\`"
             printf '%s\n' "- lockfile SHA-256: \`$(sha256sum uv.lock | cut -d ' ' -f 1)\`"
             printf '%s\n' "- Python: \`$(python --version 2>&1)\`"
             printf '%s\n' "- uv: \`$(uv --version)\`"
             printf '%s\n' "- runner: \`$RUNNER_OS/$RUNNER_ARCH\`"
-          } | tee ci-evidence/metadata.md
-          printf '%s\n' "$git_status" > ci-evidence/git-status.txt
-          sha256sum uv.lock > ci-evidence/uv-lock.sha256
+          } | tee "$QUALITY_DIR/metadata.md"
+          printf '%s\n' "$git_status" > "$QUALITY_DIR/git-status.txt"
+          sha256sum uv.lock > "$QUALITY_DIR/uv-lock.sha256"
       - run: uv sync --locked
       - run: uv run python -m healthcheck.db.migration_guard
       - run: uv run ruff check .
-      - name: Run full pytest with timing
-        shell: bash
-        run: |
-          set -o pipefail
-          set +e
-          uv run pytest --durations=25 --durations-min=1.0 --junitxml=ci-evidence/junit.xml 2>&1 | tee ci-evidence/pytest.log
-          pytest_status=${PIPESTATUS[0]}
-          printf 'pytest_exit_status=%s\n' "$pytest_status" > ci-evidence/pytest-status.txt
-          exit "$pytest_status"
-      - name: Summarize test evidence
-        if: always()
+      - name: Validate partition and reconcile exact collection
         shell: bash
         run: |
           set -euo pipefail
-          if uv run python scripts/ci_evidence_summary.py \
-              --junitxml ci-evidence/junit.xml \
-              --pytest-log ci-evidence/pytest.log \
-              --status-file ci-evidence/pytest-status.txt \
-              --output ci-evidence/summary.md; then
-            summary_status=0
-          else
-            summary_status=$?
-          fi
-          cat ci-evidence/metadata.md >> "$GITHUB_STEP_SUMMARY"
-          cat ci-evidence/summary.md >> "$GITHUB_STEP_SUMMARY"
-          exit "$summary_status"
-      - name: Capture failure diagnostics
+          uv run python scripts/ci_test_lanes.py validate-manifest
+          uv run python scripts/ci_test_lanes.py collect --output-dir "$QUALITY_DIR"
+      - name: Capture quality failure diagnostics
         if: failure()
         shell: bash
         run: |
           {
-            echo "# Failure diagnostics"
-            printf '%s\n' "- git status:"
+            echo "# Quality failure diagnostics"
             git status --short --branch
-            printf '%s\n' "- filesystem:"
             df -h .
-            printf '%s\n' "- processors: \`$(nproc)\`"
-          } > ci-evidence/failure-diagnostics.md
-      - name: Upload CI evidence
+            printf '%s\n' "processors: $(nproc)"
+          } > "$QUALITY_DIR/failure-diagnostics.md"
+      - name: Upload quality evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ci-evidence
+          name: ci-quality-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.QUALITY_DIR }}
           if-no-files-found: error
           retention-days: 14
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        lane:
+          - garmin
+          - core-sleep
+          - app-ingest
+    env:
+      LANE: ${{ matrix.lane }}
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
+      LANE_DIR: ${{ runner.temp }}/ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Capture lane identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git_status="$(git status --short --branch)"
+          mkdir -p "$LANE_DIR"
+          {
+            echo "# CI lane identity"
+            printf '%s\n' "- lane: \`$LANE\`"
+            printf '%s\n' "- event: \`$GITHUB_EVENT_NAME\`"
+            printf '%s\n' "- ref: \`$GITHUB_REF\`"
+            printf '%s\n' "- event SHA: \`$GITHUB_SHA\`"
+            printf '%s\n' "- checked-out HEAD: \`$(git rev-parse HEAD)\`"
+            printf '%s\n' "- checked-out tree: \`$(git rev-parse 'HEAD^{tree}')\`"
+            printf '%s\n' "- PR base ref/SHA: \`${GITHUB_BASE_REF:-}\` / \`${PR_BASE_SHA:-}\`"
+            printf '%s\n' "- PR head ref/SHA: \`${GITHUB_HEAD_REF:-}\` / \`${PR_HEAD_SHA:-}\`"
+            printf '%s\n' "- workflow run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`"
+            printf '%s\n' "- manifest: \`ci/test-lanes.json\`"
+            printf '%s\n' "- manifest SHA-256: \`$(sha256sum ci/test-lanes.json | cut -d ' ' -f 1)\`"
+            printf '%s\n' "- lockfile SHA-256: \`$(sha256sum uv.lock | cut -d ' ' -f 1)\`"
+            printf '%s\n' "- Python: \`$(python --version 2>&1)\`"
+            printf '%s\n' "- uv: \`$(uv --version)\`"
+            printf '%s\n' "- runner: \`$RUNNER_OS/$RUNNER_ARCH\`"
+          } | tee "$LANE_DIR/metadata.md"
+          printf '%s\n' "$git_status" > "$LANE_DIR/git-status.txt"
+          sha256sum uv.lock > "$LANE_DIR/uv-lock.sha256"
+      - run: uv sync --locked
+      - name: Run serial pytest lane with timing
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python scripts/ci_test_lanes.py run-lane \
+            --lane "$LANE" \
+            --output-dir "$LANE_DIR" \
+            --basetemp "$RUNNER_TEMP/pytest-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Verify lane execution evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if uv run python scripts/ci_test_lanes.py verify-lane \
+              --lane "$LANE" \
+              --output-dir "$LANE_DIR"; then
+            verify_status=0
+          else
+            verify_status=$?
+          fi
+          cat "$LANE_DIR/metadata.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$LANE_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$verify_status"
+      - name: Capture lane failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "# Lane failure diagnostics"
+            git status --short --branch
+            df -h .
+            printf '%s\n' "processors: $(nproc)"
+          } > "$LANE_DIR/failure-diagnostics.md"
+      - name: Upload lane evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.LANE_DIR }}
+          if-no-files-found: error
+          retention-days: 14
+
+  checks:
+    if: always()
+    needs:
+      - quality
+      - test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download mandatory evidence
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ci-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: downloaded-evidence
+          merge-multiple: false
+      - name: Fail-closed final verdict
+        if: always()
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ci_test_lanes.py gate \
+            --artifacts-root downloaded-evidence \
+            --quality-result "$QUALITY_RESULT" \
+            --test-result "$TEST_RESULT" \
+            --head-sha "$(git rev-parse HEAD)" \
+            --tree-sha "$(git rev-parse 'HEAD^{tree}')"

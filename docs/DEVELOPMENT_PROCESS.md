@@ -367,23 +367,33 @@ Later we may automate issue pickup, Worker/Reviewer bots and integration inside 
 
 Automation may remove manual message shuttling; it must not remove accountability or evidence.
 
-## 13. CI evidence and full-suite gates
+## 13. CI evidence and complete-suite gates
 
 The CI workflow keeps both `push` and `pull_request` coverage. Every qualifying
-candidate gate runs the complete pytest collection and suite; selectors,
-deselections, skip rules and automatic failure retries are not a way to reduce
-the wait. The workflow retains the exact checked-out commit and tree, event and
-ref, PR base/head identities when present, command/selection, lockfile digest,
-Python/uv/runner metadata, pytest output, JUnit XML, and built-in setup/call/
-teardown duration evidence. Reports that are missing, malformed or incomplete
-are explicitly incomplete, never successful evidence.
+candidate gate runs the complete pytest collection and suite through the three
+ordinary serial Linux lanes in `ci/test-lanes.json`. The same checked-in
+manifest is the only file-assignment source for local and CI invocation. An
+independent unrestricted collection must equal the exact disjoint multiset
+union of lane nodeids, including parametrizations and duplicate multiplicity.
+Unassigned, overlapping, stale or empty assignments fail closed. Selectors,
+deselections, unreviewed skips/xfails and automatic failure retries are not a
+way to reduce the gate.
+
+Each lane retains its exact collection and outcome inventory plus the checked-
+out commit/tree, event/ref, PR base/head identities when present, manifest and
+selection digests, command, lockfile digest, Python/uv/runner metadata, pytest
+output, JUnit XML, status, and built-in setup/call/teardown duration evidence.
+Missing, malformed, contradictory, interrupted or wrong-provenance evidence is
+incomplete, never successful evidence. The final stable `checks` job runs under
+`if: always()` and requires explicit success plus complete matching evidence
+from quality and all three lanes.
 
 | Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
 | --- | --- | --- | --- | --- |
-| Task push | task branch SHA | Same task branch only | Exact checkout, full suite, timing/JUnit, metadata | Changed tree/config/lock/selection |
+| Task push | task branch SHA | Same task branch only | Exact checkout, complete lane union, timing/JUnit, metadata | Changed tree/config/lock/manifest/selection |
 | PR event | PR merge ref plus PR head SHA | Same PR number only | Same evidence, with merge checkout distinct from head | Any changed candidate/configuration |
-| Integration push | integration SHA | No task/PR cancellation | Exact integration checkout and full gate | New integration commit |
-| Main push | main SHA | No task/PR cancellation | Exact post-main checkout and full gate | New main commit |
+| Integration push | integration SHA | No task/PR cancellation | Exact integration checkout and complete gate | New integration commit |
+| Main push | main SHA | No task/PR cancellation | Exact post-main checkout and complete gate | New main commit |
 
 Concurrency is lane-scoped: PR runs share only their PR number, task-branch
 pushes share only their task ref, and integration/main/other refs do not opt in
@@ -398,3 +408,15 @@ because polling or a log view was lost. Timing evidence is for finding material
 fixture/setup/test costs and environment effects, not for asserting an
 unproven root cause. Once only small, legitimate residual costs remain, stop
 optimizing this maintenance track and report them for a separately scoped task.
+
+Local contract checks use the same manifest:
+
+```text
+uv run python scripts/ci_test_lanes.py validate-manifest
+uv run python scripts/ci_test_lanes.py collect --output-dir <evidence-dir>
+uv run python scripts/ci_test_lanes.py run-lane --lane <lane> --output-dir <evidence-dir> --basetemp <external-temp-dir>
+uv run python scripts/ci_test_lanes.py verify-lane --lane <lane> --output-dir <evidence-dir>
+```
+
+`uv run pytest` remains the unrestricted serial diagnostic/control command; it
+is not a permanent fourth per-candidate CI suite.

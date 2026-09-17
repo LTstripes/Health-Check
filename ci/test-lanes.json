@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "lanes": {
+    "garmin": [
+      "tests/test_garmin_activity_comparison.py",
+      "tests/test_garmin_activity_pagination_resume.py",
+      "tests/test_garmin_analytic_contract.py",
+      "tests/test_garmin_auth.py",
+      "tests/test_garmin_baselines_trends.py",
+      "tests/test_garmin_capabilities.py",
+      "tests/test_garmin_collection_reconciliation.py",
+      "tests/test_garmin_historical_backfill.py",
+      "tests/test_garmin_incremental_sync.py",
+      "tests/test_garmin_lagged_associations.py",
+      "tests/test_garmin_normalization.py",
+      "tests/test_garmin_persistence.py",
+      "tests/test_garmin_probe.py",
+      "tests/test_garmin_query_dashboard.py",
+      "tests/test_garmin_redaction.py"
+    ],
+    "core-sleep": [
+      "tests/test_canonical_coverage.py",
+      "tests/test_ci_evidence_summary.py",
+      "tests/test_ci_test_lanes.py",
+      "tests/test_ci_workflow.py",
+      "tests/test_core_schema.py",
+      "tests/test_fk_safe_migration_repair.py",
+      "tests/test_migration_guard.py",
+      "tests/test_sleep_account_cohort.py",
+      "tests/test_sleep_agreement_report.py",
+      "tests/test_sleep_agreement_statistics.py",
+      "tests/test_sleep_metrics.py",
+      "tests/test_sleep_pairing.py",
+      "tests/test_timezone_runtime.py",
+      "tests/test_weight_analytics.py"
+    ],
+    "app-ingest": [
+      "tests/test_bootstrap.py",
+      "tests/test_dashboard_ui.py",
+      "tests/test_demo_tooling.py",
+      "tests/test_google_normalization.py",
+      "tests/test_google_oauth.py",
+      "tests/test_google_persistence.py",
+      "tests/test_google_sync_backfill.py",
+      "tests/test_google_terminal_diagnostics.py",
+      "tests/test_openscale_contract.py",
+      "tests/test_openscale_webhook.py",
+      "tests/test_period_brief.py",
+      "tests/test_photo_import.py",
+      "tests/test_photo_import_review.py",
+      "tests/test_photo_vision.py",
+      "tests/test_profile_backup.py"
+    ]
+  },
+  "allowed_skips": [
+    {
+      "nodeid": "tests/test_garmin_auth.py::test_windows_user_scoped_protection_round_trips_and_rejects_owner_tampering",
+      "platform": "linux",
+      "reason": "Windows DPAPI regression"
+    }
+  ]
+}

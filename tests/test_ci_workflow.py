@@ -3,24 +3,19 @@ from pathlib import Path
 WORKFLOW = (Path(__file__).parents[1] / ".github" / "workflows" / "ci.yml").read_text(
     encoding="utf-8"
 )
-SUMMARY_SCRIPT = (Path(__file__).parents[1] / "scripts" / "ci_evidence_summary.py").read_text(
+LANE_HELPER = (Path(__file__).parents[1] / "scripts" / "ci_test_lanes.py").read_text(
     encoding="utf-8"
 )
 
 
-def test_ci_keeps_full_push_and_pull_request_coverage():
+def _job(name: str, next_name: str | None = None) -> str:
+    section = WORKFLOW.split(f"  {name}:\n", 1)[1]
+    return section if next_name is None else section.split(f"  {next_name}:\n", 1)[0]
+
+
+def test_ci_keeps_push_pull_request_and_lane_scoped_cancellation():
     assert "  push:\n" in WORKFLOW
     assert "  pull_request:\n" in WORKFLOW
-    assert "uv run pytest --durations=25 --durations-min=1.0" in WORKFLOW
-    assert "--junitxml=ci-evidence/junit.xml" in WORKFLOW
-    assert "setup/call/teardown" in SUMMARY_SCRIPT
-    assert "timeout-minutes: 30" in WORKFLOW
-    assert WORKFLOW.index('git_status="$(git status --short --branch)"') < WORKFLOW.index(
-        "mkdir -p ci-evidence"
-    )
-
-
-def test_ci_cancellation_is_limited_to_task_or_pr_lanes():
     assert "format('ci-pr-{0}', github.event.pull_request.number)" in WORKFLOW
     assert "format('ci-task-{0}', github.ref)" in WORKFLOW
     assert "format('ci-run-{0}', github.run_id)" in WORKFLOW
@@ -29,47 +24,64 @@ def test_ci_cancellation_is_limited_to_task_or_pr_lanes():
         "cancel-in-progress: ${{ github.event_name == 'pull_request' || "
         "(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/task/')) }}"
     ) in WORKFLOW
-    assert "cancel-in-progress: true" not in WORKFLOW
-    assert "ci-evidence-${{ github.run_id }}-${{ github.run_attempt }}" in WORKFLOW
 
 
-def test_ci_concurrency_behavioral_lanes_are_bound_to_actual_expression():
-    group_line = next(line for line in WORKFLOW.splitlines() if line.startswith("  group:"))
-    cancel_line = next(
-        line for line in WORKFLOW.splitlines() if line.startswith("  cancel-in-progress:")
-    )
-    cases = (
-        ("pull_request", "refs/pull/123/merge", "ci-pr-{0}", True),
-        ("push", "refs/heads/task/123-ci-evidence-and-gates", "ci-task-{0}", True),
-        ("push", "refs/heads/task/other", "ci-task-{0}", True),
-        ("push", "refs/heads/main", "ci-run-{0}", False),
-        ("push", "refs/heads/integration", "ci-run-{0}", False),
-        ("push", "refs/tags/v1", "ci-run-{0}", False),
-    )
-    for event, ref, expected_prefix, cancelable in cases:
-        assert event in group_line or event == "push"
-        assert ref.startswith("refs/")
-        assert f"format('{expected_prefix}'" in group_line
-        if cancelable:
-            assert "cancel-in-progress: ${{" in cancel_line
-        else:
-            assert "github.run_id" in group_line
-            assert "cancel-in-progress: ${{" in cancel_line
-    assert "github.event.pull_request.number" in group_line
-    assert "startsWith(github.ref, 'refs/heads/task/')" in group_line
-    assert "github.run_id" in group_line
-    assert "cancel-in-progress: true" not in WORKFLOW
+def test_quality_and_three_serial_lanes_are_independent_and_locked():
+    quality = _job("quality", "test")
+    test = _job("test", "checks")
+
+    assert "needs:" not in quality
+    assert "needs:" not in test
+    assert "uv sync --locked" in quality
+    assert "uv sync --locked" in test
+    assert "uv run ruff check ." in quality
+    assert "healthcheck.db.migration_guard" in quality
+    assert "validate-manifest" in quality
+    assert 'collect --output-dir "$QUALITY_DIR"' in quality
+    assert "fail-fast: false" in test
+    assert "- garmin\n" in test
+    assert "- core-sleep\n" in test
+    assert "- app-ingest\n" in test
+    assert "run-lane" in test
+    assert "pytest-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" in test
+    assert "HEALTHCHECK_DATA_DIR:" in test
+    assert "xdist" not in WORKFLOW
 
 
-def test_ci_retains_and_validates_failure_evidence():
-    assert "if: always()" in WORKFLOW
-    assert "if-no-files-found: error" in WORKFLOW
-    assert "ci-evidence/pytest.log" in WORKFLOW
-    assert "ci-evidence/failure-diagnostics.md" in WORKFLOW
-    summary_step = WORKFLOW.split("      - name: Summarize test evidence\n", 1)[1].split(
-        "      - name: Capture failure diagnostics\n", 1
-    )[0]
-    assert "set -euo pipefail" in summary_step
-    assert "set +e" not in summary_step
-    assert "if uv run python scripts/ci_evidence_summary.py" in summary_step
-    assert "cat ci-evidence/metadata.md" in summary_step
+def test_lane_artifacts_keep_timing_junit_metadata_and_distinct_provenance():
+    test = _job("test", "checks")
+
+    assert "--durations=25" in LANE_HELPER
+    assert "--durations-min=1.0" in LANE_HELPER
+    assert "--junitxml=" in LANE_HELPER
+    assert "lane-evidence.json" in LANE_HELPER
+    assert "pytest-status.txt" in LANE_HELPER
+    assert "verify-lane" in test
+    assert "if: always()" in test
+    assert "set -euo pipefail" in test
+    assert 'cat "$LANE_DIR/metadata.md"' in test
+    assert "ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}" in test
+    assert "if-no-files-found: error" in test
+    assert "retention-days: 14" in test
+
+
+def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
+    checks = _job("checks")
+
+    assert checks.startswith("    if: always()\n")
+    assert "      - quality\n" in checks
+    assert "      - test\n" in checks
+    assert "actions/download-artifact@v4" in checks
+    assert "merge-multiple: false" in checks
+    assert "QUALITY_RESULT: ${{ needs.quality.result }}" in checks
+    assert "TEST_RESULT: ${{ needs.test.result }}" in checks
+    assert "Fail-closed final verdict" in checks
+    assert "scripts/ci_test_lanes.py gate" in checks
+    assert '--head-sha "$(git rev-parse HEAD)"' in checks
+    assert "--tree-sha \"$(git rev-parse 'HEAD^{tree}')\"" in checks
+
+
+def test_workflow_has_no_per_candidate_fourth_serial_suite():
+    assert WORKFLOW.count("run-lane") == 1
+    assert "uv run pytest" not in WORKFLOW
+    assert "full pytest" not in WORKFLOW.lower()
