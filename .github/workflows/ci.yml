@@ -208,6 +208,12 @@ jobs:
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          EXPECTED_EVENT_NAME: ${{ github.event_name }}
+          EXPECTED_REF: ${{ github.ref }}
+          EXPECTED_PR_BASE_REF: ${{ github.base_ref }}
+          EXPECTED_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_PR_HEAD_REF: ${{ github.head_ref }}
+          EXPECTED_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -216,4 +222,10 @@ jobs:
             --quality-result "$QUALITY_RESULT" \
             --test-result "$TEST_RESULT" \
             --head-sha "$(git rev-parse HEAD)" \
-            --tree-sha "$(git rev-parse 'HEAD^{tree}')"
+            --tree-sha "$(git rev-parse 'HEAD^{tree}')" \
+            --event-name "$EXPECTED_EVENT_NAME" \
+            --ref "$EXPECTED_REF" \
+            --pr-base-ref "$EXPECTED_PR_BASE_REF" \
+            --pr-base-sha "$EXPECTED_PR_BASE_SHA" \
+            --pr-head-ref "$EXPECTED_PR_HEAD_REF" \
+            --pr-head-sha "$EXPECTED_PR_HEAD_SHA"

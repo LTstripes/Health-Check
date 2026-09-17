@@ -81,6 +81,18 @@ def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
     assert "scripts/ci_test_lanes.py gate" in checks
     assert '--head-sha "$(git rev-parse HEAD)"' in checks
     assert "--tree-sha \"$(git rev-parse 'HEAD^{tree}')\"" in checks
+    assert "EXPECTED_EVENT_NAME: ${{ github.event_name }}" in checks
+    assert "EXPECTED_REF: ${{ github.ref }}" in checks
+    assert "EXPECTED_PR_BASE_REF: ${{ github.base_ref }}" in checks
+    assert "EXPECTED_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in checks
+    assert "EXPECTED_PR_HEAD_REF: ${{ github.head_ref }}" in checks
+    assert "EXPECTED_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in checks
+    assert '--event-name "$EXPECTED_EVENT_NAME"' in checks
+    assert '--ref "$EXPECTED_REF"' in checks
+    assert '--pr-base-ref "$EXPECTED_PR_BASE_REF"' in checks
+    assert '--pr-base-sha "$EXPECTED_PR_BASE_SHA"' in checks
+    assert '--pr-head-ref "$EXPECTED_PR_HEAD_REF"' in checks
+    assert '--pr-head-sha "$EXPECTED_PR_HEAD_SHA"' in checks
 
 
 def test_workflow_has_no_per_candidate_fourth_serial_suite():

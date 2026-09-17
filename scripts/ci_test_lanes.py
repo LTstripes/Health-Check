@@ -41,6 +41,16 @@ class ExpectedProvenance:
     selected_paths: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ExpectedWorkflowIdentity:
+    event_name: str
+    ref: str
+    pr_base_ref: str
+    pr_base_sha: str
+    pr_head_ref: str
+    pr_head_sha: str
+
+
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ContractError(message)
@@ -153,6 +163,53 @@ def validate_manifest(path: Path, repo_root: Path) -> LaneManifest:
 
 def _counter_delta(expected: Counter[str], actual: Counter[str]) -> tuple[list[str], list[str]]:
     return sorted((expected - actual).elements()), sorted((actual - expected).elements())
+
+
+def _validate_workflow_identity(expected: ExpectedWorkflowIdentity) -> None:
+    _require(
+        expected.event_name in {"push", "pull_request"},
+        f"unsupported workflow event: {expected.event_name!r}",
+    )
+    if expected.event_name == "push":
+        _require(
+            re.fullmatch(r"refs/(?:heads|tags)/[^\s]+", expected.ref) is not None,
+            f"push workflow ref is malformed: {expected.ref!r}",
+        )
+        _require(
+            not any(
+                (
+                    expected.pr_base_ref,
+                    expected.pr_base_sha,
+                    expected.pr_head_ref,
+                    expected.pr_head_sha,
+                )
+            ),
+            "push workflow identity must have explicit empty PR fields",
+        )
+        return
+
+    _require(
+        re.fullmatch(r"refs/pull/[1-9][0-9]*/merge", expected.ref) is not None,
+        f"pull_request workflow ref is malformed: {expected.ref!r}",
+    )
+    for field, value in (
+        ("PR base ref", expected.pr_base_ref),
+        ("PR head ref", expected.pr_head_ref),
+    ):
+        _require(
+            bool(value)
+            and not value.startswith("refs/")
+            and re.fullmatch(r"[^\s]+", value) is not None,
+            f"pull_request {field} is malformed",
+        )
+    for field, value in (
+        ("PR base SHA", expected.pr_base_sha),
+        ("PR head SHA", expected.pr_head_sha),
+    ):
+        _require(
+            re.fullmatch(r"[0-9a-f]{40}", value) is not None,
+            f"pull_request {field} is malformed",
+        )
 
 
 def reconcile_collections(
@@ -358,13 +415,32 @@ def _validate_metadata(
     expected: Mapping[str, str],
     run_id: str,
     attempt: str,
+    workflow_identity: ExpectedWorkflowIdentity,
 ) -> None:
     fields = _parse_metadata(path, kind=kind)
     expected_fields = dict(expected)
-    expected_fields["workflow run"] = f"{run_id} attempt {attempt}"
+    expected_fields.update(
+        {
+            "event": workflow_identity.event_name,
+            "ref": workflow_identity.ref,
+            "PR base ref/SHA": (
+                f"{workflow_identity.pr_base_ref} / {workflow_identity.pr_base_sha}"
+            ),
+            "PR head ref/SHA": (
+                f"{workflow_identity.pr_head_ref} / {workflow_identity.pr_head_sha}"
+            ),
+            "workflow run": f"{run_id} attempt {attempt}",
+        }
+    )
+    exact_fields = set(expected_fields) | {"Python", "uv", "runner"}
+    _require(
+        set(fields) == exact_fields,
+        f"{kind} metadata fields mismatch: "
+        f"expected={sorted(exact_fields)}; actual={sorted(fields)}",
+    )
     for field, value in expected_fields.items():
         _require(fields.get(field) == value, f"{kind} metadata {field} mismatch")
-    for field in ("event", "ref", "Python", "uv", "runner"):
+    for field in ("Python", "uv", "runner"):
         _require(bool(fields.get(field)), f"{kind} metadata {field} is missing or empty")
 
 
@@ -481,12 +557,19 @@ def validate_gate_artifacts(
     head_sha: str,
     tree_sha: str,
     manifest_sha256: str,
+    workflow_identity: ExpectedWorkflowIdentity,
     manifest: LaneManifest | None = None,
     lock_sha256: str | None = None,
 ) -> dict[str, Any]:
+    _validate_workflow_identity(workflow_identity)
     quality_dir = _one_directory(artifacts_root, "ci-quality-*", "missing quality artifact")
     summary_path = quality_dir / "collection-summary.json"
     summary = _load_json(summary_path)
+    _require(isinstance(summary, dict), "quality collection summary is malformed")
+    _require(
+        summary.get("schema_version") == 1,
+        "quality collection summary schema is missing or unsupported",
+    )
     for field, expected in (
         ("head_sha", head_sha),
         ("tree_sha", tree_sha),
@@ -498,6 +581,10 @@ def validate_gate_artifacts(
     _require(
         isinstance(lanes, dict) and isinstance(reference, list),
         "quality collection summary is malformed",
+    )
+    _require(
+        set(lanes) == set(LANE_NAMES),
+        "quality collection summary must contain exactly the three mandatory lanes",
     )
     platform = summary.get("platform", sys.platform)
     if manifest is not None:
@@ -529,6 +616,7 @@ def validate_gate_artifacts(
             },
             run_id=quality_run,
             attempt=quality_attempt,
+            workflow_identity=workflow_identity,
         )
         _validate_git_status(quality_dir / "git-status.txt", head_sha=head_sha)
         _validate_lock_digest(quality_dir / "uv-lock.sha256", lock_sha256=lock_sha256)
@@ -684,6 +772,7 @@ def validate_gate_artifacts(
                 },
                 run_id=lane_run,
                 attempt=lane_attempt,
+                workflow_identity=workflow_identity,
             )
             _validate_git_status(lane_dir / "git-status.txt", head_sha=head_sha)
             _validate_lock_digest(lane_dir / "uv-lock.sha256", lock_sha256=lock_sha256)
@@ -713,7 +802,9 @@ def validate_gate_artifacts(
                 counts == verified.get("counts"),
                 f"lane {lane} verified counts mismatch raw outcomes",
             )
-            _verify_report_sources(lane_dir, counts, len(expected_nodeids))
+            _verify_report_sources(
+                lane_dir, counts, len(expected_nodeids), write_summary=False
+            )
         verified_lanes[lane] = verified
     return {"quality": summary, "lanes": verified_lanes}
 
@@ -894,7 +985,13 @@ def run_lane(
     return status
 
 
-def _verify_report_sources(output_dir: Path, counts: Mapping[str, int], total: int) -> str:
+def _verify_report_sources(
+    output_dir: Path,
+    counts: Mapping[str, int],
+    total: int,
+    *,
+    write_summary: bool = True,
+) -> str:
     from ci_evidence_summary import (  # type: ignore[import-not-found]
         _junit_summary,
         _pytest_log_summary,
@@ -907,7 +1004,20 @@ def _verify_report_sources(output_dir: Path, counts: Mapping[str, int], total: i
     log = _pytest_log_summary(output_dir / "pytest.log")
     status = _pytest_status(output_dir / "pytest-status.txt")
     rendered = _render(junit, _slowest_phases(output_dir / "pytest.log"), status, log_summary=log)
-    (output_dir / "summary.md").write_text(rendered, encoding="utf-8")
+    summary_path = output_dir / "summary.md"
+    if write_summary:
+        summary_path.write_bytes(rendered.encode("utf-8"))
+    else:
+        try:
+            retained_summary = summary_path.read_bytes()
+        except OSError as error:
+            raise ContractError(
+                f"missing or unreadable retained summary: {summary_path}"
+            ) from error
+        _require(
+            retained_summary == rendered.encode("utf-8"),
+            "retained summary does not match recomputed JUnit/log/status evidence",
+        )
     _require(
         junit is not None and log is not None and status == 0,
         "missing or incomplete JUnit/log/status evidence",
@@ -991,6 +1101,12 @@ def main() -> int:
     gate_parser.add_argument("--test-result", required=True)
     gate_parser.add_argument("--head-sha", required=True)
     gate_parser.add_argument("--tree-sha", required=True)
+    gate_parser.add_argument("--event-name", required=True)
+    gate_parser.add_argument("--ref", required=True)
+    gate_parser.add_argument("--pr-base-ref", required=True)
+    gate_parser.add_argument("--pr-base-sha", required=True)
+    gate_parser.add_argument("--pr-head-ref", required=True)
+    gate_parser.add_argument("--pr-head-sha", required=True)
     args = parser.parse_args()
 
     repo_root = _repo_root()
@@ -1025,6 +1141,14 @@ def main() -> int:
                 head_sha=args.head_sha,
                 tree_sha=args.tree_sha,
                 manifest_sha256=manifest.sha256,
+                workflow_identity=ExpectedWorkflowIdentity(
+                    event_name=args.event_name,
+                    ref=args.ref,
+                    pr_base_ref=args.pr_base_ref,
+                    pr_base_sha=args.pr_base_sha,
+                    pr_head_ref=args.pr_head_ref,
+                    pr_head_sha=args.pr_head_sha,
+                ),
                 manifest=manifest,
                 lock_sha256=_sha256_bytes((repo_root / "uv.lock").read_bytes()),
             )

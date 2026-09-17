@@ -3,6 +3,7 @@ import json
 import sys
 from collections import Counter
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ _SPEC.loader.exec_module(_HELPER)
 
 ContractError = _HELPER.ContractError
 ExpectedProvenance = _HELPER.ExpectedProvenance
+ExpectedWorkflowIdentity = _HELPER.ExpectedWorkflowIdentity
 validate_manifest = _HELPER.validate_manifest
 reconcile_collections = _HELPER.reconcile_collections
 validate_lane_payload = _HELPER.validate_lane_payload
@@ -102,19 +104,21 @@ def _metadata_text(
     attempt: str,
     lane: str | None = None,
     selection_sha: str | None = None,
+    workflow_identity: object | None = None,
 ) -> str:
+    identity = workflow_identity or _push_identity()
     lines = [f"# CI {kind} identity"]
     if lane is not None:
         lines.append(f"- lane: `{lane}`")
     lines.extend(
         (
-            "- event: `push`",
-            "- ref: `refs/heads/task/synthetic`",
+            f"- event: `{identity.event_name}`",
+            f"- ref: `{identity.ref}`",
             f"- event SHA: `{head_sha}`",
             f"- checked-out HEAD: `{head_sha}`",
             f"- checked-out tree: `{tree_sha}`",
-            "- PR base ref/SHA: `` / ``",
-            "- PR head ref/SHA: `` / ``",
+            f"- PR base ref/SHA: `{identity.pr_base_ref}` / `{identity.pr_base_sha}`",
+            f"- PR head ref/SHA: `{identity.pr_head_ref}` / `{identity.pr_head_sha}`",
             f"- workflow run: `{run_id}` attempt `{attempt}`",
             "- manifest: `ci/test-lanes.json`",
             f"- manifest SHA-256: `{manifest_sha256}`",
@@ -131,6 +135,28 @@ def _metadata_text(
         )
     )
     return "\n".join(lines) + "\n"
+
+
+def _push_identity() -> ExpectedWorkflowIdentity:
+    return ExpectedWorkflowIdentity(
+        event_name="push",
+        ref="refs/heads/task/synthetic",
+        pr_base_ref="",
+        pr_base_sha="",
+        pr_head_ref="",
+        pr_head_sha="",
+    )
+
+
+def _pr_identity() -> ExpectedWorkflowIdentity:
+    return ExpectedWorkflowIdentity(
+        event_name="pull_request",
+        ref="refs/pull/17/merge",
+        pr_base_ref="integration/ci-feedback-v1",
+        pr_base_sha="1" * 40,
+        pr_head_ref="task/synthetic",
+        pr_head_sha="2" * 40,
+    )
 
 
 def _collection_payload(expected: ExpectedProvenance, nodeids: list[str]) -> dict:
@@ -152,7 +178,10 @@ def _collection_payload(expected: ExpectedProvenance, nodeids: list[str]) -> dic
     }
 
 
-def _complete_gate_fixture(tmp_path: Path) -> tuple[Path, object, str, str, str]:
+def _complete_gate_fixture(
+    tmp_path: Path, workflow_identity: ExpectedWorkflowIdentity | None = None
+) -> tuple[Path, object, str, str, str]:
+    identity = workflow_identity or _push_identity()
     repo = tmp_path / "repo"
     paths = [_write_test(repo, f"test_{name}.py") for name in ("a", "b", "c")]
     manifest = validate_manifest(
@@ -180,6 +209,7 @@ def _complete_gate_fixture(tmp_path: Path) -> tuple[Path, object, str, str, str]
             lock_sha256=lock_sha,
             run_id=run_id,
             attempt=attempt,
+            workflow_identity=identity,
         ),
         encoding="utf-8",
     )
@@ -295,6 +325,7 @@ def _complete_gate_fixture(tmp_path: Path) -> tuple[Path, object, str, str, str]
                 attempt=attempt,
                 lane=lane,
                 selection_sha=selection_sha,
+                workflow_identity=identity,
             ),
             encoding="utf-8",
         )
@@ -336,7 +367,7 @@ def _complete_gate_fixture(tmp_path: Path) -> tuple[Path, object, str, str, str]
             encoding="utf-8",
         )
         (lane_dir / "pytest-status.txt").write_text("pytest_exit_status=0\n", encoding="utf-8")
-        (lane_dir / "summary.md").write_text("synthetic summary\n", encoding="utf-8")
+        verify_report_sources(lane_dir, counts, 1)
     return artifacts, manifest, head_sha, tree_sha, lock_sha
 
 
@@ -498,6 +529,7 @@ def test_gate_rejects_missing_or_mismatched_artifacts(tmp_path):
             head_sha="a" * 40,
             tree_sha="b" * 40,
             manifest_sha256="c" * 64,
+            workflow_identity=_push_identity(),
         )
 
     for lane in LANES:
@@ -525,6 +557,7 @@ def test_gate_rejects_missing_or_mismatched_artifacts(tmp_path):
             head_sha="a" * 40,
             tree_sha="b" * 40,
             manifest_sha256="c" * 64,
+            workflow_identity=_push_identity(),
         )
 
 
@@ -566,6 +599,7 @@ def test_final_gate_rejects_same_count_raw_lane_inventory_substitution(tmp_path)
             manifest_sha256=manifest.sha256,
             manifest=manifest,
             lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
         )
 
 
@@ -579,6 +613,7 @@ def test_final_gate_accepts_complete_bound_artifacts(tmp_path):
         manifest_sha256=manifest.sha256,
         manifest=manifest,
         lock_sha256=lock_sha,
+        workflow_identity=_push_identity(),
     )
 
     assert result["quality"]["reference_nodeids"] == [
@@ -586,6 +621,179 @@ def test_final_gate_accepts_complete_bound_artifacts(tmp_path):
         "tests/test_b.py::test_synthetic",
         "tests/test_c.py::test_synthetic",
     ]
+
+
+def test_final_gate_accepts_exact_pull_request_identity(tmp_path):
+    identity = _pr_identity()
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(
+        tmp_path, identity
+    )
+
+    result = validate_gate_artifacts(
+        artifacts,
+        head_sha=head_sha,
+        tree_sha=tree_sha,
+        manifest_sha256=manifest.sha256,
+        manifest=manifest,
+        lock_sha256=lock_sha,
+        workflow_identity=identity,
+    )
+
+    assert len(result["quality"]["reference_nodeids"]) == 3
+
+
+@pytest.mark.parametrize(
+    "identity",
+    (
+        replace(_push_identity(), event_name="schedule"),
+        replace(_push_identity(), ref="task/synthetic"),
+        replace(_push_identity(), pr_head_ref="task/unexpected"),
+        replace(_pr_identity(), ref="refs/heads/task/synthetic"),
+        replace(_pr_identity(), pr_head_sha=""),
+    ),
+)
+def test_final_gate_rejects_incoherent_expected_workflow_identity(tmp_path, identity):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+
+    with pytest.raises(ContractError, match="workflow|pull_request|push"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=identity,
+        )
+
+
+def test_final_gate_rejects_wrong_pull_request_base_head_identity(tmp_path):
+    identity = _pr_identity()
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(
+        tmp_path, identity
+    )
+    metadata = artifacts / "ci-lane-app-ingest-123-1" / "metadata.md"
+    original = metadata.read_text(encoding="utf-8")
+    metadata.write_text(
+        original.replace(identity.pr_head_sha, "3" * 40, 1), encoding="utf-8"
+    )
+
+    with pytest.raises(ContractError, match="lane metadata PR head ref/SHA mismatch"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=identity,
+        )
+
+
+@pytest.mark.parametrize(
+    ("artifact", "old", "new"),
+    (
+        ("ci-quality-123-1", "- event: `push`\n", ""),
+        ("ci-quality-123-1", "- event: `push`", "- event: `pull_request`"),
+        ("ci-quality-123-1", "- ref: `refs/heads/task/synthetic`\n", ""),
+        (
+            "ci-quality-123-1",
+            "- ref: `refs/heads/task/synthetic`",
+            "- ref: `refs/heads/task/wrong`",
+        ),
+        ("ci-quality-123-1", "- PR base ref/SHA: `` / ``\n", ""),
+        (
+            "ci-quality-123-1",
+            "- PR base ref/SHA: `` / ``",
+            f"- PR base ref/SHA: `main` / `{'1' * 40}`",
+        ),
+        ("ci-quality-123-1", "- PR head ref/SHA: `` / ``\n", ""),
+        (
+            "ci-quality-123-1",
+            "- PR head ref/SHA: `` / ``",
+            f"- PR head ref/SHA: `task/wrong` / `{'2' * 40}`",
+        ),
+        (
+            "ci-lane-garmin-123-1",
+            "- ref: `refs/heads/task/synthetic`",
+            "- ref: `refs/heads/task/other`",
+        ),
+    ),
+)
+def test_final_gate_rejects_partial_wrong_or_cross_artifact_workflow_identity(
+    tmp_path, artifact, old, new
+):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    metadata = artifacts / artifact / "metadata.md"
+    original = metadata.read_text(encoding="utf-8")
+    assert old in original
+    metadata.write_text(original.replace(old, new, 1), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="metadata"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation", ("missing_schema", "wrong_schema", "missing_lane", "extra_lane")
+)
+def test_final_gate_rejects_malformed_quality_summary_shape(tmp_path, mutation):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    summary_path = artifacts / "ci-quality-123-1" / "collection-summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    if mutation == "missing_schema":
+        summary.pop("schema_version")
+    elif mutation == "wrong_schema":
+        summary["schema_version"] = 2
+    elif mutation == "missing_lane":
+        summary["lanes"].pop("garmin")
+    else:
+        summary["lanes"]["fourth"] = deepcopy(summary["lanes"]["garmin"])
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="quality collection summary"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+        )
+
+
+def test_final_gate_validation_is_byte_for_byte_read_only(tmp_path):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    before = {
+        path.relative_to(artifacts): path.read_bytes()
+        for path in artifacts.rglob("*")
+        if path.is_file()
+    }
+
+    validate_gate_artifacts(
+        artifacts,
+        head_sha=head_sha,
+        tree_sha=tree_sha,
+        manifest_sha256=manifest.sha256,
+        manifest=manifest,
+        lock_sha256=lock_sha,
+        workflow_identity=_push_identity(),
+    )
+
+    after = {
+        path.relative_to(artifacts): path.read_bytes()
+        for path in artifacts.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
 
 
 def test_allowed_skip_requires_exact_legal_setup_skip_structure():
@@ -742,4 +950,5 @@ def test_final_gate_rejects_missing_empty_malformed_or_wrong_retained_identity(
             manifest_sha256=manifest.sha256,
             manifest=manifest,
             lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
         )
