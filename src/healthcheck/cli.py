@@ -55,6 +55,7 @@ from healthcheck.owner_refresh import (
     OwnerRefreshBusyError,
     OwnerRefreshRuntimeError,
     OwnerRefreshStatus,
+    require_established_runtime,
     run_owner_refresh,
 )
 from healthcheck.profile_backup import (
@@ -930,9 +931,7 @@ def _run_sleep_agreement_build(args: argparse.Namespace, settings: Settings) -> 
             end_date=end_date,
             cohort=args.cohort,
         )
-        paths = prepare_runtime(settings)
-        if not paths.database.exists():
-            raise ValueError("sleep-agreement-build requires an existing migrated profile")
+        paths = require_established_runtime(settings)
         engine = create_sqlite_engine(paths)
         scope_key = _sleep_agreement_scope_key(query)
         with session_scope(engine) as session:
@@ -949,6 +948,13 @@ def _run_sleep_agreement_build(args: argparse.Namespace, settings: Settings) -> 
             )
             if not report.get("runs"):
                 raise ValueError("sleep-agreement-build could not verify persisted report")
+    except OwnerRefreshRuntimeError as exc:
+        print(
+            json.dumps(
+                _sleep_agreement_build_error_payload(exc.error_code, "runtime"), sort_keys=True
+            )
+        )
+        return 2
     except (OSError, SQLAlchemyError, ValueError) as exc:
         error_code = "invalid_build_request" if isinstance(exc, ValueError) else "build_unavailable"
         error_class = "input" if isinstance(exc, ValueError) else "runtime"

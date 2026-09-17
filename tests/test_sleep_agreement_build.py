@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -27,10 +28,11 @@ pytest_plugins = ("test_sleep_pairing",)
 
 
 def _args(paths, *, start: date = START, end: date = START, cohort: str = COHORT) -> list[str]:
+    data_dir = paths if isinstance(paths, Path) else paths.root
     return [
         "sleep-agreement-build",
         "--data-dir",
-        str(paths.root),
+        str(data_dir),
         "--cohort",
         cohort,
         "--start",
@@ -149,3 +151,40 @@ def test_build_rejects_invalid_window_and_cohort(capsys, tmp_path):
             "private_identifiers_emitted": False,
             "tokens_emitted": False,
         }
+
+
+def test_build_missing_runtime_fails_closed_without_bootstrap(capsys, tmp_path):
+    runtime = tmp_path / "missing-runtime"
+
+    code = cli.main(_args(runtime))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert payload["error"] == {
+        "error_class": "runtime",
+        "error_code": "runtime_missing",
+        "http_status": None,
+    }
+    assert payload["privacy"] == {
+        "raw_values_emitted": False,
+        "private_identifiers_emitted": False,
+        "tokens_emitted": False,
+    }
+    assert not runtime.exists()
+    assert not (runtime / "config.toml").exists()
+    assert not (runtime / "healthcheck.db").exists()
+    assert not (runtime / "artifacts").exists()
+
+
+def test_build_unestablished_runtime_fails_closed_without_bootstrap(capsys, tmp_path):
+    runtime = tmp_path / "unestablished-runtime"
+    runtime.mkdir()
+
+    code = cli.main(_args(runtime))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert payload["error"]["error_code"] == "runtime_not_established"
+    assert not (runtime / "config.toml").exists()
+    assert not (runtime / "healthcheck.db").exists()
+    assert not (runtime / "artifacts").exists()
