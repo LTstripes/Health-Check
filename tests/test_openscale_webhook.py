@@ -70,6 +70,17 @@ def _count(session, model) -> int:
     return int(session.scalar(select(func.count()).select_from(model)) or 0)
 
 
+def _non_timestamp_log_text(text: str) -> str:
+    records = [json.loads(line) for line in text.splitlines() if line.strip()]
+    return "\n".join(
+        json.dumps(
+            {key: value for key, value in record.items() if key != "timestamp"},
+            sort_keys=True,
+        )
+        for record in records
+    )
+
+
 def test_auth_missing_wrong_malformed(tmp_path):
     client, _settings_obj, paths = _client(tmp_path)
     body = load_fixture("insert_single.json")
@@ -527,7 +538,23 @@ def test_log_privacy_no_secret_or_payload_values(tmp_path):
     assert TOKEN not in text
     assert "wrong-secret-value" not in text
     assert "76.4" not in text
-    assert "24.5" not in text
+    assert "24.5" not in _non_timestamp_log_text(text)
+
+
+def test_log_privacy_timestamp_collision_does_not_mask_payload_leakage():
+    timestamp_only = json.dumps(
+        {"event": "openscale_ingest", "timestamp": "2026-09-16T20:46:24.590826+00:00"}
+    )
+    assert "24.5" not in _non_timestamp_log_text(timestamp_only)
+
+    measurement_leak = json.dumps(
+        {
+            "event": "openscale_ingest",
+            "timestamp": "2026-09-16T20:46:24.590826+00:00",
+            "measurement": "24.5",
+        }
+    )
+    assert "24.5" in _non_timestamp_log_text(measurement_leak)
 
 
 def test_route_isolation_ui_does_not_mount_openscale(tmp_path):

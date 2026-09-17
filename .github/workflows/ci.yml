@@ -5,7 +5,7 @@ on:
   pull_request:
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-push-{0}', github.ref) }}
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/task/') && format('ci-task-{0}', github.ref)) || format('ci-run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/task/')) }}
 
 jobs:
@@ -65,13 +65,16 @@ jobs:
         if: always()
         shell: bash
         run: |
-          set +e
-          uv run python scripts/ci_evidence_summary.py \
-            --junitxml ci-evidence/junit.xml \
-            --pytest-log ci-evidence/pytest.log \
-            --status-file ci-evidence/pytest-status.txt \
-            --output ci-evidence/summary.md
-          summary_status=$?
+          set -euo pipefail
+          if uv run python scripts/ci_evidence_summary.py \
+              --junitxml ci-evidence/junit.xml \
+              --pytest-log ci-evidence/pytest.log \
+              --status-file ci-evidence/pytest-status.txt \
+              --output ci-evidence/summary.md; then
+            summary_status=0
+          else
+            summary_status=$?
+          fi
           cat ci-evidence/metadata.md >> "$GITHUB_STEP_SUMMARY"
           cat ci-evidence/summary.md >> "$GITHUB_STEP_SUMMARY"
           exit "$summary_status"
