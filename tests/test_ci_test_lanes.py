@@ -130,7 +130,7 @@ def _metadata_text(
         (
             f"- lockfile SHA-256: `{lock_sha256}`",
             "- Python: `Python 3.12.0`",
-            "- uv: `uv 0.12.0`",
+            "- uv: `uv 0.12.0 (x86_64-unknown-linux-gnu)`",
             "- runner: `Linux/X64`",
         )
     )
@@ -890,6 +890,79 @@ def test_final_gate_rejects_missing_wrong_or_boolean_platform(
     evidence_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ContractError, match="platform"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "field", "original", "replacement", "match"),
+    (
+        (
+            "ci-quality-123-1/metadata.md",
+            "runner",
+            "Linux/X64",
+            "Windows/X64",
+            "quality metadata runner platform mismatch",
+        ),
+        (
+            "ci-lane-garmin-123-1/metadata.md",
+            "runner",
+            "Linux/X64",
+            "Windows/X64",
+            "lane metadata runner platform mismatch",
+        ),
+        (
+            "ci-quality-123-1/metadata.md",
+            "Python",
+            "Python 3.12.0",
+            "CPython 3.12.0",
+            "quality metadata Python identity is malformed",
+        ),
+        (
+            "ci-quality-123-1/metadata.md",
+            "uv",
+            "uv 0.12.0 (x86_64-unknown-linux-gnu)",
+            "uv latest",
+            "quality metadata uv identity is malformed",
+        ),
+        (
+            "ci-lane-garmin-123-1/metadata.md",
+            "Python",
+            "Python 3.12.0",
+            "Python 3.12.1",
+            "lane metadata environment mismatch quality",
+        ),
+        (
+            "ci-lane-garmin-123-1/metadata.md",
+            "uv",
+            "uv 0.12.0 (x86_64-unknown-linux-gnu)",
+            "uv 0.12.1 (x86_64-unknown-linux-gnu)",
+            "lane metadata environment mismatch quality",
+        ),
+    ),
+)
+def test_final_gate_rejects_wrong_or_incoherent_environment_metadata(
+    tmp_path, relative_path, field, original, replacement, match
+):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    metadata_path = artifacts / relative_path
+    metadata = metadata_path.read_text(encoding="utf-8")
+    original_line = f"- {field}: `{original}`"
+    assert original_line in metadata
+    metadata_path.write_text(
+        metadata.replace(original_line, f"- {field}: `{replacement}`"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ContractError, match=match):
         validate_gate_artifacts(
             artifacts,
             head_sha=head_sha,

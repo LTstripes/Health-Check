@@ -51,6 +51,13 @@ class ExpectedWorkflowIdentity:
     pr_head_sha: str
 
 
+@dataclass(frozen=True)
+class EnvironmentIdentity:
+    python: str
+    uv: str
+    runner: str
+
+
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ContractError(message)
@@ -423,7 +430,9 @@ def _validate_metadata(
     run_id: str,
     attempt: str,
     workflow_identity: ExpectedWorkflowIdentity,
-) -> None:
+    expected_platform: str,
+    expected_environment: EnvironmentIdentity | None = None,
+) -> EnvironmentIdentity:
     fields = _parse_metadata(path, kind=kind)
     expected_fields = dict(expected)
     expected_fields.update(
@@ -447,8 +456,30 @@ def _validate_metadata(
     )
     for field, value in expected_fields.items():
         _require(fields.get(field) == value, f"{kind} metadata {field} mismatch")
-    for field in ("Python", "uv", "runner"):
-        _require(bool(fields.get(field)), f"{kind} metadata {field} is missing or empty")
+    python = fields["Python"]
+    uv = fields["uv"]
+    runner = fields["runner"]
+    _require(
+        re.fullmatch(r"Python 3\.12\.\d+", python) is not None,
+        f"{kind} metadata Python identity is malformed",
+    )
+    _require(
+        re.fullmatch(r"uv \d+\.\d+\.\d+ \(x86_64-unknown-linux-gnu\)", uv) is not None,
+        f"{kind} metadata uv identity is malformed or platform-incoherent",
+    )
+    expected_runner = {"linux": "Linux/X64"}.get(expected_platform)
+    _require(expected_runner is not None, f"unsupported metadata platform: {expected_platform}")
+    _require(
+        runner == expected_runner,
+        f"{kind} metadata runner platform mismatch: expected {expected_runner}",
+    )
+    environment = EnvironmentIdentity(python=python, uv=uv, runner=runner)
+    if expected_environment is not None:
+        _require(
+            environment == expected_environment,
+            f"{kind} metadata environment mismatch quality",
+        )
+    return environment
 
 
 def _validate_git_status(path: Path, *, head_sha: str) -> None:
@@ -613,7 +644,7 @@ def validate_gate_artifacts(
             r"ci-quality-(?P<run>\d+)-(?P<attempt>\d+)",
             "quality",
         )
-        _validate_metadata(
+        quality_environment = _validate_metadata(
             quality_dir / "metadata.md",
             kind="quality",
             expected={
@@ -627,6 +658,7 @@ def validate_gate_artifacts(
             run_id=quality_run,
             attempt=quality_attempt,
             workflow_identity=workflow_identity,
+            expected_platform=platform,
         )
         _validate_git_status(quality_dir / "git-status.txt", head_sha=head_sha)
         _validate_lock_digest(quality_dir / "uv-lock.sha256", lock_sha256=lock_sha256)
@@ -784,6 +816,8 @@ def validate_gate_artifacts(
                 run_id=lane_run,
                 attempt=lane_attempt,
                 workflow_identity=workflow_identity,
+                expected_platform=platform,
+                expected_environment=quality_environment,
             )
             _validate_git_status(lane_dir / "git-status.txt", head_sha=head_sha)
             _validate_lock_digest(lane_dir / "uv-lock.sha256", lock_sha256=lock_sha256)
