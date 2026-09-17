@@ -103,3 +103,50 @@ def test_period_brief_page_rejects_invalid_period_controls(tmp_path):
         assert response.status_code == 400
         assert "invalid_period" in response.text
         assert "request failed" not in response.text
+
+
+def test_period_brief_source_label_is_human_and_identity_free():
+    from healthcheck.web.pages import _brief_source_label
+
+    source = {
+        "id": "source-uuid-1234",
+        "provider_code": "garmin_connect",
+        "source_instance_id": "account-instance-uuid",
+        "device_attributed": True,
+        "device_model": "Vivoactive 5",
+    }
+    label = _brief_source_label(source)
+    assert label == "Garmin Connect · Vivoactive 5"
+    assert "source-uuid-1234" not in label
+    assert "account-instance-uuid" not in label
+    assert _brief_source_label({"provider_code": "garmin_connect"}) == "Garmin Connect"
+
+
+def test_period_brief_sleep_warning_is_collapsed_to_one_notice():
+    from healthcheck.web.pages import _brief_sleep_uncertainty
+
+    groups = [
+        {"exploratory_label_required": True, "metric_code": "duration"},
+        {"exploratory_label_required": True, "metric_code": "score"},
+    ]
+    notice = _brief_sleep_uncertainty(groups)
+    assert notice is not None
+    assert "не сравнение Garmin и Fitbit/устройств" in notice
+    assert _brief_sleep_uncertainty([{"exploratory_label_required": False}]) is None
+
+
+def test_period_brief_notable_changes_are_deduplicated_and_prioritized():
+    from healthcheck.web.pages import _brief_notable_changes
+
+    notes = [
+        {"section": "sleep", "code": "uncertain_account_cohort", "cohort": "account"},
+        {"section": "sleep", "code": "uncertain_account_cohort", "cohort": "account"},
+        {"section": "weight", "code": "weight_rate"},
+        {"section": "baselines", "code": "personal_baseline_deviation", "fact_code": "sleep"},
+    ]
+    result = _brief_notable_changes(notes)
+    assert [item["code"] for item in result] == [
+        "personal_baseline_deviation",
+        "weight_rate",
+        "uncertain_account_cohort",
+    ]

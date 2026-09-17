@@ -39,7 +39,7 @@
   {% if source_selection.status == "require_selection" %}
   <p class="unavailable">Найдено несколько источников Garmin. Выберите один; данные не объединяются молча.</p>
   {% elif source_selection.status == "selected" %}
-  <p class="muted">Выбранный источник используется для активностей и базовых показателей Garmin.</p>
+  <p class="muted">Выбран: <strong>{{ brief_source_label(source_selection.selected_source) }}</strong>. Источник используется для активностей и базовых показателей Garmin.</p>
   {% else %}
   <p class="muted">В этом локальном профиле источник Garmin не сохранён.</p>
   {% endif %}
@@ -51,7 +51,7 @@
         <option value="">— выбрать источник —</option>
         {% for source in source_selection.sources %}
         <option value="{{ source.id }}"{% if source_selection.selected_source_id == source.id %} selected{% endif %}>
-          {{ source.provider_code }} · {{ source.device_model or source.source_instance_id }} · {{ source.id[:8] }}…
+          {{ brief_source_label(source) }}
         </option>
         {% endfor %}
       </select>
@@ -67,6 +67,43 @@
 </section>
 {% endif %}
 
+{% set weight = brief.sections.weight %}
+{% set sleep = brief.sections.sleep %}
+{% set activity = brief.sections.activity %}
+{% set quality = brief.sections.data_quality %}
+{% set sleep_uncertainty = brief_sleep_uncertainty(sleep.groups) %}
+{% set notable_changes = brief_notable_changes(brief.notable_changes) %}
+
+<section class="card brief-overview" aria-labelledby="brief-overview-heading">
+  <h2 id="brief-overview-heading">Что произошло</h2>
+  <p class="muted">Краткий итог за выбранный период. Состояния «нет данных», «недоступно» и «недостаточно» не заменяются нулевыми значениями.</p>
+  <ul class="brief-overview-list">
+    <li><strong>Вес</strong>: {{ brief_owner_state(weight.state) }}</li>
+    <li><strong>Сон</strong>: {{ brief_owner_state(sleep.state) }}</li>
+    <li><strong>Активности</strong>: {{ brief_owner_state(activity.state) }}</li>
+  </ul>
+</section>
+
+<section class="card brief-priority" aria-labelledby="brief-notable-heading">
+  <h2 id="brief-notable-heading">Что заметно</h2>
+  {% if notable_changes %}
+  <ul>{% for note in notable_changes %}<li><strong>{{ brief_owner_note(note) }}</strong>{% if note.value is defined and note.value is not none %}: {{ note.value }}{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">Заметных изменений за этот период нет.</p>{% endif %}
+</section>
+
+<section class="card brief-priority" aria-labelledby="brief-actions-heading">
+  <h2 id="brief-actions-heading">Что нужно сделать</h2>
+  {% if brief.owner_actions %}<ul>{% for action in brief.owner_actions %}<li>{{ brief_owner_action(action) }}{% if action.code == "confirm_pending_imports" %} <a href="/imports">Открыть очередь импорта</a>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Дополнительных действий по этой сводке нет.</p>{% endif %}
+</section>
+
+{% if sleep_uncertainty or quality.state != "present" %}
+<section class="card brief-confidence" role="note" aria-labelledby="brief-confidence-heading">
+  <h2 id="brief-confidence-heading">Уверенность и покрытие</h2>
+  {% if sleep_uncertainty %}<p class="uncertainty-note">{{ sleep_uncertainty }}</p>{% endif %}
+  {% if quality.state != "present" %}<p class="muted">Полнота данных: {{ brief_owner_state(quality.state) }}.</p>{% endif %}
+</section>
+{% endif %}
+
 {% macro state_chip(section) -%}
 <span class="status-chip {{ section.state }}">{{ brief_owner_state(section.state) }}</span>
 {%- endmacro %}
@@ -75,7 +112,6 @@
 {%- endmacro %}
 
 <div class="brief-grid">
-  {% set weight = brief.sections.weight %}
   <section class="card brief-section">
     <header class="section-heading"><h2>Вес</h2>{{ state_chip(weight) }}</header>
     <table>
@@ -94,21 +130,18 @@
     {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_thinning.max_display_points }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
   </section>
 
-  {% set sleep = brief.sections.sleep %}
   <section class="card brief-section">
     <header class="section-heading"><h2>Сон</h2>{{ state_chip(sleep) }}</header>
     {% for group in sleep.groups %}
     <article class="brief-subsection">
       <h3>{{ brief_owner_cohort(group.cohort_label) }}</h3>
       <p class="muted">Наблюдений: {{ group.n if group.n is not none else "—" }} · сопоставленных ночей: {{ group.paired_nights if group.paired_nights is not none else "—" }}</p>
-      {% if group.exploratory_label_required %}<p class="uncertainty-note">{{ brief_owner_uncertainty(group.uncertainty_notice) }}</p>{% endif %}
       {% if group.statistics_available %}<p>Принятое сравнение: среднее различие={{ group.bias }}, типичное различие={{ group.mae }}, наблюдений={{ group.accepted_statistics_n }}.</p>{% else %}<p class="muted">Принятое сравнение недоступно.</p>{% endif %}
     </article>
     {% else %}<p class="muted">За этот период нет доступной группы сна.</p>{% endfor %}
     {% if sleep.summary_facts %}<div class="fact-list">{% for fact in sleep.summary_facts %}<span><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</span>{% endfor %}</div>{% endif %}
   </section>
 
-  {% set activity = brief.sections.activity %}
   <section class="card brief-section">
     <header class="section-heading"><h2>Активности</h2>{{ state_chip(activity) }}</header>
     {% for fact in activity.summary_facts %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
@@ -120,7 +153,6 @@
     {% if activity.display_thinning %}<p class="muted">Для удобства показаны последние {{ activity.display_thinning.max_activity_sessions }} из {{ activity.display_thinning.original_session_count }} активностей.</p>{% endif %}
   </section>
 
-  {% set quality = brief.sections.data_quality %}
   <section class="card brief-section">
     <header class="section-heading"><h2>Полнота данных</h2>{{ state_chip(quality) }}</header>
     {% for fact in quality.summary_facts %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}</p>{% endfor %}
@@ -130,16 +162,6 @@
   </section>
 </div>
 
-<section class="card">
-  <h2>Что изменилось</h2>
-  {% if brief.notable_changes %}<ul>{% for note in brief.notable_changes %}<li><strong>{{ brief_owner_note(note) }}</strong>{% if note.value is defined and note.value is not none %}: {{ note.value }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Заметных изменений за этот период нет.</p>{% endif %}
-</section>
-
-<section class="card">
-  <h2>Что можно проверить</h2>
-  {% if brief.owner_actions %}<ul>{% for action in brief.owner_actions %}<li>{{ brief_owner_action(action) }}{% if action.code == "confirm_pending_imports" %} <a href="/imports">Открыть очередь импорта</a>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Дополнительных действий по этой сводке нет.</p>{% endif %}
-</section>
-
 <details class="card brief-provenance">
   <summary>Технические детали</summary>
   <dl>
@@ -148,6 +170,10 @@
     <div><dt>Хеш результата</dt><dd><code>{{ packet.result_hash }}</code></dd></div>
     <div><dt>Хеш отображения</dt><dd><code>{{ brief.source_result_hash }}</code></dd></div>
     <div><dt>Связанные контракты</dt><dd><code>{{ packet.contracts_referenced | tojson }}</code></dd></div>
+    {% if source_selection.selected_source %}
+    <div><dt>Выбранный source ID</dt><dd><code>{{ source_selection.selected_source.id }}</code></dd></div>
+    <div><dt>Технический instance ID</dt><dd><code>{{ source_selection.selected_source.source_instance_id }}</code></dd></div>
+    {% endif %}
     <div><dt>Внутренние состояния</dt><dd><code>{% for name, section in packet.sections.items() %}{{ name }}={{ section.state }}{% if not loop.last %}; {% endif %}{% endfor %}</code></dd></div>
     <div><dt>Внутренние показатели</dt><dd><code>{% for name, section in packet.sections.items() %}{{ name }}: [{% for fact in section.summary_facts %}{{ fact.code }}{% if not loop.last %}, {% endif %}{% endfor %}]{% if not loop.last %}; {% endif %}{% endfor %}</code></dd></div>
   </dl>
