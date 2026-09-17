@@ -44,6 +44,7 @@ from healthcheck.google.sync import (
 )
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
+from healthcheck.owner_refresh import OwnerRefreshStatus, run_owner_refresh
 from healthcheck.profile_backup import (
     ProfileBackupError,
     create_backup,
@@ -80,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
             "google-sync",
             "google-backfill",
             "google-refresh",
+            "owner-refresh",
             "google-diagnose-terminal",
             "period-brief",
         ),
@@ -203,6 +205,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_google_backfill(args, settings)
     if args.command == "google-refresh":
         return _run_google_refresh(args, settings)
+    if args.command == "owner-refresh":
+        return _run_owner_refresh(args, settings)
     if args.command == "google-diagnose-terminal":
         return _run_google_diagnose_terminal(args, settings)
     if args.command == "garmin-sync":
@@ -533,6 +537,55 @@ def _run_google_diagnose_terminal(args: argparse.Namespace, settings: Settings) 
         return 2
     print(diagnosis.to_json(), end="")
     return 0 if diagnosis.status == "diagnosed" else 1
+
+
+def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.dates is not None and len(args.dates) != 1:
+            raise ValueError("owner-refresh accepts exactly one --date")
+        if args.start or args.end:
+            raise ValueError("owner-refresh uses --date and --trailing-window-days")
+        if args.dry_run:
+            raise ValueError("owner-refresh does not use --dry-run")
+        if args.reprocess:
+            raise ValueError("owner-refresh does not use --reprocess")
+        if args.max_observations is not None:
+            raise ValueError("owner-refresh does not use --max-observations")
+        report = run_owner_refresh(
+            settings,
+            as_of=args.dates[0] if args.dates else None,
+            trailing_window_days=args.trailing_window_days,
+            is_cn=args.is_cn,
+            streams=args.streams,
+            query_mode=args.query_mode,
+            data_source_family=args.family,
+        )
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": "healthcheck-owner-refresh-v1",
+                    "operation": "owner-refresh",
+                    "error": {
+                        "error_class": "input",
+                        "error_code": "invalid_refresh_request",
+                        "http_status": None,
+                    },
+                    "privacy": {
+                        "raw_values_emitted": False,
+                        "private_identifiers_emitted": False,
+                        "tokens_emitted": False,
+                        "health_timestamps_emitted": False,
+                        "page_tokens_emitted": False,
+                        "string_encoded_numerics_logged_as_values": False,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    return 0 if report.status is OwnerRefreshStatus.SUCCEEDED else 1
 
 
 def _run_garmin_auth(args: argparse.Namespace, settings: Settings) -> int:
