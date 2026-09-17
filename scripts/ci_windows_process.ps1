@@ -135,32 +135,32 @@ function Invoke-RootProcessTreeTermination {
 function Get-LoopbackPortEvidence {
     param([int]$Port)
 
-    $client = [Net.Sockets.TcpClient]::new()
+    $listener = $null
     try {
-        $connect = $client.ConnectAsync("127.0.0.1", $Port)
-        if (-not $connect.Wait(1000)) {
-            return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection check timed out" }
-        }
-        if ($connect.IsFaulted) {
-            $socketError = $connect.Exception.InnerException
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
+        $listener.Start()
+        return [pscustomobject]@{ Closed = $true; Error = $null }
+    } catch {
+        $socketError = $_.Exception
+        $isAddressInUse = $false
+        while ($null -ne $socketError) {
             if ($socketError -is [Net.Sockets.SocketException] -and
-                $socketError.SocketErrorCode -eq [Net.Sockets.SocketError]::ConnectionRefused) {
-                return [pscustomobject]@{ Closed = $true; Error = $null }
+                $socketError.SocketErrorCode -eq [Net.Sockets.SocketError]::AddressAlreadyInUse) {
+                $isAddressInUse = $true
+                break
             }
-            return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection check failed" }
+            $socketError = $socketError.InnerException
         }
-        if ($client.Connected) {
+        if ($isAddressInUse) {
             return [pscustomobject]@{ Closed = $false; Error = $null }
         }
-        return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection state was indeterminate" }
-    } catch {
-        $socketError = $_.Exception.InnerException
-        if ($socketError -is [Net.Sockets.SocketException] -and
-            $socketError.SocketErrorCode -eq [Net.Sockets.SocketError]::ConnectionRefused) {
-            return [pscustomobject]@{ Closed = $true; Error = $null }
-        }
-        return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection check failed: $($_.Exception.Message)" }
+        return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port bind probe failed: $($_.Exception.Message)" }
     } finally {
-        $client.Dispose()
+        if ($null -ne $listener) {
+            try {
+                $listener.Stop()
+            } catch {
+            }
+        }
     }
 }

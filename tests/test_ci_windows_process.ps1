@@ -81,4 +81,26 @@ $queryFailed = Invoke-RootProcessTreeTermination $capturedRoot
 $queryFailure = $false
 Assert-True (@($queryFailed.Errors).Count -gt 0) "root identity query failure must fail closed"
 
+$freeProbeListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+try {
+    $freeProbeListener.Start()
+    $freePort = ([Net.IPEndPoint]$freeProbeListener.LocalEndpoint).Port
+} finally {
+    $freeProbeListener.Stop()
+}
+$freeProbe = Get-LoopbackPortEvidence $freePort
+Assert-True $freeProbe.Closed "released loopback port must be reported as closed"
+Assert-Equal $null $freeProbe.Error "released loopback port must have no probe error"
+
+$listeningProbeListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+try {
+    $listeningProbeListener.Start()
+    $listeningPort = ([Net.IPEndPoint]$listeningProbeListener.LocalEndpoint).Port
+    $listeningProbe = Get-LoopbackPortEvidence $listeningPort
+    Assert-True (-not $listeningProbe.Closed) "listening loopback port must be reported as open"
+    Assert-Equal $null $listeningProbe.Error "listening loopback port must have no probe error"
+} finally {
+    $listeningProbeListener.Stop()
+}
+
 Write-Output "Windows root-tree lifecycle regression PASS"
