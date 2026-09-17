@@ -25,8 +25,11 @@ MANIFEST_NAME = "manifest.json"
 PROFILE_PREFIX = "profile/"
 DATABASE_NAME = "healthcheck.db"
 LOGS_DIRECTORY = "logs"
-MAX_ARCHIVE_MEMBER_BYTES = 1_073_741_824
-MAX_ARCHIVE_TOTAL_BYTES = 2_147_483_648
+# Hard expanded-size caps. Raised for multi-GiB owner Stable profiles
+# (~1.73 GiB SQLite DB observed) while remaining explicitly bounded.
+# Format-v1 is unchanged; ZIP64 is used when member/archive sizes require it.
+MAX_ARCHIVE_MEMBER_BYTES = 4 * 1024 * 1024 * 1024  # 4 GiB
+MAX_ARCHIVE_TOTAL_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB
 MAX_MANIFEST_BYTES = 1_048_576
 
 
@@ -422,6 +425,7 @@ def _write_archive(
             "w",
             compression=zipfile.ZIP_DEFLATED,
             compresslevel=6,
+            allowZip64=True,
             strict_timestamps=False,
         ) as handle:
             handle.writestr(
@@ -445,7 +449,7 @@ def _validate_archive(archive: Path) -> _ArchivePlan:
     _reject_symlink_ancestors(archive_path)
     _require_regular_file(archive_path, "backup archive")
     try:
-        handle = zipfile.ZipFile(archive_path, "r")
+        handle = zipfile.ZipFile(archive_path, "r", allowZip64=True)
     except (OSError, zipfile.BadZipFile) as exc:
         raise ProfileBackupError("backup archive is not a valid ZIP") from exc
     with handle:
@@ -650,7 +654,7 @@ def _validate_archive_database(
 
 def _extract_archive(plan: _ArchivePlan, destination: Path) -> None:
     destination.mkdir(parents=True)
-    with zipfile.ZipFile(plan.archive, "r") as handle:
+    with zipfile.ZipFile(plan.archive, "r", allowZip64=True) as handle:
         for item in plan.files:
             relative = PurePosixPath(item["path"])
             target = destination / Path(*relative.parts)
