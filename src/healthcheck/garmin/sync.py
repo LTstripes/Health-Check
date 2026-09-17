@@ -759,9 +759,24 @@ def _series_records(
         _SERIES_FIELDS[surface.code][0],
     )
     records: list[GarminRecordDTO] = []
+    body_battery_samples: dict[str, tuple[int | float, str | None]] = {}
     for index, stamp, value in samples:
         parent_temporal = result.records[0].temporal if result.records else None
         temporal = _sample_temporal(stamp, day=day, fallback=parent_temporal)
+        sample_token = _sample_token(stamp)
+        if surface.code == "body_battery":
+            normalized_timestamp = _temporal_sample_token(temporal)
+            if normalized_timestamp is not None:
+                existing = body_battery_samples.get(normalized_timestamp)
+                if existing is not None:
+                    existing_value, existing_sample_token = existing
+                    if value == existing_value:
+                        continue
+                    # Preserve the existing duplicate-identity persistence guard
+                    # for one timestamp carrying conflicting Body Battery levels.
+                    sample_token = existing_sample_token
+                else:
+                    body_battery_samples[normalized_timestamp] = (value, sample_token)
         metric = GarminMetricDTO(
             capability_code=capability_code,
             metric_code=metric_code,
@@ -777,14 +792,14 @@ def _series_records(
                 stream=surface.stream,
                 source=result.source,
                 temporal=temporal,
-                sample_token=_sample_token(stamp),
+                sample_token=sample_token,
                 idempotency_key=stable_garmin_reconciliation_key(
                     result.source,
                     surface.stream,
                     surface=surface.code,
                     temporal=temporal,
-                    sample_token=_sample_token(stamp),
-                    sample_index=None if _sample_token(stamp) else index,
+                    sample_token=sample_token,
+                    sample_index=None if sample_token else index,
                 ),
                 record_index=index,
                 metrics=(metric,),
