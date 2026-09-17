@@ -182,11 +182,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Run focused Windows smoke
+        shell: pwsh
+        env:
+          SMOKE_EVIDENCE_DIR: ${{ runner.temp }}\ci-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: >-
+          pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
+          -File scripts/ci_windows_smoke.ps1 -EvidenceDir "$env:SMOKE_EVIDENCE_DIR"
+      - name: Upload Windows smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\ci-windows-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+
   checks:
     if: always()
     needs:
       - quality
       - test
+      - windows-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -208,6 +242,7 @@ jobs:
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          WINDOWS_RESULT: ${{ needs.windows-smoke.result }}
           EXPECTED_EVENT_NAME: ${{ github.event_name }}
           EXPECTED_REF: ${{ github.ref }}
           EXPECTED_PR_BASE_REF: ${{ github.base_ref }}
@@ -216,7 +251,7 @@ jobs:
           EXPECTED_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           python scripts/ci_test_lanes.py gate \
             --artifacts-root downloaded-evidence \
             --quality-result "$QUALITY_RESULT" \
@@ -230,3 +265,19 @@ jobs:
             --pr-head-ref "$EXPECTED_PR_HEAD_REF" \
             --pr-head-sha "$EXPECTED_PR_HEAD_SHA" \
             --expected-platform linux
+          linux_status=$?
+          python scripts/ci_windows_smoke.py \
+            --artifacts-root downloaded-evidence \
+            --job-result "$WINDOWS_RESULT" \
+            --head-sha "$(git rev-parse HEAD)" \
+            --tree-sha "$(git rev-parse 'HEAD^{tree}')" \
+            --event-name "$EXPECTED_EVENT_NAME" \
+            --ref "$EXPECTED_REF" \
+            --pr-base-ref "$EXPECTED_PR_BASE_REF" \
+            --pr-base-sha "$EXPECTED_PR_BASE_SHA" \
+            --pr-head-ref "$EXPECTED_PR_HEAD_REF" \
+            --pr-head-sha "$EXPECTED_PR_HEAD_SHA"
+          windows_status=$?
+          if [ "$linux_status" -ne 0 ] || [ "$windows_status" -ne 0 ]; then
+            exit 1
+          fi

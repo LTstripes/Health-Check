@@ -426,7 +426,7 @@ def test_windows_user_scoped_protection_round_trips_and_rejects_owner_tampering(
     try:
         envelope = protection.protect(plaintext)
     except GarminSessionProtectionUnavailable:
-        pytest.skip("Windows user DPAPI profile is unavailable in this test host")
+        pytest.fail("Windows user DPAPI profile is unavailable in this test host")
 
     assert "synthetic-dpapi-token" not in envelope
     assert protection.unprotect(envelope) == plaintext
