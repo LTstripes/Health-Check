@@ -1,10 +1,24 @@
-function Get-ValidProcessId {
+function ConvertTo-ProcessId {
     param([object]$Value)
 
     if ($null -eq $Value) { return $null }
     try { $processId = [int]$Value } catch { return $null }
-    if ($processId -le 0) { return $null }
+    if ($processId -lt 0) { return $null }
     return $processId
+}
+
+function Get-ValidProcessId {
+    param([object]$Value)
+
+    $processId = ConvertTo-ProcessId $Value
+    if ($null -eq $processId -or $processId -le 0) { return $null }
+    return $processId
+}
+
+function Get-ParentProcessId {
+    param([object]$Value)
+
+    return ConvertTo-ProcessId $Value
 }
 
 function Get-ProcessSnapshot {
@@ -20,18 +34,10 @@ function Get-ProcessSnapshot {
     }
     foreach ($rawProcess in $rawProcesses) {
         if ($null -eq $rawProcess) {
-            $errors += "process snapshot contained a null record"
             continue
         }
-        $processId = Get-ValidProcessId $rawProcess.ProcessId
-        if ($null -eq $processId) {
-            $errors += "process snapshot contained a record without a valid PID"
-            continue
-        }
-        $parentId = Get-ValidProcessId $rawProcess.ParentProcessId
-        if ($null -eq $parentId) {
-            $errors += "process $processId has no valid parent PID"
-        }
+        $processId = ConvertTo-ProcessId $rawProcess.ProcessId
+        $parentId = Get-ParentProcessId $rawProcess.ParentProcessId
         $processes += [pscustomobject]@{
             Id = $processId
             ParentId = $parentId
@@ -56,22 +62,17 @@ function Get-OwnedProcessSnapshot {
     $byParent = @{}
     foreach ($process in @($Snapshot)) {
         if ($null -eq $process) {
-            $errors += "owned-process snapshot contained a null record"
             continue
         }
         $processId = Get-ValidProcessId $process.Id
-        if ($null -eq $processId) {
-            $errors += "owned-process snapshot contained a record without a valid PID"
-            continue
+        if ($null -ne $processId) {
+            if (-not $byId.ContainsKey($processId)) {
+                $byId.Add($processId, [System.Collections.ArrayList]::new())
+            }
+            [void]$byId[$processId].Add($process)
         }
-        if ($byId.ContainsKey($processId)) {
-            $errors += "process snapshot contained duplicate PID $processId"
-            continue
-        }
-        $byId.Add($processId, $process)
-        $parentId = Get-ValidProcessId $process.ParentId
+        $parentId = Get-ParentProcessId $process.ParentId
         if ($null -eq $parentId) {
-            $errors += "process $processId has no usable parent relation"
             continue
         }
         if (-not $byParent.ContainsKey($parentId)) {
@@ -89,8 +90,13 @@ function Get-OwnedProcessSnapshot {
     } else {
         $pending.Enqueue($rootProcessId)
         if ($byId.ContainsKey($rootProcessId)) {
-            [void]$seen.Add($rootProcessId)
-            $owned += $byId[$rootProcessId]
+            $rootCandidates = @($byId[$rootProcessId])
+            if ($rootCandidates.Count -ne 1) {
+                $errors += "harness root PID $rootProcessId has ambiguous identity"
+            } else {
+                [void]$seen.Add($rootProcessId)
+                $owned += $rootCandidates[0]
+            }
         } elseif (@($Snapshot).Count -gt 0) {
             $errors += "harness root PID $rootProcessId is absent from a non-empty process snapshot"
         }
@@ -105,10 +111,13 @@ function Get-OwnedProcessSnapshot {
                 $errors += "owned-process leaf has no valid PID"
                 continue
             }
-            if ($seen.Add($childId)) {
-                $owned += $child
-                $pending.Enqueue($childId)
+            if ($seen.Contains($childId)) {
+                $errors += "owned-process snapshot contained duplicate PID $childId"
+                continue
             }
+            [void]$seen.Add($childId)
+            $owned += $child
+            $pending.Enqueue($childId)
         }
     }
     return [pscustomobject]@{

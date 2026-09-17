@@ -114,6 +114,8 @@ try {
     $cleanupErrors = @()
     $ownedBefore = @()
     $remaining = @()
+    $terminatedProcessIds = @()
+    $identityChangedProcessIds = @()
     $rootPid = if ($harness) { [int]$harness.Id } else { 0 }
     try {
         $snapshotResult = Get-ProcessSnapshot
@@ -124,6 +126,8 @@ try {
             Add-ProcessIdentityErrors $ownedResult.Errors
             $ownedBefore = @($ownedResult.Processes)
             $stopResult = Stop-OwnedProcesses $ownedBefore
+            $terminatedProcessIds = @($stopResult.TerminatedProcessIds)
+            $identityChangedProcessIds = @($stopResult.IdentityChangedProcessIds)
             $cleanupErrors += @($stopResult.Errors)
             Start-Sleep -Milliseconds 250
             $afterResult = Get-ProcessSnapshot
@@ -144,9 +148,9 @@ try {
         scope = "harness-root-and-descendants-only"
         root_pid = $rootPid
         started_process_ids = @($ownedBefore | ForEach-Object { [int]$_.Id } | Sort-Object -Unique)
-        terminated_process_ids = if ($stopResult) { @($stopResult.TerminatedProcessIds) } else { @() }
+        terminated_process_ids = $terminatedProcessIds
         remaining_owned_process_ids = @($remaining | Sort-Object -Unique)
-        identity_changed_process_ids = if ($stopResult) { @($stopResult.IdentityChangedProcessIds) } else { @() }
+        identity_changed_process_ids = $identityChangedProcessIds
         errors = @($cleanupErrors)
     }
     try {
@@ -205,6 +209,8 @@ try {
         pr_base_sha = if ($env:PR_BASE_SHA) { $env:PR_BASE_SHA } else { "" }
         pr_head_ref = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { "" }
         pr_head_sha = if ($env:PR_HEAD_SHA) { $env:PR_HEAD_SHA } else { "" }
+        head_sha = $headSha
+        tree_sha = $treeSha
         checked_out_head = $headSha
         checked_out_tree = $treeSha
         git_clean = $gitClean
