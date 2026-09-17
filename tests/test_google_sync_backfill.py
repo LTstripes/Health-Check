@@ -49,12 +49,14 @@ from healthcheck.google.contracts import (
 )
 from healthcheck.google.protection import GoogleLocalKeyFileProtection
 from healthcheck.google.sync import (
+    MAX_PAGES_PER_FETCH,
     MAX_SYNC_PROVIDER_REQUESTS,
     RETRY_BACKOFF_SECONDS,
     SLEEP_PAGE_SIZE,
     UNATTRIBUTED_SOURCE_INSTANCE,
     GoogleHealthSync,
     GoogleRunKind,
+    GoogleSafeError,
     GoogleSyncStatus,
     checkpoint_stream_code,
     parse_page_envelope,
@@ -1184,6 +1186,126 @@ def test_historical_backfill_exact_budget_for_completed_work_is_success(tmp_path
         item.status in {GoogleSyncStatus.SUCCEEDED, GoogleSyncStatus.EMPTY}
         for item in report.attempts
     )
+
+
+def test_dense_historical_window_resumes_across_bounded_invocations(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    dense_page_count = (MAX_PAGES_PER_FETCH * 2) + 2
+    for index in range(dense_page_count):
+        page_token = None if index == 0 else f"synthetic-page-{index}"
+        next_token = (
+            f"synthetic-page-{index + 1}" if index + 1 < dense_page_count else None
+        )
+        payload: dict[str, Any] = {
+            "dataPoints": [_hr_point(name=f"hr-{index}", bpm=str(60 + (index % 20)))]
+        }
+        if next_token is not None:
+            payload["nextPageToken"] = next_token
+        transport.queue("heart-rate", payload, page_token=page_token)
+
+    settings, _service = _sync(tmp_path, transport)
+    backfill = GoogleHistoricalBackfill(
+        settings,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+    )
+
+    first = backfill.run(
+        start="2099-01-02",
+        end="2099-01-03",
+        streams=["heart_rate"],
+        chunk_days=1,
+    )
+    assert first.status is GoogleSyncStatus.PARTIAL
+    assert first.request_count == MAX_PAGES_PER_FETCH
+    assert first.request_count <= MAX_SYNC_PROVIDER_REQUESTS
+    assert first.attempts[0].page_count == MAX_PAGES_PER_FETCH
+    assert first.attempts[0].error == GoogleSafeError("budget", "page_ceiling")
+    assert first.attempts[1].status is GoogleSyncStatus.NOT_RUN
+    assert "synthetic-page-" not in first.to_json()
+
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(
+                select(SyncStreamState).where(
+                    SyncStreamState.stream_code.like("google:historical:heart_rate:%")
+                )
+            )
+            assert state is not None
+            assert json.loads(state.cursor or "{}")["page_token"] == (
+                f"synthetic-page-{MAX_PAGES_PER_FETCH}"
+            )
+    finally:
+        engine.dispose()
+
+    second = backfill.run(
+        start="2099-01-02",
+        end="2099-01-03",
+        streams=["heart_rate"],
+        chunk_days=1,
+    )
+    assert second.status is GoogleSyncStatus.PARTIAL
+    assert second.request_count == MAX_PAGES_PER_FETCH
+    assert second.request_count <= MAX_SYNC_PROVIDER_REQUESTS
+    assert second.attempts[0].page_count == MAX_PAGES_PER_FETCH
+    assert second.attempts[0].error == GoogleSafeError("budget", "page_ceiling")
+    assert second.attempts[1].status is GoogleSyncStatus.NOT_RUN
+    assert "synthetic-page-" not in second.to_json()
+
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(
+                select(SyncStreamState).where(
+                    SyncStreamState.stream_code.like("google:historical:heart_rate:%")
+                )
+            )
+            assert state is not None
+            assert json.loads(state.cursor or "{}")["page_token"] == (
+                f"synthetic-page-{MAX_PAGES_PER_FETCH * 2}"
+            )
+    finally:
+        engine.dispose()
+
+    third = backfill.run(
+        start="2099-01-02",
+        end="2099-01-03",
+        streams=["heart_rate"],
+        chunk_days=1,
+    )
+    assert third.status is GoogleSyncStatus.SUCCEEDED
+    assert third.request_count == 3
+    assert all(
+        item.status in {GoogleSyncStatus.SUCCEEDED, GoogleSyncStatus.EMPTY}
+        for item in third.attempts
+    )
+
+    calls_after_completion = len(transport.health_calls())
+    exact_rerun = backfill.run(
+        start="2099-01-02",
+        end="2099-01-03",
+        streams=["heart_rate"],
+        chunk_days=1,
+    )
+    assert exact_rerun.status is GoogleSyncStatus.SUCCEEDED
+    assert exact_rerun.request_count == 0
+    assert all(item.skipped for item in exact_rerun.attempts)
+    assert len(transport.health_calls()) == calls_after_completion
+
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            record_count = session.scalar(select(func.count()).select_from(GoogleSourceRecord))
+            identity_count = session.scalar(
+                select(func.count(func.distinct(GoogleSourceRecord.record_identity_key)))
+            )
+            assert record_count == dense_page_count
+            assert identity_count == dense_page_count
+    finally:
+        engine.dispose()
 
 
 def test_historical_backfill_failed_then_success_is_not_success(tmp_path) -> None:
