@@ -171,13 +171,28 @@ Main outcomes:
 
 Sanitized closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md).
 
+## Post-R05 / #119 — deterministic period brief v1 — completed
+
+Handoff checkpoint:
+
+- canonical `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca`;
+- exact-main CI `35139999279` — SUCCESS;
+- #119 closed completed.
+
+Delivered (product, not a new major release number):
+
+- deterministic weight/sleep/activity/data-quality period brief evidence packet with stable result hash;
+- thin API/text/CLI rendering over that packet;
+- accepted direct R05 sleep-report reuse and full activity inventory repairs.
+
+Also closed completed (not residual backlog): #98 Garmin dependency upgrade; #99 Google auth/sync test hardening.
+
 ## Next phase
 
 Current bounded product focus:
 
-- #119 — deterministic period brief v1 over existing weight/sleep/activity/coverage analytics.
+- #127 — Period Brief local UI v1 (local owner page over the accepted #119 contract).
 
-Residual maintenance where still justified:
+R05 disposition unchanged: exploratory closeout; Garmin canonical/default; #105 deferred/NOT_ELIGIBLE (not actionable next work unless future evidence meets its gate).
 
-- #98 — evaluate Garmin dependency upgrade 0.3.12 → 0.3.15;
-- #99 — reproduce/minimize the known order-sensitive OAuth test/global-state leak.
+Separate engineering track (not next health-product release): #123–#126 CI/reliability.

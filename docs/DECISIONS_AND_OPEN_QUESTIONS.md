@@ -11,7 +11,7 @@ This file contains current architecture/product decisions plus only those `UNVER
 - Priority remains weight/body composition → sleep → activity/fitness → recovery/wellbeing.
 - R01, R02, R03, R04 and R05 are released to canonical `main`.
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
-- Current bounded product focus is #119 deterministic period brief v1 over existing analytics.
+- #119 deterministic period brief v1 is completed on canonical main; current bounded product focus is #127 Period Brief local UI v1.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -48,7 +48,7 @@ This file contains current architecture/product decisions plus only those `UNVER
 - R03 analytics consume reviewed metric/time identities and immutable evidence manifests; UI does not reimplement statistics.
 - Garmin-native scores remain provider-native and are not relabelled as a Health-Check readiness/recovery score.
 
-Post-R04 maintenance #98 may evaluate `python-garminconnect` 0.3.12 → 0.3.15. It is maintenance, not an R04/R05 semantic dependency unless current evidence proves otherwise.
+Post-R04 maintenance #98 completed the bounded `python-garminconnect` 0.3.12 → 0.3.15 upgrade. It was maintenance, not an R04/R05 semantic dependency. #99 Google auth/sync test hardening is also closed completed.
 
 ### Google Health / R04
 
@@ -141,7 +141,7 @@ These are observational gaps, not reasons to rewrite released architecture.
 - MFA-specific branch behavior if a future login actually triggers MFA.
 - Longer-term provider payload-shape drift and retention boundaries beyond released owner evidence.
 - Recovery Time / some advanced activity/device fields remain intentionally outside released claims unless separately proven.
-- Whether the 0.3.15 dependency upgrade is still worthwhile must be re-evaluated against current main/upstream under #98.
+- #98 completed the pinned upgrade to `python-garminconnect` 0.3.15; further upstream drift remains observational maintenance, not residual #98 backlog.
 
 ### Google Health / R04
 
@@ -155,7 +155,7 @@ These are observational gaps, not reasons to rewrite released architecture.
 - Live provider-attribution evidence was insufficient for a canonical switch; Garmin remains default.
 - Strict legacy `device_pair` / `family_pair` remain fail-closed.
 - `account_wearables_sleep_observations_v1` is exploratory/uncertain-only and never canonical-eligible.
-- #105 remains deferred / NOT_ELIGIBLE until stronger explicit device-pair evidence exists.
+- #105 remains deferred / NOT_ELIGIBLE until stronger explicit device-pair evidence exists; it is not an actionable next implementation merely because it is open, and no Owner action is required unless future live evidence meets its gate.
 - Firmware/app/algorithm change points may still require separate agreement epochs if evidence later accumulates.
 
 ## Deferred owner choices
