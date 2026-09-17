@@ -76,6 +76,11 @@ def test_windows_smoke_is_focused_and_is_required_by_the_final_gate():
         encoding="utf-8"
     )
     assert "test_garmin_auth.py::test_windows_user_scoped_protection_round_trips" in smoke_script
+    assert "ingest-disabled" in smoke_script
+    assert "ingest-enabled" in smoke_script
+    assert "taskkill.exe" in (
+        Path(__file__).parents[1] / "scripts" / "ci_windows_process.ps1"
+    ).read_text(encoding="utf-8")
     assert "full pytest" not in windows.lower()
     assert "xdist" not in windows
     assert "      - windows-smoke\n" in checks
@@ -146,17 +151,73 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     artifact.mkdir(parents=True)
     head = "a" * 40
     tree = "b" * 40
+    def scenario(name: str, root_pid: int, runtime_path: str, identity_changed: list[int]):
+        surfaces = {
+            "ui_host": "127.0.0.1",
+            "ui_port": 8120,
+            "ingest_host": "127.0.0.1",
+            "ingest_port": 8121,
+            "ui_health": {
+                "host": "127.0.0.1",
+                "path": "/healthz",
+                "status_code": 200,
+                "body": {"service": "loopback-ui", "status": "ok"},
+            },
+            "ingest_health": None,
+            "ui_ingest_route_status": None,
+            "ingest_openscale_get_status": None,
+            "ingest_port_closed_before_start": True,
+        }
+        if name == "ingest-enabled":
+            surfaces["ingest_health"] = {
+                "host": "127.0.0.1",
+                "path": "/healthz",
+                "status_code": 200,
+                "body": {"service": "ingest", "status": "ok"},
+            }
+            surfaces["ui_ingest_route_status"] = 404
+            surfaces["ingest_openscale_get_status"] = 405
+        return {
+            "name": name,
+            "status": "passed",
+            "failure": None,
+            "runtime": {
+                "path": runtime_path,
+                "outside_checkout": True,
+                "path_contains_spaces": True,
+                "removed": True,
+            },
+            "surfaces": surfaces,
+            "cleanup": {
+                "scope": "verified-root-process-tree-only",
+                "root_pid": root_pid,
+                "root_name": "pwsh.exe",
+                "root_command_line": "start.ps1 -DataDir synthetic",
+                "root_identity_verified": True,
+                "termination": "taskkill /PID <verified-root> /T /F",
+                "termination_issued": True,
+                "root_already_exited": False,
+                "remaining_owned_process_ids": [],
+                "identity_changed_process_ids": identity_changed,
+                "ports_closed": {"ui": True, "ingest": True},
+                "errors": [],
+            },
+        }
+
+    disabled = scenario("ingest-disabled", 101, r"C:\Temp\Health Check disabled", [])
+    enabled = scenario("ingest-enabled", 202, r"C:\Temp\Health Check enabled", [6708])
     cleanup = {
-        "scope": "harness-root-and-descendants-only",
+        "scope": "verified-root-process-tree-only",
         "root_pid": 101,
-        "started_process_ids": [101, 102],
-        "terminated_process_ids": [102, 101],
+        "started_process_ids": [101, 202],
+        "terminated_process_ids": [101, 202],
         "remaining_owned_process_ids": [],
         "identity_changed_process_ids": [6708],
         "errors": [],
+        "scenarios": [disabled["cleanup"], enabled["cleanup"]],
     }
     evidence = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "passed",
         "failure": None,
         "platform": "win32",
@@ -173,13 +234,9 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
         "checked_out_tree": tree,
         "git_clean": True,
         "powershell": {"version": "7.5.0"},
-        "runtime": {"outside_checkout": True, "removed": True},
-        "http": {
-            "host": "127.0.0.1",
-            "path": "/healthz",
-            "status_code": 200,
-            "body": {"service": "loopback-ui", "status": "ok"},
-        },
+        "runtime": {"outside_checkout": True, "path_contains_spaces": True, "removed": True},
+        "http": disabled["surfaces"]["ui_health"],
+        "scenarios": [disabled, enabled],
         "dpapi": {
             "nodeid": (
                 "tests/test_garmin_auth.py::"
@@ -199,8 +256,12 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
         "</testsuite>",
         encoding="utf-8",
     )
-    for name in ("start.stdout.log", "start.stderr.log"):
-        (artifact / name).write_text("synthetic evidence\n", encoding="utf-8")
+    (artifact / "dpapi.log").write_text("1 passed, 0 skipped\n", encoding="utf-8")
+    for scenario_name in ("ingest-disabled", "ingest-enabled"):
+        scenario_dir = artifact / scenario_name
+        scenario_dir.mkdir()
+        for name in ("start.stdout.log", "start.stderr.log"):
+            (scenario_dir / name).write_text("synthetic evidence\n", encoding="utf-8")
     return root, head, tree
 
 
@@ -264,6 +325,58 @@ def test_windows_smoke_validator_rejects_invalid_identity_change_list(tmp_path: 
     cleanup["identity_changed_process_ids"] = [0, 0]
     cleanup_path.write_text(json.dumps(cleanup), encoding="utf-8")
     with pytest.raises(ContractError, match="identity-change evidence"):
+        validate_windows_smoke_artifact(
+            root,
+            job_result="success",
+            head_sha=head,
+            tree_sha=tree,
+            workflow_identity=ExpectedWorkflowIdentity(
+                event_name="push",
+                ref="refs/heads/task/125-ci-windows-smoke",
+                pr_base_ref="",
+                pr_base_sha="",
+                pr_head_ref="",
+                pr_head_sha="",
+            ),
+        )
+
+
+def test_windows_smoke_validator_rejects_failed_scenario(tmp_path: Path):
+    root, head, tree = _windows_smoke_fixture(tmp_path)
+    artifact = root / "ci-windows-smoke-123-1"
+    evidence_path = artifact / "smoke-evidence.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["scenarios"][0]["status"] = "failed"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    with pytest.raises(ContractError, match="scenario ingest-disabled did not pass"):
+        validate_windows_smoke_artifact(
+            root,
+            job_result="success",
+            head_sha=head,
+            tree_sha=tree,
+            workflow_identity=ExpectedWorkflowIdentity(
+                event_name="push",
+                ref="refs/heads/task/125-ci-windows-smoke",
+                pr_base_ref="",
+                pr_base_sha="",
+                pr_head_ref="",
+                pr_head_sha="",
+            ),
+        )
+
+
+def test_windows_smoke_validator_rejects_cleanup_error(tmp_path: Path):
+    root, head, tree = _windows_smoke_fixture(tmp_path)
+    artifact = root / "ci-windows-smoke-123-1"
+    evidence_path = artifact / "smoke-evidence.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["cleanup"]["errors"] = ["synthetic cleanup failure"]
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    cleanup_path = artifact / "cleanup.json"
+    cleanup = json.loads(cleanup_path.read_text(encoding="utf-8"))
+    cleanup["errors"] = ["synthetic cleanup failure"]
+    cleanup_path.write_text(json.dumps(cleanup), encoding="utf-8")
+    with pytest.raises(ContractError, match="process cleanup evidence"):
         validate_windows_smoke_artifact(
             root,
             job_result="success",

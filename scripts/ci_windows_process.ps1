@@ -3,182 +3,164 @@ function ConvertTo-ProcessId {
 
     if ($null -eq $Value) { return $null }
     try { $processId = [int]$Value } catch { return $null }
-    if ($processId -lt 0) { return $null }
+    if ($processId -le 0) { return $null }
     return $processId
-}
-
-function Get-ValidProcessId {
-    param([object]$Value)
-
-    $processId = ConvertTo-ProcessId $Value
-    if ($null -eq $processId -or $processId -le 0) { return $null }
-    return $processId
-}
-
-function Get-ParentProcessId {
-    param([object]$Value)
-
-    return ConvertTo-ProcessId $Value
 }
 
 function Test-CapturedProcessIdentity {
-    param([object]$Process)
+    param([object]$Identity)
 
-    return (-not [string]::IsNullOrWhiteSpace([string]$Process.Name) -and
-        -not [string]::IsNullOrWhiteSpace([string]$Process.CommandLine))
+    $validId = $null -ne (ConvertTo-ProcessId $Identity.Id)
+    $hasName = -not [string]::IsNullOrWhiteSpace([string]$Identity.Name)
+    $hasCommandLine = -not [string]::IsNullOrWhiteSpace([string]$Identity.CommandLine)
+    return ($validId -and $hasName -and $hasCommandLine)
 }
 
-function Get-ProcessSnapshot {
-    $processes = @()
-    $errors = @()
-    try {
-        $rawProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-    } catch {
-        return [pscustomobject]@{
-            Processes = @()
-            Errors = @("process snapshot query failed: $($_.Exception.Message)")
-        }
-    }
-    foreach ($rawProcess in $rawProcesses) {
-        if ($null -eq $rawProcess) {
-            continue
-        }
-        $processId = ConvertTo-ProcessId $rawProcess.ProcessId
-        $parentId = Get-ParentProcessId $rawProcess.ParentProcessId
-        $processes += [pscustomobject]@{
-            Id = $processId
-            ParentId = $parentId
-            Name = [string]$rawProcess.Name
-            CommandLine = [string]$rawProcess.CommandLine
-        }
-    }
-    return [pscustomobject]@{
-        Processes = @($processes)
-        Errors = @($errors)
-    }
-}
-
-function Get-OwnedProcessSnapshot {
+function Test-SameProcessIdentity {
     param(
-        [int]$RootId,
-        [object[]]$Snapshot
+        [object]$Expected,
+        [object]$Actual
     )
 
+    $sameId = (ConvertTo-ProcessId $Expected.Id) -eq (ConvertTo-ProcessId $Actual.Id)
+    $sameName = [string]$Expected.Name -eq [string]$Actual.Name
+    $sameCommandLine = [string]$Expected.CommandLine -eq [string]$Actual.CommandLine
+    return ((Test-CapturedProcessIdentity $Expected) -and
+        (Test-CapturedProcessIdentity $Actual) -and $sameId -and $sameName -and $sameCommandLine)
+}
+
+function Get-ProcessIdentity {
+    param([object]$ProcessId)
+
+    $validProcessId = ConvertTo-ProcessId $ProcessId
+    if ($null -eq $validProcessId) {
+        return [pscustomobject]@{
+            Id = $null
+            Name = ""
+            CommandLine = ""
+            Exists = $false
+            QueryError = "process identity PID is invalid"
+        }
+    }
+    try {
+        $matches = @(Get-CimInstance Win32_Process -Filter "ProcessId=$validProcessId" -ErrorAction Stop)
+    } catch {
+        return [pscustomobject]@{
+            Id = $validProcessId
+            Name = ""
+            CommandLine = ""
+            Exists = $false
+            QueryError = "could not establish identity for PID $validProcessId`: $($_.Exception.Message)"
+        }
+    }
+    if ($matches.Count -eq 0) {
+        return [pscustomobject]@{
+            Id = $validProcessId
+            Name = ""
+            CommandLine = ""
+            Exists = $false
+            QueryError = $null
+        }
+    }
+    if ($matches.Count -ne 1) {
+        return [pscustomobject]@{
+            Id = $validProcessId
+            Name = ""
+            CommandLine = ""
+            Exists = $false
+            QueryError = "process identity PID $validProcessId is ambiguous"
+        }
+    }
+    $match = $matches[0]
+    return [pscustomobject]@{
+        Id = $validProcessId
+        Name = [string]$match.Name
+        CommandLine = [string]$match.CommandLine
+        Exists = $true
+        QueryError = $null
+    }
+}
+
+function Assert-ExternalRuntimePath {
+    param(
+        [string]$RepoRoot,
+        [string]$RuntimeRoot
+    )
+
+    $resolvedRuntime = [IO.Path]::GetFullPath($RuntimeRoot)
+    $repoPrefix = $RepoRoot.TrimEnd('\') + '\'
+    if ($resolvedRuntime.Equals($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        $resolvedRuntime.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "synthetic runtime path must be outside the checkout: $resolvedRuntime"
+    }
+    return $resolvedRuntime
+}
+
+function Invoke-RootProcessTreeTermination {
+    param([object]$CapturedIdentity)
+
+    $identityChanged = @()
     $errors = @()
-    $byId = @{}
-    $byParent = @{}
-    foreach ($process in @($Snapshot)) {
-        if ($null -eq $process) {
-            continue
-        }
-        $processId = Get-ValidProcessId $process.Id
-        if ($null -ne $processId) {
-            if (-not $byId.ContainsKey($processId)) {
-                $byId.Add($processId, [System.Collections.ArrayList]::new())
-            }
-            [void]$byId[$processId].Add($process)
-        }
-        $parentId = Get-ParentProcessId $process.ParentId
-        if ($null -eq $parentId) {
-            continue
-        }
-        if (-not $byParent.ContainsKey($parentId)) {
-            $byParent.Add($parentId, [System.Collections.ArrayList]::new())
-        }
-        [void]$byParent[$parentId].Add($process)
-    }
-
-    $owned = @()
-    $seen = [System.Collections.Generic.HashSet[int]]::new()
-    $pending = [System.Collections.Generic.Queue[int]]::new()
-    $rootProcessId = Get-ValidProcessId $RootId
-    if ($null -eq $rootProcessId) {
-        $errors += "harness root PID is invalid"
+    $terminationIssued = $false
+    $rootAlreadyExited = $false
+    if (-not (Test-CapturedProcessIdentity $CapturedIdentity)) {
+        $errors += "captured root identity is incomplete"
     } else {
-        $pending.Enqueue($rootProcessId)
-        if ($byId.ContainsKey($rootProcessId)) {
-            $rootCandidates = @($byId[$rootProcessId])
-            if ($rootCandidates.Count -ne 1) {
-                $errors += "harness root PID $rootProcessId has ambiguous identity"
+        $current = Get-ProcessIdentity $CapturedIdentity.Id
+        if ($current.QueryError) {
+            $errors += [string]$current.QueryError
+        } elseif (-not $current.Exists) {
+            $rootAlreadyExited = $true
+        } elseif (-not (Test-SameProcessIdentity $CapturedIdentity $current)) {
+            $identityChanged += [int]$CapturedIdentity.Id
+            $errors += "root PID $($CapturedIdentity.Id) identity changed before tree cleanup"
+        } else {
+            & taskkill.exe /PID ([string]$CapturedIdentity.Id) /T /F 2>&1 | Out-Null
+            $taskkillExit = $LASTEXITCODE
+            if ($taskkillExit -ne 0) {
+                $errors += "root process-tree termination failed with exit code $taskkillExit"
             } else {
-                [void]$seen.Add($rootProcessId)
-                $owned += $rootCandidates[0]
-                if (-not (Test-CapturedProcessIdentity $rootCandidates[0])) {
-                    $errors += "harness root PID $rootProcessId has incomplete captured identity"
-                }
+                $terminationIssued = $true
             }
-        } elseif (@($Snapshot).Count -gt 0) {
-            $errors += "harness root PID $rootProcessId is absent from a non-empty process snapshot"
-        }
-    }
-
-    while ($pending.Count -gt 0) {
-        $parentId = $pending.Dequeue()
-        if (-not $byParent.ContainsKey($parentId)) { continue }
-        foreach ($child in @($byParent[$parentId])) {
-            $childId = Get-ValidProcessId $child.Id
-            if ($null -eq $childId) {
-                $errors += "owned-process leaf has no valid PID"
-                continue
-            }
-            if ($seen.Contains($childId)) {
-                $errors += "owned-process snapshot contained duplicate PID $childId"
-                continue
-            }
-            [void]$seen.Add($childId)
-            $owned += $child
-            if (-not (Test-CapturedProcessIdentity $child)) {
-                $errors += "owned process PID $childId has incomplete captured identity"
-            }
-            $pending.Enqueue($childId)
         }
     }
     return [pscustomobject]@{
-        Processes = @($owned)
+        TerminationIssued = $terminationIssued
+        RootAlreadyExited = $rootAlreadyExited
+        IdentityChangedProcessIds = @($identityChanged)
         Errors = @($errors)
     }
 }
 
-function Stop-OwnedProcesses {
-    param([object[]]$Owned)
+function Get-LoopbackPortEvidence {
+    param([int]$Port)
 
-    $terminated = @()
-    $identityChanged = @()
-    $errors = @()
-    $orderedOwned = @($Owned)
-    [array]::Reverse($orderedOwned)
-    foreach ($candidate in $orderedOwned) {
-        $candidateId = Get-ValidProcessId $candidate.Id
-        if ($null -eq $candidateId) {
-            $errors += "cleanup candidate has no valid PID"
-            continue
+    $client = [Net.Sockets.TcpClient]::new()
+    try {
+        $connect = $client.ConnectAsync("127.0.0.1", $Port)
+        if (-not $connect.Wait(1000)) {
+            return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection check timed out" }
         }
-        if (-not (Test-CapturedProcessIdentity $candidate)) {
-            $errors += "owned process PID $candidateId has incomplete captured identity"
-            continue
+        if ($connect.IsFaulted) {
+            $socketError = $connect.Exception.InnerException
+            if ($socketError -is [Net.Sockets.SocketException] -and
+                $socketError.SocketErrorCode -eq [Net.Sockets.SocketError]::ConnectionRefused) {
+                return [pscustomobject]@{ Closed = $true; Error = $null }
+            }
+            return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection check failed" }
         }
-        try {
-            $current = Get-CimInstance Win32_Process -Filter "ProcessId=$candidateId" -ErrorAction Stop
-        } catch {
-            $errors += "could not establish identity for PID $candidateId`: $($_.Exception.Message)"
-            continue
+        if ($client.Connected) {
+            return [pscustomobject]@{ Closed = $false; Error = $null }
         }
-        if ($null -eq $current) { continue }
-        if ([string]$current.Name -ne [string]$candidate.Name -or
-            [string]$current.CommandLine -ne [string]$candidate.CommandLine) {
-            $identityChanged += $candidateId
-            continue
+        return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection state was indeterminate" }
+    } catch {
+        $socketError = $_.Exception.InnerException
+        if ($socketError -is [Net.Sockets.SocketException] -and
+            $socketError.SocketErrorCode -eq [Net.Sockets.SocketError]::ConnectionRefused) {
+            return [pscustomobject]@{ Closed = $true; Error = $null }
         }
-        try {
-            Stop-Process -Id $candidateId -Force -ErrorAction Stop
-            $terminated += $candidateId
-        } catch {
-            $errors += "could not stop verified PID $candidateId`: $($_.Exception.Message)"
-        }
-    }
-    return [pscustomobject]@{
-        TerminatedProcessIds = @($terminated | Sort-Object -Unique)
-        IdentityChangedProcessIds = @($identityChanged | Sort-Object -Unique)
-        Errors = @($errors)
+        return [pscustomobject]@{ Closed = $false; Error = "loopback port $Port connection check failed: $($_.Exception.Message)" }
+    } finally {
+        $client.Dispose()
     }
 }

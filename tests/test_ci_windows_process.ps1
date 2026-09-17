@@ -11,96 +11,74 @@ function Assert-Equal([object]$Expected, [object]$Actual, [string]$Message) {
     }
 }
 
-$systemSnapshot = @(
-    [pscustomobject]@{ Id = 10; ParentId = 1; Name = "pwsh.exe"; CommandLine = "root" }
-    [pscustomobject]@{ Id = 11; ParentId = 10; Name = "python.exe"; CommandLine = "child" }
-    [pscustomobject]@{ Id = 0; ParentId = 0; Name = "Idle"; CommandLine = "" }
-    [pscustomobject]@{ Id = 4; ParentId = 0; Name = "System"; CommandLine = "" }
-    [pscustomobject]@{ Id = $null; ParentId = 0; Name = "malformed.exe"; CommandLine = "unrelated" }
-    [pscustomobject]@{ Id = 13; ParentId = $null; Name = "incomplete.exe"; CommandLine = "unrelated" }
-)
-$owned = Get-OwnedProcessSnapshot 10 $systemSnapshot
-Assert-Equal 2 @($owned.Processes).Count "missing parent bucket must not expand ownership"
-Assert-True (@($owned.Processes | ForEach-Object Id) -contains 10) "root process must be retained"
-Assert-True (@($owned.Processes | ForEach-Object Id) -contains 11) "verified child must be retained"
-Assert-Equal 0 @($owned.Errors).Count "unrelated system or malformed records must not block ownership"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+try {
+    Assert-ExternalRuntimePath $repoRoot $repoRoot | Out-Null
+    throw "checkout-local runtime path was accepted"
+} catch {
+    Assert-True ($_.Exception.Message -match "outside the checkout") "checkout-local runtime path must be rejected"
+}
+try {
+    Assert-ExternalRuntimePath $repoRoot (Join-Path $repoRoot "nested") | Out-Null
+    throw "checkout-child runtime path was accepted"
+} catch {
+    Assert-True ($_.Exception.Message -match "outside the checkout") "checkout-child runtime path must be rejected"
+}
 
 $identityById = @{
-    100 = [pscustomobject]@{ Id = 100; Name = "pwsh.exe"; CommandLine = "root" }
-    2 = [pscustomobject]@{ Id = 2; Name = "python.exe"; CommandLine = "child" }
-    90 = [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
+    100 = [pscustomobject]@{ Id = 100; Name = "pwsh.exe"; CommandLine = "start.ps1 -DataDir root" }
 }
 $queryFailure = $false
-$stopOrder = @()
+$identityMissing = $false
+$taskkillExitCode = 0
+$taskkillCalls = @()
 function Get-CimInstance {
     param([string]$ClassName, [string]$Filter, [object]$ErrorAction)
     if ($queryFailure) { throw "synthetic CIM identity query failure" }
+    if ($identityMissing) { return }
     if ($Filter -match "ProcessId=(\d+)") { return $identityById[[int]$Matches[1]] }
-    throw "unexpected process snapshot query"
+    throw "unexpected process identity query"
 }
-function Stop-Process {
-    param([int]$Id, [switch]$Force, [object]$ErrorAction)
-    $script:stopOrder += $Id
+function taskkill.exe {
+    param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
+    $script:taskkillCalls += [string]$Arguments[1]
+    $global:LASTEXITCODE = $taskkillExitCode
 }
 
-$orderedOwned = @(
-    [pscustomobject]@{ Id = 100; Name = "pwsh.exe"; CommandLine = "root" }
-    [pscustomobject]@{ Id = 2; Name = "python.exe"; CommandLine = "child" }
-    [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
-)
-$orderedCleanup = Stop-OwnedProcesses $orderedOwned
-Assert-Equal "90,2,100" ($stopOrder -join ",") "deepest owned process must stop before root regardless of PID order"
-Assert-Equal 0 @($orderedCleanup.Errors).Count "verified cleanup order must have no errors"
+$capturedRoot = [pscustomobject]@{
+    Id = 100
+    Name = "pwsh.exe"
+    CommandLine = "start.ps1 -DataDir root"
+}
+$successfulTermination = Invoke-RootProcessTreeTermination $capturedRoot
+Assert-Equal 1 @($taskkillCalls).Count "verified root tree must use one native termination call"
+Assert-Equal "100" $taskkillCalls[0] "native termination must target the verified root PID"
+Assert-True $successfulTermination.TerminationIssued "verified root tree termination must be recorded"
+Assert-Equal 0 @($successfulTermination.Errors).Count "successful root tree termination must have no errors"
 
-$identityById[90] = [pscustomobject]@{ Id = 90; Name = "unrelated.exe"; CommandLine = "reused" }
-$stopOrder = @()
-$reusedCleanup = Stop-OwnedProcesses $orderedOwned
-Assert-True (@($reusedCleanup.IdentityChangedProcessIds) -contains 90) "reused PID must be reported"
-Assert-True (-not (@($stopOrder) -contains 90)) "reused PID must never be terminated"
-Assert-Equal 0 @($reusedCleanup.Errors).Count "safe reused PID must not be a cleanup error"
+$taskkillCalls = @()
+$identityById[100] = [pscustomobject]@{ Id = 100; Name = "unrelated.exe"; CommandLine = "reused" }
+$mismatchTermination = Invoke-RootProcessTreeTermination $capturedRoot
+Assert-Equal 0 @($taskkillCalls).Count "root identity mismatch must never invoke taskkill"
+Assert-True (@($mismatchTermination.IdentityChangedProcessIds) -contains 100) "root identity mismatch must be recorded"
+Assert-True (@($mismatchTermination.Errors).Count -gt 0) "root identity mismatch must fail closed"
 
+$identityById[100] = $capturedRoot
+$taskkillExitCode = 5
+$failedTermination = Invoke-RootProcessTreeTermination $capturedRoot
+Assert-True (@($failedTermination.Errors).Count -gt 0) "root-tree termination failure must be fatal"
+$taskkillExitCode = 0
+
+$identityMissing = $true
+$naturalExit = Invoke-RootProcessTreeTermination $capturedRoot
+$identityMissing = $false
+Assert-True $naturalExit.RootAlreadyExited "already-exited root must be recognized"
+Assert-Equal 0 @($naturalExit.Errors).Count "already-exited root must not create a descendant cleanup error"
+
+$identityById[100] = $capturedRoot
 $queryFailure = $true
-$queryFailureCleanup = Stop-OwnedProcesses @(
-    [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
-)
+$queryFailed = Invoke-RootProcessTreeTermination $capturedRoot
 $queryFailure = $false
-Assert-True (@($queryFailureCleanup.Errors).Count -gt 0) "CIM identity query failure must fail closed"
-$identityById[90] = $null
-$naturalExitCleanup = Stop-OwnedProcesses @(
-    [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
-)
-Assert-Equal 0 @($naturalExitCleanup.Errors).Count "missing process is safe after natural exit"
-$identityById[90] = [pscustomobject]@{ Id = 90; Name = "python.exe"; CommandLine = "grandchild" }
+Assert-True (@($queryFailed.Errors).Count -gt 0) "root identity query failure must fail closed"
 
-$ownedMalformed = Get-OwnedProcessSnapshot 10 @(
-    [pscustomobject]@{ Id = 10; ParentId = 1; Name = "pwsh.exe"; CommandLine = "root" }
-    [pscustomobject]@{ Id = $null; ParentId = 10; Name = "malformed.exe"; CommandLine = "owned" }
-)
-Assert-True (@($ownedMalformed.Errors).Count -gt 0) "malformed owned relation must fail closed"
-
-$missingRoot = Get-OwnedProcessSnapshot 10 @(
-    [pscustomobject]@{ Id = 4; ParentId = 0; Name = "System"; CommandLine = "" }
-)
-Assert-True (@($missingRoot.Errors).Count -gt 0) "missing harness root must fail closed"
-
-$empty = Get-OwnedProcessSnapshot 10 @()
-Assert-Equal 0 @($empty.Processes).Count "empty snapshot must produce no owned processes"
-Assert-Equal 0 @($empty.Errors).Count "an already-exited root is safe with an empty snapshot"
-
-$invalidCleanup = Stop-OwnedProcesses @(
-    [pscustomobject]@{ Id = $null; Name = "pwsh.exe"; CommandLine = "root" }
-)
-Assert-Equal 0 @($invalidCleanup.TerminatedProcessIds).Count "invalid identity must never terminate a process"
-Assert-True (@($invalidCleanup.Errors).Count -gt 0) "invalid identity must produce cleanup evidence"
-
-$emptyCollectionsJson = [ordered]@{
-    terminated_process_ids = @($invalidCleanup.TerminatedProcessIds)
-    identity_changed_process_ids = @($invalidCleanup.IdentityChangedProcessIds)
-    errors = @()
-} | ConvertTo-Json -Depth 4
-$emptyCollections = $emptyCollectionsJson | ConvertFrom-Json
-Assert-True ($emptyCollections.terminated_process_ids -is [array]) "empty terminated IDs must serialize as an array"
-Assert-True ($emptyCollections.identity_changed_process_ids -is [array]) "empty changed IDs must serialize as an array"
-Assert-True ($emptyCollections.errors -is [array]) "empty cleanup errors must serialize as an array"
-
-Write-Output "Windows process traversal regression PASS"
+Write-Output "Windows root-tree lifecycle regression PASS"
