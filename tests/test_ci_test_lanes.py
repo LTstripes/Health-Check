@@ -459,6 +459,50 @@ def test_lane_evidence_requires_strict_integer_schema_v1(schema_version):
         validate_lane_payload(payload, _expected(), allowed_skips=())
 
 
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    (
+        ("missing_reason", "phase outcome fields mismatch"),
+        ("missing_wasxfail", "phase outcome fields mismatch"),
+        ("extra_field", "phase outcome fields mismatch"),
+        ("reason_bool", "phase reason must be a string"),
+        ("reason_none", "phase reason must be a string"),
+        ("wasxfail_bool", "phase wasxfail must be a string"),
+        ("wasxfail_none", "phase wasxfail must be a string"),
+    ),
+)
+def test_lane_evidence_requires_exact_typed_phase_schema(mutation, match):
+    payload = _valid_lane_payload()
+    phase = payload["cases"][0]["phases"][1]
+    if mutation == "missing_reason":
+        phase.pop("reason")
+    elif mutation == "missing_wasxfail":
+        phase.pop("wasxfail")
+    elif mutation == "extra_field":
+        phase["unexpected"] = ""
+    elif mutation == "reason_bool":
+        phase["reason"] = False
+    elif mutation == "reason_none":
+        phase["reason"] = None
+    elif mutation == "wasxfail_bool":
+        phase["wasxfail"] = False
+    else:
+        phase["wasxfail"] = None
+
+    with pytest.raises(ContractError, match=match):
+        validate_lane_payload(payload, _expected(), allowed_skips=())
+
+
+def test_lane_evidence_rejects_removed_xfail_marker_field():
+    payload = _valid_lane_payload()
+    phase = payload["cases"][0]["phases"][1]
+    phase.update(outcome="skipped", reason="known bug", wasxfail="known bug")
+    phase.pop("wasxfail")
+
+    with pytest.raises(ContractError, match="phase outcome fields mismatch"):
+        validate_lane_payload(payload, _expected(), allowed_skips=())
+
+
 def test_lane_evidence_rejects_unexpected_skip_deselection_and_xfail():
     skipped = _valid_lane_payload()
     skipped["cases"][0]["phases"][1] = {
@@ -620,6 +664,29 @@ def test_final_gate_rejects_same_count_raw_lane_inventory_substitution(tmp_path)
     lane_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ContractError, match="raw inventory mismatch"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize("mutation", ("missing", "alias"))
+def test_final_gate_requires_canonical_verified_nodeids_field(tmp_path, mutation):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    verified_path = artifacts / "ci-lane-garmin-123-1" / "verified.json"
+    payload = json.loads(verified_path.read_text(encoding="utf-8"))
+    nodeids = payload.pop("nodeids")
+    if mutation == "alias":
+        payload["collected_nodeids"] = nodeids
+    verified_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="verified inventory is missing or malformed"):
         validate_gate_artifacts(
             artifacts,
             head_sha=head_sha,

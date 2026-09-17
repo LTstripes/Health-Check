@@ -345,25 +345,38 @@ def validate_lane_payload(
         phase_order: list[str] = []
         for phase in phases:
             _require(isinstance(phase, dict), f"invalid phase outcome for {nodeid}")
-            when = phase.get("when")
+            _require(
+                set(phase) == {"when", "outcome", "reason", "wasxfail"},
+                f"phase outcome fields mismatch for {nodeid}",
+            )
+            when = phase["when"]
+            outcome = phase["outcome"]
+            reason = phase["reason"]
+            wasxfail = phase["wasxfail"]
+            _require(isinstance(when, str), f"phase name must be a string for {nodeid}")
             _require(when in {"setup", "call", "teardown"}, f"invalid phase name for {nodeid}")
             _require(when not in by_when, f"duplicate {when} phase for {nodeid}")
             _require(
-                phase.get("outcome") in {"passed", "skipped", "failed"},
+                isinstance(outcome, str) and outcome in {"passed", "skipped", "failed"},
                 f"invalid phase outcome for {nodeid}",
             )
-            _require(not phase.get("wasxfail"), f"xfail/xpass is not allowed: {nodeid}")
+            _require(isinstance(reason, str), f"phase reason must be a string for {nodeid}")
+            _require(
+                isinstance(wasxfail, str),
+                f"phase wasxfail must be a string for {nodeid}",
+            )
+            _require(wasxfail == "", f"xfail/xpass is not allowed: {nodeid}")
             by_when[when] = phase
             phase_order.append(when)
-        failed_phases = [phase for phase in phases if phase.get("outcome") == "failed"]
+        failed_phases = [phase for phase in phases if phase["outcome"] == "failed"]
         if failed_phases:
             kind = (
-                "failed" if "call" in {phase.get("when") for phase in failed_phases} else "errors"
+                "failed" if "call" in {phase["when"] for phase in failed_phases} else "errors"
             )
             counts[kind] += 1
             raise ContractError(f"lane contains {kind}: {nodeid}")
 
-        outcomes = [str(phase.get("outcome")) for phase in phases]
+        outcomes = [phase["outcome"] for phase in phases]
         passed_pattern = phase_order == ["setup", "call", "teardown"] and outcomes == [
             "passed",
             "passed",
@@ -383,8 +396,8 @@ def validate_lane_payload(
             f"illegal phase outcome structure: {nodeid}",
         )
         if setup_skip_pattern or call_skip_pattern:
-            skipped_phase = next(phase for phase in phases if phase.get("outcome") == "skipped")
-            identity = (nodeid, expected.platform, str(skipped_phase.get("reason", "")))
+            skipped_phase = next(phase for phase in phases if phase["outcome"] == "skipped")
+            identity = (nodeid, expected.platform, skipped_phase["reason"])
             _require(identity in allowed, f"unexpected skip: {identity}")
             counts["skipped"] += 1
             continue
@@ -747,7 +760,7 @@ def validate_gate_artifacts(
         ):
             _require(verified.get(field) == expected, f"lane {lane} {field} provenance mismatch")
         expected_nodeids = lanes[lane].get("nodeids", [])
-        actual_nodeids = verified.get("nodeids", verified.get("collected_nodeids", []))
+        actual_nodeids = verified.get("nodeids")
         _require(
             isinstance(expected_nodeids, list)
             and expected_nodeids
