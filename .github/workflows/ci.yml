@@ -15,7 +15,6 @@ jobs:
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      QUALITY_DIR: ${{ runner.temp }}/ci-quality-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,8 +29,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          quality_dir="$RUNNER_TEMP/ci-quality-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           git_status="$(git status --short --branch)"
-          mkdir -p "$QUALITY_DIR"
+          mkdir -p "$quality_dir"
           {
             echo "# CI quality identity"
             printf '%s\n' "- event: \`$GITHUB_EVENT_NAME\`"
@@ -48,9 +48,9 @@ jobs:
             printf '%s\n' "- Python: \`$(python --version 2>&1)\`"
             printf '%s\n' "- uv: \`$(uv --version)\`"
             printf '%s\n' "- runner: \`$RUNNER_OS/$RUNNER_ARCH\`"
-          } | tee "$QUALITY_DIR/metadata.md"
-          printf '%s\n' "$git_status" > "$QUALITY_DIR/git-status.txt"
-          sha256sum uv.lock > "$QUALITY_DIR/uv-lock.sha256"
+          } | tee "$quality_dir/metadata.md"
+          printf '%s\n' "$git_status" > "$quality_dir/git-status.txt"
+          sha256sum uv.lock > "$quality_dir/uv-lock.sha256"
       - run: uv sync --locked
       - run: uv run python -m healthcheck.db.migration_guard
       - run: uv run ruff check .
@@ -58,24 +58,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          quality_dir="$RUNNER_TEMP/ci-quality-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           uv run python scripts/ci_test_lanes.py validate-manifest
-          uv run python scripts/ci_test_lanes.py collect --output-dir "$QUALITY_DIR"
+          uv run python scripts/ci_test_lanes.py collect --output-dir "$quality_dir"
       - name: Capture quality failure diagnostics
         if: failure()
         shell: bash
         run: |
+          quality_dir="$RUNNER_TEMP/ci-quality-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           {
             echo "# Quality failure diagnostics"
             git status --short --branch
             df -h .
             printf '%s\n' "processors: $(nproc)"
-          } > "$QUALITY_DIR/failure-diagnostics.md"
+          } > "$quality_dir/failure-diagnostics.md"
       - name: Upload quality evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-quality-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.QUALITY_DIR }}
+          path: ${{ runner.temp }}/ci-quality-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 14
 
@@ -93,8 +95,6 @@ jobs:
       LANE: ${{ matrix.lane }}
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
-      LANE_DIR: ${{ runner.temp }}/ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,8 +109,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          lane_dir="$RUNNER_TEMP/ci-lane-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           git_status="$(git status --short --branch)"
-          mkdir -p "$LANE_DIR"
+          mkdir -p "$lane_dir"
           {
             echo "# CI lane identity"
             printf '%s\n' "- lane: \`$LANE\`"
@@ -128,49 +129,54 @@ jobs:
             printf '%s\n' "- Python: \`$(python --version 2>&1)\`"
             printf '%s\n' "- uv: \`$(uv --version)\`"
             printf '%s\n' "- runner: \`$RUNNER_OS/$RUNNER_ARCH\`"
-          } | tee "$LANE_DIR/metadata.md"
-          printf '%s\n' "$git_status" > "$LANE_DIR/git-status.txt"
-          sha256sum uv.lock > "$LANE_DIR/uv-lock.sha256"
+          } | tee "$lane_dir/metadata.md"
+          printf '%s\n' "$git_status" > "$lane_dir/git-status.txt"
+          sha256sum uv.lock > "$lane_dir/uv-lock.sha256"
       - run: uv sync --locked
       - name: Run serial pytest lane with timing
+        env:
+          HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
         shell: bash
         run: |
           set -o pipefail
+          lane_dir="$RUNNER_TEMP/ci-lane-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           uv run python scripts/ci_test_lanes.py run-lane \
             --lane "$LANE" \
-            --output-dir "$LANE_DIR" \
+            --output-dir "$lane_dir" \
             --basetemp "$RUNNER_TEMP/pytest-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Verify lane execution evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
+          lane_dir="$RUNNER_TEMP/ci-lane-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           if uv run python scripts/ci_test_lanes.py verify-lane \
               --lane "$LANE" \
-              --output-dir "$LANE_DIR"; then
+              --output-dir "$lane_dir"; then
             verify_status=0
           else
             verify_status=$?
           fi
-          cat "$LANE_DIR/metadata.md" >> "$GITHUB_STEP_SUMMARY"
-          cat "$LANE_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$lane_dir/metadata.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$lane_dir/summary.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$verify_status"
       - name: Capture lane failure diagnostics
         if: failure()
         shell: bash
         run: |
+          lane_dir="$RUNNER_TEMP/ci-lane-$LANE-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           {
             echo "# Lane failure diagnostics"
             git status --short --branch
             df -h .
             printf '%s\n' "processors: $(nproc)"
-          } > "$LANE_DIR/failure-diagnostics.md"
+          } > "$lane_dir/failure-diagnostics.md"
       - name: Upload lane evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.LANE_DIR }}
+          path: ${{ runner.temp }}/ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 14
 

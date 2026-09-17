@@ -37,7 +37,7 @@ def test_quality_and_three_serial_lanes_are_independent_and_locked():
     assert "uv run ruff check ." in quality
     assert "healthcheck.db.migration_guard" in quality
     assert "validate-manifest" in quality
-    assert 'collect --output-dir "$QUALITY_DIR"' in quality
+    assert 'collect --output-dir "$quality_dir"' in quality
     assert "fail-fast: false" in test
     assert "- garmin\n" in test
     assert "- core-sleep\n" in test
@@ -59,7 +59,7 @@ def test_lane_artifacts_keep_timing_junit_metadata_and_distinct_provenance():
     assert "verify-lane" in test
     assert "if: always()" in test
     assert "set -euo pipefail" in test
-    assert 'cat "$LANE_DIR/metadata.md"' in test
+    assert 'cat "$lane_dir/metadata.md"' in test
     assert "ci-lane-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}" in test
     assert "if-no-files-found: error" in test
     assert "retention-days: 14" in test
