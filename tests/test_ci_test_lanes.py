@@ -563,6 +563,7 @@ def test_gate_rejects_missing_or_mismatched_artifacts(tmp_path):
         payload = _valid_lane_payload(nodeid=f"{lane}::test")
         payload["lane"] = lane
         payload["status"] = "verified"
+        payload["counts"] = {"passed": 1, "skipped": 0, "failed": 0, "errors": 0}
         (lane_dir / "verified.json").write_text(json.dumps(payload), encoding="utf-8")
     (tmp_path / "ci-lane-garmin-1" / "verified.json").write_text(
         json.dumps(
@@ -571,6 +572,7 @@ def test_gate_rejects_missing_or_mismatched_artifacts(tmp_path):
                 "status": "verified",
                 "lane": "garmin",
                 "tree_sha": "f" * 40,
+                "counts": {"passed": 1, "skipped": 0, "failed": 0, "errors": 0},
             }
         ),
         encoding="utf-8",
@@ -853,6 +855,116 @@ def test_final_gate_rejects_boolean_schema_at_every_evidence_boundary(
     evidence_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ContractError, match="schema_version must be integer 1"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "value"),
+    (
+        ("ci-quality-123-1/reference.json", False),
+        ("ci-quality-123-1/reference.json", 0.0),
+        ("ci-quality-123-1/garmin-collection.json", False),
+        ("ci-quality-123-1/garmin-collection.json", 0.0),
+    ),
+)
+def test_final_gate_requires_integer_collection_exit_status(tmp_path, relative_path, value):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    evidence_path = artifacts / relative_path
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    payload["session_exit_status"] = value
+    evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="collection process must be an integer"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize("value", (False, 0.0))
+def test_final_gate_requires_integer_lane_exit_status(tmp_path, value):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    evidence_path = artifacts / "ci-lane-garmin-123-1" / "lane-evidence.json"
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    payload["session_exit_status"] = value
+    evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError, match="lane process must be an integer"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize(
+    ("count_name", "value"),
+    (
+        ("passed", True),
+        ("passed", 1.0),
+        ("skipped", False),
+        ("skipped", 0.0),
+        ("failed", False),
+        ("failed", 0.0),
+        ("errors", False),
+        ("errors", 0.0),
+    ),
+)
+def test_final_gate_requires_integer_verified_counts(tmp_path, count_name, value):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    evidence_path = artifacts / "ci-lane-garmin-123-1" / "verified.json"
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    payload["counts"][count_name] = value
+    evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError, match=f"{count_name} count must be an integer"):
+        validate_gate_artifacts(
+            artifacts,
+            head_sha=head_sha,
+            tree_sha=tree_sha,
+            manifest_sha256=manifest.sha256,
+            manifest=manifest,
+            lock_sha256=lock_sha,
+            workflow_identity=_push_identity(),
+            expected_platform="linux",
+        )
+
+
+@pytest.mark.parametrize("mutation", ("missing", "extra", "negative"))
+def test_final_gate_requires_exact_nonnegative_verified_count_shape(tmp_path, mutation):
+    artifacts, manifest, head_sha, tree_sha, lock_sha = _complete_gate_fixture(tmp_path)
+    evidence_path = artifacts / "ci-lane-garmin-123-1" / "verified.json"
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        payload["counts"].pop("errors")
+    elif mutation == "extra":
+        payload["counts"]["deselected"] = 0
+    else:
+        payload["counts"]["failed"] = -1
+    evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    match = "count fields mismatch" if mutation != "negative" else "must be nonnegative"
+    with pytest.raises(ContractError, match=match):
         validate_gate_artifacts(
             artifacts,
             head_sha=head_sha,

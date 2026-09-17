@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 LANE_NAMES = ("garmin", "core-sleep", "app-ingest")
+COUNT_NAMES = ("passed", "skipped", "failed", "errors")
 MANIFEST_PATH = Path("ci/test-lanes.json")
 
 
@@ -68,6 +69,21 @@ def _require_schema_v1(value: Any, label: str) -> None:
         type(value) is int and value == 1,
         f"{label} schema_version must be integer 1",
     )
+
+
+def _require_zero_exit_status(value: Any, label: str) -> None:
+    _require(type(value) is int, f"{label} must be an integer")
+    _require(value == 0, f"{label} did not exit successfully")
+
+
+def _validate_counts(value: Any, label: str) -> dict[str, int]:
+    _require(isinstance(value, dict), f"{label} counts must be an object")
+    _require(set(value) == set(COUNT_NAMES), f"{label} count fields mismatch")
+    for name in COUNT_NAMES:
+        count = value[name]
+        _require(type(count) is int, f"{label} {name} count must be an integer")
+        _require(count >= 0, f"{label} {name} count must be nonnegative")
+    return {name: value[name] for name in COUNT_NAMES}
 
 
 def _sha256_bytes(content: bytes) -> str:
@@ -275,9 +291,7 @@ def _validate_collection_payload(
     _require(payload.get("collection_complete") is True, "collection did not complete")
     _require(payload.get("collection_errors") == [], "collection errors were recorded")
     _require(payload.get("deselected_nodeids") == [], "unexpected deselection during collection")
-    _require(
-        payload.get("session_exit_status") == 0, "collection process did not exit successfully"
-    )
+    _require_zero_exit_status(payload.get("session_exit_status"), "collection process")
     nodeids = payload.get("collected_nodeids")
     _require(
         isinstance(nodeids, list) and nodeids and all(isinstance(item, str) for item in nodeids),
@@ -298,7 +312,7 @@ def validate_lane_payload(
     _require(payload.get("collection_complete") is True, "lane collection did not complete")
     _require(payload.get("collection_errors") == [], "lane collection errors were recorded")
     _require(payload.get("deselected_nodeids") == [], "lane had unexpected deselection")
-    _require(payload.get("session_exit_status") == 0, "lane process was failed or incomplete")
+    _require_zero_exit_status(payload.get("session_exit_status"), "lane process")
     collected = payload.get("collected_nodeids")
     cases = payload.get("cases")
     _require(
@@ -722,6 +736,7 @@ def validate_gate_artifacts(
         verified = _load_json(lane_dir / "verified.json")
         _require(isinstance(verified, dict), f"lane {lane} verified evidence is malformed")
         _require_schema_v1(verified.get("schema_version"), f"lane {lane} verified evidence")
+        verified_counts = _validate_counts(verified.get("counts"), f"lane {lane} verified")
         for field, expected in (
             ("status", "verified"),
             ("lane", lane),
@@ -844,7 +859,7 @@ def validate_gate_artifacts(
                 f"lane {lane} raw inventory mismatch verified: missing={missing}; extra={extra}",
             )
             _require(
-                counts == verified.get("counts"),
+                counts == verified_counts,
                 f"lane {lane} verified counts mismatch raw outcomes",
             )
             _verify_report_sources(
