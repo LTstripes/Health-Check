@@ -17,9 +17,15 @@ from healthcheck.garmin.sync import (
     GarminSyncStatus,
     compute_sync_window,
 )
-from healthcheck.google.auth import GoogleAuthResult, GoogleAuthStatus
-from healthcheck.google.sync import GoogleRunKind, GoogleSyncReport, GoogleSyncStatus
+from healthcheck.google.auth import GoogleAuthResult, GoogleAuthStatus, GoogleSafeError
+from healthcheck.google.sync import (
+    GoogleRunKind,
+    GoogleSyncAttempt,
+    GoogleSyncReport,
+    GoogleSyncStatus,
+)
 from healthcheck.owner_refresh import (
+    OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS,
     OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY,
     OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE,
     OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS,
@@ -57,7 +63,65 @@ class _FakeGoogleAuth:
 def _report(status):
     return SimpleNamespace(
         status=status,
+        attempts=(),
         as_dict=lambda: {"sync": {"status": status.value}},
+    )
+
+
+def _google_attempt(
+    stream: str,
+    status: GoogleSyncStatus,
+    *,
+    page_count: int,
+    request_count: int,
+    resume_cursor_present: bool = False,
+    error: GoogleSafeError | None = None,
+) -> GoogleSyncAttempt:
+    return GoogleSyncAttempt(
+        stream=stream,
+        data_type="heart-rate" if stream == "heart_rate" else stream,
+        query_mode="list",
+        data_source_family=None,
+        window_start="2099-01-04",
+        window_end_exclusive="2099-01-11",
+        status=status,
+        coverage_status="present" if status is GoogleSyncStatus.SUCCEEDED else "unknown",
+        page_count=page_count,
+        request_count=request_count,
+        resume_cursor_present=resume_cursor_present,
+        error=error,
+    )
+
+
+def _google_report(
+    *attempts: GoogleSyncAttempt,
+    status: GoogleSyncStatus,
+    request_count: int,
+) -> GoogleSyncReport:
+    return GoogleSyncReport(
+        auth=GoogleAuthResult(status=GoogleAuthStatus.AUTHENTICATED),
+        status=status,
+        kind=GoogleRunKind.REFRESH,
+        window_start="2099-01-04",
+        window_end_exclusive="2099-01-11",
+        request_count=request_count,
+        query_mode="list",
+        data_source_family=None,
+        streams=tuple(item.stream for item in attempts),
+        attempts=tuple(attempts),
+    )
+
+
+def _hr_page_ceiling(*, final: bool = False) -> GoogleSyncAttempt:
+    return _google_attempt(
+        "heart_rate",
+        GoogleSyncStatus.SUCCEEDED if final else GoogleSyncStatus.PARTIAL,
+        page_count=4 if final else 40,
+        request_count=4 if final else 80,
+        resume_cursor_present=not final,
+        error=None
+        if final
+        else GoogleSafeError("budget", "page_ceiling"),
     )
 
 
@@ -136,6 +200,167 @@ def test_owner_refresh_default_runs_fixed_wearables_sleep_without_cli_family(mon
     assert google_calls[1]["streams"] == ["sleep"]
     assert google_calls[1]["query_mode"] == "reconcile"
     assert google_calls[1]["data_source_family"] == "google-wearables"
+
+
+def test_owner_refresh_converges_dense_hr_without_repeating_unrelated_layers(
+    monkeypatch, tmp_path
+):
+    import healthcheck.owner_refresh as owner_refresh
+
+    calls = []
+    garmin_calls = []
+
+    class CountingGarmin(_FakeGarminSync):
+        def run(self, *, as_of, trailing_window_days):
+            garmin_calls.append((as_of, trailing_window_days))
+            return super().run(as_of=as_of, trailing_window_days=trailing_window_days)
+
+    sleep_attempt = _google_attempt(
+        "sleep", GoogleSyncStatus.SUCCEEDED, page_count=1, request_count=1
+    )
+    reports = [
+        _google_report(
+            _hr_page_ceiling(),
+            sleep_attempt,
+            status=GoogleSyncStatus.PARTIAL,
+            request_count=81,
+        ),
+        _google_report(
+            _hr_page_ceiling(), status=GoogleSyncStatus.PARTIAL, request_count=80
+        ),
+        _google_report(
+            _hr_page_ceiling(final=True),
+            status=GoogleSyncStatus.SUCCEEDED,
+            request_count=4,
+        ),
+        _report(GoogleSyncStatus.EMPTY),
+    ]
+
+    def fake_google(settings, **kwargs):
+        calls.append(kwargs)
+        return reports.pop(0)
+
+    _patch_providers(
+        monkeypatch,
+        owner_refresh,
+        garmin_cls=CountingGarmin,
+        google_fn=fake_google,
+    )
+    report = run_owner_refresh(
+        _established_settings(tmp_path),
+        as_of="2099-01-10",
+        trailing_window_days=7,
+    )
+
+    assert report.status is OwnerRefreshStatus.SUCCEEDED
+    assert len(garmin_calls) == 1
+    assert len(calls) == 1 + OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS + 1
+    assert calls[1]["streams"] == ["heart_rate"]
+    assert calls[2]["streams"] == ["heart_rate"]
+    assert calls[1]["query_mode"] == calls[0]["query_mode"] is None
+    assert calls[1]["data_source_family"] == calls[0]["data_source_family"] is None
+    assert calls[3]["streams"] == list(OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS)
+    assert report.google.status is GoogleSyncStatus.SUCCEEDED
+    assert report.google.request_count == 81 + 80 + 4
+    assert [item.stream for item in report.google.attempts] == ["heart_rate", "sleep"]
+    assert report.google.attempts[0].status is GoogleSyncStatus.SUCCEEDED
+    assert report.google.attempts[0].page_count == 4
+    assert report.google.attempts[0].request_count == 4
+    assert report.google.attempts[1] == sleep_attempt
+
+
+def test_owner_refresh_dense_hr_stops_at_fixed_continuation_bound(monkeypatch, tmp_path):
+    import healthcheck.owner_refresh as owner_refresh
+
+    calls = []
+    reports = [
+        _google_report(_hr_page_ceiling(), status=GoogleSyncStatus.PARTIAL, request_count=80),
+        _google_report(_hr_page_ceiling(), status=GoogleSyncStatus.PARTIAL, request_count=80),
+        _google_report(_hr_page_ceiling(), status=GoogleSyncStatus.PARTIAL, request_count=80),
+        _report(GoogleSyncStatus.EMPTY),
+    ]
+
+    def fake_google(settings, **kwargs):
+        calls.append(kwargs)
+        return reports.pop(0)
+
+    _patch_providers(monkeypatch, owner_refresh, google_fn=fake_google)
+    report = run_owner_refresh(_established_settings(tmp_path), as_of="2099-01-10")
+
+    assert report.status is OwnerRefreshStatus.PARTIAL
+    assert len(calls) == OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS + 2
+    assert calls[-1]["streams"] == list(OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS)
+    assert report.google.status is GoogleSyncStatus.PARTIAL
+    assert report.google.request_count == 240
+    assert report.google.attempts[0].resume_cursor_present is True
+
+
+def test_owner_refresh_propagates_continuation_reauth_with_no_attempt(monkeypatch, tmp_path):
+    import healthcheck.owner_refresh as owner_refresh
+
+    calls = []
+    reports = [
+        _google_report(_hr_page_ceiling(), status=GoogleSyncStatus.PARTIAL, request_count=80),
+        GoogleSyncReport(
+            auth=GoogleAuthResult(status=GoogleAuthStatus.REAUTH_REQUIRED),
+            status=GoogleSyncStatus.REAUTH_REQUIRED,
+            kind=GoogleRunKind.REFRESH,
+            window_start="2099-01-04",
+            window_end_exclusive="2099-01-11",
+            request_count=0,
+            query_mode="list",
+            data_source_family=None,
+            streams=("heart_rate",),
+            abort_reason="reauth_required",
+        ),
+        _report(GoogleSyncStatus.EMPTY),
+    ]
+
+    def fake_google(settings, **kwargs):
+        calls.append(kwargs)
+        return reports.pop(0)
+
+    _patch_providers(monkeypatch, owner_refresh, google_fn=fake_google)
+    report = run_owner_refresh(_established_settings(tmp_path), as_of="2099-01-10")
+
+    assert report.status is OwnerRefreshStatus.REAUTH_REQUIRED
+    assert report.google.status is GoogleSyncStatus.REAUTH_REQUIRED
+    assert report.google.request_count == 80
+    assert report.google.abort_reason == "reauth_required"
+    assert len(calls) == 3
+    assert calls[1]["streams"] == ["heart_rate"]
+    assert calls[2]["streams"] == list(OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS)
+
+
+def test_owner_refresh_exact_rerun_repeats_only_bounded_google_layers(monkeypatch, tmp_path):
+    import healthcheck.owner_refresh as owner_refresh
+
+    calls = []
+
+    def fake_google(settings, **kwargs):
+        calls.append(kwargs)
+        if kwargs.get("data_source_family") == OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY:
+            return _report(GoogleSyncStatus.EMPTY)
+        if kwargs.get("streams") == ["heart_rate"]:
+            is_final = sum(item.get("streams") == ["heart_rate"] for item in calls) % 2 == 0
+            return _google_report(
+                _hr_page_ceiling(final=is_final),
+                status=GoogleSyncStatus.SUCCEEDED if is_final else GoogleSyncStatus.PARTIAL,
+                request_count=4 if is_final else 80,
+            )
+        return _google_report(_hr_page_ceiling(), status=GoogleSyncStatus.PARTIAL, request_count=80)
+
+    _patch_providers(monkeypatch, owner_refresh, google_fn=fake_google)
+    settings = _established_settings(tmp_path)
+    first = run_owner_refresh(settings, as_of="2099-01-10")
+    second = run_owner_refresh(settings, as_of="2099-01-10")
+
+    assert first.status is OwnerRefreshStatus.SUCCEEDED
+    assert second.status is OwnerRefreshStatus.SUCCEEDED
+    assert first.google.request_count == second.google.request_count == 164
+    assert len(first.google.attempts) == len(second.google.attempts) == 1
+    assert len(calls) == 2 * (OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS + 2)
+    assert all("chunk_days" not in call and "reprocess" not in call for call in calls)
 
 
 def test_owner_refresh_is_partial_when_one_provider_is_partial(monkeypatch, tmp_path):

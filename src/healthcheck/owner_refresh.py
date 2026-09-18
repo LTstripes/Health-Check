@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+from datetime import date
 from enum import StrEnum
 from typing import Any
 
@@ -22,7 +24,13 @@ from healthcheck.garmin.sync import (
     validate_trailing_window_days,
 )
 from healthcheck.google.auth import GoogleAuthService
-from healthcheck.google.sync import GoogleSyncReport, GoogleSyncStatus, run_google_refresh
+from healthcheck.google.sync import (
+    GoogleSyncAttempt,
+    GoogleSyncReport,
+    GoogleSyncStatus,
+    _roll_up_status,
+    run_google_refresh,
+)
 from healthcheck.runtime import RuntimePaths, resolve_runtime_paths
 
 OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
@@ -31,6 +39,11 @@ OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
 OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS: tuple[str, ...] = ("sleep",)
 OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE = "reconcile"
 OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY = "google-wearables"
+# The normal bounded refresh consumes up to 40 pages. Each resumed refresh
+# revalidates one head page, then consumes up to 39 continuation pages. Two
+# continuation rounds therefore complete the synthetic 82-page acceptance
+# window while retaining the existing per-call provider caps.
+OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS = 2
 
 
 class OwnerRefreshStatus(StrEnum):
@@ -191,6 +204,131 @@ def _combined_status(
     return OwnerRefreshStatus.FAILED
 
 
+def _resumable_heart_rate_attempt(report: GoogleSyncReport) -> GoogleSyncAttempt | None:
+    """Return the sole bounded page-ceiling HR attempt eligible to continue."""
+
+    if report.status is not GoogleSyncStatus.PARTIAL:
+        return None
+    attempts = [item for item in report.attempts if item.stream == "heart_rate"]
+    if len(attempts) != 1:
+        return None
+    attempt = attempts[0]
+    error = attempt.error
+    if (
+        attempt.status is not GoogleSyncStatus.PARTIAL
+        or not attempt.resume_cursor_present
+        or error is None
+        or error.error_class != "budget"
+        or error.error_code != "page_ceiling"
+    ):
+        return None
+    return attempt
+
+
+def _consolidate_google_refresh_reports(
+    reports: Sequence[GoogleSyncReport],
+) -> GoogleSyncReport:
+    """Keep one normal report while folding bounded HR continuation evidence."""
+
+    if not reports:
+        raise ValueError("at least one Google refresh report is required")
+    primary = reports[0]
+    if len(reports) == 1:
+        return primary
+    total_request_count = sum(report.request_count for report in reports)
+    hr_indexes = [
+        index for index, attempt in enumerate(primary.attempts) if attempt.stream == "heart_rate"
+    ]
+    if len(hr_indexes) != 1:
+        return primary
+    hr_index = hr_indexes[0]
+    hr_attempts = [
+        report.attempts[0]
+        for report in reports[1:]
+        if len(report.attempts) == 1 and report.attempts[0].stream == "heart_rate"
+    ]
+    if not hr_attempts:
+        continuation = reports[-1]
+        if continuation.status is GoogleSyncStatus.REAUTH_REQUIRED:
+            abort_reason = continuation.abort_reason or continuation.status.value
+            return replace(
+                primary,
+                status=GoogleSyncStatus.REAUTH_REQUIRED,
+                request_count=total_request_count,
+                abort_reason=abort_reason,
+            )
+        if continuation.status not in {
+            GoogleSyncStatus.SUCCEEDED,
+            GoogleSyncStatus.EMPTY,
+        }:
+            abort_reason = continuation.abort_reason or continuation.status.value
+            return replace(
+                primary,
+                request_count=total_request_count,
+                abort_reason=abort_reason,
+            )
+        return replace(primary, request_count=total_request_count)
+    # Keep attempt counters scoped to their final provider operation so the
+    # existing per-call cap remains visibly true. The enclosing report's
+    # request_count is the honest aggregate across the normal call and bounded
+    # continuation calls.
+    consolidated = hr_attempts[-1]
+    attempts = list(primary.attempts)
+    attempts[hr_index] = consolidated
+    abort_reason = next(
+        (report.abort_reason for report in reversed(reports) if report.abort_reason is not None),
+        primary.abort_reason,
+    )
+    return replace(
+        primary,
+        status=_roll_up_status(attempts, abort_reason),
+        request_count=total_request_count,
+        attempts=tuple(attempts),
+        abort_reason=abort_reason,
+        skipped_complete_count=sum(report.skipped_complete_count for report in reports),
+    )
+
+
+def _run_normal_google_refresh(
+    settings: Settings,
+    *,
+    auth_service: GoogleAuthService,
+    start: date | str,
+    end: date | str,
+    streams: list[str] | None,
+    query_mode: str | None,
+    data_source_family: str | None,
+) -> GoogleSyncReport:
+    """Run normal Google refresh plus only eligible bounded HR continuations."""
+
+    reports = [
+        run_google_refresh(
+            settings,
+            start=start,
+            end=end,
+            auth_service=auth_service,
+            streams=streams,
+            query_mode=query_mode,
+            data_source_family=data_source_family,
+        )
+    ]
+    for _ in range(OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS):
+        if _resumable_heart_rate_attempt(reports[-1]) is None:
+            break
+        reports.append(
+            run_google_refresh(
+                settings,
+                start=start,
+                end=end,
+                auth_service=auth_service,
+                streams=["heart_rate"],
+                query_mode=query_mode,
+                data_source_family=data_source_family,
+            )
+        )
+    return _consolidate_google_refresh_reports(reports)
+
+
 def run_owner_refresh(
     settings: Settings,
     *,
@@ -231,7 +369,7 @@ def run_owner_refresh(
         ).run(as_of=as_of_date, trailing_window_days=window_days)
 
         google_auth = GoogleAuthService(settings)
-        google = run_google_refresh(
+        google = _run_normal_google_refresh(
             settings,
             start=window_start,
             end=window_end,
@@ -264,6 +402,7 @@ def run_owner_refresh(
 
 __all__ = [
     "OWNER_REFRESH_CONTRACT_VERSION",
+    "OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS",
     "OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY",
     "OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE",
     "OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS",

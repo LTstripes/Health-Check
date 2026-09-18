@@ -21,6 +21,18 @@ Scheduled or default use therefore needs no extra manual `--family` /
 status is `succeeded` only when every required step converges as
 `succeeded` or `empty`; each provider/sub-step outcome is reported honestly.
 
+When the normal Google report has exactly one `heart_rate` attempt that is
+`partial` because of the bounded `page_ceiling` and has a resumable cursor,
+`owner-refresh` performs at most two additional Google calls for that stream.
+Each continuation keeps the normal query mode and data-source family and uses
+the existing per-call provider caps. The continuation call is limited to
+`heart_rate`; Garmin, unrelated normal Google streams, and the fixed
+`google-wearables` sleep layer are not repeated. The normal Google report keeps
+its unrelated attempts, while its `request_count` is the aggregate across the
+normal call and continuations; each individual attempt's counters remain scoped
+to its own capped provider operation. If the two-round allowance is exhausted,
+the overall result remains `partial` until a later action resumes the cursor.
+
 ## Run manually
 
 Run from the Health-Check checkout with the same Windows user account that
