@@ -50,6 +50,7 @@ from healthcheck.google.contracts import (
 from healthcheck.google.protection import GoogleLocalKeyFileProtection
 from healthcheck.google.sync import (
     MAX_PAGES_PER_FETCH,
+    MAX_RETRY_ATTEMPTS,
     MAX_SYNC_PROVIDER_REQUESTS,
     RETRY_BACKOFF_SECONDS,
     SLEEP_PAGE_SIZE,
@@ -440,6 +441,80 @@ def test_retry_429_and_504_then_success(tmp_path) -> None:
     assert report.attempts[0].coverage_status == "present"
     assert sleeps == [RETRY_BACKOFF_SECONDS[0], RETRY_BACKOFF_SECONDS[1]]
     assert len(transport.health_calls()) == 3
+
+
+def test_retry_transient_provider_5xx_then_success(tmp_path) -> None:
+    for status in (500, 502, 503):
+        sleeps: list[float] = []
+        transport = FakeGoogleHealthTransport()
+        transport.queue("heart-rate", status)
+        transport.queue(
+            "heart-rate",
+            {"dataPoints": [_hr_point(name=f"hr-{status}", bpm="64")]},
+        )
+        _settings, service = _sync(tmp_path / str(status), transport, sleeper=sleeps.append)
+
+        report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+        assert report.status is GoogleSyncStatus.SUCCEEDED
+        assert report.request_count == 2
+        assert report.attempts[0].coverage_status == "present"
+        assert sleeps == [RETRY_BACKOFF_SECONDS[0]]
+        assert len(transport.health_calls()) == 2
+
+
+def test_repeated_transient_provider_5xx_exhausts_existing_retry_count(tmp_path) -> None:
+    sleeps: list[float] = []
+    transport = FakeGoogleHealthTransport()
+    for _ in range(MAX_RETRY_ATTEMPTS):
+        transport.queue("heart-rate", 503)
+    _settings, service = _sync(tmp_path, transport, sleeper=sleeps.append)
+
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.request_count == MAX_RETRY_ATTEMPTS
+    assert report.attempts[0].error == GoogleSafeError("provider", "retryable", 503)
+    assert sleeps == list(RETRY_BACKOFF_SECONDS[: MAX_RETRY_ATTEMPTS - 1])
+    assert len(transport.health_calls()) == MAX_RETRY_ATTEMPTS
+
+
+def test_transient_provider_5xx_retry_respects_request_budget(tmp_path) -> None:
+    sleeps: list[float] = []
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", 503)
+    transport.queue("heart-rate", 503)
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, service = _sync(
+        tmp_path,
+        transport,
+        max_provider_requests=2,
+        sleeper=sleeps.append,
+    )
+
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.request_count == 2
+    assert report.attempts[0].error == GoogleSafeError("budget", "request_ceiling")
+    assert sleeps == list(RETRY_BACKOFF_SECONDS[:2])
+    assert len(transport.health_calls()) == 2
+
+
+def test_non_retryable_4xx_remains_terminal_provider_error(tmp_path) -> None:
+    sleeps: list[float] = []
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", 400)
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, service = _sync(tmp_path, transport, sleeper=sleeps.append)
+
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.request_count == 1
+    assert report.attempts[0].error == GoogleSafeError("provider", "provider_error", 400)
+    assert sleeps == []
+    assert len(transport.health_calls()) == 1
 
 
 def test_historical_and_incremental_namespaces_are_isolated(tmp_path) -> None:
@@ -1698,7 +1773,7 @@ def test_dense_historical_window_resumes_across_bounded_invocations(tmp_path) ->
 
 def test_historical_backfill_failed_then_success_is_not_success(tmp_path) -> None:
     transport = FakeGoogleHealthTransport()
-    transport.queue("heart-rate", 500)
+    transport.queue("heart-rate", 400)
     settings, _service = _sync(tmp_path, transport)
     report = GoogleHistoricalBackfill(
         settings,
@@ -1743,10 +1818,11 @@ def test_invalid_json_terminal_body_is_retained_locally(tmp_path) -> None:
 def test_provider_error_body_is_retained_locally(tmp_path) -> None:
     marker = b'{"error":"terminal-provider-body"}'
     transport = FakeGoogleHealthTransport()
-    transport.queue_raw("heart-rate", marker, status=500)
+    transport.queue_raw("heart-rate", marker, status=400)
     settings, service = _sync(tmp_path, transport)
     report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
     assert report.status is GoogleSyncStatus.FAILED
+    assert report.attempts[0].error == GoogleSafeError("provider", "provider_error", 400)
     dumped = report.to_json()
     assert "terminal-provider-body" not in dumped
     engine, factory = _session(settings)
