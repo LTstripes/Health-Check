@@ -463,11 +463,17 @@ def checkpoint_stream_code(
     stream: GoogleStream,
     query_mode: GoogleQueryMode,
     data_source_family: str | None,
+    partition: str | None = None,
 ) -> str:
     family_key = "any"
     if data_source_family:
         family_key = data_source_family.rsplit("/", 1)[-1]
-    return f"google:{namespace}:{stream.value}:{query_mode.value}:{family_key}"
+    code = f"google:{namespace}:{stream.value}:{query_mode.value}:{family_key}"
+    if partition is None:
+        return code
+    if not _DATE_RE.fullmatch(partition):
+        raise ValueError("checkpoint partition must be an ISO civil date")
+    return f"{code}:day:{partition}"
 
 
 def query_level_source_identity(query: GoogleQueryContext) -> GoogleSourceIdentity:
@@ -724,6 +730,7 @@ class GoogleHealthSync:
         clock: Callable[[], datetime] | None = None,
         max_provider_requests: int = MAX_SYNC_PROVIDER_REQUESTS,
         run_kind: GoogleRunKind = GoogleRunKind.INCREMENTAL,
+        checkpoint_partition: str | None = None,
     ) -> None:
         if max_provider_requests < 1:
             raise ValueError("max_provider_requests must be positive")
@@ -739,6 +746,11 @@ class GoogleHealthSync:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.max_provider_requests = max_provider_requests
         self.run_kind = GoogleRunKind(run_kind)
+        if checkpoint_partition is not None and self.run_kind is not GoogleRunKind.REFRESH:
+            raise ValueError("checkpoint partitions are only supported for refresh runs")
+        if checkpoint_partition is not None and not _DATE_RE.fullmatch(checkpoint_partition):
+            raise ValueError("checkpoint partition must be an ISO civil date")
+        self.checkpoint_partition = checkpoint_partition
 
     @property
     def namespace(self) -> str:
@@ -1109,6 +1121,7 @@ class GoogleHealthSync:
             stream=surface.stream,
             query_mode=query_mode,
             data_source_family=data_source_family,
+            partition=self.checkpoint_partition,
         )
         if per_stream_watermark and as_of is not None:
             window_start, window_end_exclusive = self._stream_watermark_window(
@@ -2260,6 +2273,7 @@ def run_google_refresh(
     data_source_family: str | None = None,
     max_provider_requests: int = MAX_SYNC_PROVIDER_REQUESTS,
     sleeper: Callable[[float], None] | None = None,
+    checkpoint_partition: str | None = None,
 ) -> GoogleSyncReport:
     start_date, end_inclusive = validate_inclusive_window(start, end)
     return GoogleHealthSync(
@@ -2272,6 +2286,7 @@ def run_google_refresh(
         sleeper=sleeper,
         max_provider_requests=max_provider_requests,
         run_kind=GoogleRunKind.REFRESH,
+        checkpoint_partition=checkpoint_partition,
     ).run_window(
         start=start_date,
         end_exclusive=inclusive_to_exclusive_end(end_inclusive),

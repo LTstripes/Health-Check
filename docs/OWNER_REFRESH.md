@@ -21,17 +21,20 @@ Scheduled or default use therefore needs no extra manual `--family` /
 status is `succeeded` only when every required step converges as
 `succeeded` or `empty`; each provider/sub-step outcome is reported honestly.
 
-When the normal Google report has exactly one `heart_rate` attempt that is
-`partial` because of the bounded `page_ceiling` and has a resumable cursor,
-`owner-refresh` performs at most two additional Google calls for that stream.
-Each continuation keeps the normal query mode and data-source family and uses
-the existing per-call provider caps. The continuation call is limited to
-`heart_rate`; Garmin, unrelated normal Google streams, and the fixed
-`google-wearables` sleep layer are not repeated. The normal Google report keeps
-its unrelated attempts, while its `request_count` is the aggregate across the
-normal call and continuations; each individual attempt's counters remain scoped
-to its own capped provider operation. If the two-round allowance is exhausted,
-the overall result remains `partial` until a later action resumes the cursor.
+For normal list-mode Google refresh, `heart_rate` is split into deterministic
+civil-day windows and processed newest to oldest. Every day has its own refresh
+checkpoint and staging/promotion epoch. A day that reaches the existing bounded
+`page_ceiling` can use at most two continuation calls; each continuation
+revalidates the head page before resuming its durable cursor. Page size and the
+40-page / 80-request per-call caps are unchanged.
+
+Garmin, unrelated normal Google streams, and the fixed `google-wearables` sleep
+layer still run once. Non-list Google modes and all non-HR streams retain their
+existing full-window behavior. If a day does not converge within its bounded
+continuations, it remains unknown and resumable, older days are not attempted,
+and the overall result remains `partial`. The normal Google report's
+`request_count` is the aggregate across its calls; every attempt's counters stay
+scoped to its own capped provider operation.
 
 ## Run manually
 
