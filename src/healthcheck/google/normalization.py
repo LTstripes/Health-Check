@@ -37,8 +37,12 @@ from healthcheck.google.contracts import (
     GoogleTemporalDTO,
     GoogleTemporalPrecision,
 )
+from healthcheck.google.identity import (
+    canonical_google_interval_identity,
+    is_safe_google_interval_identity,
+)
 
-NORMALIZATION_CONTRACT_VERSION = "r04-google-normalization-contract-v1"
+NORMALIZATION_CONTRACT_VERSION = "r04-google-normalization-contract-v2"
 GOOGLE_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 MAX_NORMALIZATION_RECORDS = 4096
 MAX_DIAGNOSTICS = 128
@@ -445,7 +449,9 @@ def normalize_google_payload(
                 disambiguated.append(record)
         records = disambiguated
     records = [replace(item, record_index=index) for index, item in enumerate(records)]
-    records, conflict_diagnostics = _mark_identity_conflicts(records)
+    records, conflict_diagnostics = _mark_identity_conflicts(
+        records, source_identity=source_identity
+    )
     if conflict_diagnostics:
         top_context.diagnostics.extend(
             conflict_diagnostics[: max(0, MAX_DIAGNOSTICS - len(top_context.diagnostics))]
@@ -516,7 +522,10 @@ def _identity_revision_signature(record: GoogleRecordDTO) -> str:
             "stream": record.stream.value,
             "status": record.status.value,
             "temporal": temporal(record.temporal),
-            "metrics": [metric(item) for item in record.metrics],
+            "metrics": sorted(
+                (metric(item) for item in record.metrics),
+                key=canonical_json,
+            ),
             "interval": interval(record.interval),
             "sleep_interval": interval(record.sleep_interval),
             "sleep_stages": [
@@ -543,15 +552,21 @@ def _identity_revision_signature(record: GoogleRecordDTO) -> str:
 
 def _mark_identity_conflicts(
     records: Sequence[GoogleRecordDTO],
+    *,
+    source_identity: GoogleSourceIdentity | None,
 ) -> tuple[list[GoogleRecordDTO], list[GoogleNormalizationDiagnostic]]:
-    grouped: dict[str, list[GoogleRecordDTO]] = {}
+    grouped: dict[tuple[object, ...], list[GoogleRecordDTO]] = {}
     for record in records:
         if record.idempotency_key.startswith(UNIDENTIFIED_INSTANT_IDENTITY_PREFIX):
             continue
-        grouped.setdefault(record.idempotency_key, []).append(record)
+        if not _is_path_free_identity(record):
+            continue
+        grouped.setdefault(
+            (_stable_record_source_key(record, source_identity), record.idempotency_key), []
+        ).append(record)
     conflicts: list[GoogleNormalizationDiagnostic] = []
     output = list(records)
-    for key, group in grouped.items():
+    for (_source_key, identity_key), group in grouped.items():
         if len({_identity_revision_signature(item) for item in group}) <= 1:
             continue
         diagnostic = GoogleNormalizationDiagnostic(
@@ -562,7 +577,10 @@ def _mark_identity_conflicts(
         )
         conflicts.append(diagnostic)
         for index, record in enumerate(output):
-            if record.idempotency_key != key:
+            if (
+                record.idempotency_key != identity_key
+                or _stable_record_source_key(record, source_identity) != _source_key
+            ):
                 continue
             output[index] = replace(
                 record,
@@ -571,6 +589,41 @@ def _mark_identity_conflicts(
                 + (diagnostic.as_dict(),),
             )
     return output, conflicts
+
+
+def _is_path_free_identity(record: GoogleRecordDTO) -> bool:
+    return record.stream in PATH_FREE_INSTANT_STREAMS or (
+        record.stream is GoogleStream.HEART_RATE and record.interval is not None
+    )
+
+
+def _stable_record_source_key(
+    record: GoogleRecordDTO, source_identity: GoogleSourceIdentity | None
+) -> tuple[object, ...]:
+    data_source = record.data_source
+    if data_source is not None and data_source.state is GoogleMetricState.VALUE:
+        if data_source.source_name:
+            return ("data-source", data_source.source_name)
+        fields = tuple(
+            sorted(
+                (
+                    item.metric_code,
+                    item.state.value,
+                    item.value_number,
+                    item.value_text,
+                    item.unit,
+                )
+                for item in data_source.fields
+            )
+        )
+        return ("data-source-evidence", fields)
+    if source_identity is not None:
+        return (
+            "source",
+            source_identity.source_kind.value,
+            source_identity.source_instance_id,
+        )
+    return ("unknown-source",)
 google_normalize = normalize_google_payload
 
 
@@ -859,7 +912,11 @@ def _finish_record(
     out_of_bed_segments: Sequence[GoogleIntervalDTO] = (),
     out_of_bed_state: GoogleMetricState = GoogleMetricState.MISSING,
 ) -> GoogleRecordDTO:
-    if stream is GoogleStream.HEART_RATE and interval is not None:
+    if (
+        stream is GoogleStream.HEART_RATE
+        and interval is not None
+        and is_safe_google_interval_identity(interval)
+    ):
         # Roll-up and daily-roll-up records are interval aggregates, not
         # instant samples.  Their identity is path-free and includes both
         # endpoints plus the interval kind so the two query surfaces cannot
@@ -885,6 +942,9 @@ def _finish_record(
             "sample_time_utc": temporal.measured_at_utc.astimezone(UTC).isoformat(),
         }
         identity_prefix = PATH_FREE_INSTANT_IDENTITY_PREFIX
+    elif stream is GoogleStream.HEART_RATE and interval is not None:
+        identity_basis = {"version": "google-no-instant-identity-v1", "stream": stream.value}
+        identity_prefix = UNIDENTIFIED_INSTANT_IDENTITY_PREFIX
     elif stream in PATH_FREE_INSTANT_STREAMS and interval is None:
         # A missing/invalid/non-instant sample cannot be safely keyed.  This
         # sentinel is deliberately rejected by persistence; it is not derived
@@ -927,22 +987,7 @@ def _finish_record(
 
 def _path_free_interval_identity(interval: GoogleIntervalDTO) -> dict[str, object]:
     """Return only semantic endpoint evidence for an aggregate identity."""
-
-    def endpoint(value: GoogleTemporalDTO) -> dict[str, object]:
-        if value.precision is GoogleTemporalPrecision.INSTANT and value.measured_at_utc is not None:
-            return {
-                "precision": "instant",
-                "utc": value.measured_at_utc.astimezone(UTC).isoformat(),
-            }
-        if value.precision is GoogleTemporalPrecision.LOCAL and value.local_wall_time:
-            return {"precision": "local", "local": value.local_wall_time}
-        return {"precision": value.precision.value, "state": value.state.value}
-
-    return {
-        "kind": interval.interval_kind.value,
-        "start": endpoint(interval.start),
-        "end": endpoint(interval.end),
-    }
+    return canonical_google_interval_identity(interval)
 
 
 def _record_status(context: _ParseContext) -> GooglePayloadStatus:
@@ -1183,7 +1228,7 @@ def _parse_data_source(raw: object, path: str, context: _ParseContext) -> Google
     if not isinstance(raw, Mapping):
         context.diagnostic("data_source_shape_invalid", path, partial=True)
         return GoogleDataSourceDTO(state=GoogleMetricState.INVALID, field_path=path)
-    known = {"recordingMethod", "device", "application", "platform"}
+    known = {"name", "recordingMethod", "device", "application", "platform"}
     for key in raw:
         if key not in known:
             context.unknown(_path(path, str(key)), str(key), "data_source_field")
@@ -1209,7 +1254,17 @@ def _parse_data_source(raw: object, path: str, context: _ParseContext) -> Google
     fields.extend(
         _data_source_nested_fields(application, _path(path, "application"), context, "application")
     )
-    return GoogleDataSourceDTO(state=GoogleMetricState.VALUE, field_path=path, fields=tuple(fields))
+    source_name = raw.get("name")
+    return GoogleDataSourceDTO(
+        state=GoogleMetricState.VALUE,
+        field_path=path,
+        fields=tuple(fields),
+        source_name=(
+            source_name.strip()
+            if isinstance(source_name, str) and source_name.strip()
+            else None
+        ),
+    )
 
 
 def _data_source_nested_fields(

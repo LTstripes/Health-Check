@@ -23,7 +23,7 @@ from healthcheck.db.models import (
 GOOGLE_PROVIDER_CODE = "google_health"
 SOURCE_CONTRACT_VERSION = "r04-google-source-contract-v1"
 PERSISTENCE_CONTRACT_VERSION = "r04-google-persistence-contract-v1"
-NORMALIZATION_CONTRACT_VERSION = "r04-google-persistence-shell-v1"
+NORMALIZATION_CONTRACT_VERSION = "r04-google-persistence-shell-v2"
 OBSERVATION_KEY_VERSION = "google-observation-v1"
 GOOGLE_INPUT_METHOD = "provider_api"
 GOOGLE_SOURCE_APPLICATION = "google-health-api"
@@ -252,6 +252,7 @@ class GoogleDataSourceDTO:
     state: GoogleMetricState = GoogleMetricState.MISSING
     field_path: str = "$.dataSource"
     fields: tuple[GoogleMetricDTO, ...] = field(default_factory=tuple)
+    source_name: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "state", GoogleMetricState(self.state))
@@ -264,6 +265,10 @@ class GoogleDataSourceDTO:
         if self.state is not GoogleMetricState.VALUE and normalized:
             raise ValueError("non-value Google dataSource state cannot carry nested fields")
         object.__setattr__(self, "fields", normalized)
+        if self.source_name is not None:
+            if not isinstance(self.source_name, str) or not self.source_name.strip():
+                raise ValueError("Google data-source source_name must be text when supplied")
+            object.__setattr__(self, "source_name", self.source_name.strip())
 
     def field(self, metric_code: str) -> GoogleMetricDTO | None:
         """Return one nested source field by its stable projection code."""
@@ -294,6 +299,7 @@ class GoogleDataSourceDTO:
         return {
             "state": self.state.value,
             "field_path": self.field_path,
+            "source_name": self.source_name,
             "fields": [item.as_dict() for item in self.fields],
         }
 

@@ -55,6 +55,10 @@ from healthcheck.google.contracts import (
     GoogleStream,
     GoogleTemporalDTO,
 )
+from healthcheck.google.identity import (
+    canonical_google_interval_identity,
+    is_safe_google_interval_identity,
+)
 from healthcheck.google.storage import (
     ContentAddressedGooglePayloadStore,
     StoredGooglePayload,
@@ -591,7 +595,6 @@ class GoogleSourceRecordRepository:
         retired_at = start_or_now(seen_at)
         statement = select(GoogleSourceRecord).where(
             GoogleSourceRecord.projection_status == PROJECTION_CURRENT,
-            GoogleSourceRecord.record_status != GooglePayloadStatus.INVALID.value,
             GoogleSourceRecord.stream_code.in_(
                 tuple(stream.value for stream in PATH_FREE_INSTANT_STREAMS)
             ),
@@ -640,12 +643,12 @@ class GoogleSourceRecordRepository:
                         GoogleRecordInterval.ordinal == 0,
                     )
                 )
-                if interval is None:
-                    return None
+                if interval is None or not is_safe_google_interval_identity(interval):
+                    return (*context, "unsafe", row.id)
                 return (*context, "interval", _stored_interval_identity(interval))
             timestamp = _datetime_key(row.source_timestamp_utc)
             if timestamp is None or row.temporal_precision != "instant":
-                return None
+                return (*context, "unsafe", row.id)
             return (*context, "instant", timestamp.isoformat())
         return None
 
@@ -681,6 +684,15 @@ class GoogleSourceRecordRepository:
         if not rows:
             return 0, 0, 0
         row = rows[0]
+        if (
+            row.record_status == GooglePayloadStatus.INVALID.value
+            or self._migration_group_key(row)[-2] == "unsafe"
+        ):
+            for value in rows:
+                value.projection_status = "retired"
+                value.retired_at = retired_at
+                value.retire_reason = "identity_conflict"
+            return 0, len(rows), 1
         stream = GoogleStream(row.stream_code)
         if row.query_mode in {GoogleQueryMode.ROLL_UP.value, GoogleQueryMode.DAILY_ROLL_UP.value}:
             interval = self.session.scalar(
@@ -704,32 +716,36 @@ class GoogleSourceRecordRepository:
             query_mode=row.query_mode,
             data_source_family=row.data_source_family,
             idempotency_key=canonical_idempotency,
+            source_timestamp_utc=(
+                None
+                if row.query_mode
+                in {GoogleQueryMode.ROLL_UP.value, GoogleQueryMode.DAILY_ROLL_UP.value}
+                else timestamp
+            ),
+            interval=(
+                interval
+                if row.query_mode
+                in {GoogleQueryMode.ROLL_UP.value, GoogleQueryMode.DAILY_ROLL_UP.value}
+                else None
+            ),
         )
         signatures = {
             _record_revision_fingerprint(self.session, value) for value in rows
         }
         if len(signatures) > 1:
             epochs = [self._record_observation_epoch(value) for value in rows]
-            same_refresh = any(
-                left[0] is not None
-                and left[0] == right[0]
-                or left[2] is not None
-                and left[2] == right[2]
-                or left[0] is None
-                and right[0] is None
-                and left[1] is not None
-                and left[1] == right[1]
-                for index, left in enumerate(epochs)
-                for right in epochs[index + 1 :]
-            )
+            if any(epoch[1] is None for epoch in epochs):
+                for value in rows:
+                    value.projection_status = "retired"
+                    value.retired_at = retired_at
+                    value.retire_reason = "identity_conflict"
+                return 0, len(rows), 1
             latest = max((value[1] for value in epochs if value[1] is not None), default=None)
             latest_rows = [
                 value for value, epoch in zip(rows, epochs) if epoch[1] == latest
             ]
             if (
-                same_refresh
-                or any(epoch[1] is None for epoch in epochs)
-                or latest is None
+                latest is None
                 or len(latest_rows) != 1
             ):
                 for value in rows:
@@ -856,10 +872,19 @@ class GoogleSourceRecordRepository:
                 and existing_epoch is not None
                 and existing_epoch == incoming_epoch
             )
+            ordering_known = (
+                existing_epoch is not None
+                and incoming_epoch is not None
+                and (
+                    existing_sync is None
+                    and incoming_sync is None
+                    or existing_sync is not None
+                    and incoming_sync is not None
+                )
+            )
             if (
                 same_refresh
-                or existing_epoch is None
-                or incoming_epoch is None
+                or not ordering_known
                 or incoming_epoch == existing_epoch
             ):
                 # Equal/co-observed epochs with divergent metric/revision
@@ -1232,6 +1257,8 @@ class GooglePersistenceRepository:
             )
             current_records = []
             for record in normalized_records:
+                if not _record_has_safe_projection_identity(record, query):
+                    continue
                 identity_key = build_google_record_identity_key(
                     stream_code=record.stream,
                     query_mode=query.query_mode,
@@ -1334,14 +1361,17 @@ class GooglePersistenceRepository:
         if parsed_status is not GooglePayloadStatus.INVALID:
             seen_keys: dict[str, str] = {}
             for record in normalized_records:
-                if record.idempotency_key.startswith(UNIDENTIFIED_INSTANT_IDENTITY_PREFIX):
+                if not _record_has_safe_projection_identity(record, query):
                     # Missing/invalid/non-instant sample evidence is retained
                     # in the raw payload and normalization attempt only; it
                     # must never become a guessed logical projection.
                     continue
-                signature = canonical_json(
-                    {"record": record.as_dict()}
-                )
+                if record.idempotency_key.startswith(
+                    (PATH_FREE_INSTANT_IDENTITY_PREFIX, PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX)
+                ):
+                    signature = _record_revision_fingerprint(self.session, record=record)
+                else:
+                    signature = canonical_json({"record": record.as_dict()})
                 identity_key = build_google_record_identity_key(
                     stream_code=record.stream,
                     query_mode=query.query_mode,
@@ -1828,11 +1858,24 @@ def build_google_record_identity_key(
     normalized_key = _required_text(idempotency_key, "Google record idempotency key")
     if normalized_key.startswith(UNIDENTIFIED_INSTANT_IDENTITY_PREFIX):
         raise ValueError("Google instant evidence has no safe logical identity")
+    normalized_query_mode = GoogleQueryMode(query_mode)
+    if (
+        stream is GoogleStream.HEART_RATE
+        and normalized_query_mode
+        in {GoogleQueryMode.ROLL_UP, GoogleQueryMode.DAILY_ROLL_UP}
+        and interval is None
+        and source_timestamp_utc is None
+    ):
+        raise ValueError("Google HR rollup evidence has no safe interval identity")
     if stream is GoogleStream.HEART_RATE and interval is not None:
+        if not is_safe_google_interval_identity(interval):
+            raise ValueError("Google HR interval evidence has no safe logical identity")
         normalized_key = _canonical_interval_idempotency(
             stream, canonical_json(_interval_identity_from_dto(interval))
         )
-    elif stream in PATH_FREE_INSTANT_STREAMS and source_timestamp_utc is not None:
+    elif stream in PATH_FREE_INSTANT_STREAMS:
+        if source_timestamp_utc is None:
+            raise ValueError("Google instant evidence has no safe logical identity")
         normalized_key = _canonical_instant_idempotency(stream, source_timestamp_utc)
     path_free_scope = stream in PATH_FREE_INSTANT_STREAMS or (
         stream is GoogleStream.HEART_RATE and interval is not None
@@ -1842,7 +1885,7 @@ def build_google_record_identity_key(
         "stream_code": stream.value,
         # Query mode and family are acquisition context, but remain part of
         # persisted GoogleSourceRecord identity for this frozen contract.
-        "query_mode": GoogleQueryMode(query_mode).value,
+        "query_mode": normalized_query_mode.value,
         "data_source_family": data_source_family,
         "idempotency_key": normalized_key,
     }
@@ -2025,6 +2068,24 @@ def _record_values(
     }
 
 
+def _record_has_safe_projection_identity(
+    record: GoogleRecordDTO, query: GoogleQueryContext
+) -> bool:
+    """Allow projections only when affected streams carry canonical evidence."""
+
+    if record.idempotency_key.startswith(UNIDENTIFIED_INSTANT_IDENTITY_PREFIX):
+        return False
+    if (
+        record.stream is GoogleStream.HEART_RATE
+        and query.query_mode in {GoogleQueryMode.ROLL_UP, GoogleQueryMode.DAILY_ROLL_UP}
+    ):
+        return record.interval is not None and is_safe_google_interval_identity(record.interval)
+    if record.stream in PATH_FREE_INSTANT_STREAMS:
+        temporal = record.temporal
+        return temporal.precision.value == "instant" and temporal.measured_at_utc is not None
+    return True
+
+
 def _record_revision_fingerprint(
     session: Session,
     existing: GoogleSourceRecord | None = None,
@@ -2058,7 +2119,10 @@ def _record_revision_fingerprint(
                 if temporal.measured_at_utc is not None
                 else None
             ),
-            "metrics": [metric(value) for value in record.metrics],
+            "metrics": sorted(
+                (metric(value) for value in record.metrics),
+                key=canonical_json,
+            ),
         }
         if record.interval is not None:
             payload["interval"] = _interval_revision_fingerprint(record.interval)
@@ -2087,8 +2151,26 @@ def _record_revision_fingerprint(
                         collection_json=value.collection_json,
                     )
                 )
-                for value in session.scalars(
-                    select(GoogleRecordMetric).where(GoogleRecordMetric.record_id == existing.id)
+                for value in sorted(
+                    session.scalars(
+                        select(GoogleRecordMetric).where(
+                            GoogleRecordMetric.record_id == existing.id
+                        )
+                    ),
+                    key=lambda item: canonical_json(
+                        metric(
+                            GoogleMetricDTO(
+                                metric_code=item.metric_code,
+                                field_path="$.metric",
+                                state=item.state,
+                                value_number=item.value_number,
+                                value_text=item.value_text,
+                                unit=item.unit,
+                                reason=item.reason,
+                                collection_json=item.collection_json,
+                            )
+                        )
+                    ),
                 )
             ],
         }
@@ -2100,61 +2182,28 @@ def _record_revision_fingerprint(
         if intervals:
             payload["interval"] = [
                 {
-                    "kind": value.interval_kind,
+                    "identity": canonical_google_interval_identity(value),
                     "state": value.interval_state,
-                    "start": _datetime_key(value.start_at_utc).isoformat()
-                    if value.start_at_utc is not None
-                    else value.start_local_wall_time,
-                    "end": _datetime_key(value.end_at_utc).isoformat()
-                    if value.end_at_utc is not None
-                    else value.end_local_wall_time,
                 }
-                for value in intervals
+                for value in sorted(intervals, key=lambda item: (item.interval_kind, item.ordinal))
             ]
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 def _interval_revision_fingerprint(interval: GoogleIntervalDTO) -> dict[str, object]:
-    def endpoint(value: GoogleTemporalDTO) -> object:
-        if value.measured_at_utc is not None:
-            return _as_utc(value.measured_at_utc).isoformat()
-        return value.local_wall_time
-
     return {
-        "kind": interval.interval_kind.value,
+        "identity": canonical_google_interval_identity(interval),
         "state": interval.state.value,
-        "start": endpoint(interval.start),
-        "end": endpoint(interval.end),
     }
 
 
 def _interval_identity_from_dto(interval: GoogleIntervalDTO) -> dict[str, object]:
-    value = _interval_revision_fingerprint(interval)
-    value.pop("state", None)
-    return value
+    return canonical_google_interval_identity(interval)
 
 
 def _stored_interval_identity(interval: GoogleRecordInterval) -> str:
     """Canonical endpoint identity for one persisted HR aggregate interval."""
-
-    def endpoint(utc_value: datetime | None, local_value: str | None, precision: str) -> object:
-        if utc_value is not None:
-            return {"precision": "instant", "utc": _datetime_key(utc_value).isoformat()}
-        if local_value:
-            return {"precision": "local", "local": local_value}
-        return {"precision": precision, "state": interval.interval_state}
-
-    return canonical_json(
-        {
-            "kind": interval.interval_kind,
-            "start": endpoint(
-                interval.start_at_utc, interval.start_local_wall_time, interval.start_precision
-            ),
-            "end": endpoint(
-                interval.end_at_utc, interval.end_local_wall_time, interval.end_precision
-            ),
-        }
-    )
+    return canonical_json(canonical_google_interval_identity(interval))
 
 
 def _canonical_instant_idempotency(stream: GoogleStream, timestamp: datetime) -> str:
