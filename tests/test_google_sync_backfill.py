@@ -1121,7 +1121,11 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
             transport.queue("heart-rate", original, page_token=page_token)
             transport.queue("heart-rate", payload, page_token=page_token)
             transport.queue("heart-rate", payload, page_token=page_token)
+            transport.queue("heart-rate", payload, page_token=page_token)
+            transport.queue("heart-rate", payload, page_token=page_token)
+            transport.queue("heart-rate", payload, page_token=page_token)
         else:
+            transport.queue("heart-rate", payload, page_token=page_token)
             transport.queue("heart-rate", payload, page_token=page_token)
 
     settings, _service = _sync(tmp_path, transport)
@@ -1206,11 +1210,60 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
                 session.scalar(select(func.count()).select_from(GoogleSourceRecord))
                 == dense_page_count
             )
+            record_snapshot = tuple(
+                sorted(
+                    (
+                        row.record_identity_key,
+                        row.record_status,
+                        row.projection_status,
+                    )
+                    for row in session.scalars(select(GoogleSourceRecord))
+                )
+            )
+            metric_snapshot = tuple(
+                sorted(
+                    (
+                        row.record_id,
+                        row.metric_code,
+                        row.state,
+                        row.value_number,
+                    )
+                    for row in session.scalars(select(GoogleRecordMetric))
+                )
+            )
     finally:
         engine.dispose()
 
-    # Explicit refresh remains provider-facing for late-correction discovery;
-    # an empty exact rerun is nevertheless projection-idempotent.
+    # Explicit refresh remains provider-facing for late-correction discovery.
+    # Queue the same dense provider result for an exact second epoch and prove
+    # bounded convergence is projection-idempotent, not merely empty-response safe.
+    rerun_first = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        max_provider_requests=MAX_PAGES_PER_FETCH,
+    )
+    assert rerun_first.status is GoogleSyncStatus.PARTIAL
+    assert rerun_first.request_count == MAX_PAGES_PER_FETCH
+    assert rerun_first.attempts[0].resume_cursor_present is True
+    rerun_second = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        max_provider_requests=MAX_PAGES_PER_FETCH,
+    )
+    assert rerun_second.status is GoogleSyncStatus.PARTIAL
+    assert rerun_second.request_count == MAX_PAGES_PER_FETCH
     rerun = run_google_refresh(
         settings,
         start=AS_OF,
@@ -1220,16 +1273,42 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
         access_token=SYNTHETIC_ACCESS,
         granted_scopes=ALLOWED_SCOPES,
         streams=["heart_rate"],
+        max_provider_requests=MAX_PAGES_PER_FETCH,
     )
     assert rerun.status is GoogleSyncStatus.SUCCEEDED
-    assert rerun.attempts[0].status is GoogleSyncStatus.EMPTY
-    assert rerun.request_count == 1
+    assert rerun.request_count == 4
+    assert rerun.attempts[0].inserted_count == 0
+    # The persistence layer counts replayed upserts as updates; the snapshots
+    # below prove the exact refresh is semantically idempotent.
+    assert rerun.attempts[0].updated_count == dense_page_count
+    assert "refresh-page-" not in rerun.to_json()
     engine, factory = _session(settings)
     try:
         with factory() as session:
             assert (
                 session.scalar(select(func.count()).select_from(GoogleSourceRecord))
                 == dense_page_count
+            )
+            assert record_snapshot == tuple(
+                sorted(
+                    (
+                        row.record_identity_key,
+                        row.record_status,
+                        row.projection_status,
+                    )
+                    for row in session.scalars(select(GoogleSourceRecord))
+                )
+            )
+            assert metric_snapshot == tuple(
+                sorted(
+                    (
+                        row.record_id,
+                        row.metric_code,
+                        row.state,
+                        row.value_number,
+                    )
+                    for row in session.scalars(select(GoogleRecordMetric))
+                )
             )
             metric = session.scalar(
                 select(GoogleRecordMetric).where(
