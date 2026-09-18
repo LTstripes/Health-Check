@@ -5,6 +5,22 @@ owner Garmin and Google profiles over one shared inclusive local-date window.
 It reuses the existing provider sync services, preserves their separate
 checkpoints and semantics, and returns one privacy-safe JSON report.
 
+Under the same established-runtime overlap lock the default command runs three
+required refresh steps:
+
+1. existing bounded Garmin incremental sync;
+2. existing normal bounded Google refresh (default production streams / list
+   semantics unless optional CLI stream or query overrides are supplied for
+   this layer only);
+3. fixed sleep-only Google refresh with `query_mode=reconcile` and
+   `dataSourceFamily=google-wearables`, which keeps the R05 exploratory
+   `account_wearables_sleep_observations_v1` evidence layer current.
+
+Scheduled or default use therefore needs no extra manual `--family` /
+`--query-mode` command for the wearables-sleep layer. The overall refresh
+status is `succeeded` only when every required step converges as
+`succeeded` or `empty`; each provider/sub-step outcome is reported honestly.
+
 ## Run manually
 
 Run from the Health-Check checkout with the same Windows user account that

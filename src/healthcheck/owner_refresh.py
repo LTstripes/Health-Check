@@ -27,9 +27,14 @@ from healthcheck.runtime import RuntimePaths, resolve_runtime_paths
 
 OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
 
+# Fixed second Google layer required by R05 account_wearables_sleep_observations_v1.
+OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS: tuple[str, ...] = ("sleep",)
+OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE = "reconcile"
+OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY = "google-wearables"
+
 
 class OwnerRefreshStatus(StrEnum):
-    """Combined outcome of one bounded two-provider refresh."""
+    """Combined outcome of one bounded multi-step owner refresh."""
 
     SUCCEEDED = "succeeded"
     PARTIAL = "partial"
@@ -115,7 +120,7 @@ def require_established_runtime(settings: Settings) -> RuntimePaths:
 
 @dataclass(frozen=True, slots=True)
 class OwnerRefreshReport:
-    """Privacy-safe summary for one manual Garmin + Google refresh."""
+    """Privacy-safe summary for one manual Garmin + dual-Google refresh."""
 
     status: OwnerRefreshStatus
     as_of: str
@@ -124,6 +129,7 @@ class OwnerRefreshReport:
     trailing_window_days: int
     garmin: GarminSyncReport
     google: GoogleSyncReport
+    google_wearables_sleep: GoogleSyncReport
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -138,6 +144,7 @@ class OwnerRefreshReport:
             },
             "garmin": self.garmin.as_dict(),
             "google": self.google.as_dict(),
+            "google_wearables_sleep": self.google_wearables_sleep.as_dict(),
             "privacy": {
                 "raw_values_emitted": False,
                 "private_identifiers_emitted": False,
@@ -153,9 +160,17 @@ class OwnerRefreshReport:
 
 
 def _combined_status(
-    garmin: GarminSyncStatus, google: GoogleSyncStatus
+    *statuses: GarminSyncStatus | GoogleSyncStatus,
 ) -> OwnerRefreshStatus:
-    statuses = (garmin, google)
+    """Combine required refresh sub-step statuses into one owner outcome.
+
+    Status contract:
+    - REAUTH_REQUIRED if any required step needs reauthentication;
+    - SUCCEEDED only when every required step is SUCCEEDED or EMPTY;
+    - PARTIAL when at least one required step succeeded/empty and another did not;
+    - FAILED when no required step succeeded/empty.
+    """
+
     if any(
         status is GarminSyncStatus.REAUTH_REQUIRED or status is GoogleSyncStatus.REAUTH_REQUIRED
         for status in statuses
@@ -186,11 +201,19 @@ def run_owner_refresh(
     query_mode: str | None = None,
     data_source_family: str | None = None,
 ) -> OwnerRefreshReport:
-    """Run both bounded provider refreshes over the same local-date window.
+    """Run Garmin plus both Google refresh layers over one local-date window.
 
-    Garmin remains the owner of incremental-window validation.  Google receives
-    the exact inclusive date window derived from that same validated Garmin
-    window, while retaining its own refresh/checkpoint semantics.
+    Under the same established-runtime overlap lock this runs:
+
+    1. existing bounded Garmin incremental sync;
+    2. existing normal bounded Google refresh (CLI stream/query/family overrides
+       apply only to this layer);
+    3. fixed sleep-only Google refresh with ``query_mode=reconcile`` and
+       ``data_source_family=google-wearables`` for the R05 exploratory cohort.
+
+    Garmin remains the owner of incremental-window validation. Both Google
+    layers receive the exact inclusive date window derived from that same
+    validated Garmin window and retain their own refresh/checkpoint semantics.
     """
 
     paths = require_established_runtime(settings)
@@ -207,29 +230,43 @@ def run_owner_refresh(
             auth_result=garmin_auth_result,
         ).run(as_of=as_of_date, trailing_window_days=window_days)
 
+        google_auth = GoogleAuthService(settings)
         google = run_google_refresh(
             settings,
             start=window_start,
             end=window_end,
-            auth_service=GoogleAuthService(settings),
+            auth_service=google_auth,
             streams=streams,
             query_mode=query_mode,
             data_source_family=data_source_family,
         )
+        google_wearables_sleep = run_google_refresh(
+            settings,
+            start=window_start,
+            end=window_end,
+            auth_service=google_auth,
+            streams=list(OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS),
+            query_mode=OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE,
+            data_source_family=OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY,
+        )
 
     return OwnerRefreshReport(
-        status=_combined_status(garmin.status, google.status),
+        status=_combined_status(garmin.status, google.status, google_wearables_sleep.status),
         as_of=as_of_date.isoformat(),
         window_start=window_start.isoformat(),
         window_end=window_end.isoformat(),
         trailing_window_days=window_days,
         garmin=garmin,
         google=google,
+        google_wearables_sleep=google_wearables_sleep,
     )
 
 
 __all__ = [
     "OWNER_REFRESH_CONTRACT_VERSION",
+    "OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY",
+    "OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE",
+    "OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS",
     "OwnerRefreshBusyError",
     "OwnerRefreshLock",
     "OwnerRefreshReport",
