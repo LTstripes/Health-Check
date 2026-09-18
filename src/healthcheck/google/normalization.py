@@ -99,6 +99,20 @@ _HEART_RATE_QUERY_MODES = frozenset(
     }
 )
 
+# These Google list/reconcile streams expose a physical sample time.  The
+# provider's point name and response position are revision/provenance evidence
+# only; they must not become part of the logical identity.
+PATH_FREE_INSTANT_STREAMS = frozenset(
+    {
+        GoogleStream.HEART_RATE,
+        GoogleStream.HRV,
+        GoogleStream.SPO2,
+        GoogleStream.RESPIRATORY_RATE_SLEEP,
+    }
+)
+PATH_FREE_INSTANT_IDENTITY_PREFIX = "google-instant-sample-v1:"
+UNIDENTIFIED_INSTANT_IDENTITY_PREFIX = "google-no-instant-identity-v1:"
+
 
 @dataclass(frozen=True, slots=True)
 class GoogleNormalizationDiagnostic:
@@ -431,8 +445,13 @@ def normalize_google_payload(
                 disambiguated.append(record)
         records = disambiguated
     records = [replace(item, record_index=index) for index, item in enumerate(records)]
+    records, conflict_diagnostics = _mark_identity_conflicts(records)
+    if conflict_diagnostics:
+        top_context.diagnostics.extend(
+            conflict_diagnostics[: max(0, MAX_DIAGNOSTICS - len(top_context.diagnostics))]
+        )
     status = GooglePayloadStatus.OK
-    if top_context.material_error or record_material_error:
+    if top_context.material_error or record_material_error or conflict_diagnostics:
         status = GooglePayloadStatus.INVALID
     elif (
         top_context.partial
@@ -465,6 +484,93 @@ def _unidentified_occurrence_key(base_key: str, occurrence: int) -> str:
     }
     digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
     return "google-source-record-v1:" + digest
+
+
+def _identity_revision_signature(record: GoogleRecordDTO) -> str:
+    """Compare revision evidence without positional/path/provenance churn."""
+
+    def metric(value: GoogleMetricDTO) -> dict[str, object]:
+        return {
+            "code": value.metric_code,
+            "state": value.state.value,
+            "number": value.value_number,
+            "text": value.value_text,
+            "unit": value.unit,
+            "collection": value.collection_json,
+        }
+
+    def temporal(value: GoogleTemporalDTO) -> dict[str, object]:
+        return {
+            "precision": value.precision.value,
+            "state": value.state.value,
+            "utc": value.measured_at_utc.astimezone(UTC).isoformat()
+            if value.measured_at_utc is not None
+            else None,
+        }
+
+    def interval(value: GoogleIntervalDTO | None) -> object:
+        return _path_free_interval_identity(value) if value is not None else None
+
+    return canonical_json(
+        {
+            "stream": record.stream.value,
+            "status": record.status.value,
+            "temporal": temporal(record.temporal),
+            "metrics": [metric(item) for item in record.metrics],
+            "interval": interval(record.interval),
+            "sleep_interval": interval(record.sleep_interval),
+            "sleep_stages": [
+                {
+                    "ordinal": item.ordinal,
+                    "stage": item.stage_type,
+                    "start": temporal(item.start),
+                    "end": temporal(item.end),
+                    "create": item.create_time,
+                    "update": item.update_time,
+                }
+                for item in record.sleep_stages
+            ],
+            "sleep_stages_state": record.sleep_stages_state.value,
+            "out_of_bed": [
+                _path_free_interval_identity(item) for item in record.out_of_bed_segments
+            ],
+            "out_of_bed_state": record.out_of_bed_state.value,
+            # dataSource fields are provenance and may be absent on reconcile
+            # evidence for the same physical sample.
+        }
+    )
+
+
+def _mark_identity_conflicts(
+    records: Sequence[GoogleRecordDTO],
+) -> tuple[list[GoogleRecordDTO], list[GoogleNormalizationDiagnostic]]:
+    grouped: dict[str, list[GoogleRecordDTO]] = {}
+    for record in records:
+        if record.idempotency_key.startswith(UNIDENTIFIED_INSTANT_IDENTITY_PREFIX):
+            continue
+        grouped.setdefault(record.idempotency_key, []).append(record)
+    conflicts: list[GoogleNormalizationDiagnostic] = []
+    output = list(records)
+    for key, group in grouped.items():
+        if len({_identity_revision_signature(item) for item in group}) <= 1:
+            continue
+        diagnostic = GoogleNormalizationDiagnostic(
+            code="identity_conflict",
+            message="Google samples share an epoch but carry conflicting revision evidence",
+            path=None,
+            severity="error",
+        )
+        conflicts.append(diagnostic)
+        for index, record in enumerate(output):
+            if record.idempotency_key != key:
+                continue
+            output[index] = replace(
+                record,
+                status=GooglePayloadStatus.INVALID,
+                diagnostics=tuple(record.diagnostics)
+                + (diagnostic.as_dict(),),
+            )
+    return output, conflicts
 google_normalize = normalize_google_payload
 
 
@@ -753,21 +859,54 @@ def _finish_record(
     out_of_bed_segments: Sequence[GoogleIntervalDTO] = (),
     out_of_bed_state: GoogleMetricState = GoogleMetricState.MISSING,
 ) -> GoogleRecordDTO:
-    if stream is GoogleStream.SLEEP and external_record_id is not None:
+    if stream is GoogleStream.HEART_RATE and interval is not None:
+        # Roll-up and daily-roll-up records are interval aggregates, not
+        # instant samples.  Their identity is path-free and includes both
+        # endpoints plus the interval kind so the two query surfaces cannot
+        # collide.
+        identity_basis = {
+            "version": "google-hr-interval-v1",
+            "stream": stream.value,
+            "interval": _path_free_interval_identity(interval),
+        }
+        identity_prefix = "google-hr-interval-v1:"
+    elif (
+        stream in PATH_FREE_INSTANT_STREAMS
+        and interval is None
+        and temporal.precision is GoogleTemporalPrecision.INSTANT
+        and temporal.measured_at_utc is not None
+    ):
+        # Only the canonical UTC instant is semantic identity.  Keep the
+        # complete temporal DTO (including provider paths and offset) on the
+        # record as provenance/revision evidence.
+        identity_basis = {
+            "version": "google-instant-sample-v1",
+            "stream": stream.value,
+            "sample_time_utc": temporal.measured_at_utc.astimezone(UTC).isoformat(),
+        }
+        identity_prefix = PATH_FREE_INSTANT_IDENTITY_PREFIX
+    elif stream in PATH_FREE_INSTANT_STREAMS and interval is None:
+        # A missing/invalid/non-instant sample cannot be safely keyed.  This
+        # sentinel is deliberately rejected by persistence; it is not derived
+        # from path/order/shape or provider external ids.
+        identity_basis = {"version": "google-no-instant-identity-v1", "stream": stream.value}
+        identity_prefix = UNIDENTIFIED_INSTANT_IDENTITY_PREFIX
+    elif stream is GoogleStream.SLEEP and external_record_id is not None:
         identity_basis = {
             "stream": stream.value,
             "logical_external_record_id": external_record_id,
         }
+        identity_prefix = "google-source-record-v1:"
     else:
         identity_basis = {
             "stream": stream.value,
             "external_record_id": external_record_id,
             "semantic": semantic_basis,
         }
-    idempotency_key = (
-        "google-source-record-v1:"
-        + hashlib.sha256(canonical_json(identity_basis).encode("utf-8")).hexdigest()
-    )
+        identity_prefix = "google-source-record-v1:"
+    idempotency_key = identity_prefix + hashlib.sha256(
+        canonical_json(identity_basis).encode("utf-8")
+    ).hexdigest()
     return GoogleRecordDTO(
         stream=stream,
         idempotency_key=idempotency_key,
@@ -784,6 +923,26 @@ def _finish_record(
         out_of_bed_state=out_of_bed_state,
         data_source=data_source,
     )
+
+
+def _path_free_interval_identity(interval: GoogleIntervalDTO) -> dict[str, object]:
+    """Return only semantic endpoint evidence for an aggregate identity."""
+
+    def endpoint(value: GoogleTemporalDTO) -> dict[str, object]:
+        if value.precision is GoogleTemporalPrecision.INSTANT and value.measured_at_utc is not None:
+            return {
+                "precision": "instant",
+                "utc": value.measured_at_utc.astimezone(UTC).isoformat(),
+            }
+        if value.precision is GoogleTemporalPrecision.LOCAL and value.local_wall_time:
+            return {"precision": "local", "local": value.local_wall_time}
+        return {"precision": value.precision.value, "state": value.state.value}
+
+    return {
+        "kind": interval.interval_kind.value,
+        "start": endpoint(interval.start),
+        "end": endpoint(interval.end),
+    }
 
 
 def _record_status(context: _ParseContext) -> GooglePayloadStatus:
@@ -2774,6 +2933,7 @@ _DIAGNOSTIC_MESSAGES = {
     "data_type_component_shape": "Google data type component has an incompatible shape",
     "record_identity_conflict": "Google data point identifiers conflict",
     "record_identity_invalid": "Google data point identifier is invalid",
+    "identity_conflict": "Google samples share an epoch but carry conflicting revision evidence",
     "source_attribution_invalid": "Google device attribution lacks accepted provider evidence",
     "source_identity_conflict": "Google source identity conflicts with point-level source evidence",
     "required_field_missing": "A required Google field is missing",
@@ -2828,6 +2988,9 @@ _DIAGNOSTIC_MESSAGES = {
 __all__ = [
     "GOOGLE_NORMALIZATION_CONTRACT_VERSION",
     "MAX_DIAGNOSTICS",
+    "PATH_FREE_INSTANT_STREAMS",
+    "PATH_FREE_INSTANT_IDENTITY_PREFIX",
+    "UNIDENTIFIED_INSTANT_IDENTITY_PREFIX",
     "MAX_NORMALIZATION_RECORDS",
     "MAX_UNKNOWN_FIELDS",
     "NORMALIZATION_CONTRACT_VERSION",
