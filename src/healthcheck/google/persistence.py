@@ -643,11 +643,11 @@ class GoogleSourceRecordRepository:
                         GoogleRecordInterval.ordinal == 0,
                     )
                 )
-                if interval is None or not is_safe_google_interval_identity(interval):
+                if interval is None:
                     return (*context, "unsafe", row.id)
                 return (*context, "interval", _stored_interval_identity(interval))
             timestamp = _datetime_key(row.source_timestamp_utc)
-            if timestamp is None or row.temporal_precision != "instant":
+            if timestamp is None:
                 return (*context, "unsafe", row.id)
             return (*context, "instant", timestamp.isoformat())
         return None
@@ -683,16 +683,14 @@ class GoogleSourceRecordRepository:
     ) -> tuple[int, int, int]:
         if not rows:
             return 0, 0, 0
-        row = rows[0]
-        if (
-            row.record_status == GooglePayloadStatus.INVALID.value
-            or self._migration_group_key(row)[-2] == "unsafe"
-        ):
+        valid_rows = [row for row in rows if self._migration_row_is_safe(row)]
+        if not valid_rows:
             for value in rows:
                 value.projection_status = "retired"
                 value.retired_at = retired_at
                 value.retire_reason = "identity_conflict"
             return 0, len(rows), 1
+        row = valid_rows[0]
         stream = GoogleStream(row.stream_code)
         if row.query_mode in {GoogleQueryMode.ROLL_UP.value, GoogleQueryMode.DAILY_ROLL_UP.value}:
             interval = self.session.scalar(
@@ -730,33 +728,47 @@ class GoogleSourceRecordRepository:
             ),
         )
         signatures = {
-            _record_revision_fingerprint(self.session, value) for value in rows
+            _record_revision_fingerprint(self.session, value) for value in valid_rows
         }
         if len(signatures) > 1:
-            epochs = [self._record_observation_epoch(value) for value in rows]
-            if any(epoch[1] is None for epoch in epochs):
-                for value in rows:
-                    value.projection_status = "retired"
-                    value.retired_at = retired_at
-                    value.retire_reason = "identity_conflict"
-                return 0, len(rows), 1
-            latest = max((value[1] for value in epochs if value[1] is not None), default=None)
-            latest_rows = [
-                value for value, epoch in zip(rows, epochs) if epoch[1] == latest
+            epoch_groups: dict[tuple[object, ...], list[GoogleSourceRecord]] = {}
+            epoch_times: dict[tuple[object, ...], datetime] = {}
+            for value in valid_rows:
+                epoch = self._record_observation_epoch(value)
+                epoch_key = _migration_epoch_key(epoch)
+                if epoch_key is None or epoch[1] is None:
+                    return self._retire_identity_conflict(rows, retired_at)
+                epoch_groups.setdefault(epoch_key, []).append(value)
+                current_time = epoch_times.get(epoch_key)
+                if current_time is None or epoch[1] > current_time:
+                    epoch_times[epoch_key] = epoch[1]
+            latest_time = max(epoch_times.values(), default=None)
+            latest_groups = [
+                group for key, group in epoch_groups.items() if epoch_times[key] == latest_time
             ]
+            latest_rows = [value for group in latest_groups for value in group]
+            latest_signatures = {
+                _record_revision_fingerprint(self.session, value) for value in latest_rows
+            }
             if (
-                latest is None
-                or len(latest_rows) != 1
+                latest_time is None
+                or len(latest_groups) != 1
+                or len(latest_signatures) > 1
             ):
-                for value in rows:
-                    value.projection_status = "retired"
-                    value.retired_at = retired_at
-                    value.retire_reason = "identity_conflict"
-                return 0, len(rows), 1
-            winner = latest_rows[0]
+                return self._retire_identity_conflict(rows, retired_at)
+            winner = max(
+                latest_rows,
+                key=lambda value: (
+                    _datetime_key(value.projection_observed_at)
+                    or _datetime_key(value.last_seen_at)
+                    or datetime.min.replace(tzinfo=UTC),
+                    value.created_at,
+                    value.id,
+                ),
+            )
         else:
             winner = max(
-                rows,
+                valid_rows,
                 key=lambda value: (
                     _datetime_key(value.projection_observed_at)
                     or _datetime_key(value.last_seen_at)
@@ -783,9 +795,46 @@ class GoogleSourceRecordRepository:
                 continue
             value.projection_status = "retired"
             value.retired_at = retired_at
-            value.retire_reason = "superseded_logical_sample"
+            value.retire_reason = (
+                "superseded_logical_sample"
+                if self._migration_row_is_safe(value)
+                else "identity_conflict"
+            )
             retired += 1
-        return int(changed), retired, 0
+        return (
+            int(changed),
+            retired,
+            int(any(not self._migration_row_is_safe(value) for value in rows)),
+        )
+
+    def _migration_row_is_safe(self, row: GoogleSourceRecord) -> bool:
+        if row.record_status == GooglePayloadStatus.INVALID.value:
+            return False
+        if row.stream_code == GoogleStream.HEART_RATE.value and row.query_mode in {
+            GoogleQueryMode.ROLL_UP.value,
+            GoogleQueryMode.DAILY_ROLL_UP.value,
+        }:
+            interval = self.session.scalar(
+                select(GoogleRecordInterval).where(
+                    GoogleRecordInterval.record_id == row.id,
+                    GoogleRecordInterval.ordinal == 0,
+                )
+            )
+            return interval is not None and is_safe_google_interval_identity(interval)
+        return (
+            row.temporal_precision == "instant"
+            and row.source_timestamp_utc is not None
+        )
+
+    @staticmethod
+    def _retire_identity_conflict(
+        rows: Sequence[GoogleSourceRecord], retired_at: datetime
+    ) -> tuple[int, int, int]:
+        for value in rows:
+            value.projection_status = "retired"
+            value.retired_at = retired_at
+            value.retire_reason = "identity_conflict"
+        return 0, len(rows), 1
 
     def upsert(
         self,
@@ -897,6 +946,8 @@ class GoogleSourceRecordRepository:
                     existing.diagnostics_json
                 )
                 self.session.flush()
+                return existing, False, False
+            if incoming_epoch < existing_epoch:
                 return existing, False, False
         current_version = _normalization_version_rank(existing.normalization_contract_version)
         incoming_version = _normalization_version_rank(normalization_contract_version)
@@ -2068,6 +2119,19 @@ def _record_values(
     }
 
 
+def _migration_epoch_key(
+    epoch: tuple[str | None, datetime | None, str | None]
+) -> tuple[object, ...] | None:
+    sync_run_id, observed_at, observation_id = epoch
+    if sync_run_id is not None:
+        return ("sync", sync_run_id)
+    if observation_id is not None:
+        return ("observation", observation_id)
+    if observed_at is not None:
+        return ("received", observed_at)
+    return None
+
+
 def _record_has_safe_projection_identity(
     record: GoogleRecordDTO, query: GoogleQueryContext
 ) -> bool:
@@ -2079,10 +2143,19 @@ def _record_has_safe_projection_identity(
         record.stream is GoogleStream.HEART_RATE
         and query.query_mode in {GoogleQueryMode.ROLL_UP, GoogleQueryMode.DAILY_ROLL_UP}
     ):
-        return record.interval is not None and is_safe_google_interval_identity(record.interval)
+        return (
+            record.status is GooglePayloadStatus.OK
+            and record.interval is not None
+            and is_safe_google_interval_identity(record.interval)
+        )
     if record.stream in PATH_FREE_INSTANT_STREAMS:
         temporal = record.temporal
-        return temporal.precision.value == "instant" and temporal.measured_at_utc is not None
+        return (
+            record.status is GooglePayloadStatus.OK
+            and temporal.state is GoogleMetricState.VALUE
+            and temporal.precision.value == "instant"
+            and temporal.measured_at_utc is not None
+        )
     return True
 
 
@@ -2180,13 +2253,14 @@ def _record_revision_fingerprint(
             )
         )
         if intervals:
-            payload["interval"] = [
+            values = [
                 {
                     "identity": canonical_google_interval_identity(value),
                     "state": value.interval_state,
                 }
                 for value in sorted(intervals, key=lambda item: (item.interval_kind, item.ordinal))
             ]
+            payload["interval"] = values[0] if len(values) == 1 else values
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 

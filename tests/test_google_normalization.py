@@ -1893,6 +1893,13 @@ def test_issue156_hr_interval_reingest_reuses_one_projection_without_false_confl
     assert second.records[0].id == first.records[0].id
     assert session.scalar(select(func.count(GoogleSourceRecord.id))) == 1
     assert second.records[0].projection_status == "current"
+    migration = repository.migrate_path_free_instant_identities(
+        seen_at=datetime(2099, 1, 5, tzinfo=UTC)
+    )
+    session.commit()
+    assert migration.migrated == 0
+    assert migration.retired == 0
+    assert migration.conflicts == 0
 
 
 def test_issue156_unsafe_arbitrary_identity_is_raw_only_and_replayable(normalization_database):
@@ -2414,3 +2421,153 @@ def test_issue156_migration_retires_invalid_current_row_with_identity_conflict(
     assert migrated.retire_reason == "identity_conflict"
     assert session.scalar(select(func.count(GoogleRawPayload.id))) == raw_count
     assert session.scalar(select(func.count(GooglePayloadObservation.id))) == observation_count
+
+
+def test_issue156_migration_same_sync_run_is_one_epoch_despite_received_at(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    repository = GooglePersistenceRepository(session, payload_store=store)
+    source = repository.sources.get_or_create(_identity())
+    session.flush()
+    sync_run = SyncRun(
+        provider_id=source.provider_id,
+        stream_code=GoogleStream.HEART_RATE.value,
+        status="succeeded",
+        started_at=datetime(2099, 1, 2, tzinfo=UTC),
+        completed_at=datetime(2099, 1, 2, 1, tzinfo=UTC),
+    )
+    session.add(sync_run)
+    session.flush()
+    _first_result, first = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.HEART_RATE, name="same-refresh-a"),
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+        sync_run_id=sync_run.id,
+    )
+    first.records[0].record_identity_key = "google-record-v1:same-refresh-a"
+    session.flush()
+    _second_result, second = _persist_result(
+        session,
+        store,
+        _payload(
+            GoogleStream.HEART_RATE,
+            name="same-refresh-b",
+            component={"sampleTime": _sample_time(), "beatsPerMinute": "73"},
+        ),
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+        sync_run_id=sync_run.id,
+    )
+    second.records[0].record_identity_key = "google-record-v1:same-refresh-b"
+    session.commit()
+
+    report = repository.migrate_path_free_instant_identities(
+        seen_at=datetime(2099, 1, 5, tzinfo=UTC)
+    )
+    session.commit()
+    assert report.migrated == 0
+    assert report.retired == 2
+    assert report.conflicts == 1
+    rows = list(session.scalars(select(GoogleSourceRecord)))
+    assert {row.retire_reason for row in rows} == {"identity_conflict"}
+
+
+def test_issue156_migration_mixed_invalid_row_never_wins_and_keeps_evidence(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    _first_result, invalid = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.HEART_RATE, name="invalid-later"),
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    invalid_row = invalid.records[0]
+    invalid_row.record_identity_key = "google-record-v1:invalid-later"
+    invalid_row.record_status = GooglePayloadStatus.INVALID.value
+    raw_count = session.scalar(select(func.count(GoogleRawPayload.id)))
+    observation_count = session.scalar(select(func.count(GooglePayloadObservation.id)))
+    session.flush()
+
+    _valid_result, valid = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.HEART_RATE, name="valid-earlier"),
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+
+    report = GooglePersistenceRepository(
+        session, payload_store=store
+    ).migrate_path_free_instant_identities(seen_at=datetime(2099, 1, 5, tzinfo=UTC))
+    session.commit()
+    assert report.retired == 1
+    assert report.conflicts == 1
+    current = session.get(GoogleSourceRecord, valid.records[0].id)
+    retired = session.get(GoogleSourceRecord, invalid_row.id)
+    assert current is not None and current.projection_status == "current"
+    assert retired is not None
+    assert retired.projection_status == "retired"
+    assert retired.retire_reason == "identity_conflict"
+    assert session.scalar(select(func.count(GoogleRawPayload.id))) == raw_count + 1
+    assert session.scalar(select(func.count(GooglePayloadObservation.id))) == observation_count + 1
+
+
+def test_issue156_older_v2_cannot_overwrite_newer_v1_projection(normalization_database):
+    _paths, session, store = normalization_database
+    _newer_result, newer = _persist_result(
+        session,
+        store,
+        _payload(
+            GoogleStream.HEART_RATE,
+            name="newer-v1",
+            component={"sampleTime": _sample_time(), "beatsPerMinute": "73"},
+        ),
+        version="r04-google-normalization-contract-v1",
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    older_result, older = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.HEART_RATE, name="older-v2"),
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+    row = session.get(GoogleSourceRecord, newer.records[0].id)
+    assert row is not None
+    assert older.updated_count == 0
+    assert row.record_status == GooglePayloadStatus.OK.value
+    metric = session.scalar(
+        select(GoogleRecordMetric.value_number).where(
+            GoogleRecordMetric.record_id == row.id,
+            GoogleRecordMetric.metric_code == "heart_rate_bpm",
+        )
+    )
+    assert metric == 73
+
+
+def test_issue156_invalid_timestamped_dto_is_raw_only(normalization_database):
+    _paths, session, store = normalization_database
+    invalid = normalize_google_payload(
+        _payload(
+            GoogleStream.HEART_RATE,
+            component={"sampleTime": _sample_time(), "beatsPerMinute": "not-a-number"},
+        ),
+        stream=GoogleStream.HEART_RATE,
+    )
+    assert invalid.status is GooglePayloadStatus.INVALID
+    repository = GooglePersistenceRepository(session, payload_store=store)
+    outcome = repository.persist_observation(
+        identity=_identity(),
+        query=GoogleQueryContext(GoogleQueryMode.LIST),
+        stream=GoogleStream.HEART_RATE,
+        payload={"invalid": True},
+        records=invalid.records,
+        parse_status=GooglePayloadStatus.OK,
+    )
+    session.commit()
+    assert outcome.records == ()
+    assert session.scalar(select(func.count(GoogleSourceRecord.id))) == 0
+    assert session.scalar(select(func.count(GoogleRawPayload.id))) == 1
+    assert session.scalar(select(func.count(GooglePayloadObservation.id))) == 1
