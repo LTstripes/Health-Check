@@ -110,13 +110,17 @@ def _hr_point(
     *,
     name: str,
     bpm: str,
+    day: int = 2,
     hour: int = 8,
     data_source: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "name": name,
         "dataSource": dict(data_source) if data_source is not None else _data_source(),
-        "heartRate": {"sampleTime": _sample_time(hour=hour), "beatsPerMinute": bpm},
+        "heartRate": {
+            "sampleTime": _sample_time(day=day, hour=hour),
+            "beatsPerMinute": bpm,
+        },
     }
 
 
@@ -1139,6 +1143,7 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
         granted_scopes=ALLOWED_SCOPES,
         streams=["heart_rate"],
         max_provider_requests=MAX_PAGES_PER_FETCH,
+        checkpoint_partition=AS_OF,
     )
     assert first.status is GoogleSyncStatus.PARTIAL
     assert first.request_count == MAX_PAGES_PER_FETCH
@@ -1155,7 +1160,8 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
             assert metric is None
             state = session.scalar(
                 select(SyncStreamState).where(
-                    SyncStreamState.stream_code.like("google:refresh:heart_rate:%")
+                    SyncStreamState.stream_code
+                    == "google:refresh:heart_rate:list:any:day:2099-01-02"
                 )
             )
             assert state is not None
@@ -1175,6 +1181,7 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
         granted_scopes=ALLOWED_SCOPES,
         streams=["heart_rate"],
         max_provider_requests=MAX_PAGES_PER_FETCH,
+        checkpoint_partition=AS_OF,
     )
     assert second.status is GoogleSyncStatus.PARTIAL
     assert second.request_count == MAX_PAGES_PER_FETCH
@@ -1190,6 +1197,7 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
         granted_scopes=ALLOWED_SCOPES,
         streams=["heart_rate"],
         max_provider_requests=MAX_PAGES_PER_FETCH,
+        checkpoint_partition=AS_OF,
     )
     assert third.status is GoogleSyncStatus.SUCCEEDED
     assert third.request_count == 4
@@ -1247,6 +1255,7 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
         granted_scopes=ALLOWED_SCOPES,
         streams=["heart_rate"],
         max_provider_requests=MAX_PAGES_PER_FETCH,
+        checkpoint_partition=AS_OF,
     )
     assert rerun_first.status is GoogleSyncStatus.PARTIAL
     assert rerun_first.request_count == MAX_PAGES_PER_FETCH
@@ -1261,6 +1270,7 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
         granted_scopes=ALLOWED_SCOPES,
         streams=["heart_rate"],
         max_provider_requests=MAX_PAGES_PER_FETCH,
+        checkpoint_partition=AS_OF,
     )
     assert rerun_second.status is GoogleSyncStatus.PARTIAL
     assert rerun_second.request_count == MAX_PAGES_PER_FETCH
@@ -1274,6 +1284,7 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
         granted_scopes=ALLOWED_SCOPES,
         streams=["heart_rate"],
         max_provider_requests=MAX_PAGES_PER_FETCH,
+        checkpoint_partition=AS_OF,
     )
     assert rerun.status is GoogleSyncStatus.SUCCEEDED
     assert rerun.request_count == 4
@@ -1317,6 +1328,161 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
             )
             assert metric is not None
             assert metric.value_number == 81
+    finally:
+        engine.dispose()
+
+
+def test_owner_refresh_daily_hr_partitions_converge_newest_first_and_rerun_idempotently(
+    monkeypatch, tmp_path
+) -> None:
+    import healthcheck.owner_refresh as owner_refresh
+
+    transport = FakeGoogleHealthTransport()
+    dense_page_count = MAX_PAGES_PER_FETCH + 2
+
+    def queue_epoch(*, corrected_only: bool) -> None:
+        for day in (2, 1):
+            prefix = f"daily-{day}"
+            for index in range(dense_page_count):
+                page_token = None if index == 0 else f"{prefix}-page-{index}"
+                next_token = (
+                    f"{prefix}-page-{index + 1}"
+                    if index + 1 < dense_page_count
+                    else None
+                )
+                corrected_bpm = str(80 + day) if index == 0 else str(60 + (index % 20))
+                corrected: dict[str, Any] = {
+                    "dataPoints": [
+                        _hr_point(
+                            name=f"{prefix}-hr-{index}",
+                            bpm=corrected_bpm,
+                            day=day,
+                        )
+                    ]
+                }
+                if next_token is not None:
+                    corrected["nextPageToken"] = next_token
+                if index == 0:
+                    first = corrected
+                    if not corrected_only:
+                        first = dict(corrected)
+                        first["dataPoints"] = [
+                            _hr_point(name=f"{prefix}-hr-0", bpm="61", day=day)
+                        ]
+                    transport.queue("heart-rate", first)
+                    transport.queue("heart-rate", corrected)
+                else:
+                    transport.queue("heart-rate", corrected, page_token=page_token)
+
+    settings, _service = _sync(tmp_path, transport)
+
+    def actual_refresh(settings, **kwargs):
+        kwargs.pop("auth_service", None)
+        return run_google_refresh(
+            settings,
+            transport=transport,
+            auth_result=_auth_result(),
+            access_token=SYNTHETIC_ACCESS,
+            granted_scopes=ALLOWED_SCOPES,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(owner_refresh, "run_google_refresh", actual_refresh)
+    queue_epoch(corrected_only=False)
+    first = owner_refresh._run_normal_google_refresh(
+        settings,
+        auth_service=object(),
+        start="2099-01-01",
+        end="2099-01-02",
+        streams=["heart_rate"],
+        query_mode=None,
+        data_source_family=None,
+    )
+
+    assert first.status is GoogleSyncStatus.SUCCEEDED
+    assert first.request_count == 2 * (MAX_PAGES_PER_FETCH + 3)
+    assert [item.window_start for item in first.attempts] == ["2099-01-02", "2099-01-01"]
+    assert all(item.status is GoogleSyncStatus.SUCCEEDED for item in first.attempts)
+    filters = [item["filter"] for item in transport.health_calls()]
+    filter_transitions = [
+        value for index, value in enumerate(filters) if index == 0 or value != filters[index - 1]
+    ]
+    assert len(filter_transitions) == 2
+    assert "2099-01-02" in filter_transitions[0]
+    assert "2099-01-01" in filter_transitions[1]
+
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            assert (
+                session.scalar(select(func.count()).select_from(GoogleSourceRecord))
+                == 2 * dense_page_count
+            )
+            state_codes = {
+                row.stream_code
+                for row in session.scalars(
+                    select(SyncStreamState).where(
+                        SyncStreamState.stream_code.like(
+                            "google:refresh:heart_rate:list:any:day:%"
+                        )
+                    )
+                )
+            }
+            assert state_codes == {
+                "google:refresh:heart_rate:list:any:day:2099-01-01",
+                "google:refresh:heart_rate:list:any:day:2099-01-02",
+            }
+            projection_before = tuple(
+                sorted(
+                    session.execute(
+                        select(
+                            GoogleSourceRecord.external_record_id,
+                            GoogleRecordMetric.value_number,
+                        ).join(
+                            GoogleRecordMetric,
+                            GoogleRecordMetric.record_id == GoogleSourceRecord.id,
+                        ).where(GoogleRecordMetric.metric_code == "heart_rate_bpm")
+                    ).all()
+                )
+            )
+            assert dict(projection_before)["daily-2-hr-0"] == 82
+            assert dict(projection_before)["daily-1-hr-0"] == 81
+    finally:
+        engine.dispose()
+
+    queue_epoch(corrected_only=True)
+    rerun = owner_refresh._run_normal_google_refresh(
+        settings,
+        auth_service=object(),
+        start="2099-01-01",
+        end="2099-01-02",
+        streams=["heart_rate"],
+        query_mode=None,
+        data_source_family=None,
+    )
+    assert rerun.status is GoogleSyncStatus.SUCCEEDED
+    assert all(item.inserted_count == 0 for item in rerun.attempts)
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            projection_after = tuple(
+                sorted(
+                    session.execute(
+                        select(
+                            GoogleSourceRecord.external_record_id,
+                            GoogleRecordMetric.value_number,
+                        ).join(
+                            GoogleRecordMetric,
+                            GoogleRecordMetric.record_id == GoogleSourceRecord.id,
+                        ).where(GoogleRecordMetric.metric_code == "heart_rate_bpm")
+                    ).all()
+                )
+            )
+            assert projection_after == projection_before
+            assert (
+                session.scalar(select(func.count()).select_from(GoogleSourceRecord))
+                == 2 * dense_page_count
+            )
     finally:
         engine.dispose()
 

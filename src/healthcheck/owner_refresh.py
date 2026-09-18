@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -24,12 +24,19 @@ from healthcheck.garmin.sync import (
     validate_trailing_window_days,
 )
 from healthcheck.google.auth import GoogleAuthService
+from healthcheck.google.contracts import GoogleQueryMode, GoogleStream
 from healthcheck.google.sync import (
+    GoogleRunKind,
     GoogleSyncAttempt,
     GoogleSyncReport,
     GoogleSyncStatus,
     _roll_up_status,
+    inclusive_to_exclusive_end,
+    parse_data_source_family,
+    parse_google_streams,
+    parse_query_mode,
     run_google_refresh,
+    validate_inclusive_window,
 )
 from healthcheck.runtime import RuntimePaths, resolve_runtime_paths
 
@@ -41,7 +48,7 @@ OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE = "reconcile"
 OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY = "google-wearables"
 # The normal bounded refresh consumes up to 40 pages. Each resumed refresh
 # revalidates one head page, then consumes up to 39 continuation pages. Two
-# continuation rounds therefore complete the synthetic 82-page acceptance
+# continuation rounds therefore complete a synthetic 82-page daily acceptance
 # window while retaining the existing per-call provider caps.
 OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS = 2
 
@@ -299,10 +306,13 @@ def _run_normal_google_refresh(
     query_mode: str | None,
     data_source_family: str | None,
 ) -> GoogleSyncReport:
-    """Run normal Google refresh plus only eligible bounded HR continuations."""
+    """Run normal Google refresh, daily-partitioning only list-mode HR."""
 
-    reports = [
-        run_google_refresh(
+    selected = parse_google_streams(streams)
+    mode = parse_query_mode(query_mode)
+    heart_rate_selected = any(item.stream is GoogleStream.HEART_RATE for item in selected)
+    if mode is not GoogleQueryMode.LIST or not heart_rate_selected:
+        return run_google_refresh(
             settings,
             start=start,
             end=end,
@@ -311,6 +321,144 @@ def _run_normal_google_refresh(
             query_mode=query_mode,
             data_source_family=data_source_family,
         )
+
+    window_start, window_end = validate_inclusive_window(start, end)
+    family = parse_data_source_family(data_source_family)
+    non_heart_rate_streams = [
+        item.code for item in selected if item.stream is not GoogleStream.HEART_RATE
+    ]
+    non_heart_rate_report = None
+    if non_heart_rate_streams:
+        non_heart_rate_report = run_google_refresh(
+            settings,
+            start=window_start,
+            end=window_end,
+            auth_service=auth_service,
+            streams=non_heart_rate_streams,
+            query_mode=query_mode,
+            data_source_family=data_source_family,
+        )
+
+    daily_reports: list[GoogleSyncReport] = []
+    daily_attempts: list[GoogleSyncAttempt] = []
+    abort_reason = non_heart_rate_report.abort_reason if non_heart_rate_report else None
+    stop_days = (
+        non_heart_rate_report is not None
+        and non_heart_rate_report.status is GoogleSyncStatus.REAUTH_REQUIRED
+    )
+    current_day = window_end
+    while current_day >= window_start:
+        if stop_days:
+            daily_attempts.append(
+                _not_run_heart_rate_day(
+                    current_day,
+                    query_mode=mode,
+                    data_source_family=family,
+                    reason=abort_reason or "previous_day_incomplete",
+                )
+            )
+            current_day -= timedelta(days=1)
+            continue
+
+        report = _run_heart_rate_day(
+            settings,
+            auth_service=auth_service,
+            day=current_day,
+            query_mode=query_mode,
+            data_source_family=data_source_family,
+        )
+        daily_reports.append(report)
+        if report.attempts:
+            daily_attempts.extend(report.attempts)
+        else:
+            daily_attempts.append(
+                _not_run_heart_rate_day(
+                    current_day,
+                    query_mode=mode,
+                    data_source_family=family,
+                    reason=report.abort_reason or report.status.value,
+                )
+            )
+        if report.status not in {GoogleSyncStatus.SUCCEEDED, GoogleSyncStatus.EMPTY}:
+            abort_reason = report.abort_reason
+            if report.status is GoogleSyncStatus.REAUTH_REQUIRED:
+                abort_reason = "reauth_required"
+            stop_days = True
+        current_day -= timedelta(days=1)
+
+    attempts: list[GoogleSyncAttempt] = []
+    non_heart_rate_attempts = {
+        item.stream: item
+        for item in (non_heart_rate_report.attempts if non_heart_rate_report else ())
+    }
+    for surface in selected:
+        if surface.stream is GoogleStream.HEART_RATE:
+            attempts.extend(daily_attempts)
+        elif surface.code in non_heart_rate_attempts:
+            attempts.append(non_heart_rate_attempts[surface.code])
+
+    reports = ([non_heart_rate_report] if non_heart_rate_report else []) + daily_reports
+    last_report = reports[-1] if reports else None
+    return GoogleSyncReport(
+        auth=last_report.auth if last_report else None,
+        status=_roll_up_status(attempts, abort_reason),
+        kind=GoogleRunKind.REFRESH,
+        window_start=window_start.isoformat(),
+        window_end_exclusive=inclusive_to_exclusive_end(window_end).isoformat(),
+        request_count=sum(report.request_count for report in reports),
+        query_mode=mode.value,
+        data_source_family=family,
+        streams=tuple(item.code for item in selected),
+        sync_run_id=last_report.sync_run_id if last_report else None,
+        attempts=tuple(attempts),
+        abort_reason=abort_reason,
+        skipped_complete_count=sum(report.skipped_complete_count for report in reports),
+    )
+
+
+def _not_run_heart_rate_day(
+    day: date,
+    *,
+    query_mode: GoogleQueryMode,
+    data_source_family: str | None,
+    reason: str,
+) -> GoogleSyncAttempt:
+    """Describe one untouched older HR day without inventing coverage."""
+
+    return GoogleSyncAttempt(
+        stream=GoogleStream.HEART_RATE.value,
+        data_type="heart-rate",
+        query_mode=query_mode.value,
+        data_source_family=data_source_family,
+        window_start=day.isoformat(),
+        window_end_exclusive=(day + timedelta(days=1)).isoformat(),
+        status=GoogleSyncStatus.NOT_RUN,
+        coverage_status=None,
+        not_run_reason=reason,
+    )
+
+
+def _run_heart_rate_day(
+    settings: Settings,
+    *,
+    auth_service: GoogleAuthService,
+    day: date,
+    query_mode: str | None,
+    data_source_family: str | None,
+) -> GoogleSyncReport:
+    """Run one independently staged HR day with bounded continuation."""
+
+    reports = [
+        run_google_refresh(
+            settings,
+            start=day,
+            end=day,
+            auth_service=auth_service,
+            streams=[GoogleStream.HEART_RATE.value],
+            query_mode=query_mode,
+            data_source_family=data_source_family,
+            checkpoint_partition=day.isoformat(),
+        )
     ]
     for _ in range(OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS):
         if _resumable_heart_rate_attempt(reports[-1]) is None:
@@ -318,12 +466,13 @@ def _run_normal_google_refresh(
         reports.append(
             run_google_refresh(
                 settings,
-                start=start,
-                end=end,
+                start=day,
+                end=day,
                 auth_service=auth_service,
-                streams=["heart_rate"],
+                streams=[GoogleStream.HEART_RATE.value],
                 query_mode=query_mode,
                 data_source_family=data_source_family,
+                checkpoint_partition=day.isoformat(),
             )
         )
     return _consolidate_google_refresh_reports(reports)
