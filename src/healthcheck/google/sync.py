@@ -21,7 +21,12 @@ from sqlalchemy import select
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
-from healthcheck.db.models import SyncStreamState
+from healthcheck.db.models import (
+    GooglePayloadObservation,
+    GoogleRawPayload,
+    RawArtifact,
+    SyncStreamState,
+)
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.google.auth import (
     ALLOWED_SCOPES,
@@ -49,7 +54,10 @@ from healthcheck.google.contracts import (
 from healthcheck.google.normalization import (
     normalize_google_payload,
 )
-from healthcheck.google.persistence import RawGooglePayload, google_persistence_for
+from healthcheck.google.persistence import (
+    RawGooglePayload,
+    google_persistence_for,
+)
 from healthcheck.google.probe import (
     GOOGLE_API_ROOT,
     GoogleRecordType,
@@ -1164,8 +1172,16 @@ class GoogleHealthSync:
                     skipped=True,
                 )
 
-        resume_token = None
-        if self.run_kind is not GoogleRunKind.REFRESH:
+        staged_run_ids: list[str] = []
+        if self.run_kind is GoogleRunKind.REFRESH:
+            resume_token, staged_run_ids = self._refresh_checkpoint(
+                factory,
+                provider_id=provider_id,
+                state_code=state_code,
+                window_start=window_start,
+                window_end_exclusive=window_end_exclusive,
+            )
+        else:
             resume_token = self._resume_token(
                 factory,
                 provider_id=provider_id,
@@ -1180,7 +1196,11 @@ class GoogleHealthSync:
         inserted = 0
         updated = 0
         persist_records = self.run_kind is not GoogleRunKind.REFRESH
-        next_token = resume_token
+        # A resumed refresh revalidates the first provider page before following
+        # the durable continuation token. This preserves correction discovery
+        # while spending only one bounded page on the head revalidation.
+        revalidate_head = self.run_kind is GoogleRunKind.REFRESH and resume_token is not None
+        next_token = None if revalidate_head else resume_token
         identity = query_level_source_identity(query)
 
         while True:
@@ -1195,7 +1215,11 @@ class GoogleHealthSync:
                     complete=False,
                     observed_count=len(collected),
                     cursor=self._incomplete_cursor(
-                        next_token, window_start, window_end_exclusive
+                        next_token,
+                        window_start,
+                        window_end_exclusive,
+                        sync_run_id=sync_run_id,
+                        staged_run_ids=staged_run_ids,
                     ),
                 )
                 return GoogleSyncAttempt(
@@ -1226,7 +1250,11 @@ class GoogleHealthSync:
                     complete=False,
                     observed_count=len(collected),
                     cursor=self._incomplete_cursor(
-                        next_token, window_start, window_end_exclusive
+                        next_token,
+                        window_start,
+                        window_end_exclusive,
+                        sync_run_id=sync_run_id,
+                        staged_run_ids=staged_run_ids,
                     ),
                 )
                 return GoogleSyncAttempt(
@@ -1287,7 +1315,11 @@ class GoogleHealthSync:
                     complete=False,
                     observed_count=len(collected),
                     cursor=self._incomplete_cursor(
-                        next_token, window_start, window_end_exclusive
+                        next_token,
+                        window_start,
+                        window_end_exclusive,
+                        sync_run_id=sync_run_id,
+                        staged_run_ids=staged_run_ids,
                     ),
                 )
                 return GoogleSyncAttempt(
@@ -1450,23 +1482,24 @@ class GoogleHealthSync:
             inserted += outcome[0]
             updated += outcome[1]
             if kind == "continue":
-                next_token = token
+                if revalidate_head:
+                    next_token = resume_token
+                    revalidate_head = False
+                else:
+                    next_token = token
                 continue
             break
 
         if self.run_kind is GoogleRunKind.REFRESH:
-            merged = {envelope_key(query_mode): collected}
-            refresh_outcome = self._persist_page(
+            refresh_outcome = self._promote_refresh_staging(
                 factory,
                 store,
                 surface=surface,
                 query=query,
-                identity=identity,
-                payload=merged,
                 window_start=start_utc,
                 window_end=end_utc,
                 sync_run_id=sync_run_id,
-                upsert_records=True,
+                staged_run_ids=staged_run_ids,
             )
             if refresh_outcome is None:
                 self._write_checkpoint(
@@ -1768,6 +1801,110 @@ class GoogleHealthSync:
             session.commit()
         return inserted, updated
 
+    def _promote_refresh_staging(
+        self,
+        factory,
+        store: ContentAddressedGooglePayloadStore,
+        *,
+        surface: GoogleSyncSurface,
+        query: GoogleQueryContext,
+        window_start: datetime,
+        window_end: datetime,
+        sync_run_id: str,
+        staged_run_ids: Sequence[str],
+    ) -> tuple[int, int] | None:
+        """Promote all pages from one complete refresh epoch atomically.
+
+        Refresh pages are immutable observations while a bounded run is partial.
+        Only after the terminal page is fetched do we normalize and upsert their
+        typed records in one transaction. Duplicate raw payload references from
+        multi-source staging are collapsed, while newer payload hashes are
+        replayed later so provider corrections win deterministically.
+        """
+
+        run_ids = list(dict.fromkeys((*staged_run_ids, sync_run_id)))
+        if not run_ids:
+            return 0, 0
+        with factory() as session:
+            rows = session.execute(
+                select(GooglePayloadObservation, GoogleRawPayload, RawArtifact)
+                .join(
+                    GoogleRawPayload,
+                    GoogleRawPayload.id == GooglePayloadObservation.google_raw_payload_id,
+                )
+                .join(RawArtifact, RawArtifact.id == GooglePayloadObservation.raw_artifact_id)
+                .where(
+                    GooglePayloadObservation.sync_run_id.in_(run_ids),
+                    GooglePayloadObservation.stream_code == surface.stream.value,
+                    GooglePayloadObservation.query_mode == query.query_mode.value,
+                    GooglePayloadObservation.data_source_family == query.data_source_family,
+                    GooglePayloadObservation.source_window_start_utc == window_start,
+                    GooglePayloadObservation.source_window_end_utc == window_end,
+                )
+                .order_by(GooglePayloadObservation.received_at, GooglePayloadObservation.id)
+            ).all()
+            inserted = 0
+            updated = 0
+            seen_payload_ids: set[str] = set()
+            repo = google_persistence_for(session, payload_store=store)
+            for _observation, raw_payload, artifact in rows:
+                if raw_payload.id in seen_payload_ids:
+                    continue
+                seen_payload_ids.add(raw_payload.id)
+                if raw_payload.payload_format != "json":
+                    continue
+                try:
+                    payload = json.loads(store.read(artifact.relative_storage_path))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    session.rollback()
+                    return None
+                if not isinstance(payload, Mapping):
+                    session.rollback()
+                    return None
+                result = normalize_google_payload(
+                    payload,
+                    stream=surface.stream,
+                    query=query,
+                    source_identity=None,
+                )
+                if result.status.value == "invalid":
+                    session.rollback()
+                    return None
+                points, _token, _kind = parse_page_envelope(payload, query.query_mode)
+                points_by_name: dict[str, Mapping[str, Any]] = {}
+                for point in points:
+                    if not isinstance(point, Mapping):
+                        continue
+                    raw_name = point.get("name") or point.get("dataPointName")
+                    if isinstance(raw_name, str) and raw_name.strip():
+                        points_by_name[raw_name.strip()] = point
+                grouped: dict[str, tuple[GoogleSourceIdentity, list[Any]]] = {}
+                for record in result.records:
+                    point = points_by_name.get(record.external_record_id or "")
+                    record_identity = source_identity_from_point(point, query)
+                    bucket = grouped.setdefault(
+                        record_identity.source_instance_id, (record_identity, [])
+                    )
+                    bucket[1].append(record)
+                for record_identity, records in grouped.values():
+                    grouped_result = replace(
+                        result,
+                        records=tuple(records),
+                        source_identity=record_identity,
+                    )
+                    outcome = repo.persist_result(
+                        grouped_result,
+                        identity=record_identity,
+                        payload=payload,
+                        source_window_start_utc=window_start,
+                        source_window_end_utc=window_end,
+                        sync_run_id=sync_run_id,
+                    )
+                    inserted += outcome.inserted_count
+                    updated += outcome.updated_count
+            session.commit()
+            return inserted, updated
+
     def _persist_terminal(
         self,
         factory,
@@ -1810,15 +1947,30 @@ class GoogleHealthSync:
             session.commit()
 
     def _incomplete_cursor(
-        self, page_token: str | None, window_start: date, window_end_exclusive: date
+        self,
+        page_token: str | None,
+        window_start: date,
+        window_end_exclusive: date,
+        *,
+        sync_run_id: str | None = None,
+        staged_run_ids: Sequence[str] = (),
     ) -> str | None:
-        if self.run_kind is GoogleRunKind.REFRESH:
-            return None
-        return self._cursor_payload(page_token, window_start, window_end_exclusive)
+        if self.run_kind is not GoogleRunKind.REFRESH:
+            return self._cursor_payload(page_token, window_start, window_end_exclusive)
+        run_ids = list(dict.fromkeys(staged_run_ids))
+        if sync_run_id is not None and sync_run_id not in run_ids:
+            run_ids.append(sync_run_id)
+        return json.dumps(
+            {
+                "window_start": window_start.isoformat(),
+                "window_end_exclusive": window_end_exclusive.isoformat(),
+                "page_token": page_token,
+                "staged_run_ids": run_ids,
+            },
+            sort_keys=True,
+        )
 
     def _resume_cursor_flag(self, page_token: str | None) -> bool:
-        if self.run_kind is GoogleRunKind.REFRESH:
-            return False
         return bool(page_token)
 
     def _stream_watermark_window(
@@ -1909,6 +2061,48 @@ class GoogleHealthSync:
             if isinstance(token, str) and token.strip():
                 return token.strip()
         return None
+
+    def _refresh_checkpoint(
+        self,
+        factory,
+        *,
+        provider_id: str,
+        state_code: str,
+        window_start: date,
+        window_end_exclusive: date,
+    ) -> tuple[str | None, list[str]]:
+        """Read a refresh continuation token and its immutable staging runs."""
+
+        with factory() as session:
+            state = session.scalar(
+                select(SyncStreamState).where(
+                    SyncStreamState.provider_id == provider_id,
+                    SyncStreamState.acquisition_source_id.is_(None),
+                    SyncStreamState.stream_code == state_code,
+                )
+            )
+            if state is None or not state.cursor:
+                return None, []
+            try:
+                payload = json.loads(state.cursor)
+            except json.JSONDecodeError:
+                return None, []
+            if not isinstance(payload, Mapping):
+                return None, []
+            if (
+                payload.get("window_start") != window_start.isoformat()
+                or payload.get("window_end_exclusive") != window_end_exclusive.isoformat()
+            ):
+                return None, []
+            token = payload.get("page_token")
+            page_token = token.strip() if isinstance(token, str) and token.strip() else None
+            raw_run_ids = payload.get("staged_run_ids")
+            run_ids = (
+                [item for item in raw_run_ids if isinstance(item, str)]
+                if isinstance(raw_run_ids, list)
+                else []
+            )
+            return page_token, list(dict.fromkeys(run_ids))
 
     def _cursor_payload(
         self, page_token: str | None, window_start: date, window_end_exclusive: date

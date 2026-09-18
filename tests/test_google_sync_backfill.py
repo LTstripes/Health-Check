@@ -1059,7 +1059,8 @@ def test_budget_stopped_refresh_restarts_and_applies_page1_correction(tmp_path) 
         max_provider_requests=1,
     )
     assert first.status is GoogleSyncStatus.PARTIAL
-    assert first.attempts[0].resume_cursor_present is False
+    assert first.attempts[0].resume_cursor_present is True
+    assert "p2" not in first.to_json()
     engine, factory = _session(settings)
     try:
         with factory() as session:
@@ -1094,7 +1095,149 @@ def test_budget_stopped_refresh_restarts_and_applies_page1_correction(tmp_path) 
             assert metric.value_number == 81
             assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 1
             raw_after = session.scalar(select(func.count()).select_from(GoogleRawPayload))
-            assert raw_after > raw_before
+            assert raw_after >= raw_before
+    finally:
+        engine.dispose()
+
+
+def test_dense_refresh_converges_with_staged_correction_and_idempotent_projection(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    dense_page_count = (MAX_PAGES_PER_FETCH * 2) + 2
+    for index in range(dense_page_count):
+        page_token = None if index == 0 else f"refresh-page-{index}"
+        next_token = (
+            f"refresh-page-{index + 1}" if index + 1 < dense_page_count else None
+        )
+        point = _hr_point(
+            name=f"refresh-hr-{index}",
+            bpm="81" if index == 0 else str(60 + (index % 20)),
+        )
+        payload: dict[str, Any] = {"dataPoints": [point]}
+        if next_token is not None:
+            payload["nextPageToken"] = next_token
+        if index == 0:
+            original = dict(payload)
+            original["dataPoints"] = [_hr_point(name="refresh-hr-0", bpm="61")]
+            transport.queue("heart-rate", original, page_token=page_token)
+            transport.queue("heart-rate", payload, page_token=page_token)
+            transport.queue("heart-rate", payload, page_token=page_token)
+        else:
+            transport.queue("heart-rate", payload, page_token=page_token)
+
+    settings, _service = _sync(tmp_path, transport)
+    first = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        max_provider_requests=MAX_PAGES_PER_FETCH,
+    )
+    assert first.status is GoogleSyncStatus.PARTIAL
+    assert first.request_count == MAX_PAGES_PER_FETCH
+    assert first.attempts[0].resume_cursor_present is True
+
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            metric = session.scalar(
+                select(GoogleRecordMetric).where(
+                    GoogleRecordMetric.metric_code == "heart_rate_bpm"
+                )
+            )
+            assert metric is None
+            state = session.scalar(
+                select(SyncStreamState).where(
+                    SyncStreamState.stream_code.like("google:refresh:heart_rate:%")
+                )
+            )
+            assert state is not None
+            checkpoint = json.loads(state.cursor or "{}")
+            assert checkpoint["page_token"] == "refresh-page-40"
+            assert checkpoint["staged_run_ids"]
+    finally:
+        engine.dispose()
+
+    second = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        max_provider_requests=MAX_PAGES_PER_FETCH,
+    )
+    assert second.status is GoogleSyncStatus.PARTIAL
+    assert second.request_count == MAX_PAGES_PER_FETCH
+    assert second.attempts[0].resume_cursor_present is True
+
+    third = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        max_provider_requests=MAX_PAGES_PER_FETCH,
+    )
+    assert third.status is GoogleSyncStatus.SUCCEEDED
+    assert third.request_count == 4
+    assert third.attempts[0].resume_cursor_present is False
+    assert "refresh-page-" not in third.to_json()
+
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            metric = session.scalar(
+                select(GoogleRecordMetric).where(
+                    GoogleRecordMetric.metric_code == "heart_rate_bpm"
+                )
+            )
+            assert metric is not None
+            assert metric.value_number == 81
+            assert (
+                session.scalar(select(func.count()).select_from(GoogleSourceRecord))
+                == dense_page_count
+            )
+    finally:
+        engine.dispose()
+
+    # Explicit refresh remains provider-facing for late-correction discovery;
+    # an empty exact rerun is nevertheless projection-idempotent.
+    rerun = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+    )
+    assert rerun.status is GoogleSyncStatus.SUCCEEDED
+    assert rerun.attempts[0].status is GoogleSyncStatus.EMPTY
+    assert rerun.request_count == 1
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            assert (
+                session.scalar(select(func.count()).select_from(GoogleSourceRecord))
+                == dense_page_count
+            )
+            metric = session.scalar(
+                select(GoogleRecordMetric).where(
+                    GoogleRecordMetric.metric_code == "heart_rate_bpm"
+                )
+            )
+            assert metric is not None
+            assert metric.value_number == 81
     finally:
         engine.dispose()
 
