@@ -898,20 +898,21 @@ class GoogleSourceRecordRepository:
         projected = _datetime_key(existing.projection_observed_at) or _datetime_key(
             existing.last_seen_at
         )
-        if (
-            record.idempotency_key.startswith(
-                (PATH_FREE_INSTANT_IDENTITY_PREFIX, PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX)
-            )
-            and _record_revision_fingerprint(self.session, existing)
-            != _record_revision_fingerprint(self.session, record=record)
-        ):
+        path_free_identity = record.idempotency_key.startswith(
+            (PATH_FREE_INSTANT_IDENTITY_PREFIX, PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX)
+        )
+        incoming_epoch_is_newer = False
+        if path_free_identity:
             existing_sync, existing_epoch, existing_observation_id = (
                 self._record_observation_epoch(existing)
             )
             incoming_sync, incoming_epoch, incoming_observation_id = self._observation_epoch(
                 observation_id, seen_at
             )
-            same_refresh = (
+            fingerprint_equal = _record_revision_fingerprint(
+                self.session, existing
+            ) == _record_revision_fingerprint(self.session, record=record)
+            same_epoch = (
                 existing_sync is not None
                 and existing_sync == incoming_sync
                 or existing_observation_id is not None
@@ -931,31 +932,48 @@ class GoogleSourceRecordRepository:
                     and incoming_sync is not None
                 )
             )
-            if (
-                same_refresh
-                or not ordering_known
-                or incoming_epoch == existing_epoch
-            ):
-                # Equal/co-observed epochs with divergent metric/revision
-                # evidence have no deterministic winner.  Keep all immutable
-                # provenance, invalidate the projection, and wait for an
-                # unambiguous later epoch instead of silently replacing health
-                # history.
+            same_epoch = same_epoch or (
+                ordering_known
+                and existing_epoch is not None
+                and incoming_epoch is not None
+                and existing_epoch == incoming_epoch
+            )
+            if not fingerprint_equal and (same_epoch or not ordering_known):
+                # Equal/co-observed or unorderable epochs with divergent
+                # metric/revision evidence have no deterministic winner.
+                # Keep all immutable provenance, invalidate the projection,
+                # and wait for an unambiguous later epoch.
                 existing.record_status = GooglePayloadStatus.INVALID.value
                 existing.diagnostics_json = _append_identity_conflict(
                     existing.diagnostics_json
                 )
                 self.session.flush()
                 return existing, False, False
-            if incoming_epoch < existing_epoch:
+            if ordering_known and not same_epoch:
+                if incoming_epoch < existing_epoch:
+                    # Provider epoch ordering is authoritative.  An older
+                    # observation must never move projection provenance back,
+                    # even when its normalizer version is newer.
+                    return existing, False, False
+                incoming_epoch_is_newer = incoming_epoch > existing_epoch
+            if not fingerprint_equal and incoming_epoch_is_newer:
+                # A later accepted provider epoch is a semantic correction;
+                # it wins even when its normalization version is lower.
+                pass
+            elif not same_epoch and not ordering_known:
+                # Identical content with unorderable provenance is harmless,
+                # but cannot safely move the projection's provenance.
                 return existing, False, False
         current_version = _normalization_version_rank(existing.normalization_contract_version)
         incoming_version = _normalization_version_rank(normalization_contract_version)
-        if current_version > incoming_version or (
-            record.stream is not GoogleStream.SLEEP
-            and current_version == incoming_version
-            and projected is not None
-            and seen_at < projected
+        if not incoming_epoch_is_newer and (
+            current_version > incoming_version
+            or (
+                record.stream is not GoogleStream.SLEEP
+                and current_version == incoming_version
+                and projected is not None
+                and seen_at < projected
+            )
         ):
             return existing, False, False
         for field_name, value in values.items():
@@ -1766,8 +1784,23 @@ def _merge_data_source_evidence(
         existing = json.loads(existing_json)
     except (TypeError, json.JSONDecodeError):
         existing = {}
-    if not isinstance(existing, Mapping) or incoming.get("state") != GoogleMetricState.VALUE.value:
+    if not isinstance(existing, Mapping):
         return dict(incoming)
+    existing_source_name = existing.get("source_name")
+    incoming_source_name = incoming.get("source_name")
+    explicit_source_name = (
+        incoming_source_name.strip()
+        if isinstance(incoming_source_name, str) and incoming_source_name.strip()
+        else (
+            existing_source_name.strip()
+            if isinstance(existing_source_name, str) and existing_source_name.strip()
+            else None
+        )
+    )
+    if incoming.get("state") != GoogleMetricState.VALUE.value:
+        merged = dict(incoming)
+        merged["source_name"] = explicit_source_name
+        return merged
     previous_fields = {
         str(item.get("metric_code")): item
         for item in existing.get("fields", ())
@@ -1790,6 +1823,7 @@ def _merge_data_source_evidence(
     return {
         "state": incoming.get("state"),
         "field_path": incoming.get("field_path"),
+        "source_name": explicit_source_name,
         "fields": merged_fields,
     }
 

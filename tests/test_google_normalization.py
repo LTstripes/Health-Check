@@ -2547,6 +2547,199 @@ def test_issue156_older_v2_cannot_overwrite_newer_v1_projection(normalization_da
     assert metric == 73
 
 
+def test_issue156_newer_epoch_lower_normalization_version_wins(normalization_database):
+    _paths, session, store = normalization_database
+    first_payload = _payload(
+        GoogleStream.HEART_RATE,
+        name="epoch-a",
+        component={"sampleTime": _sample_time(), "beatsPerMinute": "72"},
+    )
+    _first_result, first = _persist_result(
+        session,
+        store,
+        first_payload,
+        version="r04-google-normalization-contract-v2",
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    second_payload = _payload(
+        GoogleStream.HEART_RATE,
+        name="epoch-b",
+        component={"sampleTime": _sample_time(), "beatsPerMinute": "73"},
+    )
+    _second_result, second = _persist_result(
+        session,
+        store,
+        second_payload,
+        version="r04-google-normalization-contract-v1",
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    session.commit()
+
+    row = session.get(GoogleSourceRecord, first.records[0].id)
+    assert row is not None
+    assert second.records[0].id == first.records[0].id
+    assert second.updated_count == 1
+    assert row.normalization_contract_version == "r04-google-normalization-contract-v1"
+    assert row.observation_id == second.records[0].observation_id
+    metric = session.scalar(
+        select(GoogleRecordMetric.value_number).where(
+            GoogleRecordMetric.record_id == row.id,
+            GoogleRecordMetric.metric_code == "heart_rate_bpm",
+        )
+    )
+    assert metric == 73
+
+
+def test_issue156_older_identical_revision_higher_version_cannot_move_provenance(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    payload = _payload(GoogleStream.HEART_RATE, name="same-revision")
+    _first_result, first = _persist_result(
+        session,
+        store,
+        payload,
+        version="r04-google-normalization-contract-v1",
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    _second_result, second = _persist_result(
+        session,
+        store,
+        payload,
+        version="r04-google-normalization-contract-v2",
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    session.commit()
+
+    row = session.get(GoogleSourceRecord, first.records[0].id)
+    assert row is not None
+    assert second.updated_count == 0
+    assert row.normalization_contract_version == "r04-google-normalization-contract-v1"
+    assert row.raw_payload_id == first.records[0].raw_payload_id
+    assert row.observation_id == first.records[0].observation_id
+
+
+def test_issue156_same_epoch_normalization_replay_prefers_newer_version(normalization_database):
+    _paths, session, store = normalization_database
+    payload = _payload(GoogleStream.HEART_RATE, name="same-epoch-replay")
+    received_at = datetime(2099, 1, 4, tzinfo=UTC)
+    _first_result, first = _persist_result(
+        session,
+        store,
+        payload,
+        version="r04-google-normalization-contract-v1",
+        received_at=received_at,
+    )
+    _second_result, second = _persist_result(
+        session,
+        store,
+        payload,
+        version="r04-google-normalization-contract-v2",
+        received_at=received_at,
+    )
+    session.commit()
+
+    row = session.get(GoogleSourceRecord, first.records[0].id)
+    assert row is not None
+    assert second.updated_count == 1
+    assert row.normalization_contract_version == "r04-google-normalization-contract-v2"
+    assert row.raw_payload_id == second.records[0].raw_payload_id
+    assert row.observation_id == second.records[0].observation_id
+
+
+def test_issue156_unorderable_divergent_epoch_fails_closed(normalization_database):
+    _paths, session, store = normalization_database
+    repository = GooglePersistenceRepository(session, payload_store=store)
+    source = repository.sources.get_or_create(_identity())
+    session.flush()
+    sync_run = SyncRun(
+        provider_id=source.provider_id,
+        stream_code=GoogleStream.HEART_RATE.value,
+        status="succeeded",
+        started_at=datetime(2099, 1, 2, tzinfo=UTC),
+        completed_at=datetime(2099, 1, 2, 1, tzinfo=UTC),
+    )
+    session.add(sync_run)
+    session.flush()
+    _first_result, first = _persist_result(
+        session,
+        store,
+        _payload(GoogleStream.HEART_RATE, name="unorderable-a"),
+        sync_run_id=sync_run.id,
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    _conflict_result, conflict = _persist_result(
+        session,
+        store,
+        _payload(
+            GoogleStream.HEART_RATE,
+            name="unorderable-b",
+            component={"sampleTime": _sample_time(), "beatsPerMinute": "73"},
+        ),
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    session.commit()
+
+    row = session.get(GoogleSourceRecord, first.records[0].id)
+    assert row is not None
+    assert conflict.records[0].id == first.records[0].id
+    assert conflict.updated_count == 0
+    assert row.record_status == GooglePayloadStatus.INVALID.value
+    assert "identity_conflict" in (row.diagnostics_json or "")
+
+
+def test_issue156_source_name_survives_round_trip_replay_and_updates_explicit_name(
+    normalization_database,
+):
+    _paths, session, store = normalization_database
+    payload_with_name = _payload(
+        GoogleStream.HEART_RATE,
+        name="source-name-record",
+        data_source=_named_data_source("explicit-source-a"),
+    )
+    _first_result, first = _persist_result(
+        session,
+        store,
+        payload_with_name,
+        version="r04-google-normalization-contract-v1",
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    omitted_name_payload = _payload(
+        GoogleStream.HEART_RATE,
+        name="source-name-record",
+        data_source=_data_source(),
+    )
+    _replay_result, replay = _persist_result(
+        session,
+        store,
+        omitted_name_payload,
+        version="r04-google-normalization-contract-v2",
+        received_at=datetime(2099, 1, 4, tzinfo=UTC),
+    )
+    evidence = session.get(GoogleRecordSourceEvidence, first.records[0].id)
+    assert evidence is not None
+    assert json.loads(evidence.evidence_json)["source_name"] == "explicit-source-a"
+
+    latest_name_payload = _payload(
+        GoogleStream.HEART_RATE,
+        name="source-name-record",
+        data_source=_named_data_source("explicit-source-b"),
+    )
+    _latest_result, latest = _persist_result(
+        session,
+        store,
+        latest_name_payload,
+        version="r04-google-normalization-contract-v2",
+        received_at=datetime(2099, 1, 5, tzinfo=UTC),
+    )
+    session.commit()
+    evidence = session.get(GoogleRecordSourceEvidence, first.records[0].id)
+    assert replay.records[0].id == first.records[0].id
+    assert latest.records[0].id == first.records[0].id
+    assert evidence is not None
+    assert json.loads(evidence.evidence_json)["source_name"] == "explicit-source-b"
+
+
 def test_issue156_invalid_timestamped_dto_is_raw_only(normalization_database):
     _paths, session, store = normalization_database
     invalid = normalize_google_payload(
