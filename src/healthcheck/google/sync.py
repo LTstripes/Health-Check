@@ -1911,7 +1911,11 @@ class GoogleHealthSync:
                         payload=payload,
                         source_window_start_utc=window_start,
                         source_window_end_utc=window_end,
-                        sync_run_id=sync_run_id,
+                        # Preserve the observation's original refresh epoch.
+                        # Re-stamping every staged page with the terminal run
+                        # would turn a later accepted provider correction into
+                        # a false same-refresh identity conflict.
+                        sync_run_id=_observation.sync_run_id or sync_run_id,
                     )
                     inserted += outcome.inserted_count
                     updated += outcome.updated_count

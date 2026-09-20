@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from datetime import date
@@ -115,11 +116,18 @@ def _hr_point(
     hour: int = 8,
     data_source: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    # Frozen #156 identity is sample-time based.  Keep each synthetic page
+    # point distinct even when a test omits an explicit timestamp dimension.
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    seconds = int(digest[:2], 16) % 60
+    micros = int(digest[2:8], 16) % 1_000_000
+    sample_time = _sample_time(day=day, hour=hour)
+    sample_time["physicalTime"] = f"2099-01-{day:02d}T05:00:{seconds:02d}.{micros:06d}Z"
     return {
         "name": name,
         "dataSource": dict(data_source) if data_source is not None else _data_source(),
         "heartRate": {
-            "sampleTime": _sample_time(day=day, hour=hour),
+            "sampleTime": sample_time,
             "beatsPerMinute": bpm,
         },
     }
