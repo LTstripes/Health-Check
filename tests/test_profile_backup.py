@@ -224,11 +224,13 @@ def test_archive_symlink_entry_and_cli_output_do_not_expose_content(
 def test_archive_size_caps_cover_observed_multi_gib_owner_db() -> None:
     from healthcheck.profile_backup import MAX_ARCHIVE_MEMBER_BYTES, MAX_ARCHIVE_TOTAL_BYTES
 
-    # Observed Stable Runtime DB is ~1.73 GiB; keep explicit headroom, not unbounded.
-    assert MAX_ARCHIVE_MEMBER_BYTES == 4 * 1024 * 1024 * 1024
+    # Current Stable archive: 5.341 GiB DB, 5.598 GiB total expanded.
+    observed_database_bytes = 5_734_481_920
+    observed_total_bytes = 6_010_738_699
+    assert MAX_ARCHIVE_MEMBER_BYTES == 6 * 1024 * 1024 * 1024
     assert MAX_ARCHIVE_TOTAL_BYTES == 8 * 1024 * 1024 * 1024
-    assert MAX_ARCHIVE_MEMBER_BYTES > 1_073_741_824
-    assert MAX_ARCHIVE_MEMBER_BYTES >= 1_900_000_000
+    assert MAX_ARCHIVE_MEMBER_BYTES > observed_database_bytes
+    assert MAX_ARCHIVE_TOTAL_BYTES > observed_total_bytes
     assert MAX_ARCHIVE_TOTAL_BYTES > MAX_ARCHIVE_MEMBER_BYTES
 
 
@@ -249,6 +251,14 @@ def test_member_over_hard_max_fails_closed_against_production_cap() -> None:
     accepted.file_size = MAX_ARCHIVE_MEMBER_BYTES
     accepted.external_attr = 0o100644 << 16
     _validate_zip_members([manifest, accepted])
+
+
+def test_total_over_hard_max_fails_closed_against_production_cap() -> None:
+    from healthcheck.profile_backup import MAX_ARCHIVE_TOTAL_BYTES, _validate_total_expanded_size
+
+    _validate_total_expanded_size(MAX_ARCHIVE_TOTAL_BYTES)
+    with pytest.raises(ProfileBackupError, match="too large"):
+        _validate_total_expanded_size(MAX_ARCHIVE_TOTAL_BYTES + 1)
 
 
 def test_total_expanded_size_cap_enforced_during_verify(

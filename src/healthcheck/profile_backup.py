@@ -25,10 +25,10 @@ MANIFEST_NAME = "manifest.json"
 PROFILE_PREFIX = "profile/"
 DATABASE_NAME = "healthcheck.db"
 LOGS_DIRECTORY = "logs"
-# Hard expanded-size caps. Raised for multi-GiB owner Stable profiles
-# (~1.73 GiB SQLite DB observed) while remaining explicitly bounded.
+# Hard expanded-size caps. The member limit covers the observed ~5.34 GiB
+# owner Stable SQLite DB; the existing total limit still has ample headroom.
 # Format-v1 is unchanged; ZIP64 is used when member/archive sizes require it.
-MAX_ARCHIVE_MEMBER_BYTES = 4 * 1024 * 1024 * 1024  # 4 GiB
+MAX_ARCHIVE_MEMBER_BYTES = 6 * 1024 * 1024 * 1024  # 6 GiB
 MAX_ARCHIVE_TOTAL_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB
 MAX_MANIFEST_BYTES = 1_048_576
 
@@ -475,8 +475,7 @@ def _validate_archive(archive: Path) -> _ArchivePlan:
             if info.file_size != item["size"]:
                 raise ProfileBackupError("backup checksum/size validation failed")
             total += info.file_size
-            if total > MAX_ARCHIVE_TOTAL_BYTES:
-                raise ProfileBackupError("backup archive is too large")
+            _validate_total_expanded_size(total)
             digest = hashlib.sha256()
             try:
                 with handle.open(info, "r") as source:
@@ -513,6 +512,11 @@ def _validate_zip_members(infos: list[zipfile.ZipInfo]) -> None:
             raise ProfileBackupError("backup archive contains a special file")
     if MANIFEST_NAME not in names:
         raise ProfileBackupError("backup manifest is missing")
+
+
+def _validate_total_expanded_size(total: int) -> None:
+    if total > MAX_ARCHIVE_TOTAL_BYTES:
+        raise ProfileBackupError("backup archive is too large")
 
 
 def _validate_relative_path(value: str) -> None:
