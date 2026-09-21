@@ -6,26 +6,24 @@ Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG
 
 ## Current state
 
-Released to canonical `main`:
+Released to canonical `main`: R01–R05 plus #119 deterministic period brief v1.
 
-- **R01** — Weight & Body Composition
-- **R02** — Garmin ingestion and historical backfill
-- **R03** — deterministic Garmin analytics and owner dashboard
-- **R04** — Google Health API v4 ingestion, sync/backfill/refresh and owner-live release proof
-- **R05** — Garmin / Google wearable sleep agreement (exploratory closeout; Garmin canonical/default)
+Current canonical repository checkpoint: `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` with exact-main CI `35240124890` SUCCESS.
 
-R04 release closeout: [R04_RELEASE_CLOSEOUT.md](R04_RELEASE_CLOSEOUT.md).
-R05 release closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md).
-CI maintenance closeout: [CI_MAINTENANCE_CLOSEOUT_2026-09-17.md](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
+Post-R05 Stable Owner Runtime work is **accepted/live-proven but not yet reconciled to canonical main**:
 
-#119 deterministic period brief v1 is completed. Current post-#119 work has two owner-facing lines rather than one new release number:
+- owner profile: `D:\Garmin\HealthCheck-Stable`;
+- accepted code line: `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`;
+- exact integration CI: `35581607069` SUCCESS;
+- #132 closed completed.
 
-- **Period Brief owner UX:** #127 local UI v1, #133 presentation hierarchy, then #129 Owner UAT/closeout.
-- **Stable Owner Runtime / operations:** #132 durable cross-domain profile, with bounded follow-ups #134/#136/#139/#140 where needed for routine refresh/convergence/recovery.
+Period Brief presentation line: `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92`; #131 is integrated/closed.
 
-#98/#99 are completed maintenance, not residual backlog. #123–#125 CI/reliability implementation is also completed; #126 remains an administrative GitHub capability blocker rather than product work.
+**Immediate sequencing:** reconcile the accepted Stable-runtime line with current main, then complete #146 correctness → #133 presentation hierarchy → #129 Owner UAT/closeout (#127).
 
-R05 closed on canonical `main @ 46e59327…` with exact-main CI `35130647037` SUCCESS (#106). #119 completed on `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca` with exact-main CI `35139999279` SUCCESS. #105 remains deferred/NOT_ELIGIBLE. `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only.
+See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md), [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md), and [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
+
+#105 remains deferred/NOT_ELIGIBLE. #126 remains an administrative capability blocker, not product work.
 
 ## R00 — Final architecture (complete)
 
@@ -165,25 +163,31 @@ See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md).
 
 No new health score and no LLM/Telegram delivery were introduced.
 
+## Post-R05 Stable Owner Runtime — accepted/live-proven
+
+The long-lived owner operating model is established: one persistent private cross-domain profile at `D:\Garmin\HealthCheck-Stable`, supported backup/restore into disposable UAT clones, reproducible exploratory R05 agreement, bounded provider refresh, stabilized Google identity and supported stale SyncRun recovery.
+
+The code for this operational slice remains on the accepted Stable integration line until repository reconciliation with current main is completed.
+
 ## Current owner-facing product work
 
-### Period Brief UI and UAT
+### Repository reconciliation gate
 
-- **#127** — Period Brief local UI v1 over the accepted #119 packet.
-- **#133** — compact owner-facing source labels, summary hierarchy and deterministic deduplication of repeated uncertainty/notable-change copy.
-- **#129** — Owner-only UAT/closeout over real local evidence after accepted UI work.
+Re-read current main, Stable integration and Period Brief integration; reconstruct/merge accepted deltas deliberately and rerun exact-SHA gates.
 
-This is presentation/product use of already accepted deterministic analytics, not a second report engine.
+### Period Brief correctness, UI and UAT
 
-### Stable Owner Runtime and routine operation
+- **#146** — correct the Period Brief producer/consumer seam and effective-window/activity-emptiness truthfulness.
+- **#133** — compact owner-facing source labels, summary hierarchy and deterministic deduplication.
+- **#129** — Owner-only UAT/closeout using a disposable backup-restored Stable clone.
+- **#127** — closes with successful Period Brief UI/UAT.
 
-- **#132** — establish one durable cross-domain Stable Owner Runtime so Weight/Garmin/Google/agreement evidence accumulates in one long-lived profile instead of release-isolated UAT profiles.
-- **#134** — one-command and optional Task Scheduler Garmin + Google refresh over that stable profile.
-- **#136** — operator entrypoint to rebuild/persist the accepted R05 exploratory agreement from persisted Stable Runtime evidence without database grafting.
-- **#139** — diagnose/converge the remaining Garmin Body Battery sync edge without weakening fail-closed semantics.
-- **#140** — supported fail-closed recovery for stale/orphaned `running` sync metadata.
+### Separate future owner-value backlog
 
-These are bounded owner-operability/data-runtime tasks. They do not change the canonical code/data model unless their own issues explicitly authorize a focused implementation.
+- **#147** — metric-aware source freshness/silent-source signal.
+- **#148** — off-site portable backup and disaster-recovery rehearsal.
+- **#153** — real Xiaomi S400/openScale → Stable E2E verification.
+- **#160** — Garmin-native training/performance discovery → bounded persistence/presentation where proven.
 
 ## Engineering maintenance — CI feedback/reliability closeout
 
