@@ -12,7 +12,7 @@ This file contains current architecture/product decisions plus only those `UNVER
 - R01, R02, R03, R04 and R05 are released to canonical `main`.
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - #119 deterministic period brief v1 is completed on canonical main.
-- Current owner-facing work is split between Period Brief usability/closeout (#127/#133/#129) and the durable Stable Owner Runtime/operations line (#132 with bounded #134/#136/#139/#140 follow-ups).
+- The durable Stable Owner Runtime/operations line is completed (#132/#134/#136/#138/#139/#140/#141/#150/#154/#156/#158). Current owner-facing work is Period Brief completion: repository reconciliation, #146 correctness, #133 presentation hierarchy/source labels, then #129/#127 UAT closeout.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -125,7 +125,7 @@ Frozen design from #97:
 - Google instant/HR-interval logical identity is path-free; query mode/family remain acquisition-context components of persisted record identity. Legacy path-driven variants are retired through repository-backed migration; raw/observation/artifact provenance is preserved.
 - Supported provider operations and stale-run recovery share one profile-scoped external-runtime operation lock. Recovery is explicit, age-cutoff based, uses existing terminal `failed` semantics and is idempotent; it never fabricates success or resets checkpoints.
 - Live closeout proved no remaining stale `running` SyncRun rows and no current canonical instant duplicate groups.
-- Accepted Stable-runtime code currently lives on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`. At the Stable closeout checkpoint, canonical main was `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`; because the lines diverged, current `main` must be re-read and explicit repository reconciliation is required before canonical code promotion.
+- Accepted Stable-runtime code currently lives on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`. Current canonical handoff checkpoint is `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` (CI `35608281796` SUCCESS); the earlier `6f21eea…` SHA is retained only as the historical divergence checkpoint. Explicit repository reconciliation is required before Stable code promotion.
 
 ### Time, coverage and agreement
 
