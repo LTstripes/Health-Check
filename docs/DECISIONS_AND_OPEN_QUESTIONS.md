@@ -125,7 +125,7 @@ Frozen design from #97:
 - Google instant/HR-interval logical identity is path-free; query mode/family remain acquisition-context components of persisted record identity. Legacy path-driven variants are retired through repository-backed migration; raw/observation/artifact provenance is preserved.
 - Supported provider operations and stale-run recovery share one profile-scoped external-runtime operation lock. Recovery is explicit, age-cutoff based, uses existing terminal `failed` semantics and is idempotent; it never fabricates success or resets checkpoints.
 - Live closeout proved no remaining stale `running` SyncRun rows and no current canonical instant duplicate groups.
-- Accepted Stable-runtime code currently lives on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`; current canonical main is `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`. Because the lines diverged, explicit repository reconciliation is required before canonical code promotion.
+- Accepted Stable-runtime code currently lives on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`. At the Stable closeout checkpoint, canonical main was `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`; because the lines diverged, current `main` must be re-read and explicit repository reconciliation is required before canonical code promotion.
 
 ### Time, coverage and agreement
 
