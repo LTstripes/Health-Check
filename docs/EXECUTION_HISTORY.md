@@ -279,7 +279,7 @@ Accepted owner data path: `D:\Garmin\HealthCheck-Stable`.
 
 Final accepted/live-tested Stable integration: `0b05a80749e3ef0d2fa736778baa49cc23f18a61`, exact CI `35581607069` SUCCESS.
 
-At closeout, current canonical `main` was `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`; the two lines diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`. This divergence is intentionally preserved as an explicit next integration problem rather than hidden by rewriting history.
+At the Stable closeout checkpoint, canonical `main` was `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`; the two lines diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`. This divergence is intentionally preserved as an explicit next integration problem rather than hidden by rewriting history.
 
 ### Reconstruction and agreement
 
