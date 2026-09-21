@@ -8,7 +8,7 @@ Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG
 
 Released to canonical `main`: R01–R05 plus #119 deterministic period brief v1.
 
-Current canonical repository checkpoint: `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` with exact-main CI `35240124890` SUCCESS.
+Pre-closeout canonical checkpoint used for divergence analysis: `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` with exact-main CI `35240124890` SUCCESS. Re-read current `main` from GitHub before launch/integration.
 
 Post-R05 Stable Owner Runtime work is **accepted/live-proven but not yet reconciled to canonical main**:
 
