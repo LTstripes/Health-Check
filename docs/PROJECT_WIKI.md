@@ -5,8 +5,9 @@ This is the compact current-state entry point. Historical contracts and release 
 ## Current canonical state
 
 - Canonical Git branch: `main`
-- Current main checkpoint: `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`
-- Exact-main CI: `35240124890` — SUCCESS
+- Pre-closeout main checkpoint used for divergence analysis: `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`
+- Exact-main CI at that checkpoint: `35240124890` — SUCCESS
+- Current `main` must always be re-read from GitHub; do not encode a self-referential docs-merge SHA as permanent state.
 - Latest released major slice: **R05 — Garmin / Google wearable sleep agreement**
 - R05 release SHA: `46e59327e394ae6dbc5a4ecdf42913200124b9e9` (CI `35130647037` SUCCESS; #106 closed)
 - #119 deterministic period brief v1: completed at `2c19ca968f84efb5e69c1a859ce6016939e617ca` (CI `35139999279` SUCCESS)
@@ -14,7 +15,7 @@ This is the compact current-state entry point. Historical contracts and release 
 - Canonical owner data profile: `D:\Garmin\HealthCheck-Stable`
 - Stable live-tested code line: `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61` (CI `35581607069` SUCCESS)
 - Period Brief presentation line: `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92` (#131 integrated)
-- Important: Stable integration and current main diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`; repository reconciliation is the next integration gate, not an implicit fast-forward.
+- Important: Stable integration and the pre-closeout main line diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`; repository reconciliation is the next integration gate, not an implicit fast-forward.
 - R05 closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md)
 - Stable Runtime closeout: [STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md)
 - CI maintenance closeout: [CI_MAINTENANCE_CLOSEOUT_2026-09-17.md](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
