@@ -14,7 +14,8 @@ No owner health values, raw payloads, credentials, tokens, screenshots, database
 
 Important repository state at closeout:
 
-- pre-documentation-closeout `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` (used for divergence analysis);
+- current canonical handoff checkpoint: `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` with exact-main CI `35608281796` SUCCESS;
+- historical divergence-analysis checkpoint: `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`;
 - Stable integration and current main diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`;
 - the accepted Stable-runtime code must therefore be reconciled with current main before canonical code promotion. Do not treat the integration SHA as a replacement for main.
 
@@ -117,7 +118,7 @@ The next session must not assume the repository lines are already unified.
 
 First:
 
-1. re-read current `main`, `integration/stable-owner-runtime`, and `integration/period-brief-ui-v1`;
+1. re-read current `main` (handoff checkpoint `b887fceceb85931ad8ead9423c0f86e0cac09291`), `integration/stable-owner-runtime`, and `integration/period-brief-ui-v1`;
 2. reconcile accepted Stable-runtime code with current main without losing the completed CI/Period Brief work;
 3. preserve exact accepted behavior and rerun the required exact-SHA gates.
 
