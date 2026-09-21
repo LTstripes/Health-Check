@@ -266,22 +266,78 @@ Decision:
 
 Until capability changes, exact-SHA final `checks: SUCCESS` is a mandatory manual Integrator gate before advancing integration or `main`. Green constituent lanes are insufficient; force-push/deletion of canonical/integration history remains process-prohibited.
 
+## 2026-09-17 to 2026-09-21 — Stable Owner Runtime / operations closeout
+
+The post-R05 runtime work changed the project from release-specific owner profiles into one durable cross-domain Owner Runtime.
+
+### #132 reconstruction
+
+Accepted owner data profile: `D:\Garmin\HealthCheck-Stable`.
+
+The Stable profile preserved the accepted historical Weight/body-composition base. Garmin and Google were reconstructed through supported auth/sync/backfill paths rather than SQLite grafting. #136 later rebuilt the accepted exploratory R05 agreement from Stable's own persisted evidence; exact rerun reused the same semantic run.
+
+### Provider convergence and live-only defects
+
+Real Stable data exposed several defects that synthetic tests had not reproduced:
+
+- #138: dense Google historical HR pagination needed durable cursor ownership across planner chunks;
+- #139: exact duplicate Body Battery timestamp+level samples needed narrow semantic coalescing before persistence;
+- #150: dense normal Google HR refresh needed deterministic civil-day partitioning;
+- #154: transient provider 500/502/503 responses needed bounded retry classification;
+- #156: exact refresh reruns exposed response-position/path-driven semantic identity churn even though key-level duplicate checks remained zero.
+
+#156 became the deepest semantic repair. Read-only diagnosis showed most new rerun HR rows matched older source/timestamp/value/external evidence but differed in path/index-derived identity. The frozen repair introduced path-free instant/HR-interval identity, repository-driven legacy retirement/migration, correction ordering by provider epoch and fail-closed same-epoch ambiguity. Live clone rehearsal and Stable migration both completed with zero conflicts; second migration was a no-op; canonical current instant duplicate groups became zero and remained zero on rerun/resume.
+
+### Backup durability
+
+A fresh pre-#156 recovery point initially failed because the Stable SQLite member had grown beyond the accepted 4 GiB member cap. #158 raised only the member envelope to 6 GiB while retaining the 8 GiB total expanded cap and all existing ZIP64/checksum/integrity/atomic-restore protections.
+
+A fresh real backup then completed, independently verified and restored into a disposable external clone. That clone matched Stable's structural state and was used for the #156 migration rehearsal.
+
+### Routine refresh final gate
+
+The first full post-migration owner-refresh succeeded. A second exact-window run hit one bounded provider interruption on the newest HR day but did not recreate semantic churn: the failed staging run accepted no typed records and retained a resumable cursor.
+
+Targeted continuation through the same production helper then succeeded, cleared the cursor, inserted zero new semantic records, preserved zero duplicate logical groups and left agreement/#140 state unchanged. #134/#150/#156 were closed without forcing another expensive seven-day replay solely for a second top-level exit code.
+
+### #140 orphan recovery
+
+Two historical SyncRun rows remained `running` after interrupted owner processes. #140 added a shared profile-scoped external-runtime operation lock plus an explicit cutoff-bounded dry-run/apply maintenance command using existing terminal `failed` semantics.
+
+Owner-live dry-run saw exactly two stale rows. Apply recovered exactly two; repeat apply was `0/0/0/0`. No source/checkpoint/artifact cleanup or manual SQL was used.
+
+### Stable closeout
+
+#132 is closed completed. Final read-only structural closeout proved healthy SQLite/migration state, Weight/Garmin/Google/agreement presence, no running SyncRun rows, no canonical instant duplicate groups and no unexpected provider/source-family classes. The earlier broad Google acquisition was retained as valid owner evidence rather than pruned.
+
+Accepted/live-tested Stable integration head: `0b05a80749e3ef0d2fa736778baa49cc23f18a61`; exact CI `35581607069` SUCCESS.
+
+Important repository note: current `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` and the Stable integration line diverged from `2c19ca968f84efb5e69c1a859ce6016939e617ca`. Stable runtime acceptance therefore does not itself make its branch canonical Git history.
+
 ## Current handoff / next work
 
-### Period Brief owner UX
+### First: reconcile accepted repository lines
 
-- #127 — Period Brief local UI v1;
-- #133 — compact human labels / summary hierarchy follow-up;
-- #129 — Owner UAT / closeout after accepted UI work.
+Before new shared implementation, re-read and deliberately reconcile:
 
-### Stable Owner Runtime / owner operations
+- `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`;
+- `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`;
+- `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92`.
 
-- #132 — durable cross-domain Stable Owner Runtime;
-- #134 — one-command / optional scheduled provider refresh;
-- #136 — supported R05 agreement rebuild from persisted Stable Runtime evidence;
-- #139 — remaining Garmin Body Battery convergence edge;
-- #140 — supported stale-running sync recovery.
+Preserve accepted deltas and rerun exact-SHA gates; do not blindly stack work on one divergent branch.
 
-R05 disposition remains unchanged: exploratory closeout; Garmin canonical/default; #105 deferred/NOT_ELIGIBLE and non-actionable until future evidence meets its existing gate.
+### Then: Period Brief correctness / UX / UAT
 
-The CI performance campaign is closed. Future CI optimization requires a new measured material bottleneck, not a desire to shave seconds.
+- #146 — fix real producer/consumer DTO drift, effective analytical window truthfulness and honest activity emptiness;
+- #133 — compact source labels / summary hierarchy / deterministic deduplication;
+- #129 — Owner UAT/closeout using a disposable backup-restored clone of Stable;
+- #127 closes with successful Period Brief UI/UAT.
+
+### Separate future work
+
+- #147 source freshness;
+- #148 off-site disaster recovery;
+- #153 Xiaomi S400/openScale live E2E verification;
+- #160 Garmin-native training analytics discovery/persistence/UI.
+
+#126 remains blocked on private-repository GitHub protection capability. #105 remains deferred/NOT_ELIGIBLE; Garmin stays canonical/default for sleep.

@@ -134,14 +134,24 @@ Other coding agents must not access, branch-switch, reset or use this checkout.
 
 Purpose:
 
-- Owner-only checkout of the current release integration candidate;
+- Owner-only checkout of the current release/integration candidate;
 - browser/manual preview;
-- live S400/Garmin/Fitbit probes when their release reaches that gate;
-- private UAT data profiles.
+- live provider/device probes when their gate requires them;
+- never a development-agent workspace.
 
-Coding Workers/Execution Orchestrators must not use this workspace.
+### Durable Owner data runtime
 
-Runtime/private data remains outside Git checkout, preferably through release/profile-specific `HEALTHCHECK_DATA_DIR`, for example `%LOCALAPPDATA%\Health-Check\uat` and later `%LOCALAPPDATA%\Health-Check\prod`. Do not reuse one private database across arbitrary branches.
+`D:\Garmin\HealthCheck-Stable`
+
+Purpose:
+
+- persistent private Weight/Garmin/Google/agreement evidence;
+- normal owner operation and bounded provider refresh;
+- source for verified backups and disposable UAT/runtime clones.
+
+Stable is **not** a Git checkout and is never reset for release UAT. Candidate UAT uses a separate external runtime restored from a verified Stable backup. Coding Workers/Execution Orchestrators must not inspect or mutate Stable unless an issue explicitly authorizes an Owner-controlled live gate.
+
+Runtime/private data always stays outside Git checkout. Do not reuse one private database across arbitrary branches.
 
 ### Codex root
 
@@ -330,7 +340,7 @@ When all planned tasks for a release are integrated:
 
 1. Integrator reviews the complete integration diff against the release spec.
 2. Automated full release checks pass.
-3. Owner UAT/preview runs from `D:\Garmin\Garmin-UAT`, using a separate private runtime profile.
+3. Owner UAT/preview runs from `D:\Garmin\Garmin-UAT`, using a disposable private runtime restored/cloned from the accepted Stable recovery point when real owner evidence is required; Stable itself is not the candidate sandbox.
 4. Live/provider/device probes required by that release are performed or explicitly remain `UNVERIFIED` if allowed by the spec.
 5. Integrator resolves findings in dedicated task branches, not by ad-hoc edits in UAT checkout.
 6. Integrator opens/reviews integration -> `main` PR.

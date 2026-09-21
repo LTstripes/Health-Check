@@ -268,3 +268,68 @@ Do not put real health values, screenshots, credentials, private payloads or med
 - **Integrator review:** all five semantic layers are accepted for reconstruction, but current Garmin history diverges from released R01 `main`. Do **not** merge the stacked branch directly.
 - **Next-lineage decision:** after post-R01 consolidation, create fresh `integration/r02-garmin` from canonical `main` and reconstruct accepted semantics in order `#28 -> #29 -> #30 -> #31 -> #36`, preserving the real #28 lineage and rerunning exact-head CI/migration/privacy checks before production ingestion/backfill starts.
 - **Post-release control:** issue #41 tracks this consolidation and formally lifts the old R01-UAT holds without turning stale branches into automatic merge candidates.
+
+## 2026-09-21 — Stable Owner Runtime closeout (#132 and operational follow-ups)
+
+### Scope and lineage
+
+The Owner Runtime effort began as a data-consolidation/operability task, not a new release. Canonical Git main continued moving independently through Period Brief and CI maintenance, while the Stable work accumulated on `integration/stable-owner-runtime`.
+
+Accepted owner data path: `D:\Garmin\HealthCheck-Stable`.
+
+Final accepted/live-tested Stable integration: `0b05a80749e3ef0d2fa736778baa49cc23f18a61`, exact CI `35581607069` SUCCESS.
+
+At closeout, current canonical `main` was `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`; the two lines diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`. This divergence is intentionally preserved as an explicit next integration problem rather than hidden by rewriting history.
+
+### Reconstruction and agreement
+
+#132 chose one persistent Owner Runtime rather than continuing to use release-isolated UAT databases as long-lived data stores. The accepted historical Weight/body-composition base was preserved. Garmin and Google were reconstructed through supported application paths; direct SQLite grafting was rejected.
+
+#136 added the missing thin operator path to rebuild/persist the accepted R05 exploratory agreement from Stable's own persisted evidence. Early live attempts correctly stopped when the account cohort yielded zero pairs. Diagnosis showed the required Google wearable family evidence had to be reconstructed through the supported sleep `reconcile + google-wearables` acquisition context rather than misusing `list + family`. After that bounded reconstruction, Stable produced a non-empty eligible pair set over the actual evidence window and the agreement command persisted/reused the same semantic run on exact rerun.
+
+### Provider convergence defects found only on real data
+
+- #138 fixed dense historical Google HR continuation ownership. The underlying bounded 40-page/80-request contract stayed intact; the planner stopped overwriting the incomplete dense-window cursor with later chunks.
+- #139 diagnosed Garmin Body Battery failures to persistence. Exact duplicate timestamp+level samples were coalesced narrowly in the Body Battery adapter; conflicting levels remained fail-closed.
+- #150 introduced deterministic civil-day partitioning for dense normal Google HR refresh instead of scaling continuation rounds with data density.
+- #154 classified transient Google 500/502/503 responses as bounded retries while retaining fail-closed behavior after retry exhaustion.
+- #156 fixed semantic identity churn discovered on an exact owner-refresh rerun.
+
+### #156 semantic-identity investigation and repair
+
+The exact rerun had added roughly 65k Google source records despite zero duplicate idempotency-key groups. Read-only Stable diagnosis showed the majority of those new rows matched older source/timestamp/value/external-id evidence while path/index-derived temporal evidence changed. The old identity was therefore technically unique but semantically unstable.
+
+The frozen repair removed positional response/source paths from logical instant identity, applied a shared path-free instant identity to HR/HRV/SpO2/respiratory-rate-sleep, kept query/family as persisted acquisition-context separation, gave HR rollup/daily-rollup a separate interval identity, ordered corrections by provider observation epoch and failed closed on ambiguous divergent revisions.
+
+Candidate `f6038c32a61375850f34e851a86f2b5cf35dbdf3` received final independent semantic ACCEPT and was integrated via PR #157. Stable migration rehearsal on a restored clone produced zero conflicts and an exact no-op second pass. The same migration then passed on Stable; canonical duplicate current instant groups became zero. A later interrupted HR refresh resumed through the production helper with zero new semantic inserts, cleared the cursor and kept duplicates at zero.
+
+### Backup size regression and recovery point
+
+Before #156 Stable mutation, a new backup failed verification because the real SQLite member had grown beyond the accepted 4 GiB member cap. The failure was correct fail-closed behavior.
+
+#158 changed only the explicit member cap to 6 GiB; the 8 GiB total expanded cap, format v1, ZIP64, checksums, SQLite integrity/migration verification and atomic restore remained unchanged. Candidate `666b3826637c11f0a61c8e247efd4b75f990e717` passed exact-head CI and was integrated via PR #159.
+
+A fresh Stable backup then created, independently verified and restored successfully. The disposable restore matched Stable structural counts/revision and became the rehearsal target for #156. This established the durable rule that real release/UAT work uses backup-restored disposable clones; Stable itself is persistent owner data.
+
+### #140 stale SyncRun recovery
+
+Two historical SyncRun rows remained `running` after their owning processes had exited. Manual SQL was rejected.
+
+Candidate `8b8addb12b6e6cb1c0de91cb837554074cde81ee` introduced one profile-scoped cross-process external-runtime operation lock, coverage of supported provider operations, thread-local nested reentrancy under owner-refresh, explicit `sync-run-recovery --cutoff ... --dry-run|--apply`, existing terminal `failed` semantics and no schema/startup mutation.
+
+Exact-head CI `35580345581` passed; PR #161 merged it into Stable integration as `0b05a80749e3ef0d2fa736778baa49cc23f18a61`. Owner-live dry-run saw exactly the known historical stale rows; apply recovered them; immediate repeat apply was a no-op.
+
+### Final #132 acceptance
+
+Final read-only closeout confirmed healthy SQLite/migration state; Weight/canonical evidence; known Garmin/Google source classes; persisted exploratory agreement; zero running SyncRun rows; zero canonical current instant duplicate groups; and no structural source/provider contamination. Broad Google history was retained as valid owner evidence rather than deleted merely because the original reconstruction plan was narrower.
+
+Closed/completed operational issues include #132, #134, #136, #138, #139, #140, #141/#158, #150, #154 and #156.
+
+### Retrospective
+
+The highest-value pattern in this slice was: **preserve a verified recovery point, diagnose live failures structurally, make one bounded semantic repair, rehearse on a restored clone, then mutate Stable**.
+
+Several green synthetic suites were insufficient to expose real density, provider errors, response-position identity churn, multi-GiB backup limits or process-interruption metadata. Owner-live gates therefore remain part of product truth, not ceremonial testing.
+
+The next session must reconcile the diverged accepted Stable integration with current main before stacking more shared work. Period Brief then proceeds through #146 correctness, #133 presentation hierarchy and #129 Owner UAT on a disposable Stable clone.
+

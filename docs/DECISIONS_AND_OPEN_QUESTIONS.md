@@ -112,13 +112,20 @@ Frozen design from #97:
 - Rendering is thin; UI/text/CLI must not reimplement health mathematics or change packet counts/statistics/hash through display thinning.
 - Direct R05 sleep-report reuse is preferred to a compatibility copy of agreement semantics.
 - The owner-facing UI work (#127/#133) is presentation over the accepted packet, not a second analytics engine.
+- #146 owns confirmed producer/consumer DTO drift and effective-window/activity-emptiness truthfulness. It must be resolved before final #129 Owner UAT; templates must not compensate for backend contract drift.
 
 ### Stable Owner Runtime / owner operations
 
-- The long-lived product operating model is one durable private Owner runtime accumulating accepted Weight/Garmin/Google/agreement evidence over time; release UAT uses disposable copies rather than becoming the long-lived data source.
-- Existing profiles may be inventoried/reconstructed only through supported backup/restore/import/sync/backfill/recompute paths; direct SQLite grafting is not an acceptable consolidation method.
-- Routine Garmin/Google refresh should remain a bounded explicit operation suitable for Windows Task Scheduler, not a new resident daemon/service.
-- Provider convergence/recovery follow-ups must remain fail-closed: failed/ambiguous days or interrupted runs are not fabricated as successful/empty merely to make an operational summary green.
+- The accepted durable private owner profile is `D:\Garmin\HealthCheck-Stable`.
+- Stable is the long-lived accumulation point for accepted Weight/Garmin/Google/agreement evidence; it is not reset for release candidates.
+- Release/product UAT uses disposable verified backup/restore clones of Stable.
+- Direct SQLite grafting between historical profiles is not an accepted consolidation path.
+- Supported large-profile backup/verify/restore is part of the owner-runtime contract; the accepted Stable integration safely supports the current >5 GiB SQLite member while retaining bounded archive limits and integrity/checksum/atomic-restore checks.
+- Routine Garmin/Google refresh is a bounded explicit operation, not a resident daemon. Dense Google HR is partitioned by civil day, resumable staging is fail-closed, and transient provider failures may leave resumable state without falsely accepting typed results.
+- Google instant/HR-interval logical identity is path-free; query mode/family remain acquisition-context components of persisted record identity. Legacy path-driven variants are retired through repository-backed migration; raw/observation/artifact provenance is preserved.
+- Supported provider operations and stale-run recovery share one profile-scoped external-runtime operation lock. Recovery is explicit, age-cutoff based, uses existing terminal `failed` semantics and is idempotent; it never fabricates success or resets checkpoints.
+- Live closeout proved no remaining stale `running` SyncRun rows and no current canonical instant duplicate groups.
+- Accepted Stable-runtime code currently lives on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`; current canonical main is `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`. Because the lines diverged, explicit repository reconciliation is required before canonical code promotion.
 
 ### Time, coverage and agreement
 
@@ -176,7 +183,7 @@ These are observational gaps, not reasons to rewrite released architecture.
 
 ### Xiaomi / R01
 
-- Real owner phone-to-laptop openScale/openScale-sync reliability across long routine operation remains only partially owner-observed.
+- Real owner Xiaomi S400 → openScale → openScale-sync → Stable ingestion remains only partially owner-observed; #153 owns the explicit end-to-end live verification.
 - Exact algorithm/application identity behind every historical screenshot may remain unknown where the screenshot itself does not prove it.
 - No Xiaomi↔openScale numeric body-composition calibration exists without paired evidence.
 

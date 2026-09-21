@@ -26,20 +26,15 @@ The final R04 owner gate also proved the populated private runtime remained heal
 
 ## Current focus
 
-R05 is released (exploratory closeout; Garmin canonical/default; #105 deferred/NOT_ELIGIBLE). Closeout: [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md).
+R05 is released; #119 deterministic period brief v1 is also completed. Current canonical repository checkpoint is `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` with exact-main CI `35240124890` SUCCESS.
 
-Post-R05 product closeout: **#119 deterministic period brief v1** is **completed** on the pre-maintenance canonical checkpoint `main @ 2c19ca968f84efb5e69c1a859ce6016939e617ca` (exact-main CI `35139999279` SUCCESS). Delivered: deterministic weight/sleep/activity/data-quality period brief packet, stable result hash, thin API/text/CLI rendering, accepted direct R05 sleep-report reuse, and full activity inventory repairs. No new health scores; no LLM delivery.
+The post-R05 **Stable Owner Runtime** line is now live-accepted and #132 is closed. The durable private owner profile is `D:\Garmin\HealthCheck-Stable`. Accepted/live-proven Stable code currently sits on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61` with exact integration CI `35581607069` SUCCESS.
 
-Current work is now split into two product/owner lines:
+That Stable integration line is **not canonical main yet**: it diverged from current main at merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`. The next repository gate is explicit reconciliation of the accepted Stable-runtime deltas with current main; do not silently treat the integration SHA as the new canonical release source.
 
-- **Period Brief owner UX:** #127 local UI v1, with #133 presentation hierarchy follow-up and #129 Owner UAT/closeout.
-- **Stable Owner Runtime / operations:** #132 establishes the durable cross-domain owner profile; #134/#136/#139/#140 are bounded operational/convergence follow-ups around refresh, agreement rebuild and stable-runtime recovery.
+Period Brief owner UX remains the next product-facing slice. `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92` contains the accepted #131 owner-copy repair. Before final #129 Owner UAT, #146 must repair the confirmed Period Brief producer/consumer correctness drift and #133 must complete the compact owner-facing hierarchy/source-label follow-up. Final UAT must use a disposable backup-restored clone of Stable, never reset the Stable profile itself.
 
-The separate **CI/reliability maintenance track #123–#125 is complete and integrated**. It replaced the ~5-minute serial feedback path with balanced parallel Linux lanes plus a focused Windows gate; exact integration run `35235216797` completed in about `2m48s` with all mandatory jobs and final `checks` green. Compared with the accepted ~`5m02s` pre-parallel reference, that is roughly **44% less wall time while increasing verification coverage**. See [CI Maintenance Closeout](docs/CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
-
-#126 remains **BLOCKED / OWNER DECISION REQUIRED**: server-side required-check/branch-protection enforcement for this private repository is unavailable under the current GitHub capability. Until that changes, `checks` on the exact target SHA is an explicit manual Integrator gate; a green constituent lane alone is insufficient.
-
-Attribution remains conservative: `google-wearables` family evidence is not automatically Fitbit-device evidence; `account_wearables_sleep_observations_v1` stays exploratory/uncertain-only; Garmin remains canonical/default; #105 remains deferred/NOT_ELIGIBLE (not an actionable next implementation unless future live evidence meets its gate).
+R05 attribution remains conservative: `account_wearables_sleep_observations_v1` is exploratory/uncertain-only; Garmin remains canonical/default; #105 remains deferred/NOT_ELIGIBLE.
 
 ## Architecture in one minute
 
@@ -100,6 +95,8 @@ Start the canonical Windows runtime:
 
 Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HEALTHCHECK_DATA_DIR`.
 
+For normal Owner operation, the accepted durable private profile is `D:\Garmin\HealthCheck-Stable`. It is persistent owner data, not a release-UAT sandbox; candidate UAT uses a disposable verified backup/restore clone.
+
 No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository.
 
 ## CI and integration gate
@@ -122,6 +119,7 @@ Do not reopen the performance campaign merely to save seconds. #124 closed the m
 - [Verbose historical execution log](docs/EXECUTION_HISTORY.md)
 - [R04 Release Closeout](docs/R04_RELEASE_CLOSEOUT.md)
 - [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md)
+- [Stable Owner Runtime Closeout](docs/STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md)
 - [R04 Google persistence contract](docs/R04_GOOGLE_PERSISTENCE_CONTRACT.md)
 - [R03 analytic input contract](docs/R03_ANALYTIC_INPUT_CONTRACT.md)
 - [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)
