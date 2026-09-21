@@ -26,11 +26,11 @@ The final R04 owner gate also proved the populated private runtime remained heal
 
 ## Current focus
 
-R05 is released; #119 deterministic period brief v1 is also completed. Current canonical repository checkpoint is `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` with exact-main CI `35240124890` SUCCESS.
+R05 is released; #119 deterministic period brief v1 is also completed. The pre-closeout canonical checkpoint used for the Stable-line divergence analysis was `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` with exact-main CI `35240124890` SUCCESS. Always re-read current `main` from GitHub.
 
 The post-R05 **Stable Owner Runtime** line is now live-accepted and #132 is closed. The durable private owner profile is `D:\Garmin\HealthCheck-Stable`. Accepted/live-proven Stable code currently sits on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61` with exact integration CI `35581607069` SUCCESS.
 
-That Stable integration line is **not canonical main yet**: it diverged from current main at merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`. The next repository gate is explicit reconciliation of the accepted Stable-runtime deltas with current main; do not silently treat the integration SHA as the new canonical release source.
+That Stable integration line is **not canonical main yet**: it diverged from the pre-closeout main line at merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`. The next repository gate is explicit reconciliation of the accepted Stable-runtime deltas with current main; do not silently treat the integration SHA as the new canonical release source.
 
 Period Brief owner UX remains the next product-facing slice. `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92` contains the accepted #131 owner-copy repair. Before final #129 Owner UAT, #146 must repair the confirmed Period Brief producer/consumer correctness drift and #133 must complete the compact owner-facing hierarchy/source-label follow-up. Final UAT must use a disposable backup-restored clone of Stable, never reset the Stable profile itself.
 
