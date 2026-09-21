@@ -312,7 +312,7 @@ Owner-live dry-run saw exactly two stale rows. Apply recovered exactly two; repe
 
 Accepted/live-tested Stable integration head: `0b05a80749e3ef0d2fa736778baa49cc23f18a61`; exact CI `35581607069` SUCCESS.
 
-Important repository note: current `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` and the Stable integration line diverged from `2c19ca968f84efb5e69c1a859ce6016939e617ca`. Stable runtime acceptance therefore does not itself make its branch canonical Git history.
+Important repository note: at the Stable closeout checkpoint, `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` and the Stable integration line diverged from `2c19ca968f84efb5e69c1a859ce6016939e617ca`. Stable runtime acceptance therefore does not itself make its branch canonical Git history.
 
 ## Current handoff / next work
 
@@ -320,7 +320,7 @@ Important repository note: current `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd
 
 Before new shared implementation, re-read and deliberately reconcile:
 
-- `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`;
+- current `main` (re-read from GitHub; the Stable closeout reference was `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`);
 - `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`;
 - `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92`.
 
