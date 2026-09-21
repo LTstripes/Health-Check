@@ -6,7 +6,7 @@ No owner health values, raw payloads, credentials, tokens, screenshots, database
 
 ## Accepted owner runtime
 
-- Canonical owner **data/runtime profile**: `D:\\Garmin\\HealthCheck-Stable`
+- Canonical owner **data/runtime profile**: `D:\Garmin\\HealthCheck-Stable`
 - Accepted live-tested code line: `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`
 - Exact integration CI: `35581607069` — SUCCESS
 - Runtime closeout tracker: #132 — CLOSED / completed
