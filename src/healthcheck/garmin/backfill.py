@@ -20,6 +20,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import SyncStreamState
 from healthcheck.db.repositories import repositories_for
+from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.garmin.auth import (
     AUTH_CONTRACT_VERSION,
     GARMIN_AUTH_STORAGE,
@@ -343,22 +344,23 @@ class GarminHistoricalBackfill:
             )
 
         paths = prepare_runtime(self.settings)
-        migrate_database(paths)
-        engine = create_sqlite_engine(paths)
-        store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
-        factory = create_session_factory(engine)
-        try:
-            return self._run(
-                factory,
-                store,
-                start=start_date,
-                end=end_date,
-                surfaces=surfaces,
-                chunk_days=days,
-                chunks=chunks,
-            )
-        finally:
-            engine.dispose()
+        with ExternalRuntimeOperationLock(paths):
+            migrate_database(paths)
+            engine = create_sqlite_engine(paths)
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            factory = create_session_factory(engine)
+            try:
+                return self._run(
+                    factory,
+                    store,
+                    start=start_date,
+                    end=end_date,
+                    surfaces=surfaces,
+                    chunk_days=days,
+                    chunks=chunks,
+                )
+            finally:
+                engine.dispose()
 
     def _run(
         self,
