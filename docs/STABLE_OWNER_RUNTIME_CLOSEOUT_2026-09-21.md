@@ -14,7 +14,7 @@ No owner health values, raw payloads, credentials, tokens, screenshots, database
 
 Important repository state at closeout:
 
-- current `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`;
+- pre-documentation-closeout `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` (used for divergence analysis);
 - Stable integration and current main diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`;
 - the accepted Stable-runtime code must therefore be reconciled with current main before canonical code promotion. Do not treat the integration SHA as a replacement for main.
 
