@@ -26,6 +26,7 @@ from healthcheck.db.models import (
     SyncStreamState,
 )
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
+from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.garmin.capabilities import GARMIN_PROVIDER_CODE
 from healthcheck.garmin.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
@@ -212,22 +213,23 @@ class GarminCollectionReprocessor:
             self.max_observations if max_observations is None else max_observations
         )
         paths = prepare_runtime(self.settings)
-        migrate_database(paths)
-        engine = create_sqlite_engine(paths)
-        store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
-        factory = create_session_factory(engine)
-        try:
-            return self._run(
-                factory,
-                store,
-                start=start_date,
-                end=end_date,
-                surfaces=surfaces,
-                dry_run=dry_run,
-                cap=cap,
-            )
-        finally:
-            engine.dispose()
+        with ExternalRuntimeOperationLock(paths):
+            migrate_database(paths)
+            engine = create_sqlite_engine(paths)
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            factory = create_session_factory(engine)
+            try:
+                return self._run(
+                    factory,
+                    store,
+                    start=start_date,
+                    end=end_date,
+                    surfaces=surfaces,
+                    dry_run=dry_run,
+                    cap=cap,
+                )
+            finally:
+                engine.dispose()
 
     def _run(
         self,

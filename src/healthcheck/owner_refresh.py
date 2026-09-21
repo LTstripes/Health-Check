@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
@@ -14,6 +13,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import database_readiness
+from healthcheck.external_runtime_lock import (
+    ExternalRuntimeOperationBusyError,
+    ExternalRuntimeOperationLock,
+    ExternalRuntimeOperationLockError,
+)
 from healthcheck.garmin.auth import GarminAuthService
 from healthcheck.garmin.sync import (
     GarminIncrementalSync,
@@ -70,55 +74,24 @@ class OwnerRefreshRuntimeError(ValueError):
         self.error_code = error_code
 
 
-class OwnerRefreshBusyError(RuntimeError):
+class OwnerRefreshBusyError(ExternalRuntimeOperationBusyError):
     """Another owner refresh currently holds the same-profile lock."""
 
 
-class OwnerRefreshLock:
-    """Non-blocking process lock for one established external runtime profile."""
+class OwnerRefreshLock(ExternalRuntimeOperationLock):
+    """Shared runtime lock with the owner-refresh overlap contract preserved."""
+
+    busy_error_type = OwnerRefreshBusyError
 
     def __init__(self, paths: RuntimePaths) -> None:
-        self.path = paths.root / ".owner-refresh.lock"
-        self._handle = None
+        super().__init__(paths, allow_reentrant=False)
 
     def __enter__(self) -> OwnerRefreshLock:
         try:
-            self._handle = self.path.open("a+b")
-        except OSError as exc:
+            super().__enter__()
+        except ExternalRuntimeOperationLockError as exc:
             raise OwnerRefreshRuntimeError("runtime_lock_unavailable") from exc
-
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                self._handle.seek(0)
-                msvcrt.locking(self._handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (ImportError, OSError) as exc:
-            self._handle.close()
-            self._handle = None
-            raise OwnerRefreshBusyError from exc
         return self
-
-    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
-        if self._handle is None:
-            return
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                self._handle.seek(0)
-                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            self._handle.close()
-            self._handle = None
 
 
 def require_established_runtime(settings: Settings) -> RuntimePaths:

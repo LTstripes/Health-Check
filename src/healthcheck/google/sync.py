@@ -28,6 +28,7 @@ from healthcheck.db.models import (
     SyncStreamState,
 )
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
+from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.google.auth import (
     ALLOWED_SCOPES,
     SCOPE_METRICS,
@@ -852,25 +853,26 @@ class GoogleHealthSync:
                 f"{HEART_RATE_ROLLUP_MAX_DAYS} days"
             )
         paths = prepare_runtime(self.settings)
-        migrate_database(paths)
-        engine = create_sqlite_engine(paths)
-        store = ContentAddressedGooglePayloadStore(paths.root / "artifacts")
-        factory = create_session_factory(engine)
-        try:
-            return self._run(
-                factory,
-                store,
-                window_start=window_start,
-                window_end_exclusive=window_end_exclusive,
-                surfaces=surfaces,
-                query_mode=query_mode,
-                data_source_family=data_source_family,
-                skip_complete=skip_complete,
-                per_stream_watermark=per_stream_watermark,
-                as_of=as_of,
-            )
-        finally:
-            engine.dispose()
+        with ExternalRuntimeOperationLock(paths):
+            migrate_database(paths)
+            engine = create_sqlite_engine(paths)
+            store = ContentAddressedGooglePayloadStore(paths.root / "artifacts")
+            factory = create_session_factory(engine)
+            try:
+                return self._run(
+                    factory,
+                    store,
+                    window_start=window_start,
+                    window_end_exclusive=window_end_exclusive,
+                    surfaces=surfaces,
+                    query_mode=query_mode,
+                    data_source_family=data_source_family,
+                    skip_complete=skip_complete,
+                    per_stream_watermark=per_stream_watermark,
+                    as_of=as_of,
+                )
+            finally:
+                engine.dispose()
 
     def _resolve_auth(self) -> tuple[GoogleAuthResult, str | None, frozenset[str]]:
         if self.auth_result is not None and self.access_token:

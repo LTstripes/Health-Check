@@ -25,6 +25,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import GarminSource, GarminSourceRecord, SyncStreamState
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
+from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.garmin.auth import (
     GarminAuthResult,
     GarminAuthStatus,
@@ -1171,21 +1172,22 @@ class GarminIncrementalSync:
         window_days = validate_trailing_window_days(trailing_window_days)
         window_start, window_end = compute_sync_window(as_of_date, window_days)
         paths = prepare_runtime(self.settings)
-        migrate_database(paths)
-        engine = create_sqlite_engine(paths)
-        store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
-        factory = create_session_factory(engine)
-        try:
-            return self._run(
-                factory,
-                store,
-                as_of=as_of_date,
-                window_start=window_start,
-                window_end=window_end,
-                trailing_window_days=window_days,
-            )
-        finally:
-            engine.dispose()
+        with ExternalRuntimeOperationLock(paths):
+            migrate_database(paths)
+            engine = create_sqlite_engine(paths)
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            factory = create_session_factory(engine)
+            try:
+                return self._run(
+                    factory,
+                    store,
+                    as_of=as_of_date,
+                    window_start=window_start,
+                    window_end=window_end,
+                    trailing_window_days=window_days,
+                )
+            finally:
+                engine.dispose()
 
     def _run(
         self,
