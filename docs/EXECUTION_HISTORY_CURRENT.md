@@ -314,13 +314,18 @@ Accepted/live-tested Stable integration head: `0b05a80749e3ef0d2fa736778baa49cc2
 
 Important repository note: at the Stable closeout checkpoint, `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` and the Stable integration line diverged from `2c19ca968f84efb5e69c1a859ce6016939e617ca`. Stable runtime acceptance therefore does not itself make its branch canonical Git history.
 
+
+### Documentation handoff refresh — 2026-09-21
+
+After Stable closeout, canonical Git `main` advanced to `b887fceceb85931ad8ead9423c0f86e0cac09291`; exact-main CI `35608281796` is SUCCESS. This does not erase the earlier `6f21eea…` divergence checkpoint, which remains historical lineage evidence. The accepted Stable and Period Brief integration lines remain separate and require deliberate reconciliation before shared promotion.
+
 ## Current handoff / next work
 
 ### First: reconcile accepted repository lines
 
 Before new shared implementation, re-read and deliberately reconcile:
 
-- current `main` (re-read from GitHub; the Stable closeout reference was `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`);
+- current `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` (exact-main CI `35608281796` SUCCESS; re-read from GitHub before acting);
 - `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`;
 - `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92`.
 
