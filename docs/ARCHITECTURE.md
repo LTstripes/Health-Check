@@ -37,12 +37,13 @@ One local codebase and database are enough. The loopback UI/read/import ASGI app
 ### Windows laptop
 
 - Python 3.12+, FastAPI/Uvicorn, SQLAlchemy/Alembic, SQLite WAL.
-- Runtime state under `%LOCALAPPDATA%\Health-Check` (configurable), never inside the checkout.
+- Runtime state is configurable and always outside the checkout. The accepted durable Owner profile is `D:\Garmin\HealthCheck-Stable`; `%LOCALAPPDATA%\Health-Check` remains the product default for generic/bootstrap use.
 - Dashboard/read/import listener bound only to loopback.
 - Optional separate private-LAN ingest-only listener/port exposing only webhook plus non-sensitive liveness; stable sender UUID and rotatable credential are independent.
 - Prefer HTTPS or a trusted encrypted private overlay. Plain trusted-LAN HTTP requires explicit opt-in and a confidentiality warning; public exposure is unsupported.
 - Provider tokens/secrets outside Git, ultimately in Windows Credential Manager/DPAPI or an equivalently user-scoped secret store.
 - Source artifacts such as images, raw JSON, and FIT files in a content-addressed local artifact directory with database references.
+- Stable is persistent owner data. Release/UAT profiles are disposable verified backup/restore clones; candidate validation never resets or repurposes Stable.
 
 ### Android phone
 
@@ -195,6 +196,10 @@ Each provider/stream defines:
 - retry/backoff and failure classification;
 - source coverage calculation.
 
+Accepted post-R05 owner-operation rules add one profile-scoped external-runtime operation lock across supported Garmin/Google sync/backfill/refresh/reprocess paths and explicit stale-SyncRun maintenance. The maintenance path is non-reentrant, cutoff-bounded and terminalizes only provably orphaned `running` lifecycle rows as `failed`; it does not reset checkpoints, delete evidence or infer success from partial persistence.
+
+For Google instant sample streams (heart rate, HRV, SpO2, respiratory-rate sleep summary), logical identity must not depend on response position/source-field path/record index. Canonical instant identity uses source + stream + acquisition context + canonical UTC instant; HR rollup/daily-rollup use a separate path-free interval identity. Provider corrections across orderable later epochs update the current projection; same-epoch/unorderable divergent revisions fail closed.
+
 The raw transport event is persisted before or atomically with normalization. Duplicate retries link to the existing semantic record and succeed without duplicating measurements. Receive order never defines event order. A parser failure keeps replayable raw evidence and a sanitized status.
 
 Photo artifacts deduplicate by content hash; semantic measurement deduplication uses source/device/timestamp/metric/algorithm identity so separately transported copies of the same source event converge without conflating genuine equal-valued weigh-ins. For openScale-sync, a stable configured sender-instance UUID is independent of its rotatable bearer secret, so credential rotation cannot fork source identity.
@@ -285,6 +290,7 @@ No Health-Check Recovery Score is currently justified. Preserve Garmin/Fitbit si
 ## 14. Security and license boundaries
 
 - Real data, payloads, documents, databases, and secrets never enter Git or synthetic fixtures.
+- The durable Owner Stable profile is never a development-agent workspace. Owner UAT uses a separate disposable restore/clone.
 - Dashboard/read/import is loopback-only; the separate LAN ingest app has no product routes, uses a stable sender UUID plus independent high-entropy rotatable credential, and has an encrypted-overlay/HTTPS or explicitly warned trusted-private-LAN transport boundary.
 - Log identifiers/counts/status, not authorization material or raw health values by default.
 - Use typed access capabilities: read, ingest, context/import write, and admin are distinct.
