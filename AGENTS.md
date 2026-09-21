@@ -92,6 +92,8 @@ Development-agent workspaces must not contain or access real personal health dat
 
 Repository and normal agent tests use synthetic fixtures only. Private/live verification is Owner/Integrator controlled and is reported as `UNVERIFIED` until actually performed.
 
+The accepted durable Owner data profile is `D:\Garmin\HealthCheck-Stable`. Development Workers/Reviewers must not inspect or mutate it unless an issue explicitly authorizes an Owner-controlled live gate. Release/product UAT must use a disposable verified backup/restore clone; Stable is never reset or repurposed as a candidate sandbox.
+
 ## Scope discipline
 
 - Do only the assigned issue.
