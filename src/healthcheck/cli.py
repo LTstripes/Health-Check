@@ -50,6 +50,11 @@ from healthcheck.garmin.reprocess import (
     GarminCollectionReprocessor,
 )
 from healthcheck.garmin.sync import GarminIncrementalSync, GarminSyncStatus
+from healthcheck.garmin.training_probe import (
+    TRAINING_PROBE_CONTRACT_VERSION,
+    GarminTrainingPhaseAProbe,
+    validate_training_probe_request,
+)
 from healthcheck.google.auth import GoogleAuthService
 from healthcheck.google.backfill import (
     GoogleHistoricalBackfill,
@@ -103,6 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
             "restore-profile",
             "garmin-auth",
             "garmin-capabilities",
+            "garmin-training-phase-a",
             "garmin-redact",
             "garmin-sync",
             "garmin-backfill",
@@ -137,6 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force-reauth", action="store_true")
     parser.add_argument("--is-cn", action="store_true")
     parser.add_argument("--date", action="append", dest="dates")
+    parser.add_argument("--max-range", action="append", nargs=2, dest="max_ranges")
+    parser.add_argument("--max-date")
+    parser.add_argument("--activity-start")
+    parser.add_argument("--activity-end")
+    parser.add_argument("--activity-id", action="append", dest="activity_ids")
+    parser.add_argument("--repeat-date")
     parser.add_argument("--trailing-window-days", type=int)
     parser.add_argument("--start")
     parser.add_argument("--end")
@@ -254,6 +266,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_auth(args, settings)
     if args.command == "garmin-capabilities":
         return _run_garmin_capabilities(args, settings)
+    if args.command == "garmin-training-phase-a":
+        return _run_garmin_training_phase_a(args, settings)
     if args.command == "google-auth":
         return _run_google_auth(args, settings)
     if args.command == "google-capabilities":
@@ -980,6 +994,50 @@ def _run_garmin_capabilities(args: argparse.Namespace, settings: Settings) -> in
         return 2
     print(report.to_json(), end="")
     return 0 if auth_result.ok else 1
+
+
+def _run_garmin_training_phase_a(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        request = validate_training_probe_request(
+            args.dates,
+            args.max_ranges,
+            args.max_date,
+            args.activity_start,
+            args.activity_end,
+            args.activity_ids,
+            args.repeat_date,
+        )
+        service = GarminAuthService(settings, is_cn=args.is_cn)
+        client, auth_result = service.load_existing()
+        report = GarminTrainingPhaseAProbe(client).run(request, auth_result=auth_result)
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "contract_version": TRAINING_PROBE_CONTRACT_VERSION,
+                    "operation": "garmin-training-phase-a",
+                    "status": "failed",
+                    "sample_incomplete": True,
+                    "error": {
+                        "error_class": "input",
+                        "error_code": "invalid_probe_request",
+                        "http_status": None,
+                    },
+                    "privacy": {
+                        "raw_payloads_emitted": False,
+                        "exact_metric_values_emitted": False,
+                        "device_ids_emitted": False,
+                        "activity_ids_emitted": False,
+                        "dates_or_timestamps_emitted": False,
+                        "dynamic_keys_emitted": False,
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    return 0 if report.completed else 1
 
 
 def _run_garmin_sync(args: argparse.Namespace, settings: Settings) -> int:
