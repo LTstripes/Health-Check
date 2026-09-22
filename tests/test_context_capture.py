@@ -29,7 +29,12 @@ from healthcheck.db.engine import (
     migrate_database,
     session_scope,
 )
-from healthcheck.db.models import ContextEventHead, ContextEventRevision
+from healthcheck.db.models import (
+    ContextEventHead,
+    ContextEventRevision,
+    ContextRevisionTag,
+    ContextTag,
+)
 from healthcheck.runtime import prepare_runtime
 
 
@@ -197,6 +202,55 @@ def test_revise_is_append_only_advances_head_and_retries_idempotently(tmp_path: 
                     ),
                     {"revision_id": first.revision_id},
                 )
+    finally:
+        engine.dispose()
+
+
+def test_text_only_cross_source_revise_preserves_inherited_tag_provenance(tmp_path: Path) -> None:
+    _settings, _paths, engine = _runtime(tmp_path)
+    try:
+        with session_scope(engine) as session:
+            service = ContextService(session)
+            original = service.add(
+                text="Synthetic manual context",
+                temporal=parse_date_only("2026-09-22"),
+                capture_source="manual",
+                tags=(" Travel ",),
+                operation_id="provenance-add",
+            )
+            future_tag = ContextTag(normalized_name="future-suggestion")
+            session.add(future_tag)
+            session.flush()
+            session.add(
+                ContextRevisionTag(
+                    revision_id=original.revision_id,
+                    tag_id=future_tag.id,
+                    status="suggested",
+                    provenance_source="ai",
+                )
+            )
+            session.flush()
+            text_only = service.revise(
+                original.event_id,
+                text="Synthetic corrected context",
+                capture_source="cli",
+                operation_id="provenance-text-only",
+            )
+            assert text_only.capture_source == "cli"
+            assert [(tag.name, tag.status, tag.provenance_source) for tag in text_only.tags] == [
+                ("future-suggestion", "suggested", "ai"),
+                ("travel", "confirmed", "manual")
+            ]
+            retagged = service.revise(
+                original.event_id,
+                tags=("Late Sleep",),
+                capture_source="cli",
+                operation_id="provenance-retag",
+            )
+            assert [(tag.name, tag.status, tag.provenance_source) for tag in retagged.tags] == [
+                ("late-sleep", "confirmed", "cli")
+            ]
+            assert service.list(history=True)[-1].tags == text_only.tags
     finally:
         engine.dispose()
 

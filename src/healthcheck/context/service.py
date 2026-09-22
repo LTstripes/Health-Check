@@ -399,7 +399,7 @@ class ContextService:
             original_text=original_text,
             capture_source=source,
             temporal=temporal,
-            tags=normalized_tags,
+            tags=tuple(ContextTagView(name, "confirmed", source) for name in normalized_tags),
         )
         self.session.add(ContextEventHead(event_id=event.id, revision_id=revision.id))
         self.session.flush()
@@ -466,7 +466,9 @@ class ContextService:
             else supplied_temporal
         )
         desired_tags = (
-            self._tag_names(current.id) if supplied_tags is None else supplied_tags
+            self._tag_views(current.id)
+            if supplied_tags is None
+            else tuple(ContextTagView(name, "confirmed", source) for name in supplied_tags)
         )
         revision = self._new_revision(
             event_id=stable_event_id,
@@ -553,7 +555,7 @@ class ContextService:
         original_text: str,
         capture_source: str,
         temporal: TemporalValue,
-        tags: tuple[str, ...],
+        tags: tuple[ContextTagView, ...],
     ) -> ContextEventRevision:
         revision = ContextEventRevision(
             event_id=event_id,
@@ -579,20 +581,20 @@ class ContextService:
         )
         self.session.add(revision)
         self.session.flush()
-        for tag_name in tags:
+        for tag_view in tags:
             tag = self.session.scalar(
-                select(ContextTag).where(ContextTag.normalized_name == tag_name)
+                select(ContextTag).where(ContextTag.normalized_name == tag_view.name)
             )
             if tag is None:
-                tag = ContextTag(normalized_name=tag_name)
+                tag = ContextTag(normalized_name=tag_view.name)
                 self.session.add(tag)
                 self.session.flush()
             self.session.add(
                 ContextRevisionTag(
                     revision_id=revision.id,
                     tag_id=tag.id,
-                    status="confirmed",
-                    provenance_source=capture_source,
+                    status=tag_view.status,
+                    provenance_source=tag_view.provenance_source,
                 )
             )
         self.session.flush()
@@ -610,9 +612,6 @@ class ContextService:
             .order_by(ContextTag.normalized_name)
         )
         return tuple(ContextTagView(*row) for row in rows)
-
-    def _tag_names(self, revision_id: str) -> tuple[str, ...]:
-        return tuple(tag.name for tag in self._tag_views(revision_id))
 
     @staticmethod
     def _temporal_from_row(row: ContextEventRevision) -> TemporalValue:

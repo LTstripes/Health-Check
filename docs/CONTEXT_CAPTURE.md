@@ -11,6 +11,8 @@ metrics, or add context to reports.
 - Revision rows and their tag assignments are append-only. Revising an event
   creates the next numbered revision and atomically advances the pointer; prior
   text, time, capture source, and tags remain queryable with `--history`.
+  Omitted tags retain their status and original provenance on a revision;
+  explicitly supplied tags become confirmed under the new capture source.
 - Original text is required, is stored without trimming or paraphrasing, must
   not contain NUL, and is limited to **4,000 Unicode code points**.
 - An optional caller-supplied `--operation-id` makes an identical add/revise
