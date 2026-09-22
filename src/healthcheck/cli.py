@@ -20,6 +20,15 @@ from healthcheck.analytics.sleep_pairing import (
     SleepPairingQuery,
 )
 from healthcheck.config import Settings
+from healthcheck.context import (
+    ContextConflictError,
+    ContextRevisionView,
+    ContextService,
+    ContextValidationError,
+    parse_date_only,
+    parse_interval,
+    parse_timestamp,
+)
 from healthcheck.db.engine import (
     create_session_factory,
     create_sqlite_engine,
@@ -69,7 +78,7 @@ from healthcheck.profile_backup import (
     restore_profile,
     verify_backup,
 )
-from healthcheck.runtime import prepare_runtime
+from healthcheck.runtime import prepare_runtime, resolve_runtime_paths
 from healthcheck.sync_run_recovery import (
     SyncRunRecoveryRuntimeError,
     recover_stale_sync_runs,
@@ -108,6 +117,9 @@ def build_parser() -> argparse.ArgumentParser:
             "google-diagnose-terminal",
             "period-brief",
             "sleep-agreement-build",
+            "context-add",
+            "context-list",
+            "context-revise",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -143,6 +155,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
         help="sleep pairing cohort (default: account_wearables_sleep_observations_v1)",
     )
+    parser.add_argument("--timestamp")
+    parser.add_argument("--timezone")
+    parser.add_argument("--text")
+    parser.add_argument("--tag", action="append", dest="tags")
+    parser.add_argument("--source", choices=("cli", "manual"), default="cli")
+    parser.add_argument("--event-id")
+    parser.add_argument("--operation-id")
+    parser.add_argument("--from", dest="from_date")
+    parser.add_argument("--to", dest="to_date")
+    parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--history", action="store_true")
+    parser.add_argument("--clear-tags", action="store_true")
     return parser
 
 
@@ -222,6 +246,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_period_brief(args)
     if args.command == "sleep-agreement-build":
         return _run_sleep_agreement_build(args, _settings(args))
+    if args.command in {"context-add", "context-list", "context-revise"}:
+        return _run_context(args, _settings(args))
 
     settings = _settings(args)
     if args.command == "garmin-auth":
@@ -311,6 +337,154 @@ def main(argv: Sequence[str] | None = None) -> int:
         service = "ingest"
     log_event("runtime_starting", operation="serve", service=service, status="ok")
     uvicorn.run(app, host=host, port=port, log_config=None)
+    return 0
+
+
+def _context_temporal_from_args(args: argparse.Namespace, *, optional: bool = False):
+    dates = tuple(args.dates or ())
+    has_interval = args.start is not None or args.end is not None
+    selected = int(bool(dates)) + int(args.timestamp is not None) + int(has_interval)
+    if selected == 0 and optional:
+        return None
+    if selected != 1:
+        raise ContextValidationError(
+            "choose exactly one temporal form: --date, --timestamp, or --start with --end"
+        )
+    if dates:
+        if len(dates) != 1:
+            raise ContextValidationError("context capture accepts exactly one --date")
+        if args.timezone is not None:
+            raise ContextValidationError("date-only context must not specify a timezone")
+        return parse_date_only(dates[0])
+    if args.timestamp is not None:
+        return parse_timestamp(args.timestamp, timezone_name=args.timezone)
+    if args.start is None or args.end is None:
+        raise ContextValidationError("interval context requires both --start and --end")
+    return parse_interval(args.start, args.end, timezone_name=args.timezone)
+
+
+def _context_date(value: str | None, option_name: str) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ContextValidationError(f"{option_name} must use a valid YYYY-MM-DD date") from exc
+
+
+def _context_payload(view: ContextRevisionView, *, include_text: bool) -> dict[str, object]:
+    temporal = view.temporal
+    payload: dict[str, object] = {
+        "event_id": view.event_id,
+        "revision_id": view.revision_id,
+        "revision_number": view.revision_number,
+        "operation_id": view.operation_id,
+        "is_current": view.is_current,
+        "capture_source": view.capture_source,
+        "temporal": {
+            "kind": temporal.kind,
+            "start_precision": temporal.start_precision,
+            "start_local_date": temporal.start_local_date.isoformat(),
+            "start_source_timestamp": temporal.start_source_timestamp,
+            "start_utc_offset_minutes": temporal.start_utc_offset_minutes,
+            "start_timezone": temporal.start_timezone,
+            "end_precision": temporal.end_precision,
+            "end_local_date": (
+                temporal.end_local_date.isoformat() if temporal.end_local_date else None
+            ),
+            "end_source_timestamp": temporal.end_source_timestamp,
+            "end_utc_offset_minutes": temporal.end_utc_offset_minutes,
+            "end_timezone": temporal.end_timezone,
+        },
+        "tags": [
+            {
+                "name": tag.name,
+                "status": tag.status,
+                "provenance_source": tag.provenance_source,
+            }
+            for tag in view.tags
+        ],
+        "created_at": view.created_at.isoformat(),
+    }
+    if include_text:
+        payload["text"] = view.original_text
+    return payload
+
+
+def _run_context(args: argparse.Namespace, settings: Settings) -> int:
+    command_name = args.command
+    try:
+        paths = resolve_runtime_paths(settings)
+        if not paths.database.is_file():
+            raise ContextValidationError(
+                "profile database is unavailable; run healthcheck migrate first"
+            )
+        engine = create_sqlite_engine(paths)
+        try:
+            with session_scope(engine) as session:
+                service = ContextService(session)
+                if command_name == "context-add":
+                    if args.text is None:
+                        raise ContextValidationError("context-add requires --text")
+                    view = service.add(
+                        text=args.text,
+                        temporal=_context_temporal_from_args(args),
+                        capture_source=args.source,
+                        tags=tuple(args.tags or ()),
+                        event_id=args.event_id,
+                        operation_id=args.operation_id,
+                    )
+                    output: object = _context_payload(view, include_text=False)
+                elif command_name == "context-revise":
+                    if args.event_id is None:
+                        raise ContextValidationError("context-revise requires --event-id")
+                    if args.clear_tags and args.tags:
+                        raise ContextValidationError("use either --tag or --clear-tags, not both")
+                    temporal = _context_temporal_from_args(args, optional=True)
+                    tag_update = (
+                        ()
+                        if args.clear_tags
+                        else (tuple(args.tags) if args.tags is not None else None)
+                    )
+                    if args.text is None and temporal is None and tag_update is None:
+                        raise ContextValidationError(
+                            "context-revise requires a text, time, or tag change"
+                        )
+                    view = service.revise(
+                        args.event_id,
+                        text=args.text,
+                        temporal=temporal,
+                        capture_source=args.source,
+                        tags=tag_update,
+                        operation_id=args.operation_id,
+                    )
+                    output = _context_payload(view, include_text=False)
+                else:
+                    views = service.list(
+                        from_date=_context_date(args.from_date, "--from"),
+                        to_date=_context_date(args.to_date, "--to"),
+                        limit=args.limit,
+                        history=args.history,
+                    )
+                    output = {
+                        "count": len(views),
+                        "history": args.history,
+                        "events": [
+                            _context_payload(view, include_text=True) for view in views
+                        ],
+                    }
+        finally:
+            engine.dispose()
+    except (ContextValidationError, ContextConflictError) as exc:
+        print(f"{command_name}: ERROR: {exc}", file=sys.stderr)
+        return 2
+    except (SQLAlchemyError, OSError):
+        print(
+            f"{command_name}: ERROR: context storage operation failed; verify migration readiness",
+            file=sys.stderr,
+        )
+        return 1
+    print(json.dumps(output, ensure_ascii=False, sort_keys=True))
     return 0
 
 
