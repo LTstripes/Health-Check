@@ -224,10 +224,10 @@ def test_archive_symlink_entry_and_cli_output_do_not_expose_content(
 def test_archive_size_caps_cover_observed_multi_gib_owner_db() -> None:
     from healthcheck.profile_backup import MAX_ARCHIVE_MEMBER_BYTES, MAX_ARCHIVE_TOTAL_BYTES
 
-    # Current Stable archive: 5.341 GiB DB, 5.598 GiB total expanded.
+    # Keep the member and total envelopes explicit and independently bounded.
     observed_database_bytes = 5_734_481_920
     observed_total_bytes = 6_010_738_699
-    assert MAX_ARCHIVE_MEMBER_BYTES == 6 * 1024 * 1024 * 1024
+    assert MAX_ARCHIVE_MEMBER_BYTES == 7 * 1024 * 1024 * 1024
     assert MAX_ARCHIVE_TOTAL_BYTES == 8 * 1024 * 1024 * 1024
     assert MAX_ARCHIVE_MEMBER_BYTES > observed_database_bytes
     assert MAX_ARCHIVE_TOTAL_BYTES > observed_total_bytes
