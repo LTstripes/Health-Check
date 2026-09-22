@@ -8,12 +8,13 @@ to the pure period-brief packet assembler.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from healthcheck.analytics.coverage import calculate_coverage
 from healthcheck.analytics.garmin_activity_comparison import (
     ACTIVITY_COMPARISON_METRIC_CODES,
     MAX_SELECTED_ACTIVITIES,
@@ -27,7 +28,9 @@ from healthcheck.analytics.garmin_baselines import (
 )
 from healthcheck.analytics.period_brief import (
     PERIOD_BRIEF_ACTIVITY_SELECTION_POLICY,
+    PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS,
     baseline_summary_from_result,
+    baseline_window_evidence,
     build_period_brief_packet,
     normalize_period,
     render_period_brief_text,
@@ -35,8 +38,12 @@ from healthcheck.analytics.period_brief import (
 )
 from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
 from healthcheck.config import Settings
-from healthcheck.db.models import GarminProjectionStatus, GarminSourceRecord
-from healthcheck.db.repositories import restore_stored_utc
+from healthcheck.db.models import GarminProjectionStatus, GarminSource, GarminSourceRecord
+from healthcheck.db.repositories import repositories_for, restore_stored_utc
+from healthcheck.garmin.analytic_contract import (
+    SURFACE_ANALYTIC_METRIC_CODES,
+    get_analytic_metric_definition,
+)
 from healthcheck.web.garmin_query import DEFAULT_SCALAR_METRIC, GarminQueryService
 from healthcheck.web.query import WeightQueryService
 
@@ -71,11 +78,18 @@ class PeriodBriefService:
         selection_policy: str | None = None
         sleep_baselines: list[dict[str, Any]] = []
         activity_baselines: list[dict[str, Any]] = []
+        activity_acquisition_coverage: dict[str, Any] | None = None
         source_selection = self.garmin.resolve_source(garmin_source_id)
         selected_id = source_selection.get("selected_source_id")
         if selected_id:
             activities = self._list_activities_in_period(
                 selected_id, period.start_date, period.end_date
+            )
+            activity_acquisition_coverage = self._surface_coverage_evidence(
+                selected_id,
+                period.start_date,
+                period.end_date,
+                surface_code="activities",
             )
             comparison, selection_policy = self._maybe_compare_activities(selected_id, activities)
             sleep_baselines = self._safe_baselines(
@@ -87,7 +101,15 @@ class PeriodBriefService:
                 period.end_date,
                 PERIOD_BRIEF_ACTIVITY_BASELINE_METRICS,
             )
-            activity_inventory_status = "inventoried"
+            activity_coverage_state = activity_acquisition_coverage["state"]
+            if activities and activity_coverage_state == "present":
+                activity_inventory_status = "inventoried"
+            elif not activities and activity_coverage_state == "confirmed_empty":
+                activity_inventory_status = "inventoried"
+            elif activity_coverage_state == "unavailable":
+                activity_inventory_status = "unavailable"
+            else:
+                activity_inventory_status = "unknown"
         elif (
             source_selection.get("status") == "no_data"
             or source_selection.get("reason") == "no_garmin_sources"
@@ -106,6 +128,7 @@ class PeriodBriefService:
             activity_comparison=comparison,
             activity_selection_policy=selection_policy,
             activity_inventory_status=activity_inventory_status,
+            activity_acquisition_coverage=activity_acquisition_coverage,
             sleep_baselines=sleep_baselines,
             activity_baselines=activity_baselines,
             import_queue=import_queue,
@@ -202,34 +225,131 @@ class PeriodBriefService:
         metric_codes: Sequence[str],
     ) -> list[dict[str, Any]]:
         summaries: list[dict[str, Any]] = []
-        start = start_date
-        end = end_date
-        if (end - start).days + 1 > 180:
-            start = end - timedelta(days=179)
+        requested_window = normalize_period(start_date, end_date)
+        effective_start = start_date
+        effective_end = end_date
+        if requested_window.calendar_days > PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS:
+            effective_start = effective_end - timedelta(
+                days=PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS - 1
+            )
+        effective_window = normalize_period(effective_start, effective_end)
         for metric_code in metric_codes:
             query = GarminSeriesQuery(
                 metric_code=metric_code,
-                start_date=start,
-                end_date=end,
+                start_date=effective_start,
+                end_date=effective_end,
                 garmin_source_id=garmin_source_id,
+            )
+            definition = get_analytic_metric_definition(metric_code)
+            acquisition_coverage = self._surface_coverage_evidence(
+                garmin_source_id,
+                effective_start,
+                effective_end,
+                surface_code=self._surface_code_for_metric(metric_code),
             )
             try:
                 result = analyze_garmin_metric_series(self.session, query)
             except Exception:  # noqa: BLE001 - optional section inputs
+                windows = baseline_window_evidence(
+                    requested_window=requested_window,
+                    effective_window=effective_window,
+                )
                 summaries.append(
                     {
                         "metric_code": metric_code,
+                        "unit": definition.unit,
                         "availability": "unavailable",
+                        "acquisition_state": acquisition_coverage["state"],
+                        "availability_counts": None,
                         "latest_value": None,
-                        "personal_baseline_deviation": False,
+                        "personal_baseline_deviation": None,
                         "trend_slope_per_day": None,
                         "result_hash": None,
                         "reason": "baseline_unavailable",
+                        "algorithm": None,
+                        "rule_version": None,
+                        "acquisition_coverage": acquisition_coverage,
+                        **windows,
                     }
                 )
                 continue
-            summaries.append(baseline_summary_from_result(result.as_dict()))
+            summary = baseline_summary_from_result(
+                result.as_dict(),
+                requested_window=requested_window,
+                acquisition_state=acquisition_coverage["state"],
+            )
+            summary["acquisition_coverage"] = acquisition_coverage
+            summaries.append(summary)
         return summaries
+
+    @staticmethod
+    def _surface_code_for_metric(metric_code: str) -> str:
+        matches = [
+            surface_code
+            for surface_code, metric_codes in SURFACE_ANALYTIC_METRIC_CODES.items()
+            if metric_code in metric_codes
+        ]
+        if len(matches) != 1:
+            raise ValueError(f"metric {metric_code!r} has no unique acquisition surface")
+        return matches[0]
+
+    def _surface_coverage_evidence(
+        self,
+        garmin_source_id: str,
+        start_date: date,
+        end_date: date,
+        *,
+        surface_code: str,
+    ) -> dict[str, Any]:
+        """Project existing acquisition coverage onto each requested calendar day."""
+
+        source = self.session.get(GarminSource, garmin_source_id)
+        if source is None:
+            raise ValueError("selected Garmin source disappeared during Period Brief assembly")
+        interval_start = datetime.combine(start_date, time.min, tzinfo=UTC)
+        interval_end = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
+        rows = repositories_for(self.session).coverage.list(
+            provider_id=source.provider_id,
+            metric_code=surface_code,
+            interval_start=interval_start,
+            interval_end=interval_end,
+        )
+        rows = [
+            row
+            for row in rows
+            if row.acquisition_source_id in {None, source.acquisition_source_id}
+        ]
+        summary = calculate_coverage(
+            start_date,
+            end_date,
+            observations=(),
+            coverage_intervals=rows,
+            cadence_days=1,
+            as_of_date=end_date,
+        )
+        statuses = tuple(item.status for item in summary.bins)
+        complete = bool(statuses) and all(
+            status in {"present", "confirmed_empty"} for status in statuses
+        )
+        if complete and all(status == "confirmed_empty" for status in statuses):
+            state = "confirmed_empty"
+        elif complete:
+            state = "present"
+        elif any(status in {"unavailable", "failed"} for status in statuses):
+            state = "unavailable"
+        else:
+            state = "unknown"
+        return {
+            "state": state,
+            "complete": complete,
+            "surface_code": surface_code,
+            "requested_start_date": start_date.isoformat(),
+            "requested_end_date": end_date.isoformat(),
+            "status_counts": dict(summary.status_counts),
+            "coverage_rule_versions": sorted(
+                {row.calculation_rule_version for row in rows}
+            ),
+        }
 
 
 __all__ = ["PeriodBriefService"]

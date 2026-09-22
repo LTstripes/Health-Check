@@ -43,7 +43,7 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_
     assert "sleep_agreement_mode" not in primary
     assert "activity_comparison_state" not in primary
     assert "weight_rate_kg_per_week" in page.text
-    assert "period-brief-v1" in page.text
+    assert "period-brief-v2" in page.text
     assert "Traceback" not in page.text
     assert "SELECT " not in page.text
     assert "password" not in page.text.lower()

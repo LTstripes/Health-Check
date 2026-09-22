@@ -7,8 +7,22 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from healthcheck.analytics.garmin_baselines import (
+    GarminScalarSeriesResult,
+    GarminSeriesPoint,
+    GarminSeriesQuery,
+    PersonalBaselineStats,
+    PersonalPercentileResult,
+    RobustDeviationResult,
+    RobustTrendResult,
+    SeriesAvailabilityCounts,
+)
 from healthcheck.analytics.period_brief import (
+    PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS,
+    PERIOD_BRIEF_BASELINE_WINDOW_LIMIT_REASON,
+    PERIOD_BRIEF_BASELINE_WINDOW_POLICY,
     PERIOD_BRIEF_CONTRACT_VERSION,
+    baseline_summary_from_result,
     build_period_brief_packet,
     normalize_period,
     render_period_brief_text,
@@ -24,14 +38,21 @@ from healthcheck.analytics.sleep_pairing import (
     ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
     SleepPairingQuery,
 )
+from healthcheck.analytics.weight import DailyWeightPoint, WeightSummary, WeightTrendResult
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
     create_session_factory,
     create_sqlite_engine,
     migrate_database,
 )
+from healthcheck.db.models import GarminSource
+from healthcheck.db.repositories import repositories_for
+from healthcheck.garmin.analytic_contract import get_analytic_metric_definition
 from healthcheck.garmin.normalization import normalize_garmin_payload
-from healthcheck.garmin.persistence import GarminPersistenceRepository
+from healthcheck.garmin.persistence import (
+    GARMIN_COVERAGE_RULE_VERSION,
+    GarminPersistenceRepository,
+)
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.period_brief_query import PeriodBriefService
@@ -41,11 +62,27 @@ from test_sleep_pairing import pairing_database as pairing_database
 
 
 def _weight_summary(*, points: list[dict] | None = None, rate_available: bool = True):
-    points = points or [
-        {"observed_date": "2099-01-01", "value_kg": 80.0},
-        {"observed_date": "2099-01-08", "value_kg": 79.5},
-        {"observed_date": "2099-01-15", "value_kg": 79.0},
-    ]
+    if points is None:
+        points = [
+            {
+                "observed_date": "2099-01-01",
+                "median_kg": 80.0,
+                "observation_count": 1,
+                "evidence_ids": ["weight-1"],
+            },
+            {
+                "observed_date": "2099-01-08",
+                "median_kg": 79.5,
+                "observation_count": 1,
+                "evidence_ids": ["weight-2"],
+            },
+            {
+                "observed_date": "2099-01-15",
+                "median_kg": 79.0,
+                "observation_count": 1,
+                "evidence_ids": ["weight-3"],
+            },
+        ]
     return {
         "rate": {
             "available": rate_available,
@@ -77,13 +114,13 @@ def _weight_summary(*, points: list[dict] | None = None, rate_available: bool = 
             "expected_bin_count": 3,
             "covered_bin_count": 3,
             "freshness_days": 5,
-            "latest_observation_date": points[-1]["observed_date"],
-            "oldest_observation_date": points[0]["observed_date"],
+            "latest_observation_date": points[-1]["observed_date"] if points else None,
+            "oldest_observation_date": points[0]["observed_date"] if points else None,
             "longest_gap_days": 7,
         },
         "current": {
-            "value_kg": points[-1]["value_kg"],
-            "observed_date": points[-1]["observed_date"],
+            "value_kg": points[-1]["median_kg"] if points else None,
+            "observed_date": points[-1]["observed_date"] if points else None,
         },
         "canonical": {"available": True},
     }
@@ -173,6 +210,274 @@ def test_normalize_period_rejects_datetime_and_inverted_bounds():
         normalize_period(datetime(2099, 1, 1), date(2099, 1, 2))  # type: ignore[arg-type]
 
 
+def test_real_daily_weight_points_survive_producer_serialization():
+    """#146: real DailyWeightPoint keys, including explicit zero, reach the packet."""
+
+    trend = WeightTrendResult(
+        available=True,
+        points=(),
+        daily_points=(
+            DailyWeightPoint(
+                observed_date=date(2099, 1, 1),
+                median_kg=0.0,
+                observation_count=2,
+                evidence_ids=("weight-a", "weight-b"),
+            ),
+            DailyWeightPoint(
+                observed_date=date(2099, 1, 2),
+                median_kg=79.25,
+                observation_count=1,
+                evidence_ids=("weight-c",),
+            ),
+        ),
+        input_count=3,
+        covered_span_days=2,
+    )
+    summary = WeightSummary(
+        trend=trend,
+        coverage={
+            "status": "present",
+            "status_counts": {"present": 2},
+            "observed_dates": ["2099-01-01", "2099-01-02"],
+        },
+    ).as_dict()
+    packet = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 2)),
+        weight_summary=summary,
+        sleep_report=_sleep_report(available=False),
+    )
+    weight = packet["sections"]["weight"]
+    first = next(
+        fact
+        for fact in weight["summary_facts"]
+        if fact["code"] == "weight_first_daily_median_kg"
+    )
+    last = next(
+        fact
+        for fact in weight["summary_facts"]
+        if fact["code"] == "weight_last_daily_median_kg"
+    )
+    assert first == {
+        "code": "weight_first_daily_median_kg",
+        "value": 0.0,
+        "unit": "kg",
+        "availability": "present",
+        "observed_date": "2099-01-01",
+    }
+    assert last["value"] == 79.25
+    assert last["observed_date"] == "2099-01-02"
+    assert weight["display_points"] == [
+        {"observed_date": "2099-01-01", "median_kg": 0.0},
+        {"observed_date": "2099-01-02", "median_kg": 79.25},
+    ]
+
+    drifted = WeightSummary(trend=trend).as_dict()
+    drifted["trend"]["daily_points"][0]["value_kg"] = drifted["trend"]["daily_points"][
+        0
+    ].pop("median_kg")
+    with pytest.raises(ValueError, match="not a DailyWeightPoint payload"):
+        build_period_brief_packet(
+            period=normalize_period(date(2099, 1, 1), date(2099, 1, 2)),
+            weight_summary=drifted,
+            sleep_report=_sleep_report(available=False),
+        )
+
+
+def _real_scalar_result(
+    statuses: tuple[str, ...],
+    *,
+    analytics_available: bool = False,
+    start_date: date = date(2099, 1, 1),
+    end_date: date = date(2099, 1, 5),
+) -> GarminScalarSeriesResult:
+    points: list[GarminSeriesPoint] = []
+    for index, status in enumerate(statuses):
+        value = (
+            0.0
+            if status == "zero"
+            else (10.0 + index if status in {"usable", "partial"} else None)
+        )
+        points.append(
+            GarminSeriesPoint(
+                status=status,
+                value=value,
+                analytic_date=(start_date + timedelta(days=index)).isoformat(),
+                measured_at_utc=None,
+                local_wall_time=None,
+                zone_policy="local_date_only",
+                temporal_precision="date",
+                is_zero=status == "zero",
+                exclusion_reason="synthetic_unusable" if status == "not_computable" else None,
+                input_manifest_hash=f"manifest-{index}",
+                record_id=f"record-{index}",
+                metric_row_id=f"metric-{index}",
+                idempotency_key=f"key-{index}",
+            )
+        )
+    usable = sum(status in {"usable", "zero", "partial"} for status in statuses)
+    latest = next(
+        (point.value for point in reversed(points) if point.value is not None),
+        None,
+    )
+    availability = SeriesAvailabilityCounts(
+        candidate_count=len(points),
+        usable_count=usable,
+        zero_count=sum(status == "zero" for status in statuses),
+        excluded_count=sum(status == "excluded" for status in statuses),
+        missing_count=sum(status == "missing" for status in statuses),
+        null_count=sum(status == "null" for status in statuses),
+        invalid_count=sum(status == "invalid" for status in statuses),
+        not_computable_count=sum(status == "not_computable" for status in statuses),
+        partial_count=sum(status == "partial" for status in statuses),
+        exclusions=(),
+    )
+    baseline = PersonalBaselineStats(
+        available=usable > 0,
+        reason=None if usable > 0 else "no_usable_values",
+        count=usable,
+        mean=latest,
+        median=latest,
+        p10=latest,
+        p25=latest,
+        p50=latest,
+        p75=latest,
+        p90=latest,
+        minimum=latest,
+        maximum=latest,
+    )
+    percentile = PersonalPercentileResult(
+        available=analytics_available,
+        reason=None if analytics_available else "insufficient_usable_values",
+        value=50.0 if analytics_available else None,
+        latest_value=latest,
+        n=usable,
+    )
+    trend = RobustTrendResult(
+        available=analytics_available,
+        reason=None if analytics_available else "insufficient_temporal_sample",
+        slope_per_day=0.25 if analytics_available else None,
+        input_count=usable,
+        distinct_analytic_dates=usable,
+        pair_count=usable * (usable - 1) // 2,
+    )
+    deviation = RobustDeviationResult(
+        available=analytics_available,
+        reason=None if analytics_available else "insufficient_usable_values",
+        robust_z=0.0 if analytics_available else None,
+        mad=1.0 if analytics_available else None,
+        median=latest,
+        latest_value=latest,
+        personal_baseline_deviation=False if analytics_available else None,
+    )
+    return GarminScalarSeriesResult(
+        algorithm="garmin_scalar_personal_baseline_v1",
+        rule_version="r03-01-garmin-baseline-v1",
+        query=GarminSeriesQuery(
+            metric_code="stress_daily_average",
+            start_date=start_date,
+            end_date=end_date,
+            garmin_source_id="synthetic-source",
+        ),
+        metric_definition=get_analytic_metric_definition("stress_daily_average"),
+        points=tuple(points),
+        availability=availability,
+        baseline=baseline,
+        personal_percentile=percentile,
+        trend=trend,
+        deviation=deviation,
+        frozen_inputs=(),
+        result_hash=f"real-dto-{','.join(statuses) or 'empty'}-{start_date}-{end_date}",
+    )
+
+
+def test_real_r03_result_availability_and_windows_remain_distinct():
+    usable = baseline_summary_from_result(
+        _real_scalar_result(("usable",) * 5, analytics_available=True).as_dict(),
+        acquisition_state="present",
+    )
+    assert usable["availability"] == "present"
+    assert usable["availability_counts"]["usable_count"] == 5
+
+    explicit_zero = baseline_summary_from_result(
+        _real_scalar_result(("zero",)).as_dict(),
+        acquisition_state="present",
+    )
+    assert explicit_zero["availability"] == "insufficient"
+    assert explicit_zero["latest_value"] == 0.0
+    assert explicit_zero["availability_counts"]["zero_count"] == 1
+
+    partial = baseline_summary_from_result(
+        _real_scalar_result(("partial",)).as_dict(),
+        acquisition_state="present",
+    )
+    assert partial["availability"] == "insufficient"
+    assert partial["availability_counts"]["partial_count"] == 1
+
+    empty_result = _real_scalar_result(()).as_dict()
+    unknown = baseline_summary_from_result(empty_result, acquisition_state="unknown")
+    confirmed_empty = baseline_summary_from_result(
+        empty_result, acquisition_state="confirmed_empty"
+    )
+    assert unknown["availability"] == "unknown"
+    assert confirmed_empty["availability"] == "confirmed_empty"
+
+    metric_unavailable = baseline_summary_from_result(
+        _real_scalar_result(("missing", "null", "invalid", "not_computable")).as_dict(),
+        acquisition_state="present",
+    )
+    assert metric_unavailable["availability"] == "unavailable"
+    assert metric_unavailable["availability_counts"] == {
+        "candidate_count": 4,
+        "usable_count": 0,
+        "zero_count": 0,
+        "excluded_count": 0,
+        "missing_count": 1,
+        "null_count": 1,
+        "invalid_count": 1,
+        "not_computable_count": 1,
+        "partial_count": 0,
+    }
+
+    requested = normalize_period(date(2099, 1, 1), date(2099, 12, 31))
+    effective_end = requested.end_date
+    effective_start = effective_end - timedelta(
+        days=PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS - 1
+    )
+    limited = baseline_summary_from_result(
+        _real_scalar_result((), start_date=effective_start, end_date=effective_end).as_dict(),
+        requested_window=requested,
+        acquisition_state="unknown",
+    )
+    assert limited["requested_window"] == requested.as_dict()
+    assert limited["effective_window"]["calendar_days"] == 180
+    assert limited["window_policy"] == {
+        "code": PERIOD_BRIEF_BASELINE_WINDOW_POLICY,
+        "max_calendar_days": 180,
+        "limited": True,
+        "reason": PERIOD_BRIEF_BASELINE_WINDOW_LIMIT_REASON,
+    }
+
+    drifted = _real_scalar_result(("usable",)).as_dict()
+    drifted["availability"]["present_count"] = 1
+    drifted["availability"].pop("usable_count")
+    with pytest.raises(ValueError, match="availability.usable_count"):
+        baseline_summary_from_result(drifted, acquisition_state="present")
+
+    packet_unknown = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 5)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(),
+        sleep_baselines=[unknown],
+    )
+    packet_empty = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 5)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(),
+        sleep_baselines=[confirmed_empty],
+    )
+    assert packet_unknown["result_hash"] != packet_empty["result_hash"]
+
+
 def test_packet_hash_stable_for_identical_frozen_inputs():
     period = normalize_period(date(2099, 1, 1), date(2099, 1, 14))
     kwargs = dict(
@@ -253,7 +558,14 @@ def test_missing_unknown_unavailable_zero_remain_distinct():
     assert inventoried_empty["sections"]["activity"]["state"] == "confirmed_empty"
 
     zero_weight = _weight_summary(
-        points=[{"observed_date": "2099-01-02", "value_kg": 0.0}],
+        points=[
+            {
+                "observed_date": "2099-01-02",
+                "median_kg": 0.0,
+                "observation_count": 1,
+                "evidence_ids": ["weight-zero"],
+            }
+        ],
         rate_available=False,
     )
     # Explicit zero remains a numeric value with present availability, not null/unknown.
@@ -299,7 +611,12 @@ def test_missing_unknown_unavailable_zero_remain_distinct():
 def test_display_thinning_does_not_change_analytical_numbers():
     period = normalize_period(date(2099, 1, 1), date(2099, 1, 30))
     points = [
-        {"observed_date": f"2099-01-{day:02d}", "value_kg": 80.0 - (day * 0.05)}
+        {
+            "observed_date": f"2099-01-{day:02d}",
+            "median_kg": 80.0 - (day * 0.05),
+            "observation_count": 1,
+            "evidence_ids": [f"weight-{day}"],
+        }
         for day in range(1, 29)
     ]
     packet = build_period_brief_packet(
@@ -619,6 +936,82 @@ def _activity_payload(*, activity_id: str, day: str, activity_type: str = "cycli
     }
 
 
+def test_activity_empty_requires_complete_acquisition_coverage(tmp_path):
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            store = ContentAddressedGarminPayloadStore(paths.root / "garmin-artifacts")
+            outside = _activity_payload(activity_id="outside", day="2099-01-01")
+            outcome = GarminPersistenceRepository(session, payload_store=store).persist_result(
+                normalize_garmin_payload(outside),
+                payload=outside,
+                received_at=datetime(2099, 1, 2, tzinfo=UTC),
+                source_contract_version=outside["fixture_contract_version"],
+            )
+            session.commit()
+            source_id = outcome.records[0].garmin_source_id
+            start = date(2099, 2, 1)
+            end = date(2099, 2, 3)
+            service = PeriodBriefService(session, settings)
+
+            incomplete = service.build(
+                start_date=start,
+                end_date=end,
+                garmin_source_id=source_id,
+            )
+            activity = incomplete["sections"]["activity"]
+            assert activity["state"] == "unknown"
+            assert activity["coverage"]["inventory_status"] == "unknown"
+            assert activity["coverage"]["acquisition"] == {
+                "state": "unknown",
+                "complete": False,
+                "surface_code": "activities",
+                "requested_start_date": "2099-02-01",
+                "requested_end_date": "2099-02-03",
+                "status_counts": {
+                    "present": 0,
+                    "confirmed_empty": 0,
+                    "unavailable": 0,
+                    "failed": 0,
+                    "unknown": 3,
+                },
+                "coverage_rule_versions": [],
+            }
+
+            source = session.get(GarminSource, source_id)
+            assert source is not None
+            repositories_for(session).coverage.record(
+                provider_id=source.provider_id,
+                acquisition_source_id=source.acquisition_source_id,
+                stream_code="activity",
+                metric_code="activities",
+                interval_start=datetime(2099, 2, 1, tzinfo=UTC),
+                interval_end=datetime(2099, 2, 4, tzinfo=UTC),
+                resolution="day",
+                status="confirmed_empty",
+                calculation_rule_version=GARMIN_COVERAGE_RULE_VERSION,
+                observed_count=0,
+            )
+            session.commit()
+
+            proven_empty = service.build(
+                start_date=start,
+                end_date=end,
+                garmin_source_id=source_id,
+            )
+            activity = proven_empty["sections"]["activity"]
+            assert activity["state"] == "confirmed_empty"
+            assert activity["coverage"]["inventory_status"] == "inventoried"
+            assert activity["coverage"]["acquisition"]["state"] == "confirmed_empty"
+            assert activity["coverage"]["acquisition"]["complete"] is True
+            assert incomplete["result_hash"] != proven_empty["result_hash"]
+    finally:
+        engine.dispose()
+
+
 def test_activity_inventory_does_not_silently_truncate_above_100(tmp_path):
     """Analytical inventory over a bounded period must remain complete past 100 rows."""
 
@@ -650,7 +1043,9 @@ def test_activity_inventory_does_not_silently_truncate_above_100(tmp_path):
             assert len(listed) == total
             packet = service.build(start_date=start, end_date=end, garmin_source_id=source_id)
             activity = packet["sections"]["activity"]
-            assert activity["coverage"]["inventory_status"] == "inventoried"
+            assert activity["coverage"]["inventory_status"] == "unknown"
+            assert activity["state"] == "present"
+            assert activity["coverage"]["acquisition"]["complete"] is False
             assert activity["coverage"]["sessions_in_period"] == total
             count_fact = next(
                 f for f in activity["summary_facts"] if f["code"] == "activity_session_count"
@@ -676,5 +1071,31 @@ def test_activity_inventory_does_not_silently_truncate_above_100(tmp_path):
             assert (
                 display["sections"]["activity"]["display_thinning"]["analytics_unchanged"] is True
             )
+
+            annual_end = start + timedelta(days=364)
+            annual = service.build(
+                start_date=start,
+                end_date=annual_end,
+                garmin_source_id=source_id,
+            )
+            baselines = [
+                *annual["sections"]["sleep"]["analytics_snapshot"]["baseline_summaries"],
+                *annual["sections"]["activity"]["analytics_snapshot"]["baseline_summaries"],
+            ]
+            assert baselines
+            for baseline in baselines:
+                assert baseline["requested_window"] == {
+                    "start_date": start.isoformat(),
+                    "end_date": annual_end.isoformat(),
+                    "calendar_days": 365,
+                }
+                assert baseline["effective_window"]["end_date"] == annual_end.isoformat()
+                assert baseline["effective_window"]["calendar_days"] == 180
+                assert baseline["window_policy"]["code"] == PERIOD_BRIEF_BASELINE_WINDOW_POLICY
+                assert baseline["window_policy"]["limited"] is True
+                assert (
+                    baseline["window_policy"]["reason"]
+                    == PERIOD_BRIEF_BASELINE_WINDOW_LIMIT_REASON
+                )
     finally:
         engine.dispose()
