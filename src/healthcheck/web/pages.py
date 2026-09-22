@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -87,6 +88,21 @@ _BRIEF_COHORT_LABELS = {
     ),
 }
 
+_BRIEF_PROVIDER_LABELS = {
+    "garmin_connect": "Garmin Connect",
+    "garmin": "Garmin Connect",
+}
+_BRIEF_NOTABLE_PRIORITY = {
+    # Measured deviations lead the owner-facing list; status and uncertainty
+    # notes remain visible as context below them.
+    "personal_baseline_deviation": 0,
+    "weight_rate": 1,
+    "weight_trend": 1,
+    "sleep_exploratory_agreement": 2,
+    "activity_comparison": 2,
+    "uncertain_account_cohort": 3,
+}
+
 
 def _brief_owner_state(state: object) -> str:
     return _BRIEF_STATE_LABELS.get(str(state or "unknown"), "Состояние данных не определено")
@@ -126,6 +142,105 @@ def _brief_owner_uncertainty(_: object) -> str:
         "Это исследовательская когорта с неопределённой атрибуцией; "
         "это не сравнение Garmin и Fitbit/устройств и не основание для выбора "
         "канонического источника."
+    )
+
+
+def _brief_source_label(source: object) -> str:
+    """Return a short owner label without leaking source identity fields."""
+
+    if not isinstance(source, Mapping):
+        return "Garmin Connect"
+    provider_code = str(source.get("provider_code") or "").strip().casefold()
+    provider_label = _BRIEF_PROVIDER_LABELS.get(provider_code, "Garmin Connect")
+    # A model is useful only when the persisted source explicitly proves that
+    # the device is attributed. Unknown and false attribution stay generic.
+    model = (
+        source.get("device_model")
+        if source.get("device_attributed") is True
+        else None
+    )
+    model_text = str(model or "").strip()
+    return f"{provider_label} · {model_text}" if model_text else provider_label
+
+
+def _brief_sleep_uncertainty(groups: object) -> str | None:
+    """Collapse repeated uncertain cohort notices into one period warning."""
+
+    if not isinstance(groups, (list, tuple)):
+        return None
+    if any(
+        isinstance(group, Mapping) and group.get("exploratory_label_required")
+        for group in groups
+    ):
+        return _brief_owner_uncertainty(None)
+    return None
+
+
+def _brief_coverage_warning(brief: object) -> str | None:
+    """Summarize relevant coverage warnings without changing packet states."""
+
+    if not isinstance(brief, Mapping):
+        return None
+    sections = brief.get("sections")
+    if not isinstance(sections, Mapping):
+        return None
+    warnings: list[str] = []
+    for name in ("weight", "sleep", "activity"):
+        section = sections.get(name)
+        if not isinstance(section, Mapping):
+            continue
+        state = str(section.get("state") or "unknown")
+        if state in {"unknown", "unavailable", "insufficient"}:
+            warnings.append(f"{name}: {_brief_owner_state(state)}")
+    quality = sections.get("data_quality")
+    coverage = quality.get("coverage") if isinstance(quality, Mapping) else None
+    for provider in (coverage or {}).get("provider_states") or []:
+        if not isinstance(provider, Mapping):
+            continue
+        state = str(provider.get("state") or "unknown")
+        if state in {"unknown", "unavailable", "insufficient"}:
+            warnings.append(f"Источник: {_brief_owner_state(state)}")
+    sparse_note = (coverage or {}).get("weight_sparse_note")
+    if sparse_note:
+        warnings.append(str(sparse_note))
+    return " · ".join(dict.fromkeys(warnings)) or None
+
+
+def _brief_notable_changes(notes: object) -> list[dict[str, Any]]:
+    """Deduplicate and order packet notices for the owner-facing summary only."""
+
+    if not isinstance(notes, (list, tuple)):
+        return []
+    unique: dict[tuple[str, ...], dict[str, Any]] = {}
+    for note in notes:
+        if not isinstance(note, Mapping):
+            continue
+        code = str(note.get("code") or "")
+        if not code:
+            continue
+        # Account-level uncertainty is one period warning, not one notice per
+        # metric/group. Other metric-specific deviations retain their detail.
+        if code == "uncertain_account_cohort":
+            key = (code,)
+        else:
+            key = (
+                str(note.get("section") or ""),
+                code,
+                str(note.get("metric_code") or ""),
+                str(note.get("fact_code") or ""),
+                str(note.get("cohort") or ""),
+            )
+        unique.setdefault(key, dict(note))
+    return sorted(
+        unique.values(),
+        key=lambda note: (
+            _BRIEF_NOTABLE_PRIORITY.get(str(note.get("code") or ""), 99),
+            str(note.get("section") or ""),
+            str(note.get("code") or ""),
+            str(note.get("metric_code") or ""),
+            str(note.get("fact_code") or ""),
+            str(note.get("cohort") or ""),
+        ),
     )
 
 
@@ -345,6 +460,10 @@ def period_brief_page(
             "brief_owner_state": _brief_owner_state,
             "brief_owner_uncertainty": _brief_owner_uncertainty,
             "brief_owner_value": _brief_owner_value,
+            "brief_notable_changes": _brief_notable_changes,
+            "brief_coverage_warning": _brief_coverage_warning,
+            "brief_sleep_uncertainty": _brief_sleep_uncertainty,
+            "brief_source_label": _brief_source_label,
             "page": "brief",
         },
     )
