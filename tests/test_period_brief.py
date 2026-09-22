@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from healthcheck import cli
 from healthcheck.analytics.garmin_baselines import (
     GarminScalarSeriesResult,
     GarminSeriesPoint,
@@ -741,6 +743,41 @@ def test_api_period_brief_on_empty_runtime(tmp_path):
         )
         assert text.status_code == 200
         assert "Result hash:" in text.text
+
+
+def test_cli_period_brief_writes_packet_to_external_runtime(tmp_path, capsys):
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    output = tmp_path / "period-brief.json"
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    stdout = capsys.readouterr().out
+    assert f"period-brief: wrote packet to {output}" in stdout
+    packet = json.loads(output.read_text(encoding="utf-8"))
+    assert packet["contract_version"] == PERIOD_BRIEF_CONTRACT_VERSION
+    assert packet["period"] == {
+        "start_date": "2099-01-01",
+        "end_date": "2099-01-14",
+        "calendar_days": 14,
+    }
+    assert packet["result_hash"]
 
 
 def test_activity_availability_distinguishes_inventory_outcomes():

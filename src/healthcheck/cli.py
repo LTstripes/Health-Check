@@ -1008,7 +1008,7 @@ def _run_period_brief(args: argparse.Namespace) -> int:
     configure_logging(paths.logs, settings.log_level)
     from healthcheck.web.period_brief_query import PeriodBriefService
 
-    engine = create_sqlite_engine(paths.database)
+    engine = create_sqlite_engine(paths)
     try:
         with session_scope(engine) as session:
             payload = PeriodBriefService(session, settings).build_with_render(
