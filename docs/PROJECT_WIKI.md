@@ -5,9 +5,10 @@ This is the compact current-state entry point. Historical contracts and release 
 ## Current canonical state
 
 - Canonical Git branch: `main`
-- Pre-closeout main checkpoint used for divergence analysis: `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`
-- Exact-main CI at that checkpoint: `35240124890` — SUCCESS
-- Current `main` must always be re-read from GitHub; do not encode a self-referential docs-merge SHA as permanent state.
+- Current canonical checkpoint for this handoff: `main @ b887fceceb85931ad8ead9423c0f86e0cac09291`
+- Exact-main CI: `35608281796` — SUCCESS
+- Historical Stable-line divergence checkpoint: `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`; keep it only as lineage evidence.
+- Current `main` must always be re-read from GitHub before launch/integration; do not encode a docs-merge SHA as permanent architecture truth.
 - Latest released major slice: **R05 — Garmin / Google wearable sleep agreement**
 - R05 release SHA: `46e59327e394ae6dbc5a4ecdf42913200124b9e9` (CI `35130647037` SUCCESS; #106 closed)
 - #119 deterministic period brief v1: completed at `2c19ca968f84efb5e69c1a859ce6016939e617ca` (CI `35139999279` SUCCESS)
@@ -131,7 +132,7 @@ Until that changes, the manual Integrator gate is mandatory:
 
 ### 1. Repository-line reconciliation
 
-Before new shared product work is stacked, reconcile current `main @ 6f21eea…`, accepted `integration/stable-owner-runtime @ 0b05a807…`, and accepted Period Brief presentation line `integration/period-brief-ui-v1 @ a1d4e4c…`. Preserve accepted semantics and rerun exact-SHA gates; do not blindly merge divergent histories.
+Before new shared product work is stacked, reconcile current `main @ b887fcec…`, accepted `integration/stable-owner-runtime @ 0b05a807…`, and accepted Period Brief presentation line `integration/period-brief-ui-v1 @ a1d4e4c…`. Preserve accepted semantics and rerun exact-SHA gates; do not blindly merge divergent histories.
 
 ### 2. Period Brief correctness / owner UX / UAT
 
