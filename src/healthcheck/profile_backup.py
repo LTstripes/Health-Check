@@ -25,10 +25,10 @@ MANIFEST_NAME = "manifest.json"
 PROFILE_PREFIX = "profile/"
 DATABASE_NAME = "healthcheck.db"
 LOGS_DIRECTORY = "logs"
-# Hard expanded-size caps. The member limit covers the observed ~5.34 GiB
+# Hard expanded-size caps. The member limit covers the current ~6.402 GiB
 # owner Stable SQLite DB; the existing total limit still has ample headroom.
 # Format-v1 is unchanged; ZIP64 is used when member/archive sizes require it.
-MAX_ARCHIVE_MEMBER_BYTES = 6 * 1024 * 1024 * 1024  # 6 GiB
+MAX_ARCHIVE_MEMBER_BYTES = 7 * 1024 * 1024 * 1024  # 7 GiB
 MAX_ARCHIVE_TOTAL_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB
 MAX_MANIFEST_BYTES = 1_048_576
 
