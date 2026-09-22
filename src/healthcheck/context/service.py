@@ -98,6 +98,8 @@ def _parse_aware_timestamp(value: str, timezone_name: str | None) -> tuple[datet
         raise ContextValidationError(
             "timestamp must be ISO 8601 with T and an explicit Z or numeric offset"
         )
+    if value.endswith("-00:00"):
+        raise ContextValidationError("timestamp offset is unknown; provide a known offset")
     try:
         parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
     except ValueError as exc:

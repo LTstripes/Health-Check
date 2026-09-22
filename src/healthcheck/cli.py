@@ -345,6 +345,8 @@ def _context_temporal_from_args(args: argparse.Namespace, *, optional: bool = Fa
     has_interval = args.start is not None or args.end is not None
     selected = int(bool(dates)) + int(args.timestamp is not None) + int(has_interval)
     if selected == 0 and optional:
+        if args.timezone is not None:
+            raise ContextValidationError("--timezone requires a timestamp or interval")
         return None
     if selected != 1:
         raise ContextValidationError(

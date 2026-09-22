@@ -90,6 +90,12 @@ def test_explicit_timestamp_and_interval_preserve_offset_and_validate_zone() -> 
 
     with pytest.raises(ContextValidationError, match="explicit"):
         parse_timestamp("2026-09-22T19:30")
+    with pytest.raises(ContextValidationError, match="offset is unknown"):
+        parse_timestamp("2026-09-22T19:30-00:00")
+    with pytest.raises(ContextValidationError, match="offset is unknown"):
+        parse_interval("2026-09-22T19:30-00:00", "2026-09-22T20:30+00:00")
+    with pytest.raises(ContextValidationError, match="offset is unknown"):
+        parse_interval("2026-09-22T19:30+00:00", "2026-09-22T20:30-00:00")
     with pytest.raises(ContextValidationError, match="does not match"):
         parse_timestamp("2026-09-22T19:30+02:00", timezone_name="Europe/Moscow")
     with pytest.raises(ContextValidationError, match="later"):
@@ -403,6 +409,23 @@ def test_cli_add_list_revise_is_typed_and_privacy_safe(tmp_path: Path, capsys) -
     assert revise_output["revision_number"] == 2
     assert revise_output["tags"] == []
     assert "text" not in revise_output
+
+    assert main(
+        [
+            "context-revise",
+            "--data-dir",
+            data_dir,
+            "--event-id",
+            add_output["event_id"],
+            "--text",
+            "Synthetic orphan-zone correction",
+            "--timezone",
+            "Europe/Moscow",
+        ]
+    ) == 2
+    assert "--timezone requires" in capsys.readouterr().err
+    assert main(["context-list", "--data-dir", data_dir]) == 0
+    assert json.loads(capsys.readouterr().out)["events"][0]["revision_number"] == 2
 
     secret_prefix = "PRIVATE-NOTE-MUST-NOT-ECHO"
     assert main(
