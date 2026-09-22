@@ -14,8 +14,10 @@ metrics, or add context to reports.
 - Original text is required, is stored without trimming or paraphrasing, must
   not contain NUL, and is limited to **4,000 Unicode code points**.
 - An optional caller-supplied `--operation-id` makes an identical add/revise
-  retry converge. Reusing it for different input fails closed. Generated and
-  supplied operation IDs are returned by the CLI.
+  retry converge, including a partial revise retried after the current head has
+  advanced. Identity binds the operation kind and explicitly supplied,
+  normalized request fields; reusing it for different input fails closed.
+  Generated and supplied operation IDs are returned by the CLI.
 
 Supported explicit time forms are:
 

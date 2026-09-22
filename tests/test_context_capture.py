@@ -98,6 +98,13 @@ def test_explicit_timestamp_and_interval_preserve_offset_and_validate_zone() -> 
         parse_interval("2026-09-23", "2026-09-22")
     with pytest.raises(ContextValidationError, match="same temporal precision"):
         parse_interval("2026-09-22", "2026-09-23T12:00+03:00")
+    with pytest.raises(ContextValidationError, match="same temporal precision"):
+        parse_interval("2026-09-22T19:30+03:00", "2026-09-22T20:30:00+03:00")
+    with pytest.raises(ContextValidationError, match="same temporal precision"):
+        parse_interval(
+            "2026-09-22T19:30:00+03:00",
+            "2026-09-22T20:30:00.123456+03:00",
+        )
 
 
 def test_revise_is_append_only_advances_head_and_retries_idempotently(tmp_path: Path) -> None:
@@ -137,17 +144,41 @@ def test_revise_is_append_only_advances_head_and_retries_idempotently(tmp_path: 
             )
             assert replay_second.revision_id == second.revision_id
             assert second.revision_number == 2
+            third = service.revise(
+                first.event_id,
+                tags=("later tag",),
+                capture_source="manual",
+                operation_id="revise-later-1",
+            )
+            replay_after_head_advanced = service.revise(
+                first.event_id,
+                text="Synthetic corrected note",
+                tags=("travel", "unusual_stress"),
+                capture_source="manual",
+                operation_id="revise-idempotent-1",
+            )
+            assert replay_after_head_advanced.revision_id == second.revision_id
+            assert third.revision_number == 3
             current = service.list()
             history = service.list(history=True)
-            assert [row.revision_id for row in current] == [second.revision_id]
-            assert {row.revision_number: row.is_current for row in history} == {1: False, 2: True}
+            assert [row.revision_id for row in current] == [third.revision_id]
+            assert {row.revision_number: row.is_current for row in history} == {
+                1: False,
+                2: False,
+                3: True,
+            }
             head = session.get(ContextEventHead, first.event_id)
-            assert head is not None and head.revision_id == second.revision_id
+            assert head is not None and head.revision_id == third.revision_id
 
             with pytest.raises(ContextConflictError, match="different context input"):
                 service.add(
                     text="Different input",
                     temporal=parse_date_only("2026-09-20"),
+                    operation_id="add-idempotent-1",
+                )
+            with pytest.raises(ContextConflictError, match="different context input"):
+                service.revise(
+                    first.event_id,
                     operation_id="add-idempotent-1",
                 )
 
@@ -239,6 +270,40 @@ def test_typed_service_rejects_internally_inconsistent_temporal_value(tmp_path: 
                         start_source_timestamp="2026-09-22T19:30+03:00",
                         start_utc_offset_minutes=0,
                     ),
+                )
+    finally:
+        engine.dispose()
+
+
+def test_schema_rejects_mixed_timestamp_interval_precision(tmp_path: Path) -> None:
+    _settings, _paths, engine = _runtime(tmp_path)
+    try:
+        with session_scope(engine) as session:
+            event = ContextService(session).add(
+                text="Synthetic schema-constraint anchor",
+                temporal=parse_date_only("2026-09-22"),
+                operation_id="mixed-precision-anchor",
+            )
+
+        with engine.begin() as connection:
+            with pytest.raises(DatabaseError, match="temporal_shape_valid"):
+                connection.execute(
+                    text(
+                        "INSERT INTO context_event_revisions ("
+                        "id, event_id, revision_number, operation_id, operation_kind, "
+                        "request_fingerprint, original_text, capture_source, temporal_kind, "
+                        "start_precision, end_precision, start_local_date, end_local_date, "
+                        "start_at_utc, end_at_utc, start_source_timestamp, "
+                        "end_source_timestamp, start_utc_offset_minutes, "
+                        "end_utc_offset_minutes"
+                        ") VALUES ("
+                        "'mixed-precision-revision', :event_id, 2, 'mixed-precision-op', "
+                        "'revise', :fingerprint, 'Synthetic mixed precision', 'manual', "
+                        "'interval', 'minute', 'second', '2026-09-22', '2026-09-22', "
+                        "'2026-09-22 16:30:00', '2026-09-22 17:30:00', "
+                        "'2026-09-22T19:30+03:00', '2026-09-22T20:30:00+03:00', 180, 180)"
+                    ),
+                    {"event_id": event.event_id, "fingerprint": "0" * 64},
                 )
     finally:
         engine.dispose()

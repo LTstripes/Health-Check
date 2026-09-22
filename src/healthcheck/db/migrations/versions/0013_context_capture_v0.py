@@ -86,6 +86,8 @@ def upgrade() -> None:
         sa.Column("event_id", sa.String(36), nullable=False),
         sa.Column("revision_number", sa.Integer(), nullable=False),
         sa.Column("operation_id", sa.String(80), nullable=False),
+        sa.Column("operation_kind", sa.String(10), nullable=False),
+        sa.Column("request_fingerprint", sa.String(64), nullable=False),
         sa.Column("original_text", sa.Text(), nullable=False),
         sa.Column("capture_source", sa.String(20), nullable=False),
         sa.Column("temporal_kind", sa.String(20), nullable=False),
@@ -110,6 +112,12 @@ def upgrade() -> None:
         sa.CheckConstraint("revision_number >= 1", name="revision_number_positive"),
         sa.CheckConstraint(
             "length(operation_id) BETWEEN 1 AND 80", name="operation_id_bounded"
+        ),
+        sa.CheckConstraint(
+            "operation_kind IN ('add', 'revise')", name="operation_kind_allowed"
+        ),
+        sa.CheckConstraint(
+            "length(request_fingerprint) = 64", name="request_fingerprint_sha256"
         ),
         sa.CheckConstraint(
             "length(original_text) BETWEEN 1 AND 4000", name="original_text_bounded"
@@ -163,7 +171,7 @@ def upgrade() -> None:
             "AND start_utc_offset_minutes IS NULL AND end_utc_offset_minutes IS NULL "
             "AND start_timezone IS NULL AND end_timezone IS NULL) "
             "OR (temporal_kind = 'interval' "
-            "AND start_precision <> 'date' AND end_precision <> 'date' "
+            "AND start_precision <> 'date' AND end_precision = start_precision "
             "AND start_local_date IS NOT NULL AND end_local_date IS NOT NULL "
             "AND start_at_utc IS NOT NULL AND end_at_utc IS NOT NULL "
             "AND start_source_timestamp IS NOT NULL AND end_source_timestamp IS NOT NULL "

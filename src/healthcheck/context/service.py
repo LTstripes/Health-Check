@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -179,6 +181,8 @@ def parse_interval(
         )
     start_utc, start_offset, start_precision = _parse_aware_timestamp(start, timezone_name)
     end_utc, end_offset, end_precision = _parse_aware_timestamp(end, timezone_name)
+    if start_precision != end_precision:
+        raise ContextValidationError("interval bounds must use the same temporal precision")
     if start_utc >= end_utc:
         raise ContextValidationError("interval end must be later than interval start")
     start_parsed = datetime.fromisoformat(start[:-1] + "+00:00" if start.endswith("Z") else start)
@@ -299,6 +303,34 @@ def _normalized_tags(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     return tuple(sorted({normalize_tag(value) for value in values}))
 
 
+def _temporal_identity(value: TemporalValue) -> dict[str, str | int | None]:
+    return {
+        "kind": value.kind,
+        "start_precision": value.start_precision,
+        "start_local_date": value.start_local_date.isoformat(),
+        "start_at_utc": value.start_at_utc.isoformat() if value.start_at_utc else None,
+        "start_source_timestamp": value.start_source_timestamp,
+        "start_utc_offset_minutes": value.start_utc_offset_minutes,
+        "start_timezone": value.start_timezone,
+        "end_precision": value.end_precision,
+        "end_local_date": value.end_local_date.isoformat() if value.end_local_date else None,
+        "end_at_utc": value.end_at_utc.isoformat() if value.end_at_utc else None,
+        "end_source_timestamp": value.end_source_timestamp,
+        "end_utc_offset_minutes": value.end_utc_offset_minutes,
+        "end_timezone": value.end_timezone,
+    }
+
+
+def _request_fingerprint(operation_kind: str, payload: dict[str, object]) -> str:
+    encoded = json.dumps(
+        {"operation_kind": operation_kind, **payload},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _aware_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -325,8 +357,18 @@ class ContextService:
         source = _validate_capture_source(capture_source)
         temporal = _validate_temporal(temporal)
         normalized_tags = _normalized_tags(tags)
-        stable_event_id = _validate_event_id(event_id)
+        supplied_event_id = _validate_event_id(event_id) if event_id is not None else None
         stable_operation_id = _validate_operation_id(operation_id)
+        request_fingerprint = _request_fingerprint(
+            "add",
+            {
+                "event_id": supplied_event_id,
+                "text": original_text,
+                "capture_source": source,
+                "temporal": _temporal_identity(temporal),
+                "tags": normalized_tags,
+            },
+        )
         existing = self.session.scalar(
             select(ContextEventRevision).where(
                 ContextEventRevision.operation_id == stable_operation_id
@@ -334,17 +376,15 @@ class ContextService:
         )
         if existing is not None:
             if (
-                existing.revision_number != 1
-                or (event_id is not None and existing.event_id != stable_event_id)
-                or not self._matches(
-                    existing, original_text, source, temporal, normalized_tags
-                )
+                existing.operation_kind != "add"
+                or existing.request_fingerprint != request_fingerprint
             ):
                 raise ContextConflictError(
                     "operation id already belongs to different context input"
                 )
             return self._view(existing)
 
+        stable_event_id = supplied_event_id or str(uuid4())
         event = ContextEvent(id=stable_event_id)
         self.session.add(event)
         self.session.flush()
@@ -352,6 +392,8 @@ class ContextService:
             event_id=event.id,
             revision_number=1,
             operation_id=stable_operation_id,
+            operation_kind="add",
+            request_fingerprint=request_fingerprint,
             original_text=original_text,
             capture_source=source,
             temporal=temporal,
@@ -374,20 +416,25 @@ class ContextService:
         stable_event_id = _validate_event_id(event_id)
         source = _validate_capture_source(capture_source)
         stable_operation_id = _validate_operation_id(operation_id)
-        head = self.session.get(ContextEventHead, stable_event_id)
-        if head is None:
-            raise ContextValidationError("context event does not exist")
-        current = self.session.get(ContextEventRevision, head.revision_id)
-        if current is None:
-            raise ContextConflictError("context event current revision is unavailable")
-        desired_text = current.original_text if text is None else _validate_text(text)
-        desired_temporal = (
-            self._temporal_from_row(current)
-            if temporal is None
-            else _validate_temporal(temporal)
-        )
-        desired_tags = (
-            self._tag_names(current.id) if tags is None else _normalized_tags(tags)
+        supplied_text = None if text is None else _validate_text(text)
+        supplied_temporal = None if temporal is None else _validate_temporal(temporal)
+        supplied_tags = None if tags is None else _normalized_tags(tags)
+        request_fingerprint = _request_fingerprint(
+            "revise",
+            {
+                "event_id": stable_event_id,
+                "text": {"provided": text is not None, "value": supplied_text},
+                "capture_source": source,
+                "temporal": {
+                    "provided": temporal is not None,
+                    "value": (
+                        _temporal_identity(supplied_temporal)
+                        if supplied_temporal is not None
+                        else None
+                    ),
+                },
+                "tags": {"provided": tags is not None, "value": supplied_tags},
+            },
         )
         existing = self.session.scalar(
             select(ContextEventRevision).where(
@@ -395,18 +442,36 @@ class ContextService:
             )
         )
         if existing is not None:
-            if existing.event_id != stable_event_id or not self._matches(
-                existing, desired_text, source, desired_temporal, desired_tags
+            if (
+                existing.operation_kind != "revise"
+                or existing.request_fingerprint != request_fingerprint
             ):
                 raise ContextConflictError(
                     "operation id already belongs to different context input"
                 )
             return self._view(existing)
 
+        head = self.session.get(ContextEventHead, stable_event_id)
+        if head is None:
+            raise ContextValidationError("context event does not exist")
+        current = self.session.get(ContextEventRevision, head.revision_id)
+        if current is None:
+            raise ContextConflictError("context event current revision is unavailable")
+        desired_text = current.original_text if supplied_text is None else supplied_text
+        desired_temporal = (
+            self._temporal_from_row(current)
+            if supplied_temporal is None
+            else supplied_temporal
+        )
+        desired_tags = (
+            self._tag_names(current.id) if supplied_tags is None else supplied_tags
+        )
         revision = self._new_revision(
             event_id=stable_event_id,
             revision_number=current.revision_number + 1,
             operation_id=stable_operation_id,
+            operation_kind="revise",
+            request_fingerprint=request_fingerprint,
             original_text=desired_text,
             capture_source=source,
             temporal=desired_temporal,
@@ -481,6 +546,8 @@ class ContextService:
         event_id: str,
         revision_number: int,
         operation_id: str,
+        operation_kind: str,
+        request_fingerprint: str,
         original_text: str,
         capture_source: str,
         temporal: TemporalValue,
@@ -490,6 +557,8 @@ class ContextService:
             event_id=event_id,
             revision_number=revision_number,
             operation_id=operation_id,
+            operation_kind=operation_kind,
+            request_fingerprint=request_fingerprint,
             original_text=original_text,
             capture_source=capture_source,
             temporal_kind=temporal.kind,
@@ -542,21 +611,6 @@ class ContextService:
 
     def _tag_names(self, revision_id: str) -> tuple[str, ...]:
         return tuple(tag.name for tag in self._tag_views(revision_id))
-
-    def _matches(
-        self,
-        row: ContextEventRevision,
-        original_text: str,
-        capture_source: str,
-        temporal: TemporalValue,
-        tags: tuple[str, ...],
-    ) -> bool:
-        return (
-            row.original_text == original_text
-            and row.capture_source == capture_source
-            and self._temporal_from_row(row) == temporal
-            and self._tag_names(row.id) == tags
-        )
 
     @staticmethod
     def _temporal_from_row(row: ContextEventRevision) -> TemporalValue:

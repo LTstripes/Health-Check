@@ -100,6 +100,10 @@ class ContextEventRevision(Base):
         UniqueConstraint("operation_id", name="uq_context_revisions_operation_id"),
         CheckConstraint("revision_number >= 1", name="revision_number_positive"),
         CheckConstraint("length(operation_id) BETWEEN 1 AND 80", name="operation_id_bounded"),
+        CheckConstraint("operation_kind IN ('add', 'revise')", name="operation_kind_allowed"),
+        CheckConstraint(
+            "length(request_fingerprint) = 64", name="request_fingerprint_sha256"
+        ),
         CheckConstraint(
             "length(original_text) BETWEEN 1 AND 4000", name="original_text_bounded"
         ),
@@ -154,7 +158,7 @@ class ContextEventRevision(Base):
             "AND start_utc_offset_minutes IS NULL AND end_utc_offset_minutes IS NULL "
             "AND start_timezone IS NULL AND end_timezone IS NULL) "
             "OR (temporal_kind = 'interval' "
-            "AND start_precision <> 'date' AND end_precision <> 'date' "
+            "AND start_precision <> 'date' AND end_precision = start_precision "
             "AND start_local_date IS NOT NULL AND end_local_date IS NOT NULL "
             "AND start_at_utc IS NOT NULL AND end_at_utc IS NOT NULL "
             "AND start_source_timestamp IS NOT NULL AND end_source_timestamp IS NOT NULL "
@@ -172,6 +176,8 @@ class ContextEventRevision(Base):
     )
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
     operation_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    operation_kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     original_text: Mapped[str] = mapped_column(Text, nullable=False)
     capture_source: Mapped[str] = mapped_column(String(20), nullable=False)
     temporal_kind: Mapped[str] = mapped_column(String(20), nullable=False)
