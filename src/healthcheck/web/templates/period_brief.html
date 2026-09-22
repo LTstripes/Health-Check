@@ -88,7 +88,7 @@
     {% if weight.display_points %}
     <h3>Показанные измерения веса</h3>
     <table><thead><tr><th>Дата</th><th>Вес</th></tr></thead><tbody>
-      {% for point in weight.display_points %}<tr><td>{{ point.observed_date }}</td><td>{{ point.value_kg }} kg</td></tr>{% endfor %}
+      {% for point in weight.display_points %}<tr><td>{{ point.observed_date }}</td><td>{{ point.median_kg }} kg</td></tr>{% endfor %}
     </tbody></table>
     {% endif %}
     {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_thinning.max_display_points }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
