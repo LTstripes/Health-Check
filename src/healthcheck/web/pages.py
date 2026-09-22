@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ from healthcheck.logging import log_event
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
+from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.query import (
     WeightQueryService,
     empty_dashboard_payload,
@@ -32,6 +33,165 @@ from healthcheck.web.query import (
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 router = APIRouter()
+
+
+_BRIEF_STATE_LABELS = {
+    "present": "Данные доступны",
+    "confirmed_empty": "За период записей нет",
+    "unknown": "Состояние данных не определено",
+    "unavailable": "Источник данных недоступен",
+    "insufficient": "Недостаточно данных",
+    "not_requested": "Не запрашивалось",
+}
+_BRIEF_FACT_LABELS = {
+    "weight_observation_count": "Измерения веса",
+    "weight_rate_kg_per_week": "Изменение веса в неделю",
+    "weight_trend_available": "Тренд веса",
+    "weight_first_daily_median_kg": "Первое значение веса",
+    "weight_last_daily_median_kg": "Последнее значение веса",
+    "weight_current_kg": "Текущий вес",
+    "body_composition_available": "Состав тела",
+    "sleep_agreement_mode": "Режим сравнения сна",
+    "sleep_agreement_available": "Сравнение сна",
+    "sleep_agreement_group_count": "Группы сна",
+    "sleep_exploratory_uncertain_cohort_present": "Неопределённая когорта сна",
+    "activity_session_count": "Активности",
+    "activity_type_counts": "Типы активностей",
+    "activity_comparison_state": "Сравнение активностей",
+    "weight_coverage_state": "Полнота данных веса",
+    "sleep_coverage_state": "Полнота данных сна",
+    "activity_coverage_state": "Полнота данных активностей",
+    "pending_import_candidates": "Ожидают проверки",
+}
+_BRIEF_REASON_LABELS = {
+    "database_unavailable": "Локальное хранилище данных не готово.",
+    "garmin_source_missing": "Источник Garmin за этот период не найден.",
+    "insufficient_evidence": "Принятых данных недостаточно для этого показателя.",
+    "not_enough_points": "Недостаточно измерений для надёжного показателя.",
+    "no_canonical_weight_run": "Нет принятого канонического расчёта веса.",
+}
+_BRIEF_UNIT_LABELS = {"count": "шт.", "kg/week": "кг/нед.", "kg": "кг"}
+_BRIEF_ACTIVITY_LABELS = {
+    "cycling": "Велосипед",
+    "running": "Бег",
+    "walking": "Ходьба",
+    "swimming": "Плавание",
+    "strength_training": "Силовая тренировка",
+    "unknown": "Другая активность",
+}
+_BRIEF_COHORT_LABELS = {
+    "Fitbit device pair": "Пара устройств Fitbit",
+    "Google wearable family pair": "Семейство устройств Google",
+    "Uncertain Garmin account / Google source or family observations": (
+        "Неопределённые наблюдения Garmin и Google"
+    ),
+}
+
+
+def _brief_owner_state(state: object) -> str:
+    return _BRIEF_STATE_LABELS.get(str(state or "unknown"), "Состояние данных не определено")
+
+
+def _brief_owner_fact(code: object) -> str:
+    token = str(code or "fact")
+    if token.startswith("garmin_sleep_baseline_"):
+        return "Базовая линия сна"
+    if token.startswith("garmin_activity_related_baseline_"):
+        return "Базовая линия активностей"
+    if token.startswith("provider_") and token.endswith("_dq_state"):
+        return "Состояние источника данных"
+    return _BRIEF_FACT_LABELS.get(token, "Показатель периода")
+
+
+def _brief_owner_reason(reason: object) -> str:
+    token = str(reason or "")
+    return _BRIEF_REASON_LABELS.get(token, "Подробности доступны в технических данных.")
+
+
+def _brief_owner_activity(activity_type: object) -> str:
+    token = str(activity_type or "unknown")
+    return _BRIEF_ACTIVITY_LABELS.get(token, token.replace("_", " ").capitalize())
+
+
+def _brief_owner_cohort(label: object) -> str:
+    text = str(label or "Группа сна")
+    for source, translated in _BRIEF_COHORT_LABELS.items():
+        if text.startswith(source):
+            return translated
+    return "Группа сна"
+
+
+def _brief_owner_uncertainty(_: object) -> str:
+    return (
+        "Это исследовательская когорта с неопределённой атрибуцией; "
+        "это не сравнение Garmin и Fitbit/устройств и не основание для выбора "
+        "канонического источника."
+    )
+
+
+def _brief_owner_value(
+    value: object,
+    unit: object = None,
+    availability: object = None,
+    fact_code: object = None,
+) -> str:
+    state = str(availability or "unknown")
+    if value is None:
+        return _brief_owner_state(state)
+    if isinstance(value, bool):
+        if not value and state != "present":
+            return _brief_owner_state(state)
+        return "Да" if value else "Нет"
+    if isinstance(value, dict):
+        if fact_code == "activity_type_counts":
+            return ", ".join(
+                f"{_brief_owner_activity(key)}: {count}"
+                for key, count in sorted(value.items())
+            ) or "Нет записей"
+        return "Детали доступны"
+    if isinstance(value, (list, tuple)):
+        return "Детали доступны"
+    if isinstance(value, str) and value in _BRIEF_STATE_LABELS:
+        return _brief_owner_state(value)
+    rendered_unit = _BRIEF_UNIT_LABELS.get(str(unit), str(unit or ""))
+    return f"{value} {rendered_unit}".strip()
+
+
+def _brief_owner_note(note: object) -> str:
+    code = str((note or {}).get("code") or "") if isinstance(note, dict) else ""
+    return {
+        "weight_rate": "Темп изменения веса доступен.",
+        "weight_trend": "Тренд веса доступен.",
+        "sleep_exploratory_agreement": "Доступна исследовательская оценка согласованности сна.",
+        "uncertain_account_cohort": (
+            "Есть исследовательские данные сна с неопределённой атрибуцией."
+        ),
+        "personal_baseline_deviation": "Обнаружено отклонение от личной базовой линии Garmin.",
+        "activity_comparison": "Доступно детерминированное сравнение активностей.",
+    }.get(code, "Есть важное изменение в данных периода.")
+
+
+def _brief_owner_action(action: object) -> str:
+    code = str((action or {}).get("code") or "") if isinstance(action, dict) else ""
+    return {
+        "confirm_pending_imports": "Есть измерения, ожидающие подтверждения.",
+        "investigate_provider_sync": (
+            "Проверьте синхронизацию источника: данные за период недоступны."
+        ),
+        "restore_weight_canonical_or_coverage": (
+            "Данные веса недоступны: проверьте источник и покрытие периода."
+        ),
+    }.get(code, "Для этого периода требуется проверить данные.")
+
+
+def _brief_has_usable_evidence(brief: object) -> bool:
+    if not isinstance(brief, dict):
+        return False
+    sections = brief.get("sections") or {}
+    return any(
+        (sections.get(name) or {}).get("state") in {"present", "confirmed_empty"}
+        for name in ("weight", "sleep", "activity")
+    )
 
 
 def render(
@@ -97,6 +257,97 @@ def agreement_page(request: Request) -> HTMLResponse:
             request, code="invalid_report_request", message=str(exc), status_code=400
         )
     return render(request, "agreement.html", {"payload": payload, "page": "agreement"})
+
+
+def _brief_period(
+    *, preset: str | None, start_date: str | None, end_date: str | None
+) -> tuple[date, date, str | None]:
+    """Resolve UI period controls without changing stored evidence semantics."""
+
+    if preset is not None:
+        if start_date is not None or end_date is not None:
+            raise ValueError("choose a preset or enter both custom period dates")
+        try:
+            days = {"7": 7, "30": 30, "90": 90}[preset]
+        except KeyError as exc:
+            raise ValueError("preset must be 7, 30, or 90 days") from exc
+        end = date.today()
+        return end - timedelta(days=days - 1), end, preset
+
+    if start_date is None and end_date is None:
+        end = date.today()
+        return end - timedelta(days=29), end, "30"
+    if start_date is None or end_date is None:
+        raise ValueError("custom period requires both start_date and end_date")
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise ValueError("custom period dates must use YYYY-MM-DD") from exc
+    if end < start:
+        raise ValueError("end_date cannot precede start_date")
+    return start, end, None
+
+
+@router.get("/brief", response_class=HTMLResponse)
+def period_brief_page(
+    request: Request,
+    preset: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    garmin_source_id: str | None = None,
+) -> HTMLResponse:
+    try:
+        start, end, selected_preset = _brief_period(
+            preset=preset, start_date=start_date, end_date=end_date
+        )
+        with session_scope(request_engine(request)) as session:
+            service = PeriodBriefService(session, request.app.state.settings)
+            source_selection = service.garmin.resolve_source(garmin_source_id)
+            result = service.build_with_render(
+                start_date=start,
+                end_date=end,
+                garmin_source_id=garmin_source_id,
+                thin_display=True,
+            )
+    except GarminQueryError as exc:
+        return render_error(
+            request, code=exc.code, message=exc.message, status_code=exc.status_code
+        )
+    except ValueError as exc:
+        return render_error(
+            request, code="invalid_period", message=str(exc), status_code=400
+        )
+    except SQLAlchemyError as exc:
+        if not database_unavailable(exc):
+            return _persist_error(request, "period_brief_page")
+        return render_error(
+            request,
+            code="database_unavailable",
+            message="database is not ready",
+            status_code=503,
+        )
+    return render(
+        request,
+        "period_brief.html",
+        {
+            "brief": result["display"],
+            "packet": result["packet"],
+            "source_selection": source_selection,
+            "selected_preset": selected_preset,
+            "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"]),
+            "brief_owner_action": _brief_owner_action,
+            "brief_owner_activity": _brief_owner_activity,
+            "brief_owner_cohort": _brief_owner_cohort,
+            "brief_owner_fact": _brief_owner_fact,
+            "brief_owner_note": _brief_owner_note,
+            "brief_owner_reason": _brief_owner_reason,
+            "brief_owner_state": _brief_owner_state,
+            "brief_owner_uncertainty": _brief_owner_uncertainty,
+            "brief_owner_value": _brief_owner_value,
+            "page": "brief",
+        },
+    )
 
 
 @router.get("/garmin", response_class=HTMLResponse)
