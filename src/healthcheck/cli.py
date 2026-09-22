@@ -12,6 +12,13 @@ from pathlib import Path
 import uvicorn
 from sqlalchemy.exc import SQLAlchemyError
 
+from healthcheck.analytics.sleep_agreement import PersistedSleepAgreementService
+from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
+from healthcheck.analytics.sleep_metrics import read_persisted_sleep_metric_projection
+from healthcheck.analytics.sleep_pairing import (
+    ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+    SleepPairingQuery,
+)
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
     create_session_factory,
@@ -20,6 +27,11 @@ from healthcheck.db.engine import (
     session_scope,
 )
 from healthcheck.demo import DemoSeedError, seed_demo
+from healthcheck.external_runtime_lock import (
+    ExternalRuntimeOperationBusyError,
+    ExternalRuntimeOperationLock,
+    ExternalRuntimeOperationLockError,
+)
 from healthcheck.garmin.auth import GarminAuthService
 from healthcheck.garmin.backfill import GarminHistoricalBackfill, plan_garmin_historical_backfill
 from healthcheck.garmin.probe import GarminCapabilityProbe, validate_probe_dates
@@ -44,6 +56,13 @@ from healthcheck.google.sync import (
 )
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
+from healthcheck.owner_refresh import (
+    OwnerRefreshBusyError,
+    OwnerRefreshRuntimeError,
+    OwnerRefreshStatus,
+    require_established_runtime,
+    run_owner_refresh,
+)
 from healthcheck.profile_backup import (
     ProfileBackupError,
     create_backup,
@@ -51,6 +70,10 @@ from healthcheck.profile_backup import (
     verify_backup,
 )
 from healthcheck.runtime import prepare_runtime
+from healthcheck.sync_run_recovery import (
+    SyncRunRecoveryRuntimeError,
+    recover_stale_sync_runs,
+)
 from healthcheck.uat import format_smoke_results, run_smoke, smoke_exit_code
 from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
@@ -80,8 +103,11 @@ def build_parser() -> argparse.ArgumentParser:
             "google-sync",
             "google-backfill",
             "google-refresh",
+            "owner-refresh",
+            "sync-run-recovery",
             "google-diagnose-terminal",
             "period-brief",
+            "sleep-agreement-build",
         ),
     )
     parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
@@ -105,11 +131,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stream", action="append", dest="streams")
     parser.add_argument("--chunk-days", type=int)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--cutoff")
     parser.add_argument("--reprocess", action="store_true")
     parser.add_argument("--max-observations", type=int)
     parser.add_argument("--input")
     parser.add_argument("--family")
     parser.add_argument("--query-mode")
+    parser.add_argument(
+        "--cohort",
+        default=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+        help="sleep pairing cohort (default: account_wearables_sleep_observations_v1)",
+    )
     return parser
 
 
@@ -187,6 +220,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_redact(args)
     if args.command == "period-brief":
         return _run_period_brief(args)
+    if args.command == "sleep-agreement-build":
+        return _run_sleep_agreement_build(args, _settings(args))
 
     settings = _settings(args)
     if args.command == "garmin-auth":
@@ -203,6 +238,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_google_backfill(args, settings)
     if args.command == "google-refresh":
         return _run_google_refresh(args, settings)
+    if args.command == "owner-refresh":
+        return _run_owner_refresh(args, settings)
+    if args.command == "sync-run-recovery":
+        return _run_sync_run_recovery(args, settings)
     if args.command == "google-diagnose-terminal":
         return _run_google_diagnose_terminal(args, settings)
     if args.command == "garmin-sync":
@@ -354,6 +393,91 @@ def _google_error_payload(contract_version: str, error_code: str) -> dict[str, o
     }
 
 
+def _external_runtime_operation_error_payload(
+    contract_version: str,
+    operation: str,
+    error_code: str,
+) -> dict[str, object]:
+    return {
+        "contract_version": contract_version,
+        "operation": operation,
+        "status": "blocked",
+        "error": {
+            "error_class": "runtime",
+            "error_code": error_code,
+            "http_status": None,
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+            "health_timestamps_emitted": False,
+            "page_tokens_emitted": False,
+        },
+    }
+
+
+def _report_external_runtime_operation_error(
+    exc: ExternalRuntimeOperationBusyError | ExternalRuntimeOperationLockError,
+    *,
+    contract_version: str,
+    operation: str,
+) -> int:
+    busy = isinstance(exc, ExternalRuntimeOperationBusyError)
+    payload = _external_runtime_operation_error_payload(
+        contract_version,
+        operation,
+        "external_runtime_operation_active" if busy else "runtime_lock_unavailable",
+    )
+    print(json.dumps(payload, sort_keys=True))
+    return 1 if busy else 2
+
+
+def _run_sync_run_recovery(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.apply == args.dry_run:
+            raise ValueError("choose exactly one of --dry-run or --apply")
+        report = recover_stale_sync_runs(
+            settings,
+            cutoff=args.cutoff,
+            apply=args.apply,
+        )
+    except ExternalRuntimeOperationBusyError:
+        payload = _external_runtime_operation_error_payload(
+            "healthcheck-sync-run-recovery-v1",
+            "sync-run-recovery",
+            "external_runtime_operation_active",
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 1
+    except ExternalRuntimeOperationLockError:
+        payload = _external_runtime_operation_error_payload(
+            "healthcheck-sync-run-recovery-v1",
+            "sync-run-recovery",
+            "runtime_lock_unavailable",
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 2
+    except SyncRunRecoveryRuntimeError as exc:
+        payload = _external_runtime_operation_error_payload(
+            "healthcheck-sync-run-recovery-v1",
+            "sync-run-recovery",
+            exc.error_code,
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 2
+    except (OSError, SQLAlchemyError, ValueError):
+        payload = _external_runtime_operation_error_payload(
+            "healthcheck-sync-run-recovery-v1",
+            "sync-run-recovery",
+            "invalid_recovery_request",
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 2
+    print(report.to_json(), end="")
+    return 0
+
+
 def _google_cli_exit(status: GoogleSyncStatus) -> int:
     if status is GoogleSyncStatus.SUCCEEDED:
         return 0
@@ -386,6 +510,12 @@ def _run_google_sync(args: argparse.Namespace, settings: Settings) -> int:
             streams=args.streams,
             query_mode=args.query_mode,
             data_source_family=args.family,
+        )
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc,
+            contract_version="r04-google-sync-coverage-v1",
+            operation="google-sync",
         )
     except (OSError, ValueError):
         print(
@@ -431,6 +561,12 @@ def _run_google_backfill(args: argparse.Namespace, settings: Settings) -> int:
                 query_mode=args.query_mode,
                 data_source_family=args.family,
             )
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc,
+            contract_version="r04-google-historical-backfill-v1",
+            operation="google-backfill",
+        )
     except (OSError, ValueError):
         print(
             json.dumps(
@@ -468,6 +604,12 @@ def _run_google_refresh(args: argparse.Namespace, settings: Settings) -> int:
             streams=args.streams,
             query_mode=args.query_mode,
             data_source_family=args.family,
+        )
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc,
+            contract_version="r04-google-sync-coverage-v1",
+            operation="google-refresh",
         )
     except (OSError, ValueError):
         print(
@@ -533,6 +675,77 @@ def _run_google_diagnose_terminal(args: argparse.Namespace, settings: Settings) 
         return 2
     print(diagnosis.to_json(), end="")
     return 0 if diagnosis.status == "diagnosed" else 1
+
+
+def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if args.dates is not None and len(args.dates) != 1:
+            raise ValueError("owner-refresh accepts exactly one --date")
+        if args.start or args.end:
+            raise ValueError("owner-refresh uses --date and --trailing-window-days")
+        if args.dry_run:
+            raise ValueError("owner-refresh does not use --dry-run")
+        if args.reprocess:
+            raise ValueError("owner-refresh does not use --reprocess")
+        if args.max_observations is not None:
+            raise ValueError("owner-refresh does not use --max-observations")
+        if args.chunk_days is not None:
+            raise ValueError("owner-refresh does not use --chunk-days")
+        report = run_owner_refresh(
+            settings,
+            as_of=args.dates[0] if args.dates else None,
+            trailing_window_days=args.trailing_window_days,
+            is_cn=args.is_cn,
+            streams=args.streams,
+            query_mode=args.query_mode,
+            data_source_family=args.family,
+        )
+    except OwnerRefreshBusyError:
+        print(
+            json.dumps(
+                _owner_refresh_error_payload("refresh_already_running", "runtime"),
+                sort_keys=True,
+            )
+        )
+        return 1
+    except OwnerRefreshRuntimeError as exc:
+        print(
+            json.dumps(
+                _owner_refresh_error_payload(exc.error_code, "runtime"),
+                sort_keys=True,
+            )
+        )
+        return 2
+    except (OSError, ValueError):
+        print(
+            json.dumps(
+                _owner_refresh_error_payload("invalid_refresh_request", "input"),
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(report.to_json(), end="")
+    return 0 if report.status is OwnerRefreshStatus.SUCCEEDED else 1
+
+
+def _owner_refresh_error_payload(error_code: str, error_class: str) -> dict[str, object]:
+    return {
+        "contract_version": "healthcheck-owner-refresh-v1",
+        "operation": "owner-refresh",
+        "error": {
+            "error_class": error_class,
+            "error_code": error_code,
+            "http_status": None,
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+            "health_timestamps_emitted": False,
+            "page_tokens_emitted": False,
+            "string_encoded_numerics_logged_as_values": False,
+        },
+    }
 
 
 def _run_garmin_auth(args: argparse.Namespace, settings: Settings) -> int:
@@ -601,15 +814,23 @@ def _run_garmin_sync(args: argparse.Namespace, settings: Settings) -> int:
             raise ValueError("garmin-sync does not use --reprocess")
         if args.max_observations is not None:
             raise ValueError("garmin-sync does not use --max-observations")
-        service = GarminAuthService(settings, is_cn=args.is_cn)
-        client, auth_result = service.load_existing()
-        report = GarminIncrementalSync(
-            settings,
-            client=client,
-            auth_result=auth_result,
-        ).run(
-            as_of=args.dates[0] if args.dates else None,
-            trailing_window_days=args.trailing_window_days,
+        paths = prepare_runtime(settings)
+        with ExternalRuntimeOperationLock(paths):
+            service = GarminAuthService(settings, is_cn=args.is_cn)
+            client, auth_result = service.load_existing()
+            report = GarminIncrementalSync(
+                settings,
+                client=client,
+                auth_result=auth_result,
+            ).run(
+                as_of=args.dates[0] if args.dates else None,
+                trailing_window_days=args.trailing_window_days,
+            )
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc,
+            contract_version="r02-garmin-incremental-sync-v1",
+            operation="garmin-sync",
         )
     except (OSError, ValueError):
         print(
@@ -655,19 +876,27 @@ def _run_garmin_backfill(args: argparse.Namespace, settings: Settings) -> int:
                 chunk_days=args.chunk_days,
             )
         else:
-            service = GarminAuthService(settings, is_cn=args.is_cn)
-            client, auth_result = service.load_existing()
-            report = GarminHistoricalBackfill(
-                settings,
-                client=client,
-                auth_result=auth_result,
-            ).run(
-                start=args.start,
-                end=args.end,
-                streams=args.streams,
-                chunk_days=args.chunk_days,
-                reprocess=args.reprocess,
-            )
+            paths = prepare_runtime(settings)
+            with ExternalRuntimeOperationLock(paths):
+                service = GarminAuthService(settings, is_cn=args.is_cn)
+                client, auth_result = service.load_existing()
+                report = GarminHistoricalBackfill(
+                    settings,
+                    client=client,
+                    auth_result=auth_result,
+                ).run(
+                    start=args.start,
+                    end=args.end,
+                    streams=args.streams,
+                    chunk_days=args.chunk_days,
+                    reprocess=args.reprocess,
+                )
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc,
+            contract_version="r02-garmin-historical-backfill-v1",
+            operation="garmin-backfill",
+        )
     except (OSError, ValueError):
         print(
             json.dumps(
@@ -732,6 +961,12 @@ def _run_garmin_reprocess(args: argparse.Namespace, settings: Settings) -> int:
             dry_run=args.dry_run,
             max_observations=args.max_observations,
         )
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc,
+            contract_version="r02-garmin-collection-reprocess-v1",
+            operation="garmin-reprocess",
+        )
     except (OSError, ValueError):
         print(
             json.dumps(
@@ -794,6 +1029,123 @@ def _run_period_brief(args: argparse.Namespace) -> int:
     print(packet_json)
     print(text, end="")
     return 0
+
+
+def _sleep_agreement_build_error_payload(error_code: str, error_class: str) -> dict[str, object]:
+    return {
+        "contract_version": "r05-06-sleep-agreement-build-v1",
+        "operation": "sleep-agreement-build",
+        "status": "failed",
+        "error": {
+            "error_class": error_class,
+            "error_code": error_code,
+            "http_status": None,
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+        },
+    }
+
+
+def _sleep_agreement_scope_key(query: SleepPairingQuery) -> str:
+    """Build a stable, non-secret persistence identity from explicit command inputs."""
+
+    return (
+        "r05-sleep-agreement-build:"
+        f"{query.cohort}:{query.start_date.isoformat()}:{query.end_date.isoformat()}"
+    )
+
+
+def _run_sleep_agreement_build(args: argparse.Namespace, settings: Settings) -> int:
+    engine = None
+    try:
+        if not args.start or not args.end:
+            raise ValueError("sleep-agreement-build requires --start and --end")
+        start_date = date.fromisoformat(args.start)
+        end_date = date.fromisoformat(args.end)
+        query = SleepPairingQuery(
+            start_date=start_date,
+            end_date=end_date,
+            cohort=args.cohort,
+        )
+        paths = require_established_runtime(settings)
+        engine = create_sqlite_engine(paths)
+        scope_key = _sleep_agreement_scope_key(query)
+        with session_scope(engine) as session:
+            projection = read_persisted_sleep_metric_projection(session, query)
+            persisted = PersistedSleepAgreementService(session).persist(
+                projection,
+                scope_key=scope_key,
+            )
+            report = SleepAgreementReportService(session).report(
+                start_date=start_date,
+                end_date=end_date,
+                cohort=query.cohort,
+                run_id=persisted.id,
+            )
+            if not report.get("runs"):
+                raise ValueError("sleep-agreement-build could not verify persisted report")
+    except OwnerRefreshRuntimeError as exc:
+        print(
+            json.dumps(
+                _sleep_agreement_build_error_payload(exc.error_code, "runtime"), sort_keys=True
+            )
+        )
+        return 2
+    except (OSError, SQLAlchemyError, ValueError) as exc:
+        error_code = "invalid_build_request" if isinstance(exc, ValueError) else "build_unavailable"
+        error_class = "input" if isinstance(exc, ValueError) else "runtime"
+        print(
+            json.dumps(
+                _sleep_agreement_build_error_payload(error_code, error_class), sort_keys=True
+            )
+        )
+        return 2
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+    mode = report["mode"]
+    status = (
+        "succeeded"
+        if mode == "exploratory"
+        else "insufficient"
+        if mode == "accumulating"
+        else "unavailable"
+    )
+    payload = {
+        "contract_version": "r05-06-sleep-agreement-build-v1",
+        "operation": "sleep-agreement-build",
+        "status": status,
+        "created": persisted.created,
+        "run_status": persisted.status,
+        "cohort": query.cohort,
+        "window": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+        "pair_count": persisted.run.pair_count,
+        "exclusion_count": persisted.run.exclusion_count,
+        "metric_count": persisted.run.metric_count,
+        "coverage_count": persisted.run.coverage_count,
+        "exploratory_only": query.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+        "canonical_eligible": False
+        if query.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+        else None,
+        "report_verification": {
+            "status": "verified",
+            "contract_version": report["contract_version"],
+            "mode": mode,
+            "available": report["available"],
+            "group_count": len(report["groups"]),
+        },
+        "privacy": {
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+            "tokens_emitted": False,
+        },
+    }
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if status == "succeeded" else 1
 
 
 if __name__ == "__main__":

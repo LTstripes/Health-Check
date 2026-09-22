@@ -25,6 +25,7 @@ from healthcheck.db.models import (
     GarminSource,
     GarminSourceRecord,
     PhysicalDevice,
+    RawArtifact,
     SyncRun,
     SyncStreamState,
 )
@@ -1205,6 +1206,123 @@ def test_body_battery_descriptor_series_is_present(tmp_path: Path):
             assert values >= {64, 70}
     finally:
         engine.dispose()
+
+
+def test_body_battery_exact_duplicate_samples_coalesce_and_replay(tmp_path: Path):
+    payload = _production_body_battery()
+    samples = payload[0]["bodyBatteryValuesArray"]
+    samples[1:1] = [list(samples[0]), list(samples[0])]
+    original_payload = json.loads(json.dumps(payload))
+    expected_raw = json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+    first = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_body_battery": payload}),
+    )
+    battery = next(item for item in first.attempts if item.surface == "body_battery")
+    assert battery.status is GarminSyncStatus.SUCCEEDED
+    assert battery.coverage_status == "present"
+    assert payload == original_payload
+    assert first.as_dict()["privacy"]["raw_values_emitted"] is False
+    assert "bodyBatteryValuesArray" not in json.dumps(first.as_dict())
+
+    paths = resolve_runtime_paths(Settings(data_dir=tmp_path / "runtime"))
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(
+                session.scalars(
+                    select(GarminSourceRecord).where(
+                        GarminSourceRecord.source_path.like(
+                            "payload.bodyBatteryValuesArray[%]"
+                        )
+                    )
+                )
+            )
+            assert {item.source_path for item in records} == {
+                "payload.bodyBatteryValuesArray[0]",
+                "payload.bodyBatteryValuesArray[3]",
+            }
+            artifact = session.scalar(
+                select(RawArtifact).where(RawArtifact.source_filename == "body_battery.json")
+            )
+            assert artifact is not None
+            stored_raw = paths.root / "artifacts" / artifact.relative_storage_path
+            assert stored_raw.read_bytes() == expected_raw
+
+            unaffected_counts = {
+                prefix: session.scalar(
+                    select(func.count(GarminSourceRecord.id)).where(
+                        GarminSourceRecord.source_path.like(f"payload.{prefix}[%]")
+                    )
+                )
+                for prefix in (
+                    "heartRateValues",
+                    "stressValuesArray",
+                    "spo2Values",
+                    "respirationValues",
+                )
+            }
+            assert unaffected_counts == {
+                "heartRateValues": 2,
+                "stressValuesArray": 2,
+                "spo2Values": 2,
+                "respirationValues": 2,
+            }
+    finally:
+        engine.dispose()
+
+    second = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_body_battery": payload}),
+    )
+    replay = next(item for item in second.attempts if item.surface == "body_battery")
+    assert replay.status is GarminSyncStatus.SUCCEEDED
+    assert replay.inserted_count == 0
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            assert (
+                session.scalar(
+                    select(func.count(GarminSourceRecord.id)).where(
+                        GarminSourceRecord.source_path.like(
+                            "payload.bodyBatteryValuesArray[%]"
+                        )
+                    )
+                )
+                == 2
+            )
+    finally:
+        engine.dispose()
+
+
+def test_body_battery_duplicate_timestamp_with_different_levels_fails_closed(
+    tmp_path: Path,
+):
+    payload = _production_body_battery()
+    first_sample = payload[0]["bodyBatteryValuesArray"][0]
+    payload[0]["bodyBatteryValuesArray"].insert(
+        1,
+        [first_sample[0], first_sample[1], first_sample[2] + 1],
+    )
+
+    report = _run(
+        tmp_path,
+        FakeSyncClient(responses={"get_body_battery": payload}),
+    )
+    battery = next(item for item in report.attempts if item.surface == "body_battery")
+    assert battery.status is GarminSyncStatus.FAILED
+    assert battery.coverage_status == "failed"
+    assert battery.failure_stage == "persistence"
+    assert battery.error is not None
+    assert battery.error.error_code == "invalid_input"
+    assert report.as_dict()["privacy"]["raw_values_emitted"] is False
 
 
 def test_body_battery_no_matching_day_is_unattributable(tmp_path: Path):

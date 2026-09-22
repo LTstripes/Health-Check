@@ -3127,6 +3127,10 @@ class AgreementRunRepository:
         )
 
 
+SYNC_RUN_RECOVERY_ERROR_CATEGORY = "orphaned_run_recovered"
+SYNC_RUN_RECOVERY_DIAGNOSTIC_REASON = "stale_running_run_terminalized"
+
+
 class SyncRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -3191,6 +3195,47 @@ class SyncRepository:
         run.completed_at = utc_now() if status != "running" else None
         self.session.flush()
         return run
+
+    def running_runs(self) -> list[SyncRun]:
+        """Return running lifecycle rows for aggregate maintenance inspection."""
+
+        return list(
+            self.session.scalars(
+                select(SyncRun).where(SyncRun.status == "running").order_by(
+                    SyncRun.started_at, SyncRun.id
+                )
+            )
+        )
+
+    def recover_stale_running(
+        self,
+        *,
+        cutoff: datetime,
+        completed_at: datetime,
+    ) -> int:
+        """Terminalize only running rows strictly older than ``cutoff``.
+
+        Callers must hold the shared external-runtime operation lock. This
+        method deliberately changes lifecycle terminalization fields only.
+        """
+
+        normalized_cutoff = _as_utc(cutoff)
+        normalized_completed_at = _as_utc(completed_at)
+        if normalized_cutoff is None or normalized_completed_at is None:
+            raise ValueError("recovery cutoff and completion time are required")
+
+        recovered = 0
+        for run in self.running_runs():
+            started_at = restore_stored_utc(run.started_at)
+            if started_at is None or started_at >= normalized_cutoff:
+                continue
+            run.status = "failed"
+            run.completed_at = normalized_completed_at
+            run.error_category = SYNC_RUN_RECOVERY_ERROR_CATEGORY
+            run.diagnostic_reason = SYNC_RUN_RECOVERY_DIAGNOSTIC_REASON
+            recovered += 1
+        self.session.flush()
+        return recovered
 
     def get_or_create_state(
         self,
@@ -3437,6 +3482,8 @@ __all__ = [
     "ProvenanceRepositories",
     "RawArtifactRepository",
     "ScalarMeasurementRepository",
+    "SYNC_RUN_RECOVERY_DIAGNOSTIC_REASON",
+    "SYNC_RUN_RECOVERY_ERROR_CATEGORY",
     "SyncRepository",
     "SyncRunRepository",
     "SyncStreamStateRepository",

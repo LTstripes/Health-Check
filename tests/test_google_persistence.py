@@ -44,6 +44,7 @@ from healthcheck.google.contracts import (
     GoogleTemporalDTO,
     GoogleTemporalPrecision,
 )
+from healthcheck.google.normalization import normalize_google_payload
 from healthcheck.google.persistence import GooglePersistenceRepository
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.runtime import prepare_runtime
@@ -584,12 +585,25 @@ def test_family_aggregates_and_source_specific_list_are_separately_addressable(
         payload=payload,
         records=(_hr_record(),),
     )
+    family_record = normalize_google_payload(
+        {
+            "rollupDataPoints": [
+                {
+                    "startTime": "2099-01-02T05:00:00Z",
+                    "endTime": "2099-01-02T06:00:00Z",
+                    "heartRate": {"beatsPerMinuteAvg": "72"},
+                }
+            ]
+        },
+        stream=GoogleStream.HEART_RATE,
+        query=_query(GoogleQueryMode.ROLL_UP, FAMILY_GOOGLE_WEARABLES),
+    ).records
     family = repo.persist_observation(
         identity=_family_identity(),
         query=_query(GoogleQueryMode.ROLL_UP, FAMILY_GOOGLE_WEARABLES),
         stream=GoogleStream.HEART_RATE,
         payload=payload,
-        records=(_hr_record(idempotency="family-hr"),),
+        records=family_record,
     )
     other_family = repo.persist_observation(
         identity=_family_identity(FAMILY_GOOGLE_SOURCES),

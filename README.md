@@ -97,6 +97,8 @@ Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HE
 
 For normal Owner operation, the accepted durable private profile is `D:\Garmin\HealthCheck-Stable`. It is persistent owner data, not a release-UAT sandbox; candidate UAT uses a disposable verified backup/restore clone.
 
+The bounded manual Garmin + Google owner refresh and its optional Task Scheduler setup are documented in [Owner Refresh](docs/OWNER_REFRESH.md). The command requires an already-established external runtime and does not create a new profile.
+
 No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository.
 
 ## CI and integration gate
@@ -116,6 +118,7 @@ Do not reopen the performance campaign merely to save seconds. #124 closed the m
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
 - [CI Maintenance Closeout](docs/CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
+- [Owner Refresh](docs/OWNER_REFRESH.md)
 - [Verbose historical execution log](docs/EXECUTION_HISTORY.md)
 - [R04 Release Closeout](docs/R04_RELEASE_CLOSEOUT.md)
 - [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md)

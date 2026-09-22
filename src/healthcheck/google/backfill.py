@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from healthcheck.config import Settings
+from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.google.auth import GoogleAuthResult, GoogleAuthService, GoogleHttpTransport
 from healthcheck.google.contracts import GoogleQueryMode
 from healthcheck.google.sync import (
@@ -32,6 +33,7 @@ from healthcheck.google.sync import (
     parse_query_mode,
     validate_inclusive_window,
 )
+from healthcheck.runtime import prepare_runtime
 
 BACKFILL_CONTRACT_VERSION = "r04-google-historical-backfill-v1"
 DEFAULT_BACKFILL_CHUNK_DAYS = 7
@@ -167,6 +169,31 @@ class GoogleHistoricalBackfill:
         family = parse_data_source_family(data_source_family)
         surfaces = parse_google_streams(streams)
         days = validate_chunk_days(chunk_days, query_mode=mode)
+        paths = prepare_runtime(self.settings)
+        with ExternalRuntimeOperationLock(paths):
+            return self._run_locked(
+                start=start_date,
+                end_inclusive=end_inclusive,
+                surfaces=surfaces,
+                chunk_days=days,
+                query_mode=mode,
+                data_source_family=family,
+            )
+
+    def _run_locked(
+        self,
+        *,
+        start: date,
+        end_inclusive: date,
+        surfaces,
+        chunk_days: int,
+        query_mode: GoogleQueryMode,
+        data_source_family: str | None,
+    ) -> GoogleSyncReport:
+        mode = query_mode
+        family = data_source_family
+        days = chunk_days
+        start_date = start
         chunks = plan_google_historical_chunks(start_date, end_inclusive, chunk_days=days)
         attempts: list[GoogleSyncAttempt] = []
         request_count = 0
@@ -174,7 +201,7 @@ class GoogleHistoricalBackfill:
         last_report: GoogleSyncReport | None = None
         remaining_budget = self.max_provider_requests
         for chunk in chunks:
-            if abort_reason == "reauth_required" or remaining_budget < 1:
+            if abort_reason is not None or remaining_budget < 1:
                 if remaining_budget < 1 and abort_reason != "reauth_required":
                     abort_reason = abort_reason or "request_ceiling"
                 for surface in surfaces:
@@ -221,6 +248,23 @@ class GoogleHistoricalBackfill:
             attempts.extend(report.attempts)
             if report.abort_reason == "reauth_required":
                 abort_reason = "reauth_required"
+                continue
+            bounded_resume = next(
+                (
+                    item.error.error_code
+                    for item in report.attempts
+                    if item.status is GoogleSyncStatus.PARTIAL
+                    and item.resume_cursor_present
+                    and item.error is not None
+                    and item.error.error_class == "budget"
+                    and item.error.error_code in {"page_ceiling", "request_ceiling"}
+                ),
+                None,
+            )
+            if bounded_resume is not None:
+                # Historical windows share one stream checkpoint. Do not let a
+                # later chunk clear the durable cursor for this incomplete one.
+                abort_reason = bounded_resume
         status = _roll_up_status(attempts, abort_reason)
         skipped = sum(1 for item in attempts if item.skipped)
         return GoogleSyncReport(

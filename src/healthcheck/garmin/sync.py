@@ -25,6 +25,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import GarminSource, GarminSourceRecord, SyncStreamState
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
+from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.garmin.auth import (
     GarminAuthResult,
     GarminAuthStatus,
@@ -759,9 +760,24 @@ def _series_records(
         _SERIES_FIELDS[surface.code][0],
     )
     records: list[GarminRecordDTO] = []
+    body_battery_samples: dict[str, tuple[int | float, str | None]] = {}
     for index, stamp, value in samples:
         parent_temporal = result.records[0].temporal if result.records else None
         temporal = _sample_temporal(stamp, day=day, fallback=parent_temporal)
+        sample_token = _sample_token(stamp)
+        if surface.code == "body_battery":
+            normalized_timestamp = _temporal_sample_token(temporal)
+            if normalized_timestamp is not None:
+                existing = body_battery_samples.get(normalized_timestamp)
+                if existing is not None:
+                    existing_value, existing_sample_token = existing
+                    if value == existing_value:
+                        continue
+                    # Preserve the existing duplicate-identity persistence guard
+                    # for one timestamp carrying conflicting Body Battery levels.
+                    sample_token = existing_sample_token
+                else:
+                    body_battery_samples[normalized_timestamp] = (value, sample_token)
         metric = GarminMetricDTO(
             capability_code=capability_code,
             metric_code=metric_code,
@@ -777,14 +793,14 @@ def _series_records(
                 stream=surface.stream,
                 source=result.source,
                 temporal=temporal,
-                sample_token=_sample_token(stamp),
+                sample_token=sample_token,
                 idempotency_key=stable_garmin_reconciliation_key(
                     result.source,
                     surface.stream,
                     surface=surface.code,
                     temporal=temporal,
-                    sample_token=_sample_token(stamp),
-                    sample_index=None if _sample_token(stamp) else index,
+                    sample_token=sample_token,
+                    sample_index=None if sample_token else index,
                 ),
                 record_index=index,
                 metrics=(metric,),
@@ -1156,21 +1172,22 @@ class GarminIncrementalSync:
         window_days = validate_trailing_window_days(trailing_window_days)
         window_start, window_end = compute_sync_window(as_of_date, window_days)
         paths = prepare_runtime(self.settings)
-        migrate_database(paths)
-        engine = create_sqlite_engine(paths)
-        store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
-        factory = create_session_factory(engine)
-        try:
-            return self._run(
-                factory,
-                store,
-                as_of=as_of_date,
-                window_start=window_start,
-                window_end=window_end,
-                trailing_window_days=window_days,
-            )
-        finally:
-            engine.dispose()
+        with ExternalRuntimeOperationLock(paths):
+            migrate_database(paths)
+            engine = create_sqlite_engine(paths)
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            factory = create_session_factory(engine)
+            try:
+                return self._run(
+                    factory,
+                    store,
+                    as_of=as_of_date,
+                    window_start=window_start,
+                    window_end=window_end,
+                    trailing_window_days=window_days,
+                )
+            finally:
+                engine.dispose()
 
     def _run(
         self,
