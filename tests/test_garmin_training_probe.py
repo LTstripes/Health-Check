@@ -251,7 +251,7 @@ def test_maximal_probe_uses_exact_bounded_reads_and_emits_no_private_values() ->
     }
     assert report["consistency"]["single_vs_range"] == [
         {"range_index": 1, "disposition": "different"},
-        {"range_index": 2, "disposition": "not_comparable"},
+        {"range_index": 2, "disposition": "unknown"},
     ]
 
     encoded = json.dumps(report, sort_keys=True)
@@ -320,6 +320,122 @@ def test_probe_preserves_missing_null_zero_nonzero_invalid_and_dynamic_key_count
         "null": 1,
         "zero": 1,
     }
+
+
+def test_activity_attribution_requires_recorder_identity() -> None:
+    class NoRecorderClient(FakeTrainingClient):
+        def connectapi(self, endpoint: str, *, params: dict[str, str]) -> list[dict[str, Any]]:
+            activities = super().connectapi(endpoint, params=params)
+            for activity in activities:
+                activity.pop("deviceId", None)
+            return activities
+
+        def get_activity(self, activity_id: str) -> dict[str, Any]:
+            activity = super().get_activity(activity_id)
+            activity.pop("deviceId", None)
+            return activity
+
+    with_recorder = GarminTrainingPhaseAProbe(FakeTrainingClient()).run(
+        _maximal_request()
+    ).as_dict()
+    without_recorder = GarminTrainingPhaseAProbe(NoRecorderClient()).run(
+        _maximal_request()
+    ).as_dict()
+
+    for surface, role in (
+        ("activity_search_page", "activity_search_page"),
+        ("activity_summary", "activity_summary_1"),
+    ):
+        assert _observation(with_recorder, surface, role)["attribution_class"] == (
+            "activity_recorder"
+        )
+        observation = _observation(without_recorder, surface, role)
+        activity_id_field = (
+            "activities[].activityId"
+            if surface == "activity_search_page"
+            else "activity.activityId"
+        )
+        assert observation["field_state_counts"][activity_id_field] == {
+            "present": 3 if surface == "activity_search_page" else 1
+        }
+        assert observation["field_state_counts"][
+            "activities[].activityTrainingLoad"
+            if surface == "activity_search_page"
+            else "activity.activityTrainingLoad"
+        ]["nonzero"] == 1
+        assert observation["attribution_class"] == "unknown"
+    assert "987654322" not in json.dumps(without_recorder)
+
+
+def test_account_attribution_needs_observed_account_scoped_field() -> None:
+    class EmptyMaxClient(FakeTrainingClient):
+        def get_max_metrics(self, requested_date: str) -> dict[str, Any]:
+            self._record("get_max_metrics", requested_date)
+            return {}
+
+    account = GarminTrainingPhaseAProbe(FakeTrainingClient()).run(_maximal_request()).as_dict()
+    empty = GarminTrainingPhaseAProbe(EmptyMaxClient()).run(_maximal_request()).as_dict()
+
+    assert _observation(account, "max_metrics_single_day", "max_single_day")[
+        "attribution_class"
+    ] == "account"
+    assert _observation(empty, "max_metrics_single_day", "max_single_day")[
+        "attribution_class"
+    ] == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("range_date", "range_value"),
+    [("2026-09-02", 45.5), ("2026-09-01", 44.5)],
+)
+def test_single_vs_range_uses_private_values_when_public_states_match(
+    range_date: str, range_value: float
+) -> None:
+    class DifferentMaxClient(FakeTrainingClient):
+        def get_max_metrics_range(self, start: str, end: str) -> dict[str, Any]:
+            self._record("get_max_metrics_range", start, end)
+            return {"calendarDate": range_date, "maxMetrics": {"vo2MaxRunning": range_value}}
+
+        def get_max_metrics(self, requested_date: str) -> dict[str, Any]:
+            self._record("get_max_metrics", requested_date)
+            return {"calendarDate": "2026-09-01", "maxMetrics": {"vo2MaxRunning": 45.5}}
+
+    report = GarminTrainingPhaseAProbe(DifferentMaxClient()).run(_maximal_request()).as_dict()
+    range_observation = _observation(report, "max_metrics_range", "max_range_1")
+    single_observation = _observation(report, "max_metrics_single_day", "max_single_day")
+
+    assert range_observation["field_state_counts"] == single_observation["field_state_counts"]
+    assert report["consistency"]["single_vs_range"] == [
+        {"range_index": 1, "disposition": "different"},
+        {"range_index": 2, "disposition": "unknown"},
+    ]
+    encoded = json.dumps(report)
+    for private_value in ("2026-09-01", "2026-09-02", "44.5", "45.5"):
+        assert private_value not in encoded
+
+
+def test_single_vs_range_same_and_unavailable_are_distinct() -> None:
+    class SameMaxClient(FakeTrainingClient):
+        def get_max_metrics_range(self, start: str, end: str) -> dict[str, Any]:
+            self._record("get_max_metrics_range", start, end)
+            return {"calendarDate": "2026-09-01", "maxMetrics": {"vo2MaxRunning": 45.5}}
+
+        def get_max_metrics(self, requested_date: str) -> dict[str, Any]:
+            self._record("get_max_metrics", requested_date)
+            return {"calendarDate": "2026-09-01", "maxMetrics": {"vo2MaxRunning": 45.5}}
+
+    class UnavailableMaxClient(SameMaxClient):
+        def get_max_metrics(self, requested_date: str) -> None:
+            self._record("get_max_metrics", requested_date)
+            return None
+
+    same = GarminTrainingPhaseAProbe(SameMaxClient()).run(_maximal_request()).as_dict()
+    unavailable = GarminTrainingPhaseAProbe(UnavailableMaxClient()).run(
+        _maximal_request()
+    ).as_dict()
+
+    assert same["consistency"]["single_vs_range"][0]["disposition"] == "same"
+    assert unavailable["consistency"]["single_vs_range"][0]["disposition"] == "unknown"
 
 
 @pytest.mark.parametrize(

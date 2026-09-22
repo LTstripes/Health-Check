@@ -693,11 +693,15 @@ class GarminTrainingPhaseAProbe:
         max_consistency = []
         for index, (current_range, result) in enumerate(max_results, start=1):
             if not current_range.contains(request.max_date):
-                disposition = "not_comparable"
-            elif single_max is None:
-                disposition = "not_run"
+                disposition = "unknown"
+            elif (
+                single_max is None
+                or single_max.public["status"] != TrainingProbeStatus.SUCCEEDED.value
+                or result.public["status"] != TrainingProbeStatus.SUCCEEDED.value
+            ):
+                disposition = "unknown"
             else:
-                disposition = _compare_field_states(single_max.public, result.public)
+                disposition = _compare_fingerprints(single_max.fingerprint, result.fingerprint)
             max_consistency.append({"range_index": index, "disposition": disposition})
 
         incomplete = self._is_incomplete(observations, activity_selection)
@@ -1174,11 +1178,24 @@ def _attribution(
         value.get("count", 0) for value in dynamic_counts.values()
     ):
         return AttributionClass.ASSOCIATED_DEVICE
-    if surface in {"activity_search_page", "activity_summary"} and present_identity:
-        return AttributionClass.ACTIVITY_RECORDER
+    if surface in {"activity_search_page", "activity_summary"}:
+        return AttributionClass.ACTIVITY_RECORDER if present_identity else AttributionClass.UNKNOWN
     if present_identity:
         return AttributionClass.ASSOCIATED_DEVICE
-    if states:
+    if surface in {
+        "training_status",
+        "training_readiness",
+        "max_metrics_range",
+        "max_metrics_single_day",
+    } and any(
+        counts.get(state, 0) > 0
+        for counts in states.values()
+        for state in (
+            FieldValueState.PRESENT.value,
+            FieldValueState.ZERO.value,
+            FieldValueState.NONZERO.value,
+        )
+    ):
         return AttributionClass.ACCOUNT
     return AttributionClass.UNKNOWN
 
@@ -1204,14 +1221,6 @@ def _compare_fingerprints(left: tuple[Any, ...] | None, right: tuple[Any, ...] |
     if left is None or right is None:
         return "unknown"
     return "same" if left == right else "different"
-
-
-def _compare_field_states(left: Mapping[str, Any], right: Mapping[str, Any]) -> str:
-    left_states = left.get("field_state_counts")
-    right_states = right.get("field_state_counts")
-    if not left_states or not right_states:
-        return "unknown"
-    return "same" if left_states == right_states else "different"
 
 
 def _activity_ids(payload: Any) -> frozenset[str]:
