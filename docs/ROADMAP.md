@@ -8,7 +8,7 @@ Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG
 
 Released to canonical `main`: R01–R05 plus #119 deterministic period brief v1.
 
-Pre-closeout canonical checkpoint used for divergence analysis: `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` with exact-main CI `35240124890` SUCCESS. Re-read current `main` from GitHub before launch/integration.
+Current canonical checkpoint for this handoff: `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` with exact-main CI `35608281796` SUCCESS. The earlier `6f21eea…` checkpoint remains historical divergence evidence only. Re-read current `main` from GitHub before launch/integration.
 
 Post-R05 Stable Owner Runtime work is **accepted/live-proven but not yet reconciled to canonical main**:
 
@@ -19,7 +19,7 @@ Post-R05 Stable Owner Runtime work is **accepted/live-proven but not yet reconci
 
 Period Brief presentation line: `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92`; #131 is integrated/closed.
 
-**Immediate sequencing:** reconcile the accepted Stable-runtime line with current main, then complete #146 correctness → #133 presentation hierarchy → #129 Owner UAT/closeout (#127).
+**Immediate sequencing:** reconcile `main @ b887fcec…` with the accepted Stable-runtime and Period Brief lines, then complete #146 correctness → #133 presentation hierarchy → #129 Owner UAT / #127 closeout.
 
 See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md), [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md), and [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
 
