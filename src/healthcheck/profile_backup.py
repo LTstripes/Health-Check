@@ -25,8 +25,11 @@ MANIFEST_NAME = "manifest.json"
 PROFILE_PREFIX = "profile/"
 DATABASE_NAME = "healthcheck.db"
 LOGS_DIRECTORY = "logs"
-MAX_ARCHIVE_MEMBER_BYTES = 1_073_741_824
-MAX_ARCHIVE_TOTAL_BYTES = 2_147_483_648
+# Hard expanded-size caps. The member limit covers the current ~6.402 GiB
+# owner Stable SQLite DB; the existing total limit still has ample headroom.
+# Format-v1 is unchanged; ZIP64 is used when member/archive sizes require it.
+MAX_ARCHIVE_MEMBER_BYTES = 7 * 1024 * 1024 * 1024  # 7 GiB
+MAX_ARCHIVE_TOTAL_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB
 MAX_MANIFEST_BYTES = 1_048_576
 
 
@@ -422,6 +425,7 @@ def _write_archive(
             "w",
             compression=zipfile.ZIP_DEFLATED,
             compresslevel=6,
+            allowZip64=True,
             strict_timestamps=False,
         ) as handle:
             handle.writestr(
@@ -445,7 +449,7 @@ def _validate_archive(archive: Path) -> _ArchivePlan:
     _reject_symlink_ancestors(archive_path)
     _require_regular_file(archive_path, "backup archive")
     try:
-        handle = zipfile.ZipFile(archive_path, "r")
+        handle = zipfile.ZipFile(archive_path, "r", allowZip64=True)
     except (OSError, zipfile.BadZipFile) as exc:
         raise ProfileBackupError("backup archive is not a valid ZIP") from exc
     with handle:
@@ -471,8 +475,7 @@ def _validate_archive(archive: Path) -> _ArchivePlan:
             if info.file_size != item["size"]:
                 raise ProfileBackupError("backup checksum/size validation failed")
             total += info.file_size
-            if total > MAX_ARCHIVE_TOTAL_BYTES:
-                raise ProfileBackupError("backup archive is too large")
+            _validate_total_expanded_size(total)
             digest = hashlib.sha256()
             try:
                 with handle.open(info, "r") as source:
@@ -509,6 +512,11 @@ def _validate_zip_members(infos: list[zipfile.ZipInfo]) -> None:
             raise ProfileBackupError("backup archive contains a special file")
     if MANIFEST_NAME not in names:
         raise ProfileBackupError("backup manifest is missing")
+
+
+def _validate_total_expanded_size(total: int) -> None:
+    if total > MAX_ARCHIVE_TOTAL_BYTES:
+        raise ProfileBackupError("backup archive is too large")
 
 
 def _validate_relative_path(value: str) -> None:
@@ -650,7 +658,7 @@ def _validate_archive_database(
 
 def _extract_archive(plan: _ArchivePlan, destination: Path) -> None:
     destination.mkdir(parents=True)
-    with zipfile.ZipFile(plan.archive, "r") as handle:
+    with zipfile.ZipFile(plan.archive, "r", allowZip64=True) as handle:
         for item in plan.files:
             relative = PurePosixPath(item["path"])
             target = destination / Path(*relative.parts)

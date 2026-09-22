@@ -16,7 +16,8 @@
       "tests/test_garmin_persistence.py",
       "tests/test_garmin_probe.py",
       "tests/test_garmin_query_dashboard.py",
-      "tests/test_garmin_redaction.py"
+      "tests/test_garmin_redaction.py",
+      "tests/test_sync_run_recovery.py"
     ],
     "core-sleep": [
       "tests/test_canonical_coverage.py",
@@ -26,7 +27,9 @@
       "tests/test_core_schema.py",
       "tests/test_fk_safe_migration_repair.py",
       "tests/test_migration_guard.py",
+      "tests/test_owner_refresh.py",
       "tests/test_sleep_account_cohort.py",
+      "tests/test_sleep_agreement_build.py",
       "tests/test_sleep_agreement_report.py",
       "tests/test_sleep_agreement_statistics.py",
       "tests/test_sleep_metrics.py",
@@ -46,6 +49,7 @@
       "tests/test_openscale_contract.py",
       "tests/test_openscale_webhook.py",
       "tests/test_period_brief.py",
+      "tests/test_period_brief_ui.py",
       "tests/test_photo_import.py",
       "tests/test_photo_import_review.py",
       "tests/test_photo_vision.py",

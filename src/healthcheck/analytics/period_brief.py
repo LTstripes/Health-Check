@@ -7,6 +7,7 @@ derive only from the packet (no formula recompute in UI/export).
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
@@ -37,9 +38,14 @@ from healthcheck.analytics.weight import (
 )
 from healthcheck.garmin.analytic_contract import stable_manifest_hash
 
-PERIOD_BRIEF_CONTRACT_VERSION = "period-brief-v1"
-PERIOD_BRIEF_ALGORITHM = "period_brief_assemble_v1"
+PERIOD_BRIEF_CONTRACT_VERSION = "period-brief-v2"
+PERIOD_BRIEF_ALGORITHM = "period_brief_assemble_v2"
 PERIOD_BRIEF_ACTIVITY_SELECTION_POLICY = "same_type_period_window_v1"
+PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS = 180
+PERIOD_BRIEF_BASELINE_WINDOW_POLICY = "period_brief_trailing_180_calendar_days_v1"
+PERIOD_BRIEF_BASELINE_WINDOW_LIMIT_REASON = (
+    "requested_window_capped_to_trailing_180_calendar_days"
+)
 
 SECTION_STATES = (
     "present",
@@ -80,6 +86,62 @@ def normalize_period(start_date: date, end_date: date) -> PeriodWindow:
     return PeriodWindow(start_date=start_date, end_date=end_date)
 
 
+def _daily_weight_point_projection(value: Any, *, index: int) -> dict[str, Any]:
+    """Validate the serialized ``DailyWeightPoint`` seam used by the brief."""
+
+    if not isinstance(value, Mapping):
+        raise ValueError(f"weight daily_points[{index}] must be a mapping")
+    required = {"observed_date", "median_kg", "observation_count", "evidence_ids"}
+    missing = sorted(required - set(value))
+    if missing:
+        raise ValueError(
+            f"weight daily_points[{index}] is not a DailyWeightPoint payload; "
+            f"missing {missing}"
+        )
+    try:
+        observed_date = date.fromisoformat(str(value["observed_date"]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"weight daily_points[{index}].observed_date must be an ISO date"
+        ) from exc
+    median = value["median_kg"]
+    if isinstance(median, bool) or not isinstance(median, (int, float)):
+        raise ValueError(f"weight daily_points[{index}].median_kg must be numeric")
+    median_kg = float(median)
+    if not math.isfinite(median_kg):
+        raise ValueError(f"weight daily_points[{index}].median_kg must be finite")
+    observation_count = value["observation_count"]
+    if (
+        isinstance(observation_count, bool)
+        or not isinstance(observation_count, int)
+        or observation_count < 1
+    ):
+        raise ValueError(
+            f"weight daily_points[{index}].observation_count must be a positive integer"
+        )
+    evidence_ids = value["evidence_ids"]
+    if not isinstance(evidence_ids, list) or not all(
+        isinstance(item, str) for item in evidence_ids
+    ):
+        raise ValueError(f"weight daily_points[{index}].evidence_ids must be a string list")
+    return {
+        "observed_date": observed_date.isoformat(),
+        "median_kg": median_kg,
+        "observation_count": observation_count,
+        "evidence_ids": list(evidence_ids),
+    }
+
+
+def _daily_weight_points(trend: Mapping[str, Any]) -> list[dict[str, Any]]:
+    values = trend.get("daily_points")
+    if not isinstance(values, list):
+        raise ValueError("weight trend.daily_points must be a serialized list")
+    return [
+        _daily_weight_point_projection(value, index=index)
+        for index, value in enumerate(values)
+    ]
+
+
 def _coverage_state_from_summary(coverage: Mapping[str, Any] | None) -> str:
     if coverage is None:
         return "unknown"
@@ -117,7 +179,7 @@ def _weight_section_from_summary(
         if isinstance(summary.get("latest_composition"), Mapping)
         else {}
     )
-    daily_points = trend.get("daily_points") if isinstance(trend.get("daily_points"), list) else []
+    daily_points = _daily_weight_points(trend)
     first_point = daily_points[0] if daily_points else None
     last_point = daily_points[-1] if daily_points else None
     state = _coverage_state_from_summary(coverage)
@@ -153,13 +215,13 @@ def _weight_section_from_summary(
         },
         {
             "code": "weight_first_daily_median_kg",
-            "value": (first_point or {}).get("value_kg")
+            "value": (first_point or {}).get("median_kg")
             if isinstance(first_point, Mapping)
             else None,
             "unit": "kg",
             "availability": (
                 "present"
-                if isinstance(first_point, Mapping) and first_point.get("value_kg") is not None
+                if isinstance(first_point, Mapping) and first_point.get("median_kg") is not None
                 else "absent"
             ),
             "observed_date": (first_point or {}).get("observed_date")
@@ -168,13 +230,13 @@ def _weight_section_from_summary(
         },
         {
             "code": "weight_last_daily_median_kg",
-            "value": (last_point or {}).get("value_kg")
+            "value": (last_point or {}).get("median_kg")
             if isinstance(last_point, Mapping)
             else None,
             "unit": "kg",
             "availability": (
                 "present"
-                if isinstance(last_point, Mapping) and last_point.get("value_kg") is not None
+                if isinstance(last_point, Mapping) and last_point.get("median_kg") is not None
                 else "absent"
             ),
             "observed_date": (last_point or {}).get("observed_date")
@@ -234,9 +296,8 @@ def _weight_section_from_summary(
         },
         "summary_facts": facts,
         "display_points": [
-            {"observed_date": item.get("observed_date"), "value_kg": item.get("value_kg")}
+            {"observed_date": item["observed_date"], "median_kg": item["median_kg"]}
             for item in daily_points
-            if isinstance(item, Mapping)
         ],
         "analytics_snapshot": {
             "rate": {
@@ -458,6 +519,7 @@ def _activity_section_from_inventory(
     baseline_summaries: Sequence[Mapping[str, Any]] = (),
     selection_policy: str | None = None,
     inventory_status: str | None = None,
+    acquisition_coverage: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     in_window: list[dict[str, Any]] = []
     type_counts: Counter[str] = Counter()
@@ -569,6 +631,7 @@ def _activity_section_from_inventory(
             "sessions_in_period": len(in_window),
             "comparison_state": comparison_state,
             "inventory_status": resolved_inventory or "unknown",
+            "acquisition": dict(acquisition_coverage or {}),
             "period": period.as_dict(),
         },
         "summary_facts": facts,
@@ -832,6 +895,7 @@ def build_period_brief_packet(
     activity_comparison: Mapping[str, Any] | None = None,
     activity_selection_policy: str | None = None,
     activity_inventory_status: str | None = None,
+    activity_acquisition_coverage: Mapping[str, Any] | None = None,
     sleep_baselines: Sequence[Mapping[str, Any]] = (),
     activity_baselines: Sequence[Mapping[str, Any]] = (),
     import_queue: Mapping[str, Any] | None = None,
@@ -849,6 +913,7 @@ def build_period_brief_packet(
         baseline_summaries=activity_baselines,
         selection_policy=activity_selection_policy,
         inventory_status=activity_inventory_status,
+        acquisition_coverage=activity_acquisition_coverage,
     )
     data_quality_section = _data_quality_section(
         period=period,
@@ -991,50 +1056,162 @@ def render_period_brief_text(packet: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def baseline_summary_from_result(result: Mapping[str, Any]) -> dict[str, Any]:
-    """Project an R03-01 result dict into brief baseline summary facts."""
+def _required_mapping(value: Any, *, field: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"R03-01 result {field} must be a mapping")
+    return value
 
-    deviation = result.get("deviation") if isinstance(result.get("deviation"), Mapping) else {}
-    trend = result.get("trend") if isinstance(result.get("trend"), Mapping) else {}
-    availability = (
-        result.get("availability") if isinstance(result.get("availability"), Mapping) else {}
-    )
-    metric = (
-        result.get("metric_definition")
-        if isinstance(result.get("metric_definition"), Mapping)
-        else {}
-    )
-    present = int(availability.get("present_count") or 0)
-    if present <= 0:
-        availability_state = "confirmed_empty"
-        if int(availability.get("unavailable_count") or 0) > 0:
-            availability_state = "unavailable"
-        elif int(availability.get("unknown_count") or 0) > 0:
-            availability_state = "unknown"
-    elif deviation.get("available") or trend.get("available"):
-        availability_state = "present"
-    else:
-        availability_state = "insufficient"
+
+def _availability_count(availability: Mapping[str, Any], field: str) -> int:
+    value = availability.get(field)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"R03-01 availability.{field} must be a nonnegative integer")
+    return value
+
+
+def _period_from_query(query: Mapping[str, Any]) -> PeriodWindow:
+    try:
+        return normalize_period(
+            date.fromisoformat(str(query["start_date"])),
+            date.fromisoformat(str(query["end_date"])),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("R03-01 query must contain valid start_date/end_date") from exc
+
+
+def baseline_window_evidence(
+    *,
+    requested_window: PeriodWindow,
+    effective_window: PeriodWindow,
+) -> dict[str, Any]:
+    """Describe the unchanged Period Brief trailing-window policy explicitly."""
+
+    if (
+        effective_window.start_date < requested_window.start_date
+        or effective_window.end_date > requested_window.end_date
+    ):
+        raise ValueError("effective baseline window must be inside the requested window")
+    limited = effective_window != requested_window
     return {
-        "metric_code": metric.get("metric_code") or (result.get("query") or {}).get("metric_code"),
+        "requested_window": requested_window.as_dict(),
+        "effective_window": effective_window.as_dict(),
+        "window_policy": {
+            "code": PERIOD_BRIEF_BASELINE_WINDOW_POLICY,
+            "max_calendar_days": PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS,
+            "limited": limited,
+            "reason": PERIOD_BRIEF_BASELINE_WINDOW_LIMIT_REASON if limited else None,
+        },
+    }
+
+
+def baseline_summary_from_result(
+    result: Mapping[str, Any],
+    *,
+    requested_window: PeriodWindow | None = None,
+    acquisition_state: str = "unknown",
+) -> dict[str, Any]:
+    """Project the real R03-01 result contract into compact brief facts."""
+
+    if acquisition_state == "failed":
+        acquisition_state = "unavailable"
+    if acquisition_state not in {"present", "confirmed_empty", "unknown", "unavailable"}:
+        raise ValueError(f"unsupported baseline acquisition_state: {acquisition_state}")
+    deviation = _required_mapping(result.get("deviation"), field="deviation")
+    trend = _required_mapping(result.get("trend"), field="trend")
+    availability = _required_mapping(result.get("availability"), field="availability")
+    metric = _required_mapping(result.get("metric_definition"), field="metric_definition")
+    query = _required_mapping(result.get("query"), field="query")
+    effective_window = _period_from_query(query)
+    requested = requested_window or effective_window
+    window_evidence = baseline_window_evidence(
+        requested_window=requested,
+        effective_window=effective_window,
+    )
+
+    count_fields = (
+        "candidate_count",
+        "usable_count",
+        "zero_count",
+        "excluded_count",
+        "missing_count",
+        "null_count",
+        "invalid_count",
+        "not_computable_count",
+        "partial_count",
+    )
+    counts = {field: _availability_count(availability, field) for field in count_fields}
+    if counts["usable_count"] > counts["candidate_count"]:
+        raise ValueError("R03-01 usable_count cannot exceed candidate_count")
+    if counts["zero_count"] > counts["usable_count"]:
+        raise ValueError("R03-01 zero_count cannot exceed usable_count")
+    if counts["partial_count"] > counts["usable_count"]:
+        raise ValueError("R03-01 partial_count cannot exceed usable_count")
+    partition_count = sum(
+        counts[field]
+        for field in (
+            "usable_count",
+            "excluded_count",
+            "missing_count",
+            "null_count",
+            "invalid_count",
+            "not_computable_count",
+        )
+    )
+    if partition_count != counts["candidate_count"]:
+        raise ValueError("R03-01 availability counts do not partition candidate_count")
+
+    reason = deviation.get("reason") or trend.get("reason")
+    if counts["usable_count"] > 0:
+        availability_state = (
+            "present" if deviation.get("available") or trend.get("available") else "insufficient"
+        )
+    elif counts["candidate_count"] > 0:
+        availability_state = "unavailable"
+        reason = reason or "metric_has_no_usable_values"
+    elif acquisition_state == "confirmed_empty":
+        availability_state = "confirmed_empty"
+        reason = "acquisition_confirmed_empty"
+    elif acquisition_state == "unavailable":
+        availability_state = "unavailable"
+        reason = "acquisition_unavailable"
+    elif acquisition_state == "present":
+        availability_state = "unavailable"
+        reason = "metric_unavailable_despite_present_surface"
+    else:
+        availability_state = "unknown"
+        reason = "acquisition_unknown"
+
+    return {
+        "metric_code": metric.get("metric_code") or query.get("metric_code"),
         "unit": metric.get("unit"),
         "availability": availability_state,
+        "acquisition_state": acquisition_state,
+        "availability_counts": counts,
         "latest_value": deviation.get("latest_value"),
-        "personal_baseline_deviation": bool(deviation.get("personal_baseline_deviation")),
+        "personal_baseline_deviation": (
+            bool(deviation.get("personal_baseline_deviation"))
+            if deviation.get("personal_baseline_deviation") is not None
+            else None
+        ),
         "trend_slope_per_day": trend.get("slope_per_day"),
         "result_hash": result.get("result_hash"),
-        "reason": deviation.get("reason") or trend.get("reason"),
+        "reason": reason,
         "algorithm": result.get("algorithm"),
         "rule_version": result.get("rule_version"),
+        **window_evidence,
     }
 
 
 __all__ = [
     "PERIOD_BRIEF_ACTIVITY_SELECTION_POLICY",
     "PERIOD_BRIEF_ALGORITHM",
+    "PERIOD_BRIEF_BASELINE_MAX_CALENDAR_DAYS",
+    "PERIOD_BRIEF_BASELINE_WINDOW_LIMIT_REASON",
+    "PERIOD_BRIEF_BASELINE_WINDOW_POLICY",
     "PERIOD_BRIEF_CONTRACT_VERSION",
     "PeriodWindow",
     "SECTION_STATES",
+    "baseline_window_evidence",
     "baseline_summary_from_result",
     "build_period_brief_packet",
     "normalize_period",

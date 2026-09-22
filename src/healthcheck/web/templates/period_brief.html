@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}Сводка за период — Health-Check{% endblock %}
+{% block content %}
+<section class="hero brief-hero">
+  <div>
+    <p class="eyebrow">Локальная сводка данных</p>
+    <h1>Сводка за период</h1>
+    <p class="muted">Краткий обзор принятых данных веса, сна, активностей и полноты источников.</p>
+  </div>
+  <dl class="current">
+    <div>
+      <dt>Выбранный период</dt>
+      <dd>{{ brief.period.start_date }} → {{ brief.period.end_date }} <span class="muted">({{ brief.period.calendar_days }} days)</span></dd>
+    </div>
+    <div>
+      <dt>Состояние данных</dt>
+      <dd><span class="status-chip {{ 'present' if brief_has_usable_evidence else 'unavailable' }}">{{ 'Данные за период доступны' if brief_has_usable_evidence else 'Данных за период для сводки пока нет' }}</span></dd>
+    </div>
+  </dl>
+</section>
+
+<section class="card brief-controls">
+  <h2>Выбрать период</h2>
+  <div class="preset-links" aria-label="Period presets">
+    {% for days in (7, 30, 90) %}
+    <a class="button-link{% if selected_preset == days|string %} selected{% endif %}" href="/brief?preset={{ days }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
+    {% endfor %}
+  </div>
+  <form class="inline-edit" method="get" action="/brief">
+    <label>Начало <input type="date" name="start_date" value="{{ brief.period.start_date }}" required></label>
+    <label>Конец <input type="date" name="end_date" value="{{ brief.period.end_date }}" required></label>
+    <input type="hidden" name="garmin_source_id" value="{{ source_selection.selected_source_id or '' }}">
+    <button type="submit">Применить период</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Источник Garmin</h2>
+  {% if source_selection.status == "require_selection" %}
+  <p class="unavailable">Найдено несколько источников Garmin. Выберите один; данные не объединяются молча.</p>
+  {% elif source_selection.status == "selected" %}
+  <p class="muted">Выбран: <strong>{{ brief_source_label(source_selection.selected_source) }}</strong>. Источник используется для активностей и базовых показателей Garmin.</p>
+  {% else %}
+  <p class="muted">В этом локальном профиле источник Garmin не сохранён.</p>
+  {% endif %}
+  <form class="inline-edit" method="get" action="/brief">
+    <input type="hidden" name="start_date" value="{{ brief.period.start_date }}">
+    <input type="hidden" name="end_date" value="{{ brief.period.end_date }}">
+    <label>Источник
+      <select name="garmin_source_id">
+        <option value="">— выбрать источник —</option>
+        {% for source in source_selection.sources %}
+        <option value="{{ source.id }}"{% if source_selection.selected_source_id == source.id %} selected{% endif %}>
+          {{ brief_source_label(source) }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Выбрать источник</button>
+  </form>
+</section>
+
+{% if not brief_has_usable_evidence %}
+<section class="card unavailable brief-empty-state" role="status">
+  <h2>За выбранный период нет доступных данных</h2>
+  <p>Это не означает нулевые значения: в выбранном профиле не найден пригодный источник данных. Проверьте период и подключённые источники.</p>
+</section>
+{% endif %}
+
+{% set weight = brief.sections.weight %}
+{% set sleep = brief.sections.sleep %}
+{% set activity = brief.sections.activity %}
+{% set quality = brief.sections.data_quality %}
+{% set sleep_uncertainty = brief_sleep_uncertainty(sleep.groups) %}
+{% set coverage_warning = brief_coverage_warning(brief) %}
+{% set notable_changes = brief_notable_changes(brief.notable_changes) %}
+
+<section class="card brief-overview" aria-labelledby="brief-overview-heading">
+  <h2 id="brief-overview-heading">Что произошло</h2>
+  <p class="muted">Краткий итог за выбранный период. Состояния «нет данных», «недоступно» и «недостаточно» не заменяются нулевыми значениями.</p>
+  <ul class="brief-overview-list">
+    <li><strong>Вес</strong>: {{ brief_owner_state(weight.state) }}</li>
+    <li><strong>Сон</strong>: {{ brief_owner_state(sleep.state) }}</li>
+    <li><strong>Активности</strong>: {{ brief_owner_state(activity.state) }}</li>
+  </ul>
+</section>
+
+<section class="card brief-priority" aria-labelledby="brief-notable-heading">
+  <h2 id="brief-notable-heading">Что заметно</h2>
+  {% if notable_changes %}
+  <ul>{% for note in notable_changes %}<li><strong>{{ brief_owner_note(note) }}</strong>{% if note.value is defined and note.value is not none %}: {{ note.value }}{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">Заметных изменений за этот период нет.</p>{% endif %}
+</section>
+
+<section class="card brief-priority" aria-labelledby="brief-actions-heading">
+  <h2 id="brief-actions-heading">Что нужно сделать</h2>
+  {% if brief.owner_actions %}<ul>{% for action in brief.owner_actions %}<li>{{ brief_owner_action(action) }}{% if action.code == "confirm_pending_imports" %} <a href="/imports">Открыть очередь импорта</a>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Дополнительных действий по этой сводке нет.</p>{% endif %}
+</section>
+
+{% if sleep_uncertainty or coverage_warning %}
+<section class="card brief-confidence" role="note" aria-labelledby="brief-confidence-heading">
+  <h2 id="brief-confidence-heading">Уверенность и покрытие</h2>
+  {% if sleep_uncertainty %}<p class="uncertainty-note">{{ sleep_uncertainty }}</p>{% endif %}
+  {% if coverage_warning %}<p class="muted">{{ coverage_warning }}</p>{% endif %}
+</section>
+{% endif %}
+
+{% macro state_chip(section) -%}
+<span class="status-chip {{ section.state }}">{{ brief_owner_state(section.state) }}</span>
+{%- endmacro %}
+{% macro value_text(fact) -%}
+  {{ brief_owner_value(fact.value, fact.unit, fact.availability, fact.code) }}
+{%- endmacro %}
+
+<div class="brief-grid">
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Вес</h2>{{ state_chip(weight) }}</header>
+    <table>
+      <tbody>
+      {% for fact in weight.summary_facts %}
+      <tr><th scope="row">{{ brief_owner_fact(fact.code) }}</th><td>{{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if weight.display_points %}
+    <h3>Показанные измерения веса</h3>
+    <table><thead><tr><th>Дата</th><th>Вес</th></tr></thead><tbody>
+      {% for point in weight.display_points %}<tr><td>{{ point.observed_date }}</td><td>{{ point.median_kg }} kg</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+    {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_thinning.max_display_points }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
+  </section>
+
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Сон</h2>{{ state_chip(sleep) }}</header>
+    {% for group in sleep.groups %}
+    <article class="brief-subsection">
+      <h3>{{ brief_owner_cohort(group.cohort_label) }}</h3>
+      <p class="muted">Наблюдений: {{ group.n if group.n is not none else "—" }} · сопоставленных ночей: {{ group.paired_nights if group.paired_nights is not none else "—" }}</p>
+      {% if group.statistics_available %}<p>Принятое сравнение: среднее различие={{ group.bias }}, типичное различие={{ group.mae }}, наблюдений={{ group.accepted_statistics_n }}.</p>{% else %}<p class="muted">Принятое сравнение недоступно.</p>{% endif %}
+    </article>
+    {% else %}<p class="muted">За этот период нет доступной группы сна.</p>{% endfor %}
+    {% if sleep.summary_facts %}<div class="fact-list">{% for fact in sleep.summary_facts %}<span><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</span>{% endfor %}</div>{% endif %}
+  </section>
+
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Активности</h2>{{ state_chip(activity) }}</header>
+    {% for fact in activity.summary_facts %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
+    {% if activity.sessions %}
+    <table><thead><tr><th>Дата</th><th>Тип</th><th>Запись</th></tr></thead><tbody>
+      {% for session in activity.sessions %}<tr><td>{{ session.source_local_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td><td>Активность записана</td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">За этот период нет отображаемых активностей.</p>{% endif %}
+    {% if activity.display_thinning %}<p class="muted">Для удобства показаны последние {{ activity.display_thinning.max_activity_sessions }} из {{ activity.display_thinning.original_session_count }} активностей.</p>{% endif %}
+  </section>
+
+  <section class="card brief-section">
+    <header class="section-heading"><h2>Полнота данных</h2>{{ state_chip(quality) }}</header>
+    {% for fact in quality.summary_facts %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}</p>{% endfor %}
+    {% if quality.coverage.weight_sparse_note %}<p class="muted">{{ quality.coverage.weight_sparse_note }}</p>{% endif %}
+    {% if quality.coverage.provider_states %}<h3>Источники данных</h3><ul>{% for provider in quality.coverage.provider_states %}<li>Источник: <span class="status-chip {{ provider.state }}">{{ brief_owner_state(provider.state) }}</span></li>{% endfor %}</ul>{% endif %}
+    <p class="muted">Доступные, пустые, неизвестные, недоступные и недостаточные данные остаются разными состояниями. Отсутствующие данные не превращаются в ноль.</p>
+  </section>
+</div>
+
+<details class="card brief-provenance">
+  <summary>Технические детали</summary>
+  <dl>
+    <div><dt>Контракт</dt><dd><code>{{ packet.contract_version }}</code></dd></div>
+    <div><dt>Алгоритм</dt><dd><code>{{ packet.algorithm }}</code></dd></div>
+    <div><dt>Хеш результата</dt><dd><code>{{ packet.result_hash }}</code></dd></div>
+    <div><dt>Хеш отображения</dt><dd><code>{{ brief.source_result_hash }}</code></dd></div>
+    <div><dt>Связанные контракты</dt><dd><code>{{ packet.contracts_referenced | tojson }}</code></dd></div>
+    {% if source_selection.selected_source %}
+    <div><dt>Выбранный source ID</dt><dd><code>{{ source_selection.selected_source.id }}</code></dd></div>
+    <div><dt>Технический instance ID</dt><dd><code>{{ source_selection.selected_source.source_instance_id }}</code></dd></div>
+    {% endif %}
+    <div><dt>Внутренние состояния</dt><dd><code>{% for name, section in packet.sections.items() %}{{ name }}={{ section.state }}{% if not loop.last %}; {% endif %}{% endfor %}</code></dd></div>
+    <div><dt>Внутренние показатели</dt><dd><code>{% for name, section in packet.sections.items() %}{{ name }}: [{% for fact in section.summary_facts %}{{ fact.code }}{% if not loop.last %}, {% endif %}{% endfor %}]{% if not loop.last %}; {% endif %}{% endfor %}</code></dd></div>
+  </dl>
+  <p class="muted">Списки на экране могут быть сокращены только для отображения. Числа, статистики и хеш аналитического пакета получены из принятого сервиса #119.</p>
+</details>
+{% endblock %}
