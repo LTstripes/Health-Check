@@ -71,6 +71,9 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
         "garmin_fit_records",
         "garmin_record_metrics",
         "garmin_sleep_stage_intervals",
+        "garmin_training_snapshots",
+        "garmin_training_acquisitions",
+        "garmin_training_observation_records",
         "google_sources",
         "google_raw_payloads",
         "google_payload_observations",
@@ -96,7 +99,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0012_r05_agreement_successor_publication",
+        "migration_revision": "0013_garmin_training_evidence",
         "ready": True,
     }
 
@@ -768,12 +771,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0012_r05_agreement_successor_publication"
+        == "0013_garmin_training_evidence"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0012_r05_agreement_successor_publication"
+        == "0013_garmin_training_evidence"
     )
 
     engine = create_sqlite_engine(paths)
@@ -863,7 +866,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0012_r05_agreement_successor_publication"
+            == "0013_garmin_training_evidence"
         )
     finally:
         engine.dispose()

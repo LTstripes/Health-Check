@@ -41,6 +41,11 @@ from healthcheck.garmin.reprocess import (
     GarminCollectionReprocessor,
 )
 from healthcheck.garmin.sync import GarminIncrementalSync, GarminSyncStatus
+from healthcheck.garmin.training import (
+    TRAINING_CONTRACT_VERSION,
+    GarminTrainingSync,
+    validate_training_window,
+)
 from healthcheck.garmin.training_probe import (
     TRAINING_PROBE_CONTRACT_VERSION,
     GarminTrainingPhaseAProbe,
@@ -100,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-auth",
             "garmin-capabilities",
             "garmin-training-phase-a",
+            "garmin-training-sync",
             "garmin-redact",
             "garmin-sync",
             "garmin-backfill",
@@ -242,6 +248,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_capabilities(args, settings)
     if args.command == "garmin-training-phase-a":
         return _run_garmin_training_phase_a(args, settings)
+    if args.command == "garmin-training-sync":
+        return _run_garmin_training_sync(args, settings)
     if args.command == "google-auth":
         return _run_google_auth(args, settings)
     if args.command == "google-capabilities":
@@ -862,6 +870,43 @@ def _run_garmin_training_phase_a(args: argparse.Namespace, settings: Settings) -
         return 2
     print(report.to_json(), end="")
     return 0 if report.completed else 1
+
+
+def _run_garmin_training_sync(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        validate_training_window(args.start, args.end)
+        if args.dates or args.streams or args.trailing_window_days is not None:
+            raise ValueError("training sync uses only --start and --end")
+        paths = prepare_runtime(settings)
+        with ExternalRuntimeOperationLock(paths):
+            client, auth_result = GarminAuthService(settings, is_cn=args.is_cn).load_existing()
+            report = GarminTrainingSync(settings, client=client, auth_result=auth_result).run(
+                start=args.start, end=args.end
+            )
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc, contract_version=TRAINING_CONTRACT_VERSION, operation="garmin-training-sync"
+        )
+    except ValueError:
+        report = {
+            "contract_version": TRAINING_CONTRACT_VERSION,
+            "status": "invalid_request",
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+        }
+        print(json.dumps(report, sort_keys=True))
+        return 2
+    except (OSError, SQLAlchemyError):
+        report = {
+            "contract_version": TRAINING_CONTRACT_VERSION,
+            "status": "failed",
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+        }
+        print(json.dumps(report, sort_keys=True))
+        return 1
+    print(json.dumps(report, sort_keys=True))
+    return 0 if report["status"] == "succeeded" else 1
 
 
 def _run_garmin_sync(args: argparse.Namespace, settings: Settings) -> int:

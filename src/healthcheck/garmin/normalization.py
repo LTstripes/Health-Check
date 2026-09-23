@@ -731,6 +731,13 @@ _DAILY_SCALARS = (
 )
 
 _ACTIVITY_SCALARS = (
+    _ScalarSpec("activity_training", "activityTrainingLoad", ("activityTrainingLoad",), "number"),
+    _ScalarSpec("activity_training", "aerobicTrainingEffect", ("aerobicTrainingEffect",), "number"),
+    _ScalarSpec(
+        "activity_training", "anaerobicTrainingEffect", ("anaerobicTrainingEffect",), "number"
+    ),
+    _ScalarSpec("activity_training", "trainingEffectLabel", ("trainingEffectLabel",), "text"),
+    _ScalarSpec("activity_training", "activityRecorderDeviceId", ("deviceId",), "identifier"),
     _ScalarSpec(
         "activities",
         "duration_seconds",
@@ -1480,7 +1487,25 @@ def _parse_record(
         metrics.append(stage_metric)
         diagnostics.extend(stage_diagnostics)
 
-    metrics = [replace(item, source_device_attributed=source.device_attributed) for item in metrics]
+    metrics = [
+        replace(
+            item,
+            source_device_attributed=(
+                source.device_attributed
+                and item.metric_code
+                not in {
+                    "activityTrainingLoad",
+                    "aerobicTrainingEffect",
+                    "anaerobicTrainingEffect",
+                    "trainingEffectLabel",
+                    "activityRecorderDeviceId",
+                    "training_effect",
+                    "acute_training_load",
+                }
+            ),
+        )
+        for item in metrics
+    ]
 
     activity_type = raw.get("activityType")
     if isinstance(activity_type, Mapping):
@@ -1585,6 +1610,20 @@ def _parse_scalar(
             ),
             [],
         )
+    if spec.kind == "identifier":
+        if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value).strip():
+            return (
+                GarminMetricDTO(
+                    capability_code=spec.capability_code,
+                    metric_code=spec.metric_code,
+                    field_path=full_path,
+                    state=GarminFieldState.VALUE,
+                    value=str(value).strip(),
+                    capability_status=capability_status,
+                ),
+                [],
+            )
+        return _invalid_metric(spec, full_path, "shape_drift")
     if spec.kind in {"number", "number_or_text"}:
         if isinstance(value, bool):
             return _invalid_metric(spec, full_path, "boolean_not_numeric")
