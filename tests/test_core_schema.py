@@ -88,15 +88,20 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
         "agreement_run_exclusions",
         "agreement_metric_results",
         "agreement_coverages",
+        "context_events",
+        "context_event_revisions",
+        "context_event_heads",
+        "context_tags",
+        "context_revision_tags",
         "alembic_version",
     }
     table_names = set(inspect(engine).get_table_names())
     assert table_names == expected
-    assert not {"sleep_sessions", "activities", "series_streams", "context_events"} & table_names
+    assert not {"sleep_sessions", "activities", "series_streams"} & table_names
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0012_r05_agreement_successor_publication",
+        "migration_revision": "0013_context_capture_v0",
         "ready": True,
     }
 
@@ -768,12 +773,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0012_r05_agreement_successor_publication"
+        == "0013_context_capture_v0"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0012_r05_agreement_successor_publication"
+        == "0013_context_capture_v0"
     )
 
     engine = create_sqlite_engine(paths)
@@ -863,7 +868,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0012_r05_agreement_successor_publication"
+            == "0013_context_capture_v0"
         )
     finally:
         engine.dispose()

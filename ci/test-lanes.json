@@ -26,6 +26,7 @@
       "tests/test_ci_test_lanes.py",
       "tests/test_ci_workflow.py",
       "tests/test_core_schema.py",
+      "tests/test_context_capture.py",
       "tests/test_fk_safe_migration_repair.py",
       "tests/test_migration_guard.py",
       "tests/test_owner_refresh.py",

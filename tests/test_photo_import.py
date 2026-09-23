@@ -638,6 +638,11 @@ def test_core_schema_tables_unchanged_by_photo_import(photo_env):
         "agreement_run_exclusions",
         "agreement_metric_results",
         "agreement_coverages",
+        "context_events",
+        "context_event_revisions",
+        "context_event_heads",
+        "context_tags",
+        "context_revision_tags",
         "alembic_version",
     }
     assert set(inspect(engine).get_table_names()) == expected
