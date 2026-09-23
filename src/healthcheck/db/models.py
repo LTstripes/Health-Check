@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -73,6 +74,206 @@ class CoverageStatus(StrEnum):
     UNAVAILABLE = "unavailable"
     FAILED = "failed"
     UNKNOWN = "unknown"
+
+
+class ContextEvent(Base):
+    """Stable logical identity for one owner-authored context event."""
+
+    __tablename__ = "context_events"
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class ContextEventRevision(Base):
+    """Immutable owner-authored state for one context event revision."""
+
+    __tablename__ = "context_event_revisions"
+    __table_args__ = (
+        UniqueConstraint("event_id", "revision_number", name="uq_context_revisions_number"),
+        UniqueConstraint("event_id", "id", name="uq_context_revisions_event_id"),
+        UniqueConstraint("operation_id", name="uq_context_revisions_operation_id"),
+        CheckConstraint("revision_number >= 1", name="revision_number_positive"),
+        CheckConstraint("length(operation_id) BETWEEN 1 AND 80", name="operation_id_bounded"),
+        CheckConstraint("operation_kind IN ('add', 'revise')", name="operation_kind_allowed"),
+        CheckConstraint(
+            "length(request_fingerprint) = 64", name="request_fingerprint_sha256"
+        ),
+        CheckConstraint(
+            "length(original_text) BETWEEN 1 AND 4000", name="original_text_bounded"
+        ),
+        CheckConstraint(
+            "instr(original_text, char(0)) = 0", name="original_text_no_nul"
+        ),
+        CheckConstraint(
+            "capture_source IN ('cli', 'manual', 'telegram', 'dashboard')",
+            name="capture_source_allowed",
+        ),
+        CheckConstraint(
+            "temporal_kind IN ('date', 'instant', 'interval')", name="temporal_kind_allowed"
+        ),
+        CheckConstraint(
+            "start_precision IN ('date', 'minute', 'second', 'microsecond')",
+            name="start_precision_allowed",
+        ),
+        CheckConstraint(
+            "end_precision IS NULL OR end_precision IN ('date', 'minute', 'second', 'microsecond')",
+            name="end_precision_allowed",
+        ),
+        CheckConstraint(
+            "start_utc_offset_minutes IS NULL OR "
+            "start_utc_offset_minutes BETWEEN -1439 AND 1439",
+            name="start_offset_bounded",
+        ),
+        CheckConstraint(
+            "end_utc_offset_minutes IS NULL OR end_utc_offset_minutes BETWEEN -1439 AND 1439",
+            name="end_offset_bounded",
+        ),
+        CheckConstraint(
+            "(temporal_kind = 'date' "
+            "AND start_precision = 'date' AND start_local_date IS NOT NULL "
+            "AND start_at_utc IS NULL AND start_source_timestamp IS NULL "
+            "AND start_utc_offset_minutes IS NULL AND start_timezone IS NULL "
+            "AND end_precision IS NULL AND end_local_date IS NULL AND end_at_utc IS NULL "
+            "AND end_source_timestamp IS NULL AND end_utc_offset_minutes IS NULL "
+            "AND end_timezone IS NULL) "
+            "OR (temporal_kind = 'instant' "
+            "AND start_precision <> 'date' AND start_local_date IS NOT NULL "
+            "AND start_at_utc IS NOT NULL AND start_source_timestamp IS NOT NULL "
+            "AND start_utc_offset_minutes IS NOT NULL "
+            "AND end_precision IS NULL AND end_local_date IS NULL AND end_at_utc IS NULL "
+            "AND end_source_timestamp IS NULL AND end_utc_offset_minutes IS NULL "
+            "AND end_timezone IS NULL) "
+            "OR (temporal_kind = 'interval' "
+            "AND start_precision = 'date' AND end_precision = 'date' "
+            "AND start_local_date IS NOT NULL AND end_local_date IS NOT NULL "
+            "AND start_local_date <= end_local_date "
+            "AND start_at_utc IS NULL AND end_at_utc IS NULL "
+            "AND start_source_timestamp IS NULL AND end_source_timestamp IS NULL "
+            "AND start_utc_offset_minutes IS NULL AND end_utc_offset_minutes IS NULL "
+            "AND start_timezone IS NULL AND end_timezone IS NULL) "
+            "OR (temporal_kind = 'interval' "
+            "AND start_precision <> 'date' AND end_precision = start_precision "
+            "AND start_local_date IS NOT NULL AND end_local_date IS NOT NULL "
+            "AND start_at_utc IS NOT NULL AND end_at_utc IS NOT NULL "
+            "AND start_source_timestamp IS NOT NULL AND end_source_timestamp IS NOT NULL "
+            "AND start_utc_offset_minutes IS NOT NULL AND end_utc_offset_minutes IS NOT NULL "
+            "AND start_at_utc < end_at_utc)",
+            name="temporal_shape_valid",
+        ),
+        Index("ix_context_revisions_event", "event_id", "revision_number"),
+        Index("ix_context_revisions_time", "start_local_date", "end_local_date"),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    event_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("context_events.id", ondelete="RESTRICT"), nullable=False
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    operation_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    operation_kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    original_text: Mapped[str] = mapped_column(Text, nullable=False)
+    capture_source: Mapped[str] = mapped_column(String(20), nullable=False)
+    temporal_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    start_precision: Mapped[str] = mapped_column(String(20), nullable=False)
+    end_precision: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    start_local_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_local_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    start_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    start_source_timestamp: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    end_source_timestamp: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    start_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_utc_offset_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    end_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class ContextEventHead(Base):
+    """Mutable current pointer; revision evidence itself stays immutable."""
+
+    __tablename__ = "context_event_heads"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["event_id", "revision_id"],
+            ["context_event_revisions.event_id", "context_event_revisions.id"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("revision_id", name="uq_context_event_heads_revision"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True)
+    revision_id: Mapped[str] = mapped_column(String(ID_LENGTH), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class ContextTag(Base):
+    """Normalized stable identity for a context tag."""
+
+    __tablename__ = "context_tags"
+    __table_args__ = (
+        CheckConstraint(
+            "length(normalized_name) BETWEEN 1 AND 64", name="normalized_name_bounded"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
+    normalized_name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class ContextRevisionTag(Base):
+    """Immutable status/provenance assignment for one revision tag."""
+
+    __tablename__ = "context_revision_tags"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('suggested', 'confirmed', 'rejected')", name="status_allowed"
+        ),
+        CheckConstraint(
+            "provenance_source IN ('cli', 'manual', 'telegram', 'dashboard', 'ai')",
+            name="provenance_source_allowed",
+        ),
+    )
+
+    revision_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("context_event_revisions.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    tag_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH), ForeignKey("context_tags.id", ondelete="RESTRICT"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    provenance_source: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
 
 
 class Provider(Base):
@@ -2474,6 +2675,11 @@ __all__ = [
     "CanonicalRuleSet",
     "CanonicalSelection",
     "CanonicalSelectionRun",
+    "ContextEvent",
+    "ContextEventHead",
+    "ContextEventRevision",
+    "ContextRevisionTag",
+    "ContextTag",
     "CoverageInterval",
     "CoverageStatus",
     "DerivedMeasurement",

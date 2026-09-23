@@ -1,7 +1,7 @@
 """Typed Garmin training snapshots and requested-date acquisition provenance.
 
-Revision ID: 0013_garmin_training_evidence
-Revises: 0012_r05_agreement_successor_publication
+Revision ID: 0014_garmin_training_evidence
+Revises: 0013_context_capture_v0
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0013_garmin_training_evidence"
-down_revision = "0012_r05_agreement_successor_publication"
+revision = "0014_garmin_training_evidence"
+down_revision = "0013_context_capture_v0"
 branch_labels = None
 depends_on = None
 
