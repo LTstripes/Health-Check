@@ -784,6 +784,16 @@ _ACTIVITY_SCALARS = (
     ),
 )
 
+_OPTIONAL_ACTIVITY_TRAINING_CODES = frozenset(
+    {
+        "activityTrainingLoad",
+        "aerobicTrainingEffect",
+        "anaerobicTrainingEffect",
+        "trainingEffectLabel",
+        "activityRecorderDeviceId",
+    }
+)
+
 _FIT_SCALARS = (
     _ScalarSpec(
         "recovery_time",
@@ -1534,7 +1544,14 @@ def _parse_record(
         metrics=metrics,
     )
     invalid_metric = any(item.state is GarminFieldState.INVALID for item in metrics)
-    missing_metric = any(item.state is GarminFieldState.MISSING for item in metrics)
+    missing_metric = any(
+        item.state is GarminFieldState.MISSING
+        and not (
+            stream is GarminStream.ACTIVITY
+            and item.metric_code in _OPTIONAL_ACTIVITY_TRAINING_CODES
+        )
+        for item in metrics
+    )
     has_partial_collection = any(item.reason == "partial_collection" for item in metrics)
     if invalid_metric:
         status = (
