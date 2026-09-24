@@ -45,6 +45,12 @@ from healthcheck.garmin.analytic_contract import (
     AnalyticInputAssemblyError,
     AnalyticMetricDefinition,
 )
+from healthcheck.web.garmin_training_overview import (
+    DEFAULT_RECENT_ACTIVITIES,
+    MAX_RECENT_ACTIVITIES,
+    training_overview_for_selection,
+    unavailable_training_overview,
+)
 
 # Reviewed provider-native identities only (#55 registry + #73 presentation).
 PROVIDER_NATIVE_SCORE_LABELS: dict[str, dict[str, str]] = {
@@ -144,6 +150,42 @@ def _metric_presentation(definition: AnalyticMetricDefinition) -> dict[str, Any]
         "presentation_wording": native["wording"] if native else definition.description,
         "provider_native": native is not None,
     }
+
+
+
+_TRAINING_PRESENTATION_FORBIDDEN = frozenset(
+    {
+        "record_id",
+        "external_record_id",
+        "idempotency_key",
+        "provider_device_id",
+        "provider_device_key",
+        "requested_dates",
+        "activityRecorderDeviceId",
+        "raw_payload",
+        "payload_body",
+        "payload_bytes",
+        "content_hash",
+        "result_hash",
+    }
+)
+
+
+def _strip_training_presentation_leaks(value: Any) -> Any:
+    """Owner Training overview must not expose technical/provider identifiers."""
+
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _TRAINING_PRESENTATION_FORBIDDEN:
+                continue
+            cleaned[key] = _strip_training_presentation_leaks(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_strip_training_presentation_leaks(item) for item in value]
+    if isinstance(value, tuple):
+        return [_strip_training_presentation_leaks(item) for item in value]
+    return value
 
 
 def _sanitize(value: Any) -> Any:
@@ -377,6 +419,32 @@ class GarminQueryService:
             raise _map_domain_error(exc) from exc
         return self._present_lag_result(result.as_dict())
 
+
+    def training_overview(
+        self,
+        *,
+        garmin_source_id: str | None = None,
+        activity_limit: int = DEFAULT_RECENT_ACTIVITIES,
+    ) -> dict[str, Any]:
+        """Deterministic Training & recovery overview for explicit source selection."""
+
+        limit = int(activity_limit)
+        if not 1 <= limit <= MAX_RECENT_ACTIVITIES:
+            raise GarminQueryError(
+                "invalid_activity_limit",
+                "activity_limit must be between 1 and 10",
+            )
+        selection = self.resolve_source(garmin_source_id)
+        return _sanitize(
+            _strip_training_presentation_leaks(
+                training_overview_for_selection(
+                    self.session,
+                    source_selection=selection,
+                    activity_limit=limit,
+                )
+            )
+        )
+
     def dashboard(
         self,
         *,
@@ -405,6 +473,8 @@ class GarminQueryService:
                 "max_lag_count": MAX_LAG_COUNT,
                 "min_selected_activities": MIN_SELECTED_ACTIVITIES,
                 "max_selected_activities": MAX_SELECTED_ACTIVITIES,
+                "recent_training_activities": DEFAULT_RECENT_ACTIVITIES,
+                "max_recent_training_activities": MAX_RECENT_ACTIVITIES,
             },
             "wording": {
                 "association": ASSOCIATION_WORDING,
@@ -413,6 +483,13 @@ class GarminQueryService:
             },
             "series": None,
             "activities": [],
+            "training_overview": _strip_training_presentation_leaks(
+                training_overview_for_selection(
+                    self.session,
+                    source_selection=selection,
+                    activity_limit=DEFAULT_RECENT_ACTIVITIES,
+                )
+            ),
             "unavailable_reason": selection.get("reason"),
         }
         if selection["status"] != "selected":
@@ -572,6 +649,8 @@ def unavailable_dashboard_payload(*, reason: str = "no_data") -> dict[str, Any]:
                 "max_lag_count": MAX_LAG_COUNT,
                 "min_selected_activities": MIN_SELECTED_ACTIVITIES,
                 "max_selected_activities": MAX_SELECTED_ACTIVITIES,
+                "recent_training_activities": DEFAULT_RECENT_ACTIVITIES,
+                "max_recent_training_activities": MAX_RECENT_ACTIVITIES,
             },
             "wording": {
                 "association": ASSOCIATION_WORDING,
@@ -580,6 +659,9 @@ def unavailable_dashboard_payload(*, reason: str = "no_data") -> dict[str, Any]:
             },
             "series": None,
             "activities": [],
+            "training_overview": _strip_training_presentation_leaks(
+                unavailable_training_overview(reason=reason)
+            ),
             "unavailable_reason": reason,
         }
     )

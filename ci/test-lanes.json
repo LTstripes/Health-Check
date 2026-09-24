@@ -19,6 +19,7 @@
       "tests/test_garmin_redaction.py",
       "tests/test_garmin_training_probe.py",
       "tests/test_garmin_training.py",
+      "tests/test_garmin_training_owner_view.py",
       "tests/test_sync_run_recovery.py"
     ],
     "core-sleep": [

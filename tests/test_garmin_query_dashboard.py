@@ -186,8 +186,10 @@ def test_empty_garmin_dashboard_honest_no_data(tmp_path):
         assert page.status_code == 200
         assert "no data" in page.text.lower() or "no_garmin_sources" in page.text
         assert "0 kg" not in page.text
-        assert "Readiness" not in page.text
+        assert "Training &amp; recovery" in page.text or "Training & recovery" in page.text
+        assert "No Garmin source" in page.text
         assert "Recovery Score" not in page.text
+        assert "no custom readiness/status/load score" in page.text.lower()
         sources = client.get("/api/garmin/sources").json()
         assert sources["sources"] == []
         dashboard = client.get("/api/garmin/dashboard").json()
