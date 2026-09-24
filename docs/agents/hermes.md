@@ -4,13 +4,7 @@ Universal rules in `/AGENTS.md` are authoritative.
 
 ## Assigned root
 
-`D:\Hermes Project\hermes-garmin`
-
-Each task uses its own workspace:
-
-`D:\Hermes Project\hermes-garmin\workspaces\<issue>-<slug>`
-
-Do not use `D:\Garmin`, `D:\Garmin-UAT`, Codex/Grok roots, or another task workspace.
+Use only the physical task workspace explicitly assigned in the launch/Owner-local configuration under the location-role protections in `docs/DEVELOPMENT_PROCESS.md`. Owner canonical, Stable/private-runtime and preview/UAT locations, another client's root and other active task workspaces are excluded. Missing or conflicting assignments must be resolved before writes.
 
 ## Accountable Hermes Worker
 

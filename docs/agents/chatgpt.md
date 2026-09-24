@@ -32,49 +32,19 @@ Direct GitHub capability is not a reason to override the Owner's requested imple
 
 ## Manual Worker launch
 
-First record the [launch compatibility assessment](../AGENT_ORCHESTRATION.md#launch-compatibility-assessment) in the issue/Integrator note, including current comments and shared contract ownership. Then prepare a short locator/execution prompt with issue, exact baseline/target integration context, branch/workspace and required source docs. The GitHub issue/spec remains authoritative.
+Use the [Owner task proposal](../MODEL_ROUTING.md#owner-task-proposal) format: plain Russian outcome, separate complexity/risk, a concrete available model/effort recommendation, necessary review/Owner action, then one short locator prompt. The issue/accepted contract is authoritative; do not copy a second specification into chat.
 
-After the Owner returns the completion report, inspect the actual GitHub candidate and decide `ACCEPT / FIXES REQUIRED / REJECT`.
+Record the [launch compatibility decision](../AGENT_ORCHESTRATION.md#launch-compatibility-assessment) in the issue or Integrator note before launch.
+
+After the Worker returns, inspect the actual candidate and evidence before the Integrator verdict.
 
 ## Codex `$delivery-loop` single task
 
-For an explicit `$delivery-loop`/orchestration request, prepare a single-task launch under [`docs/AGENT_ORCHESTRATION.md`](../AGENT_ORCHESTRATION.md).
-
-The packet identifies:
-
-- repo/issue;
-- active release/integration context;
-- exact baseline;
-- task branch/workspace;
-- `single` queue mode;
-- review requirement;
-- explicit `$delivery-loop`.
-
-The Codex root is the Execution Orchestrator; implementation belongs to the local Worker. `INTERNAL_ACCEPT` is not project `ACCEPT`.
+Only an explicit orchestration launch uses [`AGENT_ORCHESTRATION.md`](../AGENT_ORCHESTRATION.md) for packet fields, role separation, remediation/queue limits and reporting. Do not repeat that protocol in ordinary Worker prompts. `INTERNAL_ACCEPT` is not project `ACCEPT`; integration/merge requires the existing separate authority.
 
 ## Codex queue
 
-For an explicitly orchestrated queue, inspect current GitHub issues/state for the Owner-assigned set and record the compatibility assessment and order. Do not invent extra tasks. Parallel execution requires explicit opt-in and compatible ownership; a sequential queue does not authorize parallel writes.
-
-For every task:
-
-- confirm it is actually eligible;
-- assign exact baseline;
-- assign branch/workspace;
-- identify dependencies;
-- state independent-review requirement.
-
-Do not put an unresolved dependent task into an unattended implicit stack. If its dependency requires prior integration and no safe strategy exists, the queue contract uses `BLOCKED_FOR_INTEGRATION` for that chain while unrelated eligible items may continue only if the launch explicitly enables integration-block continuation.
-
-The queue launch states:
-
-- root = Execution Orchestrator;
-- implementation = local Worker;
-- independent Reviewer when project routing, explicit request or justified risk requires it;
-- completion mode: review-and-stop, or remediate with default one cycle and at most two under the project contract;
-- `INTERNAL_ACCEPT != project ACCEPT`;
-- no implicit merge to integration/main;
-- final queue report plus per-task evidence.
+Use the [queue policy](../AGENT_ORCHESTRATION.md#queue-policy) only for an explicitly authorized queue and its listed tasks. Preserve the launch compatibility decision and per-task acceptance; do not infer parallel or integration authority.
 
 ## Reviewing Codex results
 

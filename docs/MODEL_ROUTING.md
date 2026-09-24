@@ -2,18 +2,7 @@
 
 This file defines task complexity, routing and escalation. Exact provider/model availability changes over time; the Integrator chooses a concrete execution route per task.
 
-Every task proposal to the Owner should begin with a short routing header, for example:
-
-```text
-Complexity: C2 / Normal
-Recommended executor: Luna High
-Alternative: Grok High
-Independent reviewer: not required
-Execution mode: one Worker
-Compatibility: isolated scope; no shared contract changes
-```
-
-For high-risk work, include the reviewer/escalation requirement.
+Use the [Owner task proposal](#owner-task-proposal) format below. Model/effort recommendations are resolved from current availability per launch; repository policy specifies the capability and review bar.
 
 Execution-mode semantics are defined in [`AGENT_ORCHESTRATION.md`](AGENT_ORCHESTRATION.md).
 
@@ -27,13 +16,7 @@ Concrete model IDs and effort assignments belong to the launch/local configurati
 
 ## Roles
 
-- **Integrator** — task decomposition, routing, final project acceptance and GitHub integration.
-- **Execution Orchestrator** — optional execution-local coordinator for planning/delegation/internal review/remediation/explicit queue coordination. Does not own project acceptance.
-- **Worker** — owns one implementation candidate. Does not self-accept.
-- **Delegate** — bounded helper below an Orchestrator/Worker. Does not self-accept.
-- **Reviewer** — independently validates a candidate without silently modifying it.
-
-Root/Orchestrator self-review is not independent review.
+Role ownership and the prohibition on self-acceptance are defined in [`AGENTS.md`](../AGENTS.md#roles). This document owns capability, risk/review and escalation decisions; it does not redefine the roles.
 
 ## Complexity classes
 
@@ -73,7 +56,7 @@ Examples:
 - non-destructive backend/API behavior;
 - moderate analytics implementation with known formulas/tests.
 
-Typical routing: Luna High, Grok High, another strong coding Worker, or a Codex orchestrated route with a strong root and scoped Worker.
+Typical routing: a capable coding Worker for a bounded multi-file contract. Orchestration is a separate explicit opt-in decision, not a model tier.
 
 Review: Integrator plus targeted independent review when behavior spans several layers or risk warrants it.
 
@@ -130,16 +113,9 @@ Use a separate Reviewer when any of these applies:
 
 The third case does not authorize requirement invention or scope expansion. If the risk implies architecture, privacy, canonical data or health-semantics changes, STOP and ask the Integrator.
 
-## Model-family examples — non-normative
+## Capability-based selection
 
-Current Owner environments may include models such as:
-
-- fast DeepSeek/GLM/Step-class models for bounded C0/C1 work;
-- Luna High for many C2 implementation tasks;
-- Grok High/xHigh as a strong alternative implementation/review route;
-- Sol/Astra-class strong reasoning for orchestration, difficult review/arbitration or higher-risk work when available.
-
-These are examples only. Local Codex configuration controls internal Codex model assignment; repository policy controls the required capability/review bar.
+Select reliable fast execution for mechanical/bounded work, strong coding and reasoning for cross-layer contracts, and stronger reasoning for unresolved architecture or difficult review. A newer model does not remove project checks or independent review. Concrete provider/model IDs and effort belong to current local configuration or the task launch, not a permanent repository roster. Apply shared scope/evidence rules across models; evaluate model-specific prompting advice on the actual workload rather than assuming identical behavior.
 
 ## Manual and orchestrated clients
 
@@ -181,3 +157,16 @@ Stop and ask the Integrator instead of guessing when:
 - unexpected failures outside task scope suggest a moving integration contract;
 - implementation would add an out-of-scope dependency/service or begin a later roadmap release;
 - a bounded task now requires architecture/health-semantics expansion.
+
+## Owner task proposal
+
+Use this format when proposing a task to the Owner, in plain Russian:
+
+1. **Название.**
+2. **Что изменится и зачем:** one or two concrete sentences.
+3. **Сложность:** небольшая / средняя / сложная, with a short reason. Complexity describes implementation effort; state **Риск** separately using this project's risk/review policy.
+4. **Исполнитель:** a concrete currently available model and supported reasoning effort, selected at launch for the required capability. Label this a recommendation; report the actually used model only from runtime evidence.
+5. **Независимое ревью / действия владельца:** only the required review or private/manual gate, with its reason.
+6. One copyable start prompt, normally 5–8 lines and about 100 words or less: repo/issue and applicable note, Worker role, target and exact baseline, assigned branch/workspace, intended result and authorized delivery. Requirements and acceptance criteria remain in the authoritative issue/contract.
+
+Do not invent an available model, baseline, workspace or permission to make the card look complete. Resolve a missing safety-critical assignment or contract in the authoritative task before launch. A short prompt does not waive any required gate. An explicitly orchestrated launch additionally follows `AGENT_ORCHESTRATION.md`; this format does not activate it.

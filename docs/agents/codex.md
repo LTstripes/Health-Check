@@ -1,94 +1,25 @@
 # Codex adapter
 
-Universal rules in `/AGENTS.md` are authoritative. Local Codex configuration supplies local models, agents, skills and runtime mechanics; repository policy supplies project constraints and acceptance.
+[`AGENTS.md`](../../AGENTS.md) defines scope, roles, protected data/workspaces, delivery and completion. Local Codex configuration selects available models and mechanics; these rules apply across model families.
 
-See [`docs/AGENT_ORCHESTRATION.md`](../AGENT_ORCHESTRATION.md).
+## Default Worker
 
-## Assigned root
+The current session performs one assigned task as one accountable Worker. Read the current issue/applicable notes, verify the assigned actual root, branch and exact baseline, and use only the relevant policy sections. Verify the issue/Integrator launch compatibility decision before writes.
 
-`D:\Codex\Garmin`
+Use synthetic evidence. Owner canonical/Stable/Preview/UAT/private-runtime locations and other active workspaces are excluded regardless of machine paths. Concrete workstation assignments belong to local configuration and the explicit launch, not this adapter.
 
-Each task uses its own workspace:
+Select checks under the [verification policy](../DEVELOPMENT_PROCESS.md#13-ci-evidence-and-complete-suite-gates). Preserve evidence and use focused regressions during iteration. Finish formatting before final frozen-candidate checks; do not edit source while a full gate is running. Return the completion report from AGENTS.md; no implicit merge, release or project acceptance.
 
-`D:\Codex\Garmin\workspaces\<issue>-<slug>`
+## Independent review
 
-Do not use `D:\Garmin`, `D:\Garmin-UAT`, another client's root, or another task workspace.
+Triggers and required capability are in [`MODEL_ROUTING.md`](../MODEL_ROUTING.md). Supply the separate reviewer with pinned base/candidate, the authoritative issue and applicable comment excerpts, prior findings and check evidence. A network-disabled reviewer must receive the literal relevant source material, not only inaccessible URLs. Validate packet completeness before starting the review inference.
 
-## Mode A — manual Worker
+Enforced read-only review requires a separate context/runtime with the intended permissions. A child inheriting writable rights is not proof of isolation. Required review can be run without enabling orchestration.
 
-Use for an ordinary single-task Codex launch, including `Codex без оркестрации`, unless orchestration is explicitly requested.
+## Explicit orchestration only
 
-### Start
+Only an explicit request to run orchestration activates [`AGENT_ORCHESTRATION.md`](../AGENT_ORCHESTRATION.md). That document alone owns packet/queue/remediation rules. A mention, audit, ordinary task or review request does not activate delivery-loop. `INTERNAL_ACCEPT` is execution evidence, never project `ACCEPT` or merge authority.
 
-- Read `AGENTS.md`, the active GitHub issue and the active release spec when one is explicitly designated.
-- Fetch the repository into the assigned task workspace.
-- Verify the exact baseline/integration SHA and the issue/Integrator [launch compatibility decision](../AGENT_ORCHESTRATION.md#launch-compatibility-assessment) before editing; read applicable Integrator comments. If shared ownership is unresolved, return that conflict before writes.
-- Check out/create only the assigned task branch.
-- Never infer that a completed prior release integration branch is the new baseline.
+## Local helpers
 
-### Work
-
-- Implement only the issue.
-- Use synthetic fixtures; never request/copy Owner private runtime data into the workspace.
-- Do not begin later roadmap work as cleanup.
-- Commit/push only the task branch.
-- Do not merge or alter `main`/integration branches.
-- Do not self-accept.
-
-### Finish
-
-Run issue-required checks and return the Worker completion report specified by `AGENTS.md`, including exact baseline, workspace, branch, candidate SHA, changed areas, checks, deviations/limitations and final clean-tree status.
-
-## Mode B — `$delivery-loop` Execution Orchestrator
-
-When the launch invokes `$delivery-loop` or explicitly requests orchestration, the root session acts as **Execution Orchestrator**.
-
-The root must:
-
-- read project policy/issue/spec before applying local orchestration mechanics;
-- validate exact baseline, branch/workspace, compatibility/ownership, queue mode, completion mode and review requirement;
-- delegate implementation to the locally configured Worker;
-- not duplicate delegated write work after delegation;
-- wait for the Worker and inspect the actual candidate/diff/check evidence;
-- invoke the locally configured separate read-only Reviewer when project routing requires it, when Owner/Integrator explicitly requests it, or when justified execution risk raises the review requirement;
-- STOP for Integrator re-scope if risk implies architecture, privacy, canonical-data or health-semantics expansion;
-- honor review-and-stop; otherwise use the default one remediation cycle and the project conditions for a second, never more than two;
-- return internal verdicts `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED`, or `BLOCKED_FOR_INTEGRATION`;
-- never equate `INTERNAL_ACCEPT` with project `ACCEPT`;
-- never acquire implicit merge authority.
-
-A child reviewer that inherits writable rights from the parent does not prove enforced independent read-only review; use the Owner's local mechanism that actually provides the required isolation.
-
-## Queue behavior
-
-Only an explicitly authorized queue may advance automatically.
-
-For a sequential independent queue (explicit parallel assignments instead follow the project compatibility contract):
-
-- each task has its own branch/workspace/baseline;
-- the previous task reaches `INTERNAL_ACCEPT` before the next eligible item starts;
-- previous candidate history is not an implicit baseline for the next task.
-
-If a task requires prior integration and no explicit dependency strategy was supplied, mark it `BLOCKED_FOR_INTEGRATION`. That blocks the affected dependency chain; unrelated explicitly listed eligible tasks may continue only when the launch explicitly enables integration-block continuation.
-
-Return both per-task evidence and one final queue summary.
-
-## Private-data and workspace boundary
-
-Orchestrated mode does not weaken existing restrictions:
-
-- never inspect/use `D:\Garmin\Garmin-Main` or `D:\Garmin\Garmin-UAT` as development workspaces;
-- never access Owner private runtime/health payloads;
-- one write candidate owns one physical workspace;
-- do not reuse another active task workspace;
-- synthetic fixtures remain the normal test basis.
-
-## Skills
-
-Generic orchestration belongs to local `$delivery-loop`. Do not create a Health-specific skill merely for symmetry. A Health-specific skill is justified only for a genuinely reusable project procedure that does not duplicate `AGENTS.md`, architecture, release specs or issue contracts.
-
-Local skill paths, current model IDs and reasoning levels are not tracked in this repository.
-
-## History
-
-Do not edit `docs/EXECUTION_HISTORY.md` as a normal Worker or Execution Orchestrator. The Integrator records the reviewed result.
+Skills are optional procedure helpers, not competing project policy. Load only a relevant procedure; keep implicit delivery-loop invocation disabled and do not duplicate active skills. Concrete model IDs, effort and local paths stay in launch/local configuration. Record actual runtime identity separately from the recommendation.
