@@ -27,6 +27,7 @@ from healthcheck.garmin.sync import (
     validate_sync_date,
     validate_trailing_window_days,
 )
+from healthcheck.garmin.training import TRAINING_CONTRACT_VERSION, GarminTrainingSync
 from healthcheck.google.auth import GoogleAuthService
 from healthcheck.google.contracts import GoogleQueryMode, GoogleStream
 from healthcheck.google.sync import (
@@ -113,7 +114,7 @@ def require_established_runtime(settings: Settings) -> RuntimePaths:
 
 @dataclass(frozen=True, slots=True)
 class OwnerRefreshReport:
-    """Privacy-safe summary for one manual Garmin + dual-Google refresh."""
+    """Privacy-safe summary for one manual Garmin/Training and dual-Google refresh."""
 
     status: OwnerRefreshStatus
     as_of: str
@@ -121,6 +122,7 @@ class OwnerRefreshReport:
     window_end: str
     trailing_window_days: int
     garmin: GarminSyncReport
+    garmin_training: dict[str, Any]
     google: GoogleSyncReport
     google_wearables_sleep: GoogleSyncReport
 
@@ -136,6 +138,7 @@ class OwnerRefreshReport:
                 "trailing_window_days": self.trailing_window_days,
             },
             "garmin": self.garmin.as_dict(),
+            "garmin_training": dict(self.garmin_training),
             "google": self.google.as_dict(),
             "google_wearables_sleep": self.google_wearables_sleep.as_dict(),
             "privacy": {
@@ -153,7 +156,7 @@ class OwnerRefreshReport:
 
 
 def _combined_status(
-    *statuses: GarminSyncStatus | GoogleSyncStatus,
+    *statuses: GarminSyncStatus | GoogleSyncStatus | str,
 ) -> OwnerRefreshStatus:
     """Combine required refresh sub-step statuses into one owner outcome.
 
@@ -164,24 +167,42 @@ def _combined_status(
     - FAILED when no required step succeeded/empty.
     """
 
-    if any(
-        status is GarminSyncStatus.REAUTH_REQUIRED or status is GoogleSyncStatus.REAUTH_REQUIRED
-        for status in statuses
-    ):
+    values = tuple(status.value if isinstance(status, StrEnum) else status for status in statuses)
+    if "reauth_required" in values:
         return OwnerRefreshStatus.REAUTH_REQUIRED
 
     good = {
-        GarminSyncStatus.SUCCEEDED,
-        GarminSyncStatus.EMPTY,
-        GoogleSyncStatus.SUCCEEDED,
-        GoogleSyncStatus.EMPTY,
+        GarminSyncStatus.SUCCEEDED.value,
+        GarminSyncStatus.EMPTY.value,
+        GoogleSyncStatus.SUCCEEDED.value,
+        GoogleSyncStatus.EMPTY.value,
     }
-    if all(status in good for status in statuses):
+    if all(status in good for status in values):
         return OwnerRefreshStatus.SUCCEEDED
 
-    if any(status in good for status in statuses):
+    if any(status in good for status in values):
         return OwnerRefreshStatus.PARTIAL
     return OwnerRefreshStatus.FAILED
+
+
+def _safe_garmin_training_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Keep only the accepted Garmin Training sync's sanitized summary fields."""
+
+    valid_statuses = {"succeeded", "partial", "failed", "reauth_required"}
+    status = report.get("status")
+    safe_status = status if isinstance(status, str) and status in valid_statuses else "failed"
+    safe = {
+        "contract_version": TRAINING_CONTRACT_VERSION,
+        "status": safe_status,
+        "status_historical_backfill": False,
+        "raw_values_emitted": False,
+        "private_identifiers_emitted": False,
+    }
+    for key in ("request_count", "readiness_requested_days", "inserted_count", "updated_count"):
+        value = report.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            safe[key] = value
+    return safe
 
 
 def _resumable_heart_rate_attempt(report: GoogleSyncReport) -> GoogleSyncAttempt | None:
@@ -466,13 +487,15 @@ def run_owner_refresh(
     Under the same established-runtime overlap lock this runs:
 
     1. existing bounded Garmin incremental sync;
-    2. existing normal bounded Google refresh (CLI stream/query/family overrides
+    2. accepted bounded Garmin Training sync using the same Garmin client and
+       exact validated date window;
+    3. existing normal bounded Google refresh (CLI stream/query/family overrides
        apply only to this layer);
-    3. fixed sleep-only Google refresh with ``query_mode=reconcile`` and
+    4. fixed sleep-only Google refresh with ``query_mode=reconcile`` and
        ``data_source_family=google-wearables`` for the R05 exploratory cohort.
 
-    Garmin remains the owner of incremental-window validation. Both Google
-    layers receive the exact inclusive date window derived from that same
+    Garmin remains the owner of incremental-window validation. Training and both
+    Google layers receive the exact inclusive date window derived from that same
     validated Garmin window and retain their own refresh/checkpoint semantics.
     """
 
@@ -489,6 +512,13 @@ def run_owner_refresh(
             client=garmin_client,
             auth_result=garmin_auth_result,
         ).run(as_of=as_of_date, trailing_window_days=window_days)
+        garmin_training = _safe_garmin_training_report(
+            GarminTrainingSync(
+                settings,
+                client=garmin_client,
+                auth_result=garmin_auth_result,
+            ).run(start=window_start, end=window_end)
+        )
 
         google_auth = GoogleAuthService(settings)
         google = _run_normal_google_refresh(
@@ -511,12 +541,18 @@ def run_owner_refresh(
         )
 
     return OwnerRefreshReport(
-        status=_combined_status(garmin.status, google.status, google_wearables_sleep.status),
+        status=_combined_status(
+            garmin.status,
+            garmin_training["status"],
+            google.status,
+            google_wearables_sleep.status,
+        ),
         as_of=as_of_date.isoformat(),
         window_start=window_start.isoformat(),
         window_end=window_end.isoformat(),
         trailing_window_days=window_days,
         garmin=garmin,
+        garmin_training=garmin_training,
         google=google,
         google_wearables_sleep=google_wearables_sleep,
     )
