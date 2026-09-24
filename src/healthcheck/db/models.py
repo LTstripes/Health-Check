@@ -770,6 +770,70 @@ class GarminSourceRecord(Base):
     )
 
 
+class GarminTrainingSnapshot(Base):
+    """Typed Garmin-native training record; device association is not producer proof."""
+
+    __tablename__ = "garmin_training_snapshots"
+    __table_args__ = (
+        CheckConstraint("kind IN ('status', 'load_balance', 'readiness')", name="kind_allowed"),
+        CheckConstraint(
+            "attribution IN ('account', 'associated_device')", name="attribution_allowed"
+        ),
+    )
+
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    provider_device_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_device_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    attribution: Mapped[str] = mapped_column(String(30), nullable=False)
+
+
+class GarminTrainingAcquisition(Base):
+    """One requested day for an immutable training payload observation."""
+
+    __tablename__ = "garmin_training_acquisitions"
+    __table_args__ = (
+        CheckConstraint(
+            "surface IN ('training_status', 'training_readiness')", name="surface_allowed"
+        ),
+        CheckConstraint(
+            "response_state IN ('value', 'null', 'empty', 'shape_drift')",
+            name="response_state_allowed",
+        ),
+        Index("ix_garmin_training_acquisitions_requested", "surface", "requested_date"),
+    )
+
+    observation_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_payload_observations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    surface: Mapped[str] = mapped_column(String(40), nullable=False)
+    requested_date: Mapped[date] = mapped_column(Date, nullable=False)
+    response_state: Mapped[str] = mapped_column(String(20), nullable=False)
+
+
+class GarminTrainingObservationRecord(Base):
+    """Immutable observation-to-semantic-snapshot membership."""
+
+    __tablename__ = "garmin_training_observation_records"
+
+    observation_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_payload_observations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    record_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_source_records.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
 class GarminDailyRecord(Base):
     """Typed daily-health record marker and local calendar identity."""
 
@@ -1432,9 +1496,7 @@ class AgreementRuleSet(Base):
 
     __tablename__ = "agreement_rule_sets"
     __table_args__ = (
-        UniqueConstraint(
-            "rule_name", "rule_version", name="uq_agreement_rule_sets_name_version"
-        ),
+        UniqueConstraint("rule_name", "rule_version", name="uq_agreement_rule_sets_name_version"),
         CheckConstraint("length(rule_name) > 0", name="rule_name_nonempty"),
         CheckConstraint("length(rule_version) > 0", name="rule_version_nonempty"),
         CheckConstraint("length(rule_hash) >= 32", name="rule_hash_min_length"),
@@ -1458,9 +1520,7 @@ class AgreementRun(Base):
 
     __tablename__ = "agreement_runs"
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('running', 'succeeded', 'failed')", name="status_allowed"
-        ),
+        CheckConstraint("status IN ('running', 'succeeded', 'failed')", name="status_allowed"),
         CheckConstraint("length(scope_key) > 0", name="scope_key_nonempty"),
         CheckConstraint("length(window_key) > 0", name="window_key_nonempty"),
         CheckConstraint("length(cohort) > 0", name="cohort_nonempty"),
@@ -1495,9 +1555,7 @@ class AgreementRun(Base):
             "ux_agreement_runs_single_successor",
             "supersedes_run_id",
             unique=True,
-            sqlite_where=text(
-                "status = 'succeeded' AND supersedes_run_id IS NOT NULL"
-            ),
+            sqlite_where=text("status = 'succeeded' AND supersedes_run_id IS NOT NULL"),
         ),
         Index(
             "ux_agreement_runs_success_identity",
@@ -1619,7 +1677,10 @@ class AgreementMetricResult(Base):
     __tablename__ = "agreement_metric_results"
     __table_args__ = (
         UniqueConstraint(
-            "run_id", "pair_id", "metric_code", "variant_key",
+            "run_id",
+            "pair_id",
+            "metric_code",
+            "variant_key",
             name="uq_agreement_metric_results_identity",
         ),
         CheckConstraint("ordinal >= 0", name="ordinal_nonnegative"),

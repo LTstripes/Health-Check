@@ -583,13 +583,27 @@ def test_garmin_migration_downgrade_and_upgrade_are_linear(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0013_context_capture_v0"
+        == "0014_garmin_training_evidence"
     )
 
     engine = create_sqlite_engine(paths)
     try:
         assert "garmin_sources" in inspect(engine).get_table_names()
         assert "garmin_payload_observations" in inspect(engine).get_table_names()
+        command.downgrade(config, "0013_context_capture_v0")
+        downgraded_tables = set(inspect(engine).get_table_names())
+        assert {
+            "context_events",
+            "context_event_revisions",
+            "context_event_heads",
+            "context_tags",
+            "context_revision_tags",
+        } <= downgraded_tables
+        assert "garmin_training_snapshots" not in downgraded_tables
+        command.upgrade(config, "head")
+        upgraded_tables = set(inspect(engine).get_table_names())
+        assert "context_events" in upgraded_tables
+        assert "garmin_training_snapshots" in upgraded_tables
         command.downgrade(config, "0004_naive_minute_wall_clock")
         assert database_readiness(paths)["migration_revision"] == "0004_naive_minute_wall_clock"
         assert "garmin_sources" not in inspect(engine).get_table_names()
@@ -597,7 +611,7 @@ def test_garmin_migration_downgrade_and_upgrade_are_linear(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0013_context_capture_v0"
+            == "0014_garmin_training_evidence"
         )
         assert "garmin_sleep_stage_intervals" in inspect(engine).get_table_names()
     finally:

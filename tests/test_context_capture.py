@@ -388,7 +388,7 @@ def test_populated_0012_database_upgrades_additively_and_preserves_unrelated_dat
             before = connection.execute(
                 text("SELECT id, code, display_name, provider_kind FROM providers")
             ).all()
-        migrate_database(paths)
+        command.upgrade(_alembic_config(paths), "0013_context_capture_v0")
         with engine.connect() as connection:
             after = connection.execute(
                 text("SELECT id, code, display_name, provider_kind FROM providers")
