@@ -53,6 +53,186 @@
   <p class="muted">Zero sources → honest no-data. One source → deterministic selection. Many sources → explicit choice required.</p>
 </section>
 
+
+{% macro training_field(field) -%}
+  {%- if field is none -%}
+    <span class="unavailable">not provided</span>
+  {%- elif field.state == 'zero' -%}
+    <span class="status-chip zero">0</span>
+  {%- elif field.state == 'value' -%}
+    {{ field.value }}
+  {%- elif field.state == 'null' -%}
+    <span class="unavailable">not provided</span>
+  {%- elif field.state == 'missing' -%}
+    <span class="unavailable">unavailable</span>
+  {%- else -%}
+    <span class="unavailable">{{ field.state }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro recovery_time_field(field) -%}
+  {%- if field is none or field.state in ['missing', 'null', 'invalid'] -%}
+    <span class="unavailable">{% if field and field.state == 'null' %}not provided{% else %}unavailable{% endif %}</span>
+  {%- elif field.state == 'zero' -%}
+    <span class="status-chip zero">0</span> <span class="muted">(Garmin-native; unit unavailable)</span>
+  {%- elif field.state == 'value' -%}
+    {{ field.value }} <span class="muted">(Garmin-native; unit unavailable)</span>
+  {%- else -%}
+    <span class="unavailable">{{ field.state }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+<section class="card" id="training-recovery">
+  <h2>Training &amp; recovery</h2>
+  {% set overview = payload.training_overview %}
+  <p class="muted">{{ overview.wording.disclaimer }}</p>
+  <p>
+    <span class="status-chip">{{ overview.wording.garmin_native }}</span>
+    <span class="status-chip">{{ overview.wording.metric_producer_unverified }}</span>
+  </p>
+
+  {% if overview.status == 'no_data' %}
+    <p class="unavailable">No Garmin source</p>
+    <p class="muted">Reason: {{ overview.reason or 'no_garmin_sources' }}. Training evidence cannot be shown until a Garmin source exists.</p>
+  {% elif overview.status == 'require_selection' %}
+    <p class="unavailable">Select a Garmin source</p>
+    <p class="muted">Multiple Garmin sources are present; sources are never silently merged. Choose one above.</p>
+  {% elif overview.status == 'no_training_evidence' %}
+    <p class="unavailable">No Training evidence yet</p>
+    <p class="muted">The selected source has no persisted Training status, load focus, readiness, or activity training fields.</p>
+  {% else %}
+
+    <h3>Training status</h3>
+    {% if overview.training_status %}
+      {% set status = overview.training_status %}
+      <p class="muted">
+        Source date: {{ status.source_date or 'undated' }}
+        · {{ status.attribution_label }}
+        · {{ overview.wording.metric_producer_unverified }}
+      </p>
+      <ul>
+        <li>Status: <strong>{{ training_field(status.fields.trainingStatus) }}</strong>
+          {% if status.fields.trainingStatusFeedbackPhrase.state == 'value' %}
+            — {{ status.fields.trainingStatusFeedbackPhrase.value }}
+          {% endif %}
+        </li>
+        <li>ACWR status: {{ training_field(status.fields.acwrStatus) }}</li>
+      </ul>
+
+      <h3>Load</h3>
+      <ul>
+        <li>Acute load: {{ training_field(status.fields.dailyTrainingLoadAcute) }}</li>
+        <li>Chronic load: {{ training_field(status.fields.dailyTrainingLoadChronic) }}</li>
+        <li>ACWR %: {{ training_field(status.fields.acwrPercent) }}</li>
+        <li>ACWR ratio: {{ training_field(status.fields.dailyAcuteChronicWorkloadRatio) }}</li>
+      </ul>
+    {% else %}
+      <p class="unavailable">Training status not provided</p>
+    {% endif %}
+
+    <h3>Load focus</h3>
+    {% if overview.load_focus %}
+      {% set focus = overview.load_focus %}
+      <p class="muted">
+        {% if focus.dated %}Source date: {{ focus.source_date }}{% else %}Undated (request date not attached){% endif %}
+        · {{ focus.attribution_label }}
+        · {{ overview.wording.metric_producer_unverified }}
+      </p>
+      <table class="garmin-table">
+        <thead>
+          <tr><th>Bucket</th><th>Load</th><th>Target min</th><th>Target max</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Low aerobic</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAerobicLow) }}</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAerobicLowTargetMin) }}</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAerobicLowTargetMax) }}</td>
+          </tr>
+          <tr>
+            <td>High aerobic</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAerobicHigh) }}</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAerobicHighTargetMin) }}</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAerobicHighTargetMax) }}</td>
+          </tr>
+          <tr>
+            <td>Anaerobic</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAnaerobic) }}</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAnaerobicTargetMin) }}</td>
+            <td>{{ training_field(focus.fields.monthlyLoadAnaerobicTargetMax) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    {% else %}
+      <p class="unavailable">Load focus not provided</p>
+    {% endif %}
+
+    <h3>Readiness &amp; recovery</h3>
+    {% if overview.readiness %}
+      {% set ready = overview.readiness %}
+      <p class="muted">
+        Latest snapshot
+        {% if ready.source_timestamp_utc %}@ {{ ready.source_timestamp_utc }}{% elif ready.source_date %}@ {{ ready.source_date }}{% else %}(undated){% endif %}
+        · {{ ready.attribution_label }}
+        · {{ overview.wording.metric_producer_unverified }}
+        {% if ready.snapshot_count > 1 %}· {{ ready.snapshot_count }} snapshots retained{% endif %}
+      </p>
+      <ul>
+        <li>Score: <strong>{{ training_field(ready.fields.score) }}</strong>
+          {% if ready.fields.level.state == 'value' %} ({{ ready.fields.level.value }}){% endif %}
+        </li>
+        <li>Recovery time: {{ recovery_time_field(ready.fields.recoveryTime) }}</li>
+        <li>Recovery factor: {{ training_field(ready.fields.recoveryTimeFactorPercent) }}
+          {% if ready.fields.recoveryTimeFactorFeedback.state == 'value' %} — {{ ready.fields.recoveryTimeFactorFeedback.value }}{% endif %}
+        </li>
+        {% if ready.fields.recoveryTimeChangePhrase.state == 'value' %}
+          <li>Recovery change: {{ ready.fields.recoveryTimeChangePhrase.value }}</li>
+        {% endif %}
+        <li>Acute load (readiness): {{ training_field(ready.fields.acuteLoad) }}</li>
+        <li>ACWR factor: {{ training_field(ready.fields.acwrFactorPercent) }}
+          {% if ready.fields.acwrFactorFeedback.state == 'value' %} — {{ ready.fields.acwrFactorFeedback.value }}{% endif %}
+        </li>
+        {% if ready.fields.inputContext.state == 'value' %}
+          <li>Context: {{ ready.fields.inputContext.value }}</li>
+        {% endif %}
+      </ul>
+    {% else %}
+      <p class="unavailable">Readiness not provided</p>
+    {% endif %}
+
+    <h3>Recent activities</h3>
+    {% if overview.recent_activities %}
+      <table class="garmin-table">
+        <thead>
+          <tr>
+            <th>Type / date</th>
+            <th>Training load</th>
+            <th>Aerobic TE</th>
+            <th>Anaerobic TE</th>
+            <th>TE label</th>
+            <th>Attribution</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for activity in overview.recent_activities %}
+          <tr>
+            <td>{{ activity.activity_type or 'activity' }} · {{ activity.source_date or 'undated' }}</td>
+            <td>{{ training_field(activity.fields.activityTrainingLoad) }}</td>
+            <td>{{ training_field(activity.fields.aerobicTrainingEffect) }}</td>
+            <td>{{ training_field(activity.fields.anaerobicTrainingEffect) }}</td>
+            <td>{{ training_field(activity.fields.trainingEffectLabel) }}</td>
+            <td class="muted">{{ activity.attribution_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="unavailable">No recent activities with Training load / TE fields</p>
+    {% endif %}
+
+  {% endif %}
+</section>
+
 <section class="card">
   <h2>Scalar series / baseline / trend (R03-01)</h2>
   <form id="series-form" class="inline-edit">

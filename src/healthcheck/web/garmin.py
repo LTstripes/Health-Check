@@ -19,6 +19,11 @@ from healthcheck.web.garmin_query import (
     GarminQueryService,
     unavailable_dashboard_payload,
 )
+from healthcheck.web.garmin_training_overview import (
+    DEFAULT_RECENT_ACTIVITIES,
+    MAX_RECENT_ACTIVITIES,
+    unavailable_training_overview,
+)
 
 router = APIRouter()
 
@@ -279,6 +284,42 @@ def garmin_lagged_association(
         )
         return _json({"code": "persistence_error", "message": "request failed"}, status_code=500)
 
+
+
+
+@router.get("/api/garmin/training-overview")
+def garmin_training_overview(
+    request: Request,
+    garmin_source_id: str | None = Query(default=None),
+    activity_limit: int = Query(
+        default=DEFAULT_RECENT_ACTIVITIES,
+        ge=1,
+        le=MAX_RECENT_ACTIVITIES,
+    ),
+) -> JSONResponse:
+    """Read-only Training & recovery overview from persisted #180 evidence."""
+
+    try:
+        with session_scope(request_engine(request)) as session:
+            service = GarminQueryService(session, request.app.state.settings)
+            return _json(
+                service.training_overview(
+                    garmin_source_id=garmin_source_id,
+                    activity_limit=activity_limit,
+                )
+            )
+    except GarminQueryError as exc:
+        return _error(exc)
+    except SQLAlchemyError as exc:
+        if database_unavailable(exc):
+            return _json(unavailable_training_overview(reason="database_unavailable"))
+        log_event(
+            "persistence_error",
+            operation="garmin_training_overview",
+            status="error",
+            reason="persistence_error",
+        )
+        return _json({"code": "persistence_error", "message": "request failed"}, status_code=500)
 
 @router.get("/api/garmin/dashboard")
 def garmin_dashboard_api(
