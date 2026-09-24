@@ -2,6 +2,18 @@
 
 Universal project constitution for coding/review agents. Read this before every task. Client-specific adapters live in `docs/agents/` and may add mechanics but must not weaken these rules.
 
+## Read by task type
+
+Read this constitution and the current issue/applicable Integrator notes once at task start; refresh them when the assignment or authoritative facts change. Read detailed sources by need, not as a mandatory whole-repository tour:
+
+- Docs/process-only: affected documents and their referenced policy sections; no product-wide architecture/test inventory.
+- Implementation/bugfix: the relevant contract/architecture and affected source/tests, plus the verification policy below.
+- Financial/data semantics, restore, migration, privacy or runtime boundaries: the governing spec/ADRs and applicable review/UAT gates before changing that boundary.
+- Task routing/proposal: `docs/MODEL_ROUTING.md`; client mechanics: only the relevant `docs/agents/` adapter.
+- Health launch compatibility, or an explicitly requested orchestration/queue: the relevant `docs/AGENT_ORCHESTRATION.md` section; reading it does not activate the loop.
+
+Use already-read unchanged context. Historical task catalogs are not standing orders. Within the authorized task, perform routine reversible investigation, edits, synthetic checks and permitted delivery without repeated approval; scope/product/security/data decisions and canonical integration retain their existing owners.
+
 ## Sources of truth
 
 When documents disagree, use this order:
@@ -33,18 +45,13 @@ The default principle remains: **Workers provide the hands; the Integrator owns 
 
 ## Task prompt authority
 
-The GitHub issue is the authoritative task specification. A launch prompt sent by the Integrator is intentionally short and normally contains only:
+The current GitHub issue, accepted contract and applicable Integrator notes define the task under the source precedence above. A launch prompt is a locator and execution assignment, not a second specification. Update the authoritative issue/note when requirements change.
 
-- issue number/link;
-- assigned execution route/client and complexity;
-- assigned physical workspace root/task directory;
-- task branch and exact baseline/integration SHA;
-- instruction to read this file, the active release spec (when designated) and the issue;
-- instruction to run required checks, commit/push only the task branch and return exact candidate evidence.
+Use the [Owner task proposal](docs/MODEL_ROUTING.md#owner-task-proposal) format when handing a task to the Owner. The launch identifies the issue/note, assigned branch and actual workspace, exact baseline/target, intended result and authorized delivery. Missing safety-critical information must be resolved before writes.
 
-Do not duplicate the whole issue in chat prompts. If requirements change, the Integrator updates the issue or adds an explicit Integrator note; chat-only requirement drift is not authoritative.
+One bounded task defaults to one Worker; independent review follows risk policy and does not activate orchestration. Only an explicit orchestration/queue request uses `docs/AGENT_ORCHESTRATION.md` and its listed eligible tasks.
 
-One bounded task defaults to one Worker; orchestration requires explicit activation. Before launch, the Integrator records the execution-mode and compatibility decision under [`docs/AGENT_ORCHESTRATION.md`](docs/AGENT_ORCHESTRATION.md#launch-compatibility-assessment), and the assigned Worker/Orchestrator verifies it before writes. Include applicable Integrator comments and ownership of shared files/interfaces/migrations/versions. A queue or parallel assignment must list only explicitly authorized tasks under that contract.
+For Health implementation launches, record and verify the [launch compatibility decision](docs/AGENT_ORCHESTRATION.md#launch-compatibility-assessment), including applicable comments, dependency state and shared artifact ownership. Do not silently rewrite existing assignments.
 
 ## Git ownership
 
@@ -74,7 +81,7 @@ A task stays pinned to its assigned baseline while it is being implemented. Do n
 
 One active write/verification task owns one physical working tree. Branch isolation alone is not sufficient for parallel sessions.
 
-Current Owner workstation assignments are documented in `docs/DEVELOPMENT_PROCESS.md`. Each local agent uses a task-specific clone/worktree under its own assigned root. The Owner canonical and UAT workspaces are forbidden agent development workspaces.
+Concrete workstation assignments come from Owner-local configuration and the explicit launch. `docs/DEVELOPMENT_PROCESS.md` defines the protected location roles. Each agent uses only its assigned task clone/worktree; Owner canonical, Stable/private-runtime and UAT locations are forbidden development workspaces regardless of their paths.
 
 Agents must not create, move, rename, inspect or delete sibling workspaces outside their assigned task directory unless the Integrator explicitly assigns that filesystem operation.
 
@@ -92,7 +99,7 @@ Development-agent workspaces must not contain or access real personal health dat
 
 Repository and normal agent tests use synthetic fixtures only. Private/live verification is Owner/Integrator controlled and is reported as `UNVERIFIED` until actually performed.
 
-The accepted durable Owner data profile is `D:\Garmin\HealthCheck-Stable`. Development Workers/Reviewers must not inspect or mutate it unless an issue explicitly authorizes an Owner-controlled live gate. Release/product UAT must use a disposable verified backup/restore clone; Stable is never reset or repurposed as a candidate sandbox.
+The durable Stable Owner data profile is identified by the Owner-local assignment. Development Workers/Reviewers must not inspect or mutate it unless an issue explicitly authorizes an Owner-controlled live gate. Release/product UAT must use a disposable verified backup/restore clone; Stable is never reset or repurposed as a candidate sandbox.
 
 ## Scope discipline
 

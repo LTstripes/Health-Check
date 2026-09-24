@@ -7,8 +7,9 @@ about: Bounded Health-Check implementation/review task
 
 ## Routing
 
-- **Complexity:** C0 / C1 / C2 / C3 / C4
-- **Recommended executor:**
+- **Complexity:** C0 / C1 / C2 / C3 / C4, with reason
+- **Risk:** separate from complexity; required review/gates and reason
+- **Recommended executor:** concrete currently available model and supported effort, selected at launch (not actual runtime attribution)
 - **Alternative:**
 - **Independent reviewer required:** yes / no; early contract / final candidate, with reason
 - **Execution mode and reason:** one Worker (default) / explicitly orchestrated
@@ -41,7 +42,7 @@ Use `docs/AGENT_ORCHESTRATION.md#launch-compatibility-assessment`. A short no-ov
 ## Required reading
 
 - `AGENTS.md`
-- active release spec
+- active release spec only when explicitly designated and relevant; otherwise not applicable
 - relevant architecture/ADR sections
 
 ## In scope

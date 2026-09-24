@@ -39,33 +39,7 @@ The Integrator honors the requested implementation route while continuing to per
 
 ### 1.2 Codex `$delivery-loop` route
 
-For an orchestrated Codex task, the strong root acts as **Execution Orchestrator** and delegates implementation to the locally configured **Worker**. The root does not duplicate delegated write work.
-
-For every task the launch packet specifies:
-
-- issue/task ID;
-- active release/integration context;
-- exact baseline;
-- task branch;
-- physical workspace;
-- queue mode;
-- dependency status;
-- independent-review requirement.
-
-The root reviews actual candidate/check evidence after the Worker returns. A separate Reviewer is used when project routing requires independent review, when the Owner/Integrator explicitly requests it, or when justified execution risk raises the review bar. Such risk does not authorize scope expansion: architecture/privacy/canonical-data/health-semantics expansion remains STOP + Integrator re-scope.
-
-The launch sets `completion_mode=review-and-stop` (no automatic fixes) or `remediate` (default one cycle; a second only explicitly authorized or demonstrably mechanical and bounded; absolute cap two). Internal results are `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED`, or `BLOCKED_FOR_INTEGRATION`. `INTERNAL_ACCEPT` never equals project `ACCEPT`.
-
-For an explicitly authorized independent queue:
-
-- every task keeps its own branch/workspace/exact baseline;
-- a previous candidate is not an implicit baseline for the next task;
-- in this sequential mode, one task reaches `INTERNAL_ACCEPT` before the next eligible task starts;
-- if a task requires prior integration and no safe dependency strategy was supplied, it becomes `BLOCKED_FOR_INTEGRATION`;
-- unrelated explicitly listed eligible tasks may continue only if the launch explicitly enables integration-block continuation;
-- the Orchestrator must not invent stacked history, merge the integration branch or select replacement backlog work.
-
-Codex returns per-task evidence plus one final queue report covering every authorized task. That queue report is not batch project acceptance.
+The activation, packet, queue, remediation and internal-verdict protocol is defined once in [`AGENT_ORCHESTRATION.md`](AGENT_ORCHESTRATION.md). Ordinary tasks use one Worker; only an explicit orchestration launch uses that protocol. `INTERNAL_ACCEPT` never grants project acceptance or merge authority.
 
 ## 2. Branch strategy
 
@@ -112,74 +86,16 @@ For stacked accepted work created before the previous release completed, reconst
 
 ## 3. Local workspace layout
 
-GitHub is canonical. Local paths are execution/preview locations, not sources of truth.
+GitHub is canonical. Concrete workstation paths belong to the Owner's local configuration and the explicit task assignment, not this repository. Record the assigned physical task directory and exact branch/baseline at launch; if the assignment is missing or conflicts with a protected location, resolve it before writing.
 
-`D:\Garmin` is the Owner-only parent root. It contains separate main and UAT checkouts; the parent directory itself is not a mutable Git checkout.
+The following roles remain mandatory regardless of machine paths:
 
-### Owner canonical checkout
+- **Owner canonical checkout:** accepted-main read/run location, never an agent development workspace; agents must not inspect, switch or reset it without a specific Owner-controlled assignment.
+- **Owner preview/UAT checkout:** Owner-only candidate preview and gated private/device verification; never a development workspace.
+- **Stable private data runtime:** durable Owner evidence and verified backup source, outside Git; never reset or repurpose it for candidate testing. Only an explicitly authorized Owner-controlled live gate may access it.
+- **Per-client development root:** a container for separate explicitly assigned task clones/worktrees, never one shared mutable checkout switched between concurrent tasks.
 
-`D:\Garmin\Garmin-Main`
-
-Purpose:
-
-- Owner/Integrator stable checkout of accepted `main`;
-- convenient local read/run point after releases;
-- never a development-agent workspace.
-
-Other coding agents must not access, branch-switch, reset or use this checkout.
-
-### Owner preview/UAT checkout
-
-`D:\Garmin\Garmin-UAT`
-
-Purpose:
-
-- Owner-only checkout of the current release/integration candidate;
-- browser/manual preview;
-- live provider/device probes when their gate requires them;
-- never a development-agent workspace.
-
-### Durable Owner data runtime
-
-`D:\Garmin\HealthCheck-Stable`
-
-Purpose:
-
-- persistent private Weight/Garmin/Google/agreement evidence;
-- normal owner operation and bounded provider refresh;
-- source for verified backups and disposable UAT/runtime clones.
-
-Stable is **not** a Git checkout and is never reset for release UAT. Candidate UAT uses a separate external runtime restored from a verified Stable backup. Coding Workers/Execution Orchestrators must not inspect or mutate Stable unless an issue explicitly authorizes an Owner-controlled live gate.
-
-Runtime/private data always stays outside Git checkout. Do not reuse one private database across arbitrary branches.
-
-### Codex root
-
-`D:\Codex\Garmin`
-
-Task workspace pattern:
-
-`D:\Codex\Garmin\workspaces\<issue>-<slug>`
-
-### Grok Build root
-
-`D:\Grok\Garmin`
-
-Task workspace pattern:
-
-`D:\Grok\Garmin\workspaces\<issue>-<slug>`
-
-### Hermes root
-
-`D:\Hermes Project\hermes-garmin`
-
-Task workspace pattern:
-
-`D:\Hermes Project\hermes-garmin\workspaces\<issue>-<slug>`
-
-The three paths above are parent roots. Do not keep one shared mutable clone at the root and switch branches between concurrent tasks. Each active task owns its own clone/worktree directory.
-
-If these machine paths change, the issue/Integrator launch note may override them; repository branch and issue remain authoritative.
+Candidate UAT uses a disposable runtime restored from a verified Stable backup. No real health data, credentials, backups or links to private locations enter an agent workspace. A changed machine path cannot relax these exclusions or authorize inspection of siblings.
 
 ## 4. Workspace creation rules for workers
 
@@ -187,7 +103,7 @@ A Worker may create only the task directory explicitly assigned below its client
 
 Workers, Delegates and Execution Orchestrators must not:
 
-- inspect `D:\Garmin\Garmin-Main` or `D:\Garmin\Garmin-UAT`;
+- inspect the Owner canonical, Stable/private-runtime or preview/UAT locations;
 - reuse another task directory;
 - create sibling roots elsewhere on disk;
 - link private Owner runtime/data into a dev clone;
@@ -216,49 +132,9 @@ Task requirements live in GitHub, not only in chat. If scope changes, the issue 
 
 ## 6. Launch prompt convention
 
-### Manual Worker
+Use the [Owner task proposal](MODEL_ROUTING.md#owner-task-proposal) format. Keep the explanation and complexity/risk/model recommendation outside the copyable 5–8-line locator prompt. Record the [launch compatibility decision](AGENT_ORCHESTRATION.md#launch-compatibility-assessment) in the authoritative issue/note; do not duplicate requirements in the prompt.
 
-The Integrator sends the Owner a short prompt, normally like:
-
-```text
-Health-Check task #NN — <title>
-Complexity: C2 / Normal
-Recommended executor: <client/model>
-
-Repo: https://github.com/LTstripes/Health-Check
-Issue: <URL>
-Target integration: integration/<active-release> @ <SHA>
-Branch: task/<issue>-<slug>
-Workspace: <assigned workspace>
-
-Read AGENTS.md, the issue and the active release spec if one is designated. Implement only the issue. Run the required checks. Commit/push only the task branch. Do not merge or modify main/integration. Return the Worker completion report with exact final SHA.
-```
-
-### Codex `$delivery-loop` single task
-
-The prompt additionally states:
-
-- explicit `$delivery-loop`;
-- `queue_mode=single`;
-- root = Execution Orchestrator;
-- implementation belongs to the local configured Worker;
-- independent-review requirement;
-- explicit completion/remediation mode and budget under `AGENT_ORCHESTRATION.md`;
-- `INTERNAL_ACCEPT != project ACCEPT`;
-- no implicit integration/main merge authority.
-
-### Codex `$delivery-loop` queue
-
-One queue launch packet may list several explicitly authorized tasks. It must state exact baseline/branch/workspace/dependency/review data for every task and require:
-
-- progression only through listed eligible items;
-- `INTERNAL_ACCEPT` before advancing;
-- `BLOCKED_FOR_INTEGRATION` for unresolved dependency integration gaps;
-- unrelated explicitly listed eligible tasks may continue only with explicit integration-block continuation enabled;
-- no invented tasks/stacking/merge;
-- per-task evidence plus one final queue report.
-
-The issue contains details; launch prompts are locators/execution contracts, not second specifications.
+An explicitly requested orchestration/queue adds the fields required by `AGENT_ORCHESTRATION.md`; an ordinary Worker launch does not load that extra procedure. A missing safety-critical contract or assignment is resolved before launch.
 
 ## 7. Worker / Orchestrator completion -> Integrator review
 
@@ -340,13 +216,13 @@ When all planned tasks for a release are integrated:
 
 1. Integrator reviews the complete integration diff against the release spec.
 2. Automated full release checks pass.
-3. Owner UAT/preview runs from `D:\Garmin\Garmin-UAT`, using a disposable private runtime restored/cloned from the accepted Stable recovery point when real owner evidence is required; Stable itself is not the candidate sandbox.
+3. Owner UAT/preview runs from its explicitly assigned Owner-only checkout, using a disposable private runtime restored/cloned from the accepted Stable recovery point when real owner evidence is required; Stable itself is not the candidate sandbox.
 4. Live/provider/device probes required by that release are performed or explicitly remain `UNVERIFIED` if allowed by the spec.
 5. Integrator resolves findings in dedicated task branches, not by ad-hoc edits in UAT checkout.
 6. Integrator opens/reviews integration -> `main` PR.
 7. Accepted release is merged to `main`.
 8. Exact post-merge `main` CI is checked and canonical `main` is read back.
-9. `D:\Garmin\Garmin-Main` is fast-forwarded to canonical `main` by the Owner when convenient; GitHub remains canonical.
+9. The Owner canonical checkout is fast-forwarded to canonical `main` by the Owner when convenient; GitHub remains canonical.
 10. Release documentation/history is synchronized.
 11. The completed integration branch is no longer used as the next release baseline; create the next release integration branch from current `main`.
 
@@ -430,3 +306,13 @@ uv run python scripts/ci_test_lanes.py verify-lane --lane <lane> --output-dir <e
 
 `uv run pytest` remains the unrestricted serial diagnostic/control command; it
 is not a permanent fourth per-candidate CI suite.
+
+### Stabilize before a full gate
+
+For a shared DB/session, serialization, restore or other cross-cutting primitive, map its direct consumers and failure/lifecycle boundaries before the expensive gate. Cover those boundaries with focused regressions, including known failure clusters and the actual production entry points. Review an unresolved contract early when warranted; this is not an extra mandatory review for every small task or a replacement for final independent review.
+
+Finish formatting/lint fixes and focused tests before starting the full suite. Freeze its source, relevant configuration and dependencies until it finishes; do not run a formatter or another writer against the candidate in parallel. If a full suite fails, preserve its failures, diagnose and rerun the failed nodes plus the affected contract tests first. Run the required complete gate after the fixes stabilize, not as the next diagnostic command after every change.
+
+Before any repeat record the previous evidence, what changed and the concrete unresolved risk/gate. A changed commit SHA, lost polling session or desire for extra confidence alone is not a reason. A nonsemantic-only edit can reuse evidence only where policy permits and its exact diff is proven; a source-changed or interrupted record is never silently relabeled passed. Keep stricter issue/CI/independent-review/UAT requirements. There is no blanket numeric cap that waives a required full gate.
+
+Readiness means an actual writable, short external temp/cache and resolved toolchain plus an appropriate small check, not only a path/dry-run check. Once an infrastructure fault is known, fix its conditions before another expensive suite; do not weaken the tested safety contract.

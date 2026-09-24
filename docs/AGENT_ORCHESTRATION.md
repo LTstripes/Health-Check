@@ -6,14 +6,7 @@ Health-Check supports a manual Worker route and an optional Codex `$delivery-loo
 
 ## Roles
 
-- **Owner** — product direction and owner-only/private/live UAT.
-- **Integrator** — normally ChatGPT/Lera. Owns project task decomposition/routing, authoritative issue/notes, final `ACCEPT / FIXES REQUIRED / REJECT`, GitHub integration/merge and durable history/docs.
-- **Execution Orchestrator** — optional execution-local coordinator. In Codex `$delivery-loop` mode this is the strong root session. It may plan, delegate, internally review/remediate and coordinate an explicitly authorized queue, but it does not own project acceptance.
-- **Worker** — one accountable implementation writer for one candidate. Does not self-accept.
-- **Delegate** — bounded helper below a Worker/Orchestrator. Does not self-accept.
-- **Reviewer** — independent validator when routing, an explicit request or justified execution risk requires one. Does not silently modify the candidate.
-
-Root/Orchestrator self-review is not independent review.
+Use the role definitions in [`AGENTS.md`](../AGENTS.md#roles). Root/Worker self-review is not independent review; an Execution Orchestrator has no implicit project acceptance or canonical integration authority.
 
 ## Launch compatibility assessment
 
@@ -39,7 +32,7 @@ For schema, replay, eligibility, statistics or other cross-layer risk, require a
 
 The Worker writes/runs focused acceptance checks using actual production DTOs/entry points where practical. An unresolved architecture/health-semantics decision returns to the Integrator. Use an early independent contract review for such high-risk reasoning when warranted; final candidate review remains separate. Routine docs/mechanical work can mark this checkpoint not applicable.
 
-Run targeted checks during implementation. Schedule issue-required full pytest/harness and CI after the relevant implementation stabilizes; preserve exact candidate/command/outcome evidence. Do not repeat a passing suite on an unchanged candidate merely because a polling session disappeared. A semantic change invalidates affected evidence and requires the applicable gates again. Independent review and final checks may overlap on one frozen candidate unless the issue/spec requires a particular order; all required gates must pass before internal acceptance.
+Final-gate scheduling, evidence and repeat rules are normative in [`DEVELOPMENT_PROCESS.md`](DEVELOPMENT_PROCESS.md#13-ci-evidence-and-complete-suite-gates). Independent review and final checks may overlap on one frozen candidate unless the issue/spec requires a particular order; all required gates must pass before internal acceptance.
 
 ## Mode A — manual / brokered execution
 
@@ -102,19 +95,13 @@ Do not invent stacked history, merge the release integration line, or pick repla
 
 ## Independent review triggers
 
-Use a separate Reviewer when:
-
-1. project complexity/routing requires it;
-2. Owner/Integrator explicitly requests it;
-3. justified risk discovered during execution raises the review requirement under project policy.
-
-The third case is not permission to broaden scope. Reinterpretation of health semantics, architecture, privacy boundaries or canonical data contracts requires STOP + Integrator decision.
+[`MODEL_ROUTING.md`](MODEL_ROUTING.md) is the normative source for independent-review triggers and risk escalation. A review requirement does not activate orchestration or authorize scope/contract expansion.
 
 ## Reporting
 
 ### Per-task report
 
-Return task/issue ID, runtime-reported client/model/delegates when available, exact baseline/target, task branch/workspace, candidate SHA, changed areas, exact checks/outcomes, deviations, blockers/limitations and final local state. Orchestrated runs also record execution-mode rationale, completion/remediation mode and a compact phase ledger with evidence references. Separate wall time from overlapping job durations; report usage/cost only when measured, otherwise unknown.
+Use the completion contract in [`AGENTS.md`](../AGENTS.md#completion-reporting). An orchestrated run additionally records mode/remediation rationale and a compact phase ledger with evidence references. Separate wall time from overlapping job durations; usage/cost remains unknown unless measured.
 
 ### Final queue report
 

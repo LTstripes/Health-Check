@@ -4,13 +4,7 @@ Universal rules in `/AGENTS.md` are authoritative.
 
 ## Assigned root
 
-`D:\Grok\Garmin`
-
-Each task uses its own workspace:
-
-`D:\Grok\Garmin\workspaces\<issue>-<slug>`
-
-Do not use `D:\Garmin`, `D:\Garmin-UAT`, another client's root, or another active task workspace.
+Use only the physical task workspace explicitly assigned in the launch/Owner-local configuration under the location-role protections in `docs/DEVELOPMENT_PROCESS.md`. Owner canonical, Stable/private-runtime and preview/UAT locations, another client's root and other active task workspaces are excluded. Missing or conflicting assignments must be resolved before writes.
 
 ## Start
 
