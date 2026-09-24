@@ -353,6 +353,77 @@ def test_explicit_training_acquisition_is_bounded_sanitized_and_no_detail(tmp_pa
         validate_training_window("2099-01-01", "2099-01-15")
 
 
+def test_owner_refresh_replay_converges_training_without_duplicate_rows(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import healthcheck.owner_refresh as owner_refresh
+    from healthcheck.garmin.sync import GarminSyncStatus
+    from healthcheck.google.sync import GoogleSyncStatus
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    client = _Client()
+
+    class Auth:
+        def __init__(self, settings, *, is_cn=False):
+            pass
+
+        def load_existing(self):
+            return client, GarminAuthResult(status=GarminAuthStatus.AUTHENTICATED)
+
+    class Incremental:
+        def __init__(self, settings, *, client, auth_result):
+            pass
+
+        def run(self, *, as_of, trailing_window_days):
+            return SimpleNamespace(status=GarminSyncStatus.SUCCEEDED)
+
+    monkeypatch.setattr(owner_refresh, "GarminAuthService", Auth)
+    monkeypatch.setattr(owner_refresh, "GarminIncrementalSync", Incremental)
+    monkeypatch.setattr(
+        owner_refresh,
+        "run_google_refresh",
+        lambda settings, **kwargs: SimpleNamespace(status=GoogleSyncStatus.EMPTY),
+    )
+
+    first = owner_refresh.run_owner_refresh(
+        settings, as_of="2099-01-08", trailing_window_days=3, streams=["sleep"]
+    )
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            first_rows = session.scalar(select(func.count()).select_from(GarminSourceRecord))
+    finally:
+        engine.dispose()
+
+    second = owner_refresh.run_owner_refresh(
+        settings, as_of="2099-01-08", trailing_window_days=3, streams=["sleep"]
+    )
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            second_rows = session.scalar(select(func.count()).select_from(GarminSourceRecord))
+    finally:
+        engine.dispose()
+
+    assert first.garmin_training["status"] == "succeeded"
+    assert first.garmin_training["inserted_count"] > 0
+    assert second.garmin_training["status"] == "succeeded"
+    assert second.garmin_training["inserted_count"] == 0
+    assert first_rows == second_rows
+    assert client.calls == [
+        ("status", "2099-01-08"),
+        ("readiness", "2099-01-06"),
+        ("readiness", "2099-01-07"),
+        ("readiness", "2099-01-08"),
+        ("status", "2099-01-08"),
+        ("readiness", "2099-01-06"),
+        ("readiness", "2099-01-07"),
+        ("readiness", "2099-01-08"),
+    ]
+
+
 def test_unavailable_status_method_is_a_failed_surface_not_empty(tmp_path):
     class ReadinessOnly:
         retry_attempts = 2

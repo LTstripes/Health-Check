@@ -55,6 +55,25 @@ class _FakeGarminSync:
         return SimpleNamespace(status=GarminSyncStatus.SUCCEEDED, as_of=as_of)
 
 
+class _FakeGarminTrainingSync:
+    def __init__(self, settings, *, client, auth_result):
+        self.client = client
+        self.auth_result = auth_result
+
+    def run(self, *, start, end):
+        return {
+            "contract_version": "garmin-training-evidence-v1",
+            "status": "succeeded",
+            "request_count": 4,
+            "readiness_requested_days": 3,
+            "status_historical_backfill": False,
+            "inserted_count": 2,
+            "updated_count": 0,
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+        }
+
+
 class _FakeGoogleAuth:
     def __init__(self, settings):
         pass
@@ -155,6 +174,7 @@ def _established_settings(tmp_path):
 def _patch_providers(monkeypatch, owner_refresh, *, garmin_cls=_FakeGarminSync, google_fn=None):
     monkeypatch.setattr(owner_refresh, "GarminAuthService", _FakeGarminAuth)
     monkeypatch.setattr(owner_refresh, "GarminIncrementalSync", garmin_cls)
+    monkeypatch.setattr(owner_refresh, "GarminTrainingSync", _FakeGarminTrainingSync)
     monkeypatch.setattr(owner_refresh, "GoogleAuthService", _FakeGoogleAuth)
     if google_fn is not None:
         monkeypatch.setattr(owner_refresh, "run_google_refresh", google_fn)
@@ -183,6 +203,8 @@ def test_owner_refresh_runs_garmin_and_both_google_layers(monkeypatch, tmp_path)
 
     expected_start, expected_end = compute_sync_window(date(2099, 1, 10), 7)
     assert report.status is OwnerRefreshStatus.SUCCEEDED
+    assert report.garmin_training["status"] == "succeeded"
+    assert report.garmin_training["request_count"] == 4
     assert len(google_calls) == 2
 
     normal = google_calls[0]
@@ -198,6 +220,138 @@ def test_owner_refresh_runs_garmin_and_both_google_layers(monkeypatch, tmp_path)
     assert wearables_sleep["streams"] == list(OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS)
     assert wearables_sleep["query_mode"] == OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE
     assert wearables_sleep["data_source_family"] == OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY
+
+
+def test_owner_refresh_reuses_garmin_auth_and_training_uses_exact_window_and_order(
+    monkeypatch, tmp_path
+):
+    import healthcheck.owner_refresh as owner_refresh
+
+    events = []
+    expected_auth_result = object()
+    expected_client = object()
+
+    class CountingAuth:
+        def __init__(self, settings, *, is_cn=False):
+            pass
+
+        def load_existing(self):
+            events.append("auth")
+            return expected_client, expected_auth_result
+
+    class CountingGarmin(_FakeGarminSync):
+        def __init__(self, settings, *, client, auth_result):
+            super().__init__(settings, client=client, auth_result=auth_result)
+
+        def run(self, *, as_of, trailing_window_days):
+            events.append("garmin")
+            return SimpleNamespace(status=GarminSyncStatus.SUCCEEDED, as_of=as_of)
+
+    class CountingTraining:
+        def __init__(self, settings, *, client: object, auth_result: object):
+            assert client is expected_client
+            assert auth_result is expected_auth_result
+
+        def run(self, *, start, end):
+            events.append(("training", start, end))
+            return _FakeGarminTrainingSync(
+                None, client=expected_client, auth_result=expected_auth_result
+            ).run(
+                start=start, end=end
+            )
+
+    def fake_google(settings, **kwargs):
+        events.append("google")
+        return _report(GoogleSyncStatus.SUCCEEDED)
+
+    monkeypatch.setattr(owner_refresh, "GarminAuthService", CountingAuth)
+    monkeypatch.setattr(owner_refresh, "GarminIncrementalSync", CountingGarmin)
+    monkeypatch.setattr(owner_refresh, "GarminTrainingSync", CountingTraining)
+    monkeypatch.setattr(owner_refresh, "GoogleAuthService", _FakeGoogleAuth)
+    monkeypatch.setattr(owner_refresh, "run_google_refresh", fake_google)
+
+    report = run_owner_refresh(
+        _established_settings(tmp_path),
+        as_of="2099-01-10",
+        trailing_window_days=7,
+        streams=["sleep"],
+    )
+
+    expected_start, expected_end = compute_sync_window(date(2099, 1, 10), 7)
+    assert events == [
+        "auth",
+        "garmin",
+        ("training", expected_start, expected_end),
+        "google",
+        "google",
+    ]
+    assert report.garmin_training["status"] == "succeeded"
+
+
+def test_owner_refresh_surfaces_training_partial_and_filters_report(monkeypatch, tmp_path):
+    import healthcheck.owner_refresh as owner_refresh
+
+    class PartialTraining:
+        def __init__(self, settings, *, client, auth_result):
+            pass
+
+        def run(self, *, start, end):
+            return {
+                "status": "partial",
+                "request_count": 3,
+                "inserted_count": 1,
+                "raw_payload": "private-provider-payload",
+                "provider_id": "private-provider-id",
+            }
+
+    _patch_providers(monkeypatch, owner_refresh)
+    monkeypatch.setattr(owner_refresh, "GarminTrainingSync", PartialTraining)
+    monkeypatch.setattr(
+        owner_refresh,
+        "run_google_refresh",
+        lambda settings, **kwargs: _report(GoogleSyncStatus.SUCCEEDED),
+    )
+
+    report = run_owner_refresh(
+        _established_settings(tmp_path), as_of="2099-01-10", trailing_window_days=7
+    )
+
+    assert report.status is OwnerRefreshStatus.PARTIAL
+    assert report.garmin_training["status"] == "partial"
+    assert report.garmin_training["request_count"] == 3
+    assert "raw_payload" not in report.garmin_training
+    assert "provider_id" not in report.garmin_training
+    assert "private-provider" not in json.dumps(report.garmin_training)
+
+
+def test_owner_refresh_combines_training_failure_and_reauth_without_hiding_them():
+    assert (
+        _combined_status(
+            GarminSyncStatus.SUCCEEDED,
+            "partial",
+            GoogleSyncStatus.SUCCEEDED,
+            GoogleSyncStatus.SUCCEEDED,
+        )
+        is OwnerRefreshStatus.PARTIAL
+    )
+    assert (
+        _combined_status(
+            GarminSyncStatus.SUCCEEDED,
+            "reauth_required",
+            GoogleSyncStatus.SUCCEEDED,
+            GoogleSyncStatus.SUCCEEDED,
+        )
+        is OwnerRefreshStatus.REAUTH_REQUIRED
+    )
+    assert (
+        _combined_status(
+            GarminSyncStatus.FAILED,
+            "failed",
+            GoogleSyncStatus.FAILED,
+            GoogleSyncStatus.FAILED,
+        )
+        is OwnerRefreshStatus.FAILED
+    )
 
 
 def test_owner_refresh_selection_runs_fixed_wearables_sleep_without_cli_family(
@@ -661,12 +815,20 @@ def test_owner_refresh_empty_report_is_privacy_safe():
         window_end="2099-01-10",
         trailing_window_days=7,
         garmin=garmin,
+        garmin_training={
+            "contract_version": "garmin-training-evidence-v1",
+            "status": "succeeded",
+            "raw_values_emitted": False,
+            "private_identifiers_emitted": False,
+        },
         google=google,
         google_wearables_sleep=wearables_sleep,
     ).to_json()
     decoded = json.loads(payload)
     assert decoded["refresh"]["status"] == "succeeded"
     assert decoded["garmin"]["sync"]["status"] == "empty"
+    assert decoded["garmin_training"]["status"] == "succeeded"
+    assert decoded["garmin_training"]["raw_values_emitted"] is False
     assert decoded["google"]["sync"]["status"] == "empty"
     assert decoded["google_wearables_sleep"]["sync"]["status"] == "empty"
     assert decoded["google_wearables_sleep"]["sync"]["query_mode"] == "reconcile"
