@@ -650,6 +650,7 @@ def _data_quality_section(
     sleep_section: Mapping[str, Any],
     activity_section: Mapping[str, Any],
     import_queue: Mapping[str, Any] | None = None,
+    freshness_projection: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     facts: list[dict[str, Any]] = [
         {
@@ -703,27 +704,33 @@ def _data_quality_section(
                 ),
             }
         )
+    contracts = {"coverage_rule_version": COVERAGE_RULE_VERSION}
+    coverage = {
+        "period": period.as_dict(),
+        "provider_states": provider_states,
+        "weight_freshness_days": (weight_section.get("coverage") or {}).get("freshness_days"),
+        "weight_sparse_note": (weight_section.get("coverage") or {}).get(
+            "last_measurement_vs_sync_note"
+        ),
+        "distinctions": {
+            "present": "evidence exists in the requested window",
+            "confirmed_empty": "provider/window explicitly empty",
+            "unknown": "not requested or not yet classified",
+            "unavailable": "acquisition failed or source unavailable",
+            "insufficient": "present evidence is not enough for the analytic",
+            "last_sync_ne_last_measurement": True,
+            "sparse_voluntary_weighing_is_not_broken": True,
+        },
+    }
+    if freshness_projection is not None:
+        freshness = deepcopy(dict(freshness_projection))
+        coverage["freshness"] = freshness
+        contracts["source_freshness_policy_version"] = freshness["policy_version"]
     return {
         "section": "data_quality",
         "state": "present",
-        "contracts": {"coverage_rule_version": COVERAGE_RULE_VERSION},
-        "coverage": {
-            "period": period.as_dict(),
-            "provider_states": provider_states,
-            "weight_freshness_days": (weight_section.get("coverage") or {}).get("freshness_days"),
-            "weight_sparse_note": (weight_section.get("coverage") or {}).get(
-                "last_measurement_vs_sync_note"
-            ),
-            "distinctions": {
-                "present": "evidence exists in the requested window",
-                "confirmed_empty": "provider/window explicitly empty",
-                "unknown": "not requested or not yet classified",
-                "unavailable": "acquisition failed or source unavailable",
-                "insufficient": "present evidence is not enough for the analytic",
-                "last_sync_ne_last_measurement": True,
-                "sparse_voluntary_weighing_is_not_broken": True,
-            },
-        },
+        "contracts": contracts,
+        "coverage": coverage,
         "summary_facts": facts,
         "import_queue": {
             "pending_candidate_count": (import_queue or {}).get("pending_candidate_count"),
@@ -840,6 +847,7 @@ def _owner_actions(
     sleep_section: Mapping[str, Any],
     activity_section: Mapping[str, Any],
     data_quality_section: Mapping[str, Any],
+    freshness_projection: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     del activity_section  # reserved for future action rules; unused in v1
     actions: list[dict[str, Any]] = []
@@ -855,10 +863,12 @@ def _owner_actions(
                 "pending_candidate_count": pending,
             }
         )
-    for item in (sleep_section.get("coverage") or {}).get("source_data_quality") or []:
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("state") in {"failed", "unavailable"}:
+    if freshness_projection is None:
+        for item in (sleep_section.get("coverage") or {}).get("source_data_quality") or []:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("state") not in {"failed", "unavailable"}:
+                continue
             actions.append(
                 {
                     "code": "investigate_provider_sync",
@@ -869,6 +879,30 @@ def _owner_actions(
                     "last_sync_status": item.get("last_sync_status"),
                 }
             )
+    else:
+        owner = freshness_projection.get("owner") or {}
+        if isinstance(owner, Mapping):
+            for item in owner.get("actionable_items") or []:
+                if not isinstance(item, Mapping):
+                    continue
+                scope_key = item.get("scope_key")
+                state = item.get("state")
+                reason_code = item.get("reason_code")
+                if not all(isinstance(value, str) for value in (scope_key, state, reason_code)):
+                    continue
+                actions.append(
+                    {
+                        "code": "source_freshness_attention",
+                        "severity": "owner",
+                        "scope_key": scope_key,
+                        "state": state,
+                        "reason_code": reason_code,
+                        "summary": (
+                            f"Required source {scope_key} needs attention "
+                            f"({state}: {reason_code})."
+                        ),
+                    }
+                )
     if weight_section.get("state") == "unavailable":
         actions.append(
             {
@@ -881,7 +915,11 @@ def _owner_actions(
             }
         )
     actions.sort(
-        key=lambda item: (str(item.get("code") or ""), str(item.get("provider_code") or ""))
+        key=lambda item: (
+            str(item.get("code") or ""),
+            str(item.get("provider_code") or ""),
+            str(item.get("scope_key") or ""),
+        )
     )
     return actions
 
@@ -899,6 +937,7 @@ def build_period_brief_packet(
     sleep_baselines: Sequence[Mapping[str, Any]] = (),
     activity_baselines: Sequence[Mapping[str, Any]] = (),
     import_queue: Mapping[str, Any] | None = None,
+    freshness_projection: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble one deterministic period-brief evidence packet from frozen inputs."""
 
@@ -921,23 +960,29 @@ def build_period_brief_packet(
         sleep_section=sleep_section,
         activity_section=activity_section,
         import_queue=import_queue,
+        freshness_projection=freshness_projection,
     )
+    contracts_referenced = {
+        "weight_analytics_version": WEIGHT_ANALYTICS_VERSION,
+        "weight_trend_algorithm": WEIGHT_TREND_ALGORITHM,
+        "weight_rate_algorithm": WEIGHT_RATE_ALGORITHM,
+        "body_composition_algorithm": BODY_COMPOSITION_ALGORITHM,
+        "coverage_rule_version": COVERAGE_RULE_VERSION,
+        "sleep_agreement_report": REPORT_CONTRACT_VERSION,
+        "garmin_baselines_algorithm": R03_01_ALGORITHM,
+        "garmin_baselines_rule_version": R03_01_RULE_VERSION,
+        "garmin_activity_comparison_algorithm": R03_02_ALGORITHM,
+        "garmin_activity_comparison_rule_version": R03_02_RULE_VERSION,
+    }
+    if freshness_projection is not None:
+        contracts_referenced["source_freshness_policy_version"] = freshness_projection[
+            "policy_version"
+        ]
     body = {
         "contract_version": PERIOD_BRIEF_CONTRACT_VERSION,
         "algorithm": PERIOD_BRIEF_ALGORITHM,
         "period": period.as_dict(),
-        "contracts_referenced": {
-            "weight_analytics_version": WEIGHT_ANALYTICS_VERSION,
-            "weight_trend_algorithm": WEIGHT_TREND_ALGORITHM,
-            "weight_rate_algorithm": WEIGHT_RATE_ALGORITHM,
-            "body_composition_algorithm": BODY_COMPOSITION_ALGORITHM,
-            "coverage_rule_version": COVERAGE_RULE_VERSION,
-            "sleep_agreement_report": REPORT_CONTRACT_VERSION,
-            "garmin_baselines_algorithm": R03_01_ALGORITHM,
-            "garmin_baselines_rule_version": R03_01_RULE_VERSION,
-            "garmin_activity_comparison_algorithm": R03_02_ALGORITHM,
-            "garmin_activity_comparison_rule_version": R03_02_RULE_VERSION,
-        },
+        "contracts_referenced": contracts_referenced,
         "sections": {
             "weight": weight_section,
             "sleep": sleep_section,
@@ -950,6 +995,7 @@ def build_period_brief_packet(
             sleep_section=sleep_section,
             activity_section=activity_section,
             data_quality_section=data_quality_section,
+            freshness_projection=freshness_projection,
         ),
     }
     result_hash = stable_manifest_hash(body)

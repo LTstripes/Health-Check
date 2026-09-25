@@ -1,5 +1,6 @@
 """Synthetic policy and persisted-read regressions for the frozen v1 contract."""
 
+import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,10 +30,12 @@ from healthcheck.db.models import (
 from healthcheck.source_freshness import (
     POLICY_VERSION,
     SCOPE_BY_KEY,
+    SCOPES,
     Facts,
     aggregate,
     evaluate_scope,
 )
+from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.source_freshness_read import read_facts
 from healthcheck.web.source_freshness import router
 
@@ -64,6 +67,71 @@ def test_daily_due_and_grace_boundaries(age: float, state: str, reason: str) -> 
     assert (row["state"], row["reason_code"]) == (state, reason)
     assert row["policy_basis"] == {"cadence_hours": 24, "due_hours": 36,
                                    "grace_hours": 72, "refresh_overdue_hours": 48}
+
+
+def test_shared_consumer_projection_reuses_core_and_removes_fact_details(monkeypatch) -> None:
+    import healthcheck.source_freshness_consumer as consumer
+
+    facts_by_key = {}
+    for scope in SCOPES:
+        if scope.key == "garmin:sleep":
+            facts_by_key[scope.key] = Facts(
+                last_attempt_at_utc=NOW - timedelta(hours=49),
+                last_success_at_utc=NOW - timedelta(hours=49),
+                evidence_at_utc=NOW - timedelta(hours=73),
+                observed_once=True,
+            )
+        elif scope.family == "weight":
+            facts_by_key[scope.key] = Facts(confirmed_weight=True, observed_once=True)
+        elif scope.family == "activity":
+            facts_by_key[scope.key] = Facts(
+                last_attempt_at_utc=NOW - timedelta(hours=1),
+                last_success_at_utc=NOW - timedelta(hours=1),
+                coverage="complete",
+                activity_count=0,
+            )
+        else:
+            facts_by_key[scope.key] = daily(evidence_hours=1)
+
+    calls = []
+
+    def fake_read_facts(_session, scope, **kwargs):
+        calls.append((scope.key, kwargs["evaluation_local_date"]))
+        return facts_by_key[scope.key]
+
+    monkeypatch.setattr(consumer, "read_facts", fake_read_facts)
+    engine = create_engine("sqlite://")
+    try:
+        with Session(engine) as session:
+            projection = read_consumer_freshness_projection(
+                session,
+                evaluated_at_utc=NOW,
+                evaluation_local_date=DAY,
+            )
+    finally:
+        engine.dispose()
+
+    assert projection["policy_version"] == POLICY_VERSION
+    assert projection["owner"] == {
+        "state": "stale",
+        "actionable_items": [
+            {
+                "scope_key": "garmin:sleep",
+                "state": "stale",
+                "reason_code": "refresh_overdue",
+            }
+        ],
+    }
+    assert projection["providers"]["garmin"]["state"] == "stale"
+    assert projection["providers"]["google"]["state"] == "fresh"
+    serialized = json.dumps(projection, sort_keys=True)
+    assert NOW.isoformat() not in serialized
+    assert all(
+        name not in serialized
+        for name in ("evaluated_at_utc", "latest_evidence", "policy_basis", "facts", "result_id")
+    )
+    assert len(calls) == len(SCOPES)
+    assert all(day == DAY for _, day in calls)
 
 
 def test_refresh_overdue_and_terminal_precedence() -> None:

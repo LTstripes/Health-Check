@@ -57,6 +57,8 @@ from healthcheck.garmin.persistence import (
 )
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.runtime import prepare_runtime
+from healthcheck.source_freshness import SCOPES, Facts, aggregate, evaluate_scope
+from healthcheck.source_freshness_consumer import project_consumer_freshness
 from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.ui_app import create_ui_app
 from test_sleep_account_cohort import COHORT, START, _garmin, _google
@@ -201,6 +203,49 @@ def _sleep_report(*, uncertain: bool = False, available: bool = True):
         ],
         "claims": {"accuracy": "not_assessed", "canonical_switch": "not_applied"},
     }
+
+
+_FRESHNESS_NOW = datetime(2099, 1, 15, 12, tzinfo=UTC)
+_FRESHNESS_DATE = date(2099, 1, 15)
+
+
+def _consumer_freshness_projection(overrides: dict[str, Facts] | None = None):
+    overrides = overrides or {}
+    results = []
+    for scope in SCOPES:
+        recent = _FRESHNESS_NOW - timedelta(hours=1)
+        if scope.key in overrides:
+            facts = overrides[scope.key]
+        elif scope.family == "weight":
+            facts = Facts(confirmed_weight=True, observed_once=True)
+        elif scope.family == "activity":
+            facts = Facts(
+                last_attempt_at_utc=recent,
+                last_success_at_utc=recent,
+                coverage="complete",
+                activity_count=0,
+            )
+        else:
+            facts = Facts(
+                last_attempt_at_utc=recent,
+                last_success_at_utc=recent,
+                evidence_at_utc=recent,
+                observed_once=True,
+            )
+        results.append(
+            evaluate_scope(
+                scope,
+                facts,
+                evaluated_at_utc=_FRESHNESS_NOW,
+                evaluation_local_date=_FRESHNESS_DATE,
+            )
+        )
+    core = aggregate(
+        results,
+        evaluated_at_utc=_FRESHNESS_NOW,
+        evaluation_local_date=_FRESHNESS_DATE,
+    )
+    return project_consumer_freshness(core)
 
 
 def test_normalize_period_rejects_datetime_and_inverted_bounds():
@@ -514,6 +559,124 @@ def test_packet_hash_stable_for_identical_frozen_inputs():
     assert len(first["result_hash"]) == 64
 
 
+@pytest.mark.parametrize(
+    ("scope_key", "facts", "state", "reason"),
+    [
+        (
+            "garmin:sleep",
+            Facts(
+                last_attempt_at_utc=_FRESHNESS_NOW - timedelta(hours=49),
+                last_success_at_utc=_FRESHNESS_NOW - timedelta(hours=49),
+                evidence_at_utc=_FRESHNESS_NOW - timedelta(hours=73),
+                observed_once=True,
+            ),
+            "stale",
+            "refresh_overdue",
+        ),
+        (
+            "google:sleep",
+            Facts(
+                last_attempt_at_utc=_FRESHNESS_NOW - timedelta(hours=1),
+                last_success_at_utc=_FRESHNESS_NOW - timedelta(hours=2),
+                terminal_status="failed",
+                evidence_at_utc=_FRESHNESS_NOW - timedelta(hours=1),
+                observed_once=True,
+            ),
+            "unavailable",
+            "refresh_failed",
+        ),
+        (
+            "garmin:heart_rate",
+            Facts(
+                last_attempt_at_utc=_FRESHNESS_NOW - timedelta(hours=1),
+                last_success_at_utc=_FRESHNESS_NOW - timedelta(hours=1),
+                evidence_at_utc=_FRESHNESS_NOW - timedelta(hours=1),
+                observed_once=True,
+                attribution_resolved=False,
+            ),
+            "unknown",
+            "scope_unresolved",
+        ),
+    ],
+)
+def test_period_brief_adds_one_action_per_required_freshness_item(
+    scope_key, facts, state, reason
+):
+    projection = _consumer_freshness_projection({scope_key: facts})
+    packet = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(),
+        freshness_projection=projection,
+    )
+
+    freshness = packet["sections"]["data_quality"]["coverage"]["freshness"]
+    assert freshness == projection
+    assert packet["sections"]["data_quality"]["contracts"][
+        "source_freshness_policy_version"
+    ] == projection["policy_version"]
+    actions = [
+        action
+        for action in packet["owner_actions"]
+        if action["code"] == "source_freshness_attention"
+    ]
+    assert actions == [
+        {
+            "code": "source_freshness_attention",
+            "severity": "owner",
+            "scope_key": scope_key,
+            "state": state,
+            "reason_code": reason,
+            "summary": f"Required source {scope_key} needs attention ({state}: {reason}).",
+        }
+    ]
+
+
+def test_optional_freshness_and_voluntary_weight_do_not_create_owner_actions():
+    recent = _FRESHNESS_NOW - timedelta(hours=1)
+    projection = _consumer_freshness_projection(
+        {
+            "garmin:body_battery": Facts(
+                last_attempt_at_utc=recent,
+                last_success_at_utc=recent,
+                evidence_at_utc=_FRESHNESS_NOW - timedelta(hours=73),
+                observed_once=True,
+            )
+        }
+    )
+    packet = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(),
+        freshness_projection=projection,
+    )
+
+    assert projection["owner"]["state"] == "fresh"
+    assert projection["owner"]["actionable_items"] == []
+    assert {
+        "scope_key": "garmin:body_battery",
+        "state": "stale",
+        "reason_code": "expected_evidence_absent",
+    } in projection["optional_details"]
+    assert packet["owner_actions"] == []
+
+
+def test_period_brief_hash_binds_the_consumer_projection():
+    period = normalize_period(date(2099, 1, 1), date(2099, 1, 7))
+    kwargs = {
+        "period": period,
+        "weight_summary": _weight_summary(),
+        "sleep_report": _sleep_report(),
+    }
+    projection = _consumer_freshness_projection()
+    first = build_period_brief_packet(**kwargs, freshness_projection=projection)
+    repeated = build_period_brief_packet(**kwargs, freshness_projection=projection)
+    without_projection = build_period_brief_packet(**kwargs)
+
+    assert first["result_hash"] == repeated["result_hash"]
+    assert first["result_hash"] != without_projection["result_hash"]
+
+
 def test_missing_unknown_unavailable_zero_remain_distinct():
     period = normalize_period(date(2099, 1, 1), date(2099, 1, 7))
     weight = _weight_summary(points=[], rate_available=False)
@@ -732,11 +895,22 @@ def test_api_period_brief_on_empty_runtime(tmp_path):
         body = response.json()
         assert body["packet"]["contract_version"] == PERIOD_BRIEF_CONTRACT_VERSION
         assert body["packet"]["result_hash"]
+        freshness = body["packet"]["sections"]["data_quality"]["coverage"]["freshness"]
+        assert freshness["policy_version"] == "source-freshness-v1"
+        assert freshness["owner"]["state"] == "unknown"
+        assert len(freshness["owner"]["actionable_items"]) == 5
+        assert body["packet"]["sections"]["data_quality"]["contracts"][
+            "source_freshness_policy_version"
+        ] == "source-freshness-v1"
         # Empty runtime has no Garmin source — activity must not claim confirmed_empty.
         assert body["packet"]["sections"]["activity"]["state"] == "unavailable"
         assert body["packet"]["sections"]["activity"]["state"] != "confirmed_empty"
         assert "Weight-Check" not in body["rendered_text"]
         assert "period brief" in body["rendered_text"].lower()
+        assert "Required source garmin:sleep needs attention (unknown: never_observed)." in (
+            body["rendered_text"]
+        )
+        assert "evaluated_at_utc" not in body["rendered_text"]
         text = client.get(
             "/api/period-brief.txt",
             params={"start_date": "2099-01-01", "end_date": "2099-01-14"},
@@ -778,6 +952,12 @@ def test_cli_period_brief_writes_packet_to_external_runtime(tmp_path, capsys):
         "calendar_days": 14,
     }
     assert packet["result_hash"]
+    assert packet["sections"]["data_quality"]["coverage"]["freshness"][
+        "policy_version"
+    ] == "source-freshness-v1"
+    assert packet["contracts_referenced"]["source_freshness_policy_version"] == (
+        "source-freshness-v1"
+    )
 
 
 def test_activity_availability_distinguishes_inventory_outcomes():
