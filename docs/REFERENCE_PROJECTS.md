@@ -1,12 +1,47 @@
 # Reference Projects and Reuse Strategy
 
-Snapshot refreshed: **2026-09-13** (post-R04 mechanical closeout for #90; reviewed pins and reuse classifications unchanged since 2026-09-12). Detailed reuse approvals remain tied to the reviewed source SHAs below. A newer upstream head recorded in this document or in an audit is **not** an automatic repin and does not expand the code-copy/reuse boundary.
+Snapshot refreshed: **2026-09-25** (#194). Detailed reuse approvals remain tied to the reviewed source SHAs below. A newer upstream head recorded in this document or in an audit is **not** an automatic repin and does not expand the code-copy/reuse boundary.
 
 Health-Check is MIT licensed. Before copying code in a later release, recheck the exact upstream file and license at the exact commit, preserve required notices, and record that provenance in the implementation PR/task evidence.
 
 The full 2026-09-12 upstream comparison, including old/current SHAs, deltas and adversarial regression ideas, is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md). The 2026-09-13 post-R04 closeout (baseline `integration/r04-google-health @ 767a06a`, no repins, #94 attribution unresolved) is in [`docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md`](audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md).
 
-## 2026-09-13 post-R04 closeout note (#90)
+## Current observation — 2026-09-25 (#194)
+
+Research baseline: `main @ 9800ed957b3b332e2011b3bcb9106821787f4345`. The [dated refresh report](audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md) records primary upstream links, failure lessons, release-versus-head checks and a reuse map to existing work. Ten existing references were checked: six observed code heads changed and four remained at the previously recorded heads. Three additional projects are now WATCH ONLY, bringing the registry to thirteen.
+
+**Current state takes precedence over the historical dated notes below:**
+
+- The accepted Health-Check runtime dependency is already `python-garminconnect 0.3.15 @ 54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5`, as verified in `pyproject.toml`. Upstream `0.3.16` is a new watch item, not an authorized upgrade.
+- Haelan now implements source-silence detection and a consolidated status panel; the September 13 statement that this was not implemented describes that historical observation only. Health-Check's own metric-aware freshness core #191 is also already integrated; #193 owns its pending consumer wiring. Do not duplicate or replace that core with donor thresholds.
+- The published openScale-sync release observed on this date remains `v0.6.3` (September 6). The September 13 corruption/reconciliation fix #38 is **four commits ahead of that release tag**, not included in it. Before Owner-live #153, identify the exact installed openScale/openScale-sync pair and whether its build includes that fix. No Owner installation, receiver defect or live outcome was established by this research.
+- Existing reviewed-source/code-copy classifications remain unchanged. New candidates below are discovery references, not approved dependencies or code donations. In particular, root MIT does not authorize reuse of garmin-stats-ai's separately supplied proprietary Fitdays library.
+
+### Observed heads, not reuse repins
+
+Commit dates below are UTC dates returned by upstream history; they are not package publication dates. Unchanged means unchanged code head relative to the previous observation, not a claim that every issue/discussion is inactive.
+
+| Project | Observed commit | Commit date | Observation / disposition |
+|---|---|---|---|
+| [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) | `c3c1c0d66579696e3843cba20f985c66069140b9` | 2026-09-18 | Changed; 0.3.16. Goals endpoint silent-empty fix; new write methods stay outside our allowlist. |
+| [garmin-stats-ai](https://github.com/dandwhelan/garmin-stats-ai) | `99987f7440eff39e4e0e2fb6a69f746e68196f28` | 2026-09-24 | Changed; partial-day/nonwear/journal gaps, MCP context and Fitdays work. Select failure classes, not device formulas. |
+| [fettle](https://github.com/Deekshith-Dade/fettle) | `82929df268124f0a3470b180adbbbeb0802d03cd` | 2026-08-01 | Unchanged; retain existing selective-pattern boundary. |
+| [healthquery](https://github.com/nikira-studio/healthquery) | `f175148f67cb954fc4db2e026e497984dfccac29` | 2026-07-26 | Unchanged; retain typed-read/security caveats. |
+| [garmin_ai](https://github.com/TolmachevKirill/garmin_ai) | `ca6d298cc4a7e4e95e036c76dce69d211a47aeee` | 2026-08-20 | Unchanged; no verified root license, no copying. |
+| [openScale](https://github.com/oliexdev/openScale) | `7a5c2ad3dd4ca0d13b4059e11118ee77b4f306d9` | 2026-09-21 | Changed; side-by-side comparison, goal start date and device-specific BLE fixes. External GPL component. |
+| [openScale-sync](https://github.com/oliexdev/openScale-sync) | `58cbb87b9ea764bee6d487ccc80eeef169a01521` | 2026-09-23 | Changed; corruption/read-failure guards, service timeout and API-v3 instrumented tests. Head is newer than release. |
+| [open-wearables](https://github.com/the-momentum/open-wearables) | `db55ea3cbcddd9841f12f95f5fe57acef252d04a` | 2026-09-25 | Changed; pagination/commit/auth fixes and opt-out telemetry. No new telemetry or platform dependency for Health-Check. |
+| [haelan](https://github.com/bardesss/haelan) | `ff0dd6355505f7efebaf9bd120b9c73c55af3c71` | 2026-09-25 | Changed; changelog reaches 2.11.1, followed by a legend fix. Source status, home/day navigation and consistency lessons. AGPL reference only. |
+| [VitaSync](https://github.com/biosync-io/vitasync) | `f299cd134edea8effca9ac52436fc83d439792b6` | 2026-04-09 | Unchanged; AGPL reference only. |
+| [GarminDB](https://github.com/tcgoetz/GarminDB) | `62409888d853d7cf4acd1bb7320337ce9f942176` | 2026-08-23 | NEW WATCH; root GPL-2.0. Offline FIT/JSON replay, coverage inventories and notebook exploration; no code copying. |
+| [garmin-local-mcp](https://github.com/anup-shesh/garmin-local-mcp) | `5e895441e0b3ec21a2373a115a0e5e1c323c4a40` | 2026-09-25 | NEW WATCH; root MIT. Compact typed queries, gaps, synthetic demo and wellness FIT fallback. Its sync/import tools are writes, not our read-only AI boundary. |
+| [Vitals Command Center](https://github.com/8tp/Vitals-Command-Center) | `514ef0c51c3f00baa3176d9aff4a486bf21d546d` | 2026-07-10 | NEW WATCH; root MIT. Calm home, mobile/PWA and synthetic onboarding references for #172/#189; reject weighted device consensus and homemade readiness. |
+
+Root licenses of the three new candidates were read at the listed commits: [GarminDB](https://github.com/tcgoetz/GarminDB/blob/62409888d853d7cf4acd1bb7320337ce9f942176/LICENSE), [garmin-local-mcp](https://github.com/anup-shesh/garmin-local-mcp/blob/5e895441e0b3ec21a2373a115a0e5e1c323c4a40/LICENSE), [Vitals](https://github.com/8tp/Vitals-Command-Center/blob/514ef0c51c3f00baa3176d9aff4a486bf21d546d/LICENSE). File-level provenance and dependency review remain necessary before any later reuse.
+
+Suggested future review cadence: weekly for the six changed references and garmin-local-mcp; monthly or before related work for the other six. Compare against the recorded observation, inspect relevant merged fixes/open reports, distinguish released packages from branch heads, and report only actionable changes. This is a watch-list procedure, **not an installed scheduler or automatic upgrade policy**.
+
+## Historical 2026-09-13 post-R04 closeout note (#90)
 
 Accepted research verdict: **no R04 reopen blocker**. Reviewed pins and reuse classifications are unchanged. Observed upstream heads recorded by the accepted 2026-09-13 research (observation only — not repins):
 
@@ -18,11 +53,11 @@ Still **WATCH / DEFER**: openScale/openScale-sync API-v3 handling of a future Xi
 
 Follow-up dispositions from the accepted #90 report were promoted by the **Integrator**, not by this docs worker: **#96** (guard Alembic migration ancestry before new schema work), **#97** (R05-00 Garmin/Google sleep agreement and canonical-source contract) and **#98** (bounded `python-garminconnect` 0.3.12 → 0.3.15 upgrade). An R06 typed-tool packet remains a future candidate, not an issue created for this closeout.
 
-## Final classification
+## Reviewed reuse classifications
 
 | Project | Reviewed source | Verified license at reviewed source | Final use |
 |---|---|---|---|
-| [`python-garminconnect`](https://github.com/cyberjunky/python-garminconnect/tree/981d150caeda7d632224a75f3895c08df27a2a34) | `981d150caeda7d632224a75f3895c08df27a2a34` (`0.3.12`) | MIT | **DIRECT runtime dependency** in released R02, pinned; do not write a competing client. Upstream `0.3.13` is a separate future upgrade decision, not an implicit repin. |
+| [`python-garminconnect`](https://github.com/cyberjunky/python-garminconnect/tree/981d150caeda7d632224a75f3895c08df27a2a34) | Original R02: `981d150caeda7d632224a75f3895c08df27a2a34` (`0.3.12`); accepted maintenance runtime: `54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5` (`0.3.15`) | MIT | **DIRECT runtime dependency**, pinned; do not write a competing client. The former 0.3.13 watch is superseded. Current upstream 0.3.16 requires a separate bounded upgrade decision. |
 | [`garmin-stats-ai`](https://github.com/dandwhelan/garmin-stats-ai/tree/936974ac8c78781e7d0075040f459ea7676b3819) | `936974ac8c78781e7d0075040f459ea7676b3819` | Root MIT; bundled `garmin-grafana/` BSD-3-Clause | **Selective donor/reference**: tiny pure statistics may be direct after file-level review; adapt transforms/sync/lag/activity/test semantics; do not adopt product/medical claims. |
 | [`fettle`](https://github.com/Deekshith-Dade/fettle/tree/82929df268124f0a3470b180adbbbeb0802d03cd) | `82929df268124f0a3470b180adbbbeb0802d03cd` | MIT | **Selective donor** for Google Health v4 registry/client/sync/sleep/test patterns. No module-level direct reuse approved. |
 | [`healthquery`](https://github.com/nikira-studio/healthquery/tree/f175148f67cb954fc4db2e026e497984dfccac29) | `f175148f67cb954fc4db2e026e497984dfccac29` | MIT | **Selective pattern donor** for raw batch replay, migrations and typed MCP shapes; reject its generic SQL/capability boundary. |
