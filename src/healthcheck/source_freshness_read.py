@@ -85,16 +85,18 @@ def _checkpoint_state(state: SyncStreamState | None) -> tuple[
         elif status in {"unknown", "partial", "invalid", "not_run",
                         "request_budget_exhausted"}:
             status = "partial"
-        elif status in {"unavailable", "scope_required"}:
+        elif status in {"unavailable", "scope_required", "unsupported_or_not_found"}:
             status = "required_stream_unavailable"
-        elif "auth" in status or "reauth" in status or status in {
-            "session_expired_or_unusable", "mfa_failed",
+        elif status in {
+            "reauth_required", "authentication_failed", "session_expired_or_unusable",
+            "mfa_failed",
         }:
             status = "reauth_required"
         elif status in {
             "failed", "provider_unavailable", "provider_error", "rate_limited",
             "session_corrupt", "windows_protection_unavailable", "session_missing",
             "storage_permission", "dependency_missing", "invalid_input",
+            "method_unavailable",
         }:
             status = "failed"
         else:
@@ -193,6 +195,8 @@ def _activity_coverage(session: Session, provider_id: str, day: date) -> tuple[
             break
     if cursor < end:
         return "unknown", None, True
+    # The complete inventory coverage is authoritative; a current partial
+    # projection can still be an accepted activity with optional fields absent.
     record_sources = session.execute(select(
         GarminSource.id, GarminSource.acquisition_source_id,
     ).join(
@@ -201,7 +205,7 @@ def _activity_coverage(session: Session, provider_id: str, day: date) -> tuple[
         GarminSource.provider_id == provider_id,
         GarminSourceRecord.stream_code == "activity",
         GarminSourceRecord.projection_status == "current",
-        GarminSourceRecord.record_status == "ok",
+        GarminSourceRecord.record_status.in_(("ok", "partial")),
         GarminSourceRecord.source_local_date >= day - timedelta(days=6),
         GarminSourceRecord.source_local_date <= day,
     ).distinct()).all()
@@ -214,7 +218,7 @@ def _activity_coverage(session: Session, provider_id: str, day: date) -> tuple[
         GarminSource.provider_id == provider_id,
         GarminSourceRecord.stream_code == "activity",
         GarminSourceRecord.projection_status == "current",
-        GarminSourceRecord.record_status == "ok",
+        GarminSourceRecord.record_status.in_(("ok", "partial")),
         GarminSourceRecord.source_local_date >= day - timedelta(days=6),
         GarminSourceRecord.source_local_date <= day,
     ))
@@ -298,6 +302,9 @@ def read_facts(
                          terminal_status=terminal, coverage=coverage,
                          activity_count=count, observed_once=count is not None,
                          attribution_resolved=resolved)
+        # Sync marks this exact surface successful only after its expected
+        # metric (or structural daily summary) proves accepted coverage.
+        # Sibling field gaps can leave the current record partial.
         stamp, local_day, unresolved, observed = _evidence_query(
             session, GarminSourceRecord,
             joins=((GarminSource, GarminSource.id == GarminSourceRecord.garmin_source_id),),
@@ -305,7 +312,7 @@ def read_facts(
                         GarminSourceRecord.stream_code == _GARMIN_STREAM[code],
                         GarminSourceRecord.surface_code == code,
                         GarminSourceRecord.projection_status == "current",
-                        GarminSourceRecord.record_status == "ok"),
+                        GarminSourceRecord.record_status.in_(("ok", "partial"))),
             source_identity=GarminSourceRecord.garmin_source_id,
         )
     else:
