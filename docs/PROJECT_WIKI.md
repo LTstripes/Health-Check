@@ -5,18 +5,16 @@ This is the compact current-state entry point. Historical contracts and release 
 ## Current canonical state
 
 - Canonical Git branch: `main`
-- Current canonical checkpoint for this handoff: `main @ b887fceceb85931ad8ead9423c0f86e0cac09291`
-- Exact-main CI: `35608281796` — SUCCESS
-- Historical Stable-line divergence checkpoint: `6f21eeacf80491f73bcf9c5b5411eba1922dd1a4`; keep it only as lineage evidence.
-- Current `main` must always be re-read from GitHub before launch/integration; do not encode a docs-merge SHA as permanent architecture truth.
-- Latest released major slice: **R05 — Garmin / Google wearable sleep agreement**
-- R05 release SHA: `46e59327e394ae6dbc5a4ecdf42913200124b9e9` (CI `35130647037` SUCCESS; #106 closed)
-- #119 deterministic period brief v1: completed at `2c19ca968f84efb5e69c1a859ce6016939e617ca` (CI `35139999279` SUCCESS)
-- Stable Owner Runtime: **accepted/live-proven**, #132 closed
-- Canonical owner data profile: `D:\Garmin\HealthCheck-Stable`
-- Stable live-tested code line: `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61` (CI `35581607069` SUCCESS)
-- Period Brief presentation line: `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92` (#131 integrated)
-- Important: Stable integration and the pre-closeout main line diverged from merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`; repository reconciliation is the next integration gate, not an implicit fast-forward.
+- Current accepted product checkpoint before this documentation refresh: `main @ 9a16ac943dd50a448342ea3b494bf8ccd043997b`
+- Exact-main CI: `36018343743` — SUCCESS (`1050 exact nodeids`, Windows smoke PASS)
+- Re-read current `main` from GitHub before launch/integration; documentation SHAs are handoff evidence, not permanent architecture truth.
+- Latest numbered major release: **R05 — Garmin / Google wearable sleep agreement**.
+- Post-R05 Stable Owner Runtime, deterministic Period Brief closeout, Context capture v0 and Garmin Training/Recovery are now canonical and completed.
+- Canonical owner data profile: `D:\Garmin\HealthCheck-Stable`; candidate UAT uses disposable verified backup/restore clones, never Stable itself.
+- Parent #160 Garmin Training analytics is CLOSED complete through discovery, persistence, normal refresh integration and owner presentation.
+- Next bounded data-quality track: **#147 source freshness**, after explicit v1 production policy freeze.
+- Deferred presentation work: #172 Period Brief UX follow-up and #189 whole-product Owner UI redesign.
+- Current repository visibility is **public**; this does not relax the hard no-private-data-in-Git rule. #167 tracks historical metadata/privacy remediation.
 - R05 closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md)
 - Stable Runtime closeout: [STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md)
 - CI maintenance closeout: [CI_MAINTENANCE_CLOSEOUT_2026-09-17.md](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
@@ -39,7 +37,10 @@ This is the compact current-state entry point. Historical contracts and release 
 - deterministic scalar baselines/trends;
 - activity/cycling comparison;
 - bounded lagged associations;
-- read-only owner Garmin dashboard.
+- read-only owner Garmin dashboard;
+- persist Garmin-native Training Status, daily/chronic load, ACWR, Load Focus and Training Readiness/Recovery evidence with truthful chronology/provenance;
+- keep Garmin Training current through the normal one-command Owner refresh;
+- show a compact Training & recovery owner section with recent activity Training Effect/load.
 
 ### Google Health
 
@@ -62,11 +63,11 @@ This is the compact current-state entry point. Historical contracts and release 
 
 ### Live-accepted Stable Owner Runtime
 
-Pending repository-line reconciliation, the accepted Stable integration adds/proves the normal long-lived owner operating model:
+The accepted Stable-runtime work is reconciled to canonical main and defines the normal long-lived owner operating model:
 
 - one persistent private profile for Weight, Garmin, Google and exploratory agreement evidence;
 - supported large-profile backup → verify → restore into disposable clones;
-- bounded one-command Garmin + Google owner refresh;
+- bounded one-command normal Garmin + Garmin Training + Google owner refresh;
 - dense Google HR daily-partition refresh and safe resumable continuation;
 - path-free Google instant/interval semantic identity with repository-backed legacy migration;
 - shared external-runtime operation locking and explicit stale SyncRun recovery;
@@ -113,13 +114,13 @@ What changed:
 - the final `checks` job reconciles the exact expected Linux nodeids/multiplicity rather than trusting subset job labels;
 - a focused Windows runner now executes real native DPAPI, real `start.ps1`, loopback UI/ingest scenarios, path-with-spaces runtime handling and verified root-tree cleanup (#125).
 
-Representative remote feedback improved from about **5m02s** to about **2m48s** with the Windows gate included — roughly **44% less wall time** while coverage became stronger. The accepted final integration gate reported `890 exact nodeids reconciled across all mandatory jobs` and `WINDOWS_SMOKE_EVIDENCE: PASS`.
+Representative remote feedback improved from about **5m02s** to about **2m48s** with the Windows gate included — roughly **44% less wall time** while coverage became stronger. The current #187 exact-main gate reported `1050 exact nodeids reconciled across all mandatory jobs` and `WINDOWS_SMOKE_EVIDENCE: PASS`.
 
 Do not continue CI optimization just to shave seconds. Reopen performance work only if a new measured material bottleneck appears.
 
 ### Required-check enforcement limitation
 
-#126 remains **BLOCKED / OWNER DECISION REQUIRED**. This private repository currently has no server-side branch protection/required-check enforcement under the available GitHub capability. The repository stays private; no billing/plan change is implied by engineering work.
+#126 remains an explicit **OWNER DECISION / repository-settings** item. The repository is currently public, so the old private-repository capability statement is historical and must be re-read before any protection change. No settings change is implied by product work.
 
 Until that changes, the manual Integrator gate is mandatory:
 
@@ -130,27 +131,37 @@ Until that changes, the manual Integrator gate is mandatory:
 
 ## Current work
 
-### 1. Repository-line reconciliation
+### 1. Source freshness — #147
 
-Before new shared product work is stacked, reconcile current `main @ b887fcec…`, accepted `integration/stable-owner-runtime @ 0b05a807…`, and accepted Period Brief presentation line `integration/period-brief-ui-v1 @ a1d4e4c…`. Preserve accepted semantics and rerun exact-SHA gates; do not blindly merge divergent histories.
+The old repository-reconciliation and Period Brief closeout queues are finished. The next bounded product track is #147.
 
-### 2. Period Brief correctness / owner UX / UAT
+Research already established that v1 can be a derived read model without schema change, but implementation must not invent production cadence/thresholds. The Integrator must first freeze the policy table.
 
-- **#146** — repair confirmed producer/consumer DTO drift, effective-window truthfulness and honest activity emptiness;
-- **#133** — compact human source labels, summary hierarchy and deterministic deduplication;
-- **#129** — Owner UAT/closeout using a disposable clone of Stable;
-- **#127** closes with successful UI/UAT closeout.
+Accepted state vocabulary:
 
-### 3. Separate future owner-value work
+`fresh | quiet | stale | unavailable | unknown | not_requested`
 
-- #147 — metric-aware source freshness/silent-source signal;
+Key distinctions:
+
+- daily automatically expected wearable streams use explicit due/grace policy;
+- event-driven activities use proven inventory coverage rather than activity age;
+- voluntary weight age is non-alert by default;
+- refresh outcome, coverage and actual evidence age remain separate facts;
+- unknown/insufficient chronology never becomes healthy.
+
+### 2. Separate open tracks
+
+- #153 — Xiaomi S400/openScale live E2E (Owner hardware gate);
 - #148 — off-site portable backup / disaster recovery;
-- #153 — real Xiaomi S400 → openScale → Stable E2E verification;
-- #160 — Garmin-native training/load/status/recovery discovery and later bounded persistence/UI.
+- #167 — privacy/history remediation;
+- #172 — Period Brief UX follow-up;
+- #189 — deferred whole-product Owner UI redesign;
+- #126 — repository protection/Owner decision;
+- #105 — deferred/NOT_ELIGIBLE canonical sleep rule.
 
 ### Completed post-R05 / operational work
 
-#119, #132, #134, #136, #138, #139, #140, #141/#158, #150/#154/#156, #98/#99 and #123–#125 are completed. #126 remains **BLOCKED / OWNER DECISION REQUIRED** because server-side private-repository required-check enforcement is unavailable under the current GitHub capability.
+#119, #127/#129/#133/#146, #132/#134/#136/#138/#139/#140/#141/#158/#150/#154/#156, #177, #175/#180/#183/#187/#160, #98/#99 and #123–#125 are completed.
 
 ### R05 disposition
 
