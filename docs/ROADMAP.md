@@ -211,7 +211,7 @@ Outcome:
 
 The performance campaign is stopped by design. No xdist/cache/fixture tuning is planned absent a new material measured problem.
 
-#126 remains **BLOCKED / OWNER DECISION REQUIRED** because private-repository server-side branch protection/required-check enforcement is unavailable under the current GitHub capability. The repository remains private. Until capability changes, exact-SHA `checks: SUCCESS` is a mandatory manual Integrator promotion gate.
+#126 remains an explicit Owner/repository-settings decision. The repository is currently public, so the old private-repository capability statement is historical and must be re-evaluated before settings changes. Exact-SHA `checks: SUCCESS` remains a mandatory Integrator promotion gate regardless of server enforcement.
 
 See [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
 
