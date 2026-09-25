@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,15 +43,19 @@ from healthcheck.garmin.sync import (
     MAX_SYNC_PROVIDER_REQUESTS,
     MAX_TRAILING_WINDOW_DAYS,
     PRODUCTION_SYNC_SURFACES,
+    GarminIncrementalSync,
     GarminSyncStatus,
     compute_sync_window,
     run_garmin_incremental_sync,
     validate_trailing_window_days,
 )
 from healthcheck.runtime import resolve_runtime_paths
+from healthcheck.source_freshness import SCOPE_BY_KEY, aggregate, evaluate_scope
+from healthcheck.source_freshness_read import read_facts
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "garmin"
 AS_OF = date(2099, 1, 2)
+FRESHNESS_NOW = datetime(2099, 1, 2, 12, tzinfo=UTC)
 
 
 class NotFoundError(Exception):
@@ -281,6 +285,510 @@ def _engine_factory(tmp_path: Path):
     paths = resolve_runtime_paths(Settings(data_dir=tmp_path / "runtime"))
     engine = create_sqlite_engine(paths)
     return engine, create_session_factory(engine)
+
+
+def _run_freshness(
+    tmp_path: Path, client: FakeSyncClient, *,
+    at: datetime = FRESHNESS_NOW, as_of: date = AS_OF,
+    trailing_window_days: int = 1,
+):
+    return GarminIncrementalSync(
+        Settings(data_dir=tmp_path / "runtime"), client=client,
+        auth_result=GarminAuthResult(
+            status=GarminAuthStatus.AUTHENTICATED, session_reused=True,
+        ),
+        clock=lambda: at,
+    ).run(as_of=as_of, trailing_window_days=trailing_window_days)
+
+
+def _freshness_result(session, key: str, *, at: datetime = FRESHNESS_NOW):
+    facts = read_facts(session, SCOPE_BY_KEY[key], evaluation_local_date=AS_OF)
+    return evaluate_scope(SCOPE_BY_KEY[key], facts, evaluated_at_utc=at,
+                          evaluation_local_date=AS_OF)
+
+
+def test_freshness_accepts_proven_partial_garmin_daily_and_sleep_records(tmp_path: Path):
+    client = FakeSyncClient(responses={
+        "get_user_summary": {
+            "calendarDate": "2099-01-02", "userActivitySummary": {},
+        },
+        "get_sleep_data": {
+            "dailySleepDTO": {
+                "calendarDate": "2099-01-02", "sleepTimeSeconds": 28_800,
+            },
+        },
+    })
+    report = _run_freshness(tmp_path, client)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            for surface in ("daily_summary", "sleep", "resting_heart_rate", "hrv_status"):
+                attempt = next(item for item in report.attempts if item.surface == surface)
+                assert attempt.coverage_status == "present"
+                checkpoint = session.scalar(select(SyncStreamState).where(
+                    SyncStreamState.stream_code == surface,
+                ))
+                assert checkpoint is not None
+                assert checkpoint.last_success_at is not None
+                assert checkpoint.diagnostic_status == "present"
+                coverage = session.scalar(select(CoverageInterval).where(
+                    CoverageInterval.metric_code == surface,
+                ))
+                assert coverage is not None and coverage.status == "present"
+                records = list(session.scalars(select(GarminSourceRecord).where(
+                    GarminSourceRecord.surface_code == surface,
+                    GarminSourceRecord.projection_status == "current",
+                )))
+                assert records and any(row.record_status == "partial" for row in records)
+                assert _freshness_result(session, f"garmin:{surface}")["state"] == "fresh"
+    finally:
+        engine.dispose()
+
+
+def test_freshness_normal_heart_rate_series_keeps_required_aggregate_fresh(tmp_path: Path):
+    report = _run_freshness(tmp_path, FakeSyncClient())
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.coverage_status == "present"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(session.scalars(select(GarminSourceRecord).where(
+                GarminSourceRecord.surface_code == "heart_rate",
+                GarminSourceRecord.projection_status == "current",
+            )))
+            assert {row.temporal_precision for row in records} == {"date", "instant"}
+            assert {row.source_local_date for row in records} == {AS_OF}
+            required = [
+                _freshness_result(session, f"garmin:{surface}")
+                for surface in ("daily_summary", "sleep", "heart_rate")
+            ]
+            assert (required[-1]["state"], required[-1]["reason_code"]) == (
+                "fresh", "evidence_current",
+            )
+            assert aggregate(required, evaluated_at_utc=FRESHNESS_NOW,
+                             evaluation_local_date=AS_OF)["providers"]["garmin"]["state"] == (
+                "fresh"
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_series_latest_day_uses_date_when_no_sample_exists(tmp_path: Path):
+    def heart_payload(day: str) -> dict[str, Any]:
+        if day == "2099-01-01":
+            return {
+                "calendarDate": day,
+                "heartRateValues": [["2099-01-01T23:00:00Z", 70]],
+            }
+        return {"calendarDate": day, "heartRate": 72}
+
+    _run_freshness(
+        tmp_path, FakeSyncClient(responses={"get_heart_rates": heart_payload}),
+        trailing_window_days=2,
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            facts = read_facts(session, SCOPE_BY_KEY["garmin:heart_rate"],
+                               evaluation_local_date=AS_OF)
+            assert facts.evidence_at_utc is None
+            assert facts.evidence_local_date == AS_OF
+            assert _freshness_result(session, "garmin:heart_rate")["state"] == "fresh"
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(("surface", "method", "payload"), [
+    ("stress", "get_stress_data", {
+        "calendarDate": "2099-01-02", "avgStressLevel": 25,
+        "stressValuesArray": [["2099-01-02T08:00:00Z", 12]],
+    }),
+    ("spo2", "get_spo2_data", {
+        "calendarDate": "2099-01-02", "averageSpO2": 98,
+        "spo2Values": [["2099-01-02T08:00:00Z", 96]],
+    }),
+    ("respiration", "get_respiration_data", {
+        "calendarDate": "2099-01-02", "avgSleepRespirationValue": 15,
+        "respirationValues": [["2099-01-02T08:00:00Z", 14]],
+    }),
+    ("body_battery", "get_body_battery", [{
+        "calendarDate": "2099-01-02", "charged": 40, "drained": 55,
+        "bodyBatteryValueDescriptorDTOList": [
+            {"bodyBatteryValueDescriptorIndex": 0, "bodyBatteryValueDescriptorKey": "millis"},
+            {"bodyBatteryValueDescriptorIndex": 1,
+             "bodyBatteryValueDescriptorKey": "bodyBatteryLevel"},
+        ],
+        "bodyBatteryValuesArray": [[
+            int(datetime(2099, 1, 2, 8, tzinfo=UTC).timestamp() * 1000), 64,
+        ]],
+    }]),
+])
+def test_freshness_other_garmin_series_use_latest_day_sample(
+    tmp_path: Path, surface: str, method: str, payload: Any,
+):
+    report = _run_freshness(tmp_path, FakeSyncClient(responses={method: payload}))
+    attempt = next(item for item in report.attempts if item.surface == surface)
+    assert attempt.coverage_status == "present"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(session.scalars(select(GarminSourceRecord).where(
+                GarminSourceRecord.surface_code == surface,
+                GarminSourceRecord.projection_status == "current",
+            )))
+            assert "instant" in {row.temporal_precision for row in records}
+            result = _freshness_result(session, f"garmin:{surface}")
+            assert (result["state"], result["reason_code"]) == (
+                "fresh", "evidence_current",
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_competing_heart_rate_sources_remain_unresolved(tmp_path: Path):
+    _run_freshness(tmp_path, FakeSyncClient())
+    later = FRESHNESS_NOW + timedelta(minutes=1)
+    _run_freshness(tmp_path, FakeSyncClient(other_device=True), at=later)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            sources = set(session.scalars(select(GarminSourceRecord.garmin_source_id).where(
+                GarminSourceRecord.surface_code == "heart_rate",
+                GarminSourceRecord.projection_status == "current",
+            )))
+            assert len(sources) == 2
+            result = _freshness_result(session, "garmin:heart_rate", at=later)
+            assert (result["state"], result["reason_code"]) == (
+                "unknown", "scope_unresolved",
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_newer_persisted_terminal_unavailable_precedes_source_ambiguity(
+    tmp_path: Path,
+):
+    _run_freshness(tmp_path, FakeSyncClient())
+    second_at = FRESHNESS_NOW + timedelta(minutes=1)
+    _run_freshness(tmp_path, FakeSyncClient(other_device=True), at=second_at)
+    failed_at = second_at + timedelta(minutes=1)
+    report = _run_freshness(
+        tmp_path, FakeSyncClient(errors={"get_heart_rates": NotFoundError()}),
+        at=failed_at,
+    )
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.status is GarminSyncStatus.UNAVAILABLE
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            facts = read_facts(session, SCOPE_BY_KEY["garmin:heart_rate"],
+                               evaluation_local_date=AS_OF)
+            assert facts.attribution_resolved is False
+            row = _freshness_result(session, "garmin:heart_rate", at=failed_at)
+            assert (row["state"], row["reason_code"]) == (
+                "unavailable", "required_stream_unavailable",
+            )
+            required = [
+                _freshness_result(session, f"garmin:{surface}", at=failed_at)
+                for surface in ("daily_summary", "sleep", "heart_rate")
+            ]
+            assert aggregate(required, evaluated_at_utc=failed_at,
+                             evaluation_local_date=AS_OF)["providers"]["garmin"][
+                                 "state"
+                             ] == "unavailable"
+    finally:
+        engine.dispose()
+
+
+def test_freshness_old_invalid_heart_day_does_not_poison_latest_day_or_aggregate(
+    tmp_path: Path,
+):
+    def heart_payload(day: str) -> dict[str, Any]:
+        sample = ("2099-01-01T08:00:00" if day == "2099-01-01"
+                  else "2099-01-02T08:00:00Z")
+        return {"calendarDate": day, "heartRateValues": [[sample, 72]]}
+
+    _run_freshness(
+        tmp_path, FakeSyncClient(responses={"get_heart_rates": heart_payload}),
+        trailing_window_days=2,
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(session.scalars(select(GarminSourceRecord).where(
+                GarminSourceRecord.surface_code == "heart_rate",
+                GarminSourceRecord.projection_status == "current",
+            )))
+            assert {row.source_local_date for row in records} == {
+                AS_OF - timedelta(days=1), AS_OF,
+            }
+            assert "local" in {row.temporal_precision for row in records}
+            required = [
+                _freshness_result(session, f"garmin:{surface}")
+                for surface in ("daily_summary", "sleep", "heart_rate")
+            ]
+            assert (required[-1]["state"], required[-1]["reason_code"]) == (
+                "fresh", "evidence_current",
+            )
+            assert aggregate(required, evaluated_at_utc=FRESHNESS_NOW,
+                             evaluation_local_date=AS_OF)["providers"]["garmin"][
+                                 "state"
+                             ] == "fresh"
+    finally:
+        engine.dispose()
+
+
+def test_freshness_invalid_heart_chronology_on_latest_day_remains_unknown(
+    tmp_path: Path,
+):
+    def heart_payload(day: str) -> dict[str, Any]:
+        sample = ("2099-01-01T08:00:00Z" if day == "2099-01-01"
+                  else "2099-01-02T08:00:00")
+        return {"calendarDate": day, "heartRateValues": [[sample, 72]]}
+
+    _run_freshness(
+        tmp_path, FakeSyncClient(responses={"get_heart_rates": heart_payload}),
+        trailing_window_days=2,
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            row = _freshness_result(session, "garmin:heart_rate")
+            assert (row["state"], row["reason_code"]) == (
+                "unknown", "invalid_chronology",
+            )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(("surface", "method", "old_payload"), [
+    ("heart_rate", "get_heart_rates", {
+        "calendarDate": "2099-01-01",
+        "heartRateValues": [["2099-01-01T08:00:00Z", 72]],
+    }),
+    ("sleep", "get_sleep_data", {
+        "dailySleepDTO": {
+            "calendarDate": "2099-01-01", "sleepTimeSeconds": 28_800,
+        },
+    }),
+])
+def test_freshness_old_device_does_not_poison_new_day_source(
+    tmp_path: Path, surface: str, method: str, old_payload: Any,
+):
+    old_day = AS_OF - timedelta(days=1)
+    _run_freshness(
+        tmp_path, FakeSyncClient(responses={
+            method: _with_device(
+                old_payload, include_device=True, other_device=False,
+            ),
+        }),
+        as_of=old_day,
+    )
+    later = FRESHNESS_NOW + timedelta(minutes=1)
+    _run_freshness(tmp_path, FakeSyncClient(other_device=True), at=later)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(session.scalars(select(GarminSourceRecord).where(
+                GarminSourceRecord.surface_code == surface,
+                GarminSourceRecord.projection_status == "current",
+            )))
+            assert {row.source_local_date for row in records} == {old_day, AS_OF}
+            assert len({row.garmin_source_id for row in records}) == 2
+            row = _freshness_result(session, f"garmin:{surface}", at=later)
+            assert (row["state"], row["reason_code"]) == (
+                "fresh", "evidence_current",
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_local_only_heart_rate_chronology_is_invalid(tmp_path: Path):
+    payload = {
+        "calendarDate": "2099-01-02",
+        "heartRateValues": [["2099-01-02T08:00:00", 72]],
+    }
+    report = _run_freshness(
+        tmp_path, FakeSyncClient(responses={"get_heart_rates": payload}),
+    )
+    heart = next(item for item in report.attempts if item.surface == "heart_rate")
+    assert heart.coverage_status == "present"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(session.scalars(select(GarminSourceRecord).where(
+                GarminSourceRecord.surface_code == "heart_rate",
+                GarminSourceRecord.projection_status == "current",
+            )))
+            assert "local" in {row.temporal_precision for row in records}
+            result = _freshness_result(session, "garmin:heart_rate")
+            assert (result["state"], result["reason_code"]) == (
+                "unknown", "invalid_chronology",
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_local_only_sleep_chronology_is_not_source_ambiguity(tmp_path: Path):
+    payload = {
+        "startTimeLocal": "2099-01-02T07:00:00",
+        "dailySleepDTO": {
+            "calendarDate": "2099-01-02", "sleepTimeSeconds": 28_800,
+        },
+    }
+    report = _run_freshness(
+        tmp_path, FakeSyncClient(responses={"get_sleep_data": payload}),
+    )
+    sleep = next(item for item in report.attempts if item.surface == "sleep")
+    assert sleep.coverage_status == "present"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            record = session.scalar(select(GarminSourceRecord).where(
+                GarminSourceRecord.surface_code == "sleep",
+            ))
+            assert record is not None and record.temporal_precision == "local"
+            result = _freshness_result(session, "garmin:sleep")
+            assert (result["state"], result["reason_code"]) == (
+                "unknown", "invalid_chronology",
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_persisted_invalid_checkpoint_is_refresh_failure(tmp_path: Path):
+    _run_freshness(tmp_path, FakeSyncClient())
+    later = FRESHNESS_NOW + timedelta(minutes=1)
+    report = _run_freshness(
+        tmp_path, FakeSyncClient(responses={"connectapi": {"activities": "bad-shape"}}),
+        at=later,
+    )
+    activities = next(item for item in report.attempts if item.surface == "activities")
+    assert (activities.status, activities.coverage_status) == (
+        GarminSyncStatus.FAILED, "failed",
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            checkpoint = session.scalar(select(SyncStreamState).where(
+                SyncStreamState.stream_code == "activities",
+            ))
+            assert checkpoint is not None and checkpoint.diagnostic_status == "invalid"
+            assert checkpoint.last_success_at is not None
+            result = _freshness_result(session, "garmin:activities", at=later)
+            assert (result["state"], result["reason_code"]) == (
+                "unavailable", "refresh_failed",
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_counts_proven_partial_activity_in_complete_window(tmp_path: Path):
+    activity = [{
+        "activityId": "synthetic-partial-activity",
+        "startTimeGMT": "2099-01-02T08:00:00Z",
+        "duration": 3600,
+    }]
+    report = _run_freshness(
+        tmp_path, FakeSyncClient(responses={"connectapi": activity}),
+        trailing_window_days=7,
+    )
+    attempt = next(item for item in report.attempts if item.surface == "activities")
+    assert attempt.coverage_status == "present"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            records = list(session.scalars(select(GarminSourceRecord).where(
+                GarminSourceRecord.stream_code == "activity",
+                GarminSourceRecord.projection_status == "current",
+            )))
+            assert len(records) == 1
+            assert records[0].record_status == "partial"
+            coverage = session.scalar(select(CoverageInterval).where(
+                CoverageInterval.metric_code == "activities",
+            ))
+            assert coverage is not None and coverage.status == "present"
+            facts = read_facts(session, SCOPE_BY_KEY["garmin:activities"],
+                               evaluation_local_date=AS_OF)
+            assert (facts.coverage, facts.activity_count, facts.attribution_resolved) == (
+                "complete", 1, True,
+            )
+            assert _freshness_result(session, "garmin:activities")["state"] == "fresh"
+    finally:
+        engine.dispose()
+
+
+def test_freshness_does_not_accept_partial_record_without_surface_success(tmp_path: Path):
+    payload = {
+        "dailySleepDTO": {
+            "calendarDate": "2099-01-02",
+            "sleepScores": {"overall": {"value": 80}},
+        },
+    }
+    report = _run_freshness(tmp_path, FakeSyncClient(responses={"get_sleep_data": payload}))
+    attempt = next(item for item in report.attempts if item.surface == "sleep")
+    assert attempt.coverage_status == "unknown"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            record = session.scalar(select(GarminSourceRecord).where(
+                GarminSourceRecord.surface_code == "sleep",
+            ))
+            assert record is not None and record.record_status == "partial"
+            checkpoint = session.scalar(select(SyncStreamState).where(
+                SyncStreamState.stream_code == "sleep",
+            ))
+            assert checkpoint is not None and checkpoint.last_success_at is None
+            assert _freshness_result(session, "garmin:sleep")["reason_code"] == (
+                "acquisition_incomplete"
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_maps_persisted_not_found_after_success(tmp_path: Path):
+    _run_freshness(tmp_path, FakeSyncClient())
+    failed_at = FRESHNESS_NOW + timedelta(hours=1)
+    report = _run_freshness(
+        tmp_path, FakeSyncClient(errors={"get_sleep_data": NotFoundError()}), at=failed_at,
+    )
+    attempt = next(item for item in report.attempts if item.surface == "sleep")
+    assert (attempt.status, attempt.coverage_status) == (
+        GarminSyncStatus.UNAVAILABLE, "unavailable",
+    )
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            checkpoint = session.scalar(select(SyncStreamState).where(
+                SyncStreamState.stream_code == "sleep",
+            ))
+            assert checkpoint is not None
+            assert checkpoint.diagnostic_status == "unsupported_or_not_found"
+            assert checkpoint.last_success_at is not None
+            assert _freshness_result(session, "garmin:sleep", at=failed_at)["reason_code"] == (
+                "required_stream_unavailable"
+            )
+    finally:
+        engine.dispose()
+
+
+def test_freshness_maps_persisted_missing_method_as_failure(tmp_path: Path):
+    client = FakeSyncClient()
+    client.get_sleep_data = None  # type: ignore[method-assign]
+    report = _run_freshness(tmp_path, client)
+    attempt = next(item for item in report.attempts if item.surface == "sleep")
+    assert attempt.status is GarminSyncStatus.FAILED
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            checkpoint = session.scalar(select(SyncStreamState).where(
+                SyncStreamState.stream_code == "sleep",
+            ))
+            assert checkpoint is not None
+            assert checkpoint.diagnostic_status == "method_unavailable"
+            assert _freshness_result(session, "garmin:sleep")["reason_code"] == "refresh_failed"
+    finally:
+        engine.dispose()
 
 
 def test_trailing_window_is_bounded_and_first_run_is_not_backfill():
