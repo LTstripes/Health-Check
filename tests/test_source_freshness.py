@@ -84,6 +84,52 @@ def test_refresh_overdue_and_terminal_precedence() -> None:
     assert result("garmin:sleep", recovered)["state"] == "fresh"
 
 
+def test_newer_terminal_failure_precedes_evidence_ambiguity_and_aggregate() -> None:
+    failed = daily(
+        evidence_hours=1, success_hours=2,
+        last_attempt_at_utc=NOW - timedelta(hours=1), terminal_status="failed",
+        attribution_resolved=False,
+    )
+    row = result("garmin:heart_rate", failed)
+    assert (row["state"], row["reason_code"]) == ("unavailable", "refresh_failed")
+    required = [result(f"garmin:{key}", daily(evidence_hours=1))
+                for key in ("daily_summary", "sleep")]
+    group = aggregate(required + [row], evaluated_at_utc=NOW,
+                      evaluation_local_date=DAY)
+    assert group["providers"]["garmin"]["state"] == "unavailable"
+
+
+def test_terminal_clocks_remain_authoritative_only_when_valid() -> None:
+    terminal = dict(
+        evidence_hours=1, success_hours=2, terminal_status="required_stream_unavailable",
+        chronology_issue="invalid_chronology",
+    )
+    valid = daily(**terminal, last_attempt_at_utc=NOW - timedelta(hours=1))
+    assert (result("garmin:sleep", valid)["state"],
+            result("garmin:sleep", valid)["reason_code"]) == (
+        "unavailable", "required_stream_unavailable",
+    )
+    ambiguous_evidence = daily(
+        evidence_hours=1, success_hours=2,
+        last_attempt_at_utc=NOW - timedelta(hours=1),
+        evidence_at_utc=NOW.replace(tzinfo=None),
+        terminal_status="required_stream_unavailable",
+    )
+    assert result("garmin:sleep", ambiguous_evidence)["state"] == "unavailable"
+    for attempt, reason in (
+        (NOW.replace(tzinfo=None), "invalid_chronology"),
+        (NOW + timedelta(minutes=1), "future_chronology"),
+    ):
+        malformed = daily(**terminal, last_attempt_at_utc=attempt)
+        assert (result("garmin:sleep", malformed)["state"],
+                result("garmin:sleep", malformed)["reason_code"]) == ("unknown", reason)
+    recovered = daily(
+        evidence_hours=1, last_attempt_at_utc=NOW - timedelta(hours=2),
+        terminal_status="failed",
+    )
+    assert result("garmin:sleep", recovered)["state"] == "fresh"
+
+
 def test_incomplete_never_observed_and_optional_aggregation() -> None:
     partial = daily(evidence_hours=1, success_hours=2,
                     last_attempt_at_utc=NOW - timedelta(hours=1), terminal_status="partial")

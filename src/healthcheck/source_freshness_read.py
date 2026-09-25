@@ -37,10 +37,10 @@ _GARMIN_SERIES_SURFACES = frozenset({
 
 
 def _evidence_query(session: Session, model, *, joins: tuple, conditions: tuple,
-                    source_identity=None) -> tuple[
+                    source_identity=None, latest_slice: bool = True) -> tuple[
     datetime | None, date | None, str | None, bool, bool
 ]:
-    """Aggregate chronology in SQLite; never load raw records or all historical rows."""
+    """Resolve daily ambiguity within the latest persisted evidence slice."""
     timestamp_kind = model.temporal_precision.in_(("instant", "minute"))
     date_kind = model.temporal_precision == "date"
     invalid = (
@@ -48,24 +48,56 @@ def _evidence_query(session: Session, model, *, joins: tuple, conditions: tuple,
         | (timestamp_kind & model.source_timestamp_utc.is_(None))
         | (date_kind & model.source_local_date.is_(None))
     )
-    statement = select(
+
+    def query(*columns, slice_conditions: tuple = ()):
+        statement = select(*columns).select_from(model)
+        for target, condition in joins:
+            statement = statement.join(target, condition)
+        return statement.where(*conditions, *slice_conditions)
+
+    if not latest_slice:
+        stamp, local_day, invalid_count, count = session.execute(query(
+            func.max(case((timestamp_kind, model.source_timestamp_utc))),
+            func.max(case((date_kind, model.source_local_date))),
+            func.sum(case((invalid, 1), else_=0)),
+            func.count(),
+        )).one()
+        chronology_issue = (
+            "invalid_chronology" if invalid_count else
+            "chronology_unresolved" if stamp is not None and local_day is not None else None
+        )
+        return restore_stored_utc(stamp), local_day, chronology_issue, True, count > 0
+
+    latest_day, count = session.execute(query(
+        func.max(model.source_local_date), func.count(),
+    )).one()
+    if not count:
+        return None, None, None, True, False
+    if latest_day is not None:
+        selected = (model.source_local_date == latest_day,)
+        undated_invalid = False
+    else:
+        # An undated invalid row has no defensible position in the chronology.
+        latest_stamp, undated_invalid = session.execute(query(
+            func.max(case((timestamp_kind, model.source_timestamp_utc))),
+            func.sum(case((invalid, 1), else_=0)),
+        )).one()
+        if latest_stamp is None:
+            return None, None, "invalid_chronology", True, True
+        selected = (model.source_timestamp_utc == latest_stamp,)
+    stamp, local_day, invalid_count, source_count = session.execute(query(
         func.max(case((timestamp_kind, model.source_timestamp_utc))),
         func.max(case((date_kind, model.source_local_date))),
         func.sum(case((invalid, 1), else_=0)),
-        func.count(),
         func.count(func.distinct(source_identity)) if source_identity is not None else func.count(),
-    ).select_from(model)
-    for target, condition in joins:
-        statement = statement.join(target, condition)
-    stamp, local_day, invalid_count, count, source_count = session.execute(
-        statement.where(*conditions)
-    ).one()
+        slice_conditions=selected,
+    )).one()
     chronology_issue = (
-        "invalid_chronology" if invalid_count else
+        "invalid_chronology" if invalid_count or undated_invalid else
         "chronology_unresolved" if stamp is not None and local_day is not None else None
     )
     source_resolved = source_identity is None or source_count <= 1
-    return restore_stored_utc(stamp), local_day, chronology_issue, source_resolved, count > 0
+    return restore_stored_utc(stamp), local_day, chronology_issue, source_resolved, True
 
 
 def _garmin_series_evidence_query(
@@ -86,25 +118,27 @@ def _garmin_series_evidence_query(
         model.projection_status == "current",
         model.record_status.in_(("ok", "partial")),
     )
-    latest_day, invalid_count, count, source_count = session.execute(select(
+    latest_day, count = session.execute(select(
         func.max(model.source_local_date),
-        func.sum(case((invalid, 1), else_=0)),
         func.count(),
-        func.count(func.distinct(model.garmin_source_id)),
     ).select_from(model).join(
         GarminSource, GarminSource.id == model.garmin_source_id,
     ).where(*conditions)).one()
-    stamp = None
-    if latest_day is not None:
-        stamp = session.scalar(select(func.max(model.source_timestamp_utc)).select_from(
-            model,
-        ).join(
-            GarminSource, GarminSource.id == model.garmin_source_id,
-        ).where(*conditions, model.source_local_date == latest_day, timestamp_kind))
+    if not count:
+        return None, None, None, True, False
+    if latest_day is None:
+        return None, None, "invalid_chronology", True, True
+    stamp, invalid_count, source_count = session.execute(select(
+        func.max(case((timestamp_kind, model.source_timestamp_utc))),
+        func.sum(case((invalid, 1), else_=0)),
+        func.count(func.distinct(model.garmin_source_id)),
+    ).select_from(model).join(
+        GarminSource, GarminSource.id == model.garmin_source_id,
+    ).where(*conditions, model.source_local_date == latest_day)).one()
     return (
         restore_stored_utc(stamp), None if stamp is not None else latest_day,
         "invalid_chronology" if invalid_count else None,
-        source_count <= 1, count > 0,
+        source_count <= 1, True,
     )
 
 
@@ -291,6 +325,7 @@ def read_facts(
             conditions=(ScalarMeasurement.metric_code == "weight",
                         MeasurementSession.confirmation_status == "confirmed",
                         ~MeasurementSession.id.in_(successor_ids)),
+            latest_slice=False,
         )
         return Facts(evidence_at_utc=stamp, evidence_local_date=local_day,
                      confirmed_weight=observed, observed_once=observed,

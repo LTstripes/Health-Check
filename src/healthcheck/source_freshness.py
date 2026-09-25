@@ -121,11 +121,24 @@ def evaluate_scope(
         try:
             attempt = _utc(facts.last_attempt_at_utc)
             success = _utc(facts.last_success_at_utc)
-            evidence = _utc(facts.evidence_at_utc)
+            terminal_failure = attempt is not None and (
+                success is None or attempt > success
+            ) and facts.terminal_status in {
+                "reauth_required", "required_stream_unavailable", "failed",
+            }
+            # Evidence ambiguity cannot demote an authoritative terminal failure.
+            evidence = None if terminal_failure else _utc(facts.evidence_at_utc)
         except ValueError:
             state, reason = "unknown", "invalid_chronology"
         else:
-            if any(value is not None and value > now for value in (attempt, success, evidence)) or (
+            if any(value is not None and value > now for value in (attempt, success)):
+                state, reason = "unknown", "future_chronology"
+            elif terminal_failure:
+                state = "unavailable"
+                reason = {"failed": "refresh_failed"}.get(
+                    facts.terminal_status, facts.terminal_status
+                )
+            elif (evidence is not None and evidence > now) or (
                 facts.evidence_local_date is not None
                 and facts.evidence_local_date > evaluation_local_date
             ):
@@ -134,14 +147,6 @@ def evaluate_scope(
                 state, reason = "unknown", facts.chronology_issue
             elif not facts.attribution_resolved:
                 state, reason = "unknown", "scope_unresolved"
-            elif attempt is not None and (success is None or attempt > success) and (
-                facts.terminal_status
-                in {"reauth_required", "required_stream_unavailable", "failed"}
-            ):
-                state = "unavailable"
-                reason = {"failed": "refresh_failed"}.get(
-                    facts.terminal_status, facts.terminal_status
-                )
             elif attempt is not None and (success is None or attempt > success) and (
                 facts.terminal_status in {"partial", "incomplete", "unknown"}
             ):
