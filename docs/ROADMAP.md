@@ -6,24 +6,23 @@ Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG
 
 ## Current state
 
-Released to canonical `main`: R01–R05 plus #119 deterministic period brief v1.
+Released to canonical `main`: R01–R05 plus the post-R05 deterministic Period Brief and durable Owner Runtime work.
 
-Current canonical checkpoint for this handoff: `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` with exact-main CI `35608281796` SUCCESS. The earlier `6f21eea…` checkpoint remains historical divergence evidence only. Re-read current `main` from GitHub before launch/integration.
+Current accepted product checkpoint before this documentation refresh: `main @ 9a16ac943dd50a448342ea3b494bf8ccd043997b` with exact-main CI `36018343743` SUCCESS. Re-read current `main` from GitHub before every launch/integration.
 
-Post-R05 Stable Owner Runtime work is **accepted/live-proven but not yet reconciled to canonical main**:
+Completed post-R05 owner-value slices now include:
 
-- owner profile: `D:\Garmin\HealthCheck-Stable`;
-- accepted code line: `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`;
-- exact integration CI: `35581607069` SUCCESS;
-- #132 closed completed.
+- Stable Owner Runtime + one-command provider refresh;
+- deterministic Period Brief correctness/presentation/UAT closeout;
+- Context capture v0 (#177);
+- Garmin Training/Recovery discovery → persistence → routine refresh → owner view (#175/#180/#183/#187, parent #160 closed);
+- consolidated Worker/Integrator guidance (#185/#186).
 
-Period Brief presentation line: `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92`; #131 is integrated/closed.
+**Immediate product sequencing:** freeze #147 freshness policy v1, implement its derived read model, then wire accepted freshness into owner diagnostics/Period Brief without provider calls or schema changes unless separately reviewed.
 
-**Immediate sequencing:** reconcile `main @ b887fcec…` with the accepted Stable-runtime and Period Brief lines, then complete #146 correctness → #133 presentation hierarchy → #129 Owner UAT / #127 closeout.
+Separate tracks remain independent: #153 Xiaomi live E2E, #148 off-site DR, #167 privacy remediation, #189 deferred whole-product UI redesign. #105 remains deferred/NOT_ELIGIBLE. #126 remains an Owner/repository-capability decision.
 
 See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md), [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md), and [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
-
-#105 remains deferred/NOT_ELIGIBLE. #126 remains an administrative capability blocker, not product work.
 
 ## R00 — Final architecture (complete)
 
@@ -163,31 +162,40 @@ See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md).
 
 No new health score and no LLM/Telegram delivery were introduced.
 
-## Post-R05 Stable Owner Runtime — accepted/live-proven
+## Post-R05 Stable Owner Runtime — completed
 
-The long-lived owner operating model is established: one persistent private cross-domain profile at `D:\Garmin\HealthCheck-Stable`, supported backup/restore into disposable UAT clones, reproducible exploratory R05 agreement, bounded provider refresh, stabilized Google identity and supported stale SyncRun recovery.
+The long-lived owner operating model is established and reconciled to canonical `main`: one persistent private cross-domain profile at `D:\Garmin\HealthCheck-Stable`, supported backup/restore into disposable UAT clones, reproducible exploratory R05 agreement, bounded provider refresh, stabilized Google identity and supported stale SyncRun recovery.
 
-The code for this operational slice remains on the accepted Stable integration line until repository reconciliation with current main is completed.
+Normal `owner-refresh` now composes the accepted normal Garmin sync, bounded Garmin Training sync, Google Health refresh and wearables-sleep reconciliation under one profile-scoped operation boundary.
+
+## Post-R05 Garmin Training & Recovery — completed
+
+Parent #160 closed after three accepted phases:
+
+- #175 — bounded privacy-safe Owner-live discovery established the usable Garmin-native status/load/readiness/activity surfaces and their chronology/provenance limits;
+- #180 — typed additive persistence for Training Status/load/ACWR, Load Focus and Readiness/Recovery with live replay/idempotency proof;
+- #183 — normal Owner refresh includes the bounded Training sync using the same Garmin auth/client;
+- #187 — compact read-only Training & recovery owner section on the existing Garmin dashboard, accepted by independent semantic review and Owner UAT.
+
+No custom Health-Check readiness/training score, medical/coaching claim, VO2 guessing or producer attribution was introduced. The page remains intentionally technical until the deferred #189 whole-product UI redesign.
 
 ## Current owner-facing product work
 
-### Repository reconciliation gate
+### Source freshness / data-quality interpretation
 
-Re-read current main, Stable integration and Period Brief integration; reconstruct/merge accepted deltas deliberately and rerun exact-SHA gates.
+- **#147** — next product track. Freeze an explicit v1 policy for automatically expected daily streams, event-driven activities, voluntary weight and optional/unsupported evidence; then implement a deterministic derived read model over persisted sync/coverage/evidence facts.
+- No provider calls, universal threshold, opaque score or schema change by default.
+- Owner-facing consumers must reuse the same versioned result rather than reimplement thresholds.
 
-### Period Brief correctness, UI and UAT
+### Hardware/private owner gates
 
-- **#146** — correct the Period Brief producer/consumer seam and effective-window/activity-emptiness truthfulness.
-- **#133** — compact owner-facing source labels, summary hierarchy and deterministic deduplication.
-- **#129** — Owner-only UAT/closeout using a disposable backup-restored Stable clone.
-- **#127** — closes with successful Period Brief UI/UAT.
+- **#153** — Xiaomi S400/openScale → Stable E2E live verification remains hardware-dependent and separate.
+- **#148** — off-site portable backup/disaster-recovery rehearsal remains a separate durability track.
 
-### Separate future owner-value backlog
+### Deferred product presentation
 
-- **#147** — metric-aware source freshness/silent-source signal.
-- **#148** — off-site portable backup and disaster-recovery rehearsal.
-- **#153** — real Xiaomi S400/openScale → Stable E2E verification.
-- **#160** — Garmin-native training/performance discovery → bounded persistence/presentation where proven.
+- **#172** — Period Brief-specific UX follow-up.
+- **#189** — whole-product Owner UI redesign umbrella after the data/freshness layer matures.
 
 ## Engineering maintenance — CI feedback/reliability closeout
 
@@ -203,7 +211,7 @@ Outcome:
 
 The performance campaign is stopped by design. No xdist/cache/fixture tuning is planned absent a new material measured problem.
 
-#126 remains **BLOCKED / OWNER DECISION REQUIRED** because private-repository server-side branch protection/required-check enforcement is unavailable under the current GitHub capability. The repository remains private. Until capability changes, exact-SHA `checks: SUCCESS` is a mandatory manual Integrator promotion gate.
+#126 remains an explicit Owner/repository-settings decision. The repository is currently public, so the old private-repository capability statement is historical and must be re-evaluated before settings changes. Exact-SHA `checks: SUCCESS` remains a mandatory Integrator promotion gate regardless of server enforcement.
 
 See [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
 
@@ -214,7 +222,7 @@ See [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
 - conversational investigation over deterministic results;
 - no unrestricted SQL or raw-series mathematics by the LLM.
 
-R06 remains future direction, not an automatic next launch while current Period Brief/Stable Runtime owner work is still being closed out.
+Context capture v0 is already accepted as a foundation, but Telegram and bounded AI tooling remain future R06 work. They are not the automatic next launch while source freshness/data-quality semantics are being completed.
 
 ## R07 — Saved reports and delivery
 

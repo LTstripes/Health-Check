@@ -1,6 +1,6 @@
 # Health-Check
 
-Health-Check is a single-user, local-first personal health observatory for a Windows laptop. It preserves source evidence from personal devices, turns it into reproducible deterministic analytics, and exposes the same evidence through local dashboards and later bounded AI tools.
+Health-Check is a single-user, local-first personal health observatory for a Windows laptop. It preserves source evidence from personal devices, turns it into reproducible deterministic analytics, and exposes the same evidence through local dashboards, deterministic period reviews, Garmin training/recovery views and later bounded AI tools.
 
 It is not a SaaS product, medical diagnostic system, workout planner, or replacement for Garmin / Google Health / Xiaomi daily apps.
 
@@ -13,6 +13,9 @@ Canonical source: `main`.
 - **R03 — Garmin analytics/dashboard:** deterministic personal baselines/trends, activity comparison, lagged associations, provider-native metric presentation, reproducible evidence manifests and owner-facing read-only Garmin UI.
 - **R04 — Google Health ingestion:** Google Health API v4 OAuth, protected session storage, source-aware typed persistence, bounded incremental sync/backfill/refresh, coverage/checkpoints, privacy-safe diagnostics and live owner verification.
 - **R05 — Garmin / Google wearable sleep agreement:** pairing, comparable projection, immutable agreement runs, statistics/gates, exploratory owner report; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
+- **Post-R05 Owner Runtime & Period Brief:** one durable private Owner profile, verified backup/restore UAT clones, one-command Garmin/Google refresh, deterministic Period Brief correctness/UI closeout and Owner UAT.
+- **Garmin Training & Recovery:** live-discovered Garmin-native Training Status/load/ACWR, Load Focus, Training Readiness/Recovery and activity Training Effect/load are persisted, included in normal owner refresh and shown read-only on the Garmin owner page.
+- **Context capture v0:** revisioned owner-authored free-text context events with deterministic local storage and CLI capture/list/revise flow.
 
 R04 release lineage:
 
@@ -26,15 +29,27 @@ The final R04 owner gate also proved the populated private runtime remained heal
 
 ## Current focus
 
-R05 is released; #119 deterministic period brief v1 is also completed. Historical code checkpoint for the earlier handoff was `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` with exact-main CI `35608281796` SUCCESS. The earlier Stable-line divergence analysis used `main @ 6f21eeacf80491f73bcf9c5b5411eba1922dd1a4` only as a historical checkpoint; always re-read current `main` from GitHub before integration.
+The former Stable-runtime / Period Brief reconciliation sequence is complete. The current product checkpoint before this documentation refresh is `main @ 9a16ac943dd50a448342ea3b494bf8ccd043997b` with exact-main CI `36018343743` SUCCESS; always re-read current `main` from GitHub before launch or integration.
 
-The post-R05 **Stable Owner Runtime** record established live acceptance and #132 is closed. The durable private owner profile is `D:\Garmin\HealthCheck-Stable`. The recorded accepted/live-proven Stable checkpoint was `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61` with exact integration CI `35581607069` SUCCESS.
+Recently completed owner-value work:
 
-That historical Stable checkpoint diverged from the pre-closeout main line at merge base `2c19ca968f84efb5e69c1a859ce6016939e617ca`. This record does not assign a new reconciliation task or make an integration SHA canonical; inspect current GitHub lineage and the active Integrator note for any new assignment.
+- Period Brief correctness, presentation and Owner UAT (#146/#133/#129/#127);
+- revisioned context capture v0 (#177);
+- Garmin Training discovery/probe (#175), typed persistence (#180), normal owner-refresh integration (#183) and Training & recovery owner view (#187/#160);
+- process/prompt consolidation (#185/#186).
 
-The former Period Brief next-step sequence is completed: [#146](https://github.com/LTstripes/Health-Check/issues/146), [#133](https://github.com/LTstripes/Health-Check/issues/133), [#129](https://github.com/LTstripes/Health-Check/issues/129) and [#127](https://github.com/LTstripes/Health-Check/issues/127) are closed (GitHub read-back, 2026-09-24). The earlier `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92` checkpoint remains historical #131 evidence, not a current launch baseline. Select future work only from the active issue and explicit Integrator assignment; this README does not create a replacement queue. Owner UAT still uses a disposable verified backup-restored clone of Stable, never the Stable profile itself.
+The next data-quality track is **#147 source freshness**: a deterministic read-only interpretation of persisted sync/coverage/evidence facts that can distinguish current, quiet, stale, unavailable, unknown and not-requested sources without provider calls. Production policy thresholds must be frozen explicitly before implementation; they must not be inferred from sparse Owner history.
 
-R05 attribution remains conservative: `account_wearables_sleep_observations_v1` is exploratory/uncertain-only; Garmin remains canonical/default; #105 remains deferred/NOT_ELIGIBLE.
+Separate open work remains intentionally independent:
+
+- #153 — Owner-live Xiaomi S400 → openScale → Stable E2E verification (hardware-dependent);
+- #148 — off-site backup/disaster-recovery rehearsal;
+- #167 — historical metadata/privacy remediation before future public exposure;
+- #189 — deferred whole-product Owner UI redesign umbrella;
+- #126 — repository required-check/protection capability/Owner decision;
+- #105 — deferred/NOT_ELIGIBLE canonical sleep rule.
+
+The Owner UI is functionally useful but still intentionally technical/data-dense. Large-scale interface simplification is deferred to #189 rather than being mixed into data-source work.
 
 ## Architecture in one minute
 
@@ -97,7 +112,7 @@ Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HE
 
 For normal Owner operation, the accepted durable private profile is `D:\Garmin\HealthCheck-Stable`. It is persistent owner data, not a release-UAT sandbox; candidate UAT uses a disposable verified backup/restore clone.
 
-The bounded manual Garmin + Google owner refresh and its optional Task Scheduler setup are documented in [Owner Refresh](docs/OWNER_REFRESH.md). The command requires an already-established external runtime and does not create a new profile.
+The bounded manual Owner refresh (normal Garmin, Garmin Training, Google Health and the accepted wearables-sleep reconciliation layer) and its optional Task Scheduler setup are documented in [Owner Refresh](docs/OWNER_REFRESH.md). The command requires an already-established external runtime and does not create a new profile.
 
 No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository.
 
@@ -105,7 +120,7 @@ No health data, credentials, payloads, images, logs, database files or generated
 
 Normal development should use targeted checks while iterating, then one exact candidate gate, one exact integration gate after acceptance, and an exact `main` gate when publishing canonical history.
 
-The accepted final GitHub Actions verdict is the job named **`checks`**. It fail-closes over the mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. Current server-side branch protection cannot require it automatically on this private repository, so Integrator/Owner process must not advance `main` unless `checks` succeeded on the exact SHA being promoted.
+The accepted final GitHub Actions verdict is the job named **`checks`**. It fail-closes over the mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. The repository is currently public; #126 remains an explicit repository-settings/Owner decision. Regardless of server enforcement, Integrator process must not advance `main` unless `checks` succeeded on the exact SHA being promoted.
 
 Do not reopen the performance campaign merely to save seconds. #124 closed the measured large serial stall; further CI optimization requires a new material measured bottleneck.
 
