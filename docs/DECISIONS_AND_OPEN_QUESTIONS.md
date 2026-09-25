@@ -12,7 +12,7 @@ This file contains current architecture/product decisions plus only those `UNVER
 - R01, R02, R03, R04 and R05 are released to canonical `main`.
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - #119 deterministic period brief v1 is completed on canonical main.
-- The durable Stable Owner Runtime/operations line is completed (#132/#134/#136/#138/#139/#140/#141/#150/#154/#156/#158). Current owner-facing work is Period Brief completion: repository reconciliation, #146 correctness, #133 presentation hierarchy/source labels, then #129/#127 UAT closeout.
+- The durable Stable Owner Runtime/operations line and Period Brief correctness/presentation/UAT closeout are completed and canonical. Garmin Training/Recovery parent #160 is also completed through live discovery, typed persistence, normal owner-refresh integration and owner presentation. Current data-quality priority is #147 source freshness; whole-product UI redesign is deferred under #189.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -48,6 +48,9 @@ This file contains current architecture/product decisions plus only those `UNVER
 - Current collection reconciliation is deterministic under accepted authoritative/partial semantics; parser/reconciliation upgrades are explicit and version-aware.
 - R03 analytics consume reviewed metric/time identities and immutable evidence manifests; UI does not reimplement statistics.
 - Garmin-native scores remain provider-native and are not relabelled as a Health-Check readiness/recovery score.
+- Accepted Garmin Training evidence includes Training Status, daily/chronic load, ACWR, Load Focus, Training Readiness/Recovery and activity Training Effect/load; requested acquisition date remains distinct from provider source date/timestamp.
+- Associated-device/activity-recorder evidence is not metric-producer proof. Recovery Time is presented as a Garmin-native value with unit unavailable until the persisted contract proves a unit.
+- Normal Owner refresh includes the bounded Garmin Training sync using the same Garmin auth/client; no second provider client is introduced.
 
 Post-R04 maintenance #98 completed the bounded `python-garminconnect` 0.3.12 → 0.3.15 upgrade. It was maintenance, not an R04/R05 semantic dependency. #99 Google auth/sync test hardening is also closed completed.
 
@@ -112,7 +115,7 @@ Frozen design from #97:
 - Rendering is thin; UI/text/CLI must not reimplement health mathematics or change packet counts/statistics/hash through display thinning.
 - Direct R05 sleep-report reuse is preferred to a compatibility copy of agreement semantics.
 - The owner-facing UI work (#127/#133) is presentation over the accepted packet, not a second analytics engine.
-- #146 owns confirmed producer/consumer DTO drift and effective-window/activity-emptiness truthfulness. It must be resolved before final #129 Owner UAT; templates must not compensate for backend contract drift.
+- #146 correctness, #133 hierarchy/source labels, #129 Owner UAT and #127 closeout are completed. #172 holds deferred Period Brief-specific UX simplification; larger cross-product UI redesign belongs to #189.
 
 ### Stable Owner Runtime / owner operations
 
@@ -125,7 +128,16 @@ Frozen design from #97:
 - Google instant/HR-interval logical identity is path-free; query mode/family remain acquisition-context components of persisted record identity. Legacy path-driven variants are retired through repository-backed migration; raw/observation/artifact provenance is preserved.
 - Supported provider operations and stale-run recovery share one profile-scoped external-runtime operation lock. Recovery is explicit, age-cutoff based, uses existing terminal `failed` semantics and is idempotent; it never fabricates success or resets checkpoints.
 - Live closeout proved no remaining stale `running` SyncRun rows and no current canonical instant duplicate groups.
-- Accepted Stable-runtime code currently lives on `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`. Current canonical handoff checkpoint is `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` (CI `35608281796` SUCCESS); the earlier `6f21eea…` SHA is retained only as the historical divergence checkpoint. Explicit repository reconciliation is required before Stable code promotion.
+- The formerly separate Stable-runtime and Period Brief integration lines have been deliberately reconciled into canonical `main`; their historical integration SHAs remain evidence only and are not active baselines.
+
+### Source freshness / data quality
+
+- #147 is the next derived-read-model product track. It remains provider-call-free and schema-free by default.
+- Accepted working state vocabulary: `fresh | quiet | stale | unavailable | unknown | not_requested`.
+- Refresh attempt/success, actual evidence time, coverage/checkpoint facts and configuration/request state are distinct clocks/facts and must not be collapsed.
+- Daily automatically expected wearable streams require explicit versioned due/grace policy; event-driven activities use proven inventory coverage rather than event age; voluntary weight age is non-alert by default.
+- Unknown/insufficient chronology never becomes healthy; optional/unsupported metrics must not fail an otherwise healthy provider.
+- Production thresholds are frozen by Integrator policy, not inferred from sparse Owner history.
 
 ### Time, coverage and agreement
 
@@ -155,20 +167,19 @@ Measured outcome: the accepted remote feedback path moved from about `5m02s` to 
 
 #### Repository protection / #126
 
-- The repository remains private.
-- `main` currently has no server-side required-check/branch-protection enforcement under the available GitHub capability.
-- #126 is therefore **BLOCKED / OWNER DECISION REQUIRED**, not complete.
-- Do not make the repository public, change billing/plan or emulate branch protection in YAML as an automatic engineering action.
-- Until capability changes, the Integrator must manually require `checks: SUCCESS` on the exact SHA before advancing shared integration or `main`; green constituent jobs alone are insufficient.
-- Force-push/deletion of integration/canonical history is process-prohibited even when GitHub cannot enforce it server-side.
-- If private-repository protection later becomes available, the minimal intended server policy is: protect canonical `main`, require only the final `checks` aggregator in strict/up-to-date mode, apply protection to admins, and disallow force-push/deletion; do not over-protect task branches or require every constituent lane separately.
+- Repository visibility is currently **public**; this was an Owner operational choice and does not change product privacy boundaries.
+- #126 remains an explicit Owner/repository-settings decision and must be re-evaluated against current visibility/plan before any settings change.
+- Regardless of server enforcement, the Integrator must require exact-SHA final `checks: SUCCESS` before advancing shared integration or `main`.
+- Force-push/deletion of integration/canonical history remains process-prohibited.
+- Public repository visibility does not permit Owner health data, credentials, private runtime artifacts or personal documents in Git/CI.
+- #167 separately tracks historical personal-metadata sanitization before future public exposure assumptions are treated as safe.
 
 ### AI / reports / context
 
 - LLM access is typed, bounded and read-only through application analytics services.
 - Generic unrestricted SQL is not the default AI interface.
 - Reports are computed from deterministic/versioned evidence before rendering/delivery.
-- Context is a raw free-text event/exposure interval with optional suggested/confirmed tags; no mandatory daily diary.
+- Context capture v0 is accepted: revisioned owner-authored free-text event/exposure records with deterministic add/revise/list semantics and optional tags; no mandatory daily diary.
 
 ### License
 
@@ -191,7 +202,7 @@ These are observational gaps, not reasons to rewrite released architecture.
 
 - MFA-specific branch behavior if a future login actually triggers MFA.
 - Longer-term provider payload-shape drift and retention boundaries beyond released owner evidence.
-- Recovery Time / some advanced activity/device fields remain intentionally outside released claims unless separately proven.
+- Recovery Time is now accepted as persisted Garmin-native evidence, but its unit remains explicitly unavailable in the current contract and metric producer remains unverified. VO2/dedicated max-metrics and some advanced device fields remain outside accepted claims.
 - #98 completed the pinned upgrade to `python-garminconnect` 0.3.15; further upstream drift remains observational maintenance, not residual #98 backlog.
 
 ### Google Health / R04
@@ -211,7 +222,7 @@ These are observational gaps, not reasons to rewrite released architecture.
 
 ### CI / repository enforcement
 
-- Server-side enforcement of the accepted final `checks` gate remains unavailable for this private repository under the current GitHub capability; #126 stays open until the Owner separately changes capability or explicitly decides otherwise.
+- Server-side enforcement status must be re-read against the repository's current public visibility and plan before #126 is acted on. Until then, exact-SHA `checks: SUCCESS` remains a mandatory Integrator process gate.
 - The focused Windows smoke is intentionally not a broad Windows compatibility matrix; it proves the platform/auth/runtime contracts that materially require Windows.
 
 ## Deferred owner choices
@@ -221,6 +232,7 @@ These are observational gaps, not reasons to rewrite released architecture.
 3. **External AI provider/deployment:** choose when the typed AI release begins.
 4. **Recovery Score:** decide only after accumulated evidence demonstrates a concrete need.
 5. **Advanced remote access:** remain local/loopback by default until a threat model and need exist.
+6. **Whole-product Owner UI redesign:** deferred under #189 until source/data-quality work is mature enough to redesign information architecture once rather than polishing each technical page independently.
 
 ## Change protocol
 
