@@ -31,11 +31,14 @@ _GARMIN_STREAM = {
     "stress": "intraday", "body_battery": "intraday", "spo2": "intraday",
     "respiration": "intraday", "activities": "activity",
 }
+_GARMIN_SERIES_SURFACES = frozenset({
+    "heart_rate", "stress", "body_battery", "spo2", "respiration",
+})
 
 
 def _evidence_query(session: Session, model, *, joins: tuple, conditions: tuple,
                     source_identity=None) -> tuple[
-    datetime | None, date | None, bool, bool
+    datetime | None, date | None, str | None, bool, bool
 ]:
     """Aggregate chronology in SQLite; never load raw records or all historical rows."""
     timestamp_kind = model.temporal_precision.in_(("instant", "minute"))
@@ -57,9 +60,52 @@ def _evidence_query(session: Session, model, *, joins: tuple, conditions: tuple,
     stamp, local_day, invalid_count, count, source_count = session.execute(
         statement.where(*conditions)
     ).one()
-    unresolved = bool(invalid_count) or (stamp is not None and local_day is not None)
-    unresolved = unresolved or source_identity is not None and source_count > 1
-    return restore_stored_utc(stamp), local_day, unresolved, count > 0
+    chronology_issue = (
+        "invalid_chronology" if invalid_count else
+        "chronology_unresolved" if stamp is not None and local_day is not None else None
+    )
+    source_resolved = source_identity is None or source_count <= 1
+    return restore_stored_utc(stamp), local_day, chronology_issue, source_resolved, count > 0
+
+
+def _garmin_series_evidence_query(
+    session: Session, provider_id: str, surface: str,
+) -> tuple[datetime | None, date | None, str | None, bool, bool]:
+    """Select chronology within the latest accepted civil day of one series surface."""
+    model = GarminSourceRecord
+    timestamp_kind = model.temporal_precision.in_(("instant", "minute"))
+    invalid = (
+        model.temporal_precision.in_(("local", "unknown"))
+        | model.source_local_date.is_(None)
+        | (timestamp_kind & model.source_timestamp_utc.is_(None))
+    )
+    conditions = (
+        GarminSource.provider_id == provider_id,
+        model.stream_code == _GARMIN_STREAM[surface],
+        model.surface_code == surface,
+        model.projection_status == "current",
+        model.record_status.in_(("ok", "partial")),
+    )
+    latest_day, invalid_count, count, source_count = session.execute(select(
+        func.max(model.source_local_date),
+        func.sum(case((invalid, 1), else_=0)),
+        func.count(),
+        func.count(func.distinct(model.garmin_source_id)),
+    ).select_from(model).join(
+        GarminSource, GarminSource.id == model.garmin_source_id,
+    ).where(*conditions)).one()
+    stamp = None
+    if latest_day is not None:
+        stamp = session.scalar(select(func.max(model.source_timestamp_utc)).select_from(
+            model,
+        ).join(
+            GarminSource, GarminSource.id == model.garmin_source_id,
+        ).where(*conditions, model.source_local_date == latest_day, timestamp_kind))
+    return (
+        restore_stored_utc(stamp), None if stamp is not None else latest_day,
+        "invalid_chronology" if invalid_count else None,
+        source_count <= 1, count > 0,
+    )
 
 
 def _checkpoint(session: Session, provider_id: str, code: str) -> tuple[
@@ -82,7 +128,7 @@ def _checkpoint_state(state: SyncStreamState | None) -> tuple[
     if status is not None:
         if status in {"present", "confirmed_empty"}:
             status = "succeeded"
-        elif status in {"unknown", "partial", "invalid", "not_run",
+        elif status in {"unknown", "partial", "not_run",
                         "request_budget_exhausted"}:
             status = "partial"
         elif status in {"unavailable", "scope_required", "unsupported_or_not_found"}:
@@ -96,7 +142,7 @@ def _checkpoint_state(state: SyncStreamState | None) -> tuple[
             "failed", "provider_unavailable", "provider_error", "rate_limited",
             "session_corrupt", "windows_protection_unavailable", "session_missing",
             "storage_permission", "dependency_missing", "invalid_input",
-            "method_unavailable",
+            "method_unavailable", "invalid",
         }:
             status = "failed"
         else:
@@ -238,7 +284,7 @@ def read_facts(
         successor_ids = select(MeasurementSession.supersedes_session_id).where(
             MeasurementSession.supersedes_session_id.is_not(None)
         )
-        stamp, local_day, _, observed = _evidence_query(
+        stamp, local_day, _, _, observed = _evidence_query(
             session, MeasurementSession,
             joins=((ScalarMeasurement,
                     ScalarMeasurement.measurement_session_id == MeasurementSession.id),),
@@ -261,7 +307,7 @@ def read_facts(
             SyncRun.provider_id == provider_id, SyncRun.stream_code == "garmin_training",
             SyncRun.completed_at.is_not(None),
         )).all()
-        stamp, local_day, unresolved, observed = _evidence_query(
+        stamp, local_day, chronology_issue, source_resolved, observed = _evidence_query(
             session, GarminSourceRecord,
             joins=((GarminTrainingObservationRecord,
                     GarminTrainingObservationRecord.record_id == GarminSourceRecord.id),
@@ -288,7 +334,8 @@ def read_facts(
         return Facts(last_attempt_at_utc=attempt, last_success_at_utc=success,
                      terminal_status=terminal,
                      evidence_at_utc=stamp, evidence_local_date=local_day,
-                     observed_once=observed, attribution_resolved=not unresolved)
+                     observed_once=observed, attribution_resolved=source_resolved,
+                     chronology_issue=chronology_issue)
     if scope.provider == "garmin":
         attempt, success, terminal = _checkpoint(session, provider_id, code)
         attempt, success, terminal = _apply_provider_terminal(
@@ -305,16 +352,21 @@ def read_facts(
         # Sync marks this exact surface successful only after its expected
         # metric (or structural daily summary) proves accepted coverage.
         # Sibling field gaps can leave the current record partial.
-        stamp, local_day, unresolved, observed = _evidence_query(
-            session, GarminSourceRecord,
-            joins=((GarminSource, GarminSource.id == GarminSourceRecord.garmin_source_id),),
-            conditions=(GarminSource.provider_id == provider_id,
-                        GarminSourceRecord.stream_code == _GARMIN_STREAM[code],
-                        GarminSourceRecord.surface_code == code,
-                        GarminSourceRecord.projection_status == "current",
-                        GarminSourceRecord.record_status.in_(("ok", "partial"))),
-            source_identity=GarminSourceRecord.garmin_source_id,
-        )
+        if code in _GARMIN_SERIES_SURFACES:
+            stamp, local_day, chronology_issue, source_resolved, observed = (
+                _garmin_series_evidence_query(session, provider_id, code)
+            )
+        else:
+            stamp, local_day, chronology_issue, source_resolved, observed = _evidence_query(
+                session, GarminSourceRecord,
+                joins=((GarminSource, GarminSource.id == GarminSourceRecord.garmin_source_id),),
+                conditions=(GarminSource.provider_id == provider_id,
+                            GarminSourceRecord.stream_code == _GARMIN_STREAM[code],
+                            GarminSourceRecord.surface_code == code,
+                            GarminSourceRecord.projection_status == "current",
+                            GarminSourceRecord.record_status.in_(("ok", "partial"))),
+                source_identity=GarminSourceRecord.garmin_source_id,
+            )
     else:
         # Normal/list evidence only. Reconcile/rollup and historical partitions have
         # different semantics and may not silently satisfy normal-stream freshness.
@@ -332,7 +384,7 @@ def read_facts(
         attempt, success, terminal = _apply_provider_terminal(
             attempt, success, terminal, provider_terminal,
         )
-        stamp, local_day, unresolved, observed = _evidence_query(
+        stamp, local_day, chronology_issue, source_resolved, observed = _evidence_query(
             session, GoogleSourceRecord,
             joins=((GoogleSource, GoogleSource.id == GoogleSourceRecord.google_source_id),),
             conditions=(GoogleSource.provider_id == provider_id,
@@ -346,4 +398,5 @@ def read_facts(
     return Facts(last_attempt_at_utc=attempt, last_success_at_utc=success,
                  terminal_status=terminal, evidence_at_utc=stamp,
                  evidence_local_date=local_day, observed_once=observed,
-                 attribution_resolved=not unresolved)
+                 attribution_resolved=source_resolved,
+                 chronology_issue=chronology_issue)

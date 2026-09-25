@@ -64,6 +64,7 @@ class Facts:
     activity_count: int | None = None
     confirmed_weight: bool = False
     attribution_resolved: bool = True
+    chronology_issue: Literal["invalid_chronology", "chronology_unresolved"] | None = None
     weight_cadence_days: int | None = None
 
 
@@ -129,6 +130,8 @@ def evaluate_scope(
                 and facts.evidence_local_date > evaluation_local_date
             ):
                 state, reason = "unknown", "future_chronology"
+            elif facts.chronology_issue is not None:
+                state, reason = "unknown", facts.chronology_issue
             elif not facts.attribution_resolved:
                 state, reason = "unknown", "scope_unresolved"
             elif attempt is not None and (success is None or attempt > success) and (
