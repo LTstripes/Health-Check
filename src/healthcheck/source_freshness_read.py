@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
@@ -22,6 +22,7 @@ from healthcheck.db.models import (
     SyncStreamState,
 )
 from healthcheck.db.repositories import restore_stored_utc
+from healthcheck.google.contracts import FAMILY_GOOGLE_WEARABLES
 from healthcheck.source_freshness import Facts, Scope
 
 _GARMIN_STREAM = {
@@ -69,6 +70,12 @@ def _checkpoint(session: Session, provider_id: str, code: str) -> tuple[
         SyncStreamState.acquisition_source_id.is_(None),
         SyncStreamState.stream_code == code,
     ))
+    return _checkpoint_state(state)
+
+
+def _checkpoint_state(state: SyncStreamState | None) -> tuple[
+    datetime | None, datetime | None, str | None
+]:
     if state is None:
         return None, None, None
     status = state.diagnostic_status
@@ -96,7 +103,70 @@ def _checkpoint(session: Session, provider_id: str, code: str) -> tuple[
             restore_stored_utc(state.last_success_at), status)
 
 
-def _activity_coverage(session: Session, provider_id: str, day: date) -> tuple[str, int | None]:
+def _google_heart_rate_checkpoint(session: Session, provider_id: str, day: date) -> tuple[
+    datetime | None, datetime | None, str | None
+]:
+    base = "google:refresh:heart_rate:list:any"
+    states = session.scalars(select(SyncStreamState).where(
+        SyncStreamState.provider_id == provider_id,
+        SyncStreamState.acquisition_source_id.is_(None),
+        SyncStreamState.stream_code.like(f"{base}:day:%"),
+    )).all()
+    dated = []
+    for state in states:
+        suffix = state.stream_code.removeprefix(f"{base}:day:")
+        try:
+            partition_day = date.fromisoformat(suffix)
+        except ValueError:
+            continue
+        if suffix == partition_day.isoformat() and partition_day <= day:
+            dated.append((partition_day, state))
+    if dated:
+        return _checkpoint_state(max(dated, key=lambda row: row[0])[1])
+    return _checkpoint(session, provider_id, base)
+
+
+def _provider_terminal(session: Session, provider_id: str, provider: str) -> tuple[
+    datetime | None, str | None
+]:
+    streams = ("garmin_incremental",) if provider == "garmin" else (
+        "google_incremental", "google_historical", "google_refresh",
+    )
+    row = session.execute(select(
+        SyncRun.completed_at, SyncRun.error_category,
+    ).where(
+        SyncRun.provider_id == provider_id,
+        SyncRun.stream_code.in_(streams),
+        SyncRun.completed_at.is_not(None),
+        SyncRun.status == "failed",
+        or_(SyncRun.error_category == "reauth_required", and_(
+            SyncRun.error_category == "failed", SyncRun.item_count == 0,
+        )),
+    ).order_by(SyncRun.completed_at.desc()).limit(1)).first()
+    # A zero-attempt failed run is the persisted pre-surface auth failure.
+    # A reauth abort is provider-wide even if some surfaces ran first.
+    if row is None:
+        return None, None
+    return restore_stored_utc(row[0]), (
+        "reauth_required" if row[1] == "reauth_required" else "failed"
+    )
+
+
+def _apply_provider_terminal(
+    attempt: datetime | None, success: datetime | None, status: str | None,
+    provider_terminal: tuple[datetime | None, str | None],
+) -> tuple[datetime | None, datetime | None, str | None]:
+    global_at, global_status = provider_terminal
+    if global_at is not None and (attempt is None or global_at > attempt) and (
+        success is None or global_at > success
+    ):
+        return global_at, success, global_status
+    return attempt, success, status
+
+
+def _activity_coverage(session: Session, provider_id: str, day: date) -> tuple[
+    str, int | None, bool
+]:
     start = datetime.combine(day - timedelta(days=6), datetime.min.time(), UTC)
     end = datetime.combine(day + timedelta(days=1), datetime.min.time(), UTC)
     rows = session.scalars(select(CoverageInterval).where(
@@ -108,19 +178,36 @@ def _activity_coverage(session: Session, provider_id: str, day: date) -> tuple[s
         CoverageInterval.interval_end > start,
     )).all()
     # Coverage can be replayed/deduplicated. It is a disposition, never an attempt clock.
-    accepted = sorted((
+    accepted = [(
         max(start, restore_stored_utc(row.interval_start)),
         min(end, restore_stored_utc(row.interval_end)), row.status,
-    ) for row in rows if row.status in {"present", "confirmed_empty"})
+        row.acquisition_source_id,
+    ) for row in rows if row.status in {"present", "confirmed_empty"}]
+    accepted.sort(key=lambda row: (row[0], row[1], row[2]))
     cursor = start
-    for left, right, _ in accepted:
+    for left, right, _, _ in accepted:
         if left > cursor:
             break
         cursor = max(cursor, right)
         if cursor >= end:
             break
     if cursor < end:
-        return "unknown", None
+        return "unknown", None, True
+    record_sources = session.execute(select(
+        GarminSource.id, GarminSource.acquisition_source_id,
+    ).join(
+        GarminSourceRecord, GarminSource.id == GarminSourceRecord.garmin_source_id
+    ).where(
+        GarminSource.provider_id == provider_id,
+        GarminSourceRecord.stream_code == "activity",
+        GarminSourceRecord.projection_status == "current",
+        GarminSourceRecord.record_status == "ok",
+        GarminSourceRecord.source_local_date >= day - timedelta(days=6),
+        GarminSourceRecord.source_local_date <= day,
+    ).distinct()).all()
+    coverage_sources = {source for _, _, _, source in accepted if source is not None}
+    represented_acquisitions = {acquisition for _, acquisition in record_sources}
+    source_count = len(record_sources) + len(coverage_sources - represented_acquisitions)
     count = session.scalar(select(func.count(GarminSourceRecord.id)).join(
         GarminSource, GarminSource.id == GarminSourceRecord.garmin_source_id
     ).where(
@@ -131,9 +218,9 @@ def _activity_coverage(session: Session, provider_id: str, day: date) -> tuple[s
         GarminSourceRecord.source_local_date >= day - timedelta(days=6),
         GarminSourceRecord.source_local_date <= day,
     ))
-    if count == 0 and any(status == "present" for _, _, status in accepted):
-        return "unknown", None
-    return "complete", count
+    if count == 0 and any(status == "present" for _, _, status, _ in accepted):
+        return "unknown", None, source_count <= 1
+    return "complete", count, source_count <= 1
 
 
 def read_facts(
@@ -163,6 +250,7 @@ def read_facts(
     if provider_id is None:
         return Facts()
     code = scope.key.split(":", 1)[1]
+    provider_terminal = _provider_terminal(session, provider_id, scope.provider)
     if scope.provider == "garmin" and code.startswith("training_"):
         # Training retains requested-day chronology separately from the normal daily surface.
         runs = session.execute(select(SyncRun.completed_at, SyncRun.status).where(
@@ -186,22 +274,30 @@ def read_facts(
         )
         latest = max(runs, key=lambda row: restore_stored_utc(row[0]), default=None)
         successful = [restore_stored_utc(at) for at, status in runs if status == "succeeded"]
-        return Facts(last_attempt_at_utc=restore_stored_utc(latest[0]) if latest else None,
-                     last_success_at_utc=max(successful, default=None),
-                     terminal_status="partial" if latest and latest[1] != "succeeded" else None,
+        attempt, success, terminal = _apply_provider_terminal(
+            restore_stored_utc(latest[0]) if latest else None,
+            max(successful, default=None),
+            latest[1] if latest and latest[1] in {"failed", "partial"} else None,
+            provider_terminal,
+        )
+        # Training's own reauth result is not persisted by its existing service.
+        return Facts(last_attempt_at_utc=attempt, last_success_at_utc=success,
+                     terminal_status=terminal,
                      evidence_at_utc=stamp, evidence_local_date=local_day,
                      observed_once=observed, attribution_resolved=not unresolved)
     if scope.provider == "garmin":
         attempt, success, terminal = _checkpoint(session, provider_id, code)
+        attempt, success, terminal = _apply_provider_terminal(
+            attempt, success, terminal, provider_terminal,
+        )
         if scope.family == "activity":
-            coverage, count = _activity_coverage(session, provider_id, evaluation_local_date)
-            source_count = session.scalar(select(func.count(GarminSource.id)).where(
-                GarminSource.provider_id == provider_id
-            ))
+            coverage, count, resolved = _activity_coverage(
+                session, provider_id, evaluation_local_date,
+            )
             return Facts(last_attempt_at_utc=attempt, last_success_at_utc=success,
                          terminal_status=terminal, coverage=coverage,
                          activity_count=count, observed_once=count is not None,
-                         attribution_resolved=source_count <= 1)
+                         attribution_resolved=resolved)
         stamp, local_day, unresolved, observed = _evidence_query(
             session, GarminSourceRecord,
             joins=((GarminSource, GarminSource.id == GarminSourceRecord.garmin_source_id),),
@@ -217,14 +313,25 @@ def read_facts(
         # different semantics and may not silently satisfy normal-stream freshness.
         stream = "sleep" if code == "wearables_sleep_reconcile" else code
         mode = "reconcile" if code == "wearables_sleep_reconcile" else "list"
-        checkpoint = f"google:incremental:{stream}:{mode}:any"
-        attempt, success, terminal = _checkpoint(session, provider_id, checkpoint)
+        family = FAMILY_GOOGLE_WEARABLES if code == "wearables_sleep_reconcile" else None
+        if code == "heart_rate":
+            attempt, success, terminal = _google_heart_rate_checkpoint(
+                session, provider_id, evaluation_local_date,
+            )
+        else:
+            family_key = "google-wearables" if family is not None else "any"
+            checkpoint = f"google:refresh:{stream}:{mode}:{family_key}"
+            attempt, success, terminal = _checkpoint(session, provider_id, checkpoint)
+        attempt, success, terminal = _apply_provider_terminal(
+            attempt, success, terminal, provider_terminal,
+        )
         stamp, local_day, unresolved, observed = _evidence_query(
             session, GoogleSourceRecord,
             joins=((GoogleSource, GoogleSource.id == GoogleSourceRecord.google_source_id),),
             conditions=(GoogleSource.provider_id == provider_id,
                         GoogleSourceRecord.stream_code == stream,
                         GoogleSourceRecord.query_mode == mode,
+                        GoogleSourceRecord.data_source_family == family,
                         GoogleSourceRecord.projection_status == "current",
                         GoogleSourceRecord.record_status == "ok"),
             source_identity=GoogleSourceRecord.google_source_id,

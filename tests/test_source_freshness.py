@@ -228,7 +228,7 @@ def test_persisted_google_list_and_confirmed_weight_exclude_private_fields(tmp_p
                                  source_instance_id="private-source-instance",
                                  source_contract_version="synthetic"))
         session.add(SyncStreamState(id="google-state", provider_id="google-provider-private-id",
-                                    stream_code="google:incremental:sleep:list:any",
+                                    stream_code="google:refresh:sleep:list:any",
                                     last_attempt_at=NOW, last_success_at=NOW,
                                     diagnostic_status="present"))
         session.add(GoogleSourceRecord(
@@ -312,4 +312,241 @@ def test_persisted_training_success_requires_surface_evidence(tmp_path: Path) ->
                                evaluation_local_date=DAY)
     assert result("garmin:training_status", status)["state"] == "fresh"
     assert result("garmin:training_readiness", readiness)["reason_code"] == "never_observed"
+    with Session(engine) as session:
+        session.add(SyncRun(id="training-failed", provider_id="garmin",
+                            stream_code="garmin_training", status="failed",
+                            started_at=NOW - timedelta(seconds=40),
+                            completed_at=NOW - timedelta(seconds=30)))
+        session.commit()
+    with Session(engine) as session:
+        failed = read_facts(session, SCOPE_BY_KEY["garmin:training_status"],
+                            evaluation_local_date=DAY)
+    assert (result("garmin:training_status", failed)["state"],
+            result("garmin:training_status", failed)["reason_code"]) == (
+        "unavailable", "refresh_failed",
+    )
+    with Session(engine) as session:
+        session.add(SyncRun(id="training-recovered", provider_id="garmin",
+                            stream_code="garmin_training", status="succeeded",
+                            started_at=NOW - timedelta(seconds=20),
+                            completed_at=NOW - timedelta(seconds=10)))
+        session.commit()
+    with Session(engine) as session:
+        recovered = read_facts(session, SCOPE_BY_KEY["garmin:training_status"],
+                               evaluation_local_date=DAY)
+    assert result("garmin:training_status", recovered)["state"] == "fresh"
+    with Session(engine) as session:
+        session.add(SyncRun(id="training-partial", provider_id="garmin",
+                            stream_code="garmin_training", status="partial",
+                            started_at=NOW - timedelta(seconds=5), completed_at=NOW))
+        session.commit()
+    with Session(engine) as session:
+        partial = read_facts(session, SCOPE_BY_KEY["garmin:training_status"],
+                             evaluation_local_date=DAY)
+    assert result("garmin:training_status", partial)["reason_code"] == (
+        "acquisition_incomplete"
+    )
+    engine.dispose()
+
+
+def test_persisted_google_refresh_namespace_family_and_hr_partition(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite:///{(tmp_path / 'google-refresh.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    provider_id = "google-provider"
+    family = "users/me/dataSourceFamilies/google-wearables"
+    with Session(engine) as session:
+        session.add(Provider(id=provider_id, code="google_health", display_name="Google",
+                             provider_kind="health_api"))
+        session.add(GoogleSource(id="google-source", provider_id=provider_id,
+                                 acquisition_source_id="google-acquisition",
+                                 source_kind="data_source", provider_code="google_health",
+                                 source_instance_id="synthetic", source_contract_version="v1"))
+        session.add(AcquisitionSource(id="google-acquisition", provider_id=provider_id,
+                                      input_method="provider_api"))
+        for key in ("google:incremental:sleep:list:any",
+                    "google:refresh:sleep:list:google-wearables",
+                    "google:refresh:sleep:reconcile:any",
+                    "google:incremental:heart_rate:list:any"):
+            session.add(SyncStreamState(id=key, provider_id=provider_id, stream_code=key,
+                                        last_attempt_at=NOW, last_success_at=NOW,
+                                        diagnostic_status="present"))
+        for record_id, stream, mode, record_family in (
+            ("family-list", "sleep", "list", family),
+            ("wrong-reconcile", "sleep", "reconcile", None),
+            ("heart-rate", "heart_rate", "list", None),
+        ):
+            session.add(GoogleSourceRecord(
+                id=record_id, google_source_id="google-source", raw_payload_id=record_id,
+                stream_code=stream, query_mode=mode, data_source_family=record_family,
+                record_identity_key=record_id, idempotency_key=record_id,
+                temporal_precision="date", source_local_date=DAY, record_status="ok",
+                normalization_contract_version="synthetic",
+            ))
+        session.commit()
+    with Session(engine) as session:
+        sleep = read_facts(session, SCOPE_BY_KEY["google:sleep"], evaluation_local_date=DAY)
+        wearables = read_facts(session, SCOPE_BY_KEY["google:wearables_sleep_reconcile"],
+                               evaluation_local_date=DAY)
+        hr = read_facts(session, SCOPE_BY_KEY["google:heart_rate"],
+                        evaluation_local_date=DAY)
+    assert (sleep.last_success_at_utc, sleep.observed_once) == (None, False)
+    assert (wearables.last_success_at_utc, wearables.observed_once) == (None, False)
+    assert hr.last_success_at_utc is None
+    with Session(engine) as session:
+        for key in ("google:refresh:sleep:list:any",
+                    "google:refresh:sleep:reconcile:google-wearables",
+                    "google:refresh:heart_rate:list:any:day:2026-09-24",
+                    "google:refresh:heart_rate:list:any:day:2026-09-25"):
+            # Older HR days are processed later by Owner refresh; their later
+            # attempt clock must not replace the newest civil-day partition.
+            older_hr_day = key.endswith("day:2026-09-24")
+            session.add(SyncStreamState(
+                id=key, provider_id=provider_id, stream_code=key,
+                last_attempt_at=NOW if older_hr_day else NOW - timedelta(hours=1),
+                last_success_at=NOW if older_hr_day else NOW - timedelta(hours=1),
+                diagnostic_status="present",
+            ))
+        for record_id, mode, record_family in (
+            ("normal-list", "list", None), ("wearables", "reconcile", family),
+        ):
+            session.add(GoogleSourceRecord(
+                id=record_id, google_source_id="google-source", raw_payload_id=record_id,
+                stream_code="sleep", query_mode=mode, data_source_family=record_family,
+                record_identity_key=record_id, idempotency_key=record_id,
+                temporal_precision="date", source_local_date=DAY, record_status="ok",
+                normalization_contract_version="synthetic",
+            ))
+        session.commit()
+    with Session(engine) as session:
+        for key in ("google:sleep", "google:wearables_sleep_reconcile", "google:heart_rate"):
+            facts = read_facts(session, SCOPE_BY_KEY[key], evaluation_local_date=DAY)
+            assert result(key, facts)["state"] == "fresh"
+    with Session(engine) as session:
+        state = session.get(SyncStreamState,
+                            "google:refresh:heart_rate:list:any:day:2026-09-25")
+        state.last_attempt_at = NOW
+        state.diagnostic_status = "failed"
+        session.commit()
+    with Session(engine) as session:
+        hr = read_facts(session, SCOPE_BY_KEY["google:heart_rate"],
+                        evaluation_local_date=DAY)
+    assert result("google:heart_rate", hr)["reason_code"] == "refresh_failed"
+    engine.dispose()
+
+
+@pytest.mark.parametrize(("provider_code", "scope_key", "checkpoint", "run_stream"), [
+    ("garmin_connect", "garmin:sleep", "sleep", "garmin_incremental"),
+    ("google_health", "google:sleep", "google:refresh:sleep:list:any", "google_refresh"),
+])
+def test_persisted_provider_auth_failure_precedence(
+    tmp_path: Path, provider_code: str, scope_key: str, checkpoint: str, run_stream: str,
+) -> None:
+    engine = create_engine(f"sqlite:///{(tmp_path / 'auth.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(Provider(id="provider", code=provider_code, display_name="Synthetic",
+                             provider_kind="wearable"))
+        session.add(SyncStreamState(
+            id="state", provider_id="provider", stream_code=checkpoint,
+            last_attempt_at=NOW - timedelta(hours=2),
+            last_success_at=NOW - timedelta(hours=2), diagnostic_status="present",
+        ))
+        session.add(SyncRun(id="generic-partial", provider_id="provider",
+                            stream_code=run_stream, status="partial", item_count=4,
+                            started_at=NOW - timedelta(hours=1),
+                            completed_at=NOW - timedelta(hours=1)))
+        session.commit()
+    with Session(engine) as session:
+        partial = read_facts(session, SCOPE_BY_KEY[scope_key], evaluation_local_date=DAY)
+    assert partial.terminal_status != "failed"
+    with Session(engine) as session:
+        session.add(SyncRun(id="auth-failed", provider_id="provider",
+                            stream_code=run_stream, status="failed", item_count=0,
+                            error_category="reauth_required",
+                            started_at=NOW - timedelta(minutes=31),
+                            completed_at=NOW - timedelta(minutes=30)))
+        session.commit()
+    with Session(engine) as session:
+        blocked = read_facts(session, SCOPE_BY_KEY[scope_key], evaluation_local_date=DAY)
+    assert result(scope_key, blocked)["reason_code"] == "reauth_required"
+    with Session(engine) as session:
+        state = session.get(SyncStreamState, "state")
+        state.last_attempt_at = NOW - timedelta(minutes=10)
+        state.last_success_at = NOW - timedelta(minutes=10)
+        session.commit()
+    with Session(engine) as session:
+        recovered = read_facts(session, SCOPE_BY_KEY[scope_key], evaluation_local_date=DAY)
+    assert recovered.terminal_status != "reauth_required"
+    assert recovered.last_success_at_utc == NOW - timedelta(minutes=10)
+    with Session(engine) as session:
+        session.add(SyncRun(id="surface-failed", provider_id="provider",
+                            stream_code=run_stream, status="failed", item_count=2,
+                            error_category="failed", started_at=NOW - timedelta(minutes=8),
+                            completed_at=NOW - timedelta(minutes=7)))
+        session.commit()
+    with Session(engine) as session:
+        narrow = read_facts(session, SCOPE_BY_KEY[scope_key], evaluation_local_date=DAY)
+    assert narrow.terminal_status != "failed"
+    with Session(engine) as session:
+        session.add(SyncRun(id="global-failed", provider_id="provider",
+                            stream_code=run_stream, status="failed", item_count=0,
+                            error_category="failed", started_at=NOW - timedelta(minutes=5),
+                            completed_at=NOW - timedelta(minutes=4)))
+        session.commit()
+    with Session(engine) as session:
+        failed = read_facts(session, SCOPE_BY_KEY[scope_key], evaluation_local_date=DAY)
+    assert result(scope_key, failed)["reason_code"] == "refresh_failed"
+    engine.dispose()
+
+
+def test_persisted_activity_sources_are_window_scoped(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite:///{(tmp_path / 'activity-sources.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(Provider(id="garmin", code="garmin_connect", display_name="Garmin",
+                             provider_kind="wearable"))
+        for source_id in ("activity-acquisition", "training-acquisition",
+                          "other-activity-acquisition"):
+            session.add(AcquisitionSource(id=source_id, provider_id="garmin",
+                                          input_method="provider_api"))
+            session.add(GarminSource(id=source_id, provider_id="garmin",
+                                     acquisition_source_id=source_id, source_kind="account",
+                                     provider_code="garmin_connect",
+                                     source_instance_id=source_id))
+        session.add(SyncStreamState(id="activity-state", provider_id="garmin",
+                                    stream_code="activities", last_attempt_at=NOW,
+                                    last_success_at=NOW, diagnostic_status="present"))
+        session.add(CoverageInterval(
+            id="activity-coverage", provider_id="garmin",
+            acquisition_source_id="activity-acquisition", stream_code="activity",
+            metric_code="activities", resolution="day", status="present",
+            interval_start=datetime(2026, 9, 19, tzinfo=UTC),
+            interval_end=datetime(2026, 9, 26, tzinfo=UTC), observed_count=1,
+            calculation_rule_version="synthetic",
+        ))
+        session.add(GarminSourceRecord(
+            id="activity-record", garmin_source_id="activity-acquisition",
+            raw_payload_id="synthetic-payload", stream_code="activity",
+            idempotency_key="synthetic-activity", temporal_precision="date",
+            source_local_date=DAY, record_status="ok",
+            normalization_contract_version="synthetic",
+        ))
+        session.commit()
+    with Session(engine) as session:
+        one = read_facts(session, SCOPE_BY_KEY["garmin:activities"],
+                         evaluation_local_date=DAY)
+    assert result("garmin:activities", one)["state"] == "fresh"
+    with Session(engine) as session:
+        session.add(GarminSourceRecord(
+            id="second-activity-record", garmin_source_id="other-activity-acquisition",
+            raw_payload_id="second-synthetic-payload", stream_code="activity",
+            idempotency_key="second-synthetic-activity", temporal_precision="date",
+            source_local_date=DAY, record_status="ok",
+            normalization_contract_version="synthetic",
+        ))
+        session.commit()
+    with Session(engine) as session:
+        competing = read_facts(session, SCOPE_BY_KEY["garmin:activities"],
+                               evaluation_local_date=DAY)
+    assert result("garmin:activities", competing)["reason_code"] == "scope_unresolved"
     engine.dispose()
