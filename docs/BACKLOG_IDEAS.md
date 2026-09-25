@@ -59,8 +59,56 @@ This must be treated as decision support, not autonomous prescribing.
 - Timeline overlay on lab and wearable charts.
 - Period comparison before/during/after an exposure when sample size and coverage allow it.
 
+## Context analytics — observation eligibility and cohort truth
+
+Future context/journal analysis must distinguish what was recorded from whether a day is analytically usable.
+
+Direction to preserve before implementing comparisons:
+
+- keep **explicit present**, **explicit absent**, and **not recorded / unknown** as different states;
+- never put a missing context entry into the negative comparison group by default;
+- keep source freshness separate from observation quality: a current source can still be partial-day, non-wear or otherwise unsuitable for a comparison;
+- define comparison eligibility with explicit versioned rules and expose why observations were excluded;
+- show usable observation count and date/period coverage before presenting a comparison;
+- align cohorts using actual calendar/source semantics rather than array position or a current-time offset shortcut;
+- preserve `insufficient` / `unknown` when evidence is too weak instead of manufacturing a score;
+- treat lag/correlation scans as exploratory evidence and account for multiple comparisons/autocorrelation before calling something a finding;
+- never turn an association into a causal health claim.
+
+Evidence for these failure classes is recorded in `docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md`. Donor thresholds and heuristics are not Health-Check policy.
+
+Natural home: future Context analytics work after the accepted capture/read contracts are stable. Promote into an explicit issue/spec before implementation.
+
+## AI / MCP — compact deterministic evidence packets
+
+Future model-facing analytical tools should normally expose bounded deterministic results rather than bulk raw history.
+
+A useful evidence packet should include only what the model needs to explain the result:
+
+- requested metric/comparison and deterministic result;
+- usable observation count;
+- date/period coverage;
+- freshness/data-quality disposition;
+- source/provenance identity at the privacy-safe level needed for interpretation;
+- analytics/policy/version identity;
+- exclusions or withholding reasons such as insufficient evidence;
+- compact supporting values/series only when the particular tool genuinely needs them.
+
+Capability direction:
+
+- prefer typed task-specific read tools over generic raw database/SQL access;
+- keep the normal analytical reader **read-only**;
+- do not grant sync, import, restore, provider-write or destructive capabilities just because the same runtime has those capabilities elsewhere;
+- avoid large raw payloads that make the LLM reproduce deterministic calculations;
+- reuse accepted Health-Check read, Period Brief and freshness layers rather than creating model-only semantics;
+- make demo/synthetic stores explicitly identifiable so generated evidence cannot be presented as Owner measurements.
+
+This is a future capability boundary, not permission to implement AI/Telegram/MCP now. Exact tools and product behavior belong in the owning release/spec.
+
 ## Relationship to roadmap
 
-The natural home is **R09 — Laboratory and document data**, with medication/supplement timeline support either introduced in R09 or split into a follow-up release if it would make R09 too large.
+The natural home for medication/supplement capabilities is **R09 — Laboratory and document data**, with medication/supplement timeline support either introduced in R09 or split into a follow-up release if it would make R09 too large.
 
-Do not pull these capabilities into R01–R08 merely because the data model can anticipate exposure intervals.
+Context analytical eligibility belongs after Context capture/read contracts are stable. AI/MCP evidence packets belong in the future bounded model-facing surface over accepted deterministic services.
+
+Do not pull these capabilities into an earlier release merely because the data model can anticipate them.
