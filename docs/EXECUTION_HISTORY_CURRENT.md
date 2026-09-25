@@ -319,30 +319,70 @@ Important repository note: at the Stable closeout checkpoint, `main @ 6f21eeacf8
 
 After Stable closeout, canonical Git `main` advanced to `b887fceceb85931ad8ead9423c0f86e0cac09291`; exact-main CI `35608281796` is SUCCESS. This does not erase the earlier `6f21eea…` divergence checkpoint, which remains historical lineage evidence. The accepted Stable and Period Brief integration lines remain separate and require deliberate reconciliation before shared promotion.
 
+## 2026-09-22 to 2026-09-25 — canonical reconciliation, context capture and Garmin Training/Recovery
+
+The previously divergent Stable Owner Runtime and Period Brief lines were deliberately reconciled into canonical `main`. The former Period Brief sequence (#146 correctness → #133 presentation → #129/#127 Owner UAT/closeout) is complete.
+
+### Context capture v0 — #177
+
+#177 added revisioned owner-authored context events with deterministic add/revise/list semantics. Owner UAT on a disposable runtime proved add/revise/list behavior without exposing private note content in Git/CI.
+
+### Garmin Training discovery — #175 / parent #160 Phase A
+
+A privacy-safe bounded probe was built and independently reviewed. Owner-live evidence proved useful Garmin-native surfaces for Training Status, daily/chronic Training Load, ACWR, Load Focus, multiple within-day Training Readiness snapshots, Recovery Time/context and activity Training Load / aerobic+anaerobic Training Effect from the activity listing.
+
+Negative boundaries were also frozen: requested Training Status date is not source date for `mostRecent` structures; dedicated max-metrics was empty; detail `get_activity` did not prove TE/load fields; associated device/activity recorder is not producer proof.
+
+### Garmin Training persistence — #180
+
+#180 added typed Training evidence at migration `0014_garmin_training_evidence` after Context Capture `0013`.
+
+A parallel migration collision with #177 was caught before review; the candidate was refreshed onto current main while preserving Context Capture. Independent semantic review accepted chronology, multi-snapshot Readiness, replay/idempotency, state preservation and attribution boundaries.
+
+Owner-live disposable-profile proof inserted five semantic Training rows on first sync and zero new semantic rows on immediate repeat.
+
+### Routine Owner refresh — #183
+
+#183 composed the accepted bounded Garmin Training sync into normal `owner-refresh`, reusing the same Garmin auth/client and exact validated date window. Owner-live evidence showed overall success, a succeeded Training sub-result, three bounded Training reads for the two-day window, no historical status backfill and no new semantic Training rows.
+
+### Garmin Training & recovery owner view — #187 / #160 Phase C
+
+#187 added a compact Training & recovery section to the existing `/garmin` page, backed only by persisted #180 evidence. It preserves source chronology, keeps undated Load Focus undated, renders zero separately from missing/null/invalid, labels attribution without claiming metric producer and does not guess Recovery Time units.
+
+Independent semantic Auditor ACCEPT plus Integrator review preceded merge. Owner UAT accepted the section functionally; broader UI technical density is deferred to #189.
+
+Parent #160 is CLOSED complete across discovery, persistence, routine refresh and presentation.
+
+### Process/docs consolidation — #185/#186
+
+Worker guidance was consolidated so the GitHub issue/Integrator note remains authoritative, launch prompts stay short, one Worker is the default, orchestration stays explicit opt-in and protected Owner/Stable/UAT roles remain hard boundaries.
+
+Current accepted product checkpoint before this documentation refresh: `main @ 9a16ac943dd50a448342ea3b494bf8ccd043997b`; exact-main CI `36018343743` SUCCESS with `1050 exact nodeids` and Windows smoke PASS.
+
 ## Current handoff / next work
 
-### First: reconcile accepted repository lines
+### Next bounded product track — #147 source freshness
 
-Before new shared implementation, re-read and deliberately reconcile:
+Research already established that #147 can be a derived read model with no schema change, but implementation must not invent production cadence/thresholds. The Integrator must first freeze the v1 policy table, then launch the bounded core read-model task.
 
-- current `main @ b887fceceb85931ad8ead9423c0f86e0cac09291` (exact-main CI `35608281796` SUCCESS; re-read from GitHub before acting);
-- `integration/stable-owner-runtime @ 0b05a80749e3ef0d2fa736778baa49cc23f18a61`;
-- `integration/period-brief-ui-v1 @ a1d4e4c68674305b78ad3acee8140e96ba5a2e92`.
+Accepted working states:
 
-Preserve accepted deltas and rerun exact-SHA gates; do not blindly stack work on one divergent branch.
+`fresh | quiet | stale | unavailable | unknown | not_requested`
 
-### Then: Period Brief correctness / UX / UAT
+Key distinctions:
 
-- #146 — fix real producer/consumer DTO drift, effective analytical window truthfulness and honest activity emptiness;
-- #133 — compact source labels / summary hierarchy / deterministic deduplication;
-- #129 — Owner UAT/closeout using a disposable backup-restored clone of Stable;
-- #127 closes with successful Period Brief UI/UAT.
+- daily automatically expected wearable streams may become stale under explicit due/grace policy;
+- event-driven activities are quiet when a requested inventory window is proven complete and empty;
+- voluntary weight age is non-alert by default;
+- refresh outcome, coverage and actual evidence age remain separate facts;
+- unknown/insufficient history never becomes healthy.
 
-### Separate future work
+### Separate open tracks
 
-- #147 source freshness;
+- #153 Xiaomi S400/openScale live E2E (Owner hardware);
 - #148 off-site disaster recovery;
-- #153 Xiaomi S400/openScale live E2E verification;
-- #160 Garmin-native training analytics discovery/persistence/UI.
-
-#126 remains blocked on private-repository GitHub protection capability. #105 remains deferred/NOT_ELIGIBLE; Garmin stays canonical/default for sleep.
+- #167 privacy/history remediation;
+- #172 Period Brief UX follow-up;
+- #189 deferred whole-product UI redesign;
+- #126 repository protection/Owner decision;
+- #105 deferred/NOT_ELIGIBLE canonical sleep rule.
