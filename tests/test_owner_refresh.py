@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck import cli
 from healthcheck.config import Settings
@@ -320,6 +321,152 @@ def test_owner_refresh_projects_freshness_after_layers_without_changing_status(
     payload = report.to_json()
     assert now.isoformat() not in payload
     assert report.as_dict()["privacy"]["health_timestamps_emitted"] is False
+
+
+@pytest.mark.parametrize(
+    ("garmin_status", "google_status", "expected_status"),
+    [
+        (
+            GarminSyncStatus.SUCCEEDED,
+            GoogleSyncStatus.SUCCEEDED,
+            OwnerRefreshStatus.SUCCEEDED,
+        ),
+        (
+            GarminSyncStatus.PARTIAL,
+            GoogleSyncStatus.SUCCEEDED,
+            OwnerRefreshStatus.PARTIAL,
+        ),
+        (
+            GarminSyncStatus.SUCCEEDED,
+            GoogleSyncStatus.REAUTH_REQUIRED,
+            OwnerRefreshStatus.REAUTH_REQUIRED,
+        ),
+    ],
+)
+def test_owner_refresh_freshness_failure_preserves_operational_status(
+    monkeypatch, tmp_path, garmin_status, google_status, expected_status
+):
+    import healthcheck.owner_refresh as owner_refresh
+
+    events = []
+
+    class StatusGarmin(_FakeGarminSync):
+        def run(self, *, as_of, trailing_window_days):
+            events.append("garmin")
+            window_start, window_end = compute_sync_window(as_of, trailing_window_days)
+            return GarminSyncReport(
+                auth=GarminAuthResult(status=GarminAuthStatus.AUTHENTICATED),
+                status=garmin_status,
+                as_of=as_of.isoformat(),
+                window_start=window_start.isoformat(),
+                window_end=window_end.isoformat(),
+                trailing_window_days=trailing_window_days,
+                request_count=0,
+            )
+
+    class OrderedTraining(_FakeGarminTrainingSync):
+        def run(self, *, start, end):
+            events.append("training")
+            return super().run(start=start, end=end)
+
+    def fake_google(settings, **kwargs):
+        events.append("google")
+        return _report(google_status)
+
+    def fail_freshness_read(*args, **kwargs):
+        events.append("freshness")
+        raise SQLAlchemyError("SELECT private-marker-193 from C:\\private\\health.db value=123kg")
+
+    _patch_providers(monkeypatch, owner_refresh, garmin_cls=StatusGarmin, google_fn=fake_google)
+    monkeypatch.setattr(owner_refresh, "GarminTrainingSync", OrderedTraining)
+    monkeypatch.setattr(
+        owner_refresh,
+        "read_consumer_freshness_projection_from_database",
+        fail_freshness_read,
+    )
+
+    report = run_owner_refresh(
+        _established_settings(tmp_path),
+        as_of="2099-01-10",
+        trailing_window_days=7,
+        streams=["sleep"],
+    )
+
+    expected_freshness = {
+        "policy_version": "source-freshness-v1",
+        "state": "unavailable",
+        "reason_code": "freshness_evaluation_failed",
+    }
+    assert events == ["garmin", "training", "google", "google", "freshness"]
+    assert report.status is expected_status
+    assert report.freshness == expected_freshness
+    payload = report.to_json()
+    assert all(
+        secret not in payload
+        for secret in ("private-marker-193", "C:\\private\\health.db", "123kg", "SELECT")
+    )
+
+
+def test_cli_owner_refresh_keeps_success_report_when_freshness_fails(
+    monkeypatch, tmp_path, capsys
+):
+    import healthcheck.owner_refresh as owner_refresh
+
+    class SerializableGarmin(_FakeGarminSync):
+        def run(self, *, as_of, trailing_window_days):
+            window_start, window_end = compute_sync_window(as_of, trailing_window_days)
+            return GarminSyncReport(
+                auth=GarminAuthResult(status=GarminAuthStatus.AUTHENTICATED),
+                status=GarminSyncStatus.SUCCEEDED,
+                as_of=as_of.isoformat(),
+                window_start=window_start.isoformat(),
+                window_end=window_end.isoformat(),
+                trailing_window_days=trailing_window_days,
+                request_count=0,
+            )
+
+    def fake_google(settings, **kwargs):
+        return _report(GoogleSyncStatus.SUCCEEDED)
+
+    def fail_freshness_read(*args, **kwargs):
+        raise SQLAlchemyError("private-marker-193 C:\\private\\health.db SELECT 123kg")
+
+    settings = _established_settings(tmp_path)
+    _patch_providers(
+        monkeypatch, owner_refresh, garmin_cls=SerializableGarmin, google_fn=fake_google
+    )
+    monkeypatch.setattr(
+        owner_refresh,
+        "read_consumer_freshness_projection_from_database",
+        fail_freshness_read,
+    )
+
+    code = cli.main(
+        [
+            "owner-refresh",
+            "--data-dir",
+            str(settings.data_dir),
+            "--date",
+            "2099-01-10",
+            "--trailing-window-days",
+            "7",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert code == 0
+    assert payload["refresh"]["status"] == "succeeded"
+    assert payload["freshness"] == {
+        "policy_version": "source-freshness-v1",
+        "state": "unavailable",
+        "reason_code": "freshness_evaluation_failed",
+    }
+    assert "error" not in payload
+    assert all(
+        secret not in output
+        for secret in ("private-marker-193", "C:\\private\\health.db", "123kg", "SELECT")
+    )
 
 
 def test_owner_refresh_reuses_garmin_auth_and_training_uses_exact_window_and_order(

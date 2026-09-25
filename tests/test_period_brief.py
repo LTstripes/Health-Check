@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,7 +48,7 @@ from healthcheck.db.engine import (
     create_sqlite_engine,
     migrate_database,
 )
-from healthcheck.db.models import GarminSource
+from healthcheck.db.models import GarminSource, Provider, SyncStreamState
 from healthcheck.db.repositories import repositories_for
 from healthcheck.garmin.analytic_contract import get_analytic_metric_definition
 from healthcheck.garmin.normalization import normalize_garmin_payload
@@ -246,6 +247,110 @@ def _consumer_freshness_projection(overrides: dict[str, Facts] | None = None):
         evaluation_local_date=_FRESHNESS_DATE,
     )
     return project_consumer_freshness(core)
+
+
+def test_acceptance_12_owner_refresh_and_period_brief_agree_from_same_persisted_db(
+    monkeypatch, tmp_path
+):
+    import healthcheck.owner_refresh as owner_refresh
+    import healthcheck.web.period_brief_query as period_brief_query
+
+    settings = Settings(data_dir=tmp_path / "shared-freshness-runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    engine = create_sqlite_engine(paths)
+    evaluation_local_date = _FRESHNESS_NOW.astimezone().date()
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is UTC
+            return _FRESHNESS_NOW
+
+    class FakeGarminAuth:
+        def __init__(self, settings, *, is_cn=False):
+            pass
+
+        def load_existing(self):
+            return object(), SimpleNamespace()
+
+    class FakeGarminSync:
+        def __init__(self, settings, *, client, auth_result):
+            pass
+
+        def run(self, *, as_of, trailing_window_days):
+            return SimpleNamespace(status="succeeded", as_of=as_of)
+
+    class FakeGarminTrainingSync:
+        def __init__(self, settings, *, client, auth_result):
+            pass
+
+        def run(self, *, start, end):
+            return {"status": "succeeded"}
+
+    def fake_google_report(*args, **kwargs):
+        return SimpleNamespace(status="succeeded")
+
+    monkeypatch.setattr(owner_refresh, "datetime", FrozenDateTime)
+    monkeypatch.setattr(period_brief_query, "datetime", FrozenDateTime)
+    monkeypatch.setattr(owner_refresh, "GarminAuthService", FakeGarminAuth)
+    monkeypatch.setattr(owner_refresh, "GarminIncrementalSync", FakeGarminSync)
+    monkeypatch.setattr(owner_refresh, "GarminTrainingSync", FakeGarminTrainingSync)
+    monkeypatch.setattr(owner_refresh, "GoogleAuthService", lambda settings: object())
+    monkeypatch.setattr(owner_refresh, "_run_normal_google_refresh", fake_google_report)
+    monkeypatch.setattr(owner_refresh, "run_google_refresh", fake_google_report)
+
+    try:
+        with create_session_factory(engine)() as session:
+            provider = Provider(
+                code="garmin_connect",
+                display_name="Garmin Connect",
+                provider_kind="garmin",
+            )
+            session.add(provider)
+            session.flush()
+            prior_success = _FRESHNESS_NOW - timedelta(hours=49)
+            session.add(
+                SyncStreamState(
+                    provider_id=provider.id,
+                    stream_code="sleep",
+                    last_attempt_at=prior_success,
+                    last_success_at=prior_success,
+                )
+            )
+            session.commit()
+
+        owner_report = owner_refresh.run_owner_refresh(
+            settings,
+            as_of=evaluation_local_date.isoformat(),
+            trailing_window_days=7,
+        )
+        with create_session_factory(engine)() as session:
+            packet = PeriodBriefService(session, settings).build(
+                start_date=evaluation_local_date,
+                end_date=evaluation_local_date,
+            )
+    finally:
+        engine.dispose()
+
+    brief_projection = packet["sections"]["data_quality"]["coverage"]["freshness"]
+    assert owner_report.status.value == "succeeded"
+    assert owner_report.freshness == brief_projection
+    assert owner_report.freshness["policy_version"] == "source-freshness-v1"
+    assert {
+        key: owner_report.freshness["providers"][key]["state"]
+        for key in ("garmin", "google")
+    } == {
+        key: brief_projection["providers"][key]["state"]
+        for key in ("garmin", "google")
+    }
+    assert [
+        (item["scope_key"], item["state"], item["reason_code"])
+        for item in owner_report.freshness["owner"]["actionable_items"]
+    ] == [
+        (item["scope_key"], item["state"], item["reason_code"])
+        for item in brief_projection["owner"]["actionable_items"]
+    ]
 
 
 def test_normalize_period_rejects_datetime_and_inverted_bounds():
