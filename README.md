@@ -120,7 +120,7 @@ No health data, credentials, payloads, images, logs, database files or generated
 
 Normal development should use targeted checks while iterating, then one exact candidate gate, one exact integration gate after acceptance, and an exact `main` gate when publishing canonical history.
 
-The accepted final GitHub Actions verdict is the job named **`checks`**. It fail-closes over the mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. Current server-side branch protection cannot require it automatically on this private repository, so Integrator/Owner process must not advance `main` unless `checks` succeeded on the exact SHA being promoted.
+The accepted final GitHub Actions verdict is the job named **`checks`**. It fail-closes over the mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. The repository is currently public; #126 remains an explicit repository-settings/Owner decision. Regardless of server enforcement, Integrator process must not advance `main` unless `checks` succeeded on the exact SHA being promoted.
 
 Do not reopen the performance campaign merely to save seconds. #124 closed the measured large serial stall; further CI optimization requires a new material measured bottleneck.
 
