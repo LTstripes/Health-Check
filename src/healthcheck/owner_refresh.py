@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -44,8 +44,13 @@ from healthcheck.google.sync import (
     validate_inclusive_window,
 )
 from healthcheck.runtime import RuntimePaths, resolve_runtime_paths
+from healthcheck.source_freshness import POLICY_VERSION
+from healthcheck.source_freshness_consumer import (
+    read_consumer_freshness_projection_from_database,
+)
 
 OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
+FRESHNESS_EVALUATION_FAILED_REASON = "freshness_evaluation_failed"
 
 # Fixed second Google layer required by R05 account_wearables_sleep_observations_v1.
 OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS: tuple[str, ...] = ("sleep",)
@@ -125,6 +130,7 @@ class OwnerRefreshReport:
     garmin_training: dict[str, Any]
     google: GoogleSyncReport
     google_wearables_sleep: GoogleSyncReport
+    freshness: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -141,6 +147,7 @@ class OwnerRefreshReport:
             "garmin_training": dict(self.garmin_training),
             "google": self.google.as_dict(),
             "google_wearables_sleep": self.google_wearables_sleep.as_dict(),
+            "freshness": self.freshness,
             "privacy": {
                 "raw_values_emitted": False,
                 "private_identifiers_emitted": False,
@@ -153,6 +160,16 @@ class OwnerRefreshReport:
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+
+
+def _freshness_evaluation_failed_projection() -> dict[str, str]:
+    """Describe a consumer-level freshness read failure without inventing scope states."""
+
+    return {
+        "policy_version": POLICY_VERSION,
+        "state": "unavailable",
+        "reason_code": FRESHNESS_EVALUATION_FAILED_REASON,
+    }
 
 
 def _combined_status(
@@ -539,14 +556,26 @@ def run_owner_refresh(
             query_mode=OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE,
             data_source_family=OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY,
         )
-
-    return OwnerRefreshReport(
-        status=_combined_status(
+        refresh_status = _combined_status(
             garmin.status,
             garmin_training["status"],
             google.status,
             google_wearables_sleep.status,
-        ),
+        )
+        try:
+            freshness = read_consumer_freshness_projection_from_database(
+                paths.database,
+                evaluated_at_utc=datetime.now(UTC),
+                evaluation_local_date=as_of_date,
+                weight_cadence_days=settings.weight_cadence_days,
+            )
+        except Exception:
+            # Freshness is a post-refresh diagnostic. Preserve the completed
+            # provider result and expose only a stable consumer-level failure.
+            freshness = _freshness_evaluation_failed_projection()
+
+    return OwnerRefreshReport(
+        status=refresh_status,
         as_of=as_of_date.isoformat(),
         window_start=window_start.isoformat(),
         window_end=window_end.isoformat(),
@@ -555,6 +584,7 @@ def run_owner_refresh(
         garmin_training=garmin_training,
         google=google,
         google_wearables_sleep=google_wearables_sleep,
+        freshness=freshness,
     )
 
 

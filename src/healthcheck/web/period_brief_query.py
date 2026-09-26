@@ -44,6 +44,7 @@ from healthcheck.garmin.analytic_contract import (
     SURFACE_ANALYTIC_METRIC_CODES,
     get_analytic_metric_definition,
 )
+from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.web.garmin_query import DEFAULT_SCALAR_METRIC, GarminQueryService
 from healthcheck.web.query import WeightQueryService
 
@@ -69,6 +70,8 @@ class PeriodBriefService:
         garmin_source_id: str | None = None,
     ) -> dict[str, Any]:
         period = normalize_period(start_date, end_date)
+        evaluated_at_utc = datetime.now(UTC)
+        evaluation_local_date = evaluated_at_utc.astimezone().date()
         weight_summary = self.weight.summary(start_date=start_date, end_date=end_date)
         import_queue = self.weight.import_queue_summary()
         sleep_report = self.sleep.report(start_date=start_date, end_date=end_date)
@@ -120,6 +123,12 @@ class PeriodBriefService:
             # e.g. multiple sources require selection — inventory was not attempted.
             activity_inventory_status = "unknown"
 
+        freshness_projection = read_consumer_freshness_projection(
+            self.session,
+            evaluated_at_utc=evaluated_at_utc,
+            evaluation_local_date=evaluation_local_date,
+            weight_cadence_days=self.settings.weight_cadence_days,
+        )
         return build_period_brief_packet(
             period=period,
             weight_summary=weight_summary,
@@ -132,6 +141,7 @@ class PeriodBriefService:
             sleep_baselines=sleep_baselines,
             activity_baselines=activity_baselines,
             import_queue=import_queue,
+            freshness_projection=freshness_projection,
         )
 
     def build_with_render(
