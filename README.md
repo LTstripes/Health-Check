@@ -29,27 +29,33 @@ The final R04 owner gate also proved the populated private runtime remained heal
 
 ## Current focus
 
-The former Stable-runtime / Period Brief reconciliation sequence is complete. The current product checkpoint before this documentation refresh is `main @ 9a16ac943dd50a448342ea3b494bf8ccd043997b` with exact-main CI `36018343743` SUCCESS; always re-read current `main` from GitHub before launch or integration.
+Current canonical checkpoint: `main @ 968deac9cefd46dda15a269022cd13802a5b8e16`; exact-main CI `36342547115` SUCCESS with 1133 exact nodeids and Windows smoke PASS. Re-read current `main` from GitHub before every launch or integration.
 
-Recently completed owner-value work:
+Recently completed owner-value work now includes:
 
 - Period Brief correctness, presentation and Owner UAT (#146/#133/#129/#127);
-- revisioned context capture v0 (#177);
-- Garmin Training discovery/probe (#175), typed persistence (#180), normal owner-refresh integration (#183) and Training & recovery owner view (#187/#160);
-- process/prompt consolidation (#185/#186).
+- revisioned Context Capture v0 (#177), with deterministic add/revise/list semantics proven on a disposable profile;
+- Garmin Training discovery → persistence → normal owner refresh → owner view (#175/#180/#183/#187; parent #160 complete);
+- source freshness v1 core and consumers (#147/#191/#193);
+- Google HR performance/reliability hardening (#199/#206/#207/#212), including bounded promotion preload, continuation context reuse and bounded transport retry.
 
-The next data-quality track is **#147 source freshness**: a deterministic read-only interpretation of persisted sync/coverage/evidence facts that can distinguish current, quiet, stale, unavailable, unknown and not-requested sources without provider calls. Production policy thresholds must be frozen explicitly before implementation; they must not be inferred from sparse Owner history.
+**Immediate product sequencing is data readiness before UI:**
+
+- #214 — make routine Stable collection actually automatic every day and audit historical coverage before any targeted backfill;
+- #215 — start accumulating real private Owner context notes in Stable using the already accepted #177 contract;
+- #153 — prove the physical Xiaomi S400 → openScale/openScale-sync → Stable weight path end-to-end.
+
+The provider stack already supports one bounded Owner refresh covering normal Garmin, Garmin Training, Google normal refresh and the accepted wearables-sleep reconciliation layer. What is still operationally missing is the recurring Windows schedule: #134 deliberately documented Task Scheduler setup but did not create a recurring task. Historical Garmin reconstruction is complete in Stable; Google has broad valid retained evidence, but older-coverage completeness must be audited rather than assumed.
 
 Separate open work remains intentionally independent:
 
-- #153 — Owner-live Xiaomi S400 → openScale → Stable E2E verification (hardware-dependent);
 - #148 — off-site backup/disaster-recovery rehearsal;
 - #167 — historical metadata/privacy remediation before future public exposure;
-- #189 — deferred whole-product Owner UI redesign umbrella;
+- #189 — accepted but deferred whole-product Owner UI redesign umbrella;
 - #126 — repository required-check/protection capability/Owner decision;
 - #105 — deferred/NOT_ELIGIBLE canonical sleep rule.
 
-The Owner UI is functionally useful but still intentionally technical/data-dense. Large-scale interface simplification is deferred to #189 rather than being mixed into data-source work.
+The Owner UI is already functionally useful. Whole-product redesign stays behind the data-readiness gates above: missing daily/history evidence is more important to fix now than presentation polish.
 
 ## Architecture in one minute
 
