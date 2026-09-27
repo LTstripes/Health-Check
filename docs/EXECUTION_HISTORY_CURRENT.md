@@ -386,3 +386,52 @@ Key distinctions:
 - #189 deferred whole-product UI redesign;
 - #126 repository protection/Owner decision;
 - #105 deferred/NOT_ELIGIBLE canonical sleep rule.
+
+## 2026-09-25 to 2026-09-27 — freshness, Google HR performance/reliability and data-readiness pivot
+
+### Source freshness — #147 / #191 / #193
+
+The previously planned freshness track is complete. A deterministic versioned read model now distinguishes `fresh | quiet | stale | unavailable | unknown | not_requested` from persisted sync/coverage/evidence facts without provider calls. Owner refresh and Period Brief consume the same privacy-safe projection; voluntary Weight remains non-alert by default and activities remain event/inventory-driven.
+
+### Google HR performance — #199 / #206 / #207
+
+Read-only research and Owner profiling first localized routine refresh cost. Deep timing showed completed-day HR promotion/apply and repeated continuation runtime setup were material local bottlenecks, so two bounded optimizations were implemented without changing query/correction/checkpoint semantics:
+
+- #206: page-local bounded preload/batching for completed HR promotion while preserving atomicity/provenance/correction ordering;
+- #207: reuse one Owner HR-day runtime/migration/engine/session context across bounded continuation calls while keeping standalone refresh self-sufficient.
+
+The first post-change live measurements were intentionally rejected as performance evidence when provider runs stopped early. A separate transport failure then motivated #212.
+
+### Google transport reliability — #212
+
+#212 added bounded retry only for exact `provider/provider_unavailable` inside the existing request budget, retry count and backoff schedule. Exact-head and exact-main CI were green; no auth/storage/input/generic-provider class became retryable.
+
+Final canonical implementation checkpoint:
+`main @ 968deac9cefd46dda15a269022cd13802a5b8e16`;
+exact-main CI `36342547115` SUCCESS with 1133 exact nodeids and Windows smoke PASS.
+
+### Final #199 Owner gate
+
+A fresh disposable clone from the verified migrated backup was checked at schema `0014_garmin_training_evidence`, WAL, `quick_check=ok` and zero FK violations, then one narrow 2026-09-26 HR gate completed successfully.
+
+Sanitized comparison versus the same pre-optimization civil day:
+- provider work was heavier in the final run, so total wall time increased and was not treated as a local regression;
+- promotion/apply fell from 164.9 s to 119.944 s despite higher page volume;
+- residual/other fell from 28.4 s to 13.903 s while both bounded continuation rounds were exercised;
+- local measured work excluding provider/backoff fell from about 203.0 s to 151.688 s (~25% lower).
+
+#199 closed COMPLETE. Remaining wall-time variance is now predominantly provider acquisition/page volume; background scheduling remains the right product model.
+
+### Data-readiness before UI — #214 / #215 / #153
+
+Owner priority changed from immediate UI implementation to evidence accumulation:
+
+- #214 now owns recurring daily Stable refresh plus a read-only historical coverage audit and any later justified bounded gap backfill;
+- #215 operationalizes already-accepted Context Capture v0 so real private Owner notes begin accumulating in Stable;
+- #153 remains the physical Xiaomi S400/openScale/openScale-sync → Stable live gate.
+
+Important operational truth: #134 proved the one-command refresh and documented Task Scheduler, but no recurring Windows task was created. Therefore Garmin/Garmin Training/Google/wearables-sleep collection is production-ready but not yet automatic every day.
+
+Historical Stable state is asymmetric: Garmin historical backfill reached completion/convergence; Google contains broad valid retained evidence with reconstructed current windows beginning around 2026-07-01, so older Google completeness must be audited rather than assumed.
+
+#189 UI direction remains accepted but implementation is deferred behind these data-readiness gates.
