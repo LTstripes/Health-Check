@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from time import monotonic_ns
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -131,6 +132,7 @@ class OwnerRefreshReport:
     google: GoogleSyncReport
     google_wearables_sleep: GoogleSyncReport
     freshness: dict[str, Any]
+    timing: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -148,6 +150,7 @@ class OwnerRefreshReport:
             "google": self.google.as_dict(),
             "google_wearables_sleep": self.google_wearables_sleep.as_dict(),
             "freshness": self.freshness,
+            "timing": self.timing,
             "privacy": {
                 "raw_values_emitted": False,
                 "private_identifiers_emitted": False,
@@ -170,6 +173,12 @@ def _freshness_evaluation_failed_projection() -> dict[str, str]:
         "state": "unavailable",
         "reason_code": FRESHNESS_EVALUATION_FAILED_REASON,
     }
+
+
+def _elapsed_milliseconds(started_at_ns: int) -> int:
+    """Return one non-negative integer duration from the monotonic clock."""
+
+    return max(0, (monotonic_ns() - started_at_ns) // 1_000_000)
 
 
 def _combined_status(
@@ -316,14 +325,23 @@ def _run_normal_google_refresh(
     streams: list[str] | None,
     query_mode: str | None,
     data_source_family: str | None,
+    timing_phases: dict[str, Any] | None = None,
 ) -> GoogleSyncReport:
     """Run normal Google refresh, daily-partitioning only list-mode HR."""
 
+    if timing_phases is not None:
+        timing_phases.setdefault("non_heart_rate", None)
+        timing_phases.setdefault("heart_rate_by_civil_day", [])
     selected = parse_google_streams(streams)
     mode = parse_query_mode(query_mode)
     heart_rate_selected = any(item.stream is GoogleStream.HEART_RATE for item in selected)
     if mode is not GoogleQueryMode.LIST or not heart_rate_selected:
-        return run_google_refresh(
+        non_heart_rate_started_ns = (
+            monotonic_ns()
+            if timing_phases is not None and not heart_rate_selected
+            else None
+        )
+        report = run_google_refresh(
             settings,
             start=start,
             end=end,
@@ -332,6 +350,13 @@ def _run_normal_google_refresh(
             query_mode=query_mode,
             data_source_family=data_source_family,
         )
+        if timing_phases is not None and non_heart_rate_started_ns is not None:
+            timing_phases["non_heart_rate"] = {
+                "duration_ms": _elapsed_milliseconds(non_heart_rate_started_ns),
+                "request_count": report.request_count,
+                "page_count": sum(attempt.page_count for attempt in report.attempts),
+            }
+        return report
 
     window_start, window_end = validate_inclusive_window(start, end)
     family = parse_data_source_family(data_source_family)
@@ -340,6 +365,9 @@ def _run_normal_google_refresh(
     ]
     non_heart_rate_report = None
     if non_heart_rate_streams:
+        non_heart_rate_started_ns = (
+            monotonic_ns() if timing_phases is not None else None
+        )
         non_heart_rate_report = run_google_refresh(
             settings,
             start=window_start,
@@ -349,6 +377,14 @@ def _run_normal_google_refresh(
             query_mode=query_mode,
             data_source_family=data_source_family,
         )
+        if timing_phases is not None and non_heart_rate_started_ns is not None:
+            timing_phases["non_heart_rate"] = {
+                "duration_ms": _elapsed_milliseconds(non_heart_rate_started_ns),
+                "request_count": non_heart_rate_report.request_count,
+                "page_count": sum(
+                    attempt.page_count for attempt in non_heart_rate_report.attempts
+                ),
+            }
 
     daily_reports: list[GoogleSyncReport] = []
     daily_attempts: list[GoogleSyncAttempt] = []
@@ -371,13 +407,32 @@ def _run_normal_google_refresh(
             current_day -= timedelta(days=1)
             continue
 
+        heart_rate_day_metrics: dict[str, int] | None = (
+            {} if timing_phases is not None else None
+        )
+        heart_rate_day_started_ns = (
+            monotonic_ns() if timing_phases is not None else None
+        )
         report = _run_heart_rate_day(
             settings,
             auth_service=auth_service,
             day=current_day,
             query_mode=query_mode,
             data_source_family=data_source_family,
+            phase_metrics=heart_rate_day_metrics,
         )
+        if (
+            timing_phases is not None
+            and heart_rate_day_metrics is not None
+            and heart_rate_day_started_ns is not None
+        ):
+            timing_phases["heart_rate_by_civil_day"].append(
+                {
+                    "civil_day": current_day.isoformat(),
+                    "duration_ms": _elapsed_milliseconds(heart_rate_day_started_ns),
+                    **heart_rate_day_metrics,
+                }
+            )
         daily_reports.append(report)
         if report.attempts:
             daily_attempts.extend(report.attempts)
@@ -456,6 +511,7 @@ def _run_heart_rate_day(
     day: date,
     query_mode: str | None,
     data_source_family: str | None,
+    phase_metrics: dict[str, int] | None = None,
 ) -> GoogleSyncReport:
     """Run one independently staged HR day with bounded continuation."""
 
@@ -485,6 +541,16 @@ def _run_heart_rate_day(
                 data_source_family=data_source_family,
                 checkpoint_partition=day.isoformat(),
             )
+        )
+    if phase_metrics is not None:
+        phase_metrics.update(
+            request_count=sum(report.request_count for report in reports),
+            page_count=sum(
+                attempt.page_count
+                for report in reports
+                for attempt in report.attempts
+                if attempt.stream == GoogleStream.HEART_RATE.value
+            ),
         )
     return _consolidate_google_refresh_reports(reports)
 
@@ -516,12 +582,14 @@ def run_owner_refresh(
     validated Garmin window and retain their own refresh/checkpoint semantics.
     """
 
+    owner_refresh_started_ns = monotonic_ns()
     paths = require_established_runtime(settings)
     as_of_date = validate_sync_date(as_of)
     window_days = validate_trailing_window_days(trailing_window_days)
     window_start, window_end = compute_sync_window(as_of_date, window_days)
 
     with OwnerRefreshLock(paths):
+        garmin_started_ns = monotonic_ns()
         garmin_auth = GarminAuthService(settings, is_cn=is_cn)
         garmin_client, garmin_auth_result = garmin_auth.load_existing()
         garmin = GarminIncrementalSync(
@@ -529,6 +597,9 @@ def run_owner_refresh(
             client=garmin_client,
             auth_result=garmin_auth_result,
         ).run(as_of=as_of_date, trailing_window_days=window_days)
+        garmin_duration_ms = _elapsed_milliseconds(garmin_started_ns)
+
+        garmin_training_started_ns = monotonic_ns()
         garmin_training = _safe_garmin_training_report(
             GarminTrainingSync(
                 settings,
@@ -536,8 +607,14 @@ def run_owner_refresh(
                 auth_result=garmin_auth_result,
             ).run(start=window_start, end=window_end)
         )
+        garmin_training_duration_ms = _elapsed_milliseconds(garmin_training_started_ns)
 
+        google_normal_started_ns = monotonic_ns()
         google_auth = GoogleAuthService(settings)
+        google_normal_timing: dict[str, Any] = {
+            "non_heart_rate": None,
+            "heart_rate_by_civil_day": [],
+        }
         google = _run_normal_google_refresh(
             settings,
             start=window_start,
@@ -546,7 +623,11 @@ def run_owner_refresh(
             streams=streams,
             query_mode=query_mode,
             data_source_family=data_source_family,
+            timing_phases=google_normal_timing,
         )
+        google_normal_duration_ms = _elapsed_milliseconds(google_normal_started_ns)
+
+        google_wearables_sleep_started_ns = monotonic_ns()
         google_wearables_sleep = run_google_refresh(
             settings,
             start=window_start,
@@ -556,12 +637,16 @@ def run_owner_refresh(
             query_mode=OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE,
             data_source_family=OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY,
         )
+        google_wearables_sleep_duration_ms = _elapsed_milliseconds(
+            google_wearables_sleep_started_ns
+        )
         refresh_status = _combined_status(
             garmin.status,
             garmin_training["status"],
             google.status,
             google_wearables_sleep.status,
         )
+        freshness_started_ns = monotonic_ns()
         try:
             freshness = read_consumer_freshness_projection_from_database(
                 paths.database,
@@ -573,6 +658,7 @@ def run_owner_refresh(
             # Freshness is a post-refresh diagnostic. Preserve the completed
             # provider result and expose only a stable consumer-level failure.
             freshness = _freshness_evaluation_failed_projection()
+        freshness_duration_ms = _elapsed_milliseconds(freshness_started_ns)
 
     return OwnerRefreshReport(
         status=refresh_status,
@@ -585,6 +671,29 @@ def run_owner_refresh(
         google=google,
         google_wearables_sleep=google_wearables_sleep,
         freshness=freshness,
+        timing={
+            "clock": "monotonic",
+            "unit": "milliseconds",
+            "phases": {
+                "garmin_normal": {"duration_ms": garmin_duration_ms},
+                "garmin_training": {"duration_ms": garmin_training_duration_ms},
+                "google_normal": {
+                    "duration_ms": google_normal_duration_ms,
+                    **google_normal_timing,
+                },
+                "google_wearables_sleep": {
+                    "duration_ms": google_wearables_sleep_duration_ms,
+                    "request_count": google_wearables_sleep.request_count,
+                    "page_count": sum(
+                        attempt.page_count for attempt in google_wearables_sleep.attempts
+                    ),
+                },
+                "freshness_evaluation": {"duration_ms": freshness_duration_ms},
+                "owner_refresh_total": {
+                    "duration_ms": _elapsed_milliseconds(owner_refresh_started_ns)
+                },
+            },
+        },
     )
 
 
