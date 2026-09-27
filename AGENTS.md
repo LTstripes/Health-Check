@@ -136,17 +136,35 @@ Independent review is required when `docs/MODEL_ROUTING.md` says so, when Owner/
 
 A normal Worker returns one concise per-task report containing:
 
-- task/issue ID;
-- runtime-reported client/model (and Delegates/fallbacks if applicable);
+- task/issue ID and status;
+- **Model evidence** using the common fields below;
 - baseline SHA and target integration branch;
 - task branch and physical workspace;
 - exact final candidate SHA;
-- what changed and key files;
+- what changed, key files and exact `git diff --stat` additions/deletions when available;
 - exact checks and outcomes;
 - deviations from the original plan and why;
-- blockers/surprises/limitations;
-- working-tree status;
+- blockers/surprises/limitations plus relevant execution confounders (for example resource contention);
+- working-tree status and remote/HEAD read-back when local;
 - confirmation that `main` and unrelated branches/workspaces were not modified.
+
+Use this compact block in every Worker handoff:
+
+```text
+Model evidence
+client/runtime: <name + version if exposed>
+requested model/effort: <value or unknown>
+actual model/provider/effort: <runtime-reported value or unknown>
+identity source: runtime_confirmed | worker_reported | owner_reported | assigned_only | unknown
+delegates/fallbacks: <chain or none/unknown>
+usage: input=<n|unknown>; cached_input=<n|unknown>; output=<n|unknown>; reasoning=<n|unknown>; total=<n|unknown>
+reported cost/credits: <exact runtime/billing value or unknown>
+reported active/elapsed time: <exact runtime value or unknown>
+```
+
+Usage fields are evidence only when the executing client/runtime exposes exact counters. Do not estimate token counts, infer subscription cost, convert public list prices into a claimed run cost, or treat unavailable counters as zero. Report only aggregate counters/metadata; never include private prompts, secrets, health values or hidden reasoning. If a provider/client does not expose a field, write `unknown`.
+
+Workers/Execution Orchestrators do **not** edit `docs/MODEL_BENCHMARK.md` or the benchmark tracker to grade themselves. The Integrator records model outcomes centrally after source/evidence review and keeps Worker, Reviewer and research roles separate.
 
 An orchestrated queue additionally returns one final queue report listing every authorized task, its final internal state, candidate SHA where applicable, review path and unresolved Integrator action. That queue report is not batch project acceptance.
 
