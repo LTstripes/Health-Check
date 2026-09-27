@@ -54,7 +54,16 @@ class _FakeGarminSync:
         self.client = client
 
     def run(self, *, as_of, trailing_window_days):
-        return SimpleNamespace(status=GarminSyncStatus.SUCCEEDED, as_of=as_of)
+        window_start, window_end = compute_sync_window(as_of, trailing_window_days)
+        return GarminSyncReport(
+            auth=GarminAuthResult(status=GarminAuthStatus.AUTHENTICATED),
+            status=GarminSyncStatus.SUCCEEDED,
+            as_of=as_of.isoformat(),
+            window_start=window_start.isoformat(),
+            window_end=window_end.isoformat(),
+            trailing_window_days=trailing_window_days,
+            request_count=0,
+        )
 
 
 class _FakeGarminTrainingSync:
@@ -185,6 +194,25 @@ def _patch_providers(monkeypatch, owner_refresh, *, garmin_cls=_FakeGarminSync, 
 def test_owner_refresh_runs_garmin_and_both_google_layers(monkeypatch, tmp_path):
     import healthcheck.owner_refresh as owner_refresh
 
+    clock_values = iter(
+        [
+            0,
+            10_000_000,
+            25_000_000,
+            30_000_000,
+            50_000_000,
+            60_000_000,
+            70_000_000,
+            100_000_000,
+            110_000_000,
+            120_000_000,
+            160_000_000,
+            170_000_000,
+            190_000_000,
+            200_000_000,
+        ]
+    )
+    monkeypatch.setattr(owner_refresh, "monotonic_ns", lambda: next(clock_values))
     google_calls = []
 
     def fake_google(settings, **kwargs):
@@ -222,6 +250,202 @@ def test_owner_refresh_runs_garmin_and_both_google_layers(monkeypatch, tmp_path)
     assert wearables_sleep["streams"] == list(OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS)
     assert wearables_sleep["query_mode"] == OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE
     assert wearables_sleep["data_source_family"] == OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_FAMILY
+
+    phases = report.as_dict()["timing"]["phases"]
+    assert report.as_dict()["timing"]["clock"] == "monotonic"
+    assert report.as_dict()["timing"]["unit"] == "milliseconds"
+    assert phases["garmin_normal"] == {"duration_ms": 15}
+    assert phases["garmin_training"] == {"duration_ms": 20}
+    assert phases["google_normal"]["duration_ms"] == 50
+    assert phases["google_normal"]["non_heart_rate"] == {
+        "duration_ms": 30,
+        "request_count": 0,
+        "page_count": 0,
+    }
+    assert phases["google_normal"]["heart_rate_by_civil_day"] == []
+    assert phases["google_wearables_sleep"]["duration_ms"] == 40
+    assert phases["freshness_evaluation"] == {"duration_ms": 20}
+    assert phases["owner_refresh_total"] == {"duration_ms": 200}
+
+
+def test_normal_google_timing_attributes_hr_days_and_continuation_counts(
+    monkeypatch, tmp_path
+):
+    import healthcheck.owner_refresh as owner_refresh
+
+    clock_values = iter(
+        [0, 3_000_000, 4_000_000, 9_000_000, 10_000_000, 22_000_000]
+    )
+    monkeypatch.setattr(owner_refresh, "monotonic_ns", lambda: next(clock_values))
+    calls = []
+    hr_calls_by_day: dict[str, int] = {}
+
+    def fake_google(_settings, **kwargs):
+        if kwargs["streams"] == ["sleep"]:
+            calls.append(("non_hr", None))
+            attempt = _google_attempt(
+                "sleep",
+                GoogleSyncStatus.SUCCEEDED,
+                page_count=3,
+                request_count=4,
+            )
+            return _google_report(
+                attempt,
+                status=GoogleSyncStatus.SUCCEEDED,
+                request_count=4,
+            )
+
+        day = kwargs["start"]
+        day_text = day.isoformat()
+        call_index = hr_calls_by_day.get(day_text, 0)
+        hr_calls_by_day[day_text] = call_index + 1
+        calls.append(("heart_rate", day_text))
+        if call_index == 0:
+            attempt = _google_attempt(
+                "heart_rate",
+                GoogleSyncStatus.PARTIAL,
+                page_count=40,
+                request_count=80,
+                resume_cursor_present=True,
+                error=GoogleSafeError("budget", "page_ceiling"),
+                window_start=day_text,
+                window_end_exclusive=(day + timedelta(days=1)).isoformat(),
+            )
+            status = GoogleSyncStatus.PARTIAL
+            request_count = 80
+        else:
+            attempt = _google_attempt(
+                "heart_rate",
+                GoogleSyncStatus.SUCCEEDED,
+                page_count=5,
+                request_count=10,
+                window_start=day_text,
+                window_end_exclusive=(day + timedelta(days=1)).isoformat(),
+            )
+            status = GoogleSyncStatus.SUCCEEDED
+            request_count = 10
+        return _google_report(attempt, status=status, request_count=request_count)
+
+    monkeypatch.setattr(owner_refresh, "run_google_refresh", fake_google)
+    timing_phases = {}
+    report = owner_refresh._run_normal_google_refresh(
+        Settings(data_dir=tmp_path),
+        auth_service=object(),
+        start=date(2099, 1, 1),
+        end=date(2099, 1, 2),
+        streams=["heart_rate", "sleep"],
+        query_mode=None,
+        data_source_family=None,
+        timing_phases=timing_phases,
+    )
+
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.request_count == 184
+    assert calls == [
+        ("non_hr", None),
+        ("heart_rate", "2099-01-02"),
+        ("heart_rate", "2099-01-02"),
+        ("heart_rate", "2099-01-01"),
+        ("heart_rate", "2099-01-01"),
+    ]
+    assert timing_phases["non_heart_rate"] == {
+        "duration_ms": 3,
+        "request_count": 4,
+        "page_count": 3,
+    }
+    assert timing_phases["heart_rate_by_civil_day"] == [
+        {
+            "civil_day": "2099-01-02",
+            "duration_ms": 5,
+            "request_count": 90,
+            "page_count": 45,
+        },
+        {
+            "civil_day": "2099-01-01",
+            "duration_ms": 12,
+            "request_count": 90,
+            "page_count": 45,
+        },
+    ]
+
+
+def test_owner_refresh_serializes_only_sanitized_timing_metadata(monkeypatch, tmp_path):
+    import healthcheck.owner_refresh as owner_refresh
+
+    def fake_google(_settings, **kwargs):
+        if kwargs.get("streams") == ["heart_rate"]:
+            day = kwargs["start"]
+            day_text = day.isoformat()
+            attempt = _google_attempt(
+                "heart_rate",
+                GoogleSyncStatus.SUCCEEDED,
+                page_count=0,
+                request_count=0,
+                window_start=day_text,
+                window_end_exclusive=(day + timedelta(days=1)).isoformat(),
+            )
+            return _google_report(
+                attempt,
+                status=GoogleSyncStatus.SUCCEEDED,
+                request_count=0,
+            )
+        return _report(GoogleSyncStatus.SUCCEEDED)
+
+    clock_values = iter(value * 1_000_000 for value in range(16))
+    monkeypatch.setattr(owner_refresh, "monotonic_ns", lambda: next(clock_values))
+    _patch_providers(
+        monkeypatch,
+        owner_refresh,
+        google_fn=fake_google,
+    )
+    monkeypatch.setattr(
+        owner_refresh,
+        "read_consumer_freshness_projection_from_database",
+        lambda *_args, **_kwargs: {
+            "policy_version": "source-freshness-v1",
+            "state": "fresh",
+        },
+    )
+
+    report = run_owner_refresh(
+        _established_settings(tmp_path),
+        as_of="2099-01-10",
+        trailing_window_days=2,
+        streams=["heart_rate"],
+    )
+
+    timing = report.as_dict()["timing"]
+    phases = timing["phases"]
+    assert report.status is OwnerRefreshStatus.SUCCEEDED
+    assert phases["google_normal"]["heart_rate_by_civil_day"] == [
+        {
+            "civil_day": "2099-01-10",
+            "duration_ms": 1,
+            "request_count": 0,
+            "page_count": 0,
+        },
+        {
+            "civil_day": "2099-01-09",
+            "duration_ms": 1,
+            "request_count": 0,
+            "page_count": 0,
+        },
+    ]
+    timing_json = json.dumps(timing, ensure_ascii=True)
+    assert all(
+        private not in timing_json
+        for private in (
+            "health_timestamp",
+            "heartRate",
+            "beatsPerMinute",
+            "external_record_id",
+            "sync_run_id",
+            "provider_id",
+            "token",
+            "SELECT",
+            "C:\\",
+        )
+    )
 
 
 @pytest.mark.parametrize("required_sleep_overdue", [True, False])
@@ -338,16 +562,31 @@ def test_owner_refresh_projects_freshness_after_layers_without_changing_status(
         ),
         (
             GarminSyncStatus.SUCCEEDED,
+            GoogleSyncStatus.FAILED,
+            OwnerRefreshStatus.PARTIAL,
+        ),
+        (
+            GarminSyncStatus.SUCCEEDED,
             GoogleSyncStatus.REAUTH_REQUIRED,
             OwnerRefreshStatus.REAUTH_REQUIRED,
         ),
     ],
 )
+@pytest.mark.parametrize("clock_step_ns", [1_000_000, 100_000_000])
 def test_owner_refresh_freshness_failure_preserves_operational_status(
-    monkeypatch, tmp_path, garmin_status, google_status, expected_status
+    monkeypatch, tmp_path, garmin_status, google_status, expected_status, clock_step_ns
 ):
     import healthcheck.owner_refresh as owner_refresh
 
+    clock_value = 0
+
+    def fake_monotonic_ns():
+        nonlocal clock_value
+        result = clock_value
+        clock_value += clock_step_ns
+        return result
+
+    monkeypatch.setattr(owner_refresh, "monotonic_ns", fake_monotonic_ns)
     events = []
 
     class StatusGarmin(_FakeGarminSync):
@@ -401,9 +640,33 @@ def test_owner_refresh_freshness_failure_preserves_operational_status(
     assert report.status is expected_status
     assert report.freshness == expected_freshness
     payload = report.to_json()
+    timing = report.as_dict()["timing"]
+    phases = timing["phases"]
+    assert timing["clock"] == "monotonic"
+    assert phases["freshness_evaluation"]["duration_ms"] == clock_step_ns // 1_000_000
+    assert phases["owner_refresh_total"]["duration_ms"] > 0
+    assert all(
+        isinstance(phases[name]["duration_ms"], int)
+        for name in (
+            "garmin_normal",
+            "garmin_training",
+            "google_normal",
+            "google_wearables_sleep",
+            "freshness_evaluation",
+            "owner_refresh_total",
+        )
+    )
+    timing_json = json.dumps(timing, ensure_ascii=True)
+    assert "health_timestamp" not in timing_json
+    assert "sync_run_id" not in timing_json
     assert all(
         secret not in payload
-        for secret in ("private-marker-193", "C:\\private\\health.db", "123kg", "SELECT")
+        for secret in (
+            "private-marker-193",
+            "C:\\private\\health.db",
+            "123kg",
+            "SELECT",
+        )
     )
 
 
