@@ -88,7 +88,7 @@ Examples:
 - cross-release canonical data-model redesign;
 - ambiguous external API/licensing decision that affects long-term implementation.
 
-Typical routing: strongest appropriate available reasoning model(s), with explicit architecture decision before implementation or merge.
+Typical routing: strongest appropriate available reasoning model(s), with explicit architecture decision before implementation when needed.
 
 Review: mandatory independent review plus explicit Integrator decision/ADR before implementation or merge.
 
@@ -101,7 +101,7 @@ Review: mandatory independent review plus explicit Integrator decision/ADR befor
 5. For provider/API/device facts, current source/official documentation beats model memory.
 6. For health analytics, complex statistics are not automatically better. Prefer explainable methods that fit sample size/coverage.
 7. A strong Execution Orchestrator may use a cheaper scoped Worker; role separation matters more than permanent model names.
-8. `INTERNAL_ACCEPT` from local orchestration is evidence only, not project `ACCEPT`.
+8. `INTERNAL_ACCEPT` from local orchestration is execution evidence only, not project `ACCEPT`.
 
 ## Independent review triggers
 
@@ -109,9 +109,9 @@ Use a separate Reviewer when any of these applies:
 
 1. this complexity/risk policy requires one;
 2. Owner/Integrator explicitly requests one;
-3. justified execution risk appears that raises the review bar.
+3. justified execution risk appears that raises the review bar under project policy.
 
-The third case does not authorize requirement invention or scope expansion. If the risk implies architecture, privacy, canonical data or health-semantics expansion, STOP and ask the Integrator.
+The third case does not authorize requirement invention or scope expansion. If the risk implies architecture, privacy, canonical data or health-semantics changes, STOP and ask the Integrator.
 
 ## Capability-based selection
 
