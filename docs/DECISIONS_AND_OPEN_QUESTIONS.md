@@ -179,7 +179,8 @@ Measured outcome: the accepted remote feedback path moved from about `5m02s` to 
 - LLM access is typed, bounded and read-only through application analytics services.
 - Generic unrestricted SQL is not the default AI interface.
 - Reports are computed from deterministic/versioned evidence before rendering/delivery.
-- Context capture v0 is accepted: revisioned owner-authored free-text event/exposure records with deterministic add/revise/list semantics and optional tags; no mandatory daily diary.
+- Context Capture v0 is accepted: revisioned owner-authored free-text event/exposure records with deterministic add/revise/list semantics and optional tags; no mandatory daily diary.
+- #215 owns only operational adoption of that existing contract in Stable; later Telegram/chat capture must remain a thin adapter and must not silently invent dates/tags/interpretation.
 
 ### License
 
@@ -194,7 +195,7 @@ These are observational gaps, not reasons to rewrite released architecture.
 
 ### Xiaomi / R01
 
-- Real owner Xiaomi S400 → openScale → openScale-sync → Stable ingestion remains only partially owner-observed; #153 owns the explicit end-to-end live verification.
+- Real owner Xiaomi S400 → openScale → openScale-sync → Stable ingestion remains only partially owner-observed; #153 owns the explicit end-to-end live verification and is the next planned hardware Owner gate.
 - Exact algorithm/application identity behind every historical screenshot may remain unknown where the screenshot itself does not prove it.
 - No Xiaomi↔openScale numeric body-composition calibration exists without paired evidence.
 
@@ -232,7 +233,9 @@ These are observational gaps, not reasons to rewrite released architecture.
 3. **External AI provider/deployment:** choose when the typed AI release begins.
 4. **Recovery Score:** decide only after accumulated evidence demonstrates a concrete need.
 5. **Advanced remote access:** remain local/loopback by default until a threat model and need exist.
-6. **Whole-product Owner UI redesign:** deferred under #189 until source/data-quality work is mature enough to redesign information architecture once rather than polishing each technical page independently.
+6. **Whole-product Owner UI redesign:** accepted direction under #189, but implementation is deferred behind #214 daily/historical data readiness, #215 Context operationalization and #153 Xiaomi live E2E unless the Owner explicitly reprioritizes.
+7. **Daily Stable automation:** #134 proved the bounded one-command workflow and documented Task Scheduler, but no recurring task has yet been created. #214 owns enabling and proving the actual daily schedule.
+8. **Historical Google completeness:** Stable contains broad valid retained Google evidence, but reconstructed current windows begin around 2026-07-01. #214 must audit older provider-accessible coverage before any targeted backfill; absence of older persisted rows is not proof that no older provider history exists.
 
 ## Change protocol
 

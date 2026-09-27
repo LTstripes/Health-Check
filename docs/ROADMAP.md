@@ -6,21 +6,30 @@ Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG
 
 ## Current state
 
-Released to canonical `main`: R01–R05 plus the post-R05 deterministic Period Brief and durable Owner Runtime work.
+Released to canonical `main`: R01–R05 plus the post-R05 deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery and source-freshness work.
 
-Current accepted product checkpoint before this documentation refresh: `main @ 9a16ac943dd50a448342ea3b494bf8ccd043997b` with exact-main CI `36018343743` SUCCESS. Re-read current `main` from GitHub before every launch/integration.
+Current canonical checkpoint: `main @ 968deac9cefd46dda15a269022cd13802a5b8e16`; exact-main CI `36342547115` SUCCESS with 1133 exact nodeids and Windows smoke PASS. Re-read current `main` from GitHub before every launch/integration.
 
 Completed post-R05 owner-value slices now include:
 
-- Stable Owner Runtime + one-command provider refresh;
+- Stable Owner Runtime + one-command Garmin / Garmin Training / Google / wearables-sleep refresh;
 - deterministic Period Brief correctness/presentation/UAT closeout;
-- Context capture v0 (#177);
+- Context Capture v0 (#177);
 - Garmin Training/Recovery discovery → persistence → routine refresh → owner view (#175/#180/#183/#187, parent #160 closed);
+- source freshness v1 core + owner consumers (#147/#191/#193);
+- Google HR performance/reliability track (#199/#206/#207/#212), with successful final Owner measurement and no correction/query semantic weakening;
 - consolidated Worker/Integrator guidance (#185/#186).
 
-**Immediate product sequencing:** freeze #147 freshness policy v1, implement its derived read model, then wire accepted freshness into owner diagnostics/Period Brief without provider calls or schema changes unless separately reviewed.
+**Immediate product sequencing: evidence accumulation before interface redesign.**
 
-Separate tracks remain independent: #153 Xiaomi live E2E, #148 off-site DR, #167 privacy remediation, #189 deferred whole-product UI redesign. #105 remains deferred/NOT_ELIGIBLE. #126 remains an Owner/repository-capability decision.
+1. #214 — enable and prove recurring daily Stable refresh, audit historical coverage by stream/source and perform only justified bounded backfills.
+2. #215 — begin real Owner Context Capture accumulation in Stable through the accepted #177 contract.
+3. #153 — run the physical Xiaomi S400/openScale/openScale-sync → Stable live E2E gate.
+4. Resume #189 whole-product UI implementation only after these data-readiness gates, unless the Owner explicitly reprioritizes.
+
+Operational truth: the one-command provider refresh is live-proven, but no recurring Task Scheduler entry has yet been created. Garmin historical reconstruction in Stable completed and converges/skips on rerun; Google has broad valid retained evidence, with current reconstructed windows beginning around 2026-07-01, so older-history completeness requires an explicit audit rather than an assumption.
+
+Separate tracks remain independent: #148 off-site DR, #167 privacy remediation, #126 repository-protection decision and #105 deferred/NOT_ELIGIBLE canonical sleep rule.
 
 See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md), [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md), and [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
 
