@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+import pytest
 from sqlalchemy import event, func, select
 from sqlalchemy.engine import Engine
 
@@ -27,6 +31,10 @@ from healthcheck.db.models import (
     GoogleSourceRecord,
     RawArtifact,
     SyncStreamState,
+)
+from healthcheck.external_runtime_lock import (
+    ExternalRuntimeOperationBusyError,
+    ExternalRuntimeOperationLock,
 )
 from healthcheck.google.auth import (
     ALLOWED_SCOPES,
@@ -63,6 +71,7 @@ from healthcheck.google.sync import (
     GoogleRunKind,
     GoogleSafeError,
     GoogleSyncStatus,
+    _owner_heart_rate_day_refresh,
     checkpoint_stream_code,
     parse_page_envelope,
     run_google_incremental_sync,
@@ -1296,6 +1305,324 @@ def test_budget_stopped_refresh_restarts_and_applies_page1_correction(tmp_path) 
         engine.dispose()
 
 
+def test_owner_hr_day_context_reuses_setup_and_matches_standalone_continuation(
+    monkeypatch, tmp_path
+) -> None:
+    import healthcheck.google.sync as google_sync
+
+    def transport_with_correction() -> FakeGoogleHealthTransport:
+        transport = FakeGoogleHealthTransport()
+        for index in range(MAX_PAGES_PER_FETCH + 2):
+            token = None if index == 0 else f"page-{index}"
+            next_token = (
+                f"page-{index + 1}" if index < MAX_PAGES_PER_FETCH + 1 else None
+            )
+            point = _hr_point(name=f"point-{index}", bpm="61")
+            payload: dict[str, Any] = {"dataPoints": [point]}
+            if next_token is not None:
+                payload["nextPageToken"] = next_token
+            transport.queue("heart-rate", payload, page_token=token)
+            if index == 0:
+                corrected = dict(payload)
+                corrected["dataPoints"] = [_hr_point(name="point-0", bpm="81")]
+                transport.queue("heart-rate", corrected, page_token=token)
+        return transport
+
+    def database_state(settings: Settings) -> tuple[dict[str, Any], int | None, int]:
+        database = prepare_runtime(settings).database
+        with sqlite3.connect(database) as connection:
+            cursor = connection.execute(
+                "SELECT cursor FROM sync_stream_state WHERE stream_code = ?",
+                ("google:refresh:heart_rate:list:any:day:2099-01-02",),
+            ).fetchone()
+            metric = connection.execute(
+                "SELECT value_number FROM google_record_metrics "
+                "WHERE metric_code = 'heart_rate_bpm' ORDER BY value_number DESC LIMIT 1"
+            ).fetchone()
+            count = connection.execute("SELECT COUNT(*) FROM google_source_records").fetchone()
+        assert cursor is not None and count is not None
+        return json.loads(cursor[0] or "{}"), metric[0] if metric else None, count[0]
+
+    standalone_transport = transport_with_correction()
+    standalone_settings, _ = _sync(tmp_path / "standalone", standalone_transport)
+    standalone_args = dict(
+        start=AS_OF,
+        end=AS_OF,
+        transport=standalone_transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        checkpoint_partition=AS_OF,
+    )
+    standalone_first = run_google_refresh(standalone_settings, **standalone_args)
+    standalone_partial = database_state(standalone_settings)
+    standalone_second = run_google_refresh(standalone_settings, **standalone_args)
+    standalone_final = database_state(standalone_settings)
+
+    shared_transport = transport_with_correction()
+    shared_settings, _ = _sync(tmp_path / "shared", shared_transport)
+    auth = SimpleNamespace(
+        transport=shared_transport,
+        token_health=lambda: _auth_result(),
+        load_access_token=lambda **_kwargs: (SYNTHETIC_ACCESS, _auth_result()),
+        _read_tokens=lambda: SimpleNamespace(granted_scopes=lambda: ALLOWED_SCOPES),
+    )
+    counts = {name: 0 for name in ("prepare", "migrate", "engine", "factory", "store", "dispose")}
+    for name, key in (
+        ("prepare_runtime", "prepare"),
+        ("migrate_database", "migrate"),
+        ("create_session_factory", "factory"),
+    ):
+        original = getattr(google_sync, name)
+
+        def counted(*args, _original=original, _key=key, **kwargs):
+            counts[_key] += 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(google_sync, name, counted)
+    original_engine = google_sync.create_sqlite_engine
+
+    def counted_engine(*args, **kwargs):
+        counts["engine"] += 1
+        engine = original_engine(*args, **kwargs)
+        original_dispose = engine.dispose
+
+        def dispose():
+            counts["dispose"] += 1
+            return original_dispose()
+
+        engine.dispose = dispose
+        return engine
+
+    monkeypatch.setattr(google_sync, "create_sqlite_engine", counted_engine)
+    original_store = google_sync.ContentAddressedGooglePayloadStore
+
+    def counted_store(*args, **kwargs):
+        counts["store"] += 1
+        return original_store(*args, **kwargs)
+
+    monkeypatch.setattr(google_sync, "ContentAddressedGooglePayloadStore", counted_store)
+    with _owner_heart_rate_day_refresh(
+        shared_settings,
+        day=date(2099, 1, 2),
+        auth_service=auth,
+        query_mode=None,
+        data_source_family=None,
+        phase_timing=None,
+    ) as refresh:
+        shared_first = refresh()
+        shared_partial = database_state(shared_settings)
+        shared_second = refresh()
+    shared_final = database_state(shared_settings)
+
+    assert counts == dict.fromkeys(counts, 1)
+    assert [standalone_first.status, standalone_second.status] == [
+        shared_first.status,
+        shared_second.status,
+    ] == [GoogleSyncStatus.PARTIAL, GoogleSyncStatus.SUCCEEDED]
+    assert [standalone_first.request_count, standalone_second.request_count] == [
+        shared_first.request_count,
+        shared_second.request_count,
+    ] == [MAX_PAGES_PER_FETCH, 3]
+    assert [
+        attempt.page_count for attempt in (shared_first.attempts[0], shared_second.attempts[0])
+    ] == [
+        MAX_PAGES_PER_FETCH,
+        3,
+    ]
+    assert standalone_first.sync_run_id != standalone_second.sync_run_id
+    assert shared_first.sync_run_id != shared_second.sync_run_id
+    assert standalone_partial[0]["page_token"] == shared_partial[0]["page_token"] == "page-40"
+    assert (
+        len(standalone_partial[0]["staged_run_ids"])
+        == len(shared_partial[0]["staged_run_ids"])
+        == 1
+    )
+    assert standalone_first.sync_run_id in standalone_partial[0]["staged_run_ids"]
+    assert shared_first.sync_run_id in shared_partial[0]["staged_run_ids"]
+    assert standalone_partial[1:] == shared_partial[1:] == (None, 0)
+    assert standalone_final[1:] == shared_final[1:] == (81, MAX_PAGES_PER_FETCH + 2)
+    assert standalone_final[0] == shared_final[0]
+    assert [call["has_page_token"] for call in standalone_transport.health_calls()] == [
+        call["has_page_token"] for call in shared_transport.health_calls()
+    ]
+
+
+def test_owner_hr_day_context_one_call_matches_standalone_empty_day(tmp_path) -> None:
+    standalone_transport = FakeGoogleHealthTransport()
+    standalone_settings, _ = _sync(tmp_path / "standalone", standalone_transport)
+    standalone = run_google_refresh(
+        standalone_settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=standalone_transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        checkpoint_partition=AS_OF,
+    )
+    shared_transport = FakeGoogleHealthTransport()
+    shared_settings, _ = _sync(tmp_path / "shared", shared_transport)
+    auth = SimpleNamespace(
+        transport=shared_transport,
+        token_health=lambda: _auth_result(),
+        load_access_token=lambda **_kwargs: (SYNTHETIC_ACCESS, _auth_result()),
+        _read_tokens=lambda: SimpleNamespace(granted_scopes=lambda: ALLOWED_SCOPES),
+    )
+    with _owner_heart_rate_day_refresh(
+        shared_settings,
+        day=date(2099, 1, 2),
+        auth_service=auth,
+        query_mode=None,
+        data_source_family=None,
+        phase_timing=None,
+    ) as refresh:
+        shared = refresh()
+
+    assert shared.status is standalone.status is GoogleSyncStatus.SUCCEEDED
+    assert shared.request_count == standalone.request_count == 1
+    assert shared.attempts == standalone.attempts
+    shared_report = shared.as_dict()
+    standalone_report = standalone.as_dict()
+    assert shared_report["sync"].pop("sync_run_id") != standalone_report["sync"].pop(
+        "sync_run_id"
+    )
+    assert shared_report == standalone_report
+    assert shared_transport.health_calls() == standalone_transport.health_calls()
+
+
+def test_owner_hr_day_context_keeps_lock_and_checkpoint_on_continuation_reauth(
+    tmp_path,
+) -> None:
+    transport = FakeGoogleHealthTransport()
+    for index in range(MAX_PAGES_PER_FETCH):
+        transport.queue(
+            "heart-rate",
+            {"dataPoints": [], "nextPageToken": f"page-{index + 1}"},
+            page_token=None if index == 0 else f"page-{index}",
+        )
+    settings, _ = _sync(tmp_path, transport)
+    paths = prepare_runtime(settings)
+    reauth = GoogleAuthResult(
+        status=GoogleAuthStatus.REAUTH_REQUIRED,
+        error=GoogleSafeError("auth", "reauth_required"),
+    )
+    auth_calls = 0
+
+    def token_health():
+        nonlocal auth_calls
+        auth_calls += 1
+        return _auth_result() if auth_calls == 1 else reauth
+
+    auth = SimpleNamespace(
+        transport=transport,
+        token_health=token_health,
+        load_access_token=lambda **_kwargs: (SYNTHETIC_ACCESS, _auth_result()),
+        _read_tokens=lambda: SimpleNamespace(granted_scopes=lambda: ALLOWED_SCOPES),
+    )
+    with _owner_heart_rate_day_refresh(
+        settings,
+        day=date(2099, 1, 2),
+        auth_service=auth,
+        query_mode=None,
+        data_source_family=None,
+        phase_timing=None,
+    ) as refresh:
+        with pytest.raises(ExternalRuntimeOperationBusyError):
+            with ExternalRuntimeOperationLock(paths, allow_reentrant=False):
+                pass
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with pytest.raises(RuntimeError, match="context is unavailable"):
+                pool.submit(refresh).result()
+        first = refresh()
+        second = refresh()
+        assert first.status is GoogleSyncStatus.PARTIAL
+        assert first.attempts[0].resume_cursor_present is True
+        assert second.status is GoogleSyncStatus.REAUTH_REQUIRED
+        assert second.request_count == 0 and second.attempts == ()
+        assert second.sync_run_id != first.sync_run_id
+    with ExternalRuntimeOperationLock(paths, allow_reentrant=False):
+        pass
+    with sqlite3.connect(paths.database) as connection:
+        row = connection.execute(
+            "SELECT cursor FROM sync_stream_state WHERE stream_code = ?",
+            ("google:refresh:heart_rate:list:any:day:2099-01-02",),
+        ).fetchone()
+    assert row is not None
+    checkpoint = json.loads(row[0])
+    assert checkpoint["page_token"] == f"page-{MAX_PAGES_PER_FETCH}"
+    assert checkpoint["staged_run_ids"] == [first.sync_run_id]
+    assert auth_calls == 2
+
+
+def test_owner_hr_day_context_cleans_up_on_continuation_and_setup_errors(
+    monkeypatch, tmp_path
+) -> None:
+    import healthcheck.google.sync as google_sync
+
+    transport = FakeGoogleHealthTransport()
+    settings, _ = _sync(tmp_path, transport)
+    paths = prepare_runtime(settings)
+    auth = SimpleNamespace(transport=transport)
+    disposals = 0
+    original_engine = google_sync.create_sqlite_engine
+
+    def counted_engine(*args, **kwargs):
+        nonlocal disposals
+        engine = original_engine(*args, **kwargs)
+        original_dispose = engine.dispose
+
+        def dispose():
+            nonlocal disposals
+            disposals += 1
+            return original_dispose()
+
+        engine.dispose = dispose
+        return engine
+
+    monkeypatch.setattr(google_sync, "create_sqlite_engine", counted_engine)
+
+    def fail_continuation(*_args, **_kwargs):
+        raise RuntimeError("synthetic continuation failure")
+
+    monkeypatch.setattr(GoogleHealthSync, "_run", fail_continuation)
+    with pytest.raises(RuntimeError, match="synthetic continuation failure"):
+        with _owner_heart_rate_day_refresh(
+            settings,
+            day=date(2099, 1, 2),
+            auth_service=auth,
+            query_mode=None,
+            data_source_family=None,
+            phase_timing=None,
+        ) as refresh:
+            refresh()
+    assert disposals == 1
+    with pytest.raises(RuntimeError, match="context is unavailable"):
+        refresh()
+    with ExternalRuntimeOperationLock(paths, allow_reentrant=False):
+        pass
+
+    def fail_setup(_engine):
+        raise RuntimeError("synthetic setup failure")
+
+    monkeypatch.setattr(google_sync, "create_session_factory", fail_setup)
+    with pytest.raises(RuntimeError, match="synthetic setup failure"):
+        with _owner_heart_rate_day_refresh(
+            settings,
+            day=date(2099, 1, 2),
+            auth_service=auth,
+            query_mode=None,
+            data_source_family=None,
+            phase_timing=None,
+        ):
+            pass
+    assert disposals == 2
+    with ExternalRuntimeOperationLock(paths, allow_reentrant=False):
+        pass
+
+
 def test_dense_refresh_converges_with_staged_correction_and_idempotent_projection(tmp_path) -> None:
     transport = FakeGoogleHealthTransport()
     dense_page_count = (MAX_PAGES_PER_FETCH * 2) + 2
@@ -1616,7 +1943,7 @@ def test_dense_completed_hr_promotion_selects_do_not_grow_per_record(monkeypatch
 
 
 def test_owner_refresh_daily_hr_partitions_converge_newest_first_and_rerun_idempotently(
-    monkeypatch, tmp_path
+    tmp_path,
 ) -> None:
     import healthcheck.owner_refresh as owner_refresh
 
@@ -1659,22 +1986,16 @@ def test_owner_refresh_daily_hr_partitions_converge_newest_first_and_rerun_idemp
 
     settings, _service = _sync(tmp_path, transport)
 
-    def actual_refresh(settings, **kwargs):
-        kwargs.pop("auth_service", None)
-        return run_google_refresh(
-            settings,
-            transport=transport,
-            auth_result=_auth_result(),
-            access_token=SYNTHETIC_ACCESS,
-            granted_scopes=ALLOWED_SCOPES,
-            **kwargs,
-        )
-
-    monkeypatch.setattr(owner_refresh, "run_google_refresh", actual_refresh)
+    auth = SimpleNamespace(
+        transport=transport,
+        token_health=lambda: _auth_result(),
+        load_access_token=lambda **_kwargs: (SYNTHETIC_ACCESS, _auth_result()),
+        _read_tokens=lambda: SimpleNamespace(granted_scopes=lambda: ALLOWED_SCOPES),
+    )
     queue_epoch(corrected_only=False)
     first = owner_refresh._run_normal_google_refresh(
         settings,
-        auth_service=object(),
+        auth_service=auth,
         start="2099-01-01",
         end="2099-01-02",
         streams=["heart_rate"],
@@ -1736,7 +2057,7 @@ def test_owner_refresh_daily_hr_partitions_converge_newest_first_and_rerun_idemp
     queue_epoch(corrected_only=True)
     rerun = owner_refresh._run_normal_google_refresh(
         settings,
-        auth_service=object(),
+        auth_service=auth,
         start="2099-01-01",
         end="2099-01-02",
         streams=["heart_rate"],
