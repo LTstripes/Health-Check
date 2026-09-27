@@ -1557,6 +1557,72 @@ def test_owner_hr_day_context_keeps_lock_and_checkpoint_on_continuation_reauth(
     assert auth_calls == 2
 
 
+def test_owner_hr_day_context_cleans_up_on_continuation_and_setup_errors(
+    monkeypatch, tmp_path
+) -> None:
+    import healthcheck.google.sync as google_sync
+
+    transport = FakeGoogleHealthTransport()
+    settings, _ = _sync(tmp_path, transport)
+    paths = prepare_runtime(settings)
+    auth = SimpleNamespace(transport=transport)
+    disposals = 0
+    original_engine = google_sync.create_sqlite_engine
+
+    def counted_engine(*args, **kwargs):
+        nonlocal disposals
+        engine = original_engine(*args, **kwargs)
+        original_dispose = engine.dispose
+
+        def dispose():
+            nonlocal disposals
+            disposals += 1
+            return original_dispose()
+
+        engine.dispose = dispose
+        return engine
+
+    monkeypatch.setattr(google_sync, "create_sqlite_engine", counted_engine)
+
+    def fail_continuation(*_args, **_kwargs):
+        raise RuntimeError("synthetic continuation failure")
+
+    monkeypatch.setattr(GoogleHealthSync, "_run", fail_continuation)
+    with pytest.raises(RuntimeError, match="synthetic continuation failure"):
+        with _owner_heart_rate_day_refresh(
+            settings,
+            day=date(2099, 1, 2),
+            auth_service=auth,
+            query_mode=None,
+            data_source_family=None,
+            phase_timing=None,
+        ) as refresh:
+            refresh()
+    assert disposals == 1
+    with pytest.raises(RuntimeError, match="context is unavailable"):
+        refresh()
+    with ExternalRuntimeOperationLock(paths, allow_reentrant=False):
+        pass
+
+    def fail_setup(_engine):
+        raise RuntimeError("synthetic setup failure")
+
+    monkeypatch.setattr(google_sync, "create_session_factory", fail_setup)
+    with pytest.raises(RuntimeError, match="synthetic setup failure"):
+        with _owner_heart_rate_day_refresh(
+            settings,
+            day=date(2099, 1, 2),
+            auth_service=auth,
+            query_mode=None,
+            data_source_family=None,
+            phase_timing=None,
+        ):
+            pass
+    assert disposals == 2
+    with ExternalRuntimeOperationLock(paths, allow_reentrant=False):
+        pass
+
+
 def test_dense_refresh_converges_with_staged_correction_and_idempotent_projection(tmp_path) -> None:
     transport = FakeGoogleHealthTransport()
     dense_page_count = (MAX_PAGES_PER_FETCH * 2) + 2
