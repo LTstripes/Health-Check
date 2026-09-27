@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -189,6 +190,30 @@ def _patch_providers(monkeypatch, owner_refresh, *, garmin_cls=_FakeGarminSync, 
     monkeypatch.setattr(owner_refresh, "GoogleAuthService", _FakeGoogleAuth)
     if google_fn is not None:
         monkeypatch.setattr(owner_refresh, "run_google_refresh", google_fn)
+    _patch_hr_context(monkeypatch, owner_refresh)
+
+
+def _patch_hr_context(monkeypatch, owner_refresh):
+    @contextmanager
+    def fake_context(
+        settings, *, day, auth_service, query_mode, data_source_family, phase_timing
+    ):
+        def refresh():
+            return owner_refresh.run_google_refresh(
+                settings,
+                start=day,
+                end=day,
+                auth_service=auth_service,
+                streams=["heart_rate"],
+                query_mode=query_mode,
+                data_source_family=data_source_family,
+                checkpoint_partition=day.isoformat(),
+                phase_timing=phase_timing,
+            )
+
+        yield refresh
+
+    monkeypatch.setattr(owner_refresh, "_owner_heart_rate_day_refresh", fake_context)
 
 
 def test_owner_refresh_runs_garmin_and_both_google_layers(monkeypatch, tmp_path):
@@ -327,6 +352,7 @@ def test_normal_google_timing_attributes_hr_days_and_continuation_counts(
         return _google_report(attempt, status=status, request_count=request_count)
 
     monkeypatch.setattr(owner_refresh, "run_google_refresh", fake_google)
+    _patch_hr_context(monkeypatch, owner_refresh)
     timing_phases = {}
     report = owner_refresh._run_normal_google_refresh(
         Settings(data_dir=tmp_path),

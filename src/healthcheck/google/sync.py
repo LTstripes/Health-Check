@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from threading import get_ident
 from time import monotonic_ns
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -757,6 +758,29 @@ def _run_status_token(status: GoogleSyncStatus) -> str:
     return "failed"
 
 
+@dataclass(frozen=True, slots=True)
+class _GoogleExecutionResources:
+    factory: Any
+    store: ContentAddressedGooglePayloadStore
+
+
+@contextmanager
+def _google_execution_resources(settings: Settings) -> Iterator[_GoogleExecutionResources]:
+    """Own the existing runtime, lock and database lifecycle for one operation."""
+
+    paths = prepare_runtime(settings)
+    with ExternalRuntimeOperationLock(paths):
+        migrate_database(paths)
+        engine = create_sqlite_engine(paths)
+        try:
+            yield _GoogleExecutionResources(
+                factory=create_session_factory(engine),
+                store=ContentAddressedGooglePayloadStore(paths.root / "artifacts"),
+            )
+        finally:
+            engine.dispose()
+
+
 class GoogleHealthSync:
     """Fetch, paginate, normalize and persist one bounded Google Health window."""
 
@@ -884,6 +908,7 @@ class GoogleHealthSync:
         skip_complete: bool,
         per_stream_watermark: bool = False,
         as_of: date | None = None,
+        execution: _GoogleExecutionResources | None = None,
     ) -> GoogleSyncReport:
         if window_end_exclusive <= window_start:
             raise ValueError("Google Health window end must be after start")
@@ -896,27 +921,24 @@ class GoogleHealthSync:
                 "heart-rate rollUp/dailyRollUp windows must be <= "
                 f"{HEART_RATE_ROLLUP_MAX_DAYS} days"
             )
-        paths = prepare_runtime(self.settings)
-        with ExternalRuntimeOperationLock(paths):
-            migrate_database(paths)
-            engine = create_sqlite_engine(paths)
-            store = ContentAddressedGooglePayloadStore(paths.root / "artifacts")
-            factory = create_session_factory(engine)
-            try:
-                return self._run(
-                    factory,
-                    store,
-                    window_start=window_start,
-                    window_end_exclusive=window_end_exclusive,
-                    surfaces=surfaces,
-                    query_mode=query_mode,
-                    data_source_family=data_source_family,
-                    skip_complete=skip_complete,
-                    per_stream_watermark=per_stream_watermark,
-                    as_of=as_of,
-                )
-            finally:
-                engine.dispose()
+        resources = (
+            _google_execution_resources(self.settings)
+            if execution is None
+            else nullcontext(execution)
+        )
+        with resources as owned:
+            return self._run(
+                owned.factory,
+                owned.store,
+                window_start=window_start,
+                window_end_exclusive=window_end_exclusive,
+                surfaces=surfaces,
+                query_mode=query_mode,
+                data_source_family=data_source_family,
+                skip_complete=skip_complete,
+                per_stream_watermark=per_stream_watermark,
+                as_of=as_of,
+            )
 
     def _resolve_auth(self) -> tuple[GoogleAuthResult, str | None, frozenset[str]]:
         if self.auth_result is not None and self.access_token:
@@ -2370,6 +2392,52 @@ def run_google_refresh(
         data_source_family=data_source_family,
         skip_complete=False,
     )
+
+
+@contextmanager
+def _owner_heart_rate_day_refresh(
+    settings: Settings,
+    *,
+    day: date,
+    auth_service: GoogleAuthService,
+    query_mode: str | GoogleQueryMode | None,
+    data_source_family: str | None,
+    phase_timing: GoogleHrPhaseTiming | None,
+) -> Iterator[Callable[[], GoogleSyncReport]]:
+    """Reuse setup for one bounded Owner HR day, retaining per-call sync epochs."""
+
+    start_date, end_inclusive = validate_inclusive_window(day, day)
+    surfaces = parse_google_streams([GoogleStream.HEART_RATE.value])
+    mode = parse_query_mode(query_mode)
+    family = parse_data_source_family(data_source_family)
+    sync = GoogleHealthSync(
+        settings,
+        auth_service=auth_service,
+        run_kind=GoogleRunKind.REFRESH,
+        checkpoint_partition=day.isoformat(),
+        phase_timing=phase_timing,
+    )
+    with _google_execution_resources(settings) as execution:
+        active = True
+        owner_thread = get_ident()
+
+        def refresh() -> GoogleSyncReport:
+            if not active or get_ident() != owner_thread:
+                raise RuntimeError("Owner HR-day execution context is unavailable")
+            return sync._execute(
+                window_start=start_date,
+                window_end_exclusive=inclusive_to_exclusive_end(end_inclusive),
+                surfaces=surfaces,
+                query_mode=mode,
+                data_source_family=family,
+                skip_complete=False,
+                execution=execution,
+            )
+
+        try:
+            yield refresh
+        finally:
+            active = False
 
 
 __all__ = [

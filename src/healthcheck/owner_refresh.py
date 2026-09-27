@@ -37,6 +37,7 @@ from healthcheck.google.sync import (
     GoogleSyncAttempt,
     GoogleSyncReport,
     GoogleSyncStatus,
+    _owner_heart_rate_day_refresh,
     _roll_up_status,
     inclusive_to_exclusive_end,
     parse_data_source_family,
@@ -549,35 +550,19 @@ def _run_heart_rate_day(
     """Run one independently staged HR day with bounded continuation."""
 
     phase_timing = GoogleHrPhaseTiming() if phase_metrics is not None else None
-    reports = [
-        run_google_refresh(
-            settings,
-            start=day,
-            end=day,
-            auth_service=auth_service,
-            streams=[GoogleStream.HEART_RATE.value],
-            query_mode=query_mode,
-            data_source_family=data_source_family,
-            checkpoint_partition=day.isoformat(),
-            phase_timing=phase_timing,
-        )
-    ]
-    for _ in range(OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS):
-        if _resumable_heart_rate_attempt(reports[-1]) is None:
-            break
-        reports.append(
-            run_google_refresh(
-                settings,
-                start=day,
-                end=day,
-                auth_service=auth_service,
-                streams=[GoogleStream.HEART_RATE.value],
-                query_mode=query_mode,
-                data_source_family=data_source_family,
-                checkpoint_partition=day.isoformat(),
-                phase_timing=phase_timing,
-            )
-        )
+    with _owner_heart_rate_day_refresh(
+        settings,
+        day=day,
+        auth_service=auth_service,
+        query_mode=query_mode,
+        data_source_family=data_source_family,
+        phase_timing=phase_timing,
+    ) as refresh:
+        reports = [refresh()]
+        for _ in range(OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS):
+            if _resumable_heart_rate_attempt(reports[-1]) is None:
+                break
+            reports.append(refresh())
     if phase_metrics is not None:
         phase_metrics.update(_aggregate_google_timing_counts(reports))
         if phase_timing is not None:
