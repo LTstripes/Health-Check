@@ -11,9 +11,11 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from time import monotonic_ns
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -339,6 +341,46 @@ class GoogleSyncReport:
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+
+
+class GoogleHrPhaseTiming:
+    """Optional, bounded monotonic totals for one owner-refresh HR civil day."""
+
+    _PHASES = (
+        "provider_acquisition",
+        "retry_backoff",
+        "page_processing_staging",
+        "promotion_apply",
+    )
+
+    def __init__(self) -> None:
+        self._nanoseconds: dict[str, int | None] = {name: None for name in self._PHASES}
+        self._unavailable: set[str] = set()
+
+    @contextmanager
+    def measure(self, name: str):
+        try:
+            started = monotonic_ns()
+        except Exception:
+            started = None
+            self._unavailable.add(name)
+        try:
+            yield
+        finally:
+            if started is not None:
+                try:
+                    elapsed = max(0, monotonic_ns() - started)
+                    previous = self._nanoseconds[name]
+                    self._nanoseconds[name] = (previous or 0) + elapsed
+                except Exception:
+                    # Diagnostics must never change a refresh outcome.
+                    self._unavailable.add(name)
+
+    def as_dict(self) -> dict[str, int | None]:
+        return {
+            f"{name}_ms": None if value is None or name in self._unavailable else value // 1_000_000
+            for name, value in self._nanoseconds.items()
+        }
 
 
 class _RequestBudget:
@@ -732,6 +774,7 @@ class GoogleHealthSync:
         max_provider_requests: int = MAX_SYNC_PROVIDER_REQUESTS,
         run_kind: GoogleRunKind = GoogleRunKind.INCREMENTAL,
         checkpoint_partition: str | None = None,
+        phase_timing: GoogleHrPhaseTiming | None = None,
     ) -> None:
         if max_provider_requests < 1:
             raise ValueError("max_provider_requests must be positive")
@@ -752,6 +795,7 @@ class GoogleHealthSync:
         if checkpoint_partition is not None and not _DATE_RE.fullmatch(checkpoint_partition):
             raise ValueError("checkpoint partition must be an ISO civil date")
         self.checkpoint_partition = checkpoint_partition
+        self.phase_timing = phase_timing
 
     @property
     def namespace(self) -> str:
@@ -1118,6 +1162,11 @@ class GoogleHealthSync:
         as_of: date | None = None,
     ) -> GoogleSyncAttempt:
         query = GoogleQueryContext(query_mode=query_mode, data_source_family=data_source_family)
+        timing = (
+            self.phase_timing
+            if surface.stream is GoogleStream.HEART_RATE and query_mode is GoogleQueryMode.LIST
+            else None
+        )
         state_code = checkpoint_stream_code(
             namespace=self.namespace,
             stream=surface.stream,
@@ -1356,10 +1405,11 @@ class GoogleHealthSync:
                 )
             assert response is not None
             raw_body = response.body
-            try:
-                payload = response.json()
-            except Exception:
-                payload = None
+            with timing.measure("page_processing_staging") if timing else nullcontext():
+                try:
+                    payload = response.json()
+                except Exception:
+                    payload = None
             if not isinstance(payload, Mapping):
                 self._persist_terminal(
                     factory,
@@ -1402,7 +1452,8 @@ class GoogleHealthSync:
                     error=GoogleSafeError("provider", "response_invalid", response.status),
                 )
 
-            points, token, kind = parse_page_envelope(payload, query_mode)
+            with timing.measure("page_processing_staging") if timing else nullcontext():
+                points, token, kind = parse_page_envelope(payload, query_mode)
             if (
                 surface.stream is GoogleStream.SLEEP
                 and isinstance(points, list)
@@ -1454,18 +1505,19 @@ class GoogleHealthSync:
                 )
 
             collected.extend(points)
-            outcome = self._persist_page(
-                factory,
-                store,
-                surface=surface,
-                query=query,
-                identity=identity,
-                payload=payload,
-                window_start=start_utc,
-                window_end=end_utc,
-                sync_run_id=sync_run_id,
-                upsert_records=persist_records,
-            )
+            with timing.measure("page_processing_staging") if timing else nullcontext():
+                outcome = self._persist_page(
+                    factory,
+                    store,
+                    surface=surface,
+                    query=query,
+                    identity=identity,
+                    payload=payload,
+                    window_start=start_utc,
+                    window_end=end_utc,
+                    sync_run_id=sync_run_id,
+                    upsert_records=persist_records,
+                )
             if outcome is None:
                 self._write_checkpoint(
                     factory,
@@ -1506,16 +1558,17 @@ class GoogleHealthSync:
             break
 
         if self.run_kind is GoogleRunKind.REFRESH:
-            refresh_outcome = self._promote_refresh_staging(
-                factory,
-                store,
-                surface=surface,
-                query=query,
-                window_start=start_utc,
-                window_end=end_utc,
-                sync_run_id=sync_run_id,
-                staged_run_ids=staged_run_ids,
-            )
+            with timing.measure("promotion_apply") if timing else nullcontext():
+                refresh_outcome = self._promote_refresh_staging(
+                    factory,
+                    store,
+                    surface=surface,
+                    query=query,
+                    window_start=start_utc,
+                    window_end=end_utc,
+                    sync_run_id=sync_run_id,
+                    staged_run_ids=staged_run_ids,
+                )
             if refresh_outcome is None:
                 self._write_checkpoint(
                     factory,
@@ -1593,14 +1646,19 @@ class GoogleHealthSync:
                 return None, GoogleSafeError("budget", "request_ceiling"), consumed
             consumed += 1
             try:
-                response = self._request_page(
-                    surface,
-                    query=query,
-                    window_start=window_start,
-                    window_end_exclusive=window_end_exclusive,
-                    access_token=access_token,
-                    page_token=page_token,
-                )
+                with (
+                    self.phase_timing.measure("provider_acquisition")
+                    if self.phase_timing
+                    else nullcontext()
+                ):
+                    response = self._request_page(
+                        surface,
+                        query=query,
+                        window_start=window_start,
+                        window_end_exclusive=window_end_exclusive,
+                        access_token=access_token,
+                        page_token=page_token,
+                    )
             except Exception as exc:
                 last_error = classify_google_oauth_error(exc)
                 if last_error.error_code in {"invalid_grant", "authentication_failed"}:
@@ -1616,7 +1674,12 @@ class GoogleHealthSync:
                 last_error = GoogleSafeError("provider", "retryable", response.status)
                 if attempt_index + 1 < MAX_RETRY_ATTEMPTS:
                     delay_index = min(attempt_index, len(RETRY_BACKOFF_SECONDS) - 1)
-                    self.sleeper(RETRY_BACKOFF_SECONDS[delay_index])
+                    with (
+                        self.phase_timing.measure("retry_backoff")
+                        if self.phase_timing
+                        else nullcontext()
+                    ):
+                        self.sleeper(RETRY_BACKOFF_SECONDS[delay_index])
                     continue
                 return response, last_error, consumed
             if response.status >= 400:
@@ -2280,6 +2343,7 @@ def run_google_refresh(
     max_provider_requests: int = MAX_SYNC_PROVIDER_REQUESTS,
     sleeper: Callable[[float], None] | None = None,
     checkpoint_partition: str | None = None,
+    phase_timing: GoogleHrPhaseTiming | None = None,
 ) -> GoogleSyncReport:
     start_date, end_inclusive = validate_inclusive_window(start, end)
     return GoogleHealthSync(
@@ -2293,6 +2357,7 @@ def run_google_refresh(
         max_provider_requests=max_provider_requests,
         run_kind=GoogleRunKind.REFRESH,
         checkpoint_partition=checkpoint_partition,
+        phase_timing=phase_timing,
     ).run_window(
         start=start_date,
         end_exclusive=inclusive_to_exclusive_end(end_inclusive),
@@ -2320,6 +2385,7 @@ __all__ = [
     "SYNC_CONTRACT_VERSION",
     "UNATTRIBUTED_SOURCE_INSTANCE",
     "GoogleHealthSync",
+    "GoogleHrPhaseTiming",
     "GoogleRunKind",
     "GoogleSyncAttempt",
     "GoogleSyncReport",

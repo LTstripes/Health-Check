@@ -57,6 +57,7 @@ from healthcheck.google.sync import (
     SLEEP_PAGE_SIZE,
     UNATTRIBUTED_SOURCE_INSTANCE,
     GoogleHealthSync,
+    GoogleHrPhaseTiming,
     GoogleRunKind,
     GoogleSafeError,
     GoogleSyncStatus,
@@ -449,6 +450,112 @@ def test_retry_429_and_504_then_success(tmp_path) -> None:
     assert report.attempts[0].coverage_status == "present"
     assert sleeps == [RETRY_BACKOFF_SECONDS[0], RETRY_BACKOFF_SECONDS[1]]
     assert len(transport.health_calls()) == 3
+
+
+def test_refresh_hr_phase_timing_uses_monotonic_boundaries_without_changing_retry(
+    monkeypatch, tmp_path
+) -> None:
+    import healthcheck.google.sync as google_sync
+
+    ticks = iter(range(0, 100_000_000, 1_000_000))
+    monkeypatch.setattr(google_sync, "monotonic_ns", lambda: next(ticks))
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", 503)
+    transport.queue("heart-rate", {"dataPoints": [_hr_point(name="hr-1", bpm="64")]})
+    settings, _service = _sync(tmp_path, transport)
+    sleeps: list[float] = []
+    timing = GoogleHrPhaseTiming()
+
+    report = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        sleeper=sleeps.append,
+        phase_timing=timing,
+    )
+
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.request_count == 2
+    assert report.attempts[0].page_count == 1
+    assert sleeps == [RETRY_BACKOFF_SECONDS[0]]
+    assert len(transport.health_calls()) == 2
+    assert timing.as_dict() == {
+        "provider_acquisition_ms": 2,
+        "retry_backoff_ms": 1,
+        "page_processing_staging_ms": 3,
+        "promotion_apply_ms": 1,
+    }
+
+
+def test_refresh_hr_phase_timing_clock_failure_is_diagnostic_only(monkeypatch, tmp_path) -> None:
+    import healthcheck.google.sync as google_sync
+
+    def unavailable_clock() -> int:
+        raise RuntimeError("unavailable")
+
+    monkeypatch.setattr(google_sync, "monotonic_ns", unavailable_clock)
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", {"dataPoints": [_hr_point(name="hr-1", bpm="64")]})
+    settings, _service = _sync(tmp_path, transport)
+    timing = GoogleHrPhaseTiming()
+    report = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        phase_timing=timing,
+    )
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.request_count == 1
+    assert all(value is None for value in timing.as_dict().values())
+
+
+def test_refresh_hr_phase_timing_preserves_partial_failed_and_reauth(tmp_path) -> None:
+    cases = (
+        (
+            "partial",
+            {"dataPoints": [_hr_point(name="hr-partial", bpm="64")], "nextPageToken": "next"},
+            1,
+            GoogleSyncStatus.PARTIAL,
+        ),
+        ("failed", 400, 1, GoogleSyncStatus.FAILED),
+        ("reauth", 401, 1, GoogleSyncStatus.REAUTH_REQUIRED),
+    )
+    for label, response, budget, expected in cases:
+        transport = FakeGoogleHealthTransport()
+        transport.queue("heart-rate", response)
+        settings, _service = _sync(tmp_path / label, transport)
+        timing = GoogleHrPhaseTiming()
+        report = run_google_refresh(
+            settings,
+            start=AS_OF,
+            end=AS_OF,
+            transport=transport,
+            auth_result=_auth_result(),
+            access_token=SYNTHETIC_ACCESS,
+            granted_scopes=ALLOWED_SCOPES,
+            streams=["heart_rate"],
+            max_provider_requests=budget,
+            phase_timing=timing,
+        )
+        assert report.status is expected
+        assert report.request_count == 1
+        assert len(transport.health_calls()) == 1
+        assert timing.as_dict()["provider_acquisition_ms"] is not None
+        assert timing.as_dict()["promotion_apply_ms"] is None
+        assert all(
+            key.endswith("_ms") and (value is None or type(value) is int)
+            for key, value in timing.as_dict().items()
+        )
 
 
 def test_retry_transient_provider_5xx_then_success(tmp_path) -> None:

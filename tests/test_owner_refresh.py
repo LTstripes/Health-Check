@@ -359,12 +359,20 @@ def test_normal_google_timing_attributes_hr_days_and_continuation_counts(
             "duration_ms": 5,
             "request_count": 90,
             "page_count": 45,
+            "provider_acquisition_ms": None,
+            "retry_backoff_ms": None,
+            "page_processing_staging_ms": None,
+            "promotion_apply_ms": None,
         },
         {
             "civil_day": "2099-01-01",
             "duration_ms": 12,
             "request_count": 90,
             "page_count": 45,
+            "provider_acquisition_ms": None,
+            "retry_backoff_ms": None,
+            "page_processing_staging_ms": None,
+            "promotion_apply_ms": None,
         },
     ]
 
@@ -423,12 +431,20 @@ def test_owner_refresh_serializes_only_sanitized_timing_metadata(monkeypatch, tm
             "duration_ms": 1,
             "request_count": 0,
             "page_count": 0,
+            "provider_acquisition_ms": None,
+            "retry_backoff_ms": None,
+            "page_processing_staging_ms": None,
+            "promotion_apply_ms": None,
         },
         {
             "civil_day": "2099-01-09",
             "duration_ms": 1,
             "request_count": 0,
             "page_count": 0,
+            "provider_acquisition_ms": None,
+            "retry_backoff_ms": None,
+            "page_processing_staging_ms": None,
+            "promotion_apply_ms": None,
         },
     ]
     timing_json = json.dumps(timing, ensure_ascii=True)
