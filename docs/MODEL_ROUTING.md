@@ -88,7 +88,7 @@ Examples:
 - cross-release canonical data-model redesign;
 - ambiguous external API/licensing decision that affects long-term implementation.
 
-Typical routing: strongest appropriate available reasoning model(s), with explicit architecture decision before implementation when needed.
+Typical routing: strongest appropriate available reasoning model(s), with explicit architecture decision before implementation or merge.
 
 Review: mandatory independent review plus explicit Integrator decision/ADR before implementation or merge.
 
@@ -101,7 +101,7 @@ Review: mandatory independent review plus explicit Integrator decision/ADR befor
 5. For provider/API/device facts, current source/official documentation beats model memory.
 6. For health analytics, complex statistics are not automatically better. Prefer explainable methods that fit sample size/coverage.
 7. A strong Execution Orchestrator may use a cheaper scoped Worker; role separation matters more than permanent model names.
-8. `INTERNAL_ACCEPT` from local orchestration is execution evidence only, not project `ACCEPT`.
+8. `INTERNAL_ACCEPT` from local orchestration is evidence only, not project `ACCEPT`.
 
 ## Independent review triggers
 
@@ -109,9 +109,9 @@ Use a separate Reviewer when any of these applies:
 
 1. this complexity/risk policy requires one;
 2. Owner/Integrator explicitly requests one;
-3. justified execution risk appears that raises the review bar under project policy.
+3. justified execution risk appears that raises the review bar.
 
-The third case does not authorize requirement invention or scope expansion. If the risk implies architecture, privacy, canonical data or health-semantics changes, STOP and ask the Integrator.
+The third case does not authorize requirement invention or scope expansion. If the risk implies architecture, privacy, canonical data or health-semantics expansion, STOP and ask the Integrator.
 
 ## Capability-based selection
 
@@ -165,8 +165,16 @@ Use this format when proposing a task to the Owner, in plain Russian:
 1. **Название.**
 2. **Что изменится и зачем:** one or two concrete sentences.
 3. **Сложность:** небольшая / средняя / сложная, with a short reason. Complexity describes implementation effort; state **Риск** separately using this project's risk/review policy.
-4. **Исполнитель:** a concrete currently available model and supported reasoning effort, selected at launch for the required capability. Label this a recommendation; report the actually used model only from runtime evidence.
+4. **Исполнитель:** offer a concrete **Codex option** (model and supported effort) and an **external option** (model and provider/client), with one sentence on preference/confidence. Select one route at launch. An alternative may be unavailable or not recommended for this risk; do not invent one. Report the actually used model only from runtime evidence.
 5. **Независимое ревью / действия владельца:** only the required review or private/manual gate, with its reason.
 6. One copyable start prompt, normally 5–8 lines and about 100 words or less: repo/issue and applicable note, Worker role, target and exact baseline, assigned branch/workspace, intended result and authorized delivery. Requirements and acceptance criteria remain in the authoritative issue/contract.
 
 Do not invent an available model, baseline, workspace or permission to make the card look complete. Resolve a missing safety-critical assignment or contract in the authoritative task before launch. A short prompt does not waive any required gate. An explicitly orchestrated launch additionally follows `AGENT_ORCHESTRATION.md`; this format does not activate it.
+
+## Evidence-backed routing
+
+Use the dated [model evidence journal](MODEL_BENCHMARK.md) and [#210](https://github.com/LTstripes/Health-Check/issues/210), paired with Finance #605. Record real task outcomes without rerunning tasks merely to accumulate scores. Routine logging is not activation of blind A/B or an agent queue.
+
+The Integrator records role/profile, complexity/risk, client/provider/model/effort attribution, baseline/candidate/verdict, substantive correction rounds and source evidence. Runtime-confirmed identity, Owner-reported selection and unknown identity stay distinct. Missing costs/timings stay unknown; infrastructure contention and assignment/review mistakes are separate from model defects. A slice merge is not aggregate acceptance or Owner UAT.
+
+Prefer the least expensive suitable execution route with sufficient evidence, not the cheapest name regardless of risk. Trial/anonymous routes start on bounded noncritical tasks. No historical grade or model switch waives independent semantic/privacy review. One primary Worker and one heavyweight local verification process at a time across both projects is the current resource-aware default; separate physical workspaces remain mandatory and CI gates are unchanged.
