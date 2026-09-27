@@ -1981,6 +1981,10 @@ class GoogleHealthSync:
                         # would turn a later accepted provider correction into
                         # a false same-refresh identity conflict.
                         sync_run_id=_observation.sync_run_id or sync_run_id,
+                        preload_heart_rate_page=(
+                            surface.stream is GoogleStream.HEART_RATE
+                            and query.query_mode is GoogleQueryMode.LIST
+                        ),
                     )
                     inserted += outcome.inserted_count
                     updated += outcome.updated_count
