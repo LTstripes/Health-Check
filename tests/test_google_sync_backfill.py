@@ -9,7 +9,8 @@ from datetime import date
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
+from sqlalchemy.engine import Engine
 
 from healthcheck import cli
 from healthcheck.config import Settings
@@ -48,6 +49,7 @@ from healthcheck.google.contracts import (
     GoogleQueryMode,
     GoogleStream,
 )
+from healthcheck.google.persistence import GooglePersistenceRepository
 from healthcheck.google.protection import GoogleLocalKeyFileProtection
 from healthcheck.google.sync import (
     MAX_PAGES_PER_FETCH,
@@ -1520,6 +1522,97 @@ def test_dense_refresh_converges_with_staged_correction_and_idempotent_projectio
             assert metric.value_number == 81
     finally:
         engine.dispose()
+
+
+def test_dense_completed_hr_promotion_selects_do_not_grow_per_record(monkeypatch, tmp_path) -> None:
+    """One dense page keeps projection lookups bounded on insert and replay."""
+
+    original = GoogleHealthSync._promote_refresh_staging
+    promotion_selects: list[int] = []
+
+    def count_promotion(self, *args, **kwargs):
+        selects = 0
+
+        def count_sql(_connection, _cursor, statement, _parameters, _context, _many):
+            nonlocal selects
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects += 1
+
+        event.listen(Engine, "before_cursor_execute", count_sql)
+        try:
+            return original(self, *args, **kwargs)
+        finally:
+            event.remove(Engine, "before_cursor_execute", count_sql)
+            promotion_selects.append(selects)
+
+    monkeypatch.setattr(GoogleHealthSync, "_promote_refresh_staging", count_promotion)
+
+    for size in (12, 48):
+        transport = FakeGoogleHealthTransport()
+        points = [_hr_point(name=f"dense-{index}", bpm="72") for index in range(size)]
+        payload = {"dataPoints": points}
+        settings, _service = _sync(tmp_path / f"size-{size}", transport)
+        for _ in range(2):
+            transport.queue("heart-rate", payload)
+            report = run_google_refresh(
+                settings,
+                start=AS_OF,
+                end=AS_OF,
+                transport=transport,
+                auth_result=_auth_result(),
+                access_token=SYNTHETIC_ACCESS,
+                granted_scopes=ALLOWED_SCOPES,
+                streams=["heart_rate"],
+                checkpoint_partition=AS_OF,
+            )
+            assert report.status is GoogleSyncStatus.SUCCEEDED
+        engine, factory = _session(settings)
+        try:
+            with factory() as session:
+                assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == size
+                assert (
+                    session.scalar(select(func.count()).select_from(GoogleRecordMetric)) == 3 * size
+                )
+        finally:
+            engine.dispose()
+
+    small_insert, small_replay, dense_insert, dense_replay = promotion_selects
+    original_persist = GooglePersistenceRepository.persist_result
+
+    def without_preload(self, result, **kwargs):
+        kwargs["preload_heart_rate_page"] = False
+        return original_persist(self, result, **kwargs)
+
+    monkeypatch.setattr(GooglePersistenceRepository, "persist_result", without_preload)
+    baseline_transport = FakeGoogleHealthTransport()
+    baseline_payload = {
+        "dataPoints": [_hr_point(name=f"baseline-{index}", bpm="72") for index in range(48)]
+    }
+    baseline_settings, _service = _sync(tmp_path / "baseline", baseline_transport)
+    for _ in range(2):
+        baseline_transport.queue("heart-rate", baseline_payload)
+        report = run_google_refresh(
+            baseline_settings,
+            start=AS_OF,
+            end=AS_OF,
+            transport=baseline_transport,
+            auth_result=_auth_result(),
+            access_token=SYNTHETIC_ACCESS,
+            granted_scopes=ALLOWED_SCOPES,
+            streams=["heart_rate"],
+            checkpoint_partition=AS_OF,
+        )
+        assert report.status is GoogleSyncStatus.SUCCEEDED
+    baseline_insert, baseline_replay = promotion_selects[4:]
+
+    # Previously, identity alone took one SELECT for every record, with
+    # additional per-record metric/evidence/epoch queries on replay.
+    assert dense_insert < 48 // 2
+    assert dense_replay < 48 // 2
+    assert dense_insert - small_insert <= 4
+    assert dense_replay - small_replay <= 4
+    assert dense_insert * 2 < baseline_insert
+    assert dense_replay * 2 < baseline_replay
 
 
 def test_owner_refresh_daily_hr_partitions_converge_newest_first_and_rerun_idempotently(

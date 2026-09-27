@@ -11,7 +11,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -32,6 +32,7 @@ from healthcheck.db.models import (
     GoogleSource,
     GoogleSourceKind,
     GoogleSourceRecord,
+    new_id,
     utc_now,
 )
 from healthcheck.db.repositories import canonical_json, repositories_for, restore_stored_utc
@@ -104,6 +105,18 @@ class GoogleInstantIdentityMigrationReport:
     migrated: int = 0
     retired: int = 0
     conflicts: int = 0
+
+
+@dataclass(slots=True)
+class _HeartRatePromotionPage:
+    """Session-local snapshot for one completed list-mode HR page/source group."""
+
+    records: dict[str, GoogleSourceRecord]
+    metrics: dict[str, list[GoogleRecordMetric]]
+    evidence: dict[str, GoogleRecordSourceEvidence]
+    intervals: dict[str, list[GoogleRecordInterval]]
+    epochs: dict[str, tuple[str | None, datetime | None, str | None]]
+    pending_new: list[tuple[GoogleSourceRecord, GoogleRecordDTO]] = field(default_factory=list)
 
 
 class GoogleSourceRepository:
@@ -543,6 +556,105 @@ class GoogleSourceRecordRepository:
             )
         )
 
+    def preload_heart_rate_page(
+        self,
+        *,
+        google_source_id: str,
+        query: GoogleQueryContext,
+        records: Sequence[GoogleRecordDTO],
+    ) -> _HeartRatePromotionPage:
+        """Load only this source's incoming HR identities in bounded set queries."""
+
+        keys = sorted(
+            {
+                build_google_record_identity_key(
+                    stream_code=record.stream,
+                    query_mode=query.query_mode,
+                    data_source_family=query.data_source_family,
+                    idempotency_key=record.idempotency_key,
+                    external_record_id=record.external_record_id,
+                    source_timestamp_utc=record.temporal.measured_at_utc,
+                    interval=record.interval,
+                )
+                for record in records
+                if _record_has_safe_projection_identity(record, query)
+            }
+        )
+        rows: dict[str, GoogleSourceRecord] = {}
+        for offset in range(0, len(keys), 400):
+            for row in self.session.scalars(
+                select(GoogleSourceRecord).where(
+                    GoogleSourceRecord.google_source_id == google_source_id,
+                    GoogleSourceRecord.record_identity_key.in_(keys[offset : offset + 400]),
+                )
+            ):
+                rows[row.record_identity_key] = row
+
+        state = _HeartRatePromotionPage(rows, {}, {}, {}, {})
+        ids = [row.id for row in rows.values()]
+        for offset in range(0, len(ids), 400):
+            part = ids[offset : offset + 400]
+            for metric in self.session.scalars(
+                select(GoogleRecordMetric).where(GoogleRecordMetric.record_id.in_(part))
+            ):
+                state.metrics.setdefault(metric.record_id, []).append(metric)
+            for evidence in self.session.scalars(
+                select(GoogleRecordSourceEvidence).where(
+                    GoogleRecordSourceEvidence.record_id.in_(part)
+                )
+            ):
+                state.evidence[evidence.record_id] = evidence
+            for interval in self.session.scalars(
+                select(GoogleRecordInterval).where(GoogleRecordInterval.record_id.in_(part))
+            ):
+                state.intervals.setdefault(interval.record_id, []).append(interval)
+
+        observation_ids = sorted(
+            {row.observation_id for row in rows.values() if row.observation_id}
+        )
+        observations: dict[str, GooglePayloadObservation] = {}
+        for offset in range(0, len(observation_ids), 400):
+            for observation in self.session.scalars(
+                select(GooglePayloadObservation).where(
+                    GooglePayloadObservation.id.in_(observation_ids[offset : offset + 400])
+                )
+            ):
+                observations[observation.id] = observation
+        raw_ids = sorted(
+            {observation.google_raw_payload_id for observation in observations.values()}
+        )
+        raw_payloads: dict[str, GoogleRawPayload] = {}
+        for offset in range(0, len(raw_ids), 400):
+            for raw in self.session.scalars(
+                select(GoogleRawPayload).where(
+                    GoogleRawPayload.id.in_(raw_ids[offset : offset + 400])
+                )
+            ):
+                raw_payloads[raw.id] = raw
+        for row in rows.values():
+            observation = observations.get(row.observation_id) if row.observation_id else None
+            if observation is None:
+                state.epochs[row.id] = (None, None, None)
+                continue
+            raw = raw_payloads.get(observation.google_raw_payload_id)
+            state.epochs[row.id] = (
+                observation.sync_run_id or (raw.sync_run_id if raw is not None else None),
+                _datetime_key(observation.received_at) or _datetime_key(row.projection_observed_at),
+                observation.id,
+            )
+        return state
+
+    def finish_heart_rate_page(self, page: _HeartRatePromotionPage) -> None:
+        if not page.pending_new:
+            return
+        # SQLAlchemy has no relationship edge to order these table inserts.
+        # Flush all new parents together before adding their FK children.
+        self.session.flush()
+        for row, record in page.pending_new:
+            self._upsert_source_evidence(row.id, record.data_source, page)
+            self._upsert_metrics(row.id, record.metrics, page)
+        page.pending_new.clear()
+
     def metrics_for(self, record_id: str) -> list[GoogleRecordMetric]:
         return list(
             self.session.scalars(
@@ -848,6 +960,7 @@ class GoogleSourceRecordRepository:
         seen_at: datetime,
         source_contract_version: str | None,
         normalization_contract_version: str,
+        heart_rate_page: _HeartRatePromotionPage | None = None,
     ) -> tuple[GoogleSourceRecord, bool, bool]:
         identity_key = build_google_record_identity_key(
             stream_code=record.stream,
@@ -870,8 +983,12 @@ class GoogleSourceRecordRepository:
             normalization_contract_version=normalization_contract_version,
             seen_at=seen_at,
         )
-        existing = self.get_by_identity_key(
-            google_source_id=google_source_id, record_identity_key=identity_key
+        existing = (
+            heart_rate_page.records.get(identity_key)
+            if heart_rate_page is not None
+            else self.get_by_identity_key(
+                google_source_id=google_source_id, record_identity_key=identity_key
+            )
         )
         if record.stream is GoogleStream.SLEEP and record.external_record_id:
             existing = self._find_or_adopt_sleep_identity(
@@ -883,11 +1000,19 @@ class GoogleSourceRecordRepository:
             )
         if existing is None:
             row = GoogleSourceRecord(**values)
+            if heart_rate_page is not None:
+                row.id = new_id()
+                heart_rate_page.records[identity_key] = row
             self.session.add(row)
-            self.session.flush()
+            if heart_rate_page is None:
+                self.session.flush()
             self._upsert_typed_child(row, record)
-            self._upsert_source_evidence(row.id, record.data_source)
-            self._upsert_metrics(row.id, record.metrics)
+            if heart_rate_page is not None:
+                heart_rate_page.pending_new.append((row, record))
+                heart_rate_page.epochs[row.id] = self._observation_epoch(observation_id, seen_at)
+            else:
+                self._upsert_source_evidence(row.id, record.data_source)
+                self._upsert_metrics(row.id, record.metrics)
             return row, True, False
 
         if record.stream is GoogleStream.SLEEP and not _sleep_revision_can_replace(
@@ -904,13 +1029,22 @@ class GoogleSourceRecordRepository:
         incoming_epoch_is_newer = False
         if path_free_identity:
             existing_sync, existing_epoch, existing_observation_id = (
-                self._record_observation_epoch(existing)
+                heart_rate_page.epochs[existing.id]
+                if heart_rate_page is not None
+                else self._record_observation_epoch(existing)
             )
             incoming_sync, incoming_epoch, incoming_observation_id = self._observation_epoch(
                 observation_id, seen_at
             )
             fingerprint_equal = _record_revision_fingerprint(
-                self.session, existing
+                self.session,
+                existing,
+                metric_rows=(
+                    heart_rate_page.metrics.get(existing.id, []) if heart_rate_page else None
+                ),
+                interval_rows=(
+                    heart_rate_page.intervals.get(existing.id, []) if heart_rate_page else None
+                ),
             ) == _record_revision_fingerprint(self.session, record=record)
             same_epoch = (
                 existing_sync is not None
@@ -944,10 +1078,9 @@ class GoogleSourceRecordRepository:
                 # Keep all immutable provenance, invalidate the projection,
                 # and wait for an unambiguous later epoch.
                 existing.record_status = GooglePayloadStatus.INVALID.value
-                existing.diagnostics_json = _append_identity_conflict(
-                    existing.diagnostics_json
-                )
-                self.session.flush()
+                existing.diagnostics_json = _append_identity_conflict(existing.diagnostics_json)
+                if heart_rate_page is None:
+                    self.session.flush()
                 return existing, False, False
             if ordering_known and not same_epoch:
                 if incoming_epoch < existing_epoch:
@@ -981,10 +1114,17 @@ class GoogleSourceRecordRepository:
                 continue
             setattr(existing, field_name, value)
         existing.updated_at = seen_at
-        self.session.flush()
+        if heart_rate_page is None:
+            self.session.flush()
         self._upsert_typed_child(existing, record)
-        self._upsert_source_evidence(existing.id, record.data_source)
-        self._upsert_metrics(existing.id, record.metrics)
+        self._upsert_source_evidence(existing.id, record.data_source, heart_rate_page)
+        self._upsert_metrics(existing.id, record.metrics, heart_rate_page)
+        if heart_rate_page is not None:
+            heart_rate_page.epochs[existing.id] = (
+                (incoming_sync, incoming_epoch, incoming_observation_id)
+                if path_free_identity
+                else self._observation_epoch(observation_id, seen_at)
+            )
         return existing, False, True
 
     def _find_or_adopt_sleep_identity(
@@ -1113,20 +1253,28 @@ class GoogleSourceRecordRepository:
             _upsert_record_interval(self.session, record_id=row.id, interval=record.interval)
 
     def _upsert_source_evidence(
-        self, record_id: str, data_source: GoogleDataSourceDTO | None
+        self,
+        record_id: str,
+        data_source: GoogleDataSourceDTO | None,
+        heart_rate_page: _HeartRatePromotionPage | None = None,
     ) -> None:
         if data_source is None:
             return
-        evidence = self.session.get(GoogleRecordSourceEvidence, record_id)
+        evidence = (
+            heart_rate_page.evidence.get(record_id)
+            if heart_rate_page is not None
+            else self.session.get(GoogleRecordSourceEvidence, record_id)
+        )
         if evidence is None:
-            self.session.add(
-                GoogleRecordSourceEvidence(
-                    record_id=record_id,
-                    state=data_source.state.value,
-                    field_path=data_source.field_path,
-                    evidence_json=canonical_json(data_source.as_dict()),
-                )
+            evidence = GoogleRecordSourceEvidence(
+                record_id=record_id,
+                state=data_source.state.value,
+                field_path=data_source.field_path,
+                evidence_json=canonical_json(data_source.as_dict()),
             )
+            self.session.add(evidence)
+            if heart_rate_page is not None:
+                heart_rate_page.evidence[record_id] = evidence
             return
         if data_source.state is GoogleMetricState.MISSING:
             return
@@ -1135,12 +1283,21 @@ class GoogleSourceRecordRepository:
         evidence.field_path = str(merged["field_path"])
         evidence.evidence_json = canonical_json(merged)
 
-    def _upsert_metrics(self, record_id: str, metrics: Iterable[GoogleMetricDTO]) -> None:
+    def _upsert_metrics(
+        self,
+        record_id: str,
+        metrics: Iterable[GoogleMetricDTO],
+        heart_rate_page: _HeartRatePromotionPage | None = None,
+    ) -> None:
         incoming = {metric.metric_code: metric for metric in metrics}
         existing = {
             metric.metric_code: metric
-            for metric in self.session.scalars(
-                select(GoogleRecordMetric).where(GoogleRecordMetric.record_id == record_id)
+            for metric in (
+                heart_rate_page.metrics.get(record_id, [])
+                if heart_rate_page is not None
+                else self.session.scalars(
+                    select(GoogleRecordMetric).where(GoogleRecordMetric.record_id == record_id)
+                )
             )
         }
         for metric in incoming.values():
@@ -1164,7 +1321,10 @@ class GoogleSourceRecordRepository:
                 else None,
             }
             if stored is None:
-                self.session.add(GoogleRecordMetric(record_id=record_id, **values))
+                stored = GoogleRecordMetric(record_id=record_id, **values)
+                self.session.add(stored)
+                if heart_rate_page is not None:
+                    heart_rate_page.metrics.setdefault(record_id, []).append(stored)
             else:
                 for field_name, value in values.items():
                     setattr(stored, field_name, value)
@@ -1222,6 +1382,7 @@ class GooglePersistenceRepository:
         create_ingest_event: bool = True,
         diagnostics: Iterable[Mapping[str, Any]] = (),
         unknown_fields: Iterable[Mapping[str, Any]] = (),
+        preload_heart_rate_page: bool = False,
     ) -> GooglePersistenceOutcome:
         if not isinstance(identity, GoogleSourceIdentity):
             raise TypeError("Google source identity is required")
@@ -1256,6 +1417,15 @@ class GooglePersistenceRepository:
             payload, media_type=media_type, payload_format=normalized_payload_format
         )
         source_row = self.sources.get_or_create(identity)
+        heart_rate_page = (
+            self.records.preload_heart_rate_page(
+                google_source_id=source_row.id, query=query, records=normalized_records
+            )
+            if preload_heart_rate_page
+            and stream_code is GoogleStream.HEART_RATE
+            and query.query_mode is GoogleQueryMode.LIST
+            else None
+        )
         artifact = self.provenance.raw_artifacts.get_or_create(
             content_hash=stored.content_hash,
             kind="google_payload",
@@ -1337,8 +1507,12 @@ class GooglePersistenceRepository:
                     source_timestamp_utc=record.temporal.measured_at_utc,
                     interval=record.interval,
                 )
-                stored_record = self.records.get_by_identity_key(
-                    google_source_id=source_row.id, record_identity_key=identity_key
+                stored_record = (
+                    heart_rate_page.records.get(identity_key)
+                    if heart_rate_page is not None
+                    else self.records.get_by_identity_key(
+                        google_source_id=source_row.id, record_identity_key=identity_key
+                    )
                 )
                 if record.stream is GoogleStream.SLEEP and record.external_record_id:
                     stored_record = self.records._find_or_adopt_sleep_identity(
@@ -1468,10 +1642,14 @@ class GooglePersistenceRepository:
                     seen_at=seen_at,
                     source_contract_version=normalized_source_contract,
                     normalization_contract_version=normalized_normalization,
+                    heart_rate_page=heart_rate_page,
                 )
                 persisted_records.append(stored_record)
                 inserted_count += int(inserted)
                 updated_count += int(updated)
+
+        if heart_rate_page is not None:
+            self.records.finish_heart_rate_page(heart_rate_page)
 
         if batch is not None and event is not None:
             final_status = "failed" if parsed_status is GooglePayloadStatus.INVALID else "committed"
@@ -1514,6 +1692,7 @@ class GooglePersistenceRepository:
         sync_run_id: str | None = None,
         ingest_event_id: str | None = None,
         create_ingest_event: bool = True,
+        preload_heart_rate_page: bool = False,
     ) -> GooglePersistenceOutcome:
         """Persist one explicit normalization result and its immutable attempt."""
 
@@ -1549,6 +1728,7 @@ class GooglePersistenceRepository:
             create_ingest_event=create_ingest_event,
             diagnostics=diagnostics,
             unknown_fields=unknown_fields,
+            preload_heart_rate_page=preload_heart_rate_page,
         )
         attempt = self.attempts.create(
             google_source_id=outcome.source.id,
@@ -2198,6 +2378,8 @@ def _record_revision_fingerprint(
     existing: GoogleSourceRecord | None = None,
     *,
     record: GoogleRecordDTO | None = None,
+    metric_rows: Sequence[GoogleRecordMetric] | None = None,
+    interval_rows: Sequence[GoogleRecordInterval] | None = None,
 ) -> str:
     """Return comparison evidence without provider paths or positional fields."""
 
@@ -2259,7 +2441,9 @@ def _record_revision_fingerprint(
                     )
                 )
                 for value in sorted(
-                    session.scalars(
+                    metric_rows
+                    if metric_rows is not None
+                    else session.scalars(
                         select(GoogleRecordMetric).where(
                             GoogleRecordMetric.record_id == existing.id
                         )
@@ -2282,7 +2466,9 @@ def _record_revision_fingerprint(
             ],
         }
         intervals = list(
-            session.scalars(
+            interval_rows
+            if interval_rows is not None
+            else session.scalars(
                 select(GoogleRecordInterval).where(GoogleRecordInterval.record_id == existing.id)
             )
         )
