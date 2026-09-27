@@ -181,6 +181,42 @@ def _elapsed_milliseconds(started_at_ns: int) -> int:
     return max(0, (monotonic_ns() - started_at_ns) // 1_000_000)
 
 
+def _google_timing_counts(report: object) -> dict[str, int | None]:
+    """Extract only sanitized request/page counters when a report exposes them."""
+
+    request_count = getattr(report, "request_count", None)
+    if type(request_count) is not int or request_count < 0:
+        request_count = None
+    attempts = getattr(report, "attempts", None)
+    page_counts = (
+        [getattr(attempt, "page_count", None) for attempt in attempts]
+        if isinstance(attempts, Sequence)
+        else None
+    )
+    page_count = (
+        sum(page_counts)
+        if page_counts is not None
+        and all(type(value) is int and value >= 0 for value in page_counts)
+        else None
+    )
+    return {"request_count": request_count, "page_count": page_count}
+
+
+def _aggregate_google_timing_counts(
+    reports: Sequence[object],
+) -> dict[str, int | None]:
+    """Aggregate counters when every completed report supplies that counter."""
+
+    summaries = [_google_timing_counts(report) for report in reports]
+    result: dict[str, int | None] = {}
+    for name in ("request_count", "page_count"):
+        values = [summary[name] for summary in summaries]
+        result[name] = (
+            sum(values) if all(type(value) is int and value >= 0 for value in values) else None
+        )
+    return result
+
+
 def _combined_status(
     *statuses: GarminSyncStatus | GoogleSyncStatus | str,
 ) -> OwnerRefreshStatus:
@@ -353,8 +389,7 @@ def _run_normal_google_refresh(
         if timing_phases is not None and non_heart_rate_started_ns is not None:
             timing_phases["non_heart_rate"] = {
                 "duration_ms": _elapsed_milliseconds(non_heart_rate_started_ns),
-                "request_count": report.request_count,
-                "page_count": sum(attempt.page_count for attempt in report.attempts),
+                **_google_timing_counts(report),
             }
         return report
 
@@ -380,10 +415,7 @@ def _run_normal_google_refresh(
         if timing_phases is not None and non_heart_rate_started_ns is not None:
             timing_phases["non_heart_rate"] = {
                 "duration_ms": _elapsed_milliseconds(non_heart_rate_started_ns),
-                "request_count": non_heart_rate_report.request_count,
-                "page_count": sum(
-                    attempt.page_count for attempt in non_heart_rate_report.attempts
-                ),
+                **_google_timing_counts(non_heart_rate_report),
             }
 
     daily_reports: list[GoogleSyncReport] = []
@@ -407,7 +439,7 @@ def _run_normal_google_refresh(
             current_day -= timedelta(days=1)
             continue
 
-        heart_rate_day_metrics: dict[str, int] | None = (
+        heart_rate_day_metrics: dict[str, int | None] | None = (
             {} if timing_phases is not None else None
         )
         heart_rate_day_started_ns = (
@@ -511,7 +543,7 @@ def _run_heart_rate_day(
     day: date,
     query_mode: str | None,
     data_source_family: str | None,
-    phase_metrics: dict[str, int] | None = None,
+    phase_metrics: dict[str, int | None] | None = None,
 ) -> GoogleSyncReport:
     """Run one independently staged HR day with bounded continuation."""
 
@@ -543,15 +575,7 @@ def _run_heart_rate_day(
             )
         )
     if phase_metrics is not None:
-        phase_metrics.update(
-            request_count=sum(report.request_count for report in reports),
-            page_count=sum(
-                attempt.page_count
-                for report in reports
-                for attempt in report.attempts
-                if attempt.stream == GoogleStream.HEART_RATE.value
-            ),
-        )
+        phase_metrics.update(_aggregate_google_timing_counts(reports))
     return _consolidate_google_refresh_reports(reports)
 
 
@@ -683,10 +707,7 @@ def run_owner_refresh(
                 },
                 "google_wearables_sleep": {
                     "duration_ms": google_wearables_sleep_duration_ms,
-                    "request_count": google_wearables_sleep.request_count,
-                    "page_count": sum(
-                        attempt.page_count for attempt in google_wearables_sleep.attempts
-                    ),
+                    **_google_timing_counts(google_wearables_sleep),
                 },
                 "freshness_evaluation": {"duration_ms": freshness_duration_ms},
                 "owner_refresh_total": {
