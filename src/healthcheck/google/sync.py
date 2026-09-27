@@ -1683,8 +1683,19 @@ class GoogleHealthSync:
                     )
             except Exception as exc:
                 last_error = classify_google_oauth_error(exc)
-                if last_error.error_code in {"invalid_grant", "authentication_failed"}:
-                    return None, last_error, consumed
+                if (
+                    last_error.error_class == "provider"
+                    and last_error.error_code == "provider_unavailable"
+                    and attempt_index + 1 < MAX_RETRY_ATTEMPTS
+                ):
+                    delay_index = min(attempt_index, len(RETRY_BACKOFF_SECONDS) - 1)
+                    with (
+                        self.phase_timing.measure("retry_backoff")
+                        if self.phase_timing
+                        else nullcontext()
+                    ):
+                        self.sleeper(RETRY_BACKOFF_SECONDS[delay_index])
+                    continue
                 return None, last_error, consumed
             if response.status in {401, 403}:
                 return (

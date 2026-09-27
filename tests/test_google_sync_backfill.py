@@ -45,6 +45,7 @@ from healthcheck.google.auth import (
     GoogleAuthStatus,
     GoogleClientCredentials,
     GoogleHttpResponse,
+    GoogleOAuthError,
     GoogleTokenHealth,
     GoogleTokenSet,
 )
@@ -187,7 +188,7 @@ class FakeGoogleHealthTransport:
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
-        self._queues: dict[tuple[str, str, str], list[GoogleHttpResponse]] = {}
+        self._queues: dict[tuple[str, str, str], list[GoogleHttpResponse | Exception]] = {}
         self.default_empty = True
 
     def queue(
@@ -217,6 +218,11 @@ class FakeGoogleHealthTransport:
     ) -> None:
         key = (operation, data_type, page_token or "")
         self._queues.setdefault(key, []).append(GoogleHttpResponse(status, body))
+
+    def queue_error(
+        self, data_type: str, error: Exception, *, page_token: str | None = None
+    ) -> None:
+        self._queues.setdefault(("list", data_type, page_token or ""), []).append(error)
 
     def request(
         self,
@@ -283,7 +289,10 @@ class FakeGoogleHealthTransport:
         key = (operation, data_type, page_token)
         queue = self._queues.get(key)
         if queue:
-            return queue.pop(0)
+            result = queue.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
         if self.default_empty:
             if operation in {"rollUp", "dailyRollUp"}:
                 envelope = "rollupDataPoints"
@@ -625,6 +634,210 @@ def test_transient_provider_5xx_retry_respects_request_budget(tmp_path) -> None:
     assert report.attempts[0].error == GoogleSafeError("budget", "request_ceiling")
     assert sleeps == list(RETRY_BACKOFF_SECONDS[:2])
     assert len(transport.health_calls()) == 2
+
+
+def test_transport_unavailable_retries_same_page_and_completes_checkpoint(
+    monkeypatch, tmp_path
+) -> None:
+    import healthcheck.google.sync as google_sync
+
+    ticks = iter(range(0, 100_000_000, 1_000_000))
+    monkeypatch.setattr(google_sync, "monotonic_ns", lambda: next(ticks))
+    transport = FakeGoogleHealthTransport()
+    transport.queue(
+        "heart-rate",
+        {"dataPoints": [_hr_point(name="hr-1", bpm="64")], "nextPageToken": "p2"},
+    )
+    transport.queue_error("heart-rate", TimeoutError("synthetic transport detail"), page_token="p2")
+    transport.queue(
+        "heart-rate", {"dataPoints": [_hr_point(name="hr-2", bpm="65")]}, page_token="p2"
+    )
+    sleeps: list[float] = []
+    timing = GoogleHrPhaseTiming()
+    settings, _service = _sync(tmp_path, transport)
+
+    report = run_google_refresh(
+        settings,
+        start=AS_OF,
+        end=AS_OF,
+        transport=transport,
+        auth_result=_auth_result(),
+        access_token=SYNTHETIC_ACCESS,
+        granted_scopes=ALLOWED_SCOPES,
+        streams=["heart_rate"],
+        sleeper=sleeps.append,
+        phase_timing=timing,
+    )
+
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.request_count == 3
+    assert report.attempts[0].page_count == 2
+    assert report.attempts[0].record_count == 2
+    assert sleeps == [RETRY_BACKOFF_SECONDS[0]]
+    assert [call["has_page_token"] for call in transport.health_calls()] == [False, True, True]
+    assert timing.as_dict()["retry_backoff_ms"] == 1
+    assert "synthetic transport detail" not in report.to_json()
+    assert "p2" not in report.to_json()
+
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(
+                select(SyncStreamState).where(
+                    SyncStreamState.stream_code
+                    == checkpoint_stream_code(
+                        namespace="refresh",
+                        stream=GoogleStream.HEART_RATE,
+                        query_mode=GoogleQueryMode.LIST,
+                        data_source_family=None,
+                    )
+                )
+            )
+            assert state is not None
+            assert state.watermark is not None
+            assert state.cursor is None
+    finally:
+        engine.dispose()
+
+
+def test_transport_unavailable_exhausts_existing_retry_count(tmp_path) -> None:
+    sleeps: list[float] = []
+    transport = FakeGoogleHealthTransport()
+    for _ in range(MAX_RETRY_ATTEMPTS):
+        transport.queue_error("heart-rate", TimeoutError("synthetic transport detail"))
+    _settings, service = _sync(tmp_path, transport, sleeper=sleeps.append)
+
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.request_count == MAX_RETRY_ATTEMPTS
+    assert report.attempts[0].error == GoogleSafeError("provider", "provider_unavailable")
+    assert sleeps == list(RETRY_BACKOFF_SECONDS[: MAX_RETRY_ATTEMPTS - 1])
+    assert len(transport.health_calls()) == MAX_RETRY_ATTEMPTS
+    assert "synthetic transport detail" not in report.to_json()
+
+
+def test_transport_unavailable_retry_respects_request_budget(tmp_path) -> None:
+    sleeps: list[float] = []
+    transport = FakeGoogleHealthTransport()
+    transport.queue_error("heart-rate", TimeoutError("synthetic transport detail"))
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, service = _sync(tmp_path, transport, max_provider_requests=1, sleeper=sleeps.append)
+
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.request_count == 1
+    assert report.attempts[0].error == GoogleSafeError("budget", "request_ceiling")
+    assert sleeps == [RETRY_BACKOFF_SECONDS[0]]
+    assert len(transport.health_calls()) == 1
+
+
+def test_transport_retry_on_resumed_page_preserves_checkpoint(tmp_path) -> None:
+    transport = FakeGoogleHealthTransport()
+    transport.queue(
+        "heart-rate",
+        {"dataPoints": [_hr_point(name="hr-1", bpm="64")], "nextPageToken": "p2"},
+    )
+    settings, first_service = _sync(tmp_path, transport, max_provider_requests=1)
+    first = first_service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert first.status is GoogleSyncStatus.PARTIAL
+    assert first.attempts[0].resume_cursor_present is True
+
+    transport.queue_error("heart-rate", TimeoutError("synthetic"), page_token="p2")
+    transport.queue(
+        "heart-rate", {"dataPoints": [_hr_point(name="hr-2", bpm="65")]}, page_token="p2"
+    )
+    sleeps: list[float] = []
+    _settings, resumed_service = _sync(
+        tmp_path, transport, max_provider_requests=2, sleeper=sleeps.append
+    )
+    second = resumed_service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert second.status is GoogleSyncStatus.SUCCEEDED
+    assert second.request_count == 2
+    assert second.attempts[0].record_count == 1
+    assert second.attempts[0].resume_cursor_present is False
+    assert sleeps == [RETRY_BACKOFF_SECONDS[0]]
+    assert [call["has_page_token"] for call in transport.health_calls()] == [
+        False,
+        True,
+        True,
+    ]
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(
+                select(SyncStreamState).where(
+                    SyncStreamState.stream_code
+                    == checkpoint_stream_code(
+                        namespace="incremental",
+                        stream=GoogleStream.HEART_RATE,
+                        query_mode=GoogleQueryMode.LIST,
+                        data_source_family=None,
+                    )
+                )
+            )
+            assert state is not None
+            assert state.watermark is not None
+            assert state.cursor is None
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (
+            GoogleOAuthError("authentication", "invalid_grant"),
+            GoogleSafeError("authentication", "invalid_grant"),
+        ),
+        (
+            GoogleOAuthError("authentication", "authentication_failed"),
+            GoogleSafeError("authentication", "authentication_failed"),
+        ),
+        (
+            PermissionError("synthetic storage detail"),
+            GoogleSafeError("storage", "storage_permission"),
+        ),
+        (
+            GoogleOAuthError("storage", "provider_unavailable"),
+            GoogleSafeError("storage", "provider_unavailable"),
+        ),
+        (ValueError("synthetic input detail"), GoogleSafeError("input", "invalid_input")),
+        (RuntimeError("synthetic provider detail"), GoogleSafeError("provider", "provider_error")),
+    ],
+)
+def test_non_transport_exceptions_are_not_retried(tmp_path, error, expected) -> None:
+    sleeps: list[float] = []
+    transport = FakeGoogleHealthTransport()
+    transport.queue_error("heart-rate", error)
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, service = _sync(tmp_path, transport, sleeper=sleeps.append)
+
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert report.request_count == 1
+    assert report.attempts[0].error == expected
+    assert sleeps == []
+    assert len(transport.health_calls()) == 1
+    assert "synthetic" not in report.to_json()
+
+
+def test_invalid_response_shape_is_not_retried(tmp_path) -> None:
+    sleeps: list[float] = []
+    transport = FakeGoogleHealthTransport()
+    transport.queue_raw("heart-rate", b"not-json")
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, service = _sync(tmp_path, transport, sleeper=sleeps.append)
+
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.request_count == 1
+    assert report.attempts[0].error == GoogleSafeError("provider", "response_invalid", 200)
+    assert sleeps == []
+    assert len(transport.health_calls()) == 1
 
 
 def test_non_retryable_4xx_remains_terminal_provider_error(tmp_path) -> None:
