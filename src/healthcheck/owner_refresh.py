@@ -32,6 +32,7 @@ from healthcheck.garmin.training import TRAINING_CONTRACT_VERSION, GarminTrainin
 from healthcheck.google.auth import GoogleAuthService
 from healthcheck.google.contracts import GoogleQueryMode, GoogleStream
 from healthcheck.google.sync import (
+    GoogleHrPhaseTiming,
     GoogleRunKind,
     GoogleSyncAttempt,
     GoogleSyncReport,
@@ -547,6 +548,7 @@ def _run_heart_rate_day(
 ) -> GoogleSyncReport:
     """Run one independently staged HR day with bounded continuation."""
 
+    phase_timing = GoogleHrPhaseTiming() if phase_metrics is not None else None
     reports = [
         run_google_refresh(
             settings,
@@ -557,6 +559,7 @@ def _run_heart_rate_day(
             query_mode=query_mode,
             data_source_family=data_source_family,
             checkpoint_partition=day.isoformat(),
+            phase_timing=phase_timing,
         )
     ]
     for _ in range(OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS):
@@ -572,10 +575,13 @@ def _run_heart_rate_day(
                 query_mode=query_mode,
                 data_source_family=data_source_family,
                 checkpoint_partition=day.isoformat(),
+                phase_timing=phase_timing,
             )
         )
     if phase_metrics is not None:
         phase_metrics.update(_aggregate_google_timing_counts(reports))
+        if phase_timing is not None:
+            phase_metrics.update(phase_timing.as_dict())
     return _consolidate_google_refresh_reports(reports)
 
 
