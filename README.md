@@ -29,35 +29,32 @@ The final R04 owner gate also proved the populated private runtime remained heal
 
 ## Current focus
 
-Current canonical checkpoint: `main @ 968deac9cefd46dda15a269022cd13802a5b8e16`; exact-main CI `36342547115` SUCCESS with 1133 exact nodeids and Windows smoke PASS. Re-read current `main` from GitHub before every launch or integration.
+Current canonical checkpoint: `main @ 9ac6cb03e3cef2b7b5b321bcf88194c704df3bb2`; exact-main CI `36447735415` SUCCESS. Re-read current `main` from GitHub before every launch or integration.
 
-Recently completed owner-value work now includes:
+Recently completed owner-value work now also includes the full Xiaomi screenshot workflow:
 
-- Period Brief correctness, presentation and Owner UAT (#146/#133/#129/#127);
-- revisioned Context Capture v0 (#177), with deterministic add/revise/list semantics proven on a disposable profile;
-- Garmin Training discovery → persistence → normal owner refresh → owner view (#175/#180/#183/#187; parent #160 complete);
-- source freshness v1 core and consumers (#147/#191/#193);
-- Google HR performance/reliability hardening (#199/#206/#207/#212), including bounded promotion preload, continuation context reuse and bounded transport retry.
+- #217 — one-command Owner screenshot import over the existing R01 photo/Xiaomi pipeline;
+- #219 — repo-scoped Codex skill `health-weight-screenshot-import`;
+- #221 — Owner-assisted structured extraction, so Codex/Work can inspect an attached screenshot and feed the strict R01 contract without a second external vision API;
+- Owner live gate PASS: one older and one newer Xiaomi Home/S400 screenshot imported, exact NEW replay returned `DUPLICATE`, historical Weight evidence remained intact and no duplicate semantic measurement was created;
+- #223 — routine Model evidence simplified to only `model` and `provider/client`.
 
-**Immediate product sequencing is data readiness before UI:**
+**Immediate non-UI sequencing is now:**
 
-- #214 — make routine Stable collection actually automatic every day and audit historical coverage before any targeted backfill;
-- #215 — start accumulating real private Owner context notes in Stable using the already accepted #177 contract;
-- #153 — prove the physical Xiaomi S400 → openScale/openScale-sync → Stable weight path end-to-end.
-- #217 — add the separate Owner Work screenshot-to-R01-photo CLI path; Stable live verification is tracked in the [Owner screenshot import runbook](docs/OWNER_WEIGHT_SCREENSHOT_IMPORT.md) and does not depend on #153.
+1. **#214 — data readiness:** audit Stable historical coverage first, then enable/prove recurring daily `owner-refresh` through Windows Task Scheduler, then perform only justified bounded backfill.
+2. **#215 — Context Capture operationalization:** add/read back the first real private Owner context note in Stable and begin using the already-accepted #177 contract.
+3. **#148 — off-site disaster recovery:** once routine collection is boring, establish a protected off-machine recovery point and rehearse clean restore/provider reauthorization.
+4. **#167 — privacy/history remediation:** still deferred by Owner decision while the repository remains public; revisit before treating long-term public exposure as safe.
 
-The provider stack already supports one bounded Owner refresh covering normal Garmin, Garmin Training, Google normal refresh and the accepted wearables-sleep reconciliation layer. What is still operationally missing is the recurring Windows schedule: #134 deliberately documented Task Scheduler setup but did not create a recurring task. Historical Garmin reconstruction is complete in Stable; Google has broad valid retained evidence, but older-coverage completeness must be audited rather than assumed.
+#153 openScale/openScale-sync remains **optional compatibility work**, not a blocker for Weight accumulation. The real device/network/auth path reached Health-Check, but installed openScale-sync sends numeric `userId` while the current receiver requires a string. The accepted routine Weight path is now Xiaomi screenshot -> Codex/Work skill -> R01 photo pipeline -> Stable.
 
-Separate open work remains intentionally independent:
+Separate non-actionable/deferred items:
 
-- #148 — off-site backup/disaster-recovery rehearsal;
-- #167 — historical metadata/privacy remediation before future public exposure;
-- #189 — accepted but deferred whole-product Owner UI redesign umbrella;
-- #126 — repository required-check/protection capability/Owner decision;
-- #105 — deferred/NOT_ELIGIBLE canonical sleep rule.
+- #126 — repository protection remains an Owner/capability decision; manual exact-SHA `checks: SUCCESS` remains the integration gate;
+- #105 — canonical sleep switch remains NOT_ELIGIBLE until its evidence gate exists;
+- #172/#189 — Period Brief / whole-product UI work remains deferred until the data-readiness slice above is complete or Owner explicitly reprioritizes.
 
-The Owner UI is already functionally useful. Whole-product redesign stays behind the data-readiness gates above: missing daily/history evidence is more important to fix now than presentation polish.
-
+The provider stack already supports bounded Garmin, Garmin Training, Google normal and wearables-sleep refresh. The main operational gap is no longer ingestion correctness; it is making collection automatic and proving what historical evidence actually exists.
 ## Architecture in one minute
 
 ```text
