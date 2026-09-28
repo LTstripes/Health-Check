@@ -435,3 +435,49 @@ Important operational truth: #134 proved the one-command refresh and documented 
 Historical Stable state is asymmetric: Garmin historical backfill reached completion/convergence; Google contains broad valid retained evidence with reconstructed current windows beginning around 2026-07-01, so older Google completeness must be audited rather than assumed.
 
 #189 UI direction remains accepted but implementation is deferred behind these data-readiness gates.
+
+## 2026-09-28 — Owner Weight screenshot workflow completed
+
+The attempted physical S400/openScale path reached Health-Check transport/auth successfully but a real measurement failed normalization because installed openScale-sync serializes numeric `userId` while the current receiver requires a string. No direct DB workaround was used; #153 remains optional compatibility work.
+
+The routine Owner Weight path was instead completed through three bounded slices:
+
+- #217 / PR #218 — one-command `owner-weight-screenshot-import` over the existing R01 photo pipeline, with fail-closed auto-confirm and duplicate-safe replay;
+- #219 / PR #220 — repo-scoped Codex skill `health-weight-screenshot-import`;
+- #221 / PR #222 — Owner-assisted strict structured extraction so Codex/Work can inspect an attached screenshot and feed the same R01 parser/normalizer without a second external vision API.
+
+Owner-live Stable gate then passed:
+
+- OLD screenshot -> `IMPORTED / auto_confirmed`;
+- NEW screenshot -> `IMPORTED / auto_confirmed`;
+- exact NEW replay -> `DUPLICATE / duplicate_content`;
+- measurement-session delta `+2`;
+- canonical Weight changed structurally as expected;
+- existing historical Weight evidence remained unchanged;
+- replay created no duplicate semantic measurement;
+- screenshot/private data and temporary extraction JSON did not enter Git.
+
+#217, #219 and #221 are closed complete. Canonical code checkpoint after those slices: `main @ b9a3ab2678f6c5d3ada6a575be48a03811aacef4`; exact-main CI `36442128547` SUCCESS.
+
+## 2026-09-28 — compact model evidence
+
+Owner simplified routine model reporting. #210 journal/process now requires only:
+
+```text
+Model evidence
+model: <exact model/version if known, otherwise unknown>
+provider/client: <provider and client/runtime if known, otherwise unknown>
+```
+
+PR #223 merged the aligned AGENTS/model-journal/routing docs. Canonical checkpoint: `main @ 9ac6cb03e3cef2b7b5b321bcf88194c704df3bb2`; exact-main CI `36447735415` SUCCESS.
+
+## Current handoff / next non-UI work
+
+Priority order:
+
+1. **#214 Owner data readiness** — start with read-only Stable historical coverage inventory; then enable/prove the daily Task Scheduler `owner-refresh`; only then perform justified bounded backfill.
+2. **#215 Context Capture operationalization** — add/read back the first real private Owner note in Stable and begin normal use.
+3. **#148 off-site disaster recovery** — create a protected verified off-machine recovery point and rehearse clean restore/provider reauthorization.
+4. **#167 privacy/history remediation** — deferred by explicit Owner decision while the repository remains public; revisit before treating future public exposure as safe.
+
+#153 openScale remains optional and does not block Weight. #172/#189 UI work remains deferred. #126 is an Owner/capability blocker, and #105 remains NOT_ELIGIBLE.
