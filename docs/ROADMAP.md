@@ -21,18 +21,19 @@ Completed post-R05 owner-value slices include:
 - Owner Xiaomi screenshot workflow (#217/#219/#221): one-command import, repo Codex skill, Owner-assisted strict structured extraction and live OLD/NEW/replay proof;
 - compact Model evidence process (#223): only `model` and `provider/client` are required in routine handoffs.
 
-**Immediate product sequencing: evidence operations before interface redesign.**
+**Immediate product sequencing: small reliability cleanup, then evidence operations before interface redesign.**
 
-1. #214 — read-only Stable historical coverage audit, then recurring daily Stable refresh, then only justified bounded backfill.
-2. #215 — begin real Owner Context Capture accumulation in Stable through the accepted #177 contract.
-3. #148 — establish protected off-site/portable backup and complete a clean disaster-recovery rehearsal.
-4. Revisit #167 privacy/history remediation before any deliberate long-term public-exposure assumption.
+1. #203 — fix the bounded Windows cp1251 Period Brief CLI render crash; no packet/data semantics change.
+2. #214 — read-only Stable historical coverage audit, then recurring daily Stable refresh, then only justified bounded backfill.
+3. #215 — begin real Owner Context Capture accumulation in Stable through the accepted #177 contract.
+4. #148 — establish protected off-site/portable backup and complete a clean disaster-recovery rehearsal.
+5. Revisit #167 privacy/history remediation before any deliberate long-term public-exposure assumption.
 
 Weight is no longer blocked on openScale. The accepted routine path is Xiaomi Home/S400 screenshot -> Codex/Work skill -> existing R01 photo evidence/confirmation/canonical pipeline -> Stable. #153 remains open only for optional live openScale compatibility; the observed blocker is numeric `userId` from installed openScale-sync versus the current string-only receiver contract.
 
 Operational truth: one-command provider refresh is live-proven, but no recurring Task Scheduler entry has yet been created. Garmin historical reconstruction in Stable completed and converges/skips on rerun; Google has broad valid retained evidence but older-history completeness still requires explicit audit.
 
-Deferred/blocked tracks remain independent: #172/#189 UI, #126 repository-protection Owner/capability decision and #105 NOT_ELIGIBLE canonical sleep rule.
+Separate maintenance/deferred tracks remain independent: #181 Windows smoke/partial-rerun aggregation reliability, #172/#189 UI, #126 repository-protection Owner/capability decision and #105 NOT_ELIGIBLE canonical sleep rule.
 
 See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md), [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md), [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
 ## R00 — Final architecture (complete)
