@@ -1,6 +1,6 @@
 # Model evidence journal — Health-Check
 
-Protocol: `model-evidence-v1`, 2026-09-27. A dated observational journal for real project tasks, not a permanent ranking of models and not a replacement for acceptance gates.
+Protocol: `model-evidence-v2`, 2026-09-28. A dated observational journal for real project tasks, not a permanent ranking of models and not a replacement for acceptance gates.
 
 Coordination/intake: [Health-Check #210](https://github.com/LTstripes/Health-Check/issues/210). Paired journal: [Finance #605](https://github.com/LTstripes/hermes-finance/issues/605) and its `docs/MODEL_BENCHMARK.md`. The two repositories use the same fields and interpretation rules; cases remain in their originating repository. Do not duplicate Finance outcomes as Health successes.
 
@@ -12,13 +12,12 @@ Record rejected, abandoned and pending attempts as well as successes. Preserve t
 
 ## Common case format
 
-A case is `(repository, issue, role, assigned baseline, initial candidate, execution route)`. Follow-up SHAs are attempts of that case, not independent successes. Record Worker, Reviewer and research/critique roles separately. Make any model/provider/version switch or delegate/fallback chain explicit.
+A case is `(repository, issue, role, assigned baseline, initial candidate, execution route)`. Follow-up SHAs are attempts of that case, not independent successes. Record Worker, Reviewer and research/critique roles separately. Routine model intake uses only `model` and `provider/client`; other execution details belong in task evidence only when they materially explain the result.
 
 | Field | What to record |
 | --- | --- |
 | Task | Repo/issue/PR; profile such as UI, health analytics, ingestion, provenance, persistence, research or review; complexity and risk separately |
-| Execution | Client/version, requested model/effort, actual runtime model ID/provider/effort, delegates/fallbacks |
-| Attribution | `runtime_confirmed`, `owner_reported`, `worker_reported`, `assigned_only`, or `unknown`; selection is not runtime proof |
+| Model evidence | `model`; `provider/client`. Use `unknown` when a field is not actually known; never infer it from an assignment or alias |
 | Identity | Assigned baseline, first candidate, reviewed candidates, accepted/merged SHA and source links |
 | Quality | First-pass verdict, unique confirmed blockers/severity, escaped defects, scope discipline |
 | Rework | Substantive correction rounds; formatting-only commits, duplicate comments and unchanged-SHA reruns do not add rounds |
@@ -27,7 +26,7 @@ A case is `(repository, issue, role, assigned baseline, initial candidate, execu
 | Cost/time | Measured tokens/API spend/quota, active work/review/test time and waiting time only when known; otherwise `unknown` |
 | Confounders | Unclear assignment, missing review locator, scope changes, resource contention, tool isolation or provider outages |
 
-Do not credit an unconfirmed model identity as fact. Do not count a disproven reviewer finding as a model defect. Record Integrator errors separately. A successful CI rerun proves that attempt passed, not why the earlier run failed. Subscription access does not mean zero resource cost; public list prices do not measure this run's cost.
+Do not guess model or provider/client identity. Do not count a disproven reviewer finding as a model defect. Record Integrator errors separately. A successful CI rerun proves that attempt passed, not why the earlier run failed. Cost/time may still be recorded elsewhere in a case when actually measured and useful, but they are not part of the routine Model evidence handoff.
 
 ### Outcome vocabulary
 
@@ -68,8 +67,8 @@ One primary Worker; at most two genuinely independent writers in separately assi
 ```text
 case_id / role / profile / complexity / risk:
 issue / PR / contract link / baseline:
-client + requested model/effort:
-actual model/provider/effort + attribution source (or unknown):
+model:
+provider/client:
 first SHA -> attempts -> accepted SHA:
 first-pass verdict / substantive fix rounds / confirmed blockers:
 scope / test & browser evidence / independent review:
