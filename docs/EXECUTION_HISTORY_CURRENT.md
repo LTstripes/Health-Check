@@ -475,9 +475,10 @@ PR #223 merged the aligned AGENTS/model-journal/routing docs. Canonical checkpoi
 
 Priority order:
 
-1. **#214 Owner data readiness** — start with read-only Stable historical coverage inventory; then enable/prove the daily Task Scheduler `owner-refresh`; only then perform justified bounded backfill.
-2. **#215 Context Capture operationalization** — add/read back the first real private Owner note in Stable and begin normal use.
-3. **#148 off-site disaster recovery** — create a protected verified off-machine recovery point and rehearse clean restore/provider reauthorization.
-4. **#167 privacy/history remediation** — deferred by explicit Owner decision while the repository remains public; revisit before treating future public exposure as safe.
+1. **#203 Period Brief Windows CLI compatibility** — small C1 cleanup for the known cp1251 stdout render crash; packet/output-file semantics stay unchanged.
+2. **#214 Owner data readiness** — start with read-only Stable historical coverage inventory; then enable/prove the daily Task Scheduler `owner-refresh`; only then perform justified bounded backfill.
+3. **#215 Context Capture operationalization** — add/read back the first real private Owner note in Stable and begin normal use.
+4. **#148 off-site disaster recovery** — create a protected verified off-machine recovery point and rehearse clean restore/provider reauthorization.
+5. **#167 privacy/history remediation** — deferred by explicit Owner decision while the repository remains public; revisit before treating future public exposure as safe.
 
-#153 openScale remains optional and does not block Weight. #172/#189 UI work remains deferred. #126 is an Owner/capability blocker, and #105 remains NOT_ELIGIBLE.
+#181 remains separate CI reliability debt around Windows smoke/partial rerun aggregation; current full CI is green, so reproduce/re-audit before modifying the workflow. #153 openScale remains optional and does not block Weight. #172/#189 UI work remains deferred. #126 is an Owner/capability blocker, and #105 remains NOT_ELIGIBLE.
