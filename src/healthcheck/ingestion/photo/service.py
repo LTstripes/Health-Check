@@ -844,24 +844,7 @@ class PhotoImportService:
         del artifact
         provider_code = resolve_provider_code(extracted.provider_code)
         set_key = _fingerprint_for_result(extracted)
-        prepared: list[tuple[str, NormalizedField]] = []
-        try:
-            for group in extracted.groups:
-                for normalized in normalize_group(
-                    group,
-                    source_timezone=extracted.source_timezone,
-                    source_utc_offset_minutes=extracted.source_utc_offset_minutes,
-                ):
-                    _validate_normalized_field(normalized)
-                    prepared.append((group.key, normalized))
-        except ValueError:
-            raise ExtractionFailure(
-                "temporal_conflict", "local date and timestamp are inconsistent"
-            ) from None
-        if not prepared:
-            raise ExtractionFailure(
-                "extractor_empty_result", "extractor returned no measurement groups"
-            )
+        prepared = normalize_extraction_result(extracted)
         created: list[ImportCandidate] = []
         nested = self.session.begin_nested()
         try:
@@ -1292,6 +1275,32 @@ def _fingerprint_for_result(extracted: ExtractionResult) -> str:
         source_application=extracted.source_application,
         source_application_version=extracted.source_application_version,
     )
+
+
+def normalize_extraction_result(
+    extracted: ExtractionResult,
+) -> tuple[tuple[str, NormalizedField], ...]:
+    """Run the shared R01 normalization and validation for one extraction result."""
+
+    prepared: list[tuple[str, NormalizedField]] = []
+    try:
+        for group in extracted.groups:
+            for normalized in normalize_group(
+                group,
+                source_timezone=extracted.source_timezone,
+                source_utc_offset_minutes=extracted.source_utc_offset_minutes,
+            ):
+                _validate_normalized_field(normalized)
+                prepared.append((group.key, normalized))
+    except ValueError:
+        raise ExtractionFailure(
+            "temporal_conflict", "local date and timestamp are inconsistent"
+        ) from None
+    if not prepared:
+        raise ExtractionFailure(
+            "extractor_empty_result", "extractor returned no measurement groups"
+        )
+    return tuple(prepared)
 
 
 def _validate_normalized_field(normalized: NormalizedField) -> None:

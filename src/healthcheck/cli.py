@@ -172,6 +172,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-observations", type=int)
     parser.add_argument("--input")
     parser.add_argument("--image", help="one Xiaomi Home screenshot path for Owner import")
+    parser.add_argument(
+        "--extraction-json",
+        help="one temporary structured extraction JSON for Owner screenshot import",
+    )
     parser.add_argument("--family")
     parser.add_argument("--query-mode")
     parser.add_argument(
@@ -940,7 +944,11 @@ def _run_owner_weight_screenshot_import(args: argparse.Namespace, settings: Sett
     elif not args.image:
         result = import_owner_weight_screenshot(settings, None)
     else:
-        result = import_owner_weight_screenshot(settings, args.image)
+        result = import_owner_weight_screenshot(
+            settings,
+            args.image,
+            extraction_json_path=args.extraction_json,
+        )
     print(result.to_json())
     return result.exit_code
 
