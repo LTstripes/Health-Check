@@ -6,33 +6,35 @@ Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG
 
 ## Current state
 
-Released to canonical `main`: R01–R05 plus the post-R05 deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery and source-freshness work.
+Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness and the Owner screenshot-import workflow.
 
-Current canonical checkpoint: `main @ 968deac9cefd46dda15a269022cd13802a5b8e16`; exact-main CI `36342547115` SUCCESS with 1133 exact nodeids and Windows smoke PASS. Re-read current `main` from GitHub before every launch/integration.
+Current canonical checkpoint: `main @ 9ac6cb03e3cef2b7b5b321bcf88194c704df3bb2`; exact-main CI `36447735415` SUCCESS. Re-read current `main` from GitHub before every launch/integration.
 
-Completed post-R05 owner-value slices now include:
+Completed post-R05 owner-value slices include:
 
 - Stable Owner Runtime + one-command Garmin / Garmin Training / Google / wearables-sleep refresh;
 - deterministic Period Brief correctness/presentation/UAT closeout;
 - Context Capture v0 (#177);
-- Garmin Training/Recovery discovery → persistence → routine refresh → owner view (#175/#180/#183/#187, parent #160 closed);
+- Garmin Training/Recovery discovery -> persistence -> routine refresh -> owner view (#175/#180/#183/#187, parent #160 closed);
 - source freshness v1 core + owner consumers (#147/#191/#193);
-- Google HR performance/reliability track (#199/#206/#207/#212), with successful final Owner measurement and no correction/query semantic weakening;
-- consolidated Worker/Integrator guidance (#185/#186).
+- Google HR performance/reliability track (#199/#206/#207/#212);
+- Owner Xiaomi screenshot workflow (#217/#219/#221): one-command import, repo Codex skill, Owner-assisted strict structured extraction and live OLD/NEW/replay proof;
+- compact Model evidence process (#223): only `model` and `provider/client` are required in routine handoffs.
 
-**Immediate product sequencing: evidence accumulation before interface redesign.**
+**Immediate product sequencing: evidence operations before interface redesign.**
 
-1. #214 — enable and prove recurring daily Stable refresh, audit historical coverage by stream/source and perform only justified bounded backfills.
+1. #214 — read-only Stable historical coverage audit, then recurring daily Stable refresh, then only justified bounded backfill.
 2. #215 — begin real Owner Context Capture accumulation in Stable through the accepted #177 contract.
-3. #153 — run the physical Xiaomi S400/openScale/openScale-sync → Stable live E2E gate.
-4. Resume #189 whole-product UI implementation only after these data-readiness gates, unless the Owner explicitly reprioritizes.
+3. #148 — establish protected off-site/portable backup and complete a clean disaster-recovery rehearsal.
+4. Revisit #167 privacy/history remediation before any deliberate long-term public-exposure assumption.
 
-Operational truth: the one-command provider refresh is live-proven, but no recurring Task Scheduler entry has yet been created. Garmin historical reconstruction in Stable completed and converges/skips on rerun; Google has broad valid retained evidence, with current reconstructed windows beginning around 2026-07-01, so older-history completeness requires an explicit audit rather than an assumption.
+Weight is no longer blocked on openScale. The accepted routine path is Xiaomi Home/S400 screenshot -> Codex/Work skill -> existing R01 photo evidence/confirmation/canonical pipeline -> Stable. #153 remains open only for optional live openScale compatibility; the observed blocker is numeric `userId` from installed openScale-sync versus the current string-only receiver contract.
 
-Separate tracks remain independent: #148 off-site DR, #167 privacy remediation, #126 repository-protection decision and #105 deferred/NOT_ELIGIBLE canonical sleep rule.
+Operational truth: one-command provider refresh is live-proven, but no recurring Task Scheduler entry has yet been created. Garmin historical reconstruction in Stable completed and converges/skips on rerun; Google has broad valid retained evidence but older-history completeness still requires explicit audit.
 
-See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md), [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md), and [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md).
+Deferred/blocked tracks remain independent: #172/#189 UI, #126 repository-protection Owner/capability decision and #105 NOT_ELIGIBLE canonical sleep rule.
 
+See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md), [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md), [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
 ## R00 — Final architecture (complete)
 
 Delivered:
