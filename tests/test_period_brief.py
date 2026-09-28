@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import sys
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -1062,6 +1064,77 @@ def test_cli_period_brief_writes_packet_to_external_runtime(tmp_path, capsys):
     ] == "source-freshness-v1"
     assert packet["contracts_referenced"]["source_freshness_policy_version"] == (
         "source-freshness-v1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("console_encoding", "expected_period_line"),
+    [
+        ("utf-8", "Period: 2099-01-01 \u2192 2099-01-14 (14 days)"),
+        ("cp1251", r"Period: 2099-01-01 \u2192 2099-01-14 (14 days)"),
+        ("ascii", r"Period: 2099-01-01 \u2192 2099-01-14 (14 days)"),
+    ],
+)
+def test_cli_period_brief_stdout_survives_limited_console_encoding(
+    tmp_path, monkeypatch, console_encoding, expected_period_line
+):
+    """#203: strict limited stdout must not crash the renderer print path."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    reference = tmp_path / "reference.json"
+    output = tmp_path / "period-brief.json"
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--output",
+                str(reference),
+            ]
+        )
+        == 0
+    )
+
+    raw_stdout = io.BytesIO()
+    limited_stdout = io.TextIOWrapper(
+        raw_stdout, encoding=console_encoding, errors="strict", newline=""
+    )
+    monkeypatch.setattr(sys, "stdout", limited_stdout)
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    limited_stdout.flush()
+    stdout_text = raw_stdout.getvalue().decode(console_encoding)
+
+    assert expected_period_line in stdout_text
+    assert "## weight" in stdout_text
+    assert "## notable_changes" in stdout_text
+    assert "## owner_actions" in stdout_text
+    assert stdout_text.endswith("no health formulas were recomputed.\n")
+
+    assert json.loads(output.read_text(encoding="utf-8")) == json.loads(
+        reference.read_text(encoding="utf-8")
     )
 
 

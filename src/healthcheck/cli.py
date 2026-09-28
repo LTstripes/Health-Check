@@ -1299,6 +1299,24 @@ def _run_garmin_reprocess(args: argparse.Namespace, settings: Settings) -> int:
     return 1
 
 
+def _write_stdout_safely(text: str) -> None:
+    """Write text to stdout without crashing on a limited console encoding.
+
+    A capable console (for example UTF-8) receives the text unchanged. On a
+    limited console encoding, characters the active stdout encoding cannot
+    represent are escaped with their ``\\uXXXX`` form instead of raising
+    ``UnicodeEncodeError`` or silently dropping that content.
+    """
+
+    stream = sys.stdout
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+    except UnicodeEncodeError:
+        text = text.encode(encoding, errors="backslashreplace").decode(encoding)
+    stream.write(text)
+
+
 def _run_period_brief(args: argparse.Namespace) -> int:
     if not args.start or not args.end:
         print("period-brief: --start and --end are required (YYYY-MM-DD)", file=sys.stderr)
@@ -1330,10 +1348,10 @@ def _run_period_brief(args: argparse.Namespace) -> int:
         out = Path(args.output)
         out.write_text(packet_json + "\n", encoding="utf-8")
         print(f"period-brief: wrote packet to {out}")
-        print(text, end="")
+        _write_stdout_safely(text)
         return 0
     print(packet_json)
-    print(text, end="")
+    _write_stdout_safely(text)
     return 0
 
 
