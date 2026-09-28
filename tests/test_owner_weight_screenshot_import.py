@@ -230,6 +230,47 @@ def test_owner_assisted_json_replay_is_duplicate(owner_photo_env, tmp_path):
     assert _counts(engine) == before_replay
 
 
+@pytest.mark.parametrize("mutation", ["value", "date", "metric", "group"])
+def test_owner_assisted_changed_sidecar_on_known_content_requires_review(
+    owner_photo_env, tmp_path, mutation
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(
+        source_local_date=date(2026, 5, 9),
+        weight_kg=78.5,
+    )
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    first = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=first_json,
+    )
+    before_conflict = _counts(engine)
+
+    changed = json.loads(json.dumps(original))
+    if mutation == "value":
+        changed["groups"][0]["fields"][0]["value"] = 77.5
+    elif mutation == "date":
+        changed["groups"][0]["source_local_date"] = "2026-05-10"
+    elif mutation == "metric":
+        changed["groups"][0]["fields"][0]["metric_code"] = "muscle_mass"
+    else:
+        changed["groups"][0]["key"] = "changed-reading"
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+
+    second = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=changed_json,
+    )
+
+    assert first.status == "IMPORTED"
+    assert second.status == "NEEDS_REVIEW"
+    assert second.reason_code == "content_seen_new_extraction"
+    assert _counts(engine) == before_conflict
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_reason"),
     [

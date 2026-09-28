@@ -14,6 +14,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine, session_scope
+from healthcheck.db.models import ImportCandidate
+from healthcheck.db.repositories import canonical_json, restore_stored_utc
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.extractor import (
     DEFAULT_SCHEMA_VERSION,
@@ -22,14 +24,17 @@ from healthcheck.ingestion.photo.extractor import (
     ExtractionResult,
     ImageMeasurementExtractor,
 )
+from healthcheck.ingestion.photo.normalize import NormalizedField
 from healthcheck.ingestion.photo.provenance import (
     XIAOMI_HOME_PROVIDER,
     XIAOMI_S400_DEVICE,
+    resolve_provider_code,
 )
 from healthcheck.ingestion.photo.service import (
     MAX_PHOTO_BYTES,
     PhotoImportService,
     PhotoUpload,
+    normalize_extraction_result,
 )
 from healthcheck.ingestion.photo.vision import (
     MAX_PROVIDER_RESPONSE_BYTES,
@@ -96,6 +101,8 @@ def import_owner_weight_screenshot(
     """
 
     engine: Engine | None = None
+    prevalidated: ExtractionResult | None = None
+    normalized_evidence: tuple[tuple[str, NormalizedField], ...] | None = None
     try:
         if image_path is None:
             return _result("FAILED", "missing_image")
@@ -140,6 +147,7 @@ def import_owner_weight_screenshot(
                     ),
                     image,
                 )
+                normalized_evidence = normalize_extraction_result(prevalidated)
             except ExtractionFailure:
                 return _result("FAILED", "extraction_json_invalid")
             if _owner_profile_conflicts(prevalidated):
@@ -160,7 +168,14 @@ def import_owner_weight_screenshot(
             return _result("FAILED", "extraction_failed")
 
         if item.status == "duplicate":
-            return _duplicate_result(engine, paths, configured_extractor, item)
+            return _duplicate_result(
+                engine,
+                paths,
+                configured_extractor,
+                item,
+                expected_extraction=prevalidated,
+                expected_evidence=normalized_evidence,
+            )
         if item.duplicate_artifact:
             # The bytes are already known but the extractor produced a new
             # candidate set. Preserve it for review; never auto-confirm a new
@@ -259,6 +274,9 @@ def _duplicate_result(
     paths: RuntimePaths,
     extractor: ImageMeasurementExtractor,
     item: Any,
+    *,
+    expected_extraction: ExtractionResult | None = None,
+    expected_evidence: tuple[tuple[str, NormalizedField], ...] | None = None,
 ) -> OwnerWeightScreenshotImportResult:
     if not item.candidate_ids:
         return _result("NEEDS_REVIEW", "duplicate_candidates_missing")
@@ -273,6 +291,9 @@ def _duplicate_result(
         ]
         if len(selected) != len(item.candidate_ids):
             return _result("NEEDS_REVIEW", "duplicate_candidates_missing", len(selected))
+        if expected_extraction is not None and expected_evidence is not None:
+            if not _same_extraction_evidence(selected, expected_extraction, expected_evidence):
+                return _result("NEEDS_REVIEW", "content_seen_new_extraction", len(selected))
         views = [service.candidate_view(candidate) for candidate in selected]
         if any(candidate.user_decision == "pending" for candidate in selected):
             return _result("NEEDS_REVIEW", "duplicate_unresolved", len(selected))
@@ -282,6 +303,88 @@ def _duplicate_result(
         ):
             return _result("NEEDS_REVIEW", "duplicate_unresolved", len(selected))
         return _result("DUPLICATE", "duplicate_content", len(selected))
+
+
+def _same_extraction_evidence(
+    candidates: list[ImportCandidate],
+    extracted: ExtractionResult,
+    normalized_evidence: tuple[tuple[str, NormalizedField], ...],
+) -> bool:
+    incoming = sorted(
+        canonical_json(_normalized_evidence_row(group_key, normalized, extracted))
+        for group_key, normalized in normalized_evidence
+    )
+    stored = sorted(canonical_json(_candidate_evidence_row(candidate)) for candidate in candidates)
+    return incoming == stored
+
+
+def _normalized_evidence_row(
+    group_key: str,
+    normalized: NormalizedField,
+    extracted: ExtractionResult,
+) -> dict[str, Any]:
+    return {
+        "measurement_group_key": group_key,
+        "metric_code": normalized.metric_code,
+        "proposed_value": normalized.proposed_value,
+        "proposed_unit": normalized.proposed_unit,
+        "proposed_source_timestamp": _timestamp_text(normalized.source_timestamp),
+        "proposed_source_local_date": _date_text(normalized.source_local_date),
+        "temporal_precision": normalized.temporal_precision,
+        "source_text": normalized.source_text,
+        "extractor_name": extracted.extractor_name,
+        "extractor_version": extracted.extractor_version,
+        "model_name": extracted.model_name,
+        "model_version": extracted.model_version,
+        "prompt_version": extracted.prompt_version,
+        "schema_version": extracted.schema_version,
+        "confidence": normalized.confidence,
+        "evidence_region_json": (
+            None
+            if normalized.evidence_region is None
+            else canonical_json(normalized.evidence_region)
+        ),
+        "algorithm_code": normalized.algorithm_code,
+        "algorithm_version": normalized.algorithm_version,
+        "provider_code": resolve_provider_code(extracted.provider_code),
+        "source_timezone": normalized.source_timezone,
+        "source_utc_offset_minutes": normalized.source_utc_offset_minutes,
+    }
+
+
+def _candidate_evidence_row(candidate: ImportCandidate) -> dict[str, Any]:
+    return {
+        "measurement_group_key": candidate.measurement_group_key,
+        "metric_code": candidate.metric_code,
+        "proposed_value": candidate.proposed_value,
+        "proposed_unit": candidate.proposed_unit,
+        "proposed_source_timestamp": _timestamp_text(candidate.proposed_source_timestamp),
+        "proposed_source_local_date": _date_text(candidate.proposed_source_local_date),
+        "temporal_precision": candidate.temporal_precision,
+        "source_text": candidate.source_text,
+        "extractor_name": candidate.extractor_name,
+        "extractor_version": candidate.extractor_version,
+        "model_name": candidate.model_name,
+        "model_version": candidate.model_version,
+        "prompt_version": candidate.prompt_version,
+        "schema_version": candidate.schema_version,
+        "confidence": candidate.confidence,
+        "evidence_region_json": candidate.evidence_region_json,
+        "algorithm_code": candidate.algorithm_code,
+        "algorithm_version": candidate.algorithm_version,
+        "provider_code": candidate.provider_code,
+        "source_timezone": candidate.source_timezone,
+        "source_utc_offset_minutes": candidate.source_utc_offset_minutes,
+    }
+
+
+def _timestamp_text(value: Any) -> str | None:
+    restored = restore_stored_utc(value)
+    return None if restored is None else restored.isoformat()
+
+
+def _date_text(value: Any) -> str | None:
+    return None if value is None else value.isoformat()
 
 
 def _auto_confirm_block_reason(
