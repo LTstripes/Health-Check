@@ -41,15 +41,17 @@ Recently completed owner-value work now also includes the full Xiaomi screenshot
 
 **Immediate non-UI sequencing is now:**
 
-1. **#214 — data readiness:** audit Stable historical coverage first, then enable/prove recurring daily `owner-refresh` through Windows Task Scheduler, then perform only justified bounded backfill.
-2. **#215 — Context Capture operationalization:** add/read back the first real private Owner context note in Stable and begin using the already-accepted #177 contract.
-3. **#148 — off-site disaster recovery:** once routine collection is boring, establish a protected off-machine recovery point and rehearse clean restore/provider reauthorization.
-4. **#167 — privacy/history remediation:** still deferred by Owner decision while the repository remains public; revisit before treating long-term public exposure as safe.
+1. **#203 — quick CLI cleanup:** fix the known Windows cp1251 Period Brief stdout crash; packet semantics are already correct and this is a bounded C1 compatibility fix.
+2. **#214 — data readiness:** audit Stable historical coverage first, then enable/prove recurring daily `owner-refresh` through Windows Task Scheduler, then perform only justified bounded backfill.
+3. **#215 — Context Capture operationalization:** add/read back the first real private Owner context note in Stable and begin using the already-accepted #177 contract.
+4. **#148 — off-site disaster recovery:** once routine collection is boring, establish a protected off-machine recovery point and rehearse clean restore/provider reauthorization.
+5. **#167 — privacy/history remediation:** still deferred by Owner decision while the repository remains public; revisit before treating long-term public exposure as safe.
 
 #153 openScale/openScale-sync remains **optional compatibility work**, not a blocker for Weight accumulation. The real device/network/auth path reached Health-Check, but installed openScale-sync sends numeric `userId` while the current receiver requires a string. The accepted routine Weight path is now Xiaomi screenshot -> Codex/Work skill -> R01 photo pipeline -> Stable.
 
-Separate non-actionable/deferred items:
+Separate maintenance/deferred items:
 
+- #181 — Windows smoke / partial-rerun aggregation reliability debt; current full CI is green, so recheck/reproduce before changing the workflow.
 - #126 — repository protection remains an Owner/capability decision; manual exact-SHA `checks: SUCCESS` remains the integration gate;
 - #105 — canonical sleep switch remains NOT_ELIGIBLE until its evidence gate exists;
 - #172/#189 — Period Brief / whole-product UI work remains deferred until the data-readiness slice above is complete or Owner explicitly reprioritizes.
