@@ -137,7 +137,7 @@ Independent review is required when `docs/MODEL_ROUTING.md` says so, when Owner/
 A normal Worker returns one concise per-task report containing:
 
 - task/issue ID and status;
-- **Model evidence** using the common fields below;
+- **Model evidence** using only the two common fields below;
 - baseline SHA and target integration branch;
 - task branch and physical workspace;
 - exact final candidate SHA;
@@ -152,17 +152,11 @@ Use this compact block in every Worker handoff:
 
 ```text
 Model evidence
-client/runtime: <name + version if exposed>
-requested model/effort: <value or unknown>
-actual model/provider/effort: <runtime-reported value or unknown>
-identity source: runtime_confirmed | worker_reported | owner_reported | assigned_only | unknown
-delegates/fallbacks: <chain or none/unknown>
-usage: input=<n|unknown>; cached_input=<n|unknown>; output=<n|unknown>; reasoning=<n|unknown>; total=<n|unknown>
-reported cost/credits: <exact runtime/billing value or unknown>
-reported active/elapsed time: <exact runtime value or unknown>
+model: <exact model/version if known, otherwise unknown>
+provider/client: <provider and client/runtime if known, otherwise unknown>
 ```
 
-Usage fields are evidence only when the executing client/runtime exposes exact counters. Do not estimate token counts, infer subscription cost, convert public list prices into a claimed run cost, or treat unavailable counters as zero. Report only aggregate counters/metadata; never include private prompts, secrets, health values or hidden reasoning. If a provider/client does not expose a field, write `unknown`.
+Do not infer a model from the assignment, subscription, alias, or requested route. If either field is not actually known, write `unknown`. Routine Worker handoffs do not need token, cost, effort, timing, attribution-source, or fallback fields unless the active issue explicitly requests them. Never include private prompts, secrets, health values or hidden reasoning.
 
 Workers/Execution Orchestrators do **not** edit `docs/MODEL_BENCHMARK.md` or the benchmark tracker to grade themselves. The Integrator records model outcomes centrally after source/evidence review and keeps Worker, Reviewer and research roles separate.
 
