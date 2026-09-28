@@ -12,7 +12,28 @@ uv run --locked healthcheck owner-weight-screenshot-import `
   --image "<path to this uploaded attachment>"
 ```
 
+When Work/Codex can inspect the attachment itself, it may instead provide one temporary
+strict `r01-photo-v1` extraction object:
+
+```powershell
+uv run --locked healthcheck owner-weight-screenshot-import `
+  --data-dir "D:\Garmin\HealthCheck-Stable" `
+  --image "<path to this uploaded attachment>" `
+  --extraction-json "<temporary JSON outside the repository>"
+```
+
+This sidecar is bounded to 512 KiB, parsed and profile-checked before the R01 photo service
+writes evidence, and uses the fixed `healthcheck-owner-assisted-structured-extraction` v1
+identity with no invented model identity. It must contain the same strict structured payload
+accepted from the configured vision adapter; there is no second schema or normalization path.
+The caller removes the temporary JSON after the command and never stores or publishes it.
+
 The established profile must already exist. Configure the existing real photo extractor through the normal `HEALTHCHECK_PHOTO_VISION_BASE_URL`, `HEALTHCHECK_PHOTO_VISION_MODEL` and `HEALTHCHECK_PHOTO_VISION_API_KEY` environment settings. The API key is never passed as a CLI argument. The command refuses a missing/unready profile, reads at most the existing 10 MiB photo limit, accepts PNG/JPEG, and stores evidence in the profile's content-addressed R01 photo store. It does not print the supplied path, filename, extracted values, dates, provider response, or exception text.
+
+The external vision configuration is not required or called when `--extraction-json` is
+present. Without that option, the configured-provider behavior is unchanged. Malformed,
+unreadable or oversized sidecars fail with a fixed safe reason before photo persistence;
+Owner-profile conflicts fail closed before confirmation.
 
 Work should pass arguments as separate process arguments, make one invocation for one attachment and use only the returned status. It must not scan a folder, retry a review result, confirm through SQL, or require the openScale webhook. The screenshot attachment itself is not rewritten.
 

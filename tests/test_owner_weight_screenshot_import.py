@@ -23,7 +23,11 @@ from healthcheck.db.models import (
 )
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
-from healthcheck.owner_weight_screenshot_import import import_owner_weight_screenshot
+from healthcheck.ingestion.photo.vision import OWNER_ASSISTED_EXTRACTOR_NAME
+from healthcheck.owner_weight_screenshot_import import (
+    MAX_EXTRACTION_JSON_BYTES,
+    import_owner_weight_screenshot,
+)
 from healthcheck.runtime import prepare_runtime
 
 
@@ -52,6 +56,28 @@ def _counts(engine) -> dict[str, int]:
 def _save_image(tmp_path, payload: dict) -> object:
     path = tmp_path / "private-79.85-2026-01-14.png"
     path.write_bytes(encode_synthetic_png(payload))
+    return path
+
+
+def _structured_payload(**kwargs) -> dict:
+    payload = json.loads(json.dumps(weigh_in_payload(**kwargs)))
+    payload.setdefault("source_timezone", None)
+    payload.setdefault("source_utc_offset_minutes", None)
+    for group in payload["groups"]:
+        group.setdefault("source_timestamp", None)
+        for field in group["fields"]:
+            field.setdefault("source_local_date", None)
+            field.setdefault("source_timestamp", None)
+            field.setdefault("temporal_precision", None)
+            field.setdefault("evidence_region", None)
+            field.setdefault("algorithm_code", None)
+            field.setdefault("algorithm_version", None)
+    return payload
+
+
+def _save_extraction_json(tmp_path, payload: object, name: str = "extraction.json"):
+    path = tmp_path / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
 
@@ -129,6 +155,253 @@ def test_replay_returns_duplicate_without_a_second_semantic_weigh_in(owner_photo
     assert second.reason_code == "duplicate_content"
     assert _counts(engine) == before_replay
     assert before_replay == {"candidates": 1, "sessions": 1, "measurements": 1, "canonical": 1}
+
+
+def test_owner_assisted_json_imports_without_vision_provider(
+    owner_photo_env, tmp_path, monkeypatch
+):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 8),
+        weight_kg=78.6,
+        body_fat_pct=23.1,
+    )
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    def reject_provider(_settings):
+        raise AssertionError("configured vision provider must not be built")
+
+    monkeypatch.setattr(
+        "healthcheck.owner_weight_screenshot_import.build_photo_extractor",
+        reject_provider,
+    )
+
+    result = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+
+    assert result.status == "IMPORTED"
+    assert result.reason_code == "auto_confirmed"
+    assert _counts(engine) == {
+        "candidates": 2,
+        "sessions": 1,
+        "measurements": 2,
+        "canonical": 2,
+    }
+    with session_scope(engine) as session:
+        candidate = session.scalar(select(ImportCandidate).order_by(ImportCandidate.metric_code))
+        measurement_session = session.scalar(select(MeasurementSession))
+        assert candidate is not None
+        assert candidate.extractor_name == OWNER_ASSISTED_EXTRACTOR_NAME
+        assert candidate.model_name is None
+        assert candidate.model_version is None
+        assert measurement_session is not None
+        assert measurement_session.temporal_precision == "date"
+        assert measurement_session.source_timestamp_utc is None
+
+
+def test_owner_assisted_json_replay_is_duplicate(owner_photo_env, tmp_path):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 9),
+        weight_kg=78.5,
+    )
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    first = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+    before_replay = _counts(engine)
+    second = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+
+    assert first.status == "IMPORTED"
+    assert second.status == "DUPLICATE"
+    assert second.reason_code == "duplicate_content"
+    assert _counts(engine) == before_replay
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_reason"),
+    [
+        ("not-json-private-78.4", "extraction_json_invalid"),
+        (["not", "an", "object"], "extraction_json_invalid"),
+    ],
+)
+def test_invalid_owner_assisted_json_fails_before_r01_write(
+    owner_photo_env, tmp_path, payload, expected_reason
+):
+    settings, _paths, engine = owner_photo_env
+    image_payload = _structured_payload(
+        source_local_date=date(2026, 5, 10),
+        weight_kg=78.4,
+    )
+    image = _save_image(tmp_path, image_payload)
+    extraction_json = tmp_path / "private-78.4-extraction.json"
+    if isinstance(payload, str):
+        extraction_json.write_text(payload, encoding="utf-8")
+    else:
+        extraction_json.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == expected_reason
+    assert "78.4" not in result.to_json()
+    assert str(extraction_json) not in result.to_json()
+    assert _counts(engine) == {
+        "candidates": 0,
+        "sessions": 0,
+        "measurements": 0,
+        "canonical": 0,
+    }
+    with session_scope(engine) as session:
+        assert session.scalar(select(func.count(RawArtifact.id))) == 0
+        assert session.scalar(select(func.count(IngestEvent.id))) == 0
+
+
+def test_oversize_owner_assisted_json_fails_before_r01_write(owner_photo_env, tmp_path):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 11),
+        weight_kg=78.3,
+    )
+    image = _save_image(tmp_path, payload)
+    extraction_json = tmp_path / "oversize-private-extraction.json"
+    extraction_json.write_bytes(b"{" + b" " * MAX_EXTRACTION_JSON_BYTES)
+
+    result = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "extraction_json_too_large"
+    assert _counts(engine) == {
+        "candidates": 0,
+        "sessions": 0,
+        "measurements": 0,
+        "canonical": 0,
+    }
+    with session_scope(engine) as session:
+        assert session.scalar(select(func.count(RawArtifact.id))) == 0
+
+
+@pytest.mark.parametrize("mutation", ["missing_nullable_field", "unsupported_unit"])
+def test_owner_assisted_json_uses_strict_vision_payload_parser(
+    owner_photo_env, tmp_path, mutation
+):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 11),
+        weight_kg=78.3,
+    )
+    field = payload["groups"][0]["fields"][0]
+    if mutation == "missing_nullable_field":
+        del field["confidence"]
+    else:
+        field["unit"] = "stones"
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    result = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "extraction_json_invalid"
+    assert _counts(engine) == {
+        "candidates": 0,
+        "sessions": 0,
+        "measurements": 0,
+        "canonical": 0,
+    }
+    with session_scope(engine) as session:
+        assert session.scalar(select(func.count(RawArtifact.id))) == 0
+
+
+def test_owner_assisted_multiple_groups_need_review_without_semantic_write(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 12),
+        weight_kg=78.2,
+    )
+    alternate = json.loads(json.dumps(payload["groups"][0]))
+    alternate["key"] = "alternate-reading"
+    payload["groups"].append(alternate)
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    result = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+
+    assert result.status == "NEEDS_REVIEW"
+    assert result.reason_code == "ambiguous_groups"
+    assert _counts(engine) == {
+        "candidates": 2,
+        "sessions": 0,
+        "measurements": 0,
+        "canonical": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("provider_code", "other_provider"),
+        ("physical_device_code", "other_device"),
+        ("source_application", "Other App"),
+    ],
+)
+def test_owner_assisted_profile_conflict_fails_closed_before_r01_write(
+    owner_photo_env, tmp_path, field, value
+):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 13),
+        weight_kg=78.1,
+    )
+    payload[field] = value
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    result = import_owner_weight_screenshot(
+        settings,
+        image,
+        extraction_json_path=extraction_json,
+    )
+
+    assert result.status == "NEEDS_REVIEW"
+    assert result.reason_code == "provenance_ambiguous"
+    assert _counts(engine) == {
+        "candidates": 0,
+        "sessions": 0,
+        "measurements": 0,
+        "canonical": 0,
+    }
+    with session_scope(engine) as session:
+        assert session.scalar(select(func.count(RawArtifact.id))) == 0
 
 
 def test_same_content_with_a_new_extraction_set_requires_review(owner_photo_env, tmp_path):
@@ -326,6 +599,50 @@ def test_cli_requires_explicit_profile_and_runs_one_image(
     assert exit_code == 0
     assert json.loads(output)["status"] == "IMPORTED"
     assert str(image) not in output
+    assert _counts(engine)["measurements"] == 1
+
+
+def test_cli_accepts_owner_assisted_extraction_json_without_private_output(
+    owner_photo_env, tmp_path, monkeypatch, capsys
+):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 14),
+        weight_kg=78.0,
+    )
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(
+        tmp_path,
+        payload,
+        name="private-78.0-extraction.json",
+    )
+
+    def reject_provider(_settings):
+        raise AssertionError("configured vision provider must not be built")
+
+    monkeypatch.setattr(
+        "healthcheck.owner_weight_screenshot_import.build_photo_extractor",
+        reject_provider,
+    )
+
+    exit_code = cli.main(
+        [
+            "owner-weight-screenshot-import",
+            "--data-dir",
+            str(settings.data_dir),
+            "--image",
+            str(image),
+            "--extraction-json",
+            str(extraction_json),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert json.loads(output)["status"] == "IMPORTED"
+    assert "78.0" not in output
+    assert str(image) not in output
+    assert str(extraction_json) not in output
     assert _counts(engine)["measurements"] == 1
 
 

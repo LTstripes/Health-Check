@@ -33,6 +33,8 @@ VISION_EXTRACTOR_VERSION = "1"
 VISION_PROMPT_VERSION = "r01-xiaomi-s400-v1"
 VISION_RESPONSE_SCHEMA_NAME = "healthcheck_photo_extraction"
 MAX_PROVIDER_RESPONSE_BYTES = 512 * 1024
+OWNER_ASSISTED_EXTRACTOR_NAME = "healthcheck-owner-assisted-structured-extraction"
+OWNER_ASSISTED_EXTRACTOR_VERSION = "1"
 _ALLOWED_MEDIA_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
 _ALLOWED_PRECISIONS = frozenset({"date", "instant", "minute"})
 _KG_METRICS = frozenset({"weight", "muscle_mass", "bone_mass"})
@@ -255,6 +257,76 @@ class OpenAICompatibleVisionExtractor:
             raise ExtractionFailure(
                 "extractor_invalid_payload",
                 "vision provider response failed schema validation",
+            ) from None
+
+
+class OwnerAssistedStructuredExtractor:
+    """Adapt one already-structured Owner payload to the strict R01 extractor port."""
+
+    name = OWNER_ASSISTED_EXTRACTOR_NAME
+    version = OWNER_ASSISTED_EXTRACTOR_VERSION
+    model_name = None
+    model_version = None
+    prompt_version = VISION_PROMPT_VERSION
+
+    def __init__(
+        self,
+        payload: dict[str, Any],
+        *,
+        configured_provider_code: str | None = None,
+        configured_physical_device_code: str | None = None,
+        configured_source_application: str | None = None,
+        configured_source_application_version: str | None = None,
+    ):
+        self.payload = payload
+        self.configured_provider_code = configured_provider_code
+        self.configured_physical_device_code = configured_physical_device_code
+        self.configured_source_application = configured_source_application
+        self.configured_source_application_version = configured_source_application_version
+
+    def extract(self, request: ExtractionRequest, image_bytes: bytes) -> ExtractionResult:
+        if request.media_type not in _ALLOWED_MEDIA_TYPES:
+            raise ExtractionFailure(
+                "extractor_invalid_request", "real photo media type is not supported"
+            )
+        if not image_bytes:
+            raise ExtractionFailure("extractor_invalid_request", "real photo is empty")
+        result_request = ExtractionRequest(
+            artifact_id=request.artifact_id,
+            content_hash=request.content_hash,
+            media_type=request.media_type,
+            locale=request.locale,
+            timezone=request.timezone,
+            schema_version=request.schema_version,
+            provider_code=request.provider_code or self.configured_provider_code,
+            physical_device_code=(
+                request.physical_device_code or self.configured_physical_device_code
+            ),
+            source_application=(
+                request.source_application or self.configured_source_application
+            ),
+            source_application_version=(
+                request.source_application_version
+                or self.configured_source_application_version
+            ),
+            source_utc_offset_minutes=request.source_utc_offset_minutes,
+        )
+        try:
+            return _result_from_payload(
+                self.payload,
+                result_request,
+                extractor_name=self.name,
+                extractor_version=self.version,
+                model_name=None,
+                model_version=None,
+                prompt_version=self.prompt_version,
+            )
+        except ExtractionFailure:
+            raise
+        except (TypeError, ValueError, KeyError):
+            raise ExtractionFailure(
+                "extractor_invalid_payload",
+                "owner-assisted structured extraction failed schema validation",
             ) from None
 
 
@@ -503,7 +575,7 @@ def _result_from_payload(
     *,
     extractor_name: str,
     extractor_version: str,
-    model_name: str,
+    model_name: str | None,
     model_version: str | None,
     prompt_version: str,
 ) -> ExtractionResult:
@@ -772,6 +844,9 @@ def _require_keys(value: Mapping[str, Any], required: frozenset[str]) -> None:
 __all__ = [
     "MAX_PROVIDER_RESPONSE_BYTES",
     "OpenAICompatibleVisionExtractor",
+    "OWNER_ASSISTED_EXTRACTOR_NAME",
+    "OWNER_ASSISTED_EXTRACTOR_VERSION",
+    "OwnerAssistedStructuredExtractor",
     "UnconfiguredImageMeasurementExtractor",
     "VISION_EXTRACTOR_NAME",
     "VISION_EXTRACTOR_VERSION",
