@@ -44,6 +44,7 @@ Recently completed owner-value work now includes:
 - #214 — make routine Stable collection actually automatic every day and audit historical coverage before any targeted backfill;
 - #215 — start accumulating real private Owner context notes in Stable using the already accepted #177 contract;
 - #153 — prove the physical Xiaomi S400 → openScale/openScale-sync → Stable weight path end-to-end.
+- #217 — add the separate Owner Work screenshot-to-R01-photo CLI path; Stable live verification is tracked in the [Owner screenshot import runbook](docs/OWNER_WEIGHT_SCREENSHOT_IMPORT.md) and does not depend on #153.
 
 The provider stack already supports one bounded Owner refresh covering normal Garmin, Garmin Training, Google normal refresh and the accepted wearables-sleep reconciliation layer. What is still operationally missing is the recurring Windows schedule: #134 deliberately documented Task Scheduler setup but did not create a recurring task. Historical Garmin reconstruction is complete in Stable; Google has broad valid retained evidence, but older-coverage completeness must be audited rather than assumed.
 

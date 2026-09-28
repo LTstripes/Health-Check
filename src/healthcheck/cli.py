@@ -82,6 +82,10 @@ from healthcheck.owner_refresh import (
     require_established_runtime,
     run_owner_refresh,
 )
+from healthcheck.owner_weight_screenshot_import import (
+    OwnerWeightScreenshotImportResult,
+    import_owner_weight_screenshot,
+)
 from healthcheck.profile_backup import (
     ProfileBackupError,
     create_backup,
@@ -125,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
             "google-backfill",
             "google-refresh",
             "owner-refresh",
+            "owner-weight-screenshot-import",
             "sync-run-recovery",
             "google-diagnose-terminal",
             "period-brief",
@@ -166,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reprocess", action="store_true")
     parser.add_argument("--max-observations", type=int)
     parser.add_argument("--input")
+    parser.add_argument("--image", help="one Xiaomi Home screenshot path for Owner import")
     parser.add_argument("--family")
     parser.add_argument("--query-mode")
     parser.add_argument(
@@ -288,6 +294,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_google_refresh(args, settings)
     if args.command == "owner-refresh":
         return _run_owner_refresh(args, settings)
+    if args.command == "owner-weight-screenshot-import":
+        return _run_owner_weight_screenshot_import(args, settings)
     if args.command == "sync-run-recovery":
         return _run_sync_run_recovery(args, settings)
     if args.command == "google-diagnose-terminal":
@@ -924,6 +932,17 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
         return 2
     print(report.to_json(), end="")
     return 0 if report.status is OwnerRefreshStatus.SUCCEEDED else 1
+
+
+def _run_owner_weight_screenshot_import(args: argparse.Namespace, settings: Settings) -> int:
+    if not args.data_dir:
+        result = OwnerWeightScreenshotImportResult("FAILED", "missing_data_dir")
+    elif not args.image:
+        result = import_owner_weight_screenshot(settings, None)
+    else:
+        result = import_owner_weight_screenshot(settings, args.image)
+    print(result.to_json())
+    return result.exit_code
 
 
 def _owner_refresh_error_payload(error_code: str, error_class: str) -> dict[str, object]:
