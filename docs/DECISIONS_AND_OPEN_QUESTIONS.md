@@ -12,7 +12,7 @@ This file contains current architecture/product decisions plus only those `UNVER
 - R01, R02, R03, R04 and R05 are released to canonical `main`.
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - #119 deterministic period brief v1 is completed on canonical main.
-- The durable Stable Owner Runtime/operations line and Period Brief correctness/presentation/UAT closeout are completed and canonical. Garmin Training/Recovery parent #160 is also completed through live discovery, typed persistence, normal owner-refresh integration and owner presentation. Current data-quality priority is #147 source freshness; whole-product UI redesign is deferred under #189.
+- The durable Stable Owner Runtime/operations line, Period Brief closeout, Garmin Training/Recovery and source freshness are completed and canonical. The current non-UI priority is operational data readiness: #214 recurring Stable refresh + historical coverage audit, then #215 real Context Capture adoption. Whole-product UI redesign remains deferred under #189.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -34,10 +34,12 @@ This file contains current architecture/product decisions plus only those `UNVER
 
 ### Xiaomi S400 / R01
 
-- Preferred live path remains S400 → openScale → openScale-sync webhook → Health-Check.
-- openScale/openScale-sync remain external GPL applications.
+- The accepted routine Owner Weight path is now Xiaomi Home/S400 screenshot -> Codex/Work `health-weight-screenshot-import` skill -> strict R01 photo evidence/normalization/confirmation -> Stable.
+- #217/#219/#221 are complete and Owner-live proven: old/new screenshots imported, exact NEW replay was duplicate-safe, historical evidence remained intact.
+- openScale/openScale-sync remain external GPL applications and an optional live path, not a prerequisite for Weight accumulation.
+- Real #153 probing proved device/app -> Health-Check network/auth reachability but exposed one compatibility defect: installed openScale-sync serializes numeric `userId`, while the current receiver requires a non-empty string. Do not bypass it with DB edits.
 - Xiaomi-app and openScale body-composition algorithms remain distinct compatibility groups until actual paired evidence supports a versioned calibration.
-- Historical image extraction creates candidates; human confirmation remains distinct from model confidence.
+- Screenshot extraction remains evidence-bound and fail-closed; ambiguous/changed extraction goes to review rather than silent overwrite.
 
 ### Garmin / R02–R03
 
@@ -132,12 +134,12 @@ Frozen design from #97:
 
 ### Source freshness / data quality
 
-- #147 is the next derived-read-model product track. It remains provider-call-free and schema-free by default.
-- Accepted working state vocabulary: `fresh | quiet | stale | unavailable | unknown | not_requested`.
+- #147/#191/#193 are complete. Freshness is a deterministic provider-call-free read model reused by Owner refresh and Period Brief.
+- Accepted state vocabulary: `fresh | quiet | stale | unavailable | unknown | not_requested`.
 - Refresh attempt/success, actual evidence time, coverage/checkpoint facts and configuration/request state are distinct clocks/facts and must not be collapsed.
-- Daily automatically expected wearable streams require explicit versioned due/grace policy; event-driven activities use proven inventory coverage rather than event age; voluntary weight age is non-alert by default.
+- Daily automatically expected wearable streams use explicit versioned due/grace policy; event-driven activities use proven inventory coverage rather than event age; voluntary weight age is non-alert by default.
 - Unknown/insufficient chronology never becomes healthy; optional/unsupported metrics must not fail an otherwise healthy provider.
-- Production thresholds are frozen by Integrator policy, not inferred from sparse Owner history.
+- The next operational use of this contract is #214: automatic daily collection plus historical coverage audit.
 
 ### Time, coverage and agreement
 
@@ -195,7 +197,8 @@ These are observational gaps, not reasons to rewrite released architecture.
 
 ### Xiaomi / R01
 
-- Real owner Xiaomi S400 → openScale → openScale-sync → Stable ingestion remains only partially owner-observed; #153 owns the explicit end-to-end live verification and is the next planned hardware Owner gate.
+- The screenshot-to-Stable Owner path is fully live-proven and is the accepted routine Weight workflow.
+- #153 remains optional openScale compatibility work; the current real blocker is numeric `userId` from installed openScale-sync versus the string-only Health-Check receiver contract.
 - Exact algorithm/application identity behind every historical screenshot may remain unknown where the screenshot itself does not prove it.
 - No Xiaomi↔openScale numeric body-composition calibration exists without paired evidence.
 
