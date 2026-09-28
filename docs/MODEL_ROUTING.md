@@ -12,7 +12,7 @@ Choose execution mode separately from model strength. One Worker can handle a co
 
 Use the lowest reasoning setting that comfortably handles the bounded contract. Reserve a higher setting for identified unresolved architecture, provenance, replay/state-transition or statistical reasoning; explain that reason in routing. Do not raise every Worker and Reviewer to the maximum because a previous run was slow or blocked. First resolve missing requirements, ownership and runtime readiness. An early strong contract review can be more useful than upgrading a long implementation pass with an incomplete packet.
 
-Concrete model IDs and effort assignments belong to the launch/local configuration. Attribute actual root/Worker/Reviewer settings from available runtime evidence; unknown settings or token costs remain unknown. Reassess after a specific failure, not from wall time alone.
+Concrete model IDs and effort assignments belong to the launch/local configuration. Routine completion evidence records only `model` and `provider/client`; if either is not actually known, write `unknown` rather than inferring it from the requested route. Reassess after a specific failure, not from wall time alone.
 
 ## Roles
 
@@ -175,6 +175,6 @@ Do not invent an available model, baseline, workspace or permission to make the 
 
 Use the dated [model evidence journal](MODEL_BENCHMARK.md) and [#210](https://github.com/LTstripes/Health-Check/issues/210), paired with Finance #605. Record real task outcomes without rerunning tasks merely to accumulate scores. Routine logging is not activation of blind A/B or an agent queue.
 
-The Integrator records role/profile, complexity/risk, client/provider/model/effort attribution, baseline/candidate/verdict, substantive correction rounds and source evidence. Runtime-confirmed identity, Owner-reported selection and unknown identity stay distinct. Missing costs/timings stay unknown; infrastructure contention and assignment/review mistakes are separate from model defects. A slice merge is not aggregate acceptance or Owner UAT.
+The Integrator records role/profile, complexity/risk, `model`, `provider/client`, baseline/candidate/verdict, substantive correction rounds and source evidence. Do not infer model identity from the assignment; unknown stays unknown. Cost/timing is not part of routine Model evidence and is recorded only when explicitly measured and useful. Infrastructure contention and assignment/review mistakes are separate from model defects. A slice merge is not aggregate acceptance or Owner UAT.
 
 Prefer the least expensive suitable execution route with sufficient evidence, not the cheapest name regardless of risk. Trial/anonymous routes start on bounded noncritical tasks. No historical grade or model switch waives independent semantic/privacy review. One primary Worker and one heavyweight local verification process at a time across both projects is the current resource-aware default; separate physical workspaces remain mandatory and CI gates are unchanged.
