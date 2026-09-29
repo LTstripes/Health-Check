@@ -22,6 +22,11 @@ from healthcheck.db.models import (
     ScalarMeasurement,
 )
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+from healthcheck.ingestion.photo.provenance import (
+    WEIGHT_ALGORITHM_CODE,
+    XIAOMI_HOME_COMPOSITION_ALGORITHM,
+    XIAOMI_UNKNOWN_APP_ALGORITHM,
+)
 from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
 from healthcheck.ingestion.photo.vision import OWNER_ASSISTED_EXTRACTOR_NAME
 from healthcheck.owner_weight_screenshot_import import (
@@ -136,6 +141,113 @@ def test_clear_xiaomi_screenshot_auto_confirms_through_r01_provenance(owner_phot
         assert {
             row.metric_code for row in session.scalars(select(CanonicalSelection))
         } == {"weight", "body_fat_pct", "muscle_mass"}
+
+
+def test_accepted_xiaomi_screenshot_algorithm_codes_keep_unknown_version(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 12), weight_kg=78.2, body_fat_pct=23.0
+    )
+    for field in payload["groups"][0]["fields"]:
+        field["algorithm_code"] = (
+            WEIGHT_ALGORITHM_CODE
+            if field["metric_code"] == "weight"
+            else XIAOMI_HOME_COMPOSITION_ALGORITHM
+        )
+        field["algorithm_version"] = None
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    result = import_owner_weight_screenshot(
+        settings, image, extraction_json_path=extraction_json
+    )
+
+    assert result.status == "IMPORTED"
+    assert _counts(engine) == {
+        "candidates": 2, "sessions": 1, "measurements": 2, "canonical": 2
+    }
+    with session_scope(engine) as session:
+        algorithms = {
+            row.metric_code: session.get(MeasurementAlgorithm, row.measurement_algorithm_id)
+            for row in session.scalars(select(ScalarMeasurement))
+        }
+        assert algorithms["weight"].code == WEIGHT_ALGORITHM_CODE
+        assert algorithms["body_fat_pct"].code == XIAOMI_HOME_COMPOSITION_ALGORITHM
+        assert {algorithm.version for algorithm in algorithms.values()} == {"unknown"}
+
+
+@pytest.mark.parametrize(
+    ("metric_code", "foreign_code"),
+    [
+        ("body_fat_pct", "openscale_s400_bia"),
+        ("body_fat_pct", XIAOMI_UNKNOWN_APP_ALGORITHM),
+        ("weight", "openscale_weight"),
+    ],
+)
+def test_foreign_screenshot_algorithm_requires_review_without_semantic_writes(
+    owner_photo_env, tmp_path, metric_code, foreign_code
+):
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 13), weight_kg=78.1, body_fat_pct=22.9
+    )
+    for field in payload["groups"][0]["fields"]:
+        if field["metric_code"] == metric_code:
+            field["algorithm_code"] = foreign_code
+            field["algorithm_version"] = "synthetic-version"
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    result = import_owner_weight_screenshot(
+        settings, image, extraction_json_path=extraction_json
+    )
+
+    assert result.status == "NEEDS_REVIEW"
+    assert result.reason_code == "algorithm_identity_conflict"
+    assert result.exit_code == 3
+    assert _counts(engine) == {
+        "candidates": 2, "sessions": 0, "measurements": 0, "canonical": 0
+    }
+    assert foreign_code not in result.to_json()
+    assert "78.1" not in result.to_json()
+    assert str(image) not in result.to_json()
+
+
+def test_existing_foreign_group_with_unknown_version_requires_review(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    with session_scope(engine) as session:
+        session.add(
+            MeasurementAlgorithm(
+                code=XIAOMI_HOME_COMPOSITION_ALGORITHM,
+                version="unknown",
+                metric_family="body_composition",
+                producer="openscale",
+                compatibility_group="openscale_composition",
+            )
+        )
+    payload = _structured_payload(
+        source_local_date=date(2026, 5, 14), weight_kg=78.0, body_fat_pct=22.8
+    )
+    for field in payload["groups"][0]["fields"]:
+        if field["metric_code"] == "body_fat_pct":
+            field["algorithm_code"] = XIAOMI_HOME_COMPOSITION_ALGORITHM
+            field["algorithm_version"] = None
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload)
+
+    result = import_owner_weight_screenshot(
+        settings, image, extraction_json_path=extraction_json
+    )
+
+    assert result.status == "NEEDS_REVIEW"
+    assert result.reason_code == "algorithm_identity_conflict"
+    assert _counts(engine) == {
+        "candidates": 2, "sessions": 0, "measurements": 0, "canonical": 0
+    }
 
 
 def test_replay_returns_duplicate_without_a_second_semantic_weigh_in(owner_photo_env, tmp_path):

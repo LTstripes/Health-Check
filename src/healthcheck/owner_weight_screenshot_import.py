@@ -26,6 +26,8 @@ from healthcheck.ingestion.photo.extractor import (
 )
 from healthcheck.ingestion.photo.normalize import NormalizedField
 from healthcheck.ingestion.photo.provenance import (
+    WEIGHT_ALGORITHM_CODE,
+    XIAOMI_HOME_COMPOSITION_ALGORITHM,
     XIAOMI_HOME_PROVIDER,
     XIAOMI_S400_DEVICE,
     resolve_provider_code,
@@ -455,6 +457,25 @@ def _auto_confirm_block_reason(
             or provenance["source_application"] != "Xiaomi Home"
         ):
             return "provenance_ambiguous"
+        expected_algorithm = (
+            WEIGHT_ALGORITHM_CODE
+            if candidate.metric_code == "weight"
+            else XIAOMI_HOME_COMPOSITION_ALGORITHM
+        )
+        if candidate.algorithm_code not in {None, expected_algorithm} or provenance[
+            "compatibility_group"
+        ] not in {None, expected_algorithm}:
+            return "algorithm_identity_conflict"
+        existing_algorithm = service.repos.measurement_algorithms.get_by_code_version(
+            expected_algorithm, candidate.algorithm_version or "unknown"
+        )
+        if existing_algorithm is not None and (
+            existing_algorithm.compatibility_group != expected_algorithm
+            or existing_algorithm.producer != "xiaomi"
+            or existing_algorithm.metric_family
+            != ("weight" if candidate.metric_code == "weight" else "body_composition")
+        ):
+            return "algorithm_identity_conflict"
     return None
 
 
