@@ -16,6 +16,8 @@ Canonical source: `main`.
 - **Post-R05 Owner Runtime & Period Brief:** one durable private Owner profile, verified backup/restore UAT clones, one-command Garmin/Google refresh, deterministic Period Brief correctness/UI closeout and Owner UAT.
 - **Garmin Training & Recovery:** live-discovered Garmin-native Training Status/load/ACWR, Load Focus, Training Readiness/Recovery and activity Training Effect/load are persisted, included in normal owner refresh and shown read-only on the Garmin owner page.
 - **Context capture v0:** revisioned owner-authored free-text context events with deterministic local storage and CLI capture/list/revise flow.
+- **Owner screenshot workflow:** Xiaomi screenshot -> repo skill `health-weight-screenshot-import` -> Owner-assisted structured extraction -> existing R01 photo pipeline -> Stable; OLD/NEW/exact-replay Owner gate PASS (#217/#219/#221).
+- **Latest safety fixes:** Windows limited-encoding Period Brief stdout (#203), Xiaomi screenshot auto-confirm algorithm identity (#226), coherent SQLite/ORM snapshots for compound Weight and Period Brief reads (#227).
 
 R04 release lineage:
 
@@ -27,36 +29,27 @@ R04 release lineage:
 
 The final R04 owner gate also proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations.
 
-## Current focus
+## Current focus — 2026-09-29
 
-Current canonical checkpoint: `main @ 968deac9cefd46dda15a269022cd13802a5b8e16`; exact-main CI `36342547115` SUCCESS with 1133 exact nodeids and Windows smoke PASS. Re-read current `main` from GitHub before every launch or integration.
+Accepted product checkpoint before this documentation refresh: `main @ f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`; exact-main CI `36623160664` SUCCESS, including Windows smoke and final `checks`. Re-read current GitHub main/CI before launch or integration; this is a dated product checkpoint, not a permanent branch pointer.
 
-Recently completed owner-value work now includes:
+**Completed:** #203 via PR #225; #226 via PR #230; #227 via PR #231 after one independent-review remediation round. Source freshness #147/#191/#193 and Google HR performance/reliability #199/#206/#207/#212 are also complete.
 
-- Period Brief correctness, presentation and Owner UAT (#146/#133/#129/#127);
-- revisioned Context Capture v0 (#177), with deterministic add/revise/list semantics proven on a disposable profile;
-- Garmin Training discovery → persistence → normal owner refresh → owner view (#175/#180/#183/#187; parent #160 complete);
-- source freshness v1 core and consumers (#147/#191/#193);
-- Google HR performance/reliability hardening (#199/#206/#207/#212), including bounded promotion preload, continuation context reuse and bounded transport retry.
+**Current non-UI work:**
 
-**Immediate product sequencing is data readiness before UI:**
+1. **#229 — candidate awaiting independent semantic review:** changed Owner-assisted sidecar must become reviewable pending evidence. Candidate `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05`; no merge/acceptance is implied by a Worker report or CI alone.
+2. **#214 — automatic collection proof:** historical inventory and manual refresh passed; Task Scheduler is configured for 10:30 plus Owner logon, including battery operation. One untouched automatic run with final report/result remains unproven.
+3. **#215 — first real Context note:** add/read back one private Owner-authored note using the existing contract. No invented diary entry and no daily-note requirement.
+4. **#181 — Windows smoke / partial-rerun reliability:** recent cleanup exit-255 failures are retained evidence; green later runs do not close the defect. Diagnose without weakening cleanup or the final gate.
+5. **#148 — protected off-site recovery:** design the protection/publication/retention contract, then implementation/security review and a separate clean restore rehearsal. Local backup alone does not satisfy it.
 
-- #214 — make routine Stable collection actually automatic every day and audit historical coverage before any targeted backfill;
-- #215 — start accumulating real private Owner context notes in Stable using the already accepted #177 contract;
-- #153 — prove the physical Xiaomi S400 → openScale/openScale-sync → Stable weight path end-to-end.
-- #217 — add the separate Owner Work screenshot-to-R01-photo CLI path; Stable live verification is tracked in the [Owner screenshot import runbook](docs/OWNER_WEIGHT_SCREENSHOT_IMPORT.md) and does not depend on #153.
+The Owner chose **Google high-frequency `heart_rate` OFF by default in the local Ops runner**, with a reversible flag. Garmin HR, other Google streams and fixed wearables-sleep reconciliation remain enabled. Existing Google HR history is retained; its historical gap is intentionally not a backfill target while disabled. The repository's bare CLI default is unchanged and includes HR. See [Owner Refresh](docs/OWNER_REFRESH.md).
 
-The provider stack already supports one bounded Owner refresh covering normal Garmin, Garmin Training, Google normal refresh and the accepted wearables-sleep reconciliation layer. What is still operationally missing is the recurring Windows schedule: #134 deliberately documented Task Scheduler setup but did not create a recurring task. Historical Garmin reconstruction is complete in Stable; Google has broad valid retained evidence, but older-coverage completeness must be audited rather than assumed.
+Weight accumulation does not depend on #153: openScale is optional compatibility work after the screenshot route was live-proven. #228 Phase 1 research is accepted, but cross-image event dedup implementation is parked until trustworthy source-event identity exists; date/value similarity must not auto-merge measurements.
 
-Separate open work remains intentionally independent:
+There are **13 open issues** at this checkpoint, including #210's ongoing model journal, deferred #172/#189 UI, Owner-deferred #167 privacy rewrite, #126 protection/capability decision and #105 NOT_ELIGIBLE. The [roadmap](docs/ROADMAP.md#current-backlog--2026-09-29) distinguishes actionable work from parked items. No new UI/AI/Recovery Score track is launched by this handoff.
 
-- #148 — off-site backup/disaster-recovery rehearsal;
-- #167 — historical metadata/privacy remediation before future public exposure;
-- #189 — accepted but deferred whole-product Owner UI redesign umbrella;
-- #126 — repository required-check/protection capability/Owner decision;
-- #105 — deferred/NOT_ELIGIBLE canonical sleep rule.
-
-The Owner UI is already functionally useful. Whole-product redesign stays behind the data-readiness gates above: missing daily/history evidence is more important to fix now than presentation polish.
+[Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md) and the [model table](docs/MODEL_BENCHMARK.md) record actual outcomes and Owner-confirmed model labels without inventing missing runtime versions.
 
 ## Architecture in one minute
 
@@ -117,9 +110,9 @@ Start the canonical Windows runtime:
 
 Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HEALTHCHECK_DATA_DIR`.
 
-For normal Owner operation, the accepted durable private profile is `D:\Garmin\HealthCheck-Stable`. It is persistent owner data, not a release-UAT sandbox; candidate UAT uses a disposable verified backup/restore clone.
+For normal Owner operation, the accepted durable private profile is `D:\Garmin\HealthCheck-Stable`. It is persistent owner data, not a release-UAT sandbox; candidate UAT uses a disposable verified backup/restore clone. The Owner operation checkout is `D:\Garmin\HealthCheck-Owner-Main`; GitHub merges do not automatically update that local checkout or restart its processes.
 
-The bounded manual Owner refresh (normal Garmin, Garmin Training, Google Health and the accepted wearables-sleep reconciliation layer) and its optional Task Scheduler setup are documented in [Owner Refresh](docs/OWNER_REFRESH.md). The command requires an already-established external runtime and does not create a new profile.
+[Owner Refresh](docs/OWNER_REFRESH.md) documents the local selected-stream runner, Scheduler controls and the unchanged bounded CLI. The command requires an already-established external runtime and does not create a new profile.
 
 No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository.
 
@@ -129,7 +122,7 @@ Normal development should use targeted checks while iterating, then one exact ca
 
 The accepted final GitHub Actions verdict is the job named **`checks`**. It fail-closes over the mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. The repository is currently public; #126 remains an explicit repository-settings/Owner decision. Regardless of server enforcement, Integrator process must not advance `main` unless `checks` succeeded on the exact SHA being promoted.
 
-Do not reopen the performance campaign merely to save seconds. #124 closed the measured large serial stall; further CI optimization requires a new material measured bottleneck.
+#181 is reliability work for demonstrated Windows cleanup and partial-rerun evidence failures, not an invitation to retry until green. Separate performance optimization still requires a material measured bottleneck.
 
 ## Canonical documentation
 
@@ -139,8 +132,10 @@ Do not reopen the performance campaign merely to save seconds. #124 closed the m
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
+- [Model Evidence Journal](docs/MODEL_BENCHMARK.md)
 - [CI Maintenance Closeout](docs/CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
 - [Owner Refresh](docs/OWNER_REFRESH.md)
+- [Owner Screenshot Import](docs/OWNER_WEIGHT_SCREENSHOT_IMPORT.md)
 - [Verbose historical execution log](docs/EXECUTION_HISTORY.md)
 - [R04 Release Closeout](docs/R04_RELEASE_CLOSEOUT.md)
 - [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md)

@@ -2,182 +2,116 @@
 
 This is the compact current-state entry point. Historical contracts and release evidence remain in their release-specific documents and GitHub issues.
 
-## Current canonical state
+## Current canonical state — 2026-09-29
 
-- Canonical Git branch: `main`
-- Current accepted product checkpoint before this documentation refresh: `main @ 9a16ac943dd50a448342ea3b494bf8ccd043997b`
-- Exact-main CI: `36018343743` — SUCCESS (`1050 exact nodeids`, Windows smoke PASS)
-- Re-read current `main` from GitHub before launch/integration; documentation SHAs are handoff evidence, not permanent architecture truth.
-- Latest numbered major release: **R05 — Garmin / Google wearable sleep agreement**.
-- Post-R05 Stable Owner Runtime, deterministic Period Brief closeout, Context capture v0 and Garmin Training/Recovery are now canonical and completed.
-- Canonical owner data profile: `D:\Garmin\HealthCheck-Stable`; candidate UAT uses disposable verified backup/restore clones, never Stable itself.
-- Parent #160 Garmin Training analytics is CLOSED complete through discovery, persistence, normal refresh integration and owner presentation.
-- Next bounded data-quality track: **#147 source freshness**, after explicit v1 production policy freeze.
-- Deferred presentation work: #172 Period Brief UX follow-up and #189 whole-product Owner UI redesign.
-- Current repository visibility is **public**; this does not relax the hard no-private-data-in-Git rule. #167 tracks historical metadata/privacy remediation.
-- R05 closeout: [R05_RELEASE_CLOSEOUT.md](R05_RELEASE_CLOSEOUT.md)
-- Stable Runtime closeout: [STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md)
-- CI maintenance closeout: [CI_MAINTENANCE_CLOSEOUT_2026-09-17.md](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
+- Canonical Git branch: `main`.
+- Accepted product checkpoint before this docs-only refresh: `f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`.
+- Exact-main CI: `36623160664` — SUCCESS, including Windows smoke and final `checks`.
+- Re-read current GitHub main/CI before launch/integration; documentation SHAs are dated evidence, not permanent branch pointers.
+- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness, screenshot workflow, #203, #226 and #227 are canonical.
+- Stable Owner data profile: `D:\Garmin\HealthCheck-Stable`. Candidate UAT uses disposable verified backup/restore clones, never Stable itself.
+- Owner operational checkout: `D:\Garmin\HealthCheck-Owner-Main`; local Ops scripts: `D:\Garmin\HealthCheck-Ops`. GitHub merges do not automatically deploy to these local paths.
+- #214: historical inventory/manual PASS; daily 10:30 plus logon Scheduler configured; untouched automatic-run acceptance still pending.
+- Google high-frequency `heart_rate` is OFF by Owner decision in the local runner only. Other streams remain enabled; no historical HR backfill while disabled.
+- #229: delivered correction-workflow candidate, not yet accepted/merged. #228: research accepted, implementation parked.
+- #215: first real private Context note/read-back still required.
+- #181 Windows cleanup/partial-rerun reliability remains open. #148 off-site protection/recovery is not complete.
+- #172/#189 UI deferred, #153 optional compatibility, #167 Owner-deferred, #126 decision/capability gate, #105 NOT_ELIGIBLE, #210 ongoing journal.
+- Repository visibility is public; private-data restrictions remain unchanged. This refresh does not authorize a visibility/protection/history rewrite.
+
+Full [backlog status table](ROADMAP.md#current-backlog--2026-09-29), [current history](EXECUTION_HISTORY_CURRENT.md), and [model evidence table](MODEL_BENCHMARK.md).
 
 ## What the product can do today
 
 ### Weight / body composition
 
-- import and confirm Xiaomi screenshots/photos;
-- preserve source/device/algorithm provenance;
-- accept the openScale/openScale-sync live contract;
-- calculate deterministic weight/body-composition trends;
-- show the local weight dashboard.
+- import Xiaomi Home/S400 screenshots through the repo skill and strict Owner-assisted extraction, reusing R01;
+- auto-confirm only the accepted unambiguous path; reject incompatible algorithm identity before semantic writes (#226);
+- preserve original evidence, source/device/algorithm provenance and confirmed history;
+- exact attachment replay is duplicate-safe; no claim of automatic cross-image event dedup (#228);
+- accept the openScale/openScale-sync contract, with real numeric-userId compatibility still optional/open (#153);
+- calculate deterministic trends and show the local Weight dashboard.
+
+Changed-sidecar review staging belongs to pending #229, not this released capability list.
 
 ### Garmin
 
 - protected owner-assisted session reuse;
-- incremental sync + historical backfill;
+- incremental sync and historical backfill;
 - coverage/checkpoints/reconciliation;
 - deterministic scalar baselines/trends;
-- activity/cycling comparison;
-- bounded lagged associations;
+- activity/cycling comparison and bounded lagged associations;
 - read-only owner Garmin dashboard;
-- persist Garmin-native Training Status, daily/chronic load, ACWR, Load Focus and Training Readiness/Recovery evidence with truthful chronology/provenance;
-- keep Garmin Training current through the normal one-command Owner refresh;
-- show a compact Training & recovery owner section with recent activity Training Effect/load.
+- persist Garmin-native Training Status/load/ACWR, Load Focus and Readiness/Recovery with truthful chronology/provenance;
+- keep Training current through one-command Owner refresh;
+- show Training & recovery plus recent activity Training Effect/load.
 
 ### Google Health
 
-- Web Application OAuth with a fixed registered loopback callback;
-- external-runtime DPAPI-protected Google auth/session state;
-- read-only sleep + health-metrics scopes;
-- typed Google source/raw/current evidence;
-- bounded incremental sync;
-- historical backfill;
-- explicit bounded refresh/reconciliation;
+- Web Application OAuth with fixed registered loopback callback;
+- external-runtime DPAPI-protected auth/session state;
+- accepted read-only sleep and health-metrics scopes;
+- source/raw/current typed evidence;
+- bounded incremental sync, historical backfill and explicit refresh/reconciliation;
 - coverage/checkpoint/idempotency semantics;
-- privacy-safe structural diagnostics.
+- privacy-safe structural diagnostics;
+- selectable normal streams; fixed wearables-sleep reconciliation remains separate.
+
+The bare CLI default still includes sample HR. Use the local Scheduler/runner for the Owner's chosen HR-OFF profile; see [Owner Refresh](OWNER_REFRESH.md).
 
 ### Cross-domain reporting
 
-- deterministic period brief v1 over weight, sleep, activity and data-quality/coverage evidence;
-- stable result hash and reproducible evidence packet;
-- thin API/text/CLI rendering without reimplementing analytics;
-- direct reuse of the accepted R05 sleep report and complete bounded activity inventory semantics.
+- deterministic Period Brief over Weight, sleep, activity and data quality;
+- reproducible evidence packet and stable result hash;
+- thin API/text/CLI rendering, including limited-encoding Windows stdout (#203);
+- coherent Weight/Period Brief multi-query SQLite snapshots with clean ORM cache alignment (#227);
+- shared source-freshness projection from #147/#191/#193, not duplicated UI thresholds.
 
 ### Live-accepted Stable Owner Runtime
 
-The accepted Stable-runtime work is reconciled to canonical main and defines the normal long-lived owner operating model:
+The completed foundation provides one private persistent profile, supported large-profile backup/verify/restore, one-command provider refresh, bounded dense-HR continuation, path-free Google instant/interval identity, shared external-runtime locking and supported stale-run recovery.
 
-- one persistent private profile for Weight, Garmin, Google and exploratory agreement evidence;
-- supported large-profile backup → verify → restore into disposable clones;
-- bounded one-command normal Garmin + Garmin Training + Google owner refresh;
-- dense Google HR daily-partition refresh and safe resumable continuation;
-- path-free Google instant/interval semantic identity with repository-backed legacy migration;
-- shared external-runtime operation locking and explicit stale SyncRun recovery;
-- no current canonical instant duplicate groups and no remaining stale `running` SyncRun rows in the accepted Stable profile.
+Historical closeout proved zero current instant duplicate groups and no stale running SyncRun rows at that checkpoint. Those are dated observations, not a perpetual health guarantee after later runs. The 2026-09-29 operational report proved a successful manual selected-stream refresh; uninterrupted automatic proof remains open in #214.
 
-Stable is owner data, not Git state. It is never reset for release UAT; UAT uses a disposable restored clone.
+Stable is data, not Git state, and is never reset for release UAT.
 
 ## R04 live proof
 
-The owner-live gate proved:
-
-- Google Auth Platform `In production` / External;
-- two required read scopes granted, no missing scope;
-- protected re-consent and immediate session reuse;
-- live capability across planned Google Health surfaces;
-- heart-rate pagination/resume;
-- terminal-empty provider envelope repair (#110);
-- completed heart-rate window exact rerun with **0 provider calls**;
-- bounded historical `daily_hrv` backfill;
-- explicit `daily_hrv` refresh/reconciliation;
-- populated private DB integrity at Alembic `0010_google_typed_normalization`, `quick_check=ok`, FK violations `0`.
-
-No raw owner health data or secrets are part of the repository.
+The released Owner gate proved In-production Google OAuth, the two accepted scopes, protected consent/session reuse, bounded capability, pagination/resume, narrow terminal-empty repair #110, zero-call completed-window replay, bounded HRV backfill/refresh and populated DB integrity at the R04 revision. Release specifics remain in [R04 Release Closeout](R04_RELEASE_CLOSEOUT.md).
 
 ## Source-attribution rule that matters for R05
 
-`dataSourceFamily`, `list/reconcile/rollUp/dailyRollUp` and broad `google-wearables` family membership are acquisition context, not proof of one physical Fitbit device.
+`dataSourceFamily`, query mode and broad `google-wearables` family membership are acquisition context, not proof of one physical Fitbit device.
 
-R05 uses two different legacy cohorts (plus an exploratory uncertain account cohort):
+- `fitbit_device` / `device_pair`: requires explicit persisted source/device metadata;
+- `google_wearables_family` / `family_pair`: exploratory only, insufficient for canonical switching;
+- `account_wearables_sleep_observations_v1`: exploratory/uncertain-only.
 
-- `fitbit_device` / `device_pair`: only explicit persisted source/device metadata can qualify;
-- `google_wearables_family` / `family_pair`: exploratory only, never sufficient for a canonical-source switch.
-
-This prevents the project from accidentally comparing Garmin against a mixed Pixel Watch/Fitbit/family aggregate and calling it Fitbit agreement.
+Garmin remains canonical/default. #105 is NOT_ELIGIBLE until its existing evidence gate is satisfied.
 
 ## Engineering reliability / CI
 
-The bounded #123–#125 maintenance track is complete.
+#123–#125 established provenance-bound evidence, three serial Linux lanes with exact nodeid/multiplicity reconciliation, and focused native Windows DPAPI/startup/HTTP/cleanup proof. Their historical remote timing improvement is recorded in [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), not used as a promise for every current run.
 
-What changed:
+#181 retains real intermittent Windows cleanup failures and partial-rerun aggregation debt. Later green runs do not establish the failure's root cause or close the issue. Do not weaken cleanup or retry until green.
 
-- evidence became provenance-bound and fail-closed (#123);
-- one long Linux path became three independent balanced serial lanes plus quality (#124);
-- the final `checks` job reconciles the exact expected Linux nodeids/multiplicity rather than trusting subset job labels;
-- a focused Windows runner now executes real native DPAPI, real `start.ps1`, loopback UI/ingest scenarios, path-with-spaces runtime handling and verified root-tree cleanup (#125).
+#126 is still an explicit Owner/capability decision. Before advancing canonical/shared refs, Integrator requires exact-SHA final `checks: SUCCESS`; green constituent lanes alone are insufficient. No history rewrite, forced ref update or protection change is part of ordinary product work.
 
-Representative remote feedback improved from about **5m02s** to about **2m48s** with the Windows gate included — roughly **44% less wall time** while coverage became stronger. The current #187 exact-main gate reported `1050 exact nodeids reconciled across all mandatory jobs` and `WINDOWS_SMOKE_EVIDENCE: PASS`.
+## Next work
 
-Do not continue CI optimization just to shave seconds. Reopen performance work only if a new measured material bottleneck appears.
+Finish #229 independent review/integration; obtain one untouched automatic #214 result and the Owner's first #215 note. #181 can be prepared as separate CI-only work with isolated ownership. Then prioritize #148 protection/publication/retention design and recovery rehearsal before broad UI/AI expansion.
 
-### Required-check enforcement limitation
-
-#126 remains an explicit **OWNER DECISION / repository-settings** item. The repository is currently public, so the old private-repository capability statement is historical and must be re-read before any protection change. No settings change is implied by product work.
-
-Until that changes, the manual Integrator gate is mandatory:
-
-- exact target SHA must have final `checks: SUCCESS` before advancing integration or `main`;
-- constituent green jobs alone are insufficient;
-- only the Integrator advances shared/canonical refs after ACCEPT;
-- force-push/deletion of integration/canonical history is process-prohibited.
-
-## Current work
-
-### 1. Source freshness — #147
-
-The old repository-reconciliation and Period Brief closeout queues are finished. The next bounded product track is #147.
-
-Research already established that v1 can be a derived read model without schema change, but implementation must not invent production cadence/thresholds. The Integrator must first freeze the policy table.
-
-Accepted state vocabulary:
-
-`fresh | quiet | stale | unavailable | unknown | not_requested`
-
-Key distinctions:
-
-- daily automatically expected wearable streams use explicit due/grace policy;
-- event-driven activities use proven inventory coverage rather than activity age;
-- voluntary weight age is non-alert by default;
-- refresh outcome, coverage and actual evidence age remain separate facts;
-- unknown/insufficient chronology never becomes healthy.
-
-### 2. Separate open tracks
-
-- #153 — Xiaomi S400/openScale live E2E (Owner hardware gate);
-- #148 — off-site portable backup / disaster recovery;
-- #167 — privacy/history remediation;
-- #172 — Period Brief UX follow-up;
-- #189 — deferred whole-product Owner UI redesign;
-- #126 — repository protection/Owner decision;
-- #105 — deferred/NOT_ELIGIBLE canonical sleep rule.
-
-### Completed post-R05 / operational work
-
-#119, #127/#129/#133/#146, #132/#134/#136/#138/#139/#140/#141/#158/#150/#154/#156, #177, #175/#180/#183/#187/#160, #98/#99 and #123–#125 are completed.
-
-### R05 disposition
-
-Strict `device_pair` / `family_pair` remain fail-closed. `account_wearables_sleep_observations_v1` remains exploratory/uncertain-only. #105 is deferred/NOT_ELIGIBLE; Garmin remains canonical/default.
+The [roadmap table](ROADMAP.md#current-backlog--2026-09-29) records all 13 open issues, including the non-coding tracker and parked gates. It is not an automatic queue.
 
 ## Core engineering rules
 
 - `main` is the only canonical release source.
-- Issue = contract; worker prompt = role + exact SHA + gate/delta + STOP conditions.
-- Workers do not self-accept or merge.
-- Integrator independently reviews actual refs/diffs/CI.
-- Real health data, screenshots, tokens, provider payloads and runtime DBs never enter Git/CI/worker workspaces.
-- Provider boundaries stay fail-closed on unknown shapes.
+- Issue = contract; short Worker prompt = role, exact SHA, workspace and delivery.
+- Workers do not self-accept or merge; independent review remains risk-based.
+- Real health data, screenshots, tokens, payloads and runtime DBs never enter Git/CI/Worker workspaces.
 - Missing/null/zero/unavailable/unknown remain distinct.
-- Deterministic analytics own mathematics; UI/LLM explain results rather than reimplementing them.
-- During implementation, use targeted checks; stabilized candidates/integration/main receive exact remote gates.
+- Deterministic analytics own mathematics; UI/LLM explain rather than reimplement them.
+- Owner-confirmed actual model labels count as evidence even when a client reports unknown; unreported versions stay unknown.
 
 ## Useful docs
 
@@ -187,6 +121,9 @@ Strict `device_pair` / `family_pair` remain fail-closed. `account_wearables_slee
 - [Roadmap](ROADMAP.md)
 - [Decisions and Open Questions](DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](EXECUTION_HISTORY_CURRENT.md)
+- [Model Evidence Journal](MODEL_BENCHMARK.md)
+- [Owner Refresh](OWNER_REFRESH.md)
+- [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md)
 - [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md)
 - [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
 - [R04 Release Closeout](R04_RELEASE_CLOSEOUT.md)
