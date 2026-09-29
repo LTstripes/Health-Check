@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -150,7 +151,45 @@ def _assert_no_training_leaks(payload) -> None:
         "raw_payload",
     ):
         assert banned not in lowered
-    assert "811" not in blob
+
+    def assert_no_fixture_device_id(value) -> None:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                assert_no_fixture_device_id(key)
+                assert_no_fixture_device_id(nested)
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                assert_no_fixture_device_id(nested)
+        elif isinstance(value, int) and not isinstance(value, bool):
+            assert value != 811
+        elif isinstance(value, str):
+            assert value != "811"
+
+    assert_no_fixture_device_id(payload)
+
+
+def test_training_privacy_allows_source_uuid_containing_fixture_device_id():
+    _assert_no_training_leaks({"garmin_source_id": "00000000-0000-4000-8000-000000000811"})
+
+
+def test_training_privacy_oracle_rejects_device_ids_and_private_fields():
+    leaks = (
+        {"deviceId": 811},
+        {"nested": [{"deviceId": "811"}]},
+        {"provider_device_id": "811"},
+        {"provider_device_key": "synthetic-device"},
+        {"devices": {"dynamic-provider-device": "present"}},
+        {"activityRecorderDeviceId": "synthetic-device"},
+        {"record_id": "synthetic-record"},
+        {"requested_dates": []},
+        {"raw_payload": {"synthetic": True}},
+        {"payload_body": {"synthetic": True}},
+        {"access_token": "synthetic-secret"},
+        {"refresh_token": "synthetic-secret"},
+    )
+    for payload in leaks:
+        with pytest.raises(AssertionError):
+            _assert_no_training_leaks(payload)
 
 
 def test_training_overview_chronology_zero_missing_and_units(tmp_path):
