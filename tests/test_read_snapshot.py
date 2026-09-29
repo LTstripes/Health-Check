@@ -166,6 +166,48 @@ def test_existing_physical_transaction_is_reused_until_caller_ends_it(pending_im
         assert service.import_queue_summary()["confirmed_candidate_count"] == 1
 
 
+@pytest.mark.parametrize("commit_before_begin", [False, True])
+@pytest.mark.parametrize("method", ["queue", "dashboard", "brief"])
+def test_caller_snapshot_expires_pre_begin_cached_candidate(
+    pending_import, commit_before_begin, method
+):
+    engine, settings, confirm, commits = pending_import
+    with session_scope(engine) as reader:
+        cached = reader.scalar(select(ImportCandidate))
+        candidate_id = cached.id
+        assert cached.user_decision == "pending"
+        if commit_before_begin:
+            reader.commit()  # expire_on_commit=False retains the old entity.
+        connection = reader.connection()
+        assert not connection.connection.driver_connection.in_transaction
+        confirm()
+        assert commits == [True]
+        connection.exec_driver_sql("BEGIN")
+        # Establish and inspect the caller's physical snapshot without refreshing ORM state.
+        assert (
+            connection.exec_driver_sql(
+                "SELECT user_decision FROM import_candidates WHERE id = ?", (candidate_id,)
+            ).scalar_one()
+            == "confirmed"
+        )
+        assert cached.user_decision == "pending"
+        transaction = reader.get_transaction()
+
+        if method == "brief":
+            packet = PeriodBriefService(reader, settings).build(**PERIOD)
+            queue = packet["sections"]["data_quality"]["import_queue"]
+        elif method == "dashboard":
+            queue = WeightQueryService(reader, settings).dashboard(**PERIOD)["imports"]
+        else:
+            queue = WeightQueryService(reader, settings).import_queue_summary()
+
+        assert queue["pending_candidate_count"] == 0
+        assert queue["confirmed_candidate_count"] == 1
+        assert cached.user_decision == "confirmed"
+        assert reader.get_transaction() is transaction
+        assert connection.connection.driver_connection.in_transaction
+
+
 def test_read_does_not_commit_or_rollback_callers_flushed_write(pending_import):
     engine, settings, _confirm, _commits = pending_import
     with session_scope(engine) as reader:
@@ -195,6 +237,41 @@ def test_new_snapshot_does_not_discard_pending_changes(pending_import):
             ensure_read_snapshot(reader)
         assert cached in reader.dirty
         assert cached.user_decision == "rejected"
+        reader.rollback()
+
+
+@pytest.mark.parametrize("physical_transaction", [False, True])
+@pytest.mark.parametrize("pending_state", ["new", "dirty", "deleted"])
+def test_snapshot_entry_preserves_pending_caller_state(
+    pending_import, physical_transaction, pending_state
+):
+    engine, settings, _confirm, _commits = pending_import
+    with session_scope(engine) as reader:
+        cached = reader.scalar(select(ImportCandidate))
+        connection = reader.connection()
+        if physical_transaction:
+            connection.exec_driver_sql("BEGIN")
+        transaction = reader.get_transaction()
+        if pending_state == "new":
+            changed = Provider(
+                code="synthetic-pending", display_name="Synthetic", provider_kind="device_vendor"
+            )
+            reader.add(changed)
+        elif pending_state == "dirty":
+            changed = cached
+            cached.user_decision = "rejected"
+        else:
+            changed = cached
+            reader.delete(cached)
+
+        with pytest.raises(InvalidRequestError, match="pending session changes"):
+            WeightQueryService(reader, settings).import_queue_summary()
+
+        assert changed in getattr(reader, pending_state)
+        assert cached.user_decision == ("rejected" if pending_state == "dirty" else "pending")
+        assert reader.get_transaction() is transaction
+        assert connection.connection.driver_connection.in_transaction is physical_transaction
+        # Only the caller may decide to discard its pending changes.
         reader.rollback()
 
 

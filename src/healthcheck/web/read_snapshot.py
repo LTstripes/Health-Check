@@ -14,13 +14,15 @@ def ensure_read_snapshot(session: Session) -> None:
 
     No engine events, isolation settings, writer reservations or migration
     behavior change. A pre-existing physical transaction remains caller-owned.
+    Entry requires no pending ORM changes, including when reusing a transaction;
+    flushed writes remain visible in that transaction after cache expiration.
     """
-    connection = session.connection()
-    if connection.connection.driver_connection.in_transaction:
-        return
     if session.new or session.dirty or session.deleted:
         raise InvalidRequestError("A read snapshot requires no pending session changes")
-    connection.exec_driver_sql("BEGIN")
+    connection = session.connection()
+    if not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql("BEGIN")
     # The factory uses expire_on_commit=False. Cached ORM entities from an
-    # earlier transaction must not be combined with this new database snapshot.
+    # earlier transaction or pre-BEGIN SELECT must not be combined with the
+    # active snapshot, even when the caller already began the transaction.
     session.expire_all()
