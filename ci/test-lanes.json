@@ -55,6 +55,7 @@
       "tests/test_openscale_webhook.py",
       "tests/test_period_brief.py",
       "tests/test_period_brief_ui.py",
+      "tests/test_read_snapshot.py",
       "tests/test_photo_import.py",
       "tests/test_photo_import_review.py",
       "tests/test_photo_vision.py",

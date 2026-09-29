@@ -42,6 +42,7 @@ from healthcheck.config import Settings
 from healthcheck.db.models import ScalarMeasurement
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.web.common import ALGORITHM_BOUNDARY_WARNING, BIA_UNCERTAINTY
+from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 
 class WeightQueryService:
@@ -83,11 +84,13 @@ class WeightQueryService:
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> dict[str, Any]:
+        ensure_read_snapshot(self.session)
         payload = self._payload(start_date=start_date, end_date=end_date)
         payload["imports"] = self.import_queue_summary()
         return payload
 
     def import_queue_summary(self) -> dict[str, Any]:
+        ensure_read_snapshot(self.session)
         batches = self.repos.ingest_batches.list_recent(limit=50)
         pending = 0
         confirmed = 0
@@ -128,6 +131,7 @@ class WeightQueryService:
         end_date: date | None,
         compatibility_group: str | None = None,
     ) -> dict[str, Any]:
+        ensure_read_snapshot(self.session)
         as_of = end_date or date.today()
         records = self._current_records(start_date=start_date, end_date=end_date)
         canonical, selected_weight_ids, selected_composition_ids = (

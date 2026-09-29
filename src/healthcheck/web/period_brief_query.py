@@ -47,6 +47,7 @@ from healthcheck.garmin.analytic_contract import (
 from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.web.garmin_query import DEFAULT_SCALAR_METRIC, GarminQueryService
 from healthcheck.web.query import WeightQueryService
+from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 PERIOD_BRIEF_SLEEP_BASELINE_METRICS = ("sleep_duration_seconds", "sleep_score")
 PERIOD_BRIEF_ACTIVITY_BASELINE_METRICS = (DEFAULT_SCALAR_METRIC, "spo2_daily_average")
@@ -70,6 +71,7 @@ class PeriodBriefService:
         garmin_source_id: str | None = None,
     ) -> dict[str, Any]:
         period = normalize_period(start_date, end_date)
+        ensure_read_snapshot(self.session)
         evaluated_at_utc = datetime.now(UTC)
         evaluation_local_date = evaluated_at_utc.astimezone().date()
         weight_summary = self.weight.summary(start_date=start_date, end_date=end_date)
