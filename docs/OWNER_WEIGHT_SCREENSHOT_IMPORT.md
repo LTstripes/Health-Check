@@ -50,6 +50,8 @@ The existing R01 normalizer and confirmation service remain responsible for kg/p
 
 Any conflicting group, candidate set, duplicate metric, missing value/date/unit, unsupported metric/unit, warning, unrecognized source/device or confirmation validation failure returns `NEEDS_REVIEW`. The image and candidate audit stay in the existing photo workflow, but no semantic measurement is confirmed. A replay of already handled bytes returns `DUPLICATE`; a replay with unresolved candidates returns `NEEDS_REVIEW`. If the same bytes yield a new extraction set, the new interpretation is preserved for review and is never auto-confirmed.
 
+A changed Owner-assisted sidecar for already-imported bytes follows the same rule even when it reuses the stored extraction identity: the changed interpretation is appended as its own pending correction candidate set in the existing review queue, linked to the original photo event. The original artifact, original candidate set and confirmed semantic history are never overwritten, and nothing is confirmed before the Owner's explicit decision. Replaying the same changed sidecar resolves to that same pending set (`NEEDS_REVIEW`, no duplicate evidence rows); after the correction has been confirmed, an exact replay is a no-op `DUPLICATE`. Confirming the staged correction uses the existing session/measurement revision mechanics, so the prior value is superseded but never erased; rejecting it leaves the current semantic and canonical state unchanged.
+
 ## Work result contract
 
 The command writes one privacy-safe JSON object to stdout:
@@ -58,7 +60,7 @@ The command writes one privacy-safe JSON object to stdout:
 | --- | ---: | --- |
 | `IMPORTED` | 0 | Report that the screenshot import completed; do not repeat the import. |
 | `DUPLICATE` | 0 | Report that the same evidence was already handled; no new measurement was written. |
-| `NEEDS_REVIEW` | 3 | Stop automation and direct the Owner to the existing Health-Check import review. |
+| `NEEDS_REVIEW` | 3 | Stop automation and direct the Owner to the existing Health-Check import review; a staged correction appears in the original import batch. |
 | `FAILED` | 1 | Stop automation and report the safe reason code; do not echo the file path or retry indefinitely. |
 
 The JSON includes only status, a fixed reason code and structural candidate/measurement counts, plus privacy flags. It never includes health values, timestamps, content hashes, artifact/candidate IDs, filenames or provider text.
