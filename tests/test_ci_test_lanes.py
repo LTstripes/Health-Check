@@ -30,6 +30,33 @@ selection_sha256 = _HELPER._selection_sha256
 LANES = ("garmin", "core-sleep", "app-ingest")
 
 
+@pytest.mark.parametrize("attempt", ("1", "2", "12"))
+def test_full_rerun_contract_accepts_only_complete_current_attempt(tmp_path, attempt):
+    names = ["ci-quality", "ci-windows-smoke", *(f"ci-lane-{lane}" for lane in LANES)]
+    for name in names:
+        (tmp_path / f"{name}-123-{attempt}").mkdir()
+    _HELPER.validate_attempt_artifacts(tmp_path, run_id="123", attempt=attempt)
+
+
+@pytest.mark.parametrize("mutation", ("partial", "mixed_attempt", "other_run", "duplicate"))
+def test_partial_rerun_fails_closed_with_full_rerun_instruction(tmp_path, mutation):
+    names = ["ci-quality", "ci-windows-smoke", *(f"ci-lane-{lane}" for lane in LANES)]
+    for name in names:
+        suffix = "123-2"
+        if name == "ci-quality":
+            if mutation == "partial":
+                continue
+            if mutation == "mixed_attempt":
+                suffix = "123-1"
+            if mutation == "other_run":
+                suffix = "124-2"
+        (tmp_path / f"{name}-{suffix}").mkdir()
+    if mutation == "duplicate":
+        (tmp_path / "ci-windows-smoke-123-1").mkdir()
+    with pytest.raises(ContractError, match="Re-run all jobs"):
+        _HELPER.validate_attempt_artifacts(tmp_path, run_id="123", attempt="2")
+
+
 def _write_test(repo: Path, name: str) -> str:
     path = repo / "tests" / name
     path.parent.mkdir(parents=True, exist_ok=True)

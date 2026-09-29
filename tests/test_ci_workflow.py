@@ -145,12 +145,21 @@ def test_workflow_has_no_per_candidate_fourth_serial_suite():
     assert "full pytest" not in WORKFLOW.lower()
 
 
+def test_checks_enforces_full_rerun_only_before_content_verdicts():
+    checks = _job("checks")
+    assert "pattern: ci-*-${{ github.run_id }}-${{ github.run_attempt }}" in checks
+    assert "scripts/ci_test_lanes.py verify-attempt" in checks
+    assert '--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"' in checks
+    assert 'if [ "$attempt_status" -ne 0 ]' in checks
+
+
 def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     root = tmp_path / "artifacts"
     artifact = root / "ci-windows-smoke-123-1"
     artifact.mkdir(parents=True)
     head = "a" * 40
     tree = "b" * 40
+
     def scenario(name: str, root_pid: int, runtime_path: str, identity_changed: list[int]):
         surfaces = {
             "ui_host": "127.0.0.1",
@@ -193,10 +202,23 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
                 "root_pid": root_pid,
                 "root_name": "pwsh.exe",
                 "root_command_line": "start.ps1 -DataDir synthetic",
+                "root_creation_time": "637134336000000000",
                 "root_identity_verified": True,
                 "termination": "taskkill /PID <verified-root> /T /F",
                 "termination_issued": True,
                 "root_already_exited": False,
+                "termination_outcome": "terminated",
+                "taskkill_exit_code": 0,
+                "taskkill_output": ["synthetic native success"],
+                "lifecycle_diagnostic_verified": False,
+                "owned_process_identities": [
+                    {
+                        "Id": root_pid,
+                        "Name": "pwsh.exe",
+                        "CommandLine": "start.ps1 -DataDir synthetic",
+                        "CreationTime": "637134336000000000",
+                    }
+                ],
                 "remaining_owned_process_ids": [],
                 "identity_changed_process_ids": identity_changed,
                 "ports_closed": {"ui": True, "ingest": True},
@@ -205,19 +227,19 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
         }
 
     disabled = scenario("ingest-disabled", 101, r"C:\Temp\Health Check disabled", [])
-    enabled = scenario("ingest-enabled", 202, r"C:\Temp\Health Check enabled", [6708])
+    enabled = scenario("ingest-enabled", 202, r"C:\Temp\Health Check enabled", [])
     cleanup = {
         "scope": "verified-root-process-tree-only",
         "root_pid": 101,
         "started_process_ids": [101, 202],
         "terminated_process_ids": [101, 202],
         "remaining_owned_process_ids": [],
-        "identity_changed_process_ids": [6708],
+        "identity_changed_process_ids": [],
         "errors": [],
         "scenarios": [disabled["cleanup"], enabled["cleanup"]],
     }
     evidence = {
-        "schema_version": 2,
+        "schema_version": 3,
         "status": "passed",
         "failure": None,
         "platform": "win32",
@@ -282,7 +304,7 @@ def test_windows_smoke_validator_accepts_complete_bound_evidence(tmp_path: Path)
         ),
     )
     assert result["dpapi"]["counts"]["skipped"] == 0
-    assert result["cleanup"]["identity_changed_process_ids"] == [6708]
+    assert result["cleanup"]["identity_changed_process_ids"] == []
 
 
 def test_windows_smoke_validator_rejects_remaining_owned_process(tmp_path: Path):
@@ -411,3 +433,65 @@ def test_windows_smoke_validator_rejects_non_success_job(tmp_path: Path, job_res
                 pr_head_sha="",
             ),
         )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "safe",
+        "access_denied",
+        "empty_output",
+        "unknown_pid",
+        "live_child",
+        "reused_child",
+        "missing_tree",
+        "missing_creation",
+        "other_exit",
+    ),
+)
+def test_windows_cleanup_lifecycle_contract(tmp_path, mutation):
+    root, head, tree = _windows_smoke_fixture(tmp_path)
+    artifact = root / "ci-windows-smoke-123-1"
+    evidence = json.loads((artifact / "smoke-evidence.json").read_text())
+    cleanup = evidence["scenarios"][1]["cleanup"]
+    cleanup.update(
+        termination_outcome="exited-during-termination",
+        taskkill_exit_code=255,
+        lifecycle_diagnostic_verified=True,
+        taskkill_output=[
+            "ERROR: The process with PID 202 (child process of PID 1) could not be terminated.",
+            "Reason: There is no running instance of the task.",
+        ],
+    )
+    if mutation == "access_denied":
+        cleanup["taskkill_output"][1] = "Reason: Access is denied."
+    elif mutation == "empty_output":
+        cleanup["taskkill_output"] = []
+    elif mutation == "unknown_pid":
+        cleanup["taskkill_output"][0] = cleanup["taskkill_output"][0].replace("202", "303")
+    elif mutation == "live_child":
+        cleanup["remaining_owned_process_ids"] = [303]
+    elif mutation == "reused_child":
+        cleanup["identity_changed_process_ids"] = [303]
+    elif mutation == "missing_tree":
+        cleanup["owned_process_identities"] = []
+    elif mutation == "missing_creation":
+        cleanup["owned_process_identities"][0]["CreationTime"] = ""
+    elif mutation == "other_exit":
+        cleanup["taskkill_exit_code"] = 5
+    evidence["cleanup"]["scenarios"][1] = cleanup
+    (artifact / "smoke-evidence.json").write_text(json.dumps(evidence))
+    (artifact / "cleanup.json").write_text(json.dumps(evidence["cleanup"]))
+    kwargs = dict(
+        job_result="success",
+        head_sha=head,
+        tree_sha=tree,
+        workflow_identity=ExpectedWorkflowIdentity(
+            "push", "refs/heads/task/125-ci-windows-smoke", "", "", "", ""
+        ),
+    )
+    if mutation == "safe":
+        validate_windows_smoke_artifact(root, **kwargs)
+    else:
+        with pytest.raises(ContractError):
+            validate_windows_smoke_artifact(root, **kwargs)

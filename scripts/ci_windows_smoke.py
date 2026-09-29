@@ -145,6 +145,11 @@ def _validate_scenario(scenario: Any, expected_name: str) -> None:
         cleanup.get("identity_changed_process_ids"),
         f"Windows scenario {expected_name} identity-change evidence is invalid",
     )
+    _require(
+        cleanup["identity_changed_process_ids"] == [],
+        f"Windows scenario {expected_name} identity-change evidence is not clean",
+    )
+    _validate_termination(cleanup)
     if expected_name == "ingest-disabled":
         _require(
             surfaces.get("ingest_health") is None
@@ -159,6 +164,70 @@ def _validate_scenario(scenario: Any, expected_name: str) -> None:
             and surfaces.get("ui_ingest_route_status") == 404
             and surfaces.get("ingest_openscale_get_status") == 405,
             "enabled-ingest route separation evidence is invalid",
+        )
+
+
+def _validate_termination(cleanup: dict[str, Any]) -> None:
+    owned = cleanup.get("owned_process_identities")
+    _require(isinstance(owned, list) and bool(owned), "owned tree identity evidence is missing")
+    ids = []
+    for identity in owned:
+        _require(isinstance(identity, dict), "owned identity is malformed")
+        ids.append(identity.get("Id"))
+        for field in ("Name", "CommandLine", "CreationTime"):
+            _require(
+                isinstance(identity.get(field), str) and bool(identity[field]),
+                f"owned identity {field} is incomplete",
+            )
+        _require(
+            re.fullmatch(r"[1-9][0-9]*", identity["CreationTime"]) is not None,
+            "owned identity creation time is invalid",
+        )
+    _positive_unique_ids(ids, "owned identity PIDs are invalid")
+    _require(
+        owned[0]
+        == {
+            "Id": cleanup["root_pid"],
+            "Name": cleanup.get("root_name"),
+            "CommandLine": cleanup.get("root_command_line"),
+            "CreationTime": cleanup.get("root_creation_time"),
+        },
+        "owned tree root identity mismatch",
+    )
+    output = cleanup.get("taskkill_output")
+    _require(
+        cleanup.get("termination_issued") is True
+        and cleanup.get("root_already_exited") is False
+        and isinstance(output, list)
+        and bool(output)
+        and all(isinstance(line, str) for line in output),
+        "native root-tree termination evidence is incomplete",
+    )
+    code = cleanup.get("taskkill_exit_code")
+    _require(type(code) is int, "native termination exit code is invalid")
+    outcome = cleanup.get("termination_outcome")
+    if code == 0:
+        _require(outcome == "terminated", "native success classification mismatch")
+    else:
+        text = "\n".join(output)
+        errors = re.findall(
+            r"(?m)^ERROR: The process with PID (\d+)[^\r\n]*could not be terminated\.\r?\n"
+            r"Reason: There is no running instance of the task\.",
+            text,
+        )
+        reported = {
+            int(pid)
+            for pid in re.findall(r"(?m)^(?:SUCCESS|ERROR): The process with PID (\d+)", text)
+        }
+        _require(
+            code == 255
+            and outcome == "exited-during-termination"
+            and cleanup.get("lifecycle_diagnostic_verified") is True
+            and bool(errors)
+            and len(errors) == sum(line.startswith("ERROR:") for line in output)
+            and all(int(pid) in ids for pid in errors)
+            and reported == set(ids),
+            "native termination failure lacks verified lifecycle evidence",
         )
 
 
@@ -191,7 +260,10 @@ def validate_windows_smoke_artifact(
 
     evidence = _load_json(artifact / "smoke-evidence.json")
     _require(isinstance(evidence, dict), "Windows smoke evidence must be an object")
-    _require(evidence.get("schema_version") == 2, "Windows smoke schema_version must be integer 2")
+    _require(
+        type(evidence.get("schema_version")) is int and evidence["schema_version"] == 3,
+        "Windows smoke schema_version must be integer 3",
+    )
     _require(evidence.get("status") == "passed", "Windows smoke status is not passed")
     _require(evidence.get("platform") == "win32", "Windows smoke platform mismatch")
     _require(evidence.get("runner") == "Windows/X64", "Windows smoke runner mismatch")
@@ -273,9 +345,16 @@ def validate_windows_smoke_artifact(
         "process cleanup identity-change evidence is invalid",
     )
     _require(
-        isinstance(cleanup.get("scenarios"), list)
-        and len(cleanup["scenarios"]) == 2,
+        cleanup["identity_changed_process_ids"] == [],
+        "process cleanup identity-change evidence is not clean",
+    )
+    _require(
+        isinstance(cleanup.get("scenarios"), list) and len(cleanup["scenarios"]) == 2,
         "per-scenario cleanup evidence is missing",
+    )
+    _require(
+        cleanup["scenarios"] == [scenario["cleanup"] for scenario in scenarios],
+        "aggregate/per-scenario cleanup evidence mismatch",
     )
     _require(
         isinstance(evidence.get("powershell"), dict)

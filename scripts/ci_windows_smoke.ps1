@@ -135,10 +135,16 @@ function Invoke-SmokeScenario {
         root_pid = 0
         root_name = ""
         root_command_line = ""
+        root_creation_time = ""
         root_identity_verified = $false
         termination = "taskkill /PID <verified-root> /T /F"
         termination_issued = $false
         root_already_exited = $false
+        termination_outcome = "failed"
+        taskkill_exit_code = $null
+        taskkill_output = @()
+        lifecycle_diagnostic_verified = $false
+        owned_process_identities = @()
         remaining_owned_process_ids = @()
         identity_changed_process_ids = @()
         ports_closed = [ordered]@{ ui = $false; ingest = $false }
@@ -179,6 +185,7 @@ function Invoke-SmokeScenario {
         $cleanup.root_pid = [int]$capturedRoot.Id
         $cleanup.root_name = [string]$capturedRoot.Name
         $cleanup.root_command_line = [string]$capturedRoot.CommandLine
+        $cleanup.root_creation_time = [string]$capturedRoot.CreationTime
         $cleanup.root_identity_verified = $true
 
         $uiHealth = Wait-Health "http://127.0.0.1:$uiPort/healthz" "loopback-ui" $harness
@@ -204,6 +211,12 @@ function Invoke-SmokeScenario {
             $termination = Invoke-RootProcessTreeTermination $capturedRoot
             $cleanup.termination_issued = [bool]$termination.TerminationIssued
             $cleanup.root_already_exited = [bool]$termination.RootAlreadyExited
+            $cleanup.termination_outcome = $termination.Outcome
+            $cleanup.taskkill_exit_code = $termination.TaskkillExitCode
+            $cleanup.taskkill_output = @($termination.TaskkillOutput)
+            $cleanup.lifecycle_diagnostic_verified = $termination.LifecycleDiagnosticVerified
+            $cleanup.owned_process_identities = @($termination.OwnedProcessIdentities)
+            $cleanup.remaining_owned_process_ids += @($termination.RemainingOwnedProcessIds)
             $cleanup.identity_changed_process_ids = @($termination.IdentityChangedProcessIds)
             $cleanup.errors += @($termination.Errors)
             Start-Sleep -Milliseconds 300
@@ -249,6 +262,7 @@ function Invoke-SmokeScenario {
     $status = if ($failure -or $cleanup.errors.Count -gt 0 -or
         $cleanup.remaining_owned_process_ids.Count -gt 0 -or
         -not $cleanup.ports_closed.ui -or -not $cleanup.ports_closed.ingest -or
+        $cleanup.identity_changed_process_ids.Count -gt 0 -or
         -not $runtimeRemoved) { "failed" } else { "passed" }
     return [ordered]@{
         name = $ScenarioName
@@ -369,7 +383,7 @@ try {
         if (-not $failure) { $failure = "git evidence could not be written" }
     }
     $evidence = [ordered]@{
-        schema_version = 2
+        schema_version = 3
         status = $status
         failure = $failure
         platform = "win32"

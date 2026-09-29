@@ -257,6 +257,11 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # Full-rerun-only: no fallback to evidence from earlier attempts.
+          python scripts/ci_test_lanes.py verify-attempt \
+            --artifacts-root downloaded-evidence \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+          attempt_status=$?
           python scripts/ci_test_lanes.py gate \
             --artifacts-root downloaded-evidence \
             --quality-result "$QUALITY_RESULT" \
@@ -283,6 +288,6 @@ jobs:
             --pr-head-ref "$EXPECTED_PR_HEAD_REF" \
             --pr-head-sha "$EXPECTED_PR_HEAD_SHA"
           windows_status=$?
-          if [ "$linux_status" -ne 0 ] || [ "$windows_status" -ne 0 ]; then
+          if [ "$attempt_status" -ne 0 ] || [ "$linux_status" -ne 0 ] || [ "$windows_status" -ne 0 ]; then
             exit 1
           fi

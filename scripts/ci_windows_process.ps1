@@ -13,7 +13,8 @@ function Test-CapturedProcessIdentity {
     $validId = $null -ne (ConvertTo-ProcessId $Identity.Id)
     $hasName = -not [string]::IsNullOrWhiteSpace([string]$Identity.Name)
     $hasCommandLine = -not [string]::IsNullOrWhiteSpace([string]$Identity.CommandLine)
-    return ($validId -and $hasName -and $hasCommandLine)
+    $hasCreationTime = [string]$Identity.CreationTime -match '^[1-9][0-9]*$'
+    return ($validId -and $hasName -and $hasCommandLine -and $hasCreationTime)
 }
 
 function Test-SameProcessIdentity {
@@ -25,8 +26,9 @@ function Test-SameProcessIdentity {
     $sameId = (ConvertTo-ProcessId $Expected.Id) -eq (ConvertTo-ProcessId $Actual.Id)
     $sameName = [string]$Expected.Name -eq [string]$Actual.Name
     $sameCommandLine = [string]$Expected.CommandLine -eq [string]$Actual.CommandLine
+    $sameCreationTime = [string]$Expected.CreationTime -eq [string]$Actual.CreationTime
     return ((Test-CapturedProcessIdentity $Expected) -and
-        (Test-CapturedProcessIdentity $Actual) -and $sameId -and $sameName -and $sameCommandLine)
+        (Test-CapturedProcessIdentity $Actual) -and $sameId -and $sameName -and $sameCommandLine -and $sameCreationTime)
 }
 
 function Get-ProcessIdentity {
@@ -76,6 +78,7 @@ function Get-ProcessIdentity {
         Id = $validProcessId
         Name = [string]$match.Name
         CommandLine = [string]$match.CommandLine
+        CreationTime = if ($match.CreationDate) { $match.CreationDate.ToUniversalTime().Ticks.ToString() } else { "" }
         Exists = $true
         QueryError = $null
     }
@@ -96,13 +99,56 @@ function Assert-ExternalRuntimePath {
     return $resolvedRuntime
 }
 
-function Invoke-RootProcessTreeTermination {
+function Get-OwnedProcessTree {
     param([object]$CapturedIdentity)
+
+    # One coherent ancestry snapshot; never infer ownership from a process name.
+    $snapshot = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $root = @($snapshot | Where-Object { $_.ProcessId -eq $CapturedIdentity.Id })
+    if ($root.Count -ne 1) { throw "root absent or ambiguous in ownership snapshot" }
+    $owned = @()
+    $pending = @($root[0])
+    while ($pending.Count -gt 0) {
+        $row = $pending[0]
+        $pending = @($pending | Select-Object -Skip 1)
+        if (@($owned | Where-Object { $_.Id -eq $row.ProcessId }).Count -gt 0) {
+            throw "cyclic or duplicate process ownership"
+        }
+        $identity = [pscustomobject]@{
+            Id = [int]$row.ProcessId
+            Name = [string]$row.Name
+            CommandLine = [string]$row.CommandLine
+            CreationTime = if ($row.CreationDate) { $row.CreationDate.ToUniversalTime().Ticks.ToString() } else { "" }
+        }
+        if (-not (Test-CapturedProcessIdentity $identity)) { throw "owned process identity incomplete" }
+        if ($owned.Count -eq 0 -and -not (Test-SameProcessIdentity $CapturedIdentity $identity)) {
+            throw "root identity changed in ownership snapshot"
+        }
+        $owned += $identity
+        $children = @($snapshot | Where-Object { $_.ParentProcessId -eq $row.ProcessId })
+        foreach ($child in $children) {
+            if (-not $child.CreationDate -or $child.CreationDate -lt $row.CreationDate) {
+                throw "ambiguous descendant ownership (reused parent PID)"
+            }
+        }
+        $pending += $children
+    }
+    return $owned
+}
+
+function Invoke-RootProcessTreeTermination {
+    param([object]$CapturedIdentity, [int]$PostTimeoutSeconds = 5)
 
     $identityChanged = @()
     $errors = @()
     $terminationIssued = $false
     $rootAlreadyExited = $false
+    $owned = @()
+    $remaining = @()
+    $taskkillExit = $null
+    $taskkillOutput = @()
+    $lifecycleDiagnostic = $false
+    $outcome = "failed"
     if (-not (Test-CapturedProcessIdentity $CapturedIdentity)) {
         $errors += "captured root identity is incomplete"
     } else {
@@ -111,22 +157,73 @@ function Invoke-RootProcessTreeTermination {
             $errors += [string]$current.QueryError
         } elseif (-not $current.Exists) {
             $rootAlreadyExited = $true
+            $errors += "root exited before ownership snapshot; descendant cleanup is unproven"
         } elseif (-not (Test-SameProcessIdentity $CapturedIdentity $current)) {
             $identityChanged += [int]$CapturedIdentity.Id
             $errors += "root PID $($CapturedIdentity.Id) identity changed before tree cleanup"
         } else {
-            & taskkill.exe /PID ([string]$CapturedIdentity.Id) /T /F 2>&1 | Out-Null
-            $taskkillExit = $LASTEXITCODE
-            if ($taskkillExit -ne 0) {
-                $errors += "root process-tree termination failed with exit code $taskkillExit"
-            } else {
-                $terminationIssued = $true
+            try {
+                $owned = @(Get-OwnedProcessTree $CapturedIdentity)
+                $preKill = Get-ProcessIdentity $CapturedIdentity.Id
+                if ($preKill.QueryError -or -not (Test-SameProcessIdentity $CapturedIdentity $preKill) -or -not $preKill.Exists) {
+                    throw "root identity unavailable or changed immediately before termination"
+                }
+                $terminationIssued = $true # issued, not a claim of native success
+                $taskkillOutput = @(& taskkill.exe /PID ([string]$CapturedIdentity.Id) /T /F 2>&1 | ForEach-Object { [string]$_ })
+                $taskkillExit = $LASTEXITCODE
+                # taskkill's English Windows runner diagnostic for a tree member
+                # exiting during traversal. Other errors/locales stay fail-closed.
+                $nativeText = $taskkillOutput -join "`n"
+                $nativeErrors = @([regex]::Matches($nativeText, '(?m)^ERROR: The process with PID (\d+)[^\r\n]*could not be terminated\.\r?\nReason: There is no running instance of the task\.'))
+                $allErrorLines = @($taskkillOutput | Where-Object { $_ -match '^ERROR:' })
+                $lifecycleDiagnostic = $nativeErrors.Count -gt 0 -and $nativeErrors.Count -eq $allErrorLines.Count
+                foreach ($nativeError in $nativeErrors) {
+                    if ([int]$nativeError.Groups[1].Value -notin @($owned.Id)) { $lifecycleDiagnostic = $false }
+                }
+                $reportedIds = @([regex]::Matches($nativeText, '(?m)^(?:SUCCESS|ERROR): The process with PID (\d+)') | ForEach-Object { [int]$_.Groups[1].Value } | Sort-Object -Unique)
+                if (@(Compare-Object @($owned.Id | Sort-Object -Unique) $reportedIds).Count -gt 0) {
+                    $lifecycleDiagnostic = $false
+                }
+                $deadline = [DateTime]::UtcNow.AddSeconds($PostTimeoutSeconds)
+                do {
+                    $remaining = @()
+                    foreach ($identity in $owned) {
+                        $post = Get-ProcessIdentity $identity.Id
+                        if ($post.QueryError) {
+                            $errors += [string]$post.QueryError
+                        } elseif ($post.Exists) {
+                            if (Test-SameProcessIdentity $identity $post) { $remaining += [int]$identity.Id }
+                            else { $identityChanged += [int]$identity.Id }
+                        }
+                    }
+                    if ($remaining.Count -eq 0 -or $errors.Count -gt 0 -or $identityChanged.Count -gt 0) { break }
+                    if ([DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+                } while ([DateTime]::UtcNow -lt $deadline)
+                if ($remaining.Count -gt 0) { $errors += "owned process survived root-tree termination" }
+                if ($identityChanged.Count -gt 0) { $errors += "owned process identity changed during termination" }
+                if ($taskkillExit -eq 0 -and $errors.Count -eq 0) {
+                    $outcome = "terminated"
+                } elseif ($taskkillExit -eq 255 -and $errors.Count -eq 0 -and $lifecycleDiagnostic) {
+                    # Reconcile only a verified, fully absent tree. Ports/runtime
+                    # are separate mandatory caller postconditions. No second kill.
+                    $outcome = "exited-during-termination"
+                } else {
+                    $errors += "root process-tree termination failed with exit code $taskkillExit"
+                }
+            } catch {
+                $errors += $_.Exception.Message
             }
         }
     }
     return [pscustomobject]@{
         TerminationIssued = $terminationIssued
         RootAlreadyExited = $rootAlreadyExited
+        Outcome = $outcome
+        TaskkillExitCode = $taskkillExit
+        TaskkillOutput = @($taskkillOutput)
+        LifecycleDiagnosticVerified = $lifecycleDiagnostic
+        OwnedProcessIdentities = @($owned)
+        RemainingOwnedProcessIds = @($remaining)
         IdentityChangedProcessIds = @($identityChanged)
         Errors = @($errors)
     }
