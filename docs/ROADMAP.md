@@ -8,7 +8,7 @@ Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG
 
 Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness and the Owner screenshot workflow.
 
-Accepted product checkpoint before the 2026-09-29 documentation refresh: `main @ f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`; exact-main CI `36623160664` SUCCESS, including Windows smoke and final `checks`. Re-read current GitHub main/CI before launch/integration.
+Accepted product checkpoint before the 2026-09-30 documentation refresh: `main @ f6939f531d4384e28fa9bd65fce59b498a0e6032`; exact-main CI `36634392128` SUCCESS, including Windows smoke and final `checks`. Re-read current GitHub main/CI before launch/integration.
 
 Latest completed work:
 
@@ -16,17 +16,18 @@ Latest completed work:
 - #203: Windows limited-encoding Period Brief stdout, no packet changes;
 - #226: accepted Xiaomi algorithm identity at screenshot auto-confirm;
 - #227: coherent compound-read SQLite snapshots and ORM identity-map alignment after independent-review remediation;
+- #233: collision-safe Garmin Training privacy test oracle; test-only, no production privacy/provenance change;
 - #147/#191/#193 source freshness and #199/#206/#207/#212 Google HR performance/reliability remain complete.
 
 The next sequence is to finish current safety work and operational proof, then durability. UI remains deferred unless explicitly reprioritized. The following table is a status/priority map, **not an automatic Worker queue**.
 
-## Current backlog — 2026-09-29
+## Current backlog — 2026-09-30
 
 Thirteen open issues, excluding pull requests:
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
-| #229 | Candidate delivered, unmerged | Independent semantic review of `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05`, then required CI/integration gates; not another implementation launch |
+| #229 | Candidate delivered, exact-head CI green; first review blocked before semantics | Repeat read-only semantic review of `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` in an isolated review runtime; only ACCEPT unlocks PR/integration |
 | #214 | Phase A PASS; Scheduler configured; manual PASS | Prove one untouched automatic daily/logon run with final JSON, exit code and honest freshness; retain interruption evidence |
 | #215 | Owner input required | One real private context note plus supported read-back; no fabricated text or mandatory daily diary |
 | #181 | Active CI reliability debt | Diagnose retained Windows cleanup exit 255 and coherent partial/full-rerun evidence; no weakened checks or retry-until-green |

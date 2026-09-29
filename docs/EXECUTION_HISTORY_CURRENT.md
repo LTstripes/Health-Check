@@ -7,11 +7,11 @@ Only sanitized technical evidence belongs here. Private measurements, screenshot
 ## Canonical checkpoint
 
 Accepted product main before this docs-only refresh:
-`f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`.
+`f6939f531d4384e28fa9bd65fce59b498a0e6032`.
 
-Exact-main CI [36623160664](https://github.com/LTstripes/Health-Check/actions/runs/36623160664): SUCCESS, all mandatory lanes including Windows smoke and final checks.
+Exact-main CI [36634392128](https://github.com/LTstripes/Health-Check/actions/runs/36634392128): SUCCESS, all mandatory lanes including Windows smoke and final checks.
 
-This includes #226 / PR #230 and #227 / PR #231. #229 remains a task-branch candidate; it is not part of released main. Re-read GitHub main/CI for every later launch. GitHub product integration does not itself deploy to the local Owner checkout/Stable runtime.
+This includes #226 / PR #230, #227 / PR #231 and test-only reliability fix #233 / PR #234. #229 remains a task-branch candidate; it is not part of released main. Re-read GitHub main/CI for every later launch. GitHub product integration does not itself deploy to the local Owner checkout/Stable runtime.
 
 ## 2026-09-28 — Owner Weight screenshot workflow
 
@@ -96,7 +96,7 @@ Sol / High, Owner-confirmed, completed read-only Phase 1 on `aafc407...`; no imp
 
 ### #229 — changed-sidecar review workflow — CANDIDATE ONLY
 
-Owner identifies the Worker as DeepSeek; this report did not establish exact version/provider/client. Do not reuse another task's model block as evidence.
+Owner confirms the #229 Worker as DeepSeek V4.1 Flash, Max, provider/client `opencode-go / OpenCode`. The candidate's own compact report did not carry that exact identity; the journal preserves the Owner-confirmed source explicitly.
 
 Candidate: `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05`, branch `task/229-owner-screenshot-correction`, actual baseline `f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`. The older issue note named `18e0142...`; the final Owner launch and delivered branch used `f8ed3b5...`. [Integrator clarified this](https://github.com/LTstripes/Health-Check/issues/229#issuecomment-5898555102); no Worker fault/rebase is inferred.
 
@@ -115,3 +115,18 @@ The stale docs-only PR #224 carried useful screenshot/handoff facts but still de
 Next proposed order: #229 independent review/integration; #214 untouched scheduled proof and #215 real note; #181 separate CI reliability repair; #148 protection/recovery design and delivery. #181 can proceed independently with explicit file ownership; no new worker launch is implicit in this documentation update.
 
 The [roadmap](ROADMAP.md#current-backlog--2026-09-29) lists all 13 open issues. #228/#153 are conditional/optional; #172/#189, #167, #126 and #105 retain their specific defer/block/eligibility states; #210 is an ongoing journal. No UI/AI/Recovery Score, privacy rewrite or speculative backfill starts here.
+
+
+## 2026-09-30 — #233 privacy-oracle reliability fix
+
+Docs PR #232 exposed a real **test-oracle false positive**, not a Garmin product/privacy leak: the synthetic fixture ID `811` was searched as a substring across the entire JSON and happened to occur inside a legitimate internal source UUID.
+
+Owner-confirmed Worker: **Luna 6.0 Medium**, OpenAI / Codex desktop. Candidate `37df19ba11b3f1e32b58d49319fdc0afe3b555ca` changed only `tests/test_garmin_training_owner_view.py`. The repaired oracle checks exact numeric/string fixture IDs structurally and retains negative controls for provider/device keys, raw payload and token fields while allowing an unrelated UUID containing those digits.
+
+PR #234 merged to `f6939f531d4384e28fa9bd65fce59b498a0e6032`; exact-head/PR/main CI `36632773686` / `36633662826` / `36634392128` all SUCCESS. #233 is COMPLETE. No production code or privacy semantics changed.
+
+## 2026-09-30 — #229 review attempt blocked before semantics
+
+#229 Worker attribution is Owner-confirmed **DeepSeek V4.1 Flash, Max**, `opencode-go / OpenCode`; candidate remains `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` with exact-head CI `36628220352` SUCCESS.
+
+The first independent reviewer attempt used **Sol 6.1 High**, OpenAI / Codex. It stopped during preflight with `review runtime inventory is not isolated` and did not execute the requested semantic checks. Record this as **BLOCKED / INCONCLUSIVE**, not a semantic `FIXES REQUIRED`, not an ACCEPT, and not a code remediation round. The candidate remains frozen; repeat the same review in an isolated read-only runtime.

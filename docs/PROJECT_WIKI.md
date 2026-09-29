@@ -2,24 +2,24 @@
 
 This is the compact current-state entry point. Historical contracts and release evidence remain in their release-specific documents and GitHub issues.
 
-## Current canonical state — 2026-09-29
+## Current canonical state — 2026-09-30
 
 - Canonical Git branch: `main`.
-- Accepted product checkpoint before this docs-only refresh: `f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`.
-- Exact-main CI: `36623160664` — SUCCESS, including Windows smoke and final `checks`.
+- Accepted product checkpoint before this docs-only refresh: `f6939f531d4384e28fa9bd65fce59b498a0e6032`.
+- Exact-main CI: `36634392128` — SUCCESS, including Windows smoke and final `checks`.
 - Re-read current GitHub main/CI before launch/integration; documentation SHAs are dated evidence, not permanent branch pointers.
-- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness, screenshot workflow, #203, #226 and #227 are canonical.
+- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness, screenshot workflow, #203, #226, #227 and test-reliability fix #233 are canonical.
 - Stable Owner data profile: `D:\Garmin\HealthCheck-Stable`. Candidate UAT uses disposable verified backup/restore clones, never Stable itself.
 - Owner operational checkout: `D:\Garmin\HealthCheck-Owner-Main`; local Ops scripts: `D:\Garmin\HealthCheck-Ops`. GitHub merges do not automatically deploy to these local paths.
 - #214: historical inventory/manual PASS; daily 10:30 plus logon Scheduler configured; untouched automatic-run acceptance still pending.
 - Google high-frequency `heart_rate` is OFF by Owner decision in the local runner only. Other streams remain enabled; no historical HR backfill while disabled.
-- #229: delivered correction-workflow candidate, not yet accepted/merged. #228: research accepted, implementation parked.
+- #229: delivered correction-workflow candidate with green exact-head CI; first Sol 6.1 High review attempt was blocked before semantic review by non-isolated review runtime, so isolated re-review is still required. #228: research accepted, implementation parked.
 - #215: first real private Context note/read-back still required.
 - #181 Windows cleanup/partial-rerun reliability remains open. #148 off-site protection/recovery is not complete.
 - #172/#189 UI deferred, #153 optional compatibility, #167 Owner-deferred, #126 decision/capability gate, #105 NOT_ELIGIBLE, #210 ongoing journal.
 - Repository visibility is public; private-data restrictions remain unchanged. This refresh does not authorize a visibility/protection/history rewrite.
 
-Full [backlog status table](ROADMAP.md#current-backlog--2026-09-29), [current history](EXECUTION_HISTORY_CURRENT.md), and [model evidence table](MODEL_BENCHMARK.md).
+Full [backlog status table](ROADMAP.md#current-backlog--2026-09-30), [current history](EXECUTION_HISTORY_CURRENT.md), and [model evidence table](MODEL_BENCHMARK.md).
 
 ## What the product can do today
 
@@ -99,7 +99,7 @@ Garmin remains canonical/default. #105 is NOT_ELIGIBLE until its existing eviden
 
 ## Next work
 
-Finish #229 independent review/integration; obtain one untouched automatic #214 result and the Owner's first #215 note. #181 can be prepared as separate CI-only work with isolated ownership. Then prioritize #148 protection/publication/retention design and recovery rehearsal before broad UI/AI expansion.
+Repeat #229 independent review in an isolated read-only runtime, then integrate only after ACCEPT; obtain one untouched automatic #214 result and the Owner's first #215 note. #181 can be prepared as separate CI-only work with isolated ownership. Then prioritize #148 protection/publication/retention design and recovery rehearsal before broad UI/AI expansion.
 
 The [roadmap table](ROADMAP.md#current-backlog--2026-09-29) records all 13 open issues, including the non-coding tracker and parked gates. It is not an automatic queue.
 

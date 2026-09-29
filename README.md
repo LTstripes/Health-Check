@@ -29,15 +29,15 @@ R04 release lineage:
 
 The final R04 owner gate also proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations.
 
-## Current focus — 2026-09-29
+## Current focus — 2026-09-30
 
-Accepted product checkpoint before this documentation refresh: `main @ f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`; exact-main CI `36623160664` SUCCESS, including Windows smoke and final `checks`. Re-read current GitHub main/CI before launch or integration; this is a dated product checkpoint, not a permanent branch pointer.
+Accepted product checkpoint before this documentation refresh: `main @ f6939f531d4384e28fa9bd65fce59b498a0e6032`; exact-main CI `36634392128` SUCCESS, including Windows smoke and final `checks`. Re-read current GitHub main/CI before launch or integration; this is a dated product checkpoint, not a permanent branch pointer.
 
-**Completed:** #203 via PR #225; #226 via PR #230; #227 via PR #231 after one independent-review remediation round. Source freshness #147/#191/#193 and Google HR performance/reliability #199/#206/#207/#212 are also complete.
+**Completed:** #203 via PR #225; #226 via PR #230; #227 via PR #231 after one independent-review remediation round; #233 via PR #234 repaired the collision-prone Garmin Training privacy test oracle without production changes. Source freshness #147/#191/#193 and Google HR performance/reliability #199/#206/#207/#212 are also complete.
 
 **Current non-UI work:**
 
-1. **#229 — candidate awaiting independent semantic review:** changed Owner-assisted sidecar must become reviewable pending evidence. Candidate `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05`; no merge/acceptance is implied by a Worker report or CI alone.
+1. **#229 — candidate awaiting an isolated independent semantic review:** candidate `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` has green exact-head CI. The first Sol 6.1 High review attempt stopped at preflight because its review runtime inventory was not isolated; that is `BLOCKED / INCONCLUSIVE`, not a semantic defect or ACCEPT.
 2. **#214 — automatic collection proof:** historical inventory and manual refresh passed; Task Scheduler is configured for 10:30 plus Owner logon, including battery operation. One untouched automatic run with final report/result remains unproven.
 3. **#215 — first real Context note:** add/read back one private Owner-authored note using the existing contract. No invented diary entry and no daily-note requirement.
 4. **#181 — Windows smoke / partial-rerun reliability:** recent cleanup exit-255 failures are retained evidence; green later runs do not close the defect. Diagnose without weakening cleanup or the final gate.
@@ -47,7 +47,7 @@ The Owner chose **Google high-frequency `heart_rate` OFF by default in the local
 
 Weight accumulation does not depend on #153: openScale is optional compatibility work after the screenshot route was live-proven. #228 Phase 1 research is accepted, but cross-image event dedup implementation is parked until trustworthy source-event identity exists; date/value similarity must not auto-merge measurements.
 
-There are **13 open issues** at this checkpoint, including #210's ongoing model journal, deferred #172/#189 UI, Owner-deferred #167 privacy rewrite, #126 protection/capability decision and #105 NOT_ELIGIBLE. The [roadmap](docs/ROADMAP.md#current-backlog--2026-09-29) distinguishes actionable work from parked items. No new UI/AI/Recovery Score track is launched by this handoff.
+There are **13 open issues** at this checkpoint, including #210's ongoing model journal, deferred #172/#189 UI, Owner-deferred #167 privacy rewrite, #126 protection/capability decision and #105 NOT_ELIGIBLE. The [roadmap](docs/ROADMAP.md#current-backlog--2026-09-30) distinguishes actionable work from parked items. No new UI/AI/Recovery Score track is launched by this handoff.
 
 [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md) and the [model table](docs/MODEL_BENCHMARK.md) record actual outcomes and Owner-confirmed model labels without inventing missing runtime versions.
 
