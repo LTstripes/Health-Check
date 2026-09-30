@@ -1144,6 +1144,24 @@ def verify_lane(repo_root: Path, output_dir: Path, manifest_path: Path, lane: st
     return verified
 
 
+def validate_attempt_artifacts(artifacts_root: Path, *, run_id: str, attempt: str) -> None:
+    """Full-rerun-only: never select successful evidence from an earlier attempt.
+
+    This checks coordinates/completeness only; the content gates still require
+    successful jobs and exact SHA/tree/config/lock/manifest/selection provenance.
+    """
+    for value in (run_id, attempt):
+        _require(re.fullmatch(r"[1-9][0-9]*", value) is not None, "invalid run/attempt")
+    stems = ("ci-quality", "ci-windows-smoke", *(f"ci-lane-{lane}" for lane in LANE_NAMES))
+    expected = {f"{stem}-{run_id}-{attempt}" for stem in stems}
+    actual = {path.name for path in artifacts_root.glob("ci-*") if path.is_dir()}
+    _require(
+        actual == expected,
+        "incomplete or mixed workflow attempt; Re-run all jobs to produce one coherent "
+        f"evidence set (missing={sorted(expected - actual)}; extra={sorted(actual - expected)})",
+    )
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -1157,6 +1175,10 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH)
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("validate-manifest")
+    attempt_parser = subparsers.add_parser("verify-attempt")
+    attempt_parser.add_argument("--artifacts-root", type=Path, required=True)
+    attempt_parser.add_argument("--run-id", required=True)
+    attempt_parser.add_argument("--attempt", required=True)
     paths_parser = subparsers.add_parser("paths")
     paths_parser.add_argument("--lane", choices=LANE_NAMES, required=True)
     collect_parser = subparsers.add_parser("collect")
@@ -1186,7 +1208,12 @@ def main() -> int:
     repo_root = _repo_root()
     manifest_path = _manifest_arg(repo_root, args.manifest)
     try:
-        if args.command == "validate-manifest":
+        if args.command == "verify-attempt":
+            validate_attempt_artifacts(
+                args.artifacts_root, run_id=args.run_id, attempt=args.attempt
+            )
+            print("complete current-attempt artifact set; content verification still required")
+        elif args.command == "validate-manifest":
             manifest = validate_manifest(manifest_path, repo_root)
             print(f"validated {sum(map(len, manifest.lanes.values()))} files in 3 lanes")
         elif args.command == "paths":
