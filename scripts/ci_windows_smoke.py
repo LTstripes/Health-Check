@@ -167,6 +167,47 @@ def _validate_scenario(scenario: Any, expected_name: str) -> None:
         )
 
 
+def _validate_exit_255_transcript(output: list[str], owned_ids: list[int]) -> None:
+    """Consume the exact case-sensitive English grammar, one item per whole line.
+
+    transcript := (SUCCESS | ERROR Reason)+, with at least one ERROR.
+    PID/parent := [1-9][0-9]*. No blank lines, trimming or embedded CR/LF.
+    Each owned PID has exactly one record; no other PID may have a record.
+    Keep this grammar mirrored in Test-Exit255LifecycleTranscript.
+    """
+    success_pattern = (
+        r"SUCCESS: The process with PID ([1-9][0-9]*) "
+        r"\(child process of PID ([1-9][0-9]*)\) has been terminated\."
+    )
+    error_pattern = (
+        r"ERROR: The process with PID ([1-9][0-9]*) "
+        r"\(child process of PID ([1-9][0-9]*)\) could not be terminated\."
+    )
+    reason = "Reason: There is no running instance of the task."
+    failure = "native termination failure lacks verified lifecycle evidence"
+    expected = set(owned_ids)
+    reported: set[int] = set()
+    error_count = 0
+    index = 0
+    while index < len(output):
+        record = re.fullmatch(success_pattern, output[index])
+        if record is not None:
+            index += 1
+        else:
+            record = re.fullmatch(error_pattern, output[index])
+            _require(
+                record is not None and index + 1 < len(output) and output[index + 1] == reason,
+                failure,
+            )
+            error_count += 1
+            index += 2
+        assert record is not None
+        pid = int(record.group(1))
+        _require(pid in expected and pid not in reported, failure)
+        reported.add(pid)
+    _require(error_count > 0 and reported == expected, failure)
+
+
 def _validate_termination(cleanup: dict[str, Any]) -> None:
     owned = cleanup.get("owned_process_identities")
     _require(isinstance(owned, list) and bool(owned), "owned tree identity evidence is missing")
@@ -209,26 +250,13 @@ def _validate_termination(cleanup: dict[str, Any]) -> None:
     if code == 0:
         _require(outcome == "terminated", "native success classification mismatch")
     else:
-        text = "\n".join(output)
-        errors = re.findall(
-            r"(?m)^ERROR: The process with PID (\d+)[^\r\n]*could not be terminated\.\r?\n"
-            r"Reason: There is no running instance of the task\.",
-            text,
-        )
-        reported = {
-            int(pid)
-            for pid in re.findall(r"(?m)^(?:SUCCESS|ERROR): The process with PID (\d+)", text)
-        }
         _require(
             code == 255
             and outcome == "exited-during-termination"
-            and cleanup.get("lifecycle_diagnostic_verified") is True
-            and bool(errors)
-            and len(errors) == sum(line.startswith("ERROR:") for line in output)
-            and all(int(pid) in ids for pid in errors)
-            and reported == set(ids),
+            and cleanup.get("lifecycle_diagnostic_verified") is True,
             "native termination failure lacks verified lifecycle evidence",
         )
+        _validate_exit_255_transcript(output, ids)
 
 
 def validate_windows_smoke_artifact(

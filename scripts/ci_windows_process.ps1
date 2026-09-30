@@ -136,6 +136,44 @@ function Get-OwnedProcessTree {
     return $owned
 }
 
+function Test-Exit255LifecycleTranscript {
+    param([object[]]$OutputLines, [object[]]$OwnedProcessIds)
+
+    # Exact, case-sensitive English grammar (one output item = one whole line):
+    # transcript := (SUCCESS | ERROR Reason)+, with at least one ERROR.
+    # PID/parent := [1-9][0-9]*. No blank lines, trimming or embedded CR/LF.
+    # Each owned PID has exactly one record; no other PID may have a record.
+    $successPattern = '\ASUCCESS: The process with PID ([1-9][0-9]*) \(child process of PID ([1-9][0-9]*)\) has been terminated\.\z'
+    $errorPattern = '\AERROR: The process with PID ([1-9][0-9]*) \(child process of PID ([1-9][0-9]*)\) could not be terminated\.\z'
+    $reason = "Reason: There is no running instance of the task."
+    $expected = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($processId in $OwnedProcessIds) {
+        if (-not $expected.Add([string]$processId)) { return $false }
+    }
+    if ($expected.Count -eq 0) { return $false }
+    $reported = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $errorCount = 0
+    $index = 0
+    while ($index -lt $OutputLines.Count) {
+        if ($OutputLines[$index] -isnot [string]) { return $false }
+        $record = [regex]::Match($OutputLines[$index], $successPattern)
+        if ($record.Success) {
+            $index++
+        } else {
+            $record = [regex]::Match($OutputLines[$index], $errorPattern)
+            if (-not $record.Success -or $index + 1 -ge $OutputLines.Count -or
+                $OutputLines[$index + 1] -isnot [string] -or $OutputLines[$index + 1] -cne $reason) {
+                return $false
+            }
+            $errorCount++
+            $index += 2
+        }
+        $reportedId = $record.Groups[1].Value
+        if (-not $expected.Contains($reportedId) -or -not $reported.Add($reportedId)) { return $false }
+    }
+    return ($errorCount -gt 0 -and $reported.SetEquals($expected))
+}
+
 function Invoke-RootProcessTreeTermination {
     param([object]$CapturedIdentity, [int]$PostTimeoutSeconds = 5)
 
@@ -171,19 +209,7 @@ function Invoke-RootProcessTreeTermination {
                 $terminationIssued = $true # issued, not a claim of native success
                 $taskkillOutput = @(& taskkill.exe /PID ([string]$CapturedIdentity.Id) /T /F 2>&1 | ForEach-Object { [string]$_ })
                 $taskkillExit = $LASTEXITCODE
-                # taskkill's English Windows runner diagnostic for a tree member
-                # exiting during traversal. Other errors/locales stay fail-closed.
-                $nativeText = $taskkillOutput -join "`n"
-                $nativeErrors = @([regex]::Matches($nativeText, '(?m)^ERROR: The process with PID (\d+)[^\r\n]*could not be terminated\.\r?\nReason: There is no running instance of the task\.'))
-                $allErrorLines = @($taskkillOutput | Where-Object { $_ -match '^ERROR:' })
-                $lifecycleDiagnostic = $nativeErrors.Count -gt 0 -and $nativeErrors.Count -eq $allErrorLines.Count
-                foreach ($nativeError in $nativeErrors) {
-                    if ([int]$nativeError.Groups[1].Value -notin @($owned.Id)) { $lifecycleDiagnostic = $false }
-                }
-                $reportedIds = @([regex]::Matches($nativeText, '(?m)^(?:SUCCESS|ERROR): The process with PID (\d+)') | ForEach-Object { [int]$_.Groups[1].Value } | Sort-Object -Unique)
-                if (@(Compare-Object @($owned.Id | Sort-Object -Unique) $reportedIds).Count -gt 0) {
-                    $lifecycleDiagnostic = $false
-                }
+                $lifecycleDiagnostic = Test-Exit255LifecycleTranscript $taskkillOutput @($owned.Id)
                 $deadline = [DateTime]::UtcNow.AddSeconds($PostTimeoutSeconds)
                 do {
                     $remaining = @()

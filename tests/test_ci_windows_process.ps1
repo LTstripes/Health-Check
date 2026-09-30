@@ -37,6 +37,7 @@ $postQueryFailure = $false
 $survivingChild = $false
 $changedChild = $false
 $taskkillDiagnosticMode = "lifecycle"
+$taskkillTranscriptOverride = $null
 function Get-CimInstance {
     param([string]$ClassName, [string]$Filter, [object]$ErrorAction)
     if ($queryFailure -or ($postQueryFailure -and $identityMissing)) { throw "synthetic CIM identity query failure" }
@@ -62,6 +63,7 @@ function taskkill.exe {
     $global:LASTEXITCODE = $taskkillExitCode
     if ($taskkillExitCode -eq 0 -or ($taskkillExitCode -eq 255 -and $exitDuringTermination)) { $script:identityMissing = $true }
     if ($taskkillExitCode -eq 255) {
+        if ($null -ne $taskkillTranscriptOverride) { return $taskkillTranscriptOverride }
         if ($taskkillDiagnosticMode -ne "empty") {
             "ERROR: The process with PID 100 (child process of PID 1) could not be terminated."
             if ($taskkillDiagnosticMode -eq "access-denied") { "Reason: Access is denied." }
@@ -151,6 +153,45 @@ foreach ($mode in @("empty", "access-denied")) {
     $identityMissing = $false
 }
 $taskkillDiagnosticMode = "lifecycle"
+$exactError = "ERROR: The process with PID 100 (child process of PID 1) could not be terminated."
+$exactReason = "Reason: There is no running instance of the task."
+$exactSuccess = "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated."
+$transcripts = [ordered]@{
+    valid = @($exactError, $exactReason, $exactSuccess)
+    valid_native_order = @($exactSuccess, $exactError, $exactReason)
+    valid_all_errors = @($exactError, $exactReason, "ERROR: The process with PID 101 (child process of PID 100) could not be terminated.", $exactReason)
+    missing_record = @($exactError, $exactReason)
+    reason_trailing = @($exactError, "$exactReason UNRECOGNIZED_DIAGNOSTIC", $exactSuccess)
+    unknown_line = @($exactError, $exactReason, $exactSuccess, "UNRECOGNIZED_DIAGNOSTIC")
+    malformed_success = @($exactError, $exactReason, "SUCCESS: The process with PID 101 nonsense")
+    incomplete_error = @($exactError, $exactSuccess)
+    malformed_reason = @($exactError, "Reason: There is no running instance of the task", $exactSuccess)
+    malformed_error = @("ERROR: The process with PID 100 nonsense could not be terminated.", $exactReason, $exactSuccess)
+    duplicate_success = @($exactError, $exactReason, $exactSuccess, $exactSuccess)
+    duplicate_error = @($exactError, $exactReason, $exactError, $exactReason, $exactSuccess)
+    unexpected_record = @($exactError, $exactReason, $exactSuccess, "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.")
+    error_trailing = @("$exactError garbage", $exactReason, $exactSuccess)
+    success_trailing = @($exactError, $exactReason, "$exactSuccess garbage")
+    orphan_reason = @($exactError, $exactReason, $exactSuccess, $exactReason)
+    blank_line = @($exactError, $exactReason, "", $exactSuccess)
+    case_changed = @($exactError.ToLowerInvariant(), $exactReason, $exactSuccess)
+    embedded_newline = @($exactError, $exactReason, "$exactSuccess`nUNKNOWN")
+    trailing_newline = @($exactError, "$exactReason`n", $exactSuccess)
+    trailing_carriage_return = @($exactError, "$exactReason`r", $exactSuccess)
+    success_only = @("SUCCESS: The process with PID 100 (child process of PID 1) has been terminated.", $exactSuccess)
+}
+$transcriptFailures = @()
+foreach ($case in $transcripts.Keys) {
+    $identityMissing = $false
+    $taskkillTranscriptOverride = $transcripts[$case]
+    $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    $accepted = $result.Outcome -eq "exited-during-termination" -and @($result.Errors).Count -eq 0
+    if ($accepted -ne ($case -in @("valid", "valid_native_order", "valid_all_errors"))) { $transcriptFailures += $case }
+}
+$taskkillTranscriptOverride = $null
+$identityMissing = $false
+Assert-Equal 0 $transcriptFailures.Count "complete-transcript cases failed: $($transcriptFailures -join ', ')"
+Write-Output "Windows complete-transcript regressions PASS ($($transcripts.Count) cases)"
 $exitDuringTermination = $false
 $taskkillExitCode = 0
 

@@ -495,3 +495,96 @@ def test_windows_cleanup_lifecycle_contract(tmp_path, mutation):
     else:
         with pytest.raises(ContractError):
             validate_windows_smoke_artifact(root, **kwargs)
+
+
+_EXACT_ERROR = "ERROR: The process with PID 202 (child process of PID 1) could not be terminated."
+_EXACT_REASON = "Reason: There is no running instance of the task."
+_EXACT_SUCCESS = "SUCCESS: The process with PID 203 (child process of PID 202) has been terminated."
+_LIFECYCLE_TRANSCRIPTS = {
+    "valid": [_EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS],
+    "valid_native_order": [_EXACT_SUCCESS, _EXACT_ERROR, _EXACT_REASON],
+    "valid_all_errors": [
+        _EXACT_ERROR,
+        _EXACT_REASON,
+        "ERROR: The process with PID 203 (child process of PID 202) could not be terminated.",
+        _EXACT_REASON,
+    ],
+    "missing_record": [_EXACT_ERROR, _EXACT_REASON],
+    "reason_trailing": [_EXACT_ERROR, _EXACT_REASON + " UNRECOGNIZED_DIAGNOSTIC", _EXACT_SUCCESS],
+    "unknown_line": [_EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS, "UNRECOGNIZED_DIAGNOSTIC"],
+    "malformed_success": [
+        _EXACT_ERROR,
+        _EXACT_REASON,
+        "SUCCESS: The process with PID 203 nonsense",
+    ],
+    "incomplete_error": [_EXACT_ERROR, _EXACT_SUCCESS],
+    "malformed_reason": [_EXACT_ERROR, _EXACT_REASON[:-1], _EXACT_SUCCESS],
+    "malformed_error": [
+        "ERROR: The process with PID 202 nonsense could not be terminated.",
+        _EXACT_REASON,
+        _EXACT_SUCCESS,
+    ],
+    "duplicate_success": [_EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS, _EXACT_SUCCESS],
+    "duplicate_error": [_EXACT_ERROR, _EXACT_REASON, _EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS],
+    "unexpected_record": [
+        _EXACT_ERROR,
+        _EXACT_REASON,
+        _EXACT_SUCCESS,
+        "SUCCESS: The process with PID 204 (child process of PID 202) has been terminated.",
+    ],
+    "error_trailing": [_EXACT_ERROR + " garbage", _EXACT_REASON, _EXACT_SUCCESS],
+    "success_trailing": [_EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS + " garbage"],
+    "orphan_reason": [_EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS, _EXACT_REASON],
+    "blank_line": [_EXACT_ERROR, _EXACT_REASON, "", _EXACT_SUCCESS],
+    "case_changed": [_EXACT_ERROR.lower(), _EXACT_REASON, _EXACT_SUCCESS],
+    "embedded_newline": [_EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS + "\nUNKNOWN"],
+    "trailing_newline": [_EXACT_ERROR, _EXACT_REASON + "\n", _EXACT_SUCCESS],
+    "trailing_carriage_return": [_EXACT_ERROR, _EXACT_REASON + "\r", _EXACT_SUCCESS],
+    "success_only": [
+        "SUCCESS: The process with PID 202 (child process of PID 1) has been terminated.",
+        _EXACT_SUCCESS,
+    ],
+}
+
+
+@pytest.mark.parametrize("case", _LIFECYCLE_TRANSCRIPTS)
+def test_windows_validator_consumes_complete_lifecycle_transcript(tmp_path, case):
+    root, head, tree = _windows_smoke_fixture(tmp_path)
+    artifact = root / "ci-windows-smoke-123-1"
+    evidence = json.loads((artifact / "smoke-evidence.json").read_text())
+    cleanup = evidence["scenarios"][1]["cleanup"]
+    cleanup["owned_process_identities"].append(
+        {
+            "Id": 203,
+            "Name": "python.exe",
+            "CommandLine": "synthetic child",
+            "CreationTime": "637134336010000000",
+        }
+    )
+    cleanup.update(
+        termination_outcome="exited-during-termination",
+        taskkill_exit_code=255,
+        lifecycle_diagnostic_verified=True,
+        taskkill_output=_LIFECYCLE_TRANSCRIPTS[case],
+    )
+    evidence["cleanup"]["scenarios"][1] = cleanup
+    (artifact / "smoke-evidence.json").write_text(json.dumps(evidence))
+    (artifact / "cleanup.json").write_text(json.dumps(evidence["cleanup"]))
+    kwargs = dict(
+        job_result="success",
+        head_sha=head,
+        tree_sha=tree,
+        workflow_identity=ExpectedWorkflowIdentity(
+            "push",
+            "refs/heads/task/125-ci-windows-smoke",
+            "",
+            "",
+            "",
+            "",
+        ),
+    )
+    if case in {"valid", "valid_native_order", "valid_all_errors"}:
+        validate_windows_smoke_artifact(root, **kwargs)
+    else:
+        with pytest.raises(ContractError):
+            validate_windows_smoke_artifact(root, **kwargs)
