@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, date, datetime
 from unittest.mock import patch
 
@@ -19,9 +20,21 @@ from healthcheck.db.models import (
     ScalarMeasurement,
 )
 from healthcheck.ingestion.photo.errors import PhotoImportError
-from healthcheck.ingestion.photo.extractor import ExtractionFailure, ExtractionRequest
+from healthcheck.ingestion.photo.extractor import (
+    CandidateField,
+    ExtractionFailure,
+    ExtractionRequest,
+    ExtractionResult,
+    MeasurementGroup,
+)
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
-from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
+from healthcheck.ingestion.photo.service import (
+    PhotoImportService,
+    PhotoUpload,
+    candidate_evidence_fingerprint,
+    extraction_evidence_fingerprint,
+    normalize_extraction_result,
+)
 from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
 from healthcheck.logging import configure_logging
 from healthcheck.runtime import prepare_runtime
@@ -742,6 +755,91 @@ def _extraction_for_artifact(service, extractor, artifact_id, image_bytes):
         ),
         image_bytes,
     )
+
+
+def _signed_zero_extraction(*, value: float, confidence: float) -> ExtractionResult:
+    return ExtractionResult(
+        extractor_name="synthetic-signed-zero",
+        extractor_version="1",
+        schema_version="r01-photo-v1",
+        provider_code="xiaomi_home",
+        physical_device_code="xiaomi_s400",
+        groups=(
+            MeasurementGroup(
+                key="weigh-in",
+                source_local_date=date(2026, 1, 7),
+                temporal_precision="date",
+                fields=(
+                    CandidateField(
+                        metric_code="weight",
+                        proposed_value=value,
+                        proposed_unit="kg",
+                        source_text="synthetic",
+                        confidence=confidence,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def _signed_zero_fingerprint(value: float, confidence: float) -> str:
+    extraction = _signed_zero_extraction(value=value, confidence=confidence)
+    return extraction_evidence_fingerprint(
+        extraction, normalize_extraction_result(extraction)
+    )
+
+
+def test_evidence_fingerprint_canonicalizes_only_storage_equivalent_signed_zero():
+    assert _signed_zero_fingerprint(-0.0, -0.0) == _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(-0.0, 0.5) == _signed_zero_fingerprint(0.0, 0.5)
+    assert _signed_zero_fingerprint(78.5, -0.0) == _signed_zero_fingerprint(78.5, 0.0)
+    # Nonzero values are never rounded, quantized or collapsed.
+    assert _signed_zero_fingerprint(1e-300, 0.0) != _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(0.0, 1e-300) != _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(-1e-300, 0.0) != _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(78.5, 0.5) != _signed_zero_fingerprint(78.6, 0.5)
+
+
+class _FixedExtractionExtractor:
+    name = "synthetic-signed-zero"
+    version = "1"
+    model_name = None
+    model_version = None
+    prompt_version = None
+
+    def __init__(self, extraction: ExtractionResult):
+        self._extraction = extraction
+
+    def extract(self, request, image_bytes):
+        del request, image_bytes
+        return self._extraction
+
+
+def test_signed_zero_evidence_fingerprint_survives_sqlite_round_trip(photo_env):
+    _settings, paths, engine, _extractor = photo_env
+    extraction = _signed_zero_extraction(value=-0.0, confidence=-0.0)
+    prepared = normalize_extraction_result(extraction)
+    incoming = extraction_evidence_fingerprint(extraction, prepared)
+    image = encode_synthetic_png({"schema_version": "r01-photo-v1"})
+
+    imported = _service_call(
+        engine,
+        paths,
+        _FixedExtractionExtractor(extraction),
+        lambda service: service.import_photos([PhotoUpload("shot.png", image)]),
+    )
+    assert imported.items[0].status == "pending-confirmation"
+
+    with session_scope(engine) as session:
+        stored = session.get(ImportCandidate, imported.items[0].candidate_ids[0])
+        assert stored is not None
+        # The fresh SQLite read normalizes -0.0 to +0.0; the fingerprint must
+        # not depend on the storage-normalized sign.
+        assert math.copysign(1.0, stored.proposed_value) == 1.0
+        assert math.copysign(1.0, stored.confidence) == 1.0
+        persisted = candidate_evidence_fingerprint([stored])
+    assert persisted == incoming
 
 
 def test_stage_correction_stays_pending_and_never_overwrites_confirmed_evidence(photo_env):

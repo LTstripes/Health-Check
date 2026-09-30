@@ -1449,6 +1449,19 @@ def _evidence_fingerprint(rows: Iterable[Mapping[str, Any]]) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def _storage_equivalent_float(value: float | None) -> float | None:
+    """Normalize storage-equivalent signed zero for fingerprint material.
+
+    SQLite persists ``-0.0`` as ``0.0``, so both signs must produce the same
+    evidence fingerprint for incoming and persisted evidence alike.  No other
+    float value is rounded, quantized or collapsed.
+    """
+
+    if value is None or value != 0.0:
+        return value
+    return 0.0
+
+
 def _normalized_evidence_row(
     group_key: str,
     normalized: NormalizedField,
@@ -1457,7 +1470,7 @@ def _normalized_evidence_row(
     return {
         "measurement_group_key": group_key,
         "metric_code": normalized.metric_code,
-        "proposed_value": normalized.proposed_value,
+        "proposed_value": _storage_equivalent_float(normalized.proposed_value),
         "proposed_unit": normalized.proposed_unit,
         "proposed_source_timestamp": _timestamp_text(normalized.source_timestamp),
         "proposed_source_local_date": _date_text(normalized.source_local_date),
@@ -1469,7 +1482,7 @@ def _normalized_evidence_row(
         "model_version": extracted.model_version,
         "prompt_version": extracted.prompt_version,
         "schema_version": extracted.schema_version,
-        "confidence": normalized.confidence,
+        "confidence": _storage_equivalent_float(normalized.confidence),
         "evidence_region_json": (
             None
             if normalized.evidence_region is None
@@ -1487,7 +1500,7 @@ def _candidate_evidence_row(candidate: ImportCandidate) -> dict[str, Any]:
     return {
         "measurement_group_key": candidate.measurement_group_key,
         "metric_code": candidate.metric_code,
-        "proposed_value": candidate.proposed_value,
+        "proposed_value": _storage_equivalent_float(candidate.proposed_value),
         "proposed_unit": candidate.proposed_unit,
         "proposed_source_timestamp": _timestamp_text(candidate.proposed_source_timestamp),
         "proposed_source_local_date": _date_text(candidate.proposed_source_local_date),
@@ -1499,7 +1512,7 @@ def _candidate_evidence_row(candidate: ImportCandidate) -> dict[str, Any]:
         "model_version": candidate.model_version,
         "prompt_version": candidate.prompt_version,
         "schema_version": candidate.schema_version,
-        "confidence": candidate.confidence,
+        "confidence": _storage_equivalent_float(candidate.confidence),
         "evidence_region_json": candidate.evidence_region_json,
         "algorithm_code": candidate.algorithm_code,
         "algorithm_version": candidate.algorithm_version,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date
 
 import pytest
@@ -405,6 +406,67 @@ def test_owner_assisted_changed_sidecar_stages_reviewable_pending_evidence(
         assert len(measurements) == 1
         assert measurements[0].supersedes_measurement_id is None
         assert measurements[0].import_candidate_id == original_candidates[0].id
+
+
+@pytest.mark.parametrize("decision", ["pending", "rejected", "confirmed"])
+def test_owner_assisted_signed_zero_correction_replay_is_terminal(
+    owner_photo_env, tmp_path, decision
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(
+        source_local_date=date(2026, 5, 9), weight_kg=78.5, weight_confidence=0.5
+    )
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    first = import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+    assert first.status == "IMPORTED"
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["fields"][0]["value"] = -0.0
+    changed["groups"][0]["fields"][0]["confidence"] = -0.0
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+
+    staged = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert staged.status == "NEEDS_REVIEW"
+    assert staged.reason_code == "content_seen_new_extraction"
+    with session_scope(engine) as session:
+        correction = session.scalar(
+            select(ImportCandidate).where(ImportCandidate.user_decision == "pending")
+        )
+        assert correction is not None
+        # Fresh SQLite read: the stored -0.0 evidence came back as +0.0.
+        assert math.copysign(1.0, correction.proposed_value) == 1.0
+        assert math.copysign(1.0, correction.confidence) == 1.0
+        correction_id = correction.id
+
+    if decision == "rejected":
+        with session_scope(engine) as session:
+            PhotoImportService(session, _paths, FakeImageMeasurementExtractor()).reject(
+                [correction_id], reason="synthetic-signed-zero"
+            )
+    elif decision == "confirmed":
+        with session_scope(engine) as session:
+            PhotoImportService(session, _paths, FakeImageMeasurementExtractor()).confirm(
+                [correction_id]
+            )
+    before_replay = _counts(engine)
+
+    replay = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+
+    if decision == "pending":
+        assert replay.status == "NEEDS_REVIEW"
+        assert replay.reason_code == "content_seen_new_extraction"
+    else:
+        assert replay.status == "DUPLICATE"
+        assert replay.reason_code == "duplicate_content"
+    assert _counts(engine) == before_replay
+    with session_scope(engine) as session:
+        assert session.scalar(select(func.count(ImportCandidate.id))) == 2
+        sessions = list(session.scalars(select(MeasurementSession)))
+        if decision == "confirmed":
+            assert {row.revision_number for row in sessions} == {1, 2}
+        else:
+            assert [row.revision_number for row in sessions] == [1]
 
 
 def test_owner_assisted_changed_sidecar_replay_does_not_duplicate_pending_evidence(
