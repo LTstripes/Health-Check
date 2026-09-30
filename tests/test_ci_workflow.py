@@ -153,6 +153,26 @@ def test_checks_enforces_full_rerun_only_before_content_verdicts():
     assert 'if [ "$attempt_status" -ne 0 ]' in checks
 
 
+def _absent_observations(owned):
+    return [
+        {
+            "Id": identity["Id"],
+            "CapturedCreationTime": identity["CreationTime"],
+            "Classification": "absent",
+            "ObservedIdentity": {
+                "Id": identity["Id"],
+                "Name": "",
+                "CommandLine": "",
+                "CreationTime": "",
+                "Exists": False,
+                "QueryError": None,
+            },
+            "Error": None,
+        }
+        for identity in owned
+    ]
+
+
 def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
     root = tmp_path / "artifacts"
     artifact = root / "ci-windows-smoke-123-1"
@@ -228,6 +248,11 @@ def _windows_smoke_fixture(tmp_path: Path) -> tuple[Path, str, str]:
 
     disabled = scenario("ingest-disabled", 101, r"C:\Temp\Health Check disabled", [])
     enabled = scenario("ingest-enabled", 202, r"C:\Temp\Health Check enabled", [])
+    for item in (disabled, enabled):
+        for field in ("post_termination_observations", "final_process_observations"):
+            item["cleanup"][field] = _absent_observations(
+                item["cleanup"]["owned_process_identities"]
+            )
     cleanup = {
         "scope": "verified-root-process-tree-only",
         "root_pid": 101,
@@ -497,6 +522,123 @@ def test_windows_cleanup_lifecycle_contract(tmp_path, mutation):
             validate_windows_smoke_artifact(root, **kwargs)
 
 
+@pytest.mark.parametrize("target", (202, 203))
+@pytest.mark.parametrize("code", (0, 255))
+@pytest.mark.parametrize("field", ("post_termination_observations", "final_process_observations"))
+@pytest.mark.parametrize(
+    "case",
+    (
+        "reuse",
+        "same_time_name",
+        "same_time_command",
+        "missing_time",
+        "malformed_time",
+        "out_of_range_time",
+        "missing_command",
+        "query_error",
+        "alive",
+        "root_reuse_child_alive",
+        "both_reused",
+        "missing_record",
+        "duplicate_record",
+        "unexpected_record",
+        "wrong_captured_time",
+        "wrong_observed_pid",
+        "missing_query_result",
+        "unknown",
+        "generic_identity_change",
+    ),
+)
+def test_windows_post_termination_identity_proof(tmp_path, target, code, field, case):
+    root, head, tree = _windows_smoke_fixture(tmp_path)
+    artifact = root / "ci-windows-smoke-123-1"
+    evidence = json.loads((artifact / "smoke-evidence.json").read_text())
+    cleanup = evidence["scenarios"][1]["cleanup"]
+    cleanup["owned_process_identities"].append(
+        {
+            "Id": 203,
+            "Name": "python.exe",
+            "CommandLine": "synthetic child",
+            "CreationTime": "637134336010000000",
+        }
+    )
+    for key in ("post_termination_observations", "final_process_observations"):
+        cleanup[key] = _absent_observations(cleanup["owned_process_identities"])
+    if code == 255:
+        cleanup.update(
+            termination_outcome="exited-during-termination",
+            taskkill_exit_code=255,
+            lifecycle_diagnostic_verified=True,
+            taskkill_output=[_EXACT_ERROR, _EXACT_REASON, _EXACT_SUCCESS],
+        )
+    records = cleanup[field]
+    record = next(item for item in records if item["Id"] == target)
+    captured = next(item for item in cleanup["owned_process_identities"] if item["Id"] == target)
+    record.update(
+        Classification="reused", ObservedIdentity=dict(captured, Exists=True, QueryError=None)
+    )
+    observed = record["ObservedIdentity"]
+    observed["CreationTime"] = str(int(captured["CreationTime"]) + 10000000)
+    observed["Name"] = "unrelated.exe"
+    if case in {"same_time_name", "same_time_command", "alive"}:
+        observed.update(captured)
+        if case == "same_time_name":
+            observed["Name"] = "changed.exe"
+        elif case == "same_time_command":
+            observed["CommandLine"] = "changed command"
+    elif case in {"missing_time", "malformed_time", "out_of_range_time"}:
+        observed["CreationTime"] = {
+            "missing_time": "",
+            "malformed_time": "637134336000000001\n",
+            "out_of_range_time": "3155378976000000000",
+        }[case]
+    elif case == "missing_command":
+        observed["CommandLine"] = ""
+    elif case == "query_error":
+        observed["QueryError"] = "query failed"
+    elif case in {"root_reuse_child_alive", "both_reused"}:
+        for item, identity in zip(records, cleanup["owned_process_identities"], strict=True):
+            item.update(
+                Classification="reused",
+                ObservedIdentity=dict(identity, Exists=True, QueryError=None),
+            )
+            item["ObservedIdentity"]["CreationTime"] = str(int(identity["CreationTime"]) + 10000000)
+        if case == "root_reuse_child_alive":
+            records[1]["ObservedIdentity"].update(cleanup["owned_process_identities"][1])
+    elif case == "missing_record":
+        records.remove(record)
+    elif case == "duplicate_record":
+        records.append(record)
+    elif case == "unexpected_record":
+        record["Id"] = 999
+    elif case == "wrong_captured_time":
+        record["CapturedCreationTime"] = observed["CreationTime"]
+    elif case == "wrong_observed_pid":
+        observed["Id"] = 999
+    elif case == "missing_query_result":
+        observed.pop("QueryError")
+    elif case == "unknown":
+        record["Classification"] = "unknown"
+    elif case == "generic_identity_change":
+        cleanup["identity_changed_process_ids"] = [target]
+    evidence["cleanup"]["scenarios"][1] = cleanup
+    (artifact / "smoke-evidence.json").write_text(json.dumps(evidence))
+    (artifact / "cleanup.json").write_text(json.dumps(evidence["cleanup"]))
+    kwargs = dict(
+        job_result="success",
+        head_sha=head,
+        tree_sha=tree,
+        workflow_identity=ExpectedWorkflowIdentity(
+            "push", "refs/heads/task/125-ci-windows-smoke", "", "", "", ""
+        ),
+    )
+    if case in {"reuse", "both_reused"}:
+        validate_windows_smoke_artifact(root, **kwargs)
+    else:
+        with pytest.raises(ContractError):
+            validate_windows_smoke_artifact(root, **kwargs)
+
+
 _EXACT_ERROR = "ERROR: The process with PID 202 (child process of PID 1) could not be terminated."
 _EXACT_REASON = "Reason: There is no running instance of the task."
 _EXACT_SUCCESS = "SUCCESS: The process with PID 203 (child process of PID 202) has been terminated."
@@ -567,6 +709,8 @@ def test_windows_validator_consumes_complete_lifecycle_transcript(tmp_path, case
         lifecycle_diagnostic_verified=True,
         taskkill_output=_LIFECYCLE_TRANSCRIPTS[case],
     )
+    for field in ("post_termination_observations", "final_process_observations"):
+        cleanup[field] = _absent_observations(cleanup["owned_process_identities"])
     evidence["cleanup"]["scenarios"][1] = cleanup
     (artifact / "smoke-evidence.json").write_text(json.dumps(evidence))
     (artifact / "cleanup.json").write_text(json.dumps(evidence["cleanup"]))

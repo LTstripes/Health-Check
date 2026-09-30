@@ -145,6 +145,8 @@ function Invoke-SmokeScenario {
         taskkill_output = @()
         lifecycle_diagnostic_verified = $false
         owned_process_identities = @()
+        post_termination_observations = @()
+        final_process_observations = @()
         remaining_owned_process_ids = @()
         identity_changed_process_ids = @()
         ports_closed = [ordered]@{ ui = $false; ingest = $false }
@@ -216,18 +218,19 @@ function Invoke-SmokeScenario {
             $cleanup.taskkill_output = @($termination.TaskkillOutput)
             $cleanup.lifecycle_diagnostic_verified = $termination.LifecycleDiagnosticVerified
             $cleanup.owned_process_identities = @($termination.OwnedProcessIdentities)
+            $cleanup.post_termination_observations = @($termination.PostTerminationObservations)
             $cleanup.remaining_owned_process_ids += @($termination.RemainingOwnedProcessIds)
             $cleanup.identity_changed_process_ids = @($termination.IdentityChangedProcessIds)
             $cleanup.errors += @($termination.Errors)
             Start-Sleep -Milliseconds 300
-            $postRoot = Get-ProcessIdentity $capturedRoot.Id
-            if ($postRoot.QueryError) {
-                $cleanup.errors += [string]$postRoot.QueryError
-            } elseif ($postRoot.Exists) {
-                if (Test-SameProcessIdentity $capturedRoot $postRoot) {
-                    $cleanup.remaining_owned_process_ids += [int]$capturedRoot.Id
-                } else {
-                    $cleanup.identity_changed_process_ids += [int]$capturedRoot.Id
+            foreach ($identity in $termination.OwnedProcessIdentities) {
+                $observation = Get-PostTerminationProcessObservation $identity
+                $cleanup.final_process_observations += $observation
+                if ($observation.Classification -eq "same-identity-alive") {
+                    $cleanup.remaining_owned_process_ids += [int]$identity.Id
+                } elseif ($observation.Classification -eq "unknown") {
+                    $cleanup.errors += [string]$observation.Error
+                    $cleanup.identity_changed_process_ids += [int]$identity.Id
                 }
             }
         } elseif ($harness) {

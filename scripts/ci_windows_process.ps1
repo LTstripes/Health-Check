@@ -174,6 +174,56 @@ function Test-Exit255LifecycleTranscript {
     return ($errorCount -gt 0 -and $reported.SetEquals($expected))
 }
 
+function Test-PostTerminationCreationTime {
+    param([object]$Value)
+
+    # Canonical UTC DateTime ticks, not an arbitrary numeric identity token.
+    if ($Value -isnot [string] -or $Value -cnotmatch '\A[1-9][0-9]{0,18}\z') { return $false }
+    $ticks = 0L
+    return ([long]::TryParse($Value, [ref]$ticks) -and $ticks -le [DateTime]::MaxValue.Ticks)
+}
+
+function Get-PostTerminationProcessObservation {
+    param([object]$CapturedIdentity)
+
+    # Query only captured PIDs. Never traverse or terminate an observed/reused PID.
+    try { $post = Get-ProcessIdentity $CapturedIdentity.Id } catch {
+        $post = [pscustomobject]@{ Id = $CapturedIdentity.Id; Exists = $false; QueryError = "post-termination identity query failed: $($_.Exception.Message)" }
+    }
+    $observed = [pscustomobject]@{
+        Id = $post.Id
+        Name = [string]$post.Name
+        CommandLine = [string]$post.CommandLine
+        CreationTime = [string]$post.CreationTime
+        Exists = $post.Exists
+        QueryError = $post.QueryError
+    }
+    $classification = "unknown"
+    $error = $null
+    if ($observed.QueryError -or $observed.Id -ne $CapturedIdentity.Id -or $observed.Exists -isnot [bool]) {
+        $error = "post-termination identity query failed for PID $($CapturedIdentity.Id)"
+    } elseif (-not $observed.Exists) {
+        $classification = "absent"
+    } elseif (-not (Test-PostTerminationCreationTime $CapturedIdentity.CreationTime) -or
+        -not (Test-PostTerminationCreationTime $observed.CreationTime) -or
+        [string]::IsNullOrWhiteSpace($observed.Name) -or [string]::IsNullOrWhiteSpace($observed.CommandLine)) {
+        $error = "post-termination identity incomplete for PID $($CapturedIdentity.Id)"
+    } elseif ($observed.CreationTime -cne $CapturedIdentity.CreationTime) {
+        $classification = "reused"
+    } elseif ($observed.Name -ceq $CapturedIdentity.Name -and $observed.CommandLine -ceq $CapturedIdentity.CommandLine) {
+        $classification = "same-identity-alive"
+    } else {
+        $error = "post-termination identity changed with same CreationTime for PID $($CapturedIdentity.Id)"
+    }
+    return [pscustomobject]@{
+        Id = $CapturedIdentity.Id
+        CapturedCreationTime = $CapturedIdentity.CreationTime
+        Classification = $classification
+        ObservedIdentity = $observed
+        Error = $error
+    }
+}
+
 function Invoke-RootProcessTreeTermination {
     param([object]$CapturedIdentity, [int]$PostTimeoutSeconds = 5)
 
@@ -183,6 +233,7 @@ function Invoke-RootProcessTreeTermination {
     $rootAlreadyExited = $false
     $owned = @()
     $remaining = @()
+    $postObservations = @()
     $taskkillExit = $null
     $taskkillOutput = @()
     $lifecycleDiagnostic = $false
@@ -213,13 +264,15 @@ function Invoke-RootProcessTreeTermination {
                 $deadline = [DateTime]::UtcNow.AddSeconds($PostTimeoutSeconds)
                 do {
                     $remaining = @()
+                    $postObservations = @()
                     foreach ($identity in $owned) {
-                        $post = Get-ProcessIdentity $identity.Id
-                        if ($post.QueryError) {
-                            $errors += [string]$post.QueryError
-                        } elseif ($post.Exists) {
-                            if (Test-SameProcessIdentity $identity $post) { $remaining += [int]$identity.Id }
-                            else { $identityChanged += [int]$identity.Id }
+                        $observation = Get-PostTerminationProcessObservation $identity
+                        $postObservations += $observation
+                        if ($observation.Classification -eq "same-identity-alive") {
+                            $remaining += [int]$identity.Id
+                        } elseif ($observation.Classification -eq "unknown") {
+                            $errors += [string]$observation.Error
+                            $identityChanged += [int]$identity.Id
                         }
                     }
                     if ($remaining.Count -eq 0 -or $errors.Count -gt 0 -or $identityChanged.Count -gt 0) { break }
@@ -230,7 +283,7 @@ function Invoke-RootProcessTreeTermination {
                 if ($taskkillExit -eq 0 -and $errors.Count -eq 0) {
                     $outcome = "terminated"
                 } elseif ($taskkillExit -eq 255 -and $errors.Count -eq 0 -and $lifecycleDiagnostic) {
-                    # Reconcile only a verified, fully absent tree. Ports/runtime
+                    # Reconcile only absent or CreationTime-proven replaced identities. Ports/runtime
                     # are separate mandatory caller postconditions. No second kill.
                     $outcome = "exited-during-termination"
                 } else {
@@ -249,6 +302,7 @@ function Invoke-RootProcessTreeTermination {
         TaskkillOutput = @($taskkillOutput)
         LifecycleDiagnosticVerified = $lifecycleDiagnostic
         OwnedProcessIdentities = @($owned)
+        PostTerminationObservations = @($postObservations)
         RemainingOwnedProcessIds = @($remaining)
         IdentityChangedProcessIds = @($identityChanged)
         Errors = @($errors)

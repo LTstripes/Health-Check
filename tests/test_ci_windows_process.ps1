@@ -36,6 +36,8 @@ $exitDuringTermination = $false
 $postQueryFailure = $false
 $survivingChild = $false
 $changedChild = $false
+$postModeById = @{}
+$postQueriedIds = @()
 $taskkillDiagnosticMode = "lifecycle"
 $taskkillTranscriptOverride = $null
 function Get-CimInstance {
@@ -45,15 +47,20 @@ function Get-CimInstance {
     if ($Filter -match "^ProcessId=(\d+)$") { $ids = @([int]$Matches[1]) }
     elseif ($Filter) { throw "unexpected process identity query" }
     foreach ($id in $ids) {
-        if ($identityMissing -and ($id -eq 100 -or -not ($survivingChild -or $changedChild))) { continue }
+        $mode = if ($identityMissing) { $postModeById[$id] } else { $null }
+        if ($identityMissing -and $Filter) { $script:postQueriedIds += $id }
+        if ($mode -eq "query_error") { throw "synthetic per-PID query failure" }
+        if ($identityMissing -and -not $mode -and ($id -eq 100 -or -not ($survivingChild -or $changedChild))) { continue }
         $value = $identityById[$id]
         if ($null -eq $value) { continue }
         [pscustomobject]@{
             ProcessId = $id
             ParentProcessId = if ($id -eq 100) { 1 } else { 100 }
-            Name = $value.Name
-            CommandLine = $value.CommandLine
-            CreationDate = [DateTime]::new([long]$value.CreationTime, [DateTimeKind]::Utc).AddSeconds($(if ($identityMissing -and $changedChild) { 1 } else { 0 }))
+            Name = if ($mode -in @("same_time_name", "reuse")) { "unrelated.exe" } else { $value.Name }
+            CommandLine = if ($mode -eq "same_time_command") { "changed command" } elseif ($mode -eq "missing_command") { "" } else { $value.CommandLine }
+            CreationDate = if ($mode -eq "missing_time") { $null } elseif ($mode -eq "malformed_time") { "invalid date" } else {
+                [DateTime]::new([long]$value.CreationTime, [DateTimeKind]::Utc).AddSeconds($(if (($identityMissing -and $changedChild) -or $mode -eq "reuse") { 1 } else { 0 }))
+            }
         }
     }
 }
@@ -137,8 +144,8 @@ $identityMissing = $false
 $survivingChild = $false
 $changedChild = $true
 $reusedChild = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
-Assert-True (@($reusedChild.IdentityChangedProcessIds) -contains 101) "same-command PID reuse must compare creation time"
-Assert-True (@($reusedChild.Errors).Count -gt 0) "reused child must fail"
+Assert-Equal 0 @($reusedChild.Errors).Count "proven child reuse must pass"
+Assert-Equal "reused" $reusedChild.PostTerminationObservations[1].Classification "different CreationTime proves reuse"
 $identityMissing = $false
 $changedChild = $false
 $postQueryFailure = $true
@@ -146,6 +153,48 @@ $unknownPost = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSecon
 Assert-True (@($unknownPost.Errors).Count -gt 0) "unknown post-termination identity must fail"
 $identityMissing = $false
 $postQueryFailure = $false
+$identityCases = @("reuse", "same_time_name", "same_time_command", "missing_time", "malformed_time", "missing_command", "query_error", "alive")
+foreach ($nativeCode in @(0, 255)) {
+    $taskkillExitCode = $nativeCode
+    foreach ($targetId in @(100, 101)) {
+        foreach ($mode in $identityCases) {
+            $identityMissing = $false
+            $postModeById = @{ $targetId = $mode }
+            $postQueriedIds = @()
+            $taskkillCalls = @()
+            $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+            Assert-Equal 1 $taskkillCalls.Count "post classification must not issue another kill"
+            Assert-True ($postQueriedIds -contains 100 -and $postQueriedIds -contains 101) "every captured PID must be queried even after root reuse/failure"
+            $record = @($result.PostTerminationObservations | Where-Object { $_.Id -eq $targetId })[0]
+            if ($mode -eq "reuse") {
+                Assert-Equal 0 @($result.Errors).Count "CreationTime proven reuse ($targetId) must pass"
+                Assert-Equal "reused" $record.Classification "reuse classification"
+                Assert-Equal $identityById[$targetId].CreationTime $record.CapturedCreationTime "captured time retained"
+                Assert-True ($record.ObservedIdentity.CreationTime -ne $record.CapturedCreationTime) "observed different time retained"
+            } else {
+                Assert-True (@($result.Errors).Count -gt 0) "$mode ($targetId) must fail closed"
+                Assert-Equal $(if ($mode -eq "alive") { "same-identity-alive" } else { "unknown" }) $record.Classification "failure classification"
+            }
+        }
+    }
+    $identityMissing = $false
+    $postModeById = @{ 100 = "reuse"; 101 = "alive" }
+    $rootReuseWithSurvivor = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    Assert-True (@($rootReuseWithSurvivor.RemainingOwnedProcessIds) -contains 101) "root reuse must not hide surviving captured child"
+    Assert-True (@($rootReuseWithSurvivor.Errors).Count -gt 0) "root reuse with surviving child fails"
+    $identityMissing = $false
+    $postModeById = @{ 100 = "reuse"; 101 = "reuse" }
+    $bothReused = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    Assert-Equal 0 @($bothReused.Errors).Count "independently proven root and child reuse pass"
+    $identityMissing = $false
+    $postModeById = @{}
+}
+$taskkillExitCode = 255
+foreach ($invalidTime in @($null, "", "0", "01", "637134336000000001`n", "3155378976000000000", "99999999999999999999", 637134336000000001L)) {
+    Assert-True (-not (Test-PostTerminationCreationTime $invalidTime)) "malformed/out-of-range/non-string creation time must fail"
+}
+Assert-True (Test-PostTerminationCreationTime "3155378975999999999") "DateTime maximum canonical ticks are valid"
+Write-Output "Windows post-termination identity regressions PASS (36 lifecycle cases + creation-time grammar)"
 foreach ($mode in @("empty", "access-denied")) {
     $taskkillDiagnosticMode = $mode
     $badDiagnostic = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0

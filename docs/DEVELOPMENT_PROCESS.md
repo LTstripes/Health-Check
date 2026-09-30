@@ -311,13 +311,23 @@ captured tree member, including children whose parent has already exited.
 Native exit 0 is `terminated`. Exit 255 can be `exited-during-termination` only
 when every native error is the English runner diagnostic `There is no running
 instance of the task.` for a captured owned PID, and every captured identity is
-provably absent and the native reported PID set equals the captured tree.
-Unknown queries, changed identities, surviving children,
-unrecognized/localized diagnostics and other exit codes fail. Both ports must
+absent or proven reused by a successful query with a trustworthy different
+CreationTime, and the native reported PID set equals the captured tree. The
+exact English transcript grammar and complete line consumption remain mandatory.
+Post-termination observations classify each captured root/child independently
+as absent, same-identity-alive, reused, or unknown. Reuse evidence retains the
+captured and observed UTC DateTime ticks plus observed PID/name/command line
+and query result. A generic identity-change list is never reuse proof. Same
+CreationTime with changed name/command line, incomplete/malformed identities,
+unknown queries and surviving captured children fail. Root reuse does not
+stop checks of captured children or authorize traversal from the reused PID.
+These observations do not provide process-handle/object-bound guarantees.
+Unrecognized/localized diagnostics and other exit codes fail. Both ports must
 also be closed and the external synthetic runtime removed. No second kill or
 process-name-wide operation is used. A root absent before the ownership
 snapshot is unproven and fails. Artifact schema 3 requires this lifecycle
-evidence and rejects all identity-change entries. Historical artifacts that
+evidence, both termination and final observations for every captured PID, and
+rejects all identity-change entries. Historical artifacts that
 discarded native output cannot retrospectively prove this diagnostic or be
 waived under the new contract.
 

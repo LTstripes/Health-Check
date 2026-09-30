@@ -208,6 +208,69 @@ def _validate_exit_255_transcript(output: list[str], owned_ids: list[int]) -> No
     _require(error_count > 0 and reported == expected, failure)
 
 
+def _trustworthy_creation_time(value: Any) -> bool:
+    # Mirror Test-PostTerminationCreationTime: canonical positive UTC DateTime ticks.
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"[1-9][0-9]{0,18}", value) is not None
+        and int(value) <= 3155378975999999999
+    )
+
+
+def _validate_post_termination_observations(records: Any, owned: list[dict[str, Any]]) -> None:
+    failure = "post-termination identity evidence is incomplete or unsafe"
+    _require(isinstance(records, list) and len(records) == len(owned), failure)
+    captured_by_id = {identity["Id"]: identity for identity in owned}
+    reported: list[int] = []
+    for record in records:
+        _require(isinstance(record, dict), failure)
+        pid = record.get("Id")
+        _require(type(pid) is int and pid in captured_by_id, failure)
+        reported.append(pid)
+        captured = captured_by_id[pid]
+        _require(
+            record.get("CapturedCreationTime") == captured["CreationTime"]
+            and _trustworthy_creation_time(captured["CreationTime"])
+            and "Error" in record
+            and record["Error"] is None,
+            failure,
+        )
+        observed = record.get("ObservedIdentity")
+        _require(
+            isinstance(observed, dict)
+            and type(observed.get("Id")) is int
+            and observed["Id"] == pid
+            and type(observed.get("Exists")) is bool
+            and "QueryError" in observed
+            and observed["QueryError"] is None,
+            failure,
+        )
+        if observed["Exists"] is False:
+            _require(record.get("Classification") == "absent", failure)
+            _require(
+                all(observed.get(field) == "" for field in ("Name", "CommandLine", "CreationTime")),
+                failure,
+            )
+        else:
+            _require(
+                all(
+                    isinstance(observed.get(field), str) and bool(observed[field].strip())
+                    for field in ("Name", "CommandLine")
+                )
+                and _trustworthy_creation_time(observed.get("CreationTime")),
+                failure,
+            )
+            # A changed name/command alone is never proof of PID reuse. Same-time
+            # survivors and unknown identities remain failures regardless of labels.
+            _require(
+                record.get("Classification") == "reused"
+                and observed["CreationTime"] != captured["CreationTime"],
+                failure,
+            )
+    _positive_unique_ids(reported, failure)
+    _require(set(reported) == set(captured_by_id), failure)
+
+
 def _validate_termination(cleanup: dict[str, Any]) -> None:
     owned = cleanup.get("owned_process_identities")
     _require(isinstance(owned, list) and bool(owned), "owned tree identity evidence is missing")
@@ -235,6 +298,8 @@ def _validate_termination(cleanup: dict[str, Any]) -> None:
         },
         "owned tree root identity mismatch",
     )
+    for field in ("post_termination_observations", "final_process_observations"):
+        _validate_post_termination_observations(cleanup.get(field), owned)
     output = cleanup.get("taskkill_output")
     _require(
         cleanup.get("termination_issued") is True
