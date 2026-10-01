@@ -38,6 +38,7 @@ $survivingChild = $false
 $changedChild = $false
 $postModeById = @{}
 $postQueriedIds = @()
+$postModeQueryCountById = @{}
 $taskkillDiagnosticMode = "lifecycle"
 $taskkillTranscriptOverride = $null
 function Get-CimInstance {
@@ -48,7 +49,14 @@ function Get-CimInstance {
     elseif ($Filter) { throw "unexpected process identity query" }
     foreach ($id in $ids) {
         $mode = if ($identityMissing) { $postModeById[$id] } else { $null }
-        if ($identityMissing -and $Filter) { $script:postQueriedIds += $id }
+        if ($identityMissing -and $Filter) {
+            $script:postQueriedIds += $id
+            if ($mode -eq "transient_missing_command") {
+                $seen = if ($script:postModeQueryCountById.ContainsKey($id)) { [int]$script:postModeQueryCountById[$id] } else { 0 }
+                $script:postModeQueryCountById[$id] = $seen + 1
+                if ($seen -gt 0) { continue }
+            }
+        }
         if ($mode -eq "query_error") { throw "synthetic per-PID query failure" }
         if ($identityMissing -and -not $mode -and ($id -eq 100 -or -not ($survivingChild -or $changedChild))) { continue }
         $value = $identityById[$id]
@@ -57,7 +65,7 @@ function Get-CimInstance {
             ProcessId = $id
             ParentProcessId = if ($id -eq 100) { 1 } else { 100 }
             Name = if ($mode -in @("same_time_name", "reuse")) { "unrelated.exe" } else { $value.Name }
-            CommandLine = if ($mode -eq "same_time_command") { "changed command" } elseif ($mode -eq "missing_command") { "" } else { $value.CommandLine }
+            CommandLine = if ($mode -eq "same_time_command") { "changed command" } elseif ($mode -in @("missing_command", "transient_missing_command")) { "" } else { $value.CommandLine }
             CreationDate = if ($mode -eq "missing_time") { $null } elseif ($mode -eq "malformed_time") { "invalid date" } else {
                 [DateTime]::new([long]$value.CreationTime, [DateTimeKind]::Utc).AddSeconds($(if (($identityMissing -and $changedChild) -or $mode -eq "reuse") { 1 } else { 0 }))
             }
@@ -173,7 +181,7 @@ foreach ($nativeCode in @(0, 255)) {
                 Assert-True ($record.ObservedIdentity.CreationTime -ne $record.CapturedCreationTime) "observed different time retained"
             } else {
                 Assert-True (@($result.Errors).Count -gt 0) "$mode ($targetId) must fail closed"
-                Assert-Equal $(if ($mode -eq "alive") { "same-identity-alive" } else { "unknown" }) $record.Classification "failure classification"
+                Assert-Equal $(if ($mode -in @("alive", "missing_command")) { "same-identity-alive" } else { "unknown" }) $record.Classification "failure classification"
             }
         }
     }
@@ -189,6 +197,26 @@ foreach ($nativeCode in @(0, 255)) {
     $identityMissing = $false
     $postModeById = @{}
 }
+
+# Real runner evidence showed WMI can briefly return the same PID/CreationTime
+# with an empty CommandLine immediately after taskkill, then report the PID absent.
+# That is still the same captured instance and must keep bounded polling; it is
+# never accepted as a terminal success while incomplete.
+$taskkillExitCode = 0
+$identityMissing = $false
+$postModeById = @{ 100 = "transient_missing_command" }
+$postModeQueryCountById = @{}
+$postQueriedIds = @()
+$transientIncomplete = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 1
+Assert-Equal 0 @($transientIncomplete.Errors).Count "transient same-CreationTime incomplete identity must keep polling until absence"
+Assert-True ([int]$postModeQueryCountById[100] -ge 2) "transient incomplete identity must be queried again"
+$transientRoot = @($transientIncomplete.PostTerminationObservations | Where-Object { $_.Id -eq 100 })[0]
+Assert-Equal "absent" $transientRoot.Classification "transient incomplete identity must finish only after captured PID is absent"
+Assert-Equal 0 @($transientIncomplete.IdentityChangedProcessIds).Count "transient same-CreationTime incomplete identity is not PID reuse"
+$identityMissing = $false
+$postModeById = @{}
+$postModeQueryCountById = @{}
+
 $taskkillExitCode = 255
 foreach ($invalidTime in @($null, "", "0", "01", "637134336000000001`n", "3155378976000000000", "99999999999999999999", 637134336000000001L)) {
     Assert-True (-not (Test-PostTerminationCreationTime $invalidTime)) "malformed/out-of-range/non-string creation time must fail"
