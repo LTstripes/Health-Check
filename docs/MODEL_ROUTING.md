@@ -12,7 +12,7 @@ Choose execution mode separately from model strength. One Worker can handle a co
 
 Use the lowest reasoning setting that comfortably handles the bounded contract. Reserve a higher setting for identified unresolved architecture, provenance, replay/state-transition or statistical reasoning; explain that reason in routing. Do not raise every Worker and Reviewer to the maximum because a previous run was slow or blocked. First resolve missing requirements, ownership and runtime readiness. An early strong contract review can be more useful than upgrading a long implementation pass with an incomplete packet.
 
-Concrete model IDs and effort assignments belong to the launch/local configuration. Routine completion evidence records only `model` and `provider/client`; if either is not actually known, write `unknown` rather than inferring it from the requested route. Reassess after a specific failure, not from wall time alone.
+Concrete model IDs and effort assignments belong to the launch/local configuration. Routine completion evidence records only `model` and `provider/client`. Runtime evidence or an explicit Owner confirmation of the model actually used can establish the label; a suggested assignment cannot. Preserve client `unknown` as raw evidence, record Owner-confirmed attribution separately, and never invent a version from an alias. Reassess after a specific failure, not from wall time alone.
 
 ## Roles
 
@@ -88,7 +88,7 @@ Examples:
 - cross-release canonical data-model redesign;
 - ambiguous external API/licensing decision that affects long-term implementation.
 
-Typical routing: strongest appropriate available reasoning model(s), with explicit architecture decision before implementation when needed.
+Typical routing: strongest appropriate available reasoning model(s), with explicit architecture decision before implementation or merge when needed.
 
 Review: mandatory independent review plus explicit Integrator decision/ADR before implementation or merge.
 
@@ -139,7 +139,7 @@ Only when explicitly requested:
 
 - identical pinned baseline and issue contract;
 - separate branches/workspaces;
-- candidates do not inspect one another before completion;
+- candidates do not read/copy one another before completion;
 - compare actual code/tests/evidence;
 - record timing/cost when known and useful;
 - Integrator chooses or synthesizes the accepted result.
@@ -165,7 +165,7 @@ Use this format when proposing a task to the Owner, in plain Russian:
 1. **Название.**
 2. **Что изменится и зачем:** one or two concrete sentences.
 3. **Сложность:** небольшая / средняя / сложная, with a short reason. Complexity describes implementation effort; state **Риск** separately using this project's risk/review policy.
-4. **Исполнитель:** offer a concrete **Codex option** (model and supported effort) and an **external option** (model and provider/client), with one sentence on preference/confidence. Select one route at launch. An alternative may be unavailable or not recommended for this risk; do not invent one. Report the actually used model only from runtime evidence.
+4. **Исполнитель:** offer a concrete **Codex option** (model and supported effort) and an **external option** (model and provider/client), with one sentence on preference/confidence. Select one route at launch. An alternative may be unavailable or not recommended for this risk; do not invent one. Record the model actually used from runtime evidence or explicit Owner confirmation, not the proposed assignment.
 5. **Независимое ревью / действия владельца:** only the required review or private/manual gate, with its reason.
 6. One copyable start prompt, normally 5–8 lines and about 100 words or less: repo/issue and applicable note, Worker role, target and exact baseline, assigned branch/workspace, intended result and authorized delivery. Requirements and acceptance criteria remain in the authoritative issue/contract.
 
@@ -175,6 +175,6 @@ Do not invent an available model, baseline, workspace or permission to make the 
 
 Use the dated [model evidence journal](MODEL_BENCHMARK.md) and [#210](https://github.com/LTstripes/Health-Check/issues/210), paired with Finance #605. Record real task outcomes without rerunning tasks merely to accumulate scores. Routine logging is not activation of blind A/B or an agent queue.
 
-The Integrator records role/profile, complexity/risk, `model`, `provider/client`, baseline/candidate/verdict, substantive correction rounds and source evidence. Do not infer model identity from the assignment; unknown stays unknown. Cost/timing is not part of routine Model evidence and is recorded only when explicitly measured and useful. Infrastructure contention and assignment/review mistakes are separate from model defects. A slice merge is not aggregate acceptance or Owner UAT.
+The Integrator records role/profile, complexity/risk, `model`, `provider/client`, baseline/candidate/verdict, substantive correction rounds and source evidence. Owner-confirmed labels are valid even when the client returned `unknown`; preserve both sources and any unreported finer details. Do not silently map a label to an exact version. Cost/timing is not part of routine Model evidence and is recorded only when explicitly measured and useful. Infrastructure contention and assignment/review mistakes are separate from model defects. A slice merge is not aggregate acceptance or Owner UAT.
 
 Prefer the least expensive suitable execution route with sufficient evidence, not the cheapest name regardless of risk. Trial/anonymous routes start on bounded noncritical tasks. No historical grade or model switch waives independent semantic/privacy review. One primary Worker and one heavyweight local verification process at a time across both projects is the current resource-aware default; separate physical workspaces remain mandatory and CI gates are unchanged.

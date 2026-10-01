@@ -152,11 +152,13 @@ Use this compact block in every Worker handoff:
 
 ```text
 Model evidence
-model: <exact model/version if known, otherwise unknown>
+model: <known model label/version, otherwise unknown>
 provider/client: <provider and client/runtime if known, otherwise unknown>
 ```
 
-Do not infer a model from the assignment, subscription, alias, or requested route. If either field is not actually known, write `unknown`. Routine Worker handoffs do not need token, cost, effort, timing, attribution-source, or fallback fields unless the active issue explicitly requests them. Never include private prompts, secrets, health values or hidden reasoning.
+Do not infer a model from a proposed assignment, subscription, alias mapping, or requested route. **An explicit Owner confirmation of the model actually used is accepted evidence**, even when the client reports `unknown`. Record the label exactly as confirmed; do not expand `Sol` or `Astra` into an unreported product version. Preserve the original client handoff and note `Owner-confirmed` in the issue/journal outside the two-field block. Effort such as High/Medium/Max is separate context, not a fabricated model version. Where neither runtime evidence nor Owner confirmation exists, keep the field `unknown`; conflicting evidence must be stated, not silently resolved.
+
+Routine Worker handoffs do not need token, cost, effort, timing, attribution-source, or fallback fields unless the active issue explicitly requests them. Never include private prompts, secrets, health values or hidden reasoning.
 
 Workers/Execution Orchestrators do **not** edit `docs/MODEL_BENCHMARK.md` or the benchmark tracker to grade themselves. The Integrator records model outcomes centrally after source/evidence review and keeps Worker, Reviewer and research roles separate.
 
