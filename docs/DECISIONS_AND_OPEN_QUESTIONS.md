@@ -2,7 +2,7 @@
 
 This file contains current architecture/product decisions plus only those `UNVERIFIED` items that still matter after released R01–R05 evidence. Historical decision archaeology remains in release issues, audits and Git history.
 
-Current status refresh: 2026-09-30, accepted product checkpoint `f6939f531d4384e28fa9bd65fce59b498a0e6032`, exact-main CI `36634392128` SUCCESS. Re-read live GitHub state before an assignment; see [current backlog](ROADMAP.md#current-backlog--2026-09-30).
+Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`, exact-main CI `36818997839` SUCCESS. Re-read live GitHub state before an assignment; see [current backlog](ROADMAP.md#current-backlog--2026-10-01).
 
 ## Final decisions
 
@@ -14,8 +14,8 @@ Current status refresh: 2026-09-30, accepted product checkpoint `f6939f531d4384e
 - R01, R02, R03, R04 and R05 are released to canonical `main`.
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - #119 deterministic Period Brief, its correctness/presentation/UAT closeout, durable Runtime foundation, Context v0, Garmin Training/Recovery and source freshness are completed and canonical.
-- Owner screenshot workflow #217/#219/#221, Windows CLI fix #203, screenshot algorithm guard #226, coherent reads #227 and test-only Garmin Training privacy-oracle fix #233 are also complete.
-- Near-term work is an isolated #229 semantic re-review/integration gate, #214 automatic collection proof, #215 first real Context note, #181 CI reliability and #148 protected off-site recovery. The first Sol 6.1 High #229 review attempt stopped before semantics because the review runtime was not isolated; it is not a candidate defect or ACCEPT. UI remains deferred under #172/#189.
+- Owner screenshot workflow #217/#219/#221, Windows CLI fix #203, screenshot algorithm guard #226, coherent reads #227, Garmin Training privacy-oracle fix #233, Windows cleanup/CI reliability #181 and changed-sidecar correction workflow #229 are also complete.
+- Near-term work is #214 automatic collection proof, #215 first real Context note and then #148 protected off-site recovery. #228/#153 remain parked/optional; UI remains deferred under #172/#189.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
