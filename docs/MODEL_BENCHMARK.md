@@ -1,6 +1,6 @@
 # Model evidence journal — Health-Check
 
-Protocol: `model-evidence-v2`, compact intake from 2026-09-28; Owner-attribution clarification and case-table refresh: **2026-09-30**. A dated observational journal for real project tasks, not a permanent ranking of models and not a replacement for acceptance gates.
+Protocol: `model-evidence-v2`, compact intake from 2026-09-28; Owner-attribution clarification and case-table refresh: **2026-10-01**. A dated observational journal for real project tasks, not a permanent ranking of models and not a replacement for acceptance gates.
 
 Coordination/intake: [Health-Check #210](https://github.com/LTstripes/Health-Check/issues/210). Paired journal: [Finance #605](https://github.com/LTstripes/hermes-finance/issues/605) and its `docs/MODEL_BENCHMARK.md`. Cases remain in their originating repository. Do not duplicate Finance outcomes as Health successes. This update changes Health documentation only; it does not claim that Finance's separate files have been updated.
 
@@ -60,51 +60,58 @@ Use descriptive categories only after a case is completed at a named stage:
 
 `PENDING`, `BLOCKED` and `UNVERIFIED` are not D. No overall 100-point leaderboard. Group summaries must retain role/profile, denominator, client/provider and attribution coverage; heterogeneous small samples do not establish model equivalence.
 
-## Cases reconciled on 2026-09-30
 
-These are the cases evidenced in #210 and the current Owner handoffs, not an exhaustive historical model census. Unconfirmed historical work stays below as retrieval pointers. Costs/tokens/active execution times are unknown for these cases unless a linked report explicitly measures them. Owner-refresh wall time is product runtime, not model execution time.
+## Cases reconciled on 2026-10-01
+
+These are evidenced project cases, not a leaderboard. Costs/tokens/active execution times remain unknown unless explicitly measured. Owner-refresh wall time is product runtime, not model execution time.
 
 | Case / role | Model | Effort / attribution | Provider/client | First outcome -> current disposition | Substantive fix rounds |
 | --- | --- | --- | --- | --- | ---: |
-| [#212](https://github.com/LTstripes/Health-Check/issues/212) Worker; bounded transport reliability | Sol | Medium; Owner-reported actual selection in #210; exact runtime version unknown | unknown; Codex was assigned, not independently established by that intake | ACCEPT -> COMPLETE; A at implementation/integration stage | 0 |
-| [#203](https://github.com/LTstripes/Health-Check/issues/203) Worker; limited-encoding CLI | DeepSeek V4.1 Flash | Runtime-reported; Owner selected Max | opencode-go / OpenCode | ACCEPT -> COMPLETE; A at implementation/integration stage | 0 |
-| Project audit -> #226–#229; research | Astra | Owner-confirmed; effort/version unknown; no model block in audit | unknown | Four findings promoted to backlog; two existing tracks not duplicated. Research accepted, not four independently reproduced application defects | not applicable |
-| [#226](https://github.com/LTstripes/Health-Check/issues/226) Worker; screenshot provenance | Sol | High; Owner-confirmed; raw client model was unknown | OpenAI / Codex desktop | ACCEPT -> COMPLETE; A at implementation/integration stage | 0 |
-| #226 independent semantic Reviewer | DeepSeek V4.1 Flash | Runtime-reported; effort not established by returned block | opencode-go / OpenCode | ACCEPT, no blockers; separate review gate satisfied | not applicable |
-| [#227](https://github.com/LTstripes/Health-Check/issues/227) Worker + remediation; coherent reads | Astra | Medium; Owner-confirmed for both attempts; raw client model was unknown | OpenAI / Codex desktop | FIXES REQUIRED -> remediation ACCEPT -> COMPLETE; B at implementation/integration stage | 1 |
-| #227 independent Reviewer + re-review | Sol | High; Owner-confirmed; raw client model was unknown | OpenAI / Codex desktop | Found one accepted cached-before-BEGIN identity-map blocker; re-review ACCEPT | not applicable |
-| [#228](https://github.com/LTstripes/Health-Check/issues/228) Phase 1 researcher | Sol | High; Owner-confirmed; no compact model block returned | unknown | Research ACCEPTED; implementation PARKED pending trustworthy event-identity contract | not applicable |
-| [#229](https://github.com/LTstripes/Health-Check/issues/229) Worker; corrected-sidecar workflow | DeepSeek V4.1 Flash | Max; Owner-confirmed exact model/effort | opencode-go / OpenCode | Candidate delivered; exact-head CI SUCCESS; independent semantic ACCEPT still missing. PENDING, ungraded | not finalized |
-| #229 independent Reviewer attempt | Sol 6.1 | High; Owner-confirmed exact model/effort; raw client model was unknown | OpenAI / Codex | BLOCKED / INCONCLUSIVE before semantic review: review runtime inventory not isolated; candidate unchanged | not applicable |
-| [#233](https://github.com/LTstripes/Health-Check/issues/233) Worker; test-reliability/privacy oracle | Luna 6.0 | Medium; Owner-confirmed exact model/effort; raw client model was unknown | OpenAI / Codex desktop | ACCEPT -> COMPLETE; A at bounded test-reliability stage | 0 |
-| [#214](https://github.com/LTstripes/Health-Check/issues/214) Owner-controlled local operations | unknown | No confirmation of the actual model; earlier Luna recommendation is assigned-only | Codex; provider/client version not reported | Scheduler configured and manual validation PASS; untouched automatic-run proof remains pending | not applicable |
+| [#212](https://github.com/LTstripes/Health-Check/issues/212) Worker; bounded transport reliability | Sol | Medium; Owner-reported actual selection; exact runtime version unknown | unknown | ACCEPT -> COMPLETE | 0 |
+| [#203](https://github.com/LTstripes/Health-Check/issues/203) Worker; limited-encoding CLI | DeepSeek V4.1 Flash | Max; runtime-reported / Owner-selected | opencode-go / OpenCode | ACCEPT -> COMPLETE | 0 |
+| Project audit -> #226–#229; research | Astra | Owner-confirmed; effort/version unknown | unknown | Four findings promoted to backlog; research evidence only | not applicable |
+| [#226](https://github.com/LTstripes/Health-Check/issues/226) Worker; screenshot provenance | Sol | High; Owner-confirmed; raw client model unknown | OpenAI / Codex desktop | ACCEPT -> COMPLETE | 0 |
+| #226 independent semantic Reviewer | DeepSeek V4.1 Flash | Runtime-reported | opencode-go / OpenCode | ACCEPT | not applicable |
+| [#227](https://github.com/LTstripes/Health-Check/issues/227) Worker + remediation; coherent reads | Astra | Medium; Owner-confirmed | OpenAI / Codex desktop | FIXES REQUIRED -> remediation ACCEPT -> COMPLETE | 1 |
+| #227 independent Reviewer + re-review | Sol | High; Owner-confirmed | OpenAI / Codex desktop | Found cached-before-BEGIN blocker -> ACCEPT after fix | not applicable |
+| [#228](https://github.com/LTstripes/Health-Check/issues/228) Phase 1 researcher | Sol | High; Owner-confirmed | unknown | Research ACCEPTED; implementation PARKED | not applicable |
+| [#229](https://github.com/LTstripes/Health-Check/issues/229) Worker; corrected-sidecar workflow | DeepSeek V4.1 Flash | Max; Owner-confirmed exact model/effort | opencode-go / OpenCode | FIXES REQUIRED by external reviewer -> remediation ACCEPT -> COMPLETE | 1 |
+| #229 Codex Reviewer attempts | Sol 6.1 | High; Owner-confirmed exact model/effort | OpenAI / Codex | Two BLOCKED / INCONCLUSIVE pre-semantic runtime-isolation attempts | not applicable |
+| #229 independent semantic Reviewer + re-review | GPT-6 Astra Pro | Owner-confirmed exact model | OpenAI / ChatGPT | Found SQLite signed-zero fingerprint blocker -> re-review ACCEPT | not applicable |
+| [#233](https://github.com/LTstripes/Health-Check/issues/233) Worker; test reliability/privacy oracle | Luna 6.0 | Medium; Owner-confirmed exact model/effort | OpenAI / Codex desktop | ACCEPT -> COMPLETE | 0 |
+| [#181](https://github.com/LTstripes/Health-Check/issues/181) Worker; Windows cleanup/CI provenance | Sol 6.1 | High; Owner-confirmed exact model/effort | OpenAI / Codex | Multiple bounded security/lifecycle refinements -> reviewed candidate ACCEPT; later exact-main escape repaired separately | 2 Worker remediation rounds |
+| #181 independent security Reviewer | GPT-6 Astra Pro | Owner-confirmed exact model | OpenAI / ChatGPT | Found transcript blocker; accepted narrow CreationTime reuse contract; final reviewed Worker candidate ACCEPT | not applicable |
+| #181 post-main Integrator follow-up | GPT-5.6 Sol | Very high; Owner-selected current Integrator route | OpenAI / ChatGPT | Reproduced retained WMI transient -> bounded polling repair -> COMPLETE | 1 escaped follow-up |
+| [#214](https://github.com/LTstripes/Health-Check/issues/214) Owner-controlled local operations | unknown | No confirmed implementation model | Codex/client details incomplete | Scheduler configured and manual PASS; untouched automatic proof pending | not applicable |
+
 
 ### Candidate and gate index
 
 | Case | Baseline -> candidate(s) | Integration / evidence |
 | --- | --- | --- |
-| #212 | `9468ad7ab347fdf1ef0bf8a6fbac9a8528a4ba83` -> `7738c066e6a785d81d5aa62242dfe1fc062a6f38` | [Intake](https://github.com/LTstripes/Health-Check/issues/210#issuecomment-5858832727); PR #213; exact-head `36340791539`, exact-main `36342547115` SUCCESS |
-| #203 | `9ac6cb03e3cef2b7b5b321bcf88194c704df3bb2` -> `6650861856b901010489be4abd888ac5cd99ef3e` | PR #225 -> `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e`; CI `36454254338` / `36455331957` / `36455940446` SUCCESS |
-| #226 | `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e` -> `0f0ff31d53b0d37c4e8c48eb86c247fbb1b284f3` | [Closeout](https://github.com/LTstripes/Health-Check/issues/226#issuecomment-5897748347); PR #230 -> `18e0142a4f7562394c7ddfb1bac55cf473fac9f5`; CI `36616892861` / `36621443529` SUCCESS; included in green combined main `36623160664` |
-| #227 | `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e` -> rejected `dbdd780580964973496f2d5fcdbeca214681cc83` -> accepted `2a6bae478a99c9e75ef01dcf644d2825124848c0` | [Blocker](https://github.com/LTstripes/Health-Check/issues/227#issuecomment-5897163549), [closeout](https://github.com/LTstripes/Health-Check/issues/227#issuecomment-5897749064); PR #231 -> `f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`; final head/PR/main CI `36620266088` / `36622573834` / `36623160664` SUCCESS |
-| #228 | Read-only `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e`; no implementation SHA | [Research acceptance](https://github.com/LTstripes/Health-Check/issues/228#issuecomment-5897048424); no full two-image import/E2E claim |
-| #229 | `f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d` -> `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` | Exact-head CI `36628220352` SUCCESS. Worker: DeepSeek V4.1 Flash Max, Owner-confirmed. First Sol 6.1 High independent-review attempt stopped before semantics on non-isolated review runtime; repeat isolated review required |
-| #233 | `f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d` -> `37df19ba11b3f1e32b58d49319fdc0afe3b555ca` | PR #234 -> `f6939f531d4384e28fa9bd65fce59b498a0e6032`; exact-head/PR/main CI `36632773686` / `36633662826` / `36634392128` SUCCESS; test-only Integrator ACCEPT |
-| #214 | Owner operational configuration, not a product candidate | [Operational record](https://github.com/LTstripes/Health-Check/issues/214#issuecomment-5896581801); manual selected-stream run 35m32.734s; automatic attempt interrupted, cause not established |
+| #212 | `9468ad7...` -> `7738c066...` | PR #213; exact-head `36340791539`, exact-main `36342547115` SUCCESS |
+| #203 | `9ac6cb0...` -> `6650861...` | PR #225 -> `aafc407...`; CI `36454254338` / `36455331957` / `36455940446` SUCCESS |
+| #226 | `aafc407...` -> `0f0ff31...` | PR #230 -> `18e0142...`; CI `36616892861` / `36621443529` SUCCESS |
+| #227 | `aafc407...` -> rejected `dbdd780...` -> accepted `2a6bae4...` | PR #231 -> `f8ed3b5...`; final head/PR/main CI `36620266088` / `36622573834` / `36623160664` SUCCESS |
+| #228 | read-only `aafc407...`; no implementation SHA | Research accepted; no cross-image implementation |
+| #233 | `f8ed3b5...` -> `37df19b...` | PR #234 -> `f6939f5...`; exact-head/PR/main CI `36632773686` / `36633662826` / `36634392128` SUCCESS |
+| #181 | `f6939f5...` -> `ce43eca...` -> `96d710c...` -> reviewed `a23edfc...` -> escaped follow-up `eeafc91...` | PR #236 -> `19f8201...` exposed exact-main WMI transient; PR #237 -> `783938d...`; final CI `36817301838` / `36817662855` / `36818078133` SUCCESS |
+| #229 | `f8ed3b5...` -> `532a069...` -> remediated `f0b77da...` | exact-head `36672586650` SUCCESS; GPT-6 Astra Pro ACCEPT; fresh PR #235 `36818522332` SUCCESS; merged `ac1df6d...`; exact-main `36818997839` SUCCESS |
+| #214 | Owner operational configuration, not a product candidate | Manual selected-stream run 35m32.734s; untouched automatic proof still pending |
+
 
 ### Interpretation and confounders
 
-Four completed product-implementation cases are indexed here (#212/#203/#226/#227), plus one completed bounded test-reliability case (#233). Three product cases were accepted without substantive remediation; #227 required one real correction round; #233 was accepted first candidate. These are heterogeneous denominators, not a cross-model win rate. Reviewer/research attempts stay separate. #229 and #214 remain ungraded at unfinished stages.
+Completed product-implementation cases in this current journal include #212/#203/#226/#227/#229, with #233 as a bounded test-reliability case and #181 as a separate CI/security-reliability case. This is a heterogeneous sample, **not a cross-model win rate**.
 
-- #203: DeepSeek delivered a bounded CLI fix first pass; the earlier Astra recommendation was excessive for this low-risk task, an Integrator routing issue.
-- #226: small diff but C3 provenance risk; Sol implementation and DeepSeek review are separate contributions.
-- #227: initial test coverage missed clean ORM objects cached before caller BEGIN; Sol's review found the real blocker and Astra Medium repaired it. Preserve that first-pass finding after final acceptance. The initial Windows cleanup failure and failed review-runtime isolation are separate infrastructure confounders, not additional semantic bugs or remediation rounds.
-- #228: refusing unsupported automatic cross-image dedup is a useful research outcome, not implementation failure.
-- #229: the prior issue note named `18e0142...` while the final Owner prompt named `f8ed3b5...`; the delivered candidate follows the final prompt. Worker is Owner-confirmed DeepSeek V4.1 Flash Max. The first Sol 6.1 High review attempt was blocked by review-runtime isolation before semantics and is not a candidate defect or fix round.
-- #233: Luna 6.0 Medium repaired a deterministic test-oracle collision first candidate; production privacy behavior was untouched.
-- The initial #226/#227 task choices were recommendations, not evidence that DeepSeek/Astra High ran. Owner later confirmed Sol High and Astra Medium respectively.
+- #229 is a useful role-separation example: DeepSeek V4.1 Flash Max implemented the feature; two Sol 6.1 Codex review attempts were blocked by tooling before semantics; GPT-6 Astra Pro then found a real SQLite signed-zero blocker; DeepSeek remediated it; Astra re-review ACCEPT.
+- #181 should not be reduced to a model score. Sol 6.1 delivered the main reliability line and bounded review remediations; GPT-6 Astra Pro found the transcript weakness and constrained the CreationTime contract; after the reviewed candidate merged, exact-main exposed a real WMI transient that the Integrator repaired separately with GPT-5.6 Sol. The red exact-main run remains part of the evidence rather than being erased by later green gates.
+- #227 likewise preserves its first-pass blocker after final acceptance.
+- #233 demonstrates that even a test-only privacy oracle deserves collision-safe structure rather than substring heuristics.
+- #228's refusal to invent fuzzy cross-image identity is an accepted research outcome, not failure.
+- Assignment/recommendation remains distinct from actual execution evidence.
 
-Provisional routing remains task-specific: inexpensive models for bounded low-risk work; Sol for established multi-file contracts; reserve Astra for difficult analysis, concurrency or unresolved semantics. C3 independent review is not optional because a model is premium or a diff is small.
+Routing remains task-specific: inexpensive models for bounded low-risk work; stronger models for cross-layer/concurrency/security semantics; C3 independent review remains risk-based and is not waived because a model is premium.
 
 ## Initial historical index — not rescored
 
