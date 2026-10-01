@@ -2,24 +2,24 @@
 
 This is the compact current-state entry point. Historical contracts and release evidence remain in their release-specific documents and GitHub issues.
 
-## Current canonical state — 2026-09-30
+
+## Current canonical state — 2026-10-01
 
 - Canonical Git branch: `main`.
-- Accepted product checkpoint before this docs-only refresh: `f6939f531d4384e28fa9bd65fce59b498a0e6032`.
-- Exact-main CI: `36634392128` — SUCCESS, including Windows smoke and final `checks`.
-- Re-read current GitHub main/CI before launch/integration; documentation SHAs are dated evidence, not permanent branch pointers.
-- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness, screenshot workflow, #203, #226, #227 and test-reliability fix #233 are canonical.
+- Current accepted product checkpoint: `ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`.
+- Exact-main CI: `36818997839` — SUCCESS, including Windows smoke and final `checks`.
+- Re-read live GitHub main/CI before launch/integration; documentation SHAs are dated evidence, not permanent branch pointers.
+- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness, screenshot workflow, #203/#226/#227, #233, #181 and #229 are canonical.
 - Stable Owner data profile: `D:\Garmin\HealthCheck-Stable`. Candidate UAT uses disposable verified backup/restore clones, never Stable itself.
 - Owner operational checkout: `D:\Garmin\HealthCheck-Owner-Main`; local Ops scripts: `D:\Garmin\HealthCheck-Ops`. GitHub merges do not automatically deploy to these local paths.
-- #214: historical inventory/manual PASS; daily 10:30 plus logon Scheduler configured; untouched automatic-run acceptance still pending.
+- #214: historical inventory/manual PASS; daily 10:30 plus logon Scheduler configured; one untouched automatic-run acceptance remains.
 - Google high-frequency `heart_rate` is OFF by Owner decision in the local runner only. Other streams remain enabled; no historical HR backfill while disabled.
-- #229: delivered correction-workflow candidate with green exact-head CI; first Sol 6.1 High review attempt was blocked before semantic review by non-isolated review runtime, so isolated re-review is still required. #228: research accepted, implementation parked.
-- #215: first real private Context note/read-back still required.
-- #181 Windows cleanup/partial-rerun reliability remains open. #148 off-site protection/recovery is not complete.
-- #172/#189 UI deferred, #153 optional compatibility, #167 Owner-deferred, #126 decision/capability gate, #105 NOT_ELIGIBLE, #210 ongoing journal.
-- Repository visibility is public; private-data restrictions remain unchanged. This refresh does not authorize a visibility/protection/history rewrite.
+- #229 correction workflow is released: changed sidecars stage pending evidence, reject leaves prior state intact, confirm reuses revision/supersession history, terminal replay is duplicate-safe.
+- #181 CI reliability is complete: fail-closed process identity/CreationTime handling plus full-rerun-only evidence provenance are canonical; the post-merge WMI transient was repaired in PR #237 and exact-main is green.
+- #228 research is accepted/parked; #153 optional compatibility; #172/#189 UI deferred; #167 Owner-deferred; #126 decision/capability gate; #105 NOT_ELIGIBLE; #210 ongoing journal.
+- Repository visibility is public; private-data restrictions remain unchanged. This state does not authorize a visibility/protection/history rewrite.
 
-Full [backlog status table](ROADMAP.md#current-backlog--2026-09-30), [current history](EXECUTION_HISTORY_CURRENT.md), and [model evidence table](MODEL_BENCHMARK.md).
+Full [backlog status table](ROADMAP.md#current-backlog--2026-10-01), [current history](EXECUTION_HISTORY_CURRENT.md), and [model evidence table](MODEL_BENCHMARK.md).
 
 ## What the product can do today
 
@@ -32,7 +32,7 @@ Full [backlog status table](ROADMAP.md#current-backlog--2026-09-30), [current hi
 - accept the openScale/openScale-sync contract, with real numeric-userId compatibility still optional/open (#153);
 - calculate deterministic trends and show the local Weight dashboard.
 
-Changed-sidecar review staging belongs to pending #229, not this released capability list.
+Changed-sidecar correction staging is released under #229: changed evidence stays pending until explicit decision, reject is non-mutating, confirm preserves revision/supersession history, and exact terminal replay is duplicate-safe.
 
 ### Garmin
 
@@ -93,15 +93,16 @@ Garmin remains canonical/default. #105 is NOT_ELIGIBLE until its existing eviden
 
 #123–#125 established provenance-bound evidence, three serial Linux lanes with exact nodeid/multiplicity reconciliation, and focused native Windows DPAPI/startup/HTTP/cleanup proof. Their historical remote timing improvement is recorded in [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), not used as a promise for every current run.
 
-#181 retains real intermittent Windows cleanup failures and partial-rerun aggregation debt. Later green runs do not establish the failure's root cause or close the issue. Do not weaken cleanup or retry until green.
+#181 is complete. Windows cleanup now captures root/descendant creation identity, treats post-termination PID reuse as proven only by changed trustworthy CreationTime, consumes the accepted exit-255 transcript fail-closed, and requires one coherent full-rerun evidence set rather than cross-attempt mixing. The first post-merge WMI transient was preserved as an escape and repaired before final exact-main green.
 
 #126 is still an explicit Owner/capability decision. Before advancing canonical/shared refs, Integrator requires exact-SHA final `checks: SUCCESS`; green constituent lanes alone are insufficient. No history rewrite, forced ref update or protection change is part of ordinary product work.
 
+
 ## Next work
 
-Repeat #229 independent review in an isolated read-only runtime, then integrate only after ACCEPT; obtain one untouched automatic #214 result and the Owner's first #215 note. #181 can be prepared as separate CI-only work with isolated ownership. Then prioritize #148 protection/publication/retention design and recovery rehearsal before broad UI/AI expansion.
+Prove one untouched automatic #214 run, then record the Owner's first real #215 Context note. After those operational gates, prioritize #148 protection/publication/retention design and a clean recovery rehearsal. #228/#153 stay parked/optional; #172/#189 UI remains deferred unless the Owner reprioritizes.
 
-The [roadmap table](ROADMAP.md#current-backlog--2026-09-29) records all 13 open issues, including the non-coding tracker and parked gates. It is not an automatic queue.
+The [roadmap table](ROADMAP.md#current-backlog--2026-10-01) records all 11 open issues, including the non-coding tracker and parked gates. It is not an automatic queue.
 
 ## Core engineering rules
 
