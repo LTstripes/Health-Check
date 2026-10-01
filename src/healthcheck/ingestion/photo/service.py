@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
@@ -23,7 +23,7 @@ from healthcheck.db.models import (
     ScalarMeasurement,
     new_id,
 )
-from healthcheck.db.repositories import repositories_for, restore_stored_utc
+from healthcheck.db.repositories import canonical_json, repositories_for, restore_stored_utc
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.extractor import (
     DEFAULT_SCHEMA_VERSION,
@@ -58,6 +58,7 @@ from healthcheck.runtime import RuntimePaths
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 MAX_FILES = 100
 _ALLOWED_PRECISION = {"date", "instant", "minute"}
+CORRECTION_CANDIDATE_SET_PREFIX = "correction:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -554,6 +555,91 @@ class PhotoImportService:
         )
         return ReprocessResult(candidates=candidates, ingest_event_id=target.id)
 
+    def stage_correction(self, event_id: str, extracted: ExtractionResult) -> ReprocessResult:
+        """Persist a changed interpretation of a known photo as pending review evidence.
+
+        The raw artifact, existing candidate sets and confirmed semantic history
+        are never rewritten.  A changed interpretation is stored under its own
+        correction candidate-set identity, so an exact replay of the same
+        changed sidecar is idempotent while a different interpretation receives
+        its own pending set.  The set stays pending until a reviewer either
+        rejects it (leaving semantic state unchanged) or confirms it through the
+        normal session/measurement revision mechanics.  This method never
+        confirms, rejects, edits or supersedes anything by itself.
+        """
+
+        try:
+            return self._stage_correction_inner(event_id, extracted)
+        except PhotoImportError:
+            raise
+        except SQLAlchemyError:
+            raise PhotoImportError("persistence_error", "photo persistence failed") from None
+
+    def _stage_correction_inner(
+        self, event_id: str, extracted: ExtractionResult
+    ) -> ReprocessResult:
+        event = self.repos.ingest_events.get(event_id)
+        if event is None:
+            raise PhotoImportError(
+                "unknown_event", f"unknown import event {event_id}", status_code=404
+            )
+        visited: set[str] = set()
+        while event.duplicate_of_event_id is not None and event.id not in visited:
+            visited.add(event.id)
+            parent = self.repos.ingest_events.get(event.duplicate_of_event_id)
+            if parent is None:
+                break
+            event = parent
+        if event.raw_artifact_id is None:
+            raise PhotoImportError(
+                "missing_artifact", "import event has no raw artifact to reprocess"
+            )
+        artifact = self.repos.raw_artifacts.get(event.raw_artifact_id)
+        if artifact is None:
+            raise PhotoImportError("unknown_artifact", "raw artifact is missing", status_code=404)
+        try:
+            prepared = normalize_extraction_result(extracted)
+        except ExtractionFailure as exc:
+            raise PhotoImportError("extractor_invalid_payload", exc.message) from None
+        existing = self._existing_evidence_candidates(artifact.id, extracted, prepared)
+        if existing is not None:
+            return ReprocessResult(
+                candidates=_sorted_candidates(existing),
+                ingest_event_id=existing[0].ingest_event_id,
+            )
+        set_key = correction_candidate_set_key(extracted, prepared)
+        target = self._target_event_for_extraction(event, artifact, extracted, batch_id=None)
+        candidates = self._persist_candidates(
+            target, artifact, extracted, candidate_set_key=set_key
+        )
+        self._refresh_event_status(target.id)
+        log_event(
+            "photo_correction", operation="photo_correction", status="ok", count=len(candidates)
+        )
+        return ReprocessResult(
+            candidates=_sorted_candidates(candidates), ingest_event_id=target.id
+        )
+
+    def _existing_evidence_candidates(
+        self,
+        artifact_id: str,
+        extracted: ExtractionResult,
+        prepared: tuple[tuple[str, NormalizedField], ...],
+    ) -> list[ImportCandidate] | None:
+        """Return an existing candidate set that already carries this evidence."""
+
+        incoming = extraction_evidence_fingerprint(extracted, prepared)
+        for set_key in (
+            _fingerprint_for_result(extracted),
+            correction_candidate_set_key(extracted, prepared),
+        ):
+            candidates = self.repos.import_candidates.find_for_artifact_set_key(
+                artifact_id, set_key
+            )
+            if candidates and candidate_evidence_fingerprint(candidates) == incoming:
+                return candidates
+        return None
+
     def _import_one(
         self,
         batch: IngestBatch,
@@ -840,10 +926,12 @@ class PhotoImportService:
         event: IngestEvent,
         artifact: RawArtifact,
         extracted: ExtractionResult,
+        *,
+        candidate_set_key: str | None = None,
     ) -> list[ImportCandidate]:
         del artifact
         provider_code = resolve_provider_code(extracted.provider_code)
-        set_key = _fingerprint_for_result(extracted)
+        set_key = candidate_set_key or _fingerprint_for_result(extracted)
         prepared = normalize_extraction_result(extracted)
         created: list[ImportCandidate] = []
         nested = self.session.begin_nested()
@@ -1315,6 +1403,139 @@ def _validate_normalized_field(normalized: NormalizedField) -> None:
         and normalized.temporal_precision not in _ALLOWED_PRECISION
     ):
         raise ExtractionFailure("extractor_invalid_payload", "invalid temporal precision")
+
+
+def extraction_evidence_fingerprint(
+    extracted: ExtractionResult,
+    prepared: tuple[tuple[str, NormalizedField], ...],
+) -> str:
+    """Canonical fingerprint of one normalized interpretation's evidence."""
+
+    return _evidence_fingerprint(
+        _normalized_evidence_row(group_key, normalized, extracted)
+        for group_key, normalized in prepared
+    )
+
+
+def candidate_evidence_fingerprint(candidates: Sequence[ImportCandidate]) -> str:
+    """Canonical fingerprint of persisted candidate evidence."""
+
+    return _evidence_fingerprint(_candidate_evidence_row(candidate) for candidate in candidates)
+
+
+def correction_candidate_set_key(
+    extracted: ExtractionResult,
+    prepared: tuple[tuple[str, NormalizedField], ...],
+) -> str:
+    """Build the correction candidate-set identity for a changed interpretation.
+
+    The identity combines the extraction configuration fingerprint with the
+    normalized evidence, so an exact replay of the same changed sidecar maps to
+    the same pending set while a different interpretation receives its own set.
+    """
+
+    material = canonical_json(
+        {
+            "configuration": _fingerprint_for_result(extracted),
+            "evidence": extraction_evidence_fingerprint(extracted, prepared),
+        }
+    )
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    return f"{CORRECTION_CANDIDATE_SET_PREFIX}{digest}"
+
+
+def _evidence_fingerprint(rows: Iterable[Mapping[str, Any]]) -> str:
+    material = "\n".join(sorted(canonical_json(dict(row)) for row in rows))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _storage_equivalent_float(value: float | None) -> float | None:
+    """Normalize storage-equivalent signed zero for fingerprint material.
+
+    SQLite persists ``-0.0`` as ``0.0``, so both signs must produce the same
+    evidence fingerprint for incoming and persisted evidence alike.  No other
+    float value is rounded, quantized or collapsed.
+    """
+
+    if value is None or value != 0.0:
+        return value
+    return 0.0
+
+
+def _normalized_evidence_row(
+    group_key: str,
+    normalized: NormalizedField,
+    extracted: ExtractionResult,
+) -> dict[str, Any]:
+    return {
+        "measurement_group_key": group_key,
+        "metric_code": normalized.metric_code,
+        "proposed_value": _storage_equivalent_float(normalized.proposed_value),
+        "proposed_unit": normalized.proposed_unit,
+        "proposed_source_timestamp": _timestamp_text(normalized.source_timestamp),
+        "proposed_source_local_date": _date_text(normalized.source_local_date),
+        "temporal_precision": normalized.temporal_precision,
+        "source_text": normalized.source_text,
+        "extractor_name": extracted.extractor_name,
+        "extractor_version": extracted.extractor_version,
+        "model_name": extracted.model_name,
+        "model_version": extracted.model_version,
+        "prompt_version": extracted.prompt_version,
+        "schema_version": extracted.schema_version,
+        "confidence": _storage_equivalent_float(normalized.confidence),
+        "evidence_region_json": (
+            None
+            if normalized.evidence_region is None
+            else canonical_json(normalized.evidence_region)
+        ),
+        "algorithm_code": normalized.algorithm_code,
+        "algorithm_version": normalized.algorithm_version,
+        "provider_code": resolve_provider_code(extracted.provider_code),
+        "source_timezone": normalized.source_timezone,
+        "source_utc_offset_minutes": normalized.source_utc_offset_minutes,
+    }
+
+
+def _candidate_evidence_row(candidate: ImportCandidate) -> dict[str, Any]:
+    return {
+        "measurement_group_key": candidate.measurement_group_key,
+        "metric_code": candidate.metric_code,
+        "proposed_value": _storage_equivalent_float(candidate.proposed_value),
+        "proposed_unit": candidate.proposed_unit,
+        "proposed_source_timestamp": _timestamp_text(candidate.proposed_source_timestamp),
+        "proposed_source_local_date": _date_text(candidate.proposed_source_local_date),
+        "temporal_precision": candidate.temporal_precision,
+        "source_text": candidate.source_text,
+        "extractor_name": candidate.extractor_name,
+        "extractor_version": candidate.extractor_version,
+        "model_name": candidate.model_name,
+        "model_version": candidate.model_version,
+        "prompt_version": candidate.prompt_version,
+        "schema_version": candidate.schema_version,
+        "confidence": _storage_equivalent_float(candidate.confidence),
+        "evidence_region_json": candidate.evidence_region_json,
+        "algorithm_code": candidate.algorithm_code,
+        "algorithm_version": candidate.algorithm_version,
+        "provider_code": candidate.provider_code,
+        "source_timezone": candidate.source_timezone,
+        "source_utc_offset_minutes": candidate.source_utc_offset_minutes,
+    }
+
+
+def _timestamp_text(value: Any) -> str | None:
+    restored = restore_stored_utc(value)
+    return None if restored is None else restored.isoformat()
+
+
+def _date_text(value: Any) -> str | None:
+    return None if value is None else value.isoformat()
+
+
+def _sorted_candidates(candidates: Sequence[ImportCandidate]) -> list[ImportCandidate]:
+    return sorted(
+        candidates,
+        key=lambda item: (item.measurement_group_key, item.metric_code, item.id),
+    )
 
 
 def _photo_source_identity(content_hash: str, group_key: str) -> tuple[str, str, str]:

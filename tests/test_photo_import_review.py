@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, date, datetime
 from unittest.mock import patch
 
@@ -19,9 +20,21 @@ from healthcheck.db.models import (
     ScalarMeasurement,
 )
 from healthcheck.ingestion.photo.errors import PhotoImportError
-from healthcheck.ingestion.photo.extractor import ExtractionFailure
+from healthcheck.ingestion.photo.extractor import (
+    CandidateField,
+    ExtractionFailure,
+    ExtractionRequest,
+    ExtractionResult,
+    MeasurementGroup,
+)
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
-from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
+from healthcheck.ingestion.photo.service import (
+    PhotoImportService,
+    PhotoUpload,
+    candidate_evidence_fingerprint,
+    extraction_evidence_fingerprint,
+    normalize_extraction_result,
+)
 from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
 from healthcheck.logging import configure_logging
 from healthcheck.runtime import prepare_runtime
@@ -729,6 +742,293 @@ def test_same_identity_with_contradictory_values_is_conflict(photo_env):
     )
     assert result.failed is True
     assert result.error_code == "extractor_invalid_payload"
+
+
+def _extraction_for_artifact(service, extractor, artifact_id, image_bytes):
+    artifact = service.repos.raw_artifacts.get(artifact_id)
+    assert artifact is not None
+    return extractor.extract(
+        ExtractionRequest(
+            artifact_id=artifact.id,
+            content_hash=artifact.content_hash,
+            media_type=artifact.media_type,
+        ),
+        image_bytes,
+    )
+
+
+def _signed_zero_extraction(*, value: float, confidence: float) -> ExtractionResult:
+    return ExtractionResult(
+        extractor_name="synthetic-signed-zero",
+        extractor_version="1",
+        schema_version="r01-photo-v1",
+        provider_code="xiaomi_home",
+        physical_device_code="xiaomi_s400",
+        groups=(
+            MeasurementGroup(
+                key="weigh-in",
+                source_local_date=date(2026, 1, 7),
+                temporal_precision="date",
+                fields=(
+                    CandidateField(
+                        metric_code="weight",
+                        proposed_value=value,
+                        proposed_unit="kg",
+                        source_text="synthetic",
+                        confidence=confidence,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def _signed_zero_fingerprint(value: float, confidence: float) -> str:
+    extraction = _signed_zero_extraction(value=value, confidence=confidence)
+    return extraction_evidence_fingerprint(
+        extraction, normalize_extraction_result(extraction)
+    )
+
+
+def test_evidence_fingerprint_canonicalizes_only_storage_equivalent_signed_zero():
+    assert _signed_zero_fingerprint(-0.0, -0.0) == _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(-0.0, 0.5) == _signed_zero_fingerprint(0.0, 0.5)
+    assert _signed_zero_fingerprint(78.5, -0.0) == _signed_zero_fingerprint(78.5, 0.0)
+    # Nonzero values are never rounded, quantized or collapsed.
+    assert _signed_zero_fingerprint(1e-300, 0.0) != _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(0.0, 1e-300) != _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(-1e-300, 0.0) != _signed_zero_fingerprint(0.0, 0.0)
+    assert _signed_zero_fingerprint(78.5, 0.5) != _signed_zero_fingerprint(78.6, 0.5)
+
+
+class _FixedExtractionExtractor:
+    name = "synthetic-signed-zero"
+    version = "1"
+    model_name = None
+    model_version = None
+    prompt_version = None
+
+    def __init__(self, extraction: ExtractionResult):
+        self._extraction = extraction
+
+    def extract(self, request, image_bytes):
+        del request, image_bytes
+        return self._extraction
+
+
+def test_signed_zero_evidence_fingerprint_survives_sqlite_round_trip(photo_env):
+    _settings, paths, engine, _extractor = photo_env
+    extraction = _signed_zero_extraction(value=-0.0, confidence=-0.0)
+    prepared = normalize_extraction_result(extraction)
+    incoming = extraction_evidence_fingerprint(extraction, prepared)
+    image = encode_synthetic_png({"schema_version": "r01-photo-v1"})
+
+    imported = _service_call(
+        engine,
+        paths,
+        _FixedExtractionExtractor(extraction),
+        lambda service: service.import_photos([PhotoUpload("shot.png", image)]),
+    )
+    assert imported.items[0].status == "pending-confirmation"
+
+    with session_scope(engine) as session:
+        stored = session.get(ImportCandidate, imported.items[0].candidate_ids[0])
+        assert stored is not None
+        # The fresh SQLite read normalizes -0.0 to +0.0; the fingerprint must
+        # not depend on the storage-normalized sign.
+        assert math.copysign(1.0, stored.proposed_value) == 1.0
+        assert math.copysign(1.0, stored.confidence) == 1.0
+        persisted = candidate_evidence_fingerprint([stored])
+    assert persisted == incoming
+
+
+def test_stage_correction_stays_pending_and_never_overwrites_confirmed_evidence(photo_env):
+    _settings, paths, engine, extractor = photo_env
+    payload = weigh_in_payload(
+        source_local_date=date(2026, 1, 7), weight_kg=79.4, body_fat_pct=23.1
+    )
+    image = encode_synthetic_png(payload)
+    imported = _service_call(
+        engine, paths, extractor, lambda service: service.import_photos(_upload(payload))
+    )
+    event_id = imported.items[0].ingest_event_id
+    confirmed = _service_call(
+        engine, paths, extractor, lambda service: service.confirm(imported.items[0].candidate_ids)
+    )
+    assert len(confirmed) == 2
+
+    changed = FakeImageMeasurementExtractor(value_delta=-0.5)
+
+    def stage_changed(service):
+        return service.stage_correction(
+            event_id,
+            _extraction_for_artifact(service, changed, imported.items[0].artifact_id, image),
+        )
+
+    staged = _service_call(engine, paths, changed, stage_changed)
+    assert staged.failed is False
+    assert staged.ingest_event_id == event_id
+    staged_ids = [candidate.id for candidate in staged.candidates]
+    assert len(staged_ids) == 2
+    with session_scope(engine) as session:
+        original_keys = {
+            session.get(ImportCandidate, candidate_id).candidate_set_key
+            for candidate_id in imported.items[0].candidate_ids
+        }
+        assert _count(session, MeasurementSession) == 1
+        assert _count(session, ScalarMeasurement) == 2
+        assert _count(session, ImportCandidate) == 4
+        for candidate_id in staged_ids:
+            row = session.get(ImportCandidate, candidate_id)
+            assert row.user_decision == "pending"
+            assert row.candidate_set_key.startswith("correction:")
+            assert row.candidate_set_key not in original_keys
+        # Confirmed evidence and the active measurements stay untouched.
+        measurements = list(session.scalars(select(ScalarMeasurement)))
+        assert {row.supersedes_measurement_id for row in measurements} == {None}
+        assert {row.import_candidate_id for row in measurements} == set(
+            imported.items[0].candidate_ids
+        )
+
+    replay = _service_call(engine, paths, changed, stage_changed)
+    assert [candidate.id for candidate in replay.candidates] == staged_ids
+    with session_scope(engine) as session:
+        assert _count(session, ImportCandidate) == 4
+
+    def stage_original(service):
+        return service.stage_correction(
+            event_id,
+            _extraction_for_artifact(service, extractor, imported.items[0].artifact_id, image),
+        )
+
+    noop = _service_call(engine, paths, extractor, stage_original)
+    assert {candidate.id for candidate in noop.candidates} == set(imported.items[0].candidate_ids)
+    with session_scope(engine) as session:
+        assert _count(session, ImportCandidate) == 4
+
+    rejected = _service_call(
+        engine,
+        paths,
+        changed,
+        lambda service: service.reject(staged_ids, reason="synthetic-owner-reject"),
+    )
+    assert {candidate.user_decision for candidate in rejected} == {"rejected"}
+    with session_scope(engine) as session:
+        assert _count(session, MeasurementSession) == 1
+        assert _count(session, ScalarMeasurement) == 2
+        assert _count(session, ImportCandidate) == 4
+        active = list(session.scalars(select(ScalarMeasurement)))
+        assert {row.supersedes_measurement_id for row in active} == {None}
+
+
+def test_stage_correction_confirmation_revises_the_source_chain(photo_env):
+    _settings, paths, engine, extractor = photo_env
+    payload = weigh_in_payload(
+        source_local_date=date(2026, 1, 7), weight_kg=79.4, body_fat_pct=23.1
+    )
+    image = encode_synthetic_png(payload)
+    imported = _service_call(
+        engine, paths, extractor, lambda service: service.import_photos(_upload(payload))
+    )
+    event_id = imported.items[0].ingest_event_id
+    _service_call(
+        engine, paths, extractor, lambda service: service.confirm(imported.items[0].candidate_ids)
+    )
+
+    changed = FakeImageMeasurementExtractor(value_delta=-0.5)
+
+    def stage_changed(service):
+        return service.stage_correction(
+            event_id,
+            _extraction_for_artifact(service, changed, imported.items[0].artifact_id, image),
+        )
+
+    staged = _service_call(engine, paths, changed, stage_changed)
+    staged_ids = [candidate.id for candidate in staged.candidates]
+    confirmed = _service_call(
+        engine, paths, changed, lambda service: service.confirm(staged_ids)
+    )
+    assert len(confirmed) == 2
+    with session_scope(engine) as session:
+        sessions = list(
+            session.scalars(select(MeasurementSession).order_by(MeasurementSession.revision_number))
+        )
+        assert [row.revision_number for row in sessions] == [1, 2]
+        assert sessions[1].supersedes_session_id == sessions[0].id
+        assert sessions[1].confirmation_candidate_id in set(staged_ids)
+        measurements = list(
+            session.scalars(select(ScalarMeasurement).order_by(ScalarMeasurement.created_at))
+        )
+        assert len(measurements) == 4
+        revisions = [row for row in measurements if row.supersedes_measurement_id is not None]
+        assert len(revisions) == 2
+        assert {row.import_candidate_id for row in revisions} == set(staged_ids)
+        assert {row.normalized_value for row in revisions} == {78.9, 22.6}
+
+        from healthcheck.db.repositories import repositories_for
+
+        repos = repositories_for(session)
+        heads = {
+            row.metric_code: row
+            for row in repos.scalar_measurements.current_heads()
+        }
+        assert heads["weight"].normalized_value == 78.9
+        assert heads["body_fat_pct"].normalized_value == 22.6
+
+
+def test_staged_correction_is_reviewable_in_the_existing_import_review(photo_env):
+    settings, paths, engine, extractor = photo_env
+    payload = weigh_in_payload(source_local_date=date(2026, 1, 7), weight_kg=79.4)
+    image = encode_synthetic_png(payload)
+    imported = _service_call(
+        engine,
+        paths,
+        extractor,
+        lambda service: service.import_photos([PhotoUpload("shot.png", image)]),
+    )
+    event_id = imported.items[0].ingest_event_id
+    _service_call(
+        engine, paths, extractor, lambda service: service.confirm(imported.items[0].candidate_ids)
+    )
+
+    changed = FakeImageMeasurementExtractor(value_delta=-0.5)
+
+    def stage_changed(service):
+        return service.stage_correction(
+            event_id,
+            _extraction_for_artifact(service, changed, imported.items[0].artifact_id, image),
+        )
+
+    staged = _service_call(engine, paths, changed, stage_changed)
+    correction_ids = [candidate.id for candidate in staged.candidates]
+    assert len(correction_ids) == 1
+
+    app, _ = create_ui_app(settings, photo_extractor=extractor)
+    with TestClient(app) as client:
+        detail = client.get(f"/api/imports/{imported.batch.id}")
+        assert detail.status_code == 200
+        body = detail.json()
+        pending = [
+            candidate
+            for candidate in body["candidates"]
+            if candidate["id"] in set(correction_ids)
+        ]
+        assert len(pending) == 1
+        assert pending[0]["user_decision"] == "pending"
+        page = client.get(f"/imports/{imported.batch.id}")
+        assert page.status_code == 200
+        assert correction_ids[0] in page.text
+        decided = client.post(
+            "/api/import-candidates/confirm", json={"candidate_ids": correction_ids}
+        )
+        assert decided.status_code == 200
+    with session_scope(engine) as session:
+        sessions = list(
+            session.scalars(select(MeasurementSession).order_by(MeasurementSession.revision_number))
+        )
+        assert [row.revision_number for row in sessions] == [1, 2]
+        assert sessions[1].confirmation_candidate_id == correction_ids[0]
+    del engine
 
 
 def test_same_unknown_config_reprocess_revises_same_source(photo_env):
