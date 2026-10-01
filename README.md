@@ -17,7 +17,7 @@ Canonical source: `main`.
 - **Garmin Training & Recovery:** live-discovered Garmin-native Training Status/load/ACWR, Load Focus, Training Readiness/Recovery and activity Training Effect/load are persisted, included in normal owner refresh and shown read-only on the Garmin owner page.
 - **Context capture v0:** revisioned owner-authored free-text context events with deterministic local storage and CLI capture/list/revise flow.
 - **Owner screenshot workflow:** Xiaomi screenshot -> repo skill `health-weight-screenshot-import` -> Owner-assisted structured extraction -> existing R01 photo pipeline -> Stable; OLD/NEW/exact-replay Owner gate PASS (#217/#219/#221).
-- **Latest safety fixes:** Windows limited-encoding Period Brief stdout (#203), Xiaomi screenshot auto-confirm algorithm identity (#226), coherent SQLite/ORM snapshots for compound Weight and Period Brief reads (#227).
+- **Latest safety/reliability work:** Windows limited-encoding Period Brief stdout (#203), Xiaomi screenshot algorithm identity (#226), coherent compound reads (#227), Garmin Training privacy-oracle repair (#233), Windows cleanup/CI provenance hardening (#181), and reviewable changed-sidecar corrections with duplicate-safe replay (#229).
 
 R04 release lineage:
 
@@ -29,27 +29,26 @@ R04 release lineage:
 
 The final R04 owner gate also proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations.
 
-## Current focus — 2026-09-30
 
-Accepted product checkpoint before this documentation refresh: `main @ f6939f531d4384e28fa9bd65fce59b498a0e6032`; exact-main CI `36634392128` SUCCESS, including Windows smoke and final `checks`. Re-read current GitHub main/CI before launch or integration; this is a dated product checkpoint, not a permanent branch pointer.
+## Current focus — 2026-10-01
 
-**Completed:** #203 via PR #225; #226 via PR #230; #227 via PR #231 after one independent-review remediation round; #233 via PR #234 repaired the collision-prone Garmin Training privacy test oracle without production changes. Source freshness #147/#191/#193 and Google HR performance/reliability #199/#206/#207/#212 are also complete.
+Canonical product checkpoint: `main @ ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`; exact-main CI `36818997839` SUCCESS, including Windows smoke and final `checks`. Re-read live GitHub state before later launch/integration; this is dated evidence, not a permanent branch pointer.
 
-**Current non-UI work:**
+**Completed in the current reliability/correction slice:**
+- #233 / PR #234: collision-safe Garmin Training privacy test oracle, test-only;
+- #181 / PR #236 + follow-up PR #237: fail-closed Windows process-tree cleanup, CreationTime-proven post-termination PID reuse, exact exit-255 transcript handling and full-rerun-only CI provenance; the first post-merge escape was preserved and repaired before final green main;
+- #229 / PR #235: changed Owner-assisted screenshot sidecars now stage reviewable correction evidence, reject without semantic mutation, confirm through existing revision/supersession history, and replay idempotently; SQLite signed-zero fingerprint stability was independently found and repaired before merge.
 
-1. **#229 — candidate awaiting an isolated independent semantic review:** candidate `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` has green exact-head CI. The first Sol 6.1 High review attempt stopped at preflight because its review runtime inventory was not isolated; that is `BLOCKED / INCONCLUSIVE`, not a semantic defect or ACCEPT.
-2. **#214 — automatic collection proof:** historical inventory and manual refresh passed; Task Scheduler is configured for 10:30 plus Owner logon, including battery operation. One untouched automatic run with final report/result remains unproven.
-3. **#215 — first real Context note:** add/read back one private Owner-authored note using the existing contract. No invented diary entry and no daily-note requirement.
-4. **#181 — Windows smoke / partial-rerun reliability:** recent cleanup exit-255 failures are retained evidence; green later runs do not close the defect. Diagnose without weakening cleanup or the final gate.
-5. **#148 — protected off-site recovery:** design the protection/publication/retention contract, then implementation/security review and a separate clean restore rehearsal. Local backup alone does not satisfy it.
+Earlier #203/#226/#227, source freshness #147/#191/#193 and Google HR performance/reliability #199/#206/#207/#212 remain complete.
 
-The Owner chose **Google high-frequency `heart_rate` OFF by default in the local Ops runner**, with a reversible flag. Garmin HR, other Google streams and fixed wearables-sleep reconciliation remain enabled. Existing Google HR history is retained; its historical gap is intentionally not a backfill target while disabled. The repository's bare CLI default is unchanged and includes HR. See [Owner Refresh](docs/OWNER_REFRESH.md).
+**Immediate non-UI work:**
+1. **#214 — automatic collection proof:** one untouched genuine scheduled/logon Owner refresh still needs final JSON/task-result/freshness proof.
+2. **#215 — first real Context note:** persist/read back one private Owner-authored note in Stable; no fabricated diary content.
+3. **#148 — protected off-site recovery:** next large durability/security track once daily collection is proven boring.
 
-Weight accumulation does not depend on #153: openScale is optional compatibility work after the screenshot route was live-proven. #228 Phase 1 research is accepted, but cross-image event dedup implementation is parked until trustworthy source-event identity exists; date/value similarity must not auto-merge measurements.
+#228 cross-image semantic identity remains research-accepted/implementation-parked; #153 openScale numeric-`userId` compatibility is optional rather than a Weight prerequisite. #172/#189 UI remains deferred by Owner choice. Google high-frequency `heart_rate` remains OFF by default only in the local Ops runner; existing history is retained and no broad HR backfill is implied.
 
-There are **13 open issues** at this checkpoint, including #210's ongoing model journal, deferred #172/#189 UI, Owner-deferred #167 privacy rewrite, #126 protection/capability decision and #105 NOT_ELIGIBLE. The [roadmap](docs/ROADMAP.md#current-backlog--2026-09-30) distinguishes actionable work from parked items. No new UI/AI/Recovery Score track is launched by this handoff.
-
-[Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md) and the [model table](docs/MODEL_BENCHMARK.md) record actual outcomes and Owner-confirmed model labels without inventing missing runtime versions.
+There are **11 open issues** at this checkpoint, including ongoing model journal #210, Owner/capability gate #126, Owner-deferred #167 and NOT_ELIGIBLE #105. See the [roadmap](docs/ROADMAP.md#current-backlog--2026-10-01), [current execution history](docs/EXECUTION_HISTORY_CURRENT.md) and [model journal](docs/MODEL_BENCHMARK.md).
 
 ## Architecture in one minute
 
@@ -122,7 +121,7 @@ Normal development should use targeted checks while iterating, then one exact ca
 
 The accepted final GitHub Actions verdict is the job named **`checks`**. It fail-closes over the mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. The repository is currently public; #126 remains an explicit repository-settings/Owner decision. Regardless of server enforcement, Integrator process must not advance `main` unless `checks` succeeded on the exact SHA being promoted.
 
-#181 is reliability work for demonstrated Windows cleanup and partial-rerun evidence failures, not an invitation to retry until green. Separate performance optimization still requires a material measured bottleneck.
+#181 is complete: Windows cleanup remains fail-closed, post-termination PID reuse requires CreationTime evidence, and partial reruns cannot silently mix attempts. Separate performance optimization still requires a material measured bottleneck.
 
 ## Canonical documentation
 
