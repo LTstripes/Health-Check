@@ -15,7 +15,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import ImportCandidate
-from healthcheck.db.repositories import canonical_json, restore_stored_utc
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.extractor import (
     DEFAULT_SCHEMA_VERSION,
@@ -30,12 +29,13 @@ from healthcheck.ingestion.photo.provenance import (
     XIAOMI_HOME_COMPOSITION_ALGORITHM,
     XIAOMI_HOME_PROVIDER,
     XIAOMI_S400_DEVICE,
-    resolve_provider_code,
 )
 from healthcheck.ingestion.photo.service import (
     MAX_PHOTO_BYTES,
     PhotoImportService,
     PhotoUpload,
+    candidate_evidence_fingerprint,
+    extraction_evidence_fingerprint,
     normalize_extraction_result,
 )
 from healthcheck.ingestion.photo.vision import (
@@ -295,7 +295,9 @@ def _duplicate_result(
             return _result("NEEDS_REVIEW", "duplicate_candidates_missing", len(selected))
         if expected_extraction is not None and expected_evidence is not None:
             if not _same_extraction_evidence(selected, expected_extraction, expected_evidence):
-                return _result("NEEDS_REVIEW", "content_seen_new_extraction", len(selected))
+                return _staged_correction_result(
+                    service, selected, expected_extraction, expected_evidence
+                )
         views = [service.candidate_view(candidate) for candidate in selected]
         if any(candidate.user_decision == "pending" for candidate in selected):
             return _result("NEEDS_REVIEW", "duplicate_unresolved", len(selected))
@@ -312,81 +314,52 @@ def _same_extraction_evidence(
     extracted: ExtractionResult,
     normalized_evidence: tuple[tuple[str, NormalizedField], ...],
 ) -> bool:
-    incoming = sorted(
-        canonical_json(_normalized_evidence_row(group_key, normalized, extracted))
-        for group_key, normalized in normalized_evidence
+    return candidate_evidence_fingerprint(candidates) == extraction_evidence_fingerprint(
+        extracted, normalized_evidence
     )
-    stored = sorted(canonical_json(_candidate_evidence_row(candidate)) for candidate in candidates)
-    return incoming == stored
 
 
-def _normalized_evidence_row(
-    group_key: str,
-    normalized: NormalizedField,
+def _staged_correction_result(
+    service: PhotoImportService,
+    selected: list[ImportCandidate],
     extracted: ExtractionResult,
-) -> dict[str, Any]:
-    return {
-        "measurement_group_key": group_key,
-        "metric_code": normalized.metric_code,
-        "proposed_value": normalized.proposed_value,
-        "proposed_unit": normalized.proposed_unit,
-        "proposed_source_timestamp": _timestamp_text(normalized.source_timestamp),
-        "proposed_source_local_date": _date_text(normalized.source_local_date),
-        "temporal_precision": normalized.temporal_precision,
-        "source_text": normalized.source_text,
-        "extractor_name": extracted.extractor_name,
-        "extractor_version": extracted.extractor_version,
-        "model_name": extracted.model_name,
-        "model_version": extracted.model_version,
-        "prompt_version": extracted.prompt_version,
-        "schema_version": extracted.schema_version,
-        "confidence": normalized.confidence,
-        "evidence_region_json": (
-            None
-            if normalized.evidence_region is None
-            else canonical_json(normalized.evidence_region)
-        ),
-        "algorithm_code": normalized.algorithm_code,
-        "algorithm_version": normalized.algorithm_version,
-        "provider_code": resolve_provider_code(extracted.provider_code),
-        "source_timezone": normalized.source_timezone,
-        "source_utc_offset_minutes": normalized.source_utc_offset_minutes,
-    }
+    normalized_evidence: tuple[tuple[str, NormalizedField], ...],
+) -> OwnerWeightScreenshotImportResult:
+    """Persist and classify a changed interpretation of already-known content.
 
+    The changed sidecar is staged as its own pending candidate set.  It is
+    never confirmed here: the Owner must explicitly review it.  An exact
+    replay of a staged set resolves to the same set, so no duplicate evidence
+    rows are created and a terminal decision stays terminal.
+    """
 
-def _candidate_evidence_row(candidate: ImportCandidate) -> dict[str, Any]:
-    return {
-        "measurement_group_key": candidate.measurement_group_key,
-        "metric_code": candidate.metric_code,
-        "proposed_value": candidate.proposed_value,
-        "proposed_unit": candidate.proposed_unit,
-        "proposed_source_timestamp": _timestamp_text(candidate.proposed_source_timestamp),
-        "proposed_source_local_date": _date_text(candidate.proposed_source_local_date),
-        "temporal_precision": candidate.temporal_precision,
-        "source_text": candidate.source_text,
-        "extractor_name": candidate.extractor_name,
-        "extractor_version": candidate.extractor_version,
-        "model_name": candidate.model_name,
-        "model_version": candidate.model_version,
-        "prompt_version": candidate.prompt_version,
-        "schema_version": candidate.schema_version,
-        "confidence": candidate.confidence,
-        "evidence_region_json": candidate.evidence_region_json,
-        "algorithm_code": candidate.algorithm_code,
-        "algorithm_version": candidate.algorithm_version,
-        "provider_code": candidate.provider_code,
-        "source_timezone": candidate.source_timezone,
-        "source_utc_offset_minutes": candidate.source_utc_offset_minutes,
-    }
-
-
-def _timestamp_text(value: Any) -> str | None:
-    restored = restore_stored_utc(value)
-    return None if restored is None else restored.isoformat()
-
-
-def _date_text(value: Any) -> str | None:
-    return None if value is None else value.isoformat()
+    event_ids = {candidate.ingest_event_id for candidate in selected}
+    if len(event_ids) != 1:
+        return _result("NEEDS_REVIEW", "candidate_set_incomplete", len(selected))
+    try:
+        staged = service.stage_correction(selected[0].ingest_event_id, extracted)
+    except PhotoImportError as exc:
+        if exc.code == "persistence_error":
+            return _result("FAILED", "correction_failed", len(selected))
+        return _result("NEEDS_REVIEW", "content_seen_new_extraction", len(selected))
+    correction = staged.candidates
+    if not correction:
+        return _result("NEEDS_REVIEW", "content_seen_new_extraction", len(selected))
+    if candidate_evidence_fingerprint(correction) != extraction_evidence_fingerprint(
+        extracted, normalized_evidence
+    ):
+        # Never classify or decide on a candidate set that does not carry
+        # exactly the incoming sidecar evidence.
+        return _result("NEEDS_REVIEW", "content_seen_new_extraction", len(correction))
+    views = [service.candidate_view(candidate) for candidate in correction]
+    if any(candidate.user_decision == "pending" for candidate in correction):
+        return _result("NEEDS_REVIEW", "content_seen_new_extraction", len(correction))
+    if any(
+        candidate.user_decision == "confirmed" and view["scalar_measurement_id"] is None
+        for candidate, view in zip(correction, views, strict=True)
+    ):
+        return _result("NEEDS_REVIEW", "duplicate_unresolved", len(correction))
+    return _result("DUPLICATE", "duplicate_content", len(correction))
 
 
 def _auto_confirm_block_reason(

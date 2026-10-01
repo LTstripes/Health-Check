@@ -145,6 +145,11 @@ def _validate_scenario(scenario: Any, expected_name: str) -> None:
         cleanup.get("identity_changed_process_ids"),
         f"Windows scenario {expected_name} identity-change evidence is invalid",
     )
+    _require(
+        cleanup["identity_changed_process_ids"] == [],
+        f"Windows scenario {expected_name} identity-change evidence is not clean",
+    )
+    _validate_termination(cleanup)
     if expected_name == "ingest-disabled":
         _require(
             surfaces.get("ingest_health") is None
@@ -160,6 +165,163 @@ def _validate_scenario(scenario: Any, expected_name: str) -> None:
             and surfaces.get("ingest_openscale_get_status") == 405,
             "enabled-ingest route separation evidence is invalid",
         )
+
+
+def _validate_exit_255_transcript(output: list[str], owned_ids: list[int]) -> None:
+    """Consume the exact case-sensitive English grammar, one item per whole line.
+
+    transcript := (SUCCESS | ERROR Reason)+, with at least one ERROR.
+    PID/parent := [1-9][0-9]*. No blank lines, trimming or embedded CR/LF.
+    Each owned PID has exactly one record; no other PID may have a record.
+    Keep this grammar mirrored in Test-Exit255LifecycleTranscript.
+    """
+    success_pattern = (
+        r"SUCCESS: The process with PID ([1-9][0-9]*) "
+        r"\(child process of PID ([1-9][0-9]*)\) has been terminated\."
+    )
+    error_pattern = (
+        r"ERROR: The process with PID ([1-9][0-9]*) "
+        r"\(child process of PID ([1-9][0-9]*)\) could not be terminated\."
+    )
+    reason = "Reason: There is no running instance of the task."
+    failure = "native termination failure lacks verified lifecycle evidence"
+    expected = set(owned_ids)
+    reported: set[int] = set()
+    error_count = 0
+    index = 0
+    while index < len(output):
+        record = re.fullmatch(success_pattern, output[index])
+        if record is not None:
+            index += 1
+        else:
+            record = re.fullmatch(error_pattern, output[index])
+            _require(
+                record is not None and index + 1 < len(output) and output[index + 1] == reason,
+                failure,
+            )
+            error_count += 1
+            index += 2
+        assert record is not None
+        pid = int(record.group(1))
+        _require(pid in expected and pid not in reported, failure)
+        reported.add(pid)
+    _require(error_count > 0 and reported == expected, failure)
+
+
+def _trustworthy_creation_time(value: Any) -> bool:
+    # Mirror Test-PostTerminationCreationTime: canonical positive UTC DateTime ticks.
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"[1-9][0-9]{0,18}", value) is not None
+        and int(value) <= 3155378975999999999
+    )
+
+
+def _validate_post_termination_observations(records: Any, owned: list[dict[str, Any]]) -> None:
+    failure = "post-termination identity evidence is incomplete or unsafe"
+    _require(isinstance(records, list) and len(records) == len(owned), failure)
+    captured_by_id = {identity["Id"]: identity for identity in owned}
+    reported: list[int] = []
+    for record in records:
+        _require(isinstance(record, dict), failure)
+        pid = record.get("Id")
+        _require(type(pid) is int and pid in captured_by_id, failure)
+        reported.append(pid)
+        captured = captured_by_id[pid]
+        _require(
+            record.get("CapturedCreationTime") == captured["CreationTime"]
+            and _trustworthy_creation_time(captured["CreationTime"])
+            and "Error" in record
+            and record["Error"] is None,
+            failure,
+        )
+        observed = record.get("ObservedIdentity")
+        _require(
+            isinstance(observed, dict)
+            and type(observed.get("Id")) is int
+            and observed["Id"] == pid
+            and type(observed.get("Exists")) is bool
+            and "QueryError" in observed
+            and observed["QueryError"] is None,
+            failure,
+        )
+        if observed["Exists"] is False:
+            _require(record.get("Classification") == "absent", failure)
+            _require(
+                all(observed.get(field) == "" for field in ("Name", "CommandLine", "CreationTime")),
+                failure,
+            )
+        else:
+            _require(
+                all(
+                    isinstance(observed.get(field), str) and bool(observed[field].strip())
+                    for field in ("Name", "CommandLine")
+                )
+                and _trustworthy_creation_time(observed.get("CreationTime")),
+                failure,
+            )
+            # A changed name/command alone is never proof of PID reuse. Same-time
+            # survivors and unknown identities remain failures regardless of labels.
+            _require(
+                record.get("Classification") == "reused"
+                and observed["CreationTime"] != captured["CreationTime"],
+                failure,
+            )
+    _positive_unique_ids(reported, failure)
+    _require(set(reported) == set(captured_by_id), failure)
+
+
+def _validate_termination(cleanup: dict[str, Any]) -> None:
+    owned = cleanup.get("owned_process_identities")
+    _require(isinstance(owned, list) and bool(owned), "owned tree identity evidence is missing")
+    ids = []
+    for identity in owned:
+        _require(isinstance(identity, dict), "owned identity is malformed")
+        ids.append(identity.get("Id"))
+        for field in ("Name", "CommandLine", "CreationTime"):
+            _require(
+                isinstance(identity.get(field), str) and bool(identity[field]),
+                f"owned identity {field} is incomplete",
+            )
+        _require(
+            re.fullmatch(r"[1-9][0-9]*", identity["CreationTime"]) is not None,
+            "owned identity creation time is invalid",
+        )
+    _positive_unique_ids(ids, "owned identity PIDs are invalid")
+    _require(
+        owned[0]
+        == {
+            "Id": cleanup["root_pid"],
+            "Name": cleanup.get("root_name"),
+            "CommandLine": cleanup.get("root_command_line"),
+            "CreationTime": cleanup.get("root_creation_time"),
+        },
+        "owned tree root identity mismatch",
+    )
+    for field in ("post_termination_observations", "final_process_observations"):
+        _validate_post_termination_observations(cleanup.get(field), owned)
+    output = cleanup.get("taskkill_output")
+    _require(
+        cleanup.get("termination_issued") is True
+        and cleanup.get("root_already_exited") is False
+        and isinstance(output, list)
+        and bool(output)
+        and all(isinstance(line, str) for line in output),
+        "native root-tree termination evidence is incomplete",
+    )
+    code = cleanup.get("taskkill_exit_code")
+    _require(type(code) is int, "native termination exit code is invalid")
+    outcome = cleanup.get("termination_outcome")
+    if code == 0:
+        _require(outcome == "terminated", "native success classification mismatch")
+    else:
+        _require(
+            code == 255
+            and outcome == "exited-during-termination"
+            and cleanup.get("lifecycle_diagnostic_verified") is True,
+            "native termination failure lacks verified lifecycle evidence",
+        )
+        _validate_exit_255_transcript(output, ids)
 
 
 def validate_windows_smoke_artifact(
@@ -191,7 +353,10 @@ def validate_windows_smoke_artifact(
 
     evidence = _load_json(artifact / "smoke-evidence.json")
     _require(isinstance(evidence, dict), "Windows smoke evidence must be an object")
-    _require(evidence.get("schema_version") == 2, "Windows smoke schema_version must be integer 2")
+    _require(
+        type(evidence.get("schema_version")) is int and evidence["schema_version"] == 3,
+        "Windows smoke schema_version must be integer 3",
+    )
     _require(evidence.get("status") == "passed", "Windows smoke status is not passed")
     _require(evidence.get("platform") == "win32", "Windows smoke platform mismatch")
     _require(evidence.get("runner") == "Windows/X64", "Windows smoke runner mismatch")
@@ -273,9 +438,16 @@ def validate_windows_smoke_artifact(
         "process cleanup identity-change evidence is invalid",
     )
     _require(
-        isinstance(cleanup.get("scenarios"), list)
-        and len(cleanup["scenarios"]) == 2,
+        cleanup["identity_changed_process_ids"] == [],
+        "process cleanup identity-change evidence is not clean",
+    )
+    _require(
+        isinstance(cleanup.get("scenarios"), list) and len(cleanup["scenarios"]) == 2,
         "per-scenario cleanup evidence is missing",
+    )
+    _require(
+        cleanup["scenarios"] == [scenario["cleanup"] for scenario in scenarios],
+        "aggregate/per-scenario cleanup evidence mismatch",
     )
     _require(
         isinstance(evidence.get("powershell"), dict)

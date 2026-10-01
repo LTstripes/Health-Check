@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date
 
 import pytest
@@ -27,6 +28,7 @@ from healthcheck.ingestion.photo.provenance import (
     XIAOMI_HOME_COMPOSITION_ALGORITHM,
     XIAOMI_UNKNOWN_APP_ALGORITHM,
 )
+from healthcheck.ingestion.photo.service import PhotoImportService
 from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
 from healthcheck.ingestion.photo.vision import OWNER_ASSISTED_EXTRACTOR_NAME
 from healthcheck.owner_weight_screenshot_import import (
@@ -343,7 +345,7 @@ def test_owner_assisted_json_replay_is_duplicate(owner_photo_env, tmp_path):
 
 
 @pytest.mark.parametrize("mutation", ["value", "date", "metric", "group"])
-def test_owner_assisted_changed_sidecar_on_known_content_requires_review(
+def test_owner_assisted_changed_sidecar_stages_reviewable_pending_evidence(
     owner_photo_env, tmp_path, mutation
 ):
     settings, _paths, engine = owner_photo_env
@@ -380,7 +382,395 @@ def test_owner_assisted_changed_sidecar_on_known_content_requires_review(
     assert first.status == "IMPORTED"
     assert second.status == "NEEDS_REVIEW"
     assert second.reason_code == "content_seen_new_extraction"
-    assert _counts(engine) == before_conflict
+    assert second.candidate_count == 1
+    after = _counts(engine)
+    assert after == {
+        "candidates": before_conflict["candidates"] + 1,
+        "sessions": 1,
+        "measurements": 1,
+        "canonical": 1,
+    }
+    assert "77.5" not in second.to_json()
+    with session_scope(engine) as session:
+        candidates = list(session.scalars(select(ImportCandidate)))
+        original_candidates = [
+            candidate for candidate in candidates if candidate.user_decision == "confirmed"
+        ]
+        staged = [candidate for candidate in candidates if candidate.user_decision == "pending"]
+        assert len(original_candidates) == 1
+        assert len(staged) == 1
+        assert staged[0].candidate_set_key.startswith("correction:")
+        assert staged[0].candidate_set_key != original_candidates[0].candidate_set_key
+        assert staged[0].ingest_event_id == original_candidates[0].ingest_event_id
+        measurements = list(session.scalars(select(ScalarMeasurement)))
+        assert len(measurements) == 1
+        assert measurements[0].supersedes_measurement_id is None
+        assert measurements[0].import_candidate_id == original_candidates[0].id
+
+
+@pytest.mark.parametrize("decision", ["pending", "rejected", "confirmed"])
+def test_owner_assisted_signed_zero_correction_replay_is_terminal(
+    owner_photo_env, tmp_path, decision
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(
+        source_local_date=date(2026, 5, 9), weight_kg=78.5, weight_confidence=0.5
+    )
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    first = import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+    assert first.status == "IMPORTED"
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["fields"][0]["value"] = -0.0
+    changed["groups"][0]["fields"][0]["confidence"] = -0.0
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+
+    staged = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert staged.status == "NEEDS_REVIEW"
+    assert staged.reason_code == "content_seen_new_extraction"
+    with session_scope(engine) as session:
+        correction = session.scalar(
+            select(ImportCandidate).where(ImportCandidate.user_decision == "pending")
+        )
+        assert correction is not None
+        # Fresh SQLite read: the stored -0.0 evidence came back as +0.0.
+        assert math.copysign(1.0, correction.proposed_value) == 1.0
+        assert math.copysign(1.0, correction.confidence) == 1.0
+        correction_id = correction.id
+
+    if decision == "rejected":
+        with session_scope(engine) as session:
+            PhotoImportService(session, _paths, FakeImageMeasurementExtractor()).reject(
+                [correction_id], reason="synthetic-signed-zero"
+            )
+    elif decision == "confirmed":
+        with session_scope(engine) as session:
+            PhotoImportService(session, _paths, FakeImageMeasurementExtractor()).confirm(
+                [correction_id]
+            )
+    before_replay = _counts(engine)
+
+    replay = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+
+    if decision == "pending":
+        assert replay.status == "NEEDS_REVIEW"
+        assert replay.reason_code == "content_seen_new_extraction"
+    else:
+        assert replay.status == "DUPLICATE"
+        assert replay.reason_code == "duplicate_content"
+    assert _counts(engine) == before_replay
+    with session_scope(engine) as session:
+        assert session.scalar(select(func.count(ImportCandidate.id))) == 2
+        sessions = list(session.scalars(select(MeasurementSession)))
+        if decision == "confirmed":
+            assert {row.revision_number for row in sessions} == {1, 2}
+        else:
+            assert [row.revision_number for row in sessions] == [1]
+
+
+def test_owner_assisted_changed_sidecar_replay_does_not_duplicate_pending_evidence(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(source_local_date=date(2026, 5, 9), weight_kg=78.5)
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["fields"][0]["value"] = 77.5
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+    staged = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert staged.status == "NEEDS_REVIEW"
+    after_stage = _counts(engine)
+
+    replay = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+
+    assert replay.status == "NEEDS_REVIEW"
+    assert replay.reason_code == "content_seen_new_extraction"
+    assert replay.candidate_count == 1
+    assert _counts(engine) == after_stage
+
+
+def test_owner_assisted_correction_reject_leaves_semantic_state_unchanged(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(source_local_date=date(2026, 5, 9), weight_kg=78.5)
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["fields"][0]["value"] = 77.5
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+    staged = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert staged.status == "NEEDS_REVIEW"
+    after_stage = _counts(engine)
+    with session_scope(engine) as session:
+        pending_id = session.scalar(
+            select(ImportCandidate.id).where(ImportCandidate.user_decision == "pending")
+        )
+    assert pending_id is not None
+
+    with session_scope(engine) as session:
+        service = PhotoImportService(session, _paths, FakeImageMeasurementExtractor())
+        service.reject([pending_id], reason="synthetic-owner-reject")
+
+    assert _counts(engine) == after_stage
+    with session_scope(engine) as session:
+        rejected = session.get(ImportCandidate, pending_id)
+        assert rejected is not None and rejected.user_decision == "rejected"
+        measurements = list(session.scalars(select(ScalarMeasurement)))
+        assert len(measurements) == 1
+        assert measurements[0].normalized_value == 78.5
+        assert measurements[0].supersedes_measurement_id is None
+        sessions = list(session.scalars(select(MeasurementSession)))
+        assert [row.revision_number for row in sessions] == [1]
+
+    replay = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert replay.status == "DUPLICATE"
+    assert replay.reason_code == "duplicate_content"
+    assert _counts(engine) == after_stage
+
+
+def test_owner_assisted_correction_accept_supersedes_with_revision_semantics(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(source_local_date=date(2026, 5, 9), weight_kg=78.5)
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["fields"][0]["value"] = 77.5
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+    staged = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert staged.status == "NEEDS_REVIEW"
+    after_stage = _counts(engine)
+    with session_scope(engine) as session:
+        correction_id = session.scalar(
+            select(ImportCandidate.id).where(ImportCandidate.user_decision == "pending")
+        )
+    assert correction_id is not None
+
+    with session_scope(engine) as session:
+        service = PhotoImportService(session, _paths, FakeImageMeasurementExtractor())
+        confirmed = service.confirm([correction_id])
+    assert len(confirmed) == 1
+
+    with session_scope(engine) as session:
+        sessions = list(
+            session.scalars(select(MeasurementSession).order_by(MeasurementSession.revision_number))
+        )
+        assert [row.revision_number for row in sessions] == [1, 2]
+        original_session, revision = sessions
+        assert revision.supersedes_session_id == original_session.id
+        assert revision.confirmation_candidate_id == correction_id
+        assert revision.source_local_date == original_session.source_local_date
+        measurements = list(
+            session.scalars(select(ScalarMeasurement).order_by(ScalarMeasurement.created_at))
+        )
+        assert len(measurements) == 2
+        original_measurement, corrected = measurements
+        assert original_measurement.normalized_value == 78.5
+        assert original_measurement.supersedes_measurement_id is None
+        assert corrected.normalized_value == 77.5
+        assert corrected.supersedes_measurement_id == original_measurement.id
+        assert corrected.import_candidate_id == correction_id
+        correction_candidate = session.get(ImportCandidate, correction_id)
+        assert correction_candidate is not None
+        assert correction_candidate.user_decision == "confirmed"
+        original_candidate = session.get(
+            ImportCandidate, original_measurement.import_candidate_id
+        )
+        assert original_candidate is not None
+        assert original_candidate.user_decision == "confirmed"
+
+        from healthcheck.db.repositories import repositories_for
+
+        repos = repositories_for(session)
+        heads = repos.scalar_measurements.current_heads(metric_code="weight")
+        assert [row.id for row in heads] == [corrected.id]
+        assert repos.scalar_measurements.is_current_head(original_measurement.id) is False
+        assert (
+            session.scalar(
+                select(func.count(CanonicalSelection.id)).where(
+                    CanonicalSelection.source_measurement_id == corrected.id
+                )
+            )
+            or 0
+        ) >= 1
+    assert _counts(engine)["measurements"] == after_stage["measurements"] + 1
+
+    replay = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert replay.status == "DUPLICATE"
+    assert replay.reason_code == "duplicate_content"
+
+    original_replay = import_owner_weight_screenshot(
+        settings, image, extraction_json_path=first_json
+    )
+    assert original_replay.status == "DUPLICATE"
+    assert original_replay.reason_code == "duplicate_content"
+
+
+def test_owner_assisted_date_correction_supersedes_the_session_date(owner_photo_env, tmp_path):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(source_local_date=date(2026, 5, 9), weight_kg=78.5)
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["source_local_date"] = "2026-05-10"
+    changed["groups"][0]["fields"][0]["value"] = 77.9
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+    staged = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert staged.status == "NEEDS_REVIEW"
+    with session_scope(engine) as session:
+        correction_id = session.scalar(
+            select(ImportCandidate.id).where(ImportCandidate.user_decision == "pending")
+        )
+    assert correction_id is not None
+
+    with session_scope(engine) as session:
+        service = PhotoImportService(session, _paths, FakeImageMeasurementExtractor())
+        service.confirm([correction_id])
+
+    with session_scope(engine) as session:
+        sessions = list(
+            session.scalars(select(MeasurementSession).order_by(MeasurementSession.revision_number))
+        )
+        assert [row.revision_number for row in sessions] == [1, 2]
+        assert sessions[0].source_local_date == date(2026, 5, 9)
+        assert sessions[1].source_local_date == date(2026, 5, 10)
+        assert sessions[1].supersedes_session_id == sessions[0].id
+        measurements = list(
+            session.scalars(select(ScalarMeasurement).order_by(ScalarMeasurement.created_at))
+        )
+        assert len(measurements) == 2
+        assert measurements[1].normalized_value == 77.9
+        assert measurements[1].supersedes_measurement_id == measurements[0].id
+
+        from healthcheck.db.repositories import repositories_for
+
+        heads = repositories_for(session).scalar_measurements.current_heads(metric_code="weight")
+        assert [row.normalized_value for row in heads] == [77.9]
+
+
+def test_owner_assisted_group_key_correction_stays_an_independent_identity(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(source_local_date=date(2026, 5, 9), weight_kg=78.5)
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["key"] = "changed-reading"
+    changed["groups"][0]["fields"][0]["value"] = 78.1
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+    staged = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+    assert staged.status == "NEEDS_REVIEW"
+    with session_scope(engine) as session:
+        correction_id = session.scalar(
+            select(ImportCandidate.id).where(ImportCandidate.user_decision == "pending")
+        )
+    assert correction_id is not None
+
+    with session_scope(engine) as session:
+        service = PhotoImportService(session, _paths, FakeImageMeasurementExtractor())
+        service.confirm([correction_id])
+
+    with session_scope(engine) as session:
+        sessions = list(session.scalars(select(MeasurementSession)))
+        # A changed group key is a different source identity, so the existing
+        # reprocess rules confirm it as an independent first revision instead
+        # of superseding the original weigh-in.
+        assert len(sessions) == 2
+        assert {row.revision_number for row in sessions} == {1}
+        assert {row.supersedes_session_id for row in sessions} == {None}
+        measurements = list(session.scalars(select(ScalarMeasurement)))
+        assert len(measurements) == 2
+        assert {row.supersedes_measurement_id for row in measurements} == {None}
+        assert {row.normalized_value for row in measurements} == {78.1, 78.5}
+
+        from healthcheck.db.repositories import repositories_for
+
+        heads = repositories_for(session).scalar_measurements.current_heads(metric_code="weight")
+        assert {row.normalized_value for row in heads} == {78.1, 78.5}
+
+
+def test_owner_assisted_changed_sidecar_algorithm_conflict_stays_reviewable_without_write(
+    owner_photo_env, tmp_path
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(source_local_date=date(2026, 5, 11), weight_kg=78.3)
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    first = import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+    assert first.status == "IMPORTED"
+    before = _counts(engine)
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["fields"][0]["value"] = 77.3
+    changed["groups"][0]["fields"][0]["algorithm_code"] = "openscale_weight"
+    changed["groups"][0]["fields"][0]["algorithm_version"] = "synthetic-version"
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+
+    second = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+
+    assert second.status == "NEEDS_REVIEW"
+    assert second.reason_code == "content_seen_new_extraction"
+    after = _counts(engine)
+    assert after == {**before, "candidates": before["candidates"] + 1}
+    assert "openscale_weight" not in second.to_json()
+    assert "77.3" not in second.to_json()
+    with session_scope(engine) as session:
+        staged = session.scalar(
+            select(ImportCandidate).where(ImportCandidate.user_decision == "pending")
+        )
+        assert staged is not None
+        # The conflicting algorithm identity is preserved verbatim for the
+        # explicit review; nothing was confirmed or rewritten.
+        assert staged.algorithm_code == "openscale_weight"
+        assert staged.algorithm_version == "synthetic-version"
+        assert session.scalar(select(func.count(MeasurementSession.id))) == 1
+        assert session.scalar(select(func.count(ScalarMeasurement.id))) == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("provider_code", "other_provider"),
+        ("physical_device_code", "other_device"),
+        ("source_application", "Other App"),
+    ],
+)
+def test_owner_assisted_changed_sidecar_profile_conflict_fails_closed(
+    owner_photo_env, tmp_path, field, value
+):
+    settings, _paths, engine = owner_photo_env
+    original = _structured_payload(source_local_date=date(2026, 5, 12), weight_kg=78.2)
+    image = _save_image(tmp_path, original)
+    first_json = _save_extraction_json(tmp_path, original, "first-extraction.json")
+    first = import_owner_weight_screenshot(settings, image, extraction_json_path=first_json)
+    assert first.status == "IMPORTED"
+    before = _counts(engine)
+
+    changed = json.loads(json.dumps(original))
+    changed["groups"][0]["fields"][0]["value"] = 77.2
+    changed[field] = value
+    changed_json = _save_extraction_json(tmp_path, changed, "changed-extraction.json")
+
+    second = import_owner_weight_screenshot(settings, image, extraction_json_path=changed_json)
+
+    assert second.status == "NEEDS_REVIEW"
+    assert second.reason_code == "provenance_ambiguous"
+    assert _counts(engine) == before
 
 
 @pytest.mark.parametrize(

@@ -287,6 +287,55 @@ to cancellation. A PR merge ref's checked-out `HEAD` is recorded separately
 from the PR head SHA. A canceled, timed-out or superseded run has no complete
 evidence for its SHA.
 
+The supported recovery is **Re-run all jobs**, after diagnosing the failure.
+Partial reruns may diagnose an individual job, but do not qualify as a candidate
+gate. `checks` downloads only its current run/attempt and explicitly requires
+exactly quality, three Linux lanes and Windows smoke from that attempt before
+validating their contents. It never falls back to prior-attempt artifacts, even
+when their SHA matches. Missing, expired or mixed-attempt evidence fails with a
+`Re-run all jobs` instruction. A complete later attempt still must satisfy every
+job result and SHA/tree/event/config/lock/manifest/selection check. This is a
+fail-closed full-rerun-only contract, not cross-attempt aggregation or permission
+to retry repeatedly until green.
+
+Retaining earlier artifacts alone does not establish the authoritative outcome
+of rerun source jobs. The existing Linux contract also binds all three lanes to
+the quality attempt, including command/report paths. Cross-attempt selection
+would need a separate verified source-job/attempt contract; the current workflow
+deliberately keeps one complete same-attempt set.
+
+Windows smoke retains the native taskkill exit code and output plus the verified
+root/descendant identities (PID, name, command line and creation time). A single
+root-scoped `/PID <root> /T /F` call is followed by bounded checks of every
+captured tree member, including children whose parent has already exited.
+Native exit 0 is `terminated`. Exit 255 can be `exited-during-termination` only
+when every native error is the English runner diagnostic `There is no running
+instance of the task.` for a captured owned PID, and every captured identity is
+absent or proven reused by a successful query with a trustworthy different
+CreationTime, and the native reported PID set equals the captured tree. The
+exact English transcript grammar and complete line consumption remain mandatory.
+Post-termination observations classify each captured root/child independently
+as absent, same-identity-alive, reused, or unknown. Reuse evidence retains the
+captured and observed UTC DateTime ticks plus observed PID/name/command line
+and query result. A generic identity-change list is never reuse proof. Same CreationTime with
+changed non-empty name/command line remains an identity failure. During bounded
+post-termination polling, a successful query with the same trustworthy
+CreationTime but transiently missing Name/CommandLine is still the captured
+instance and therefore remains a non-success `same-identity-alive` state to poll
+again; if that state survives to the deadline/final evidence it fails. Invalid
+or missing CreationTime, unknown queries and surviving captured children fail.
+Root reuse does not
+stop checks of captured children or authorize traversal from the reused PID.
+These observations do not provide process-handle/object-bound guarantees.
+Unrecognized/localized diagnostics and other exit codes fail. Both ports must
+also be closed and the external synthetic runtime removed. No second kill or
+process-name-wide operation is used. A root absent before the ownership
+snapshot is unproven and fails. Artifact schema 3 requires this lifecycle
+evidence, both termination and final observations for every captured PID, and
+rejects all identity-change entries. Historical artifacts that
+discarded native output cannot retrospectively prove this diagnostic or be
+waived under the new contract.
+
 Use one full remote candidate gate after frozen code stabilizes, then the exact
 post-integration and post-main gates owned by the Integrator. Run a full local
 suite when the issue or risk requires it; do not repeat an unchanged full suite
