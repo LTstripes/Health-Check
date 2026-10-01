@@ -19,6 +19,18 @@ from healthcheck.analytics.sleep_pairing import (
     ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
     SleepPairingQuery,
 )
+from healthcheck.collection_policy import (
+    COLLECTION_POLICY_CONTRACT_VERSION,
+    CollectionPolicyBusyError,
+    CollectionPolicyResolution,
+    CollectionPolicyRuntimeError,
+    CollectionPolicyUpdate,
+    CollectionPolicyUpdateError,
+    collection_policy_path,
+    format_policy_timestamp,
+    resolve_collection_policy,
+    set_collection_policy,
+)
 from healthcheck.config import Settings
 from healthcheck.context import (
     ContextConflictError,
@@ -77,6 +89,7 @@ from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
 from healthcheck.owner_refresh import (
     OwnerRefreshBusyError,
+    OwnerRefreshPolicyError,
     OwnerRefreshRuntimeError,
     OwnerRefreshStatus,
     require_established_runtime,
@@ -129,6 +142,8 @@ def build_parser() -> argparse.ArgumentParser:
             "google-backfill",
             "google-refresh",
             "owner-refresh",
+            "collection-policy",
+            "collection-policy-set",
             "owner-weight-screenshot-import",
             "sync-run-recovery",
             "google-diagnose-terminal",
@@ -160,6 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--activity-end")
     parser.add_argument("--activity-id", action="append", dest="activity_ids")
     parser.add_argument("--repeat-date")
+    parser.add_argument("--state", choices=("on", "off"))
+    parser.add_argument("--expect-revision", type=int)
     parser.add_argument("--trailing-window-days", type=int)
     parser.add_argument("--start")
     parser.add_argument("--end")
@@ -298,6 +315,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_google_refresh(args, settings)
     if args.command == "owner-refresh":
         return _run_owner_refresh(args, settings)
+    if args.command == "collection-policy":
+        return _run_collection_policy(args, settings)
+    if args.command == "collection-policy-set":
+        return _run_collection_policy_set(args, settings)
     if args.command == "owner-weight-screenshot-import":
         return _run_owner_weight_screenshot_import(args, settings)
     if args.command == "sync-run-recovery":
@@ -918,6 +939,17 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
             )
         )
         return 1
+    except OwnerRefreshPolicyError as exc:
+        error_class = (
+            "input" if exc.error_code == "collection_policy_conflict" else "runtime"
+        )
+        print(
+            json.dumps(
+                _owner_refresh_error_payload(exc.error_code, error_class),
+                sort_keys=True,
+            )
+        )
+        return 2
     except OwnerRefreshRuntimeError as exc:
         print(
             json.dumps(
@@ -970,6 +1002,162 @@ def _owner_refresh_error_payload(error_code: str, error_class: str) -> dict[str,
             "page_tokens_emitted": False,
             "string_encoded_numerics_logged_as_values": False,
         },
+    }
+
+
+def _run_collection_policy(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        paths = require_established_runtime(settings)
+    except OwnerRefreshRuntimeError as exc:
+        print(
+            json.dumps(
+                _collection_policy_error_payload(
+                    "collection-policy", exc.error_code, "runtime"
+                ),
+                sort_keys=True,
+            )
+        )
+        return 2
+    resolution = resolve_collection_policy(collection_policy_path(paths))
+    print(
+        json.dumps(
+            _collection_policy_status_payload(resolution), ensure_ascii=True, sort_keys=True
+        )
+    )
+    return 0
+
+
+def _run_collection_policy_set(args: argparse.Namespace, settings: Settings) -> int:
+    if args.streams is None or len(args.streams) != 1 or args.state is None:
+        print(
+            json.dumps(
+                _collection_policy_error_payload(
+                    "collection-policy-set", "invalid_policy_request", "input"
+                ),
+                sort_keys=True,
+            )
+        )
+        return 2
+    try:
+        update = set_collection_policy(
+            settings,
+            stream=args.streams[0],
+            state=args.state,
+            expected_revision=args.expect_revision,
+        )
+    except CollectionPolicyBusyError:
+        print(
+            json.dumps(
+                _collection_policy_error_payload(
+                    "collection-policy-set", "collection_policy_busy", "runtime"
+                ),
+                sort_keys=True,
+            )
+        )
+        return 1
+    except CollectionPolicyRuntimeError as exc:
+        print(
+            json.dumps(
+                _collection_policy_error_payload(
+                    "collection-policy-set", exc.error_code, "runtime"
+                ),
+                sort_keys=True,
+            )
+        )
+        return 2
+    except CollectionPolicyUpdateError as exc:
+        error_class = (
+            "input"
+            if exc.error_code
+            in {
+                "collection_policy_revision_conflict",
+                "unsupported_policy_stream",
+                "invalid_policy_state",
+                "invalid_expected_revision",
+            }
+            else "runtime"
+        )
+        print(
+            json.dumps(
+                _collection_policy_error_payload(
+                    "collection-policy-set", exc.error_code, error_class
+                ),
+                sort_keys=True,
+            )
+        )
+        return 2
+    print(json.dumps(_collection_policy_update_payload(update), sort_keys=True))
+    return 0
+
+
+def _collection_policy_status_payload(
+    resolution: CollectionPolicyResolution,
+) -> dict[str, object]:
+    return {
+        "contract_version": COLLECTION_POLICY_CONTRACT_VERSION,
+        "operation": "collection-policy",
+        "status": resolution.status.value,
+        "problem_code": resolution.problem_code,
+        "policy": _collection_policy_document(resolution),
+        "privacy": _collection_policy_privacy(),
+    }
+
+
+def _collection_policy_update_payload(update: CollectionPolicyUpdate) -> dict[str, object]:
+    return {
+        "contract_version": COLLECTION_POLICY_CONTRACT_VERSION,
+        "operation": "collection-policy-set",
+        "status": "succeeded",
+        "changed": update.changed,
+        "previous_revision": update.previous_revision,
+        "policy": {
+            "contract_version": update.policy.contract_version,
+            "provenance": update.policy.provenance,
+            "revision": update.policy.revision,
+            "updated_at_utc": format_policy_timestamp(update.policy.updated_at_utc),
+            "disabled_streams": list(update.policy.disabled_streams),
+        },
+        "privacy": _collection_policy_privacy(),
+    }
+
+
+def _collection_policy_document(
+    resolution: CollectionPolicyResolution,
+) -> dict[str, object] | None:
+    if resolution.snapshot is None:
+        return None
+    return {
+        "contract_version": resolution.snapshot.contract_version,
+        "provenance": resolution.snapshot.provenance,
+        "revision": resolution.snapshot.revision,
+        "updated_at_utc": format_policy_timestamp(resolution.snapshot.updated_at_utc),
+        "disabled_streams": list(resolution.snapshot.disabled_streams),
+    }
+
+
+def _collection_policy_error_payload(
+    operation: str, error_code: str, error_class: str
+) -> dict[str, object]:
+    return {
+        "contract_version": COLLECTION_POLICY_CONTRACT_VERSION,
+        "operation": operation,
+        "error": {
+            "error_class": error_class,
+            "error_code": error_code,
+            "http_status": None,
+        },
+        "privacy": _collection_policy_privacy(),
+    }
+
+
+def _collection_policy_privacy() -> dict[str, bool]:
+    return {
+        "raw_values_emitted": False,
+        "private_identifiers_emitted": False,
+        "tokens_emitted": False,
+        "health_timestamps_emitted": False,
+        "page_tokens_emitted": False,
+        "string_encoded_numerics_logged_as_values": False,
     }
 
 

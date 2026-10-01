@@ -37,6 +37,7 @@ from healthcheck.analytics.period_brief import (
     thin_period_brief_for_display,
 )
 from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
+from healthcheck.collection_policy import resolve_profile_collection_policy
 from healthcheck.config import Settings
 from healthcheck.db.models import GarminProjectionStatus, GarminSource, GarminSourceRecord
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
@@ -125,11 +126,13 @@ class PeriodBriefService:
             # e.g. multiple sources require selection — inventory was not attempted.
             activity_inventory_status = "unknown"
 
+        collection_policy = resolve_profile_collection_policy(self.settings)
         freshness_projection = read_consumer_freshness_projection(
             self.session,
             evaluated_at_utc=evaluated_at_utc,
             evaluation_local_date=evaluation_local_date,
             weight_cadence_days=self.settings.weight_cadence_days,
+            collection_policy=collection_policy,
         )
         return build_period_brief_packet(
             period=period,

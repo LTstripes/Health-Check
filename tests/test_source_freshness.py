@@ -372,7 +372,7 @@ def test_persisted_activity_coverage_and_read_only_api(tmp_path: Path) -> None:
     assert result("garmin:activities", facts)["reason_code"] == "event_window_confirmed_empty"
     before = database.read_bytes()
     app = FastAPI()
-    app.state.runtime_paths = SimpleNamespace(database=database)
+    app.state.runtime_paths = SimpleNamespace(database=database, root=tmp_path)
     app.state.settings = SimpleNamespace(weight_cadence_days=7)
     app.include_router(router)
     response = TestClient(app).get("/api/source-freshness", params={

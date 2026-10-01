@@ -12,6 +12,11 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from healthcheck.collection_policy import (
+    CollectionPolicyStatus,
+    collection_policy_path,
+    resolve_collection_policy,
+)
 from healthcheck.config import Settings
 from healthcheck.db.engine import database_readiness
 from healthcheck.external_runtime_lock import (
@@ -32,6 +37,7 @@ from healthcheck.garmin.training import TRAINING_CONTRACT_VERSION, GarminTrainin
 from healthcheck.google.auth import GoogleAuthService
 from healthcheck.google.contracts import GoogleQueryMode, GoogleStream
 from healthcheck.google.sync import (
+    PRODUCTION_SYNC_SURFACES,
     GoogleHrPhaseTiming,
     GoogleRunKind,
     GoogleSyncAttempt,
@@ -85,6 +91,14 @@ class OwnerRefreshRuntimeError(ValueError):
 
 class OwnerRefreshBusyError(ExternalRuntimeOperationBusyError):
     """Another owner refresh currently holds the same-profile lock."""
+
+
+class OwnerRefreshPolicyError(ValueError):
+    """The persisted collection policy blocks or invalidates this refresh request."""
+
+    def __init__(self, error_code: str) -> None:
+        super().__init__(error_code)
+        self.error_code = error_code
 
 
 class OwnerRefreshLock(ExternalRuntimeOperationLock):
@@ -604,6 +618,34 @@ def run_owner_refresh(
     window_start, window_end = compute_sync_window(as_of_date, window_days)
 
     with OwnerRefreshLock(paths):
+        collection_policy = resolve_collection_policy(collection_policy_path(paths))
+        if collection_policy.status is CollectionPolicyStatus.INVALID:
+            raise OwnerRefreshPolicyError("collection_policy_invalid")
+        if collection_policy.status is CollectionPolicyStatus.UNREADABLE:
+            raise OwnerRefreshPolicyError("collection_policy_unreadable")
+        disabled_google_streams = {
+            scope_key.split(":", 1)[1]
+            for scope_key in (
+                collection_policy.snapshot.disabled_streams
+                if collection_policy.snapshot is not None
+                else ()
+            )
+            if scope_key.startswith("google:")
+        }
+        if disabled_google_streams:
+            if not streams:
+                # VALID OFF: the routine profile defaults exclude disabled streams.
+                streams = [
+                    surface.code
+                    for surface in PRODUCTION_SYNC_SURFACES
+                    if surface.code not in disabled_google_streams
+                ]
+            elif any(
+                item.stream.value in disabled_google_streams
+                for item in parse_google_streams(streams)
+            ):
+                raise OwnerRefreshPolicyError("collection_policy_conflict")
+
         garmin_started_ns = monotonic_ns()
         garmin_auth = GarminAuthService(settings, is_cn=is_cn)
         garmin_client, garmin_auth_result = garmin_auth.load_existing()
@@ -668,6 +710,7 @@ def run_owner_refresh(
                 evaluated_at_utc=datetime.now(UTC),
                 evaluation_local_date=as_of_date,
                 weight_cadence_days=settings.weight_cadence_days,
+                collection_policy=collection_policy,
             )
         except Exception:
             # Freshness is a post-refresh diagnostic. Preserve the completed
@@ -717,6 +760,7 @@ __all__ = [
     "OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS",
     "OwnerRefreshBusyError",
     "OwnerRefreshLock",
+    "OwnerRefreshPolicyError",
     "OwnerRefreshReport",
     "OwnerRefreshRuntimeError",
     "OwnerRefreshStatus",
