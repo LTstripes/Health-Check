@@ -4,50 +4,50 @@ The roadmap is organized as usable vertical releases. Each release must work loc
 
 Future ideas that are not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md).
 
+
 ## Current state
 
-Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness and the Owner screenshot workflow.
+Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness, the Owner screenshot workflow and the completed reliability/correction slice.
 
-Accepted product checkpoint before the 2026-09-30 documentation refresh: `main @ f6939f531d4384e28fa9bd65fce59b498a0e6032`; exact-main CI `36634392128` SUCCESS, including Windows smoke and final `checks`. Re-read current GitHub main/CI before launch/integration.
+Current checkpoint: `main @ ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`; exact-main CI `36818997839` SUCCESS, including Windows smoke and final `checks`. Re-read live GitHub main/CI before launch/integration.
 
 Latest completed work:
+- #217/#219/#221 screenshot -> repo skill -> strict Owner-assisted extraction -> R01 pipeline -> Stable;
+- #203 Windows limited-encoding Period Brief stdout;
+- #226 screenshot algorithm/provenance guard;
+- #227 coherent SQLite/ORM compound reads;
+- #233 collision-safe Garmin Training privacy test oracle;
+- #181 Windows cleanup + full-rerun-only CI provenance, including post-merge transient-WMI follow-up PR #237;
+- #229 reviewable changed-sidecar corrections with signed-zero-stable replay identity;
+- #147/#191/#193 source freshness and #199/#206/#207/#212 Google HR performance/reliability.
 
-- #217/#219/#221: screenshot -> repo skill -> strict Owner-assisted extraction -> R01 pipeline -> Stable, with OLD/NEW/exact-replay Owner proof;
-- #203: Windows limited-encoding Period Brief stdout, no packet changes;
-- #226: accepted Xiaomi algorithm identity at screenshot auto-confirm;
-- #227: coherent compound-read SQLite snapshots and ORM identity-map alignment after independent-review remediation;
-- #233: collision-safe Garmin Training privacy test oracle; test-only, no production privacy/provenance change;
-- #147/#191/#193 source freshness and #199/#206/#207/#212 Google HR performance/reliability remain complete.
+The next sequence is operational proof, then durability. UI remains deferred unless explicitly reprioritized. This table is a status/priority map, **not an automatic Worker queue**.
 
-The next sequence is to finish current safety work and operational proof, then durability. UI remains deferred unless explicitly reprioritized. The following table is a status/priority map, **not an automatic Worker queue**.
+## Current backlog — 2026-10-01
 
-## Current backlog — 2026-09-30
-
-Thirteen open issues, excluding pull requests:
+Eleven open issues, excluding pull requests:
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
-| #229 | Candidate delivered, exact-head CI green; first review blocked before semantics | Repeat read-only semantic review of `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` in an isolated review runtime; only ACCEPT unlocks PR/integration |
-| #214 | Phase A PASS; Scheduler configured; manual PASS | Prove one untouched automatic daily/logon run with final JSON, exit code and honest freshness; retain interruption evidence |
+| #214 | Phase A PASS; Scheduler configured; manual PASS | Prove one untouched automatic daily/logon run with final JSON, task result and honest freshness |
 | #215 | Owner input required | One real private context note plus supported read-back; no fabricated text or mandatory daily diary |
-| #181 | Active CI reliability debt | Diagnose retained Windows cleanup exit 255 and coherent partial/full-rerun evidence; no weakened checks or retry-until-green |
 | #148 | Durability/security work not complete | Freeze bounded protection/publication/retention and recovery contract, then implementation/review and separate Owner rehearsal |
 | #228 | Phase 1 research accepted; implementation parked | Wait for explicit trustworthy event-identity/Owner-decision contract; no date/value/fuzzy auto-merge |
 | #153 | Optional compatibility | Numeric `userId` from installed openScale-sync versus current string receiver; not a Weight prerequisite |
 | #172 | Deferred UX follow-up | Coordinate with #189, do not independently duplicate UI redesign |
 | #189 | Deferred whole-product UI umbrella | Revisit after operational readiness/durability priorities or explicit Owner reprioritization |
 | #167 | Deferred by Owner decision | No history rewrite/visibility change without a new explicit decision and freeze |
-| #126 | Owner/capability decision | Recheck current capability before any settings change; preserve manual Integrator gate |
+| #126 | Owner/capability decision | Recheck current capability before any settings change; preserve manual exact-SHA gate |
 | #105 | NOT_ELIGIBLE | No canonical sleep switch until the existing device-pair gate is met |
 | #210 | Ongoing evidence tracker | Record real model outcomes and Owner-confirmed identities; not a product coding task |
 
 ### Operational disposition
 
-#214 historical audit did not justify a broad Garmin or all-stream Google rebuild. Google sample-HR historical coverage had an identified gap; the Owner subsequently chose **high-frequency Google `heart_rate` OFF by default** in the local Ops runner. Existing history stays intact. The gap is **intentionally not backfilled while disabled**, not relabelled complete or provider-empty. Re-enabling/history catch-up needs an explicit bounded decision.
+#214 historical audit did not justify a broad Garmin or all-stream Google rebuild. Google sample-HR historical coverage had an identified gap; the Owner chose **high-frequency Google `heart_rate` OFF by default** in the local Ops runner. Existing history stays intact. The gap is intentionally not backfilled while disabled.
 
-Other Google streams, wearables sleep, Garmin and Garmin Training remain enabled with the existing reconciliation horizon. The last reported manual selected-stream run succeeded in 35m32.734s and showed latest persisted dates of 2026-09-29 for Garmin, Google, Training and wearables sleep. A previous automatic attempt was interrupted with no final JSON; it does not satisfy scheduled-run acceptance.
+Other Google streams, wearables sleep, Garmin and Garmin Training remain enabled with the existing reconciliation horizon. The last accepted manual selected-stream run succeeded in 35m32.734s; one prior automatic attempt was interrupted and does not satisfy scheduled-run acceptance.
 
-Weight is operational through screenshots. #153/openScale is optional, not a hidden prerequisite for #214/#215 or later UI. #229 correction staging is a candidate, not yet released. #228's accepted research does not itself add duplicate detection to current code.
+Weight is operational through screenshots. #229 now adds explicit reviewable correction/replay semantics to that released path. #153/openScale remains optional, not a hidden prerequisite for #214/#215 or later UI. #228's accepted research does not itself add cross-image semantic dedup.
 
 See [Current Execution History](EXECUTION_HISTORY_CURRENT.md), [Owner Refresh](OWNER_REFRESH.md), [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md) and [Model Journal](MODEL_BENCHMARK.md).
 
@@ -235,7 +235,7 @@ Historical measured outcome:
 - final `checks` proves exact Linux nodeid reconciliation and focused Windows evidence;
 - native Windows DPAPI, PowerShell startup, loopback UI/ingest separation and cleanup are exercised on a hosted Windows runner.
 
-The performance campaign remains stopped absent a new material measured bottleneck. #181 is separately justified reliability work: recent #224 and #227 runs failed in Windows cleanup. Do not waive the failure or combine incompatible run-attempt evidence.
+The performance campaign remains stopped absent a new material measured bottleneck. #181 is now complete: Windows cleanup preserves fail-closed ownership/CreationTime evidence, exact exit-255 transcript handling and full-rerun-only provenance; its post-merge WMI transient was retained as an escape and repaired before final green main.
 
 #126 remains an explicit Owner/repository-settings decision. The repository is currently public; re-evaluate capability before settings changes. Exact-SHA `checks: SUCCESS` remains mandatory regardless of server enforcement.
 
