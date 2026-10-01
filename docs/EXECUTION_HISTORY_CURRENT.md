@@ -4,14 +4,15 @@ Current handoff: **2026-09-29**. Older R00–R05 and post-release history throug
 
 Only sanitized technical evidence belongs here. Private measurements, screenshots, credentials, databases and raw reports remain outside Git.
 
+
 ## Canonical checkpoint
 
-Accepted product main before this docs-only refresh:
-`f6939f531d4384e28fa9bd65fce59b498a0e6032`.
+Current accepted product main:
+`ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`.
 
-Exact-main CI [36634392128](https://github.com/LTstripes/Health-Check/actions/runs/36634392128): SUCCESS, all mandatory lanes including Windows smoke and final checks.
+Exact-main CI [36818997839](https://github.com/LTstripes/Health-Check/actions/runs/36818997839): SUCCESS, all mandatory lanes including Windows smoke and final checks.
 
-This includes #226 / PR #230, #227 / PR #231 and test-only reliability fix #233 / PR #234. #229 remains a task-branch candidate; it is not part of released main. Re-read GitHub main/CI for every later launch. GitHub product integration does not itself deploy to the local Owner checkout/Stable runtime.
+This checkpoint includes #226/#227/#233 plus completed #181 Windows cleanup/CI reliability and #229 reviewable changed-sidecar corrections. GitHub product integration does not itself deploy to the local Owner checkout/Stable runtime.
 
 ## 2026-09-28 — Owner Weight screenshot workflow
 
@@ -94,13 +95,34 @@ Sol / High, Owner-confirmed, completed read-only Phase 1 on `aafc407...`; no imp
 
 [Integrator decision](https://github.com/LTstripes/Health-Check/issues/228#issuecomment-5897048424): no fuzzy auto-dedup, no automatic history repair or migration now. Research accepted; issue remains parked until a trustworthy identity/Owner-decision contract exists.
 
-### #229 — changed-sidecar review workflow — CANDIDATE ONLY
 
-Owner confirms the #229 Worker as DeepSeek V4.1 Flash, Max, provider/client `opencode-go / OpenCode`. The candidate's own compact report did not carry that exact identity; the journal preserves the Owner-confirmed source explicitly.
+### #229 — changed-sidecar review workflow — COMPLETE after remediation
 
-Candidate: `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05`, branch `task/229-owner-screenshot-correction`, actual baseline `f8ed3b5bd11ebec06b3fe583091ec5aa729bb38d`. The older issue note named `18e0142...`; the final Owner launch and delivered branch used `f8ed3b5...`. [Integrator clarified this](https://github.com/LTstripes/Health-Check/issues/229#issuecomment-5898555102); no Worker fault/rebase is inferred.
+Worker: **DeepSeek V4.1 Flash, Max**, Owner-confirmed; provider/client `opencode-go / OpenCode`.
 
-Five-file diff, +794/-81, proposes pending `correction:` evidence sets and existing review/revision reuse without schema changes. Worker reports 104 focused and 292 app-ingest tests PASS plus quality checks. [Exact-head CI](https://github.com/LTstripes/Health-Check/actions/runs/36628220352) and current review status belong to the issue; no implementation ACCEPT/merge is claimed here. Independent semantic review is required before canonical promotion.
+Initial candidate `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` staged changed Owner-assisted sidecars as pending `correction:` evidence on the original artifact/event, reused existing review/revision/supersession semantics, kept reject non-mutating and terminal replay duplicate-safe. Exact-head CI `36628220352` was green.
+
+Two Sol 6.1 High / Codex independent-review attempts were BLOCKED before semantics by review-runtime isolation. Those are infrastructure confounders, not code defects/remediation rounds.
+
+GPT-6 Astra Pro / OpenAI ChatGPT then completed semantic review and found one real blocker: SQLite round-trips `-0.0` as `0.0`, while the new evidence fingerprint distinguished their JSON forms. Fresh-session confirmed/rejected correction replay could therefore return `NEEDS_REVIEW` instead of `DUPLICATE`.
+
+Remediation candidate `f0b77da1924fae2bd6a5f18e9ad4f8c1f7244c11` canonicalized **only storage-equivalent signed zero** for participating Float fingerprint fields (`proposed_value`, `confidence`) on both incoming and persisted evidence. Nonzero values remain unrounded/unquantized. Fresh-session pending/rejected/confirmed regressions passed. Exact-head CI `36672586650` SUCCESS; GPT-6 Astra Pro re-review ACCEPT.
+
+After #181 was completed, fresh PR #235 CI `36818522332` SUCCESS. PR #235 merged to `ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`; exact-main CI `36818997839` SUCCESS. #226 provenance guard, #228 no-cross-image-dedup boundary and schema/history remained unchanged. #229 CLOSED COMPLETE.
+
+### #181 — Windows smoke / partial-rerun reliability — COMPLETE
+
+Worker: **Sol 6.1 High**, Owner-confirmed, OpenAI / Codex. Independent Reviewer: **GPT-6 Astra Pro**, OpenAI / ChatGPT.
+
+The line addressed two distinct contracts:
+- Windows process cleanup: verified root/descendant ownership including CreationTime, one root-scoped taskkill, exact fail-closed exit-255 transcript grammar and independent post-termination checks of every captured identity;
+- GitHub partial reruns: one complete same-attempt quality + three Linux + Windows evidence set is required; no cross-attempt artifact fallback/mixing. Supported recovery is explicit **Re-run all jobs** after diagnosis.
+
+Astra first found fragment-based exit-255 transcript acceptance; Sol remediated it with complete transcript consumption. A later exact-head run exposed post-termination PID reuse semantics; Astra accepted a narrow contract in which the same PID counts as the captured instance being gone only when a successful query proves a different trustworthy CreationTime. Final reviewed Worker candidate `a23edfc73c1510e873449631e370edcc90a7b896` passed exact-head CI `36772671866` and Astra ACCEPT, then merged via PR #236.
+
+Exact-main CI `36776550795` deliberately remained a failure: retained Windows evidence showed WMI briefly returning the same captured PID and same CreationTime with an empty CommandLine immediately after taskkill exit 0, then reporting the PID absent 300 ms later. The producer prematurely treated that transient non-success state as fatal instead of continuing its bounded poll.
+
+Integrator follow-up (GPT-5.6 Sol / OpenAI ChatGPT; Owner-selected very-high effort) `eeafc91af7df3ce3bc689a7bf600a22714be7724` changed only this polling edge: same trustworthy CreationTime with transiently missing Name/CommandLine remains `same-identity-alive` and is polled again; it is never terminal success, and surviving/incomplete final evidence still fails. Exact-head CI `36817301838`, PR #237 CI `36817662855` and exact-main CI `36818078133` all SUCCESS. #181 CLOSED COMPLETE.
 
 ## Model-attribution reconciliation
 
@@ -108,14 +130,14 @@ The Owner explicitly asked that his report of the model actually used be trusted
 
 Use Sol, Astra or DeepSeek exactly as established, with effort separate. The earlier Integrator expansion to GPT-5.6 Sol was unsupported and is corrected to Sol / High, Owner-confirmed. Recommendations are not execution evidence. #227's first-pass blocker and remediation remain one Worker case; independent reviews/research are not counted as extra implementation successes.
 
+
 ## Documentation reconciliation and next work
 
-The stale docs-only PR #224 carried useful screenshot/handoff facts but still described #203 as next work and had red CI. This refresh incorporates its relevant content plus later accepted work from current main instead of merging the obsolete handoff. Close/supersede #224 only after this replacement is safely published; preserve its failure/history evidence.
+The stale docs-only PR #224 carried useful screenshot/handoff facts but became obsolete as #203/#226/#227/#233/#181/#229 advanced. This reconciliation incorporates the useful handoff content plus the final accepted reliability/correction state. #224 can be closed as superseded only after this replacement is safely published.
 
-Next proposed order: #229 independent review/integration; #214 untouched scheduled proof and #215 real note; #181 separate CI reliability repair; #148 protection/recovery design and delivery. #181 can proceed independently with explicit file ownership; no new worker launch is implicit in this documentation update.
+Next order: #214 untouched scheduled proof -> #215 real private Context note -> #148 protected off-site recovery. #228/#153 are parked/optional; #172/#189, #167, #126 and #105 retain their defer/block/eligibility states; #210 remains the ongoing model journal.
 
-The [roadmap](ROADMAP.md#current-backlog--2026-09-29) lists all 13 open issues. #228/#153 are conditional/optional; #172/#189, #167, #126 and #105 retain their specific defer/block/eligibility states; #210 is an ongoing journal. No UI/AI/Recovery Score, privacy rewrite or speculative backfill starts here.
-
+The [roadmap](ROADMAP.md#current-backlog--2026-10-01) lists all **11 open issues**. No UI/AI/Recovery Score, privacy rewrite or speculative backfill starts from this documentation closeout.
 
 ## 2026-09-30 — #233 privacy-oracle reliability fix
 
@@ -130,3 +152,16 @@ PR #234 merged to `f6939f531d4384e28fa9bd65fce59b498a0e6032`; exact-head/PR/main
 #229 Worker attribution is Owner-confirmed **DeepSeek V4.1 Flash, Max**, `opencode-go / OpenCode`; candidate remains `532a069c2b1253b4a3ce88c56f8d3b843f6b2f05` with exact-head CI `36628220352` SUCCESS.
 
 The first independent reviewer attempt used **Sol 6.1 High**, OpenAI / Codex. It stopped during preflight with `review runtime inventory is not isolated` and did not execute the requested semantic checks. Record this as **BLOCKED / INCONCLUSIVE**, not a semantic `FIXES REQUIRED`, not an ACCEPT, and not a code remediation round. The candidate remains frozen; repeat the same review in an isolated read-only runtime.
+
+
+## 2026-10-01 — reliability/correction slice closeout
+
+Canonical main advanced through final #181 follow-up and #229 integration to `ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`. Exact-main CI `36818997839` is SUCCESS with Windows smoke and final `checks`.
+
+The practical product result is larger than the individual defects:
+- CI cleanup is explicit about what process identity it owns and what evidence can prove termination/reuse;
+- partial reruns cannot manufacture a green aggregate by silently borrowing earlier-attempt artifacts;
+- screenshot corrections are reviewable rather than refused-and-lost, while confirmed history remains append-only/revisioned;
+- evidence identity survives SQLite signed-zero normalization without rounding materially different values.
+
+The next product value is operational evidence accumulation rather than more reliability/UI churn: #214, #215, then #148.
