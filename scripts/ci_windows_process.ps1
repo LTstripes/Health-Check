@@ -205,11 +205,20 @@ function Get-PostTerminationProcessObservation {
     } elseif (-not $observed.Exists) {
         $classification = "absent"
     } elseif (-not (Test-PostTerminationCreationTime $CapturedIdentity.CreationTime) -or
-        -not (Test-PostTerminationCreationTime $observed.CreationTime) -or
-        [string]::IsNullOrWhiteSpace($observed.Name) -or [string]::IsNullOrWhiteSpace($observed.CommandLine)) {
+        -not (Test-PostTerminationCreationTime $observed.CreationTime)) {
         $error = "post-termination identity incomplete for PID $($CapturedIdentity.Id)"
     } elseif ($observed.CreationTime -cne $CapturedIdentity.CreationTime) {
-        $classification = "reused"
+        if ([string]::IsNullOrWhiteSpace($observed.Name) -or [string]::IsNullOrWhiteSpace($observed.CommandLine)) {
+            $error = "post-termination reused identity incomplete for PID $($CapturedIdentity.Id)"
+        } else {
+            $classification = "reused"
+        }
+    } elseif ([string]::IsNullOrWhiteSpace($observed.Name) -or [string]::IsNullOrWhiteSpace($observed.CommandLine)) {
+        # Same trustworthy CreationTime proves the captured instance is still present.
+        # WMI may transiently omit other fields while termination is completing, so
+        # keep bounded polling instead of turning a non-success state into an early
+        # terminal identity error. Final/surviving incomplete evidence still fails.
+        $classification = "same-identity-alive"
     } elseif ($observed.Name -ceq $CapturedIdentity.Name -and $observed.CommandLine -ceq $CapturedIdentity.CommandLine) {
         $classification = "same-identity-alive"
     } else {

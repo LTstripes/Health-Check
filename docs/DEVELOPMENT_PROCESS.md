@@ -317,9 +317,14 @@ exact English transcript grammar and complete line consumption remain mandatory.
 Post-termination observations classify each captured root/child independently
 as absent, same-identity-alive, reused, or unknown. Reuse evidence retains the
 captured and observed UTC DateTime ticks plus observed PID/name/command line
-and query result. A generic identity-change list is never reuse proof. Same
-CreationTime with changed name/command line, incomplete/malformed identities,
-unknown queries and surviving captured children fail. Root reuse does not
+and query result. A generic identity-change list is never reuse proof. Same CreationTime with
+changed non-empty name/command line remains an identity failure. During bounded
+post-termination polling, a successful query with the same trustworthy
+CreationTime but transiently missing Name/CommandLine is still the captured
+instance and therefore remains a non-success `same-identity-alive` state to poll
+again; if that state survives to the deadline/final evidence it fails. Invalid
+or missing CreationTime, unknown queries and surviving captured children fail.
+Root reuse does not
 stop checks of captured children or authorize traversal from the reused PID.
 These observations do not provide process-handle/object-bound guarantees.
 Unrecognized/localized diagnostics and other exit codes fail. Both ports must
