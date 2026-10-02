@@ -4,6 +4,14 @@ Protocol: `model-evidence-v2`, compact intake from 2026-09-28; latest reconcilia
 
 Coordination: [#210](https://github.com/LTstripes/Health-Check/issues/210). Finance's paired journal is separate; this update does not change Finance or count its outcomes as Health successes. See [Current History](EXECUTION_HISTORY_CURRENT.md) and the byte-preserved [preceding journal](MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) for the prior exact record.
 
+## 2026-10-03 — process maintenance, not a benchmark score
+
+| Case / role | Model | Provider/client | Evidence / outcome boundary |
+| --- | --- | --- | --- |
+| [#245](https://github.com/LTstripes/Health-Check/issues/245), Integrator documentation/process author | GPT-6 Astra Pro | OpenAI / ChatGPT | Session-reported identity, not independent provider attestation. Owner-approved design; exact diff/checks/CI/merge disposition in the issue. No external Worker or separate independent candidate review claimed; not a scored model implementation case. |
+
+Historical cases below retain their dated evidence and unknown labels; their task statuses are not a fresh reconciliation. New entries are concise links, not copies of the issue/PR report.
+
 ## Evidence and maintenance
 
 The issue contract, exact diff, CI, independent review and Integrator disposition are authoritative. Preserve first-pass findings, useful failed attempts and escaped defects after later successes. Follow-up commits are attempts of one case, not separate wins. Worker, Reviewer, research and Owner operations are distinct roles.
@@ -22,7 +30,7 @@ Workers do not edit shared journals or grade themselves. Unknown timing/cost/tok
 
 ## Common case format
 
-A case is repository/issue/role/baseline/initial-candidate/execution route. Record exact candidate and integration references, first-pass verdict, substantive remediation rounds, actual checks, escaped findings, independent-review status and remaining Owner gates. Keep recommendations and actual execution separate.
+A journal case records issue/PR link, role, actual model/provider, outcome and material limitations. Exact candidates, commands, remediation/review/integration evidence and Owner gates remain in the linked issue/PR; do not repeat the complete report here. Keep recommendations and actual execution separate.
 
 A successful rerun proves that attempt passed, not the cause of the prior failure. Formatting-only changes and duplicate comments are not remediation rounds. Integrator process errors and blocked runtime preflights are not semantic model findings.
 
@@ -96,21 +104,17 @@ Provide one Codex option and one external/OpenCode option, with a task-specific 
 
 ## Shared laptop budget
 
-One primary Worker; at most two independent writers in separately assigned workspaces when resources permit. Only one heavyweight local verification across projects/clients at a time. No blanket timeout inflation, excluded failures, weaker assertions or killing sibling/Owner processes.
+Use [Development Process — verification by change](DEVELOPMENT_PROCESS.md#verification-by-change) for shared-machine resource and failure-handling limits. This journal does not define a second execution policy.
 
 ## Compact case template
 
 ```text
-case_id / role / profile / complexity / risk:
-issue / PR / contract link / baseline:
+issue / PR link and role:
 model:
 provider/client:
-identity source and raw unknown/Owner-confirmed context:
-first SHA -> attempts -> accepted SHA:
-first-pass verdict / substantive fix rounds / confirmed blockers:
-scope / actual checks / independent review:
-integration / Owner UAT / limitations:
-measured time/cost (or unknown) / confounders:
+outcome / material corrections / limitations:
 ```
+
+Identity provenance/conflicts, delegates and measured timing/cost are optional surrounding context when useful and known; this journal template is not an expanded Worker handoff requirement.
 
 Only sanitized technical metadata and source links belong here. Never publish private measurements, screenshots, credentials, raw provider reports or unfiltered transcripts.

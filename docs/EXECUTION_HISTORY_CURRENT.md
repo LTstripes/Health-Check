@@ -1,6 +1,12 @@
 # Current Execution History
 
-Current handoff: **2026-10-01, after automatic-run acceptance**. This is current operational guidance, not an instruction to repeat completed gates.
+## 2026-10-03 — Owner-approved process simplification (#245)
+
+[Issue #245](https://github.com/LTstripes/Health-Check/issues/245) owns the exact candidate, documentation checks, CI and integration disposition. Baseline: `e63287536c8e8568f0cb4ffd689009710311574f`. Integrator-authored maintenance: shorter AGENTS/process/adapters/template, conditional coordination/early checkpoints and reuse of valid evidence across roles. Architecture, private-data boundaries, product code and CI contracts are unchanged; existing task-specific assignments/gates are not waived.
+
+The linked issue records delivery status; this entry does not predeclare merge, independent candidate review or local deployment. The operational snapshot below is historical as of 2026-10-01, not a newly reconciled task queue. Use live issues for subsequent work, including #238.
+
+Operational snapshot: **2026-10-01, after automatic-run acceptance**. Preserve this dated evidence; it is not an instruction to repeat completed gates or a current issue-status inventory.
 
 Earlier detailed history is preserved in:
 - [History through 2026-09-27](EXECUTION_HISTORY_THROUGH_2026-09-27.md).

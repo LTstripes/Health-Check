@@ -1,180 +1,73 @@
 # Model Routing — Health-Check
 
-This file defines task complexity, routing and escalation. Exact provider/model availability changes over time; the Integrator chooses a concrete execution route per task.
-
-Use the [Owner task proposal](#owner-task-proposal) format below. Model/effort recommendations are resolved from current availability per launch; repository policy specifies the capability and review bar.
-
-Execution-mode semantics are defined in [`AGENT_ORCHESTRATION.md`](AGENT_ORCHESTRATION.md).
+Integrator guidance for task proposals, capability selection and risk-based review. An already-assigned Worker needs its issue/contract, not this whole document. Roles are defined in [AGENTS.md](../AGENTS.md#roles); ordinary delivery/checks in [Development Process](DEVELOPMENT_PROCESS.md).
 
 ## Effort and coordination choice
 
-Choose execution mode separately from model strength. One Worker can handle a complex bounded task with required independent review; an orchestrator is justified by explicit queue/review/remediation coordination needs, not by the client name. Record the [launch compatibility assessment](AGENT_ORCHESTRATION.md#launch-compatibility-assessment) before selecting parallel work.
+Choose a model that comfortably handles the bounded contract and the lowest suitable reasoning setting. Higher effort is useful for unresolved architecture, provenance, replay/state transitions or statistics, not automatically for every task. Resolve missing requirements, ownership and runtime readiness before upgrading the model.
 
-Use the lowest reasoning setting that comfortably handles the bounded contract. Reserve a higher setting for identified unresolved architecture, provenance, replay/state-transition or statistical reasoning; explain that reason in routing. Do not raise every Worker and Reviewer to the maximum because a previous run was slow or blocked. First resolve missing requirements, ownership and runtime readiness. An early strong contract review can be more useful than upgrading a long implementation pass with an incomplete packet.
-
-Concrete model IDs and effort assignments belong to the launch/local configuration. Routine completion evidence records only `model` and `provider/client`. Runtime evidence or an explicit Owner confirmation of the model actually used can establish the label; a suggested assignment cannot. Preserve client `unknown` as raw evidence, record Owner-confirmed attribution separately, and never invent a version from an alias. Reassess after a specific failure, not from wall time alone.
+One Worker is the default regardless of client. Coordination is separate from model strength: use [orchestration](AGENT_ORCHESTRATION.md) only for an explicitly authorized queue or a concrete delegation/review/remediation benefit. Dependency or parallel work follows [Parallel work](DEVELOPMENT_PROCESS.md#parallel-work); an isolated task requires no compatibility form.
 
 ## Roles
 
-Role ownership and the prohibition on self-acceptance are defined in [`AGENTS.md`](../AGENTS.md#roles). This document owns capability, risk/review and escalation decisions; it does not redefine the roles.
+Use [project role ownership](../AGENTS.md#roles). This document owns capability/review decisions, not a second set of acceptance permissions.
 
 ## Complexity classes
 
-### C0 — Trivial / Mechanical
+Implementation effort and risk are separate. A small privacy/migration change can still be high risk.
 
-Examples:
-
-- typo/docs/link corrections;
-- bounded formatting;
-- mechanical fixture/update with exact contract;
-- small test-only change with no semantic ambiguity.
-
-Typical routing: any reliable weak/fast model.
-
-Review: Integrator review is normally enough. Independent review is optional unless explicitly requested or justified risk appears.
-
-### C1 — Routine
-
-Examples:
-
-- small isolated UI behavior;
-- simple CRUD under an established schema;
-- bounded parser mapping with fixtures;
-- straightforward tests/documentation around existing behavior.
-
-Typical routing: a reliable fast coding model.
-
-Review: Integrator; independent review only if the diff becomes materially cross-cutting, is explicitly requested, or execution reveals justified risk.
-
-### C2 — Normal
-
-Examples:
-
-- multi-file feature under stable architecture;
-- new dashboard section;
-- provider-normalization work with an established contract;
-- non-destructive backend/API behavior;
-- moderate analytics implementation with known formulas/tests.
-
-Typical routing: a capable coding Worker for a bounded multi-file contract. Orchestration is a separate explicit opt-in decision, not a model tier.
-
-Review: Integrator plus targeted independent review when behavior spans several layers or risk warrants it.
-
-### C3 — Hard / High risk
-
-Examples:
-
-- new ingestion pipeline;
-- SQLite schema/migrations with existing data;
-- idempotency/reprocessing;
-- network/security boundary;
-- OAuth/provider auth;
-- canonical-selection mechanics;
-- complex cross-source analytics;
-- significant refactor touching several architecture layers.
-
-Typical routing: a strong coding model / strong orchestrated route with high reasoning.
-
-Review: strong Integrator review; independent Reviewer normally required. Live/private probes remain Owner-controlled.
-
-### C4 — Critical / Architecture
-
-Examples:
-
-- changing architecture invariants;
-- reinterpretation/migration of stored health history;
-- destructive operations;
-- privacy/security architecture;
-- cross-release canonical data-model redesign;
-- ambiguous external API/licensing decision that affects long-term implementation.
-
-Typical routing: strongest appropriate available reasoning model(s), with explicit architecture decision before implementation or merge when needed.
-
-Review: mandatory independent review plus explicit Integrator decision/ADR before implementation or merge.
+| Class | Typical scope / capability | Review |
+| --- | --- | --- |
+| <a id="c0--trivial--mechanical"></a>C0 — Trivial / Mechanical | Typo, link, formatting or unambiguous small fixture/test change; reliable fast model | Integrator; separate review optional unless requested/risk appears |
+| <a id="c1--routine"></a>C1 — Routine | Isolated UI, established CRUD/parser mapping, bounded docs/tests; reliable coding model | Integrator; separate review for material cross-cutting risk or explicit request |
+| <a id="c2--normal"></a>C2 — Normal | Multi-file feature under stable architecture, non-destructive API or established analytics; capable coding model | Integrator plus targeted independent review when multiple layers/risk warrant it |
+| <a id="c3--hard--high-risk"></a>C3 — Hard / High risk | Ingestion, migrations, replay/idempotency, auth/network, canonical selection, cross-source analytics; strong coding/reasoning | Strong Integrator review; independent Reviewer normally required; live gates Owner-controlled |
+| <a id="c4--critical--architecture"></a>C4 — Critical / Architecture | Destructive/history reinterpretation, privacy/security architecture or canonical-model redesign; strongest appropriate reasoning | Mandatory independent review plus explicit Integrator decision/ADR before implementation or merge as applicable |
 
 ## Routing principles
 
-1. Use the cheapest/fastest model that comfortably fits the task; do not burn premium reasoning on mechanical work.
-2. Escalate when scope/risk grows during implementation.
-3. High reasoning is not a substitute for tests or source evidence.
-4. A completion report is context, not proof; Integrator inspects actual Git state/evidence.
-5. For provider/API/device facts, current source/official documentation beats model memory.
-6. For health analytics, complex statistics are not automatically better. Prefer explainable methods that fit sample size/coverage.
-7. A strong Execution Orchestrator may use a cheaper scoped Worker; role separation matters more than permanent model names.
-8. `INTERNAL_ACCEPT` from local orchestration is execution evidence only, not project `ACCEPT`.
+Use evidence and current availability, not permanent model names. High reasoning is not a substitute for tests; stronger models do not turn self-review into independent review. For provider/device/API facts use pinned contracts/current official sources; for analytics prefer explainable methods appropriate to coverage/sample size. Do not rerun completed tasks merely to generate model scores.
 
 ## Independent review triggers
 
-Use a separate Reviewer when any of these applies:
+A separate Reviewer is required by the risk class above, explicit Owner/Integrator request, or justified execution risk. Required independent review can run alongside CI on the same frozen candidate unless the issue says otherwise. The Reviewer inspects existing exact-candidate evidence and runs focused checks for identified gaps; a second full suite is not required solely because a different role is reviewing.
 
-1. this complexity/risk policy requires one;
-2. Owner/Integrator explicitly requests one;
-3. justified execution risk appears that raises the review bar under project policy.
-
-The third case does not authorize requirement invention or scope expansion. If the risk implies architecture, privacy, canonical data or health-semantics changes, STOP and ask the Integrator.
+Risk escalation does not authorize new requirements or scope expansion. If it changes architecture, privacy, canonical data or health semantics, return to the Integrator for a bounded decision. Existing explicit task gates stay in force unless the Integrator explicitly revises that assignment.
 
 ## Capability-based selection
 
-Select reliable fast execution for mechanical/bounded work, strong coding and reasoning for cross-layer contracts, and stronger reasoning for unresolved architecture or difficult review. A newer model does not remove project checks or independent review. Concrete provider/model IDs and effort belong to current local configuration or the task launch, not a permanent repository roster. Apply shared scope/evidence rules across models; evaluate model-specific prompting advice on the actual workload rather than assuming identical behavior.
+Choose fast execution for mechanical work, strong coding for established cross-layer contracts and strong reasoning for unresolved decisions. Concrete model IDs/effort belong in the launch/local configuration. Trial/anonymous routes start on bounded noncritical synthetic tasks; historical grades never waive required semantic/privacy review.
 
 ## Manual and orchestrated clients
 
-Manual Grok, Hermes, manual Codex and other clients may act as Workers under the same project roles.
-
-Codex `$delivery-loop` is an explicit orchestration route: root acts as Execution Orchestrator, implementation is delegated locally, and final project acceptance remains with the Integrator.
+Codex, Grok, Hermes and other clients may all be ordinary Workers. A client name or a request for a task series does not activate a queue. Execution-mode rules live only in [Agent orchestration](AGENT_ORCHESTRATION.md).
 
 ## Hermes delegation/fallback
 
-If Hermes delegates or automatically falls back:
-
-- the supervising Worker remains responsible for issue scope and final branch;
-- helpers are Delegates unless explicitly assigned another role;
-- simultaneous writers require isolated branches/workspaces;
-- completion report lists the actual model/delegate/fallback chain;
-- fallback does not invalidate the result, but attribution must be preserved.
+The accountable Worker reports material actual delegate/fallback chains; a fallback is not automatically failure. Client-specific coordination belongs in [the Hermes adapter](agents/hermes.md).
 
 ## Independent benchmark mode
 
-Only when explicitly requested:
-
-- identical pinned baseline and issue contract;
-- separate branches/workspaces;
-- candidates do not read/copy one another before completion;
-- compare actual code/tests/evidence;
-- record timing/cost when known and useful;
-- Integrator chooses or synthesizes the accepted result.
+Only by explicit request: identical pinned contract/base, isolated candidates that do not read/copy each other, comparison of actual diff/checks, and Integrator disposition. Timings/costs are optional measured evidence, not mandatory handoff fields.
 
 ## Escalation triggers
 
-Stop and ask the Integrator instead of guessing when:
-
-- issue/spec/architecture conflict;
-- a migration may reinterpret or lose existing data;
-- source/device/algorithm identity is ambiguous in a way that affects history;
-- real Owner health data or credentials would be needed in a Worker workspace;
-- security/network exposure changes;
-- provider behavior differs from pinned/official contract;
-- unexpected failures outside task scope suggest a moving integration contract;
-- implementation would add an out-of-scope dependency/service or begin a later roadmap release;
-- a bounded task now requires architecture/health-semantics expansion.
+Return to the Integrator for conflicting authority; possible history loss/reinterpretation; identity ambiguity affecting history; access to real Owner data/credentials; changed security exposure/provider contracts; out-of-scope services/dependencies; or newly required architecture/health semantics. Ordinary reversible implementation choices within a resolved contract need no repeated approval.
 
 ## Owner task proposal
 
-Use this format when proposing a task to the Owner, in plain Russian:
+In plain Russian: task title; intended change/value; implementation complexity and separate risk; a concrete Codex option (model/supported effort) and external/OpenCode option (model/provider/client); preference and necessary review/Owner action. Choose one execution route. Do not invent an unavailable alternative.
 
-1. **Название.**
-2. **Что изменится и зачем:** one or two concrete sentences.
-3. **Сложность:** небольшая / средняя / сложная, with a short reason. Complexity describes implementation effort; state **Риск** separately using this project's risk/review policy.
-4. **Исполнитель:** offer a concrete **Codex option** (model and supported effort) and an **external option** (model and provider/client), with one sentence on preference/confidence. Select one route at launch. An alternative may be unavailable or not recommended for this risk; do not invent one. Record the model actually used from runtime evidence or explicit Owner confirmation, not the proposed assignment.
-5. **Независимое ревью / действия владельца:** only the required review or private/manual gate, with its reason.
-6. One copyable start prompt, normally 5–8 lines and about 100 words or less: repo/issue and applicable note, Worker role, target and exact baseline, assigned branch/workspace, intended result and authorized delivery. Requirements and acceptance criteria remain in the authoritative issue/contract.
+Add one short copyable locator prompt, normally 5–8 lines: repo/issue/applicable note, role, target/exact baseline, assigned branch/workspace, outcome and authorized delivery. The issue is the specification; do not duplicate it in the prompt. Resolve missing safety-critical assignments first. Add queue/parallel fields only when that mode is actually authorized.
 
-Do not invent an available model, baseline, workspace or permission to make the card look complete. Resolve a missing safety-critical assignment or contract in the authoritative task before launch. A short prompt does not waive any required gate. An explicitly orchestrated launch additionally follows `AGENT_ORCHESTRATION.md`; this format does not activate it.
+## Model evidence
+
+Routine intake has exactly `model` and `provider/client`, using the [completion block](../AGENTS.md#completion-reporting). Runtime-reported identity or an explicit Owner confirmation of actual use establishes a label. A recommendation, subscription or alias mapping does not.
+
+Keep the label exactly as established; do not expand Sol/Astra/Luna into an unreported version. Preserve the original client unknown; record Owner-confirmed identity, material delegate/fallback use and conflicts in surrounding issue/journal context, outside the two fields. Effort is not a model version. No routine token/cost/timing/effort form is required; record measurements only when useful and actually known.
 
 ## Evidence-backed routing
 
-Use the dated [model evidence journal](MODEL_BENCHMARK.md) and [#210](https://github.com/LTstripes/Health-Check/issues/210), paired with Finance #605. Record real task outcomes without rerunning tasks merely to accumulate scores. Routine logging is not activation of blind A/B or an agent queue.
+Use the dated [model journal](MODEL_BENCHMARK.md) and [#210](https://github.com/LTstripes/Health-Check/issues/210). Integrator records concise linked task/role/model/provider/outcome/limitations; detailed candidate, checks and remediation evidence stay in the issue/PR. Keep Worker, Reviewer, research and Integrator maintenance distinct; no self-grading by Workers.
 
-The Integrator records role/profile, complexity/risk, `model`, `provider/client`, baseline/candidate/verdict, substantive correction rounds and source evidence. Owner-confirmed labels are valid even when the client returned `unknown`; preserve both sources and any unreported finer details. Do not silently map a label to an exact version. Cost/timing is not part of routine Model evidence and is recorded only when explicitly measured and useful. Infrastructure contention and assignment/review mistakes are separate from model defects. A slice merge is not aggregate acceptance or Owner UAT.
-
-Prefer the least expensive suitable execution route with sufficient evidence, not the cheapest name regardless of risk. Trial/anonymous routes start on bounded noncritical tasks. No historical grade or model switch waives independent semantic/privacy review. One primary Worker and one heavyweight local verification process at a time across both projects is the current resource-aware default; separate physical workspaces remain mandatory and CI gates are unchanged.
+Useful failures remain visible after success. Infrastructure contention, blocked preflights and assignment errors are not automatically model defects. A slice merge is not aggregate acceptance or Owner UAT. Shared-machine limits belong to [verification policy](DEVELOPMENT_PROCESS.md#verification-by-change), not a model ranking.

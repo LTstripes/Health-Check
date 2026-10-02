@@ -1,51 +1,17 @@
 # Hermes — Worker / Delegation Adapter
 
-Universal rules in `/AGENTS.md` are authoritative.
+Use [AGENTS.md](../../AGENTS.md). The receiving Hermes Worker remains accountable for the final candidate when it delegates or changes model.
 
-## Assigned root
+## Delegation mechanics
 
-Use only the physical task workspace explicitly assigned in the launch/Owner-local configuration under the location-role protections in `docs/DEVELOPMENT_PROCESS.md`. Owner canonical, Stable/private-runtime and preview/UAT locations, another client's root and other active task workspaces are excluded. Missing or conflicting assignments must be resolved before writes.
+Helpers are Delegates unless explicitly assigned another role. Read-only helpers may share context; concurrent writers need explicitly assigned isolated sub-workspaces/branches, otherwise run sequentially. The Worker assembles the bounded result before handoff; helpers do not create an implicit second candidate or start another roadmap task.
 
-## Accountable Hermes Worker
+A helper that contributes implementation is not the independent Reviewer of that work. Apply the issue's review requirement independently of the delegation mechanism.
 
-The Hermes session that receives the issue is the accountable **Worker** for the final candidate even when it delegates to bots/subagents or falls back to another model.
+## Fallback evidence
 
-It must:
+Report material actual delegate/fallback use in surrounding completion context, preserving unknown identity when necessary. A fallback is not automatically a failure. Use the shared two-field [Model evidence](../../AGENTS.md#completion-reporting), not a mandatory expanded telemetry form.
 
-- read `AGENTS.md`, the issue and the active release spec when one is explicitly designated;
-- verify assigned baseline/branch/workspace;
-- never infer the next-release baseline from a completed prior integration line or old stacked branch;
-- keep all helpers inside issue scope;
-- ensure only the assigned candidate branch is delivered unless the issue explicitly defines benchmark branches;
-- report the actual Delegate/fallback chain;
-- never self-accept.
+## Client distinction
 
-## Delegation rules
-
-Hermes bots/subagents are **Delegates** by default unless the task launch explicitly assigns another role.
-
-- Read-only Delegates may share task context.
-- Two simultaneous writers must not share one working tree. Give each writer an explicitly assigned sub-workspace/branch or run them sequentially.
-- Delegates do not merge or self-accept.
-- A Delegate may propose an alternative, but the Worker selects/assembles the final task candidate before returning it to the Integrator.
-- Do not let a Delegate create unrelated sibling repos/workspaces or continue into the next task.
-
-## Model fallback attribution
-
-If a run changes model because of limits/errors, report it explicitly, for example:
-
-`Step 3.7 Flash -> DeepSeek V4 Flash fallback`
-
-A fallback is not automatically a failure. The point is reproducibility and later benchmark/retrospective value.
-
-## Relationship to Codex orchestration
-
-Codex `$delivery-loop` is a Codex-local execution mechanism. Hermes remains a first-class manual Worker route and does not need to use that skill.
-
-The same project review bar still applies: high-risk work may require a separate Reviewer, and final project acceptance remains with the Integrator.
-
-## Finish
-
-Commit/push only the assigned task branch and return the `AGENTS.md` Worker completion report with exact SHA/checks/deviation history and all material Delegates/fallbacks.
-
-Do not edit `docs/EXECUTION_HISTORY.md`; the Integrator writes the neutral reviewed record.
+Hermes does not need the Codex-local `$delivery-loop` skill. Only explicit coordination/queue authorization loads [Agent orchestration](../AGENT_ORCHESTRATION.md). Ordinary Hermes execution follows [Development Process](../DEVELOPMENT_PROCESS.md).
