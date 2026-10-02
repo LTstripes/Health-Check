@@ -21,6 +21,7 @@ from healthcheck.collection_policy import (
     COLLECTION_POLICY_CONTRACT_VERSION,
     COLLECTION_POLICY_FILENAME,
     COLLECTION_POLICY_PROVENANCE,
+    MAX_POLICY_NESTING_DEPTH,
     CollectionPolicyBusyError,
     CollectionPolicyResolution,
     CollectionPolicyRuntimeError,
@@ -469,6 +470,33 @@ def test_deeply_nested_object_policy_is_typed_invalid(tmp_path: Path) -> None:
     resolution = resolve_collection_policy(path)
     assert resolution.status is CollectionPolicyStatus.INVALID
     assert resolution.problem_code == "excessive_nesting"
+
+
+def test_policy_nesting_boundary_is_deterministic(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed.json"
+    allowed.write_text(
+        "[" * MAX_POLICY_NESTING_DEPTH + "]" * MAX_POLICY_NESTING_DEPTH, encoding="utf-8"
+    )
+    resolution = resolve_collection_policy(allowed)
+    assert resolution.status is CollectionPolicyStatus.INVALID
+    assert resolution.problem_code == "invalid_shape"
+
+    over = tmp_path / "over.json"
+    over.write_text(
+        "[" * (MAX_POLICY_NESTING_DEPTH + 1) + "]" * (MAX_POLICY_NESTING_DEPTH + 1),
+        encoding="utf-8",
+    )
+    resolution = resolve_collection_policy(over)
+    assert resolution.status is CollectionPolicyStatus.INVALID
+    assert resolution.problem_code == "excessive_nesting"
+
+
+def test_nesting_scan_ignores_brackets_inside_strings() -> None:
+    import healthcheck.collection_policy as collection_policy
+
+    raw = b'{"k": "' + b"[{" * 64 + b'"}'
+    assert collection_policy._nesting_exceeds_limit(raw, 4) is False
+    assert collection_policy._nesting_exceeds_limit(b'{"k": [' * 5, 4) is True
 
 
 def test_update_requires_established_runtime(tmp_path: Path) -> None:

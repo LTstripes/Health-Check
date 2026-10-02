@@ -34,6 +34,7 @@ COLLECTION_POLICY_CONTRACT_VERSION = "healthcheck-collection-policy-v1"
 COLLECTION_POLICY_PROVENANCE = "owner-explicit"
 ALLOWED_DISABLED_SCOPES = frozenset({"google:heart_rate"})
 MAX_POLICY_BYTES = 64 * 1024
+MAX_POLICY_NESTING_DEPTH = 32
 ALLOWED_POLICY_PROBLEM_CODES = frozenset(
     {
         "excessive_nesting",
@@ -168,6 +169,10 @@ def resolve_collection_policy(path: Path) -> CollectionPolicyResolution:
         return CollectionPolicyResolution(
             status=CollectionPolicyStatus.INVALID, problem_code="oversize"
         )
+    if _nesting_exceeds_limit(raw, MAX_POLICY_NESTING_DEPTH):
+        return CollectionPolicyResolution(
+            status=CollectionPolicyStatus.INVALID, problem_code="excessive_nesting"
+        )
     try:
         payload = json.loads(
             raw.decode("utf-8"),
@@ -183,6 +188,38 @@ def resolve_collection_policy(path: Path) -> CollectionPolicyResolution:
             status=CollectionPolicyStatus.INVALID, problem_code="invalid_json"
         )
     return _validated_resolution(payload)
+
+
+def _nesting_exceeds_limit(raw: bytes, limit: int) -> bool:
+    """Return True when raw text nests objects/arrays deeper than *limit*.
+
+    Byte scanning keeps the bound deterministic across platforms and parser
+    implementations; JSON string contents and escapes are skipped.
+    """
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in raw:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in (0x5B, 0x7B):
+            depth += 1
+            if depth > limit:
+                return True
+        elif byte in (0x5D, 0x7D):
+            depth -= 1
+            if depth < 0:
+                return False
+    return False
 
 
 def _read_checked_policy_bytes(path: Path) -> bytes:
@@ -501,6 +538,7 @@ __all__ = [
     "COLLECTION_POLICY_CONTRACT_VERSION",
     "COLLECTION_POLICY_FILENAME",
     "COLLECTION_POLICY_PROVENANCE",
+    "MAX_POLICY_NESTING_DEPTH",
     "CollectionPolicyBusyError",
     "CollectionPolicyError",
     "CollectionPolicyResolution",
