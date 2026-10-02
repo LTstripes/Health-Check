@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -33,6 +34,26 @@ COLLECTION_POLICY_CONTRACT_VERSION = "healthcheck-collection-policy-v1"
 COLLECTION_POLICY_PROVENANCE = "owner-explicit"
 ALLOWED_DISABLED_SCOPES = frozenset({"google:heart_rate"})
 MAX_POLICY_BYTES = 64 * 1024
+ALLOWED_POLICY_PROBLEM_CODES = frozenset(
+    {
+        "excessive_nesting",
+        "identity_changed",
+        "invalid_contract_version",
+        "invalid_disabled_streams",
+        "invalid_json",
+        "invalid_provenance",
+        "invalid_revision",
+        "invalid_shape",
+        "invalid_updated_at",
+        "oversize",
+        "read_error",
+        "unsafe_multiple_links",
+        "unsafe_not_regular_file",
+        "unsafe_reparse_point",
+        "unsafe_symlink",
+    }
+)
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _SEMANTIC_KEYS = frozenset(
     {
@@ -104,6 +125,14 @@ class CollectionPolicyUpdateError(CollectionPolicyError):
     """A supported policy update could not be completed."""
 
 
+class _UnsafePolicyEntryError(Exception):
+    """The policy path entry has an identity the contract refuses to read."""
+
+    def __init__(self, problem_code: str) -> None:
+        super().__init__(problem_code)
+        self.problem_code = problem_code
+
+
 def collection_policy_path(paths: RuntimePaths) -> Path:
     return paths.root / COLLECTION_POLICY_FILENAME
 
@@ -115,12 +144,22 @@ def resolve_profile_collection_policy(settings: Settings) -> CollectionPolicyRes
 
 
 def resolve_collection_policy(path: Path) -> CollectionPolicyResolution:
-    """Read one policy document without any filesystem side effects."""
+    """Read one policy document without any filesystem side effects.
+
+    ``ABSENT`` is returned only when the path entry truly does not exist. Any
+    symlink, reparse point, non-regular entry, multi-link file or identity swap
+    fails closed as an allowlisted ``UNREADABLE`` state instead of being followed
+    or silently treated as missing/valid.
+    """
 
     try:
-        if not path.exists():
-            return CollectionPolicyResolution(status=CollectionPolicyStatus.ABSENT)
-        raw = path.read_bytes()
+        raw = _read_checked_policy_bytes(path)
+    except FileNotFoundError:
+        return CollectionPolicyResolution(status=CollectionPolicyStatus.ABSENT)
+    except _UnsafePolicyEntryError as exc:
+        return CollectionPolicyResolution(
+            status=CollectionPolicyStatus.UNREADABLE, problem_code=exc.problem_code
+        )
     except OSError:
         return CollectionPolicyResolution(
             status=CollectionPolicyStatus.UNREADABLE, problem_code="read_error"
@@ -135,11 +174,62 @@ def resolve_collection_policy(path: Path) -> CollectionPolicyResolution:
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_json_constant,
         )
+    except RecursionError:
+        return CollectionPolicyResolution(
+            status=CollectionPolicyStatus.INVALID, problem_code="excessive_nesting"
+        )
     except ValueError:
         return CollectionPolicyResolution(
             status=CollectionPolicyStatus.INVALID, problem_code="invalid_json"
         )
     return _validated_resolution(payload)
+
+
+def _read_checked_policy_bytes(path: Path) -> bytes:
+    """Read the entry only after no-follow identity validation of path and handle."""
+
+    entry = os.lstat(path)
+    _require_safe_policy_entry(entry)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError as exc:
+        # The entry existed a moment ago; a vanished/replaced path is an
+        # identity problem, never a legitimate ABSENT result.
+        raise _UnsafePolicyEntryError("identity_changed") from exc
+    try:
+        opened = os.fstat(descriptor)
+        _require_safe_policy_entry(opened)
+        if not _same_file_identity(entry, opened):
+            raise _UnsafePolicyEntryError("identity_changed")
+        chunks: list[bytes] = []
+        remaining = MAX_POLICY_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _require_safe_policy_entry(entry: os.stat_result) -> None:
+    if stat.S_ISLNK(entry.st_mode):
+        raise _UnsafePolicyEntryError("unsafe_symlink")
+    if getattr(entry, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT:
+        raise _UnsafePolicyEntryError("unsafe_reparse_point")
+    if not stat.S_ISREG(entry.st_mode):
+        raise _UnsafePolicyEntryError("unsafe_not_regular_file")
+    if entry.st_nlink > 1:
+        raise _UnsafePolicyEntryError("unsafe_multiple_links")
+
+
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    if first.st_ino and second.st_ino:
+        return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+    return os.path.samestat(first, second)
 
 
 def project_collection_policy_resolution(
@@ -407,6 +497,7 @@ def _reject_json_constant(value: str) -> Any:
 
 __all__ = [
     "ALLOWED_DISABLED_SCOPES",
+    "ALLOWED_POLICY_PROBLEM_CODES",
     "COLLECTION_POLICY_CONTRACT_VERSION",
     "COLLECTION_POLICY_FILENAME",
     "COLLECTION_POLICY_PROVENANCE",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from healthcheck import cli
 from healthcheck.collection_policy import (
+    ALLOWED_POLICY_PROBLEM_CODES,
     COLLECTION_POLICY_CONTRACT_VERSION,
     COLLECTION_POLICY_FILENAME,
     COLLECTION_POLICY_PROVENANCE,
@@ -150,6 +153,33 @@ def _patch_freshness_facts(monkeypatch) -> None:
     monkeypatch.setattr(consumer_module, "read_facts", fake_read_facts)
 
 
+def _try_symlink(target: Path, link: Path) -> bool:
+    try:
+        os.symlink(target, link)
+    except (NotImplementedError, OSError):
+        return False
+    return True
+
+
+def _try_hardlink(source: Path, link: Path) -> bool:
+    try:
+        os.link(source, link)
+    except (NotImplementedError, OSError):
+        return False
+    return True
+
+
+def _forbid_providers(monkeypatch, owner_refresh) -> None:
+    def forbidden(*args, **kwargs):
+        pytest.fail("provider entrypoint called before the policy failure")
+
+    monkeypatch.setattr(owner_refresh, "GarminAuthService", forbidden)
+    monkeypatch.setattr(owner_refresh, "GarminIncrementalSync", forbidden)
+    monkeypatch.setattr(owner_refresh, "GarminTrainingSync", forbidden)
+    monkeypatch.setattr(owner_refresh, "GoogleAuthService", forbidden)
+    monkeypatch.setattr(owner_refresh, "run_google_refresh", forbidden)
+
+
 # --- policy schema / read / update / atomicity ---------------------------------
 
 
@@ -270,6 +300,7 @@ def test_invalid_policy_is_typed_and_never_overwritten(
     resolution = resolve_collection_policy(path)
     assert resolution.status is CollectionPolicyStatus.INVALID
     assert resolution.problem_code == problem_code
+    assert resolution.problem_code in ALLOWED_POLICY_PROBLEM_CODES
     before = path.read_bytes()
     with pytest.raises(CollectionPolicyUpdateError) as exc_info:
         set_collection_policy(settings, stream="google:heart_rate", state="on")
@@ -283,7 +314,7 @@ def test_unreadable_policy_is_typed_and_never_overwritten(tmp_path: Path) -> Non
     path.mkdir()
     resolution = resolve_collection_policy(path)
     assert resolution.status is CollectionPolicyStatus.UNREADABLE
-    assert resolution.problem_code == "read_error"
+    assert resolution.problem_code == "unsafe_not_regular_file"
     with pytest.raises(CollectionPolicyUpdateError) as exc_info:
         set_collection_policy(settings, stream="google:heart_rate", state="off")
     assert exc_info.value.error_code == "collection_policy_unreadable"
@@ -310,6 +341,134 @@ def test_valid_document_tolerates_formatting_and_key_order(tmp_path: Path) -> No
     assert resolution.status is CollectionPolicyStatus.VALID
     assert resolution.snapshot.revision == 2
     assert resolution.snapshot.disabled_streams == ()
+
+
+def test_symlinked_policy_document_is_rejected(tmp_path: Path) -> None:
+    external = tmp_path / "external-policy.json"
+    external.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    link = tmp_path / "collection-policy.json"
+    if not _try_symlink(external, link):
+        pytest.skip("symlink creation unavailable on this platform")
+    resolution = resolve_collection_policy(link)
+    assert resolution.status is CollectionPolicyStatus.UNREADABLE
+    assert resolution.problem_code in {
+        "unsafe_symlink",
+        "unsafe_reparse_point",
+    }
+    assert resolution.snapshot is None
+
+
+def test_dangling_symlink_is_unreadable_not_absent(tmp_path: Path) -> None:
+    link = tmp_path / "collection-policy.json"
+    if not _try_symlink(tmp_path / "missing-target", link):
+        pytest.skip("symlink creation unavailable on this platform")
+    resolution = resolve_collection_policy(link)
+    assert resolution.status is CollectionPolicyStatus.UNREADABLE
+    assert resolution.problem_code in {
+        "unsafe_symlink",
+        "unsafe_reparse_point",
+    }
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction regression")
+def test_dangling_junction_is_unreadable_not_absent(tmp_path: Path) -> None:
+    target = tmp_path / "junction-target"
+    target.mkdir()
+    link = tmp_path / "collection-policy.json"
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"junction creation unavailable: {result.stderr.strip()}")
+    target.rmdir()
+    assert not link.exists()
+    resolution = resolve_collection_policy(link)
+    assert resolution.status is CollectionPolicyStatus.UNREADABLE
+    assert resolution.problem_code == "unsafe_reparse_point"
+
+
+def test_external_hardlinked_policy_is_rejected(tmp_path: Path) -> None:
+    external = tmp_path / "external-off.json"
+    external.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    link = tmp_path / "collection-policy.json"
+    if not _try_hardlink(external, link):
+        pytest.skip("hardlink creation unavailable on this platform")
+    resolution = resolve_collection_policy(link)
+    assert resolution.status is CollectionPolicyStatus.UNREADABLE
+    assert resolution.problem_code == "unsafe_multiple_links"
+    assert resolution.snapshot is None
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX special-entry regression")
+def test_special_entry_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "collection-policy.json"
+    os.mkfifo(path)
+    resolution = resolve_collection_policy(path)
+    assert resolution.status is CollectionPolicyStatus.UNREADABLE
+    assert resolution.problem_code == "unsafe_not_regular_file"
+
+
+def test_policy_path_identity_mismatch_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    import healthcheck.collection_policy as collection_policy
+
+    path = tmp_path / "collection-policy.json"
+    path.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    real_lstat = os.lstat
+
+    def swapped_lstat(target, *args, **kwargs):
+        if Path(target) == path:
+            return os.stat(other)
+        return real_lstat(target, *args, **kwargs)
+
+    monkeypatch.setattr(collection_policy.os, "lstat", swapped_lstat)
+    resolution = resolve_collection_policy(path)
+    assert resolution.status is CollectionPolicyStatus.UNREADABLE
+    assert resolution.problem_code == "identity_changed"
+
+
+def test_vanished_entry_after_check_is_identity_error(tmp_path: Path, monkeypatch) -> None:
+    import healthcheck.collection_policy as collection_policy
+
+    path = tmp_path / "collection-policy.json"
+    path.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    real_open = os.open
+
+    def vanished_open(target, flags, *args, **kwargs):
+        if Path(target) == path:
+            raise FileNotFoundError(2, "vanished after check", str(target))
+        return real_open(target, flags, *args, **kwargs)
+
+    monkeypatch.setattr(collection_policy.os, "open", vanished_open)
+    resolution = resolve_collection_policy(path)
+    assert resolution.status is CollectionPolicyStatus.UNREADABLE
+    assert resolution.problem_code == "identity_changed"
+
+
+def test_deeply_nested_array_policy_is_typed_invalid(tmp_path: Path) -> None:
+    settings = _established_settings(tmp_path)
+    path = _write_raw_policy(settings, "[" * 4096 + "]" * 4096)
+    resolution = resolve_collection_policy(path)
+    assert resolution.status is CollectionPolicyStatus.INVALID
+    assert resolution.problem_code == "excessive_nesting"
+    assert resolution.problem_code in ALLOWED_POLICY_PROBLEM_CODES
+    before = path.read_bytes()
+    with pytest.raises(CollectionPolicyUpdateError) as exc_info:
+        set_collection_policy(settings, stream="google:heart_rate", state="off")
+    assert exc_info.value.error_code == "collection_policy_invalid"
+    assert path.read_bytes() == before
+
+
+def test_deeply_nested_object_policy_is_typed_invalid(tmp_path: Path) -> None:
+    path = tmp_path / "collection-policy.json"
+    path.write_text('{"a":' * 3000 + "1" + "}" * 3000, encoding="utf-8")
+    resolution = resolve_collection_policy(path)
+    assert resolution.status is CollectionPolicyStatus.INVALID
+    assert resolution.problem_code == "excessive_nesting"
 
 
 def test_update_requires_established_runtime(tmp_path: Path) -> None:
@@ -446,7 +605,7 @@ def test_off_policy_keeps_real_chronology_in_local_core_details(tmp_path, monkey
     assert facts["latest_evidence_utc"] == OLD.isoformat()
 
 
-@pytest.mark.parametrize("policy_kind", ["on", "absent", "invalid"])
+@pytest.mark.parametrize("policy_kind", ["on", "absent", "invalid", "unreadable"])
 def test_non_off_policy_keeps_stale_required_action(tmp_path, monkeypatch, policy_kind) -> None:
     settings = _established_settings(tmp_path)
     if policy_kind == "on":
@@ -454,6 +613,9 @@ def test_non_off_policy_keeps_stale_required_action(tmp_path, monkeypatch, polic
         set_collection_policy(settings, stream="google:heart_rate", state="on")
         resolution = resolve_collection_policy(_policy_file(settings))
     elif policy_kind == "absent":
+        resolution = resolve_collection_policy(_policy_file(settings))
+    elif policy_kind == "unreadable":
+        _policy_file(settings).mkdir()
         resolution = resolve_collection_policy(_policy_file(settings))
     else:
         _write_raw_policy(settings, "{not json")
@@ -480,6 +642,11 @@ def test_non_off_policy_keeps_stale_required_action(tmp_path, monkeypatch, polic
         assert core["collection_policy"] == {
             "status": "invalid",
             "problem_code": "invalid_json",
+        }
+    if policy_kind == "unreadable":
+        assert core["collection_policy"] == {
+            "status": "unreadable",
+            "problem_code": "unsafe_not_regular_file",
         }
 
 
@@ -670,6 +837,76 @@ def test_owner_refresh_ambiguous_policy_fails_before_providers(
     with pytest.raises(OwnerRefreshPolicyError) as exc_info:
         run_owner_refresh(settings, as_of=DAY.isoformat(), trailing_window_days=7)
     assert exc_info.value.error_code == error_code
+
+
+def test_owner_refresh_rejects_hardlinked_policy_before_providers(
+    tmp_path, monkeypatch
+) -> None:
+    import healthcheck.owner_refresh as owner_refresh
+
+    settings = _established_settings(tmp_path)
+    external = tmp_path / "external-off.json"
+    external.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    if not _try_hardlink(external, _policy_file(settings)):
+        pytest.skip("hardlink creation unavailable on this platform")
+    _forbid_providers(monkeypatch, owner_refresh)
+    with pytest.raises(OwnerRefreshPolicyError) as exc_info:
+        run_owner_refresh(settings, as_of=DAY.isoformat(), trailing_window_days=7)
+    assert exc_info.value.error_code == "collection_policy_unreadable"
+
+
+def test_owner_refresh_rejects_symlinked_policy_before_providers(
+    tmp_path, monkeypatch
+) -> None:
+    import healthcheck.owner_refresh as owner_refresh
+
+    settings = _established_settings(tmp_path)
+    external = tmp_path / "external-off.json"
+    external.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    if not _try_symlink(external, _policy_file(settings)):
+        pytest.skip("symlink creation unavailable on this platform")
+    _forbid_providers(monkeypatch, owner_refresh)
+    with pytest.raises(OwnerRefreshPolicyError) as exc_info:
+        run_owner_refresh(settings, as_of=DAY.isoformat(), trailing_window_days=7)
+    assert exc_info.value.error_code == "collection_policy_unreadable"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction regression")
+def test_owner_refresh_rejects_dangling_junction_before_providers(
+    tmp_path, monkeypatch
+) -> None:
+    import healthcheck.owner_refresh as owner_refresh
+
+    settings = _established_settings(tmp_path)
+    link = _policy_file(settings)
+    target = tmp_path / "junction-target"
+    target.mkdir()
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"junction creation unavailable: {result.stderr.strip()}")
+    target.rmdir()
+    _forbid_providers(monkeypatch, owner_refresh)
+    with pytest.raises(OwnerRefreshPolicyError) as exc_info:
+        run_owner_refresh(settings, as_of=DAY.isoformat(), trailing_window_days=7)
+    assert exc_info.value.error_code == "collection_policy_unreadable"
+
+
+def test_owner_refresh_deeply_nested_policy_fails_before_providers(
+    tmp_path, monkeypatch
+) -> None:
+    import healthcheck.owner_refresh as owner_refresh
+
+    settings = _established_settings(tmp_path)
+    _write_raw_policy(settings, "[" * 4096 + "]" * 4096)
+    _forbid_providers(monkeypatch, owner_refresh)
+    with pytest.raises(OwnerRefreshPolicyError) as exc_info:
+        run_owner_refresh(settings, as_of=DAY.isoformat(), trailing_window_days=7)
+    assert exc_info.value.error_code == "collection_policy_invalid"
 
 
 def test_owner_refresh_on_policy_restores_normal_freshness_checks(tmp_path, monkeypatch) -> None:
@@ -879,3 +1116,14 @@ def test_cli_policy_read_and_set_round_trip(tmp_path, capsys) -> None:
     assert code == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["error_code"] == "unsupported_policy_stream"
+
+
+def test_cli_reports_deeply_nested_policy_as_typed_invalid(tmp_path, capsys) -> None:
+    settings = _established_settings(tmp_path)
+    _write_raw_policy(settings, "[" * 4096 + "]" * 4096)
+    root = str(resolve_runtime_paths(settings).root)
+    code = cli.main(["collection-policy", "--data-dir", root])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "invalid"
+    assert payload["problem_code"] == "excessive_nesting"
