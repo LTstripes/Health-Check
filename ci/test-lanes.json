@@ -27,6 +27,7 @@
       "tests/test_ci_evidence_summary.py",
       "tests/test_ci_test_lanes.py",
       "tests/test_ci_workflow.py",
+      "tests/test_collection_policy.py",
       "tests/test_core_schema.py",
       "tests/test_context_capture.py",
       "tests/test_fk_safe_migration_repair.py",
@@ -64,6 +65,16 @@
     ]
   },
   "allowed_skips": [
+    {
+      "nodeid": "tests/test_collection_policy.py::test_dangling_junction_is_unreadable_not_absent",
+      "platform": "linux",
+      "reason": "Windows junction regression"
+    },
+    {
+      "nodeid": "tests/test_collection_policy.py::test_owner_refresh_rejects_dangling_junction_before_providers",
+      "platform": "linux",
+      "reason": "Windows junction regression"
+    },
     {
       "nodeid": "tests/test_garmin_auth.py::test_windows_user_scoped_protection_round_trips_and_rejects_owner_tampering",
       "platform": "linux",

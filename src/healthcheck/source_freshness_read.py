@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import and_, case, func, or_, select
@@ -312,8 +313,25 @@ def read_facts(
     disabled: bool = False,
     weight_cadence_days: int | None = None,
 ) -> Facts:
+    """Read persisted chronology, then apply explicit request/disabled disposition.
+
+    Disposition never replaces the persisted facts: an intentionally
+    disabled/unrequested stream still returns its real history for diagnostics.
+    """
+
+    facts = _read_persisted_facts(
+        session, scope, evaluation_local_date=evaluation_local_date,
+        weight_cadence_days=weight_cadence_days,
+    )
     if disabled or not requested:
-        return Facts(requested=requested, disabled=disabled)
+        return replace(facts, requested=requested, disabled=disabled)
+    return facts
+
+
+def _read_persisted_facts(
+    session: Session, scope: Scope, *, evaluation_local_date: date,
+    weight_cadence_days: int | None = None,
+) -> Facts:
     if scope.family == "weight":
         successor_ids = select(MeasurementSession.supersedes_session_id).where(
             MeasurementSession.supersedes_session_id.is_not(None)

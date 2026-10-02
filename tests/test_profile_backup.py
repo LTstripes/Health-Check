@@ -66,6 +66,32 @@ def test_backup_verify_restore_round_trip_and_unknown_file_is_preserved_on_refus
     assert not (empty_target / "logs").exists()
 
 
+def test_backup_round_trip_includes_collection_policy(external_tmp_path: Path) -> None:
+    tmp_path = external_tmp_path
+    source = _synthetic_profile(tmp_path)
+    policy_payload = {
+        "contract_version": "healthcheck-collection-policy-v1",
+        "provenance": "owner-explicit",
+        "revision": 1,
+        "updated_at_utc": "2026-10-01T18:20:00Z",
+        "disabled_streams": ["google:heart_rate"],
+    }
+    (source / "collection-policy.json").write_text(
+        json.dumps(policy_payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    archive = tmp_path / "policy.zip"
+    create_backup(source, archive)
+    with zipfile.ZipFile(archive) as handle:
+        assert "profile/collection-policy.json" in handle.namelist()
+
+    target = tmp_path / "policy-restored"
+    target.mkdir()
+    restore_profile(archive, target)
+    restored = json.loads((target / "collection-policy.json").read_text(encoding="utf-8"))
+    assert restored == policy_payload
+
+
 def test_wal_backup_contains_committed_uncheckpointed_data(external_tmp_path: Path) -> None:
     tmp_path = external_tmp_path
     source = prepare_runtime(Settings(data_dir=tmp_path / "wal-source"))
