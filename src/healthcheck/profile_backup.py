@@ -68,7 +68,7 @@ class _ArchivePlan:
     archive: Path
 
 
-def create_backup(profile: Path, archive: Path) -> BackupResult:
+def create_backup(profile: Path, archive: Path, *, scratch: Path | None = None) -> BackupResult:
     """Create an atomic, SQLite-consistent ZIP backup of *profile*."""
 
     profile_root = _safe_profile_root(profile, must_exist=True)
@@ -82,7 +82,7 @@ def create_backup(profile: Path, archive: Path) -> BackupResult:
     _require_regular_file(database, "profile database")
     files = tuple(_profile_files(profile_root))
 
-    with tempfile.TemporaryDirectory(prefix=".healthcheck-backup-") as temporary:
+    with tempfile.TemporaryDirectory(prefix=".healthcheck-backup-", dir=scratch) as temporary:
         stage = Path(temporary) / "profile"
         stage.mkdir()
         staged_database = stage / DATABASE_NAME
@@ -121,7 +121,7 @@ def create_backup(profile: Path, archive: Path) -> BackupResult:
         )
         _write_archive(archive_path, stage, manifest, staged_files)
 
-    verification = verify_backup(archive_path)
+    verification = verify_backup(archive_path, scratch=scratch)
     return BackupResult(
         archive=verification.archive,
         file_count=verification.file_count,
@@ -130,10 +130,10 @@ def create_backup(profile: Path, archive: Path) -> BackupResult:
     )
 
 
-def verify_backup(archive: Path) -> BackupVerification:
+def verify_backup(archive: Path, *, scratch: Path | None = None) -> BackupVerification:
     """Validate the complete archive, including every checksum and the DB."""
 
-    plan = _validate_archive(archive)
+    plan = _validate_archive(archive, scratch=scratch)
     return BackupVerification(
         archive=plan.archive,
         file_count=len(plan.files),
@@ -142,12 +142,21 @@ def verify_backup(archive: Path) -> BackupVerification:
     )
 
 
-def restore_profile(archive: Path, target: Path, *, replace: bool = False) -> RestoreResult:
+def restore_profile(
+    archive: Path,
+    target: Path,
+    *,
+    replace: bool = False,
+    scratch: Path | None = None,
+    require_new: bool = False,
+) -> RestoreResult:
     """Restore a verified archive without mutating the target during preflight."""
 
-    plan = _validate_archive(archive)
+    plan = _validate_archive(archive, scratch=scratch)
     target_root = _safe_target_root(target)
     target_exists = target_root.exists()
+    if require_new and target_exists:
+        raise ProfileBackupError("restore requires an absent new target")
     if target_exists and target_root.is_dir() and any(target_root.iterdir()):
         if not replace:
             raise ProfileBackupError(
@@ -170,7 +179,10 @@ def restore_profile(archive: Path, target: Path, *, replace: bool = False) -> Re
         elif target_exists:
             _copy_into_existing_target(staged_root, target_root, plan.files)
         else:
-            os.replace(staged_root, target_root)
+            if require_new and os.name == "nt":
+                os.rename(staged_root, target_root)  # no-overwrite even if target appeared
+            else:
+                os.replace(staged_root, target_root)
 
     return RestoreResult(
         target=target_root,
@@ -284,7 +296,7 @@ def _profile_files(root: Path) -> Iterator[Path]:
         raise ProfileBackupError("profile database is missing")
     for path in sorted(discovered, key=lambda item: item.relative_to(root).as_posix()):
         relative = path.relative_to(root).as_posix()
-        if relative in {f"{DATABASE_NAME}-wal", f"{DATABASE_NAME}-shm"}:
+        if relative in {f"{DATABASE_NAME}-wal", f"{DATABASE_NAME}-shm", ".offsite-ledger.lock"}:
             continue
         yield path
 
@@ -358,9 +370,7 @@ def _migration_revision(database: Path) -> str | None:
     try:
         connection = sqlite3.connect(str(database), uri=False)
         try:
-            row = connection.execute(
-                "SELECT version_num FROM alembic_version LIMIT 1"
-            ).fetchone()
+            row = connection.execute("SELECT version_num FROM alembic_version LIMIT 1").fetchone()
         finally:
             connection.close()
     except sqlite3.Error as exc:
@@ -400,9 +410,7 @@ def _build_manifest(
         app_version = "0.1.0"
     return {
         "format_version": FORMAT_VERSION,
-        "created_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace(
-            "+00:00", "Z"
-        ),
+        "created_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "app": {"name": "health-check", "version": app_version},
         "schema": {"migration_revision": migration_revision},
         "profile": {"classification": classification},
@@ -444,7 +452,7 @@ def _write_archive(
         raise ProfileBackupError("backup archive could not be written") from exc
 
 
-def _validate_archive(archive: Path) -> _ArchivePlan:
+def _validate_archive(archive: Path, *, scratch: Path | None = None) -> _ArchivePlan:
     archive_path = _absolute_path(archive)
     _reject_symlink_ancestors(archive_path)
     _require_regular_file(archive_path, "backup archive")
@@ -463,9 +471,7 @@ def _validate_archive(archive: Path) -> _ArchivePlan:
         except (KeyError, OSError, UnicodeError, ValueError, zipfile.BadZipFile) as exc:
             raise ProfileBackupError("backup manifest is invalid") from exc
         files = _validate_manifest(manifest, infos)
-        expected_names = {MANIFEST_NAME} | {
-            f"{PROFILE_PREFIX}{item['path']}" for item in files
-        }
+        expected_names = {MANIFEST_NAME} | {f"{PROFILE_PREFIX}{item['path']}" for item in files}
         actual_names = {info.filename for info in infos}
         if actual_names != expected_names:
             raise ProfileBackupError("backup archive file list does not match its manifest")
@@ -489,7 +495,7 @@ def _validate_archive(archive: Path) -> _ArchivePlan:
         database_item = next((item for item in files if item["kind"] == "database"), None)
         if database_item is None or database_item["path"] != DATABASE_NAME:
             raise ProfileBackupError("backup database entry is missing")
-        _validate_archive_database(handle, database_item, manifest)
+        _validate_archive_database(handle, database_item, manifest, scratch=scratch)
     return _ArchivePlan(manifest=manifest, files=tuple(files), archive=archive_path)
 
 
@@ -632,13 +638,18 @@ def _validate_manifest(
 
 
 def _validate_archive_database(
-    handle: zipfile.ZipFile, item: dict[str, Any], manifest: dict[str, Any]
+    handle: zipfile.ZipFile,
+    item: dict[str, Any],
+    manifest: dict[str, Any],
+    *,
+    scratch: Path | None = None,
 ) -> None:
-    with tempfile.TemporaryDirectory(prefix=".healthcheck-verify-") as temporary:
+    with tempfile.TemporaryDirectory(prefix=".healthcheck-verify-", dir=scratch) as temporary:
         database = Path(temporary) / DATABASE_NAME
-        with handle.open(f"{PROFILE_PREFIX}{DATABASE_NAME}", "r") as source, database.open(
-            "wb"
-        ) as destination:
+        with (
+            handle.open(f"{PROFILE_PREFIX}{DATABASE_NAME}", "r") as source,
+            database.open("wb") as destination,
+        ):
             shutil.copyfileobj(source, destination, length=1024 * 1024)
         try:
             connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
@@ -663,9 +674,10 @@ def _extract_archive(plan: _ArchivePlan, destination: Path) -> None:
             relative = PurePosixPath(item["path"])
             target = destination / Path(*relative.parts)
             target.parent.mkdir(parents=True, exist_ok=True)
-            with handle.open(f"{PROFILE_PREFIX}{item['path']}", "r") as source, target.open(
-                "wb"
-            ) as output:
+            with (
+                handle.open(f"{PROFILE_PREFIX}{item['path']}", "r") as source,
+                target.open("wb") as output,
+            ):
                 shutil.copyfileobj(source, output, length=1024 * 1024)
             if target.stat().st_size != item["size"] or _sha256(target) != item["sha256"]:
                 raise ProfileBackupError("backup changed while restore was being prepared")
@@ -691,9 +703,7 @@ def _validate_restore_conflicts(target: Path, files: tuple[dict[str, Any], ...])
             if current.exists() and (_is_link_or_reparse(current) or not current.is_dir()):
                 raise ProfileBackupError("restore conflicts with an unsafe target entry")
             current = current.parent
-        if destination.exists() and (
-            _is_link_or_reparse(destination) or not destination.is_file()
-        ):
+        if destination.exists() and (_is_link_or_reparse(destination) or not destination.is_file()):
             raise ProfileBackupError("restore conflicts with an unsafe target entry")
 
 

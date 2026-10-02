@@ -87,6 +87,8 @@ from healthcheck.google.sync import (
 )
 from healthcheck.ingestion.openscale.binding import evaluate_ingest_binding
 from healthcheck.logging import configure_logging, log_event
+from healthcheck.offsite_backup import OffsiteConfig, list_backups, publish_backup, recover_backup
+from healthcheck.offsite_fs import OffsiteError
 from healthcheck.owner_refresh import (
     OwnerRefreshBusyError,
     OwnerRefreshPolicyError,
@@ -128,6 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
             "backup-profile",
             "verify-backup",
             "restore-profile",
+            "offsite-backup",
+            "offsite-backup-list",
+            "offsite-recover",
             "garmin-auth",
             "garmin-capabilities",
             "garmin-training-phase-a",
@@ -165,6 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", help="output path")
     parser.add_argument("--backup", help="backup archive path")
     parser.add_argument("--target-dir", help="explicit restore target profile")
+    parser.add_argument("--destination", type=Path)
+    parser.add_argument("--staging", type=Path)
+    parser.add_argument("--age-executable", type=Path)
+    parser.add_argument("--recovery-identity", type=Path)
+    parser.add_argument("--recipient")
+    parser.add_argument("--destination-alias", default="offsite")
+    parser.add_argument("--staging-nonsynced", action="store_true")
+    parser.add_argument("--rotate", action="store_true")
+    parser.add_argument("--expected-uuid")
+    parser.add_argument("--expected-sha256")
     parser.add_argument("--replace", action="store_true")
     parser.add_argument("--force-reauth", action="store_true")
     parser.add_argument("--is-cn", action="store_true")
@@ -239,6 +254,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(format_smoke_results(results))
         return smoke_exit_code(results)
+
+    if args.command.startswith("offsite-"):
+        return _run_offsite(args)
 
     if args.command == "backup-profile":
         if not args.output:
@@ -526,9 +544,7 @@ def _run_context(args: argparse.Namespace, settings: Settings) -> int:
                     output = {
                         "count": len(views),
                         "history": args.history,
-                        "events": [
-                            _context_payload(view, include_text=True) for view in views
-                        ],
+                        "events": [_context_payload(view, include_text=True) for view in views],
                     }
         finally:
             engine.dispose()
@@ -940,9 +956,7 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
         )
         return 1
     except OwnerRefreshPolicyError as exc:
-        error_class = (
-            "input" if exc.error_code == "collection_policy_conflict" else "runtime"
-        )
+        error_class = "input" if exc.error_code == "collection_policy_conflict" else "runtime"
         print(
             json.dumps(
                 _owner_refresh_error_payload(exc.error_code, error_class),
@@ -1011,18 +1025,14 @@ def _run_collection_policy(args: argparse.Namespace, settings: Settings) -> int:
     except OwnerRefreshRuntimeError as exc:
         print(
             json.dumps(
-                _collection_policy_error_payload(
-                    "collection-policy", exc.error_code, "runtime"
-                ),
+                _collection_policy_error_payload("collection-policy", exc.error_code, "runtime"),
                 sort_keys=True,
             )
         )
         return 2
     resolution = resolve_collection_policy(collection_policy_path(paths))
     print(
-        json.dumps(
-            _collection_policy_status_payload(resolution), ensure_ascii=True, sort_keys=True
-        )
+        json.dumps(_collection_policy_status_payload(resolution), ensure_ascii=True, sort_keys=True)
     )
     return 0
 
@@ -1662,3 +1672,54 @@ def _run_sleep_agreement_build(args: argparse.Namespace, settings: Settings) -> 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _run_offsite(args: argparse.Namespace) -> int:
+    try:
+        if args.replace:
+            raise OffsiteError("new_restore_target_required")
+        if args.command == "offsite-backup-list":
+            if not args.data_dir or not args.destination:
+                raise OffsiteError("explicit_paths_required")
+            report = list_backups(Path(args.data_dir), args.destination)
+        else:
+            if not all((args.staging, args.age_executable, args.recovery_identity)):
+                raise OffsiteError("explicit_paths_required")
+            if args.command == "offsite-backup":
+                if not all((args.data_dir, args.destination, args.recipient)) or args.dry_run:
+                    raise OffsiteError("use_backup_list_for_dry_run")
+                report = publish_backup(
+                    OffsiteConfig(
+                        Path(args.data_dir),
+                        args.destination,
+                        args.staging,
+                        args.age_executable,
+                        args.recovery_identity,
+                        args.recipient,
+                        args.staging_nonsynced,
+                        args.destination_alias,
+                    ),
+                    rotate=args.rotate,
+                )
+            else:
+                if (
+                    not all(
+                        (args.backup, args.target_dir, args.expected_uuid, args.expected_sha256)
+                    )
+                    or args.dry_run
+                ):
+                    raise OffsiteError("independent_fingerprint_required")
+                report = recover_backup(
+                    Path(args.backup),
+                    Path(args.target_dir),
+                    args.staging,
+                    args.age_executable,
+                    args.recovery_identity,
+                    expected_uuid=args.expected_uuid,
+                    expected_sha256=args.expected_sha256,
+                    staging_nonsynced=args.staging_nonsynced,
+                )
+    except (OffsiteError, OSError):
+        report = {"status": "failed", "action_required": ["invalid_offsite_request"]}
+    print(json.dumps(report, sort_keys=True))
+    return 0 if report["status"] == "succeeded" else 2
