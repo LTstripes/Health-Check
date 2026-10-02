@@ -1,182 +1,82 @@
 # AGENTS.md — Health-Check
 
-Universal project constitution for coding/review agents. Read this before every task. Client-specific adapters live in `docs/agents/` and may add mechanics but must not weaken these rules.
+Essential boundaries for every agent. Read this and the active issue/applicable Integrator notes once; reuse unchanged context. Procedures are loaded by need, not as a repository-wide reading tour.
 
 ## Read by task type
 
-Read this constitution and the current issue/applicable Integrator notes once at task start; refresh them when the assignment or authoritative facts change. Read detailed sources by need, not as a mandatory whole-repository tour:
-
-- Docs/process-only: affected documents and their referenced policy sections; no product-wide architecture/test inventory.
-- Implementation/bugfix: the relevant contract/architecture and affected source/tests, plus the verification policy below.
-- Financial/data semantics, restore, migration, privacy or runtime boundaries: the governing spec/ADRs and applicable review/UAT gates before changing that boundary.
-- Task routing/proposal: `docs/MODEL_ROUTING.md`; client mechanics: only the relevant `docs/agents/` adapter.
-- Health launch compatibility, or an explicitly requested orchestration/queue: the relevant `docs/AGENT_ORCHESTRATION.md` section; reading it does not activate the loop.
-
-Use already-read unchanged context. Historical task catalogs are not standing orders. Within the authorized task, perform routine reversible investigation, edits, synthetic checks and permitted delivery without repeated approval; scope/product/security/data decisions and canonical integration retain their existing owners.
+- Docs/process: affected documents and relevant policy sections only.
+- Implementation/review: the governing contract, affected source/tests and [verification](docs/DEVELOPMENT_PROCESS.md#verification-by-change).
+- Data/health semantics, migration, restore, privacy or runtime boundaries: relevant architecture/ADRs and required review/UAT gates before changing the boundary.
+- Routing is Integrator work: [MODEL_ROUTING.md](docs/MODEL_ROUTING.md). Load only your relevant `docs/agents/` adapter; [orchestration](docs/AGENT_ORCHESTRATION.md) is opt-in, not ordinary Worker setup.
 
 ## Sources of truth
 
-When documents disagree, use this order:
+Resolve conflicts in this order; this is precedence, not a mandatory reading list:
+1. `docs/PRODUCT_VISION.md` — purpose and product boundaries.
+2. `docs/ARCHITECTURE.md` and accepted ADRs — durable technical contracts.
+3. The active release spec explicitly designated by its tracker/Integrator.
+4. The active issue and applicable Integrator notes — task scope and acceptance.
+5. `docs/DEVELOPMENT_PROCESS.md`, then `docs/MODEL_ROUTING.md`, then `docs/AGENT_ORCHESTRATION.md` — their respective procedures.
+6. `docs/DECISIONS_AND_OPEN_QUESTIONS.md`, then backlog/history — context unless promoted into the governing contract.
 
-1. `docs/PRODUCT_VISION.md` — product purpose and boundaries.
-2. `docs/ARCHITECTURE.md` and accepted ADRs — architecture invariants and durable technical contracts.
-3. The active release implementation spec named by the current release tracker / explicit Integrator note. A completed release spec remains historical evidence and is not automatically the next release's active spec.
-4. The active GitHub issue and explicit Integrator notes — task-specific scope and acceptance criteria.
-5. `docs/DEVELOPMENT_PROCESS.md` — branch/workspace/review protocol.
-6. `docs/MODEL_ROUTING.md` — complexity/routing/escalation protocol.
-7. `docs/AGENT_ORCHESTRATION.md` — execution modes and project-facing orchestration contract.
-8. `docs/DECISIONS_AND_OPEN_QUESTIONS.md` — current decisions and live verification items.
-9. `docs/BACKLOG_IDEAS.md` and historical/audit material — context only unless promoted into an active spec.
-
-If no new release implementation spec has been promoted yet, use architecture + roadmap + the active GitHub issue/Integrator note; do not silently treat the previous release spec as current.
-
-A task issue may narrow an architecture/spec but may not silently override a higher-priority invariant. Escalate conflicts to the Integrator.
+Without a designated new release spec, use architecture + roadmap + the active issue/notes. A completed release spec is historical, not automatically current. An issue may narrow a higher-priority contract, not silently override it; return conflicts to the Integrator.
 
 ## Roles
 
-- **Owner** — chooses product direction and may perform private/live UAT.
-- **Integrator** — currently ChatGPT/Lera in the normal workflow. Creates task specs, chooses routing, manages GitHub, reviews candidates, accepts/rejects, merges and updates durable logs/docs.
-- **Execution Orchestrator** — optional execution-local coordinator. May plan, delegate, internally review/remediate and coordinate only an explicitly authorized queue. Does not own project acceptance or canonical integration.
-- **Worker** — one accountable implementation writer for one candidate. Does not self-accept.
-- **Delegate** — bounded helper below an Orchestrator/Worker. Does not self-accept.
-- **Reviewer** — independently validates a candidate without silently modifying it.
-
-The default principle remains: **Workers provide the hands; the Integrator owns project acceptance and repository integration.** Root/Orchestrator self-review is not called independent review.
+- **Owner** chooses product direction and performs private/live UAT when needed.
+- **Integrator** owns task/routing decisions, GitHub acceptance, integration and durable records.
+- **Worker** is the accountable implementation writer for one candidate; never self-accepts.
+- **Reviewer** independently validates a candidate without modifying it; self-review is not independent review.
+- **Execution Orchestrator** coordinates only explicitly authorized work; after delegation it is not a second implementation writer. Internal verdicts do not grant project acceptance or merge authority.
+- **Delegate** is a bounded helper, not an independent acceptance authority.
 
 ## Task prompt authority
 
-The current GitHub issue, accepted contract and applicable Integrator notes define the task under the source precedence above. A launch prompt is a locator and execution assignment, not a second specification. Update the authoritative issue/note when requirements change.
-
-Use the [Owner task proposal](docs/MODEL_ROUTING.md#owner-task-proposal) format when handing a task to the Owner. The launch identifies the issue/note, assigned branch and actual workspace, exact baseline/target, intended result and authorized delivery. Missing safety-critical information must be resolved before writes.
-
-One bounded task defaults to one Worker; independent review follows risk policy and does not activate orchestration. Only an explicit orchestration/queue request uses `docs/AGENT_ORCHESTRATION.md` and its listed eligible tasks.
-
-For Health implementation launches, record and verify the [launch compatibility decision](docs/AGENT_ORCHESTRATION.md#launch-compatibility-assessment), including applicable comments, dependency state and shared artifact ownership. Do not silently rewrite existing assignments.
+The issue/accepted contract is the specification; a short launch prompt locates it and assigns execution. Within that scope, perform reversible investigation, edits, synthetic checks and permitted delivery without repeated approval. Resolve missing safety-critical scope/branch/workspace/baseline information before writes. Existing explicit assignments and gates are not waived retroactively by a new general default.
 
 ## Git ownership
 
-- `main` is the only canonical accepted/stable history and the only release source. Workers never write to `main`.
-- During a multi-task release, the Integrator may create one release integration branch such as `integration/r01-weight-core` or `integration/r02-garmin`.
-- A release integration branch is a staging/coordination line, never a second source of truth.
-- After a release is merged to `main`, its integration branch becomes historical/staging-only. The next release integration branch starts from the then-current canonical `main`, not from the old integration branch or an arbitrary stacked task branch.
-- Worker branches are isolated, normally `task/<issue>-<slug>`, from an exact pinned integration SHA.
-- A Worker may commit and push only its assigned task branch.
-- Workers/Execution Orchestrators do not merge, force-push, delete branches/tags, retarget PRs or alter repository settings unless explicitly delegated.
-- By default Workers do not create PRs; the Integrator handles PR creation/review/merge through GitHub.
-- Reviewers do not mutate the candidate they independently review.
-- An Execution Orchestrator does not become a second writer after delegation.
+`main` is the only canonical accepted history/release source. Integration branches are staging, not another source of truth. Workers never write to main and commit/push only their assigned task branch; they do not create PRs by default. Merge, force-push, branch/tag deletion, PR retargeting or repository settings require explicit delegation; Integrator acceptance remains separate.
 
-## Stale-base and parallel-work policy
-
-A task stays pinned to its assigned baseline while it is being implemented. Do not repeatedly rebase just because the integration branch moved.
-
-- Independent parallel tasks may finish against the same pinned integration SHA.
-- The Integrator decides at review time whether a stale candidate can merge cleanly or needs one refresh/retest pass.
-- A refresh is normally required for overlapping files, migrations/schema, security/network boundaries, canonical data semantics or other high-risk shared contracts.
-- Accepted-but-held work from a previous release freeze is not automatically merge-ready after the freeze lifts; re-read the new canonical baseline, reconcile lineage as needed, and rerun the required exact-head checks.
-- Low-risk independent work does not require churn merely to match the newest SHA.
-- Never rebase/reset another agent's branch or workspace.
+<a id="stale-base-and-parallel-work-policy"></a>
+Stay on the assigned pinned baseline; the Integrator decides refresh/retest at integration. Never rebase/reset another agent's branch or workspace. Release-lineage details belong to [Branch strategy](docs/DEVELOPMENT_PROCESS.md#2-branch-strategy).
 
 ## Physical workspace isolation
 
-One active write/verification task owns one physical working tree. Branch isolation alone is not sufficient for parallel sessions.
-
-Concrete workstation assignments come from Owner-local configuration and the explicit launch. `docs/DEVELOPMENT_PROCESS.md` defines the protected location roles. Each agent uses only its assigned task clone/worktree; Owner canonical, Stable/private-runtime and UAT locations are forbidden development workspaces regardless of their paths.
-
-Agents must not create, move, rename, inspect or delete sibling workspaces outside their assigned task directory unless the Integrator explicitly assigns that filesystem operation.
+One active write/verification task owns one physical working tree. Use only the assigned task directory; do not inspect/create/move/rename/delete sibling workspaces without an explicit filesystem assignment. Owner canonical, Stable/private-runtime and preview/UAT locations are not development workspaces, regardless of paths.
 
 ## Runtime/private-data isolation — hard invariant
 
-Development-agent workspaces must not contain or access real personal health data or Owner credentials, including:
+Development workspaces must not contain/access real health SQLite databases or sidecars, backups, Owner/device payloads, measurement screenshots/photos, lab/medical documents, UAT runtime data, credentials/tokens/refresh tokens/bind keys/MAC or key material, or symlinks/junctions/hardlinks to them. Sanitized evidence is permitted only under an explicitly separated Owner-controlled probe.
 
-- real Health-Check SQLite databases or sidecars;
-- Xiaomi/Garmin/Fitbit payloads from the Owner's account unless explicitly sanitized for a private Owner-only probe;
-- screenshots/photos containing real measurements;
-- tokens, bind keys, MAC/key material, refresh tokens or secrets;
-- private lab/medical documents;
-- Owner UAT runtime data;
-- symlinks/junctions/hardlinks to any of the above.
-
-Repository and normal agent tests use synthetic fixtures only. Private/live verification is Owner/Integrator controlled and is reported as `UNVERIFIED` until actually performed.
-
-The durable Stable Owner data profile is identified by the Owner-local assignment. Development Workers/Reviewers must not inspect or mutate it unless an issue explicitly authorizes an Owner-controlled live gate. Release/product UAT must use a disposable verified backup/restore clone; Stable is never reset or repurposed as a candidate sandbox.
+Use synthetic fixtures and external synthetic runtime/temp paths. Do not call live Garmin/Google or other account-backed providers in normal agent checks. Private/live gates remain Owner/Integrator controlled and `UNVERIFIED` until performed. Candidate UAT uses a disposable verified backup/restore clone; never reset or repurpose Stable as a candidate sandbox.
 
 ## Scope discipline
 
-- Do only the assigned issue.
-- A normal Worker does not start the next roadmap item automatically.
-- In a sequential `$delivery-loop` queue, an Execution Orchestrator advances only to the next **explicitly listed eligible task** after the prior task reached `INTERNAL_ACCEPT`, subject to the integration-block exception below. Explicit parallel assignments require the launch compatibility assessment and separate acceptance gates.
-- The Orchestrator must not discover/invent extra roadmap/backlog work.
-- `BLOCKED_FOR_INTEGRATION` blocks the affected dependency chain. Continue to unrelated explicitly listed eligible queue items only when the launch explicitly enables integration-block continuation; otherwise stop.
-- Do not perform unrelated cleanup "while here".
-- Do not add unused infrastructure for future releases.
-- Do not reinterpret product/health semantics without an issue/ADR decision.
-- Missing/unknown/unavailable data is never silently converted to zero.
-- Do not make diagnosis or causal claims from wearable/BIA associations.
-- If justified risk discovered during execution implies architecture, privacy, canonical-data or health-semantics expansion, STOP and return to the Integrator for re-scope.
+Do only the assigned issue/listed eligible work: no automatic next roadmap item, unrelated cleanup or unused future infrastructure. Do not reinterpret product/health semantics without an issue/ADR decision. Missing/unknown/unavailable is never silently zero; do not invent diagnosis or causality from wearable/BIA associations. Return architecture/privacy/canonical-data/health-semantics expansion to the Integrator for re-scope.
 
 ## Verification
 
-Every task must perform the checks specified by the issue/release spec and truthfully report what actually ran. Apply the proportional early contract checkpoint and final-gate scheduling in [`docs/AGENT_ORCHESTRATION.md`](docs/AGENT_ORCHESTRATION.md#early-contract-checkpoint-and-final-gates); this does not waive any required gate.
+Use [proportional checks](docs/DEVELOPMENT_PROCESS.md#verification-by-change), then required exact-candidate/integration gates. A separate participant does not automatically rerun the full suite; inspect valid evidence and add focused checks for concrete gaps. Required independent review is set by [risk policy](docs/MODEL_ROUTING.md#independent-review-triggers), not by enabling a queue.
 
-Minimum completion discipline:
-
-- targeted tests/checks proportional to the change;
-- final diff/scope/privacy review;
-- exact baseline, branch and final candidate SHA;
-- exact test commands/outcomes;
-- limitations, failures and remaining `UNVERIFIED` items;
-- final `git status --short` and remote/HEAD read-back when working locally.
-
-Do not claim a full suite, browser smoke, live provider test or device verification unless it actually ran.
-
-Independent review is required when `docs/MODEL_ROUTING.md` says so, when Owner/Integrator explicitly requests it, or when justified execution risk raises the review bar under project policy. Evidence counts as independent review only when a separate Reviewer actually ran.
+Never claim tests, browser/device/provider checks, independent review or success that were not performed. Report exact commands/results, candidate identity, failures and remaining `UNVERIFIED` work. Missing/interrupted/mismatched evidence is not a pass; changed code must not inherit an old pass. CI provenance/completeness rules are unchanged.
 
 ## Completion reporting
 
-A normal Worker returns one concise per-task report containing:
-
-- task/issue ID and status;
-- **Model evidence** using only the two common fields below;
-- baseline SHA and target integration branch;
-- task branch and physical workspace;
-- exact final candidate SHA;
-- what changed, key files and exact `git diff --stat` additions/deletions when available;
-- exact checks and outcomes;
-- deviations from the original plan and why;
-- blockers/surprises/limitations plus relevant execution confounders (for example resource contention);
-- working-tree status and remote/HEAD read-back when local;
-- confirmation that `main` and unrelated branches/workspaces were not modified.
-
-Use this compact block in every Worker handoff:
+Return one concise report: issue/status; baseline/target; branch/workspace/final SHA; change summary (diff stat when available); actual checks/results; material deviations/blockers/limitations. For local Git work include clean/dirty status and HEAD/remote read-back; state any departure from assigned branch/workspace boundaries. Omit irrelevant optional fields rather than filling N/A sections.
 
 ```text
 Model evidence
-model: <known model label/version, otherwise unknown>
-provider/client: <provider and client/runtime if known, otherwise unknown>
+model: <known label/version, otherwise unknown>
+provider/client: <known provider/client, otherwise unknown>
 ```
 
-Do not infer a model from a proposed assignment, subscription, alias mapping, or requested route. **An explicit Owner confirmation of the model actually used is accepted evidence**, even when the client reports `unknown`. Record the label exactly as confirmed; do not expand `Sol` or `Astra` into an unreported product version. Preserve the original client handoff and note `Owner-confirmed` in the issue/journal outside the two-field block. Effort such as High/Medium/Max is separate context, not a fabricated model version. Where neither runtime evidence nor Owner confirmation exists, keep the field `unknown`; conflicting evidence must be stated, not silently resolved.
-
-Routine Worker handoffs do not need token, cost, effort, timing, attribution-source, or fallback fields unless the active issue explicitly requests them. Never include private prompts, secrets, health values or hidden reasoning.
-
-Workers/Execution Orchestrators do **not** edit `docs/MODEL_BENCHMARK.md` or the benchmark tracker to grade themselves. The Integrator records model outcomes centrally after source/evidence review and keeps Worker, Reviewer and research roles separate.
-
-An orchestrated queue additionally returns one final queue report listing every authorized task, its final internal state, candidate SHA where applicable, review path and unresolved Integrator action. That queue report is not batch project acceptance.
-
-Do not edit `docs/EXECUTION_HISTORY.md` as a normal Worker/Execution Orchestrator. The Integrator records accepted, rejected and abandoned attempts centrally after review.
+Runtime evidence or explicit Owner confirmation of actual use establishes identity, never a proposed route/alias. Preserve raw unknown/conflicts and Owner-confirmed context outside this two-field block; do not invent versions. Routine handoffs need no cost/token/timing/effort fields. Never include private prompts, hidden reasoning, secrets or health values. Attribution details belong to [Model evidence](docs/MODEL_ROUTING.md#model-evidence).
 
 ## Durable history and decisions
 
-- `docs/EXECUTION_HISTORY.md` records who did what, model/client, baseline/candidate, problems, changes of plan, review verdict and integration result — including useful failed/rejected attempts.
-- Important durable architecture/data/security changes require an ADR or an explicit update to canonical architecture/decision docs.
-- Release/user-facing changes later belong in a changelog/release note; engineering history is not a substitute for release notes.
-- Logs must never include private health values or secrets.
+Detailed evidence lives in issue/PR; Integrator-maintained history/model journals keep short linked outcomes, including useful failures. Workers/Orchestrators do not edit shared journals or grade themselves. Durable contract changes belong in architecture/decision docs or ADRs; product releases need release notes, not copied engineering reports.
 
 ## Delivery
 
-A Worker delivers a pushed task branch and completion report. The Integrator then inspects GitHub diff/evidence, requests fixes or rejects/accepts, merges accepted work into the current integration branch, updates execution history and affected canonical docs, and eventually opens the release integration -> `main` PR.
-
-`INTERNAL_ACCEPT` from an Execution Orchestrator is evidence only and does not authorize integration.
-
-After a release merge to `main`, canonical `main` must be read back, exact post-merge CI checked, release/UAT status recorded, and the next release must restart from the new canonical `main` rather than continuing from the old release integration branch.
+Worker delivers the pushed task branch and report. Integrator checks the actual diff/evidence, accepts or returns findings, and alone performs canonical integration under [Development Process](docs/DEVELOPMENT_PROCESS.md). Orchestrated queues add only their [queue report](docs/AGENT_ORCHESTRATION.md#final-queue-report), not batch project acceptance.

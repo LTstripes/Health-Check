@@ -1,120 +1,67 @@
 # Agent orchestration — Health-Check
 
-> **Status:** project-facing execution contract. Local client orchestration implements this contract but does not override repository policy.
-
-Health-Check supports a manual Worker route and an optional Codex `$delivery-loop` route. The active GitHub issue, release/architecture contracts and explicit Integrator notes remain authoritative under `AGENTS.md` precedence.
+Optional execution-local coordination for explicitly authorized queues/delegation. Reading this file, naming a client or asking for an audit does not activate it. Ordinary single-Worker work uses [Development Process](DEVELOPMENT_PROCESS.md); roles/acceptance authority are defined in [AGENTS.md](../AGENTS.md#roles).
 
 ## Roles
 
-Use the role definitions in [`AGENTS.md`](../AGENTS.md#roles). Root/Worker self-review is not independent review; an Execution Orchestrator has no implicit project acceptance or canonical integration authority.
+Use the canonical roles; do not require a Builder/Breaker/Auditor pipeline. An Orchestrator coordinates delegated work rather than becoming a second writer. Independent review requires a separate Reviewer, not root/Worker self-review.
 
 ## Launch compatibility assessment
 
-Before issuing an implementation launch, the Integrator records a compact execution decision in the issue or explicit Integrator note. The Worker/Orchestrator checks it before writes. For one isolated task, a few lines are enough; for a task set, use a table:
+For a genuinely isolated single task, the issue assignment is sufficient: no compatibility table or N/A sections. For dependencies/shared contracts or proposed parallel work, record the compact decision required by [Parallel work](DEVELOPMENT_PROCESS.md#parallel-work): dependency readiness, pinned interface/base, shared artifact owner, boundaries and order. Add applicable comment IDs when they establish that decision.
 
-| Task | Dependency / pinned contract | Shared files, interfaces, migrations, versions | Single owner / write boundary | Mode, order and reason |
-| --- | --- | --- | --- | --- |
-| Issue ID | Accepted baseline or explicit fixture/strategy | Include planned new modules and exports | Accountable task for each shared artifact | One Worker / sequential / explicitly parallel |
-
-Read the current issue and applicable Integrator comments, dependency acceptance state and relevant baseline interfaces. Use authoritative assignment records to check active ownership; this does not authorize inspection of another task's workspace. Record source comment IDs/URLs and when checked. An unresolved conflict blocks the affected launch until the Integrator supplies a bounded decision.
-
-- **One Worker is the default** for one bounded task, including focused remediation. An independent reviewer can still be required without a full orchestration loop.
-- **Orchestration is useful** for an explicitly authorized queue or a task that benefits from managed review/remediation and evidence coordination. State that benefit; complexity alone does not require delegation.
-- **Sequence dependent work:** establish and integrate a shared schema/API/DTO/version contract first, then launch its consumer. Starting earlier requires an explicit stable fixture/contract and safe baseline/integration strategy.
-- **Parallel implementation requires explicit Owner opt-in and proven compatible boundaries.** Separate worktrees alone are insufficient. Check newly created modules, package exports, migration heads/constraints, version constants and propagated evidence fields. If two tasks design the same contract, assign one owner and resolve the boundary before release; otherwise run sequentially.
-- **Do not rewrite active assignments silently.** Apply this assessment to new launches; changes to ongoing work need an explicit Integrator instruction.
-
-Use the implementation issue template to preserve the decision. A short launch prompt points to it rather than copying the entire issue.
+Parallel execution requires explicit Owner opt-in and compatible scopes, not merely separate worktrees. Unresolved shared schema/API/module/export/migration/version ownership blocks the affected launch. Do not inspect other workspaces to discover ownership; use assignment records. Do not silently change an existing assignment.
 
 ## Early contract checkpoint and final gates
 
-For schema, replay, eligibility, statistics or other cross-layer risk, require a small requirement map before broad implementation: `source requirement -> input/API boundary -> adversarial acceptance test`. Cover relevant negative cases from the contract, such as failed/running successors, incomplete or cross-run rows, explicit replay versions, propagated exclusion flags, authoritative epoch identity and boundary gaps. Do not invent requirements or thresholds absent from the issue/spec.
-
-The Worker writes/runs focused acceptance checks using actual production DTOs/entry points where practical. An unresolved architecture/health-semantics decision returns to the Integrator. Use an early independent contract review for such high-risk reasoning when warranted; final candidate review remains separate. Routine docs/mechanical work can mark this checkpoint not applicable.
-
-Final-gate scheduling, evidence and repeat rules are normative in [`DEVELOPMENT_PROCESS.md`](DEVELOPMENT_PROCESS.md#13-ci-evidence-and-complete-suite-gates). Independent review and final checks may overlap on one frozen candidate unless the issue/spec requires a particular order; all required gates must pass before internal acceptance.
+[Verification by change](DEVELOPMENT_PROCESS.md#verification-by-change) owns risk-proportional early checks; [CI evidence](DEVELOPMENT_PROCESS.md#13-ci-evidence-and-complete-suite-gates) owns final-gate identity/completeness. An orchestrated run adds no automatic extra full suite or mandatory early review. Required final checks/review may overlap on one frozen candidate when the issue permits.
 
 ## Mode A — manual / brokered execution
 
-Normal flow:
-
-`Owner -> Integrator -> authoritative issue -> short launch prompt -> selected Worker -> completion report -> Integrator GitHub review -> FIXES REQUIRED / ACCEPT / REJECT -> Integrator integration`
-
-Examples:
-
-- `дай задачу для Grok` -> manual Grok Worker;
-- `дай задачу для Hermes` -> manual Hermes Worker;
-- `дай задачу для <model/client>` -> manual Worker unless orchestration is explicitly requested;
-- `Codex без оркестрации` -> manual Codex Worker.
+One Worker is the default for `дай задачу для <model/client>`, including Codex, and for `Codex без оркестрации`. A request for a task series asks the Integrator to propose compatible order; it does not authorize automatic execution. Follow the ordinary process without loading queue mechanics.
 
 ## Mode B — Codex `$delivery-loop`
 
-Owner intent:
+An explicit orchestration launch identifies repo, authorized task list, per-task exact baseline/target, branch/workspace, queue/completion mode and required review. State the actual coordination benefit.
 
-- `дай задачу для Codex` -> Mode A, one Worker by default;
-- `дай серию задач для Codex` -> assess the explicitly assigned set and propose an order; automatic queue execution requires an explicit orchestration launch;
-- explicit `$delivery-loop` / orchestration request -> Mode B after launch compatibility assessment;
-- `Codex без оркестрации` -> Mode A.
-
-The launch packet must identify the repo, issue/task list, active release/integration context, exact baseline for every task, task branch, physical workspace, queue mode and review requirement.
-
-In orchestrated mode:
-
-1. root = **Execution Orchestrator**;
-2. implementation is delegated to the locally configured Worker;
-3. root does not duplicate delegated write work;
-4. Worker verifies and returns exact candidate evidence;
-5. root reviews actual diff/check evidence;
-6. a separate independent Reviewer is used when `MODEL_ROUTING.md`, an explicit Owner/Integrator request, or justified execution risk requires one;
-7. justified risk may raise the review bar inside the current task, but architecture/scope/health-semantics changes still require STOP + Integrator re-scope;
-8. `completion_mode=review-and-stop` returns findings without automatic fixes; otherwise default to one remediation cycle, with a second only explicitly authorized or demonstrably mechanical and bounded; never exceed two;
-9. internal verdicts are `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED`, or `BLOCKED_FOR_INTEGRATION`;
-10. `INTERNAL_ACCEPT` is evidence only and never equals project `ACCEPT`.
-
-The Execution Orchestrator has no implicit authority to merge an integration branch or `main`.
+1. Root coordinates; a Worker owns each implementation candidate.
+2. Worker returns exact candidate/check evidence; root inspects the actual result.
+3. Use a separate Reviewer when [risk policy](MODEL_ROUTING.md#independent-review-triggers) requires it; a network-disabled reviewer receives accessible literal source/evidence, not just URLs.
+4. `review-and-stop` returns findings without automatic fixes. Otherwise use one remediation cycle; a second requires explicit authorization or a demonstrably mechanical bounded fix. Never exceed two.
+5. Internal states are `INTERNAL_ACCEPT`, `FIXES_REQUIRED`, `BLOCKED` and `BLOCKED_FOR_INTEGRATION`. `INTERNAL_ACCEPT` is execution evidence, never project ACCEPT or merge permission.
 
 ## Queue policy
 
 ### Single
 
-One task is implemented, internally reviewed and reported, then the run stops.
+One authorized task, its checks/review and report; then stop.
 
 ### Independent queue
 
-Only tasks explicitly listed by the Integrator may advance automatically. Every task has its own task branch, physical writer workspace and exact assigned baseline. A previous candidate is not an implicit baseline for the next task.
-
-This queue mode is sequential: the previous task must reach `INTERNAL_ACCEPT` before the next eligible task starts. Explicit parallel assignments follow the launch compatibility assessment instead and retain separate per-task acceptance gates.
+Only explicitly listed eligible tasks may advance. Each owns its assigned branch, physical write workspace and pinned baseline; the prior task's candidate is not an implicit base. A sequential queue advances after the previous task reaches INTERNAL_ACCEPT; explicitly authorized parallel work keeps separate per-task gates.
 
 ### Dependency / integration block
 
-If task B requires task A to be integrated first and no explicit safe dependency strategy was supplied, task B becomes `BLOCKED_FOR_INTEGRATION`.
-
-That status blocks the affected dependency chain. Unrelated explicitly listed eligible tasks may continue only when the queue launch explicitly permits integration-block continuation; otherwise stop the queue.
-
-Do not invent stacked history, merge the release integration line, or pick replacement work from roadmap/backlog.
+A task requiring an unintegrated dependency and lacking an explicit safe baseline/fixture strategy is BLOCKED_FOR_INTEGRATION. This blocks that dependency chain. Unrelated listed eligible items may continue only if the launch expressly enables integration-block continuation; otherwise stop. Do not invent stacked history, merge canonical branches or pick replacement backlog work.
 
 ## Independent review triggers
 
-[`MODEL_ROUTING.md`](MODEL_ROUTING.md) is the normative source for independent-review triggers and risk escalation. A review requirement does not activate orchestration or authorize scope/contract expansion.
+Use [MODEL_ROUTING.md](MODEL_ROUTING.md#independent-review-triggers); queue activation neither adds an automatic Reviewer to every task nor waives a required one.
 
 ## Reporting
 
 ### Per-task report
 
-Use the completion contract in [`AGENTS.md`](../AGENTS.md#completion-reporting). An orchestrated run additionally records mode/remediation rationale and a compact phase ledger with evidence references. Separate wall time from overlapping job durations; usage/cost remains unknown unless measured.
+Use [Completion reporting](../AGENTS.md#completion-reporting), adding only material delegation/remediation facts and evidence references. A compact phase ledger is useful for actual coordinated work; unknown timings/costs remain unknown, not a mandatory form.
 
 ### Final queue report
 
-An orchestrated queue additionally returns every listed task and its final internal status, candidate SHA where applicable, review path used and unresolved Integrator action.
-
-The final queue report is not batch project acceptance.
+List each authorized task's final internal state, candidate SHA when present, review path and unresolved Integrator action. This is not batch project acceptance.
 
 ## Local skills/config
 
-`$delivery-loop`, local model routing and subagent definitions are machine-local Codex mechanics. Repository docs do not hardcode their filesystem paths or current model IDs.
-
-Do not create a Health-specific skill merely for symmetry. A project-specific skill is justified only for a genuinely reusable Health-specific procedure that should be loaded progressively and does not duplicate architecture/spec/policy.
+Client skills, model routing and subagent definitions are local mechanics; do not hardcode machine paths/model IDs here. A new project skill is justified by a reusable distinct procedure, not symmetry or a copy of policy. Keep implicit delivery-loop activation disabled.
 
 ## Invariants automation cannot weaken
 
-Private owner health/runtime data remains outside development-agent workspaces. Synthetic fixtures remain the normal test basis. One writer owns one write workspace. Missing/unknown/unavailable is not silently zero. Agents do not invent diagnosis or causality. Canonical integration remains Integrator-controlled.
+All [project boundaries](../AGENTS.md) still apply, including privacy, workspace isolation, health semantics, honest evidence and Integrator-controlled acceptance.
