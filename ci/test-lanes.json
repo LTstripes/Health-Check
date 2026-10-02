@@ -66,6 +66,16 @@
   },
   "allowed_skips": [
     {
+      "nodeid": "tests/test_collection_policy.py::test_dangling_junction_is_unreadable_not_absent",
+      "platform": "linux",
+      "reason": "Windows junction regression"
+    },
+    {
+      "nodeid": "tests/test_collection_policy.py::test_owner_refresh_rejects_dangling_junction_before_providers",
+      "platform": "linux",
+      "reason": "Windows junction regression"
+    },
+    {
       "nodeid": "tests/test_garmin_auth.py::test_windows_user_scoped_protection_round_trips_and_rejects_owner_tampering",
       "platform": "linux",
       "reason": "Windows DPAPI regression"
