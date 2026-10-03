@@ -6,54 +6,54 @@ Future ideas not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md
 
 ## Current state
 
-Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness, Owner screenshot workflow and the completed reliability/correction slice.
+Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness/collection policy, Owner screenshot workflow and the completed reliability/correction slice.
 
-Repository checkpoint before this operational docs update: `4029fd8c70e5bde0120bdf7902f2016faec118ed`; exact-main CI `36820492189` SUCCESS. Re-read live GitHub main/CI before launch/integration.
+Repository checkpoint before this closeout update: `0339088c52dcefac93bb372a3a460c12cc4b6152`; exact-main CI `37137153269` SUCCESS. The clean Owner operation checkout was also deployed/read back at this SHA. Re-read live GitHub main/CI before a later launch or integration.
 
-Latest completed work:
-- #217/#219/#221: screenshot -> repo skill -> strict Owner-assisted extraction -> R01 pipeline -> Stable.
-- #203: limited-encoding Period Brief stdout.
-- #226: screenshot algorithm/provenance guard.
-- #227: coherent SQLite/ORM compound reads.
-- #233: collision-safe Garmin Training privacy test oracle.
-- #181: Windows cleanup and full-rerun-only CI provenance, including post-main WMI follow-up PR #237.
-- #229: reviewable changed-sidecar corrections with signed-zero-stable replay identity.
-- #214: accepted automatic/logon selected-stream refresh, Scheduler result 0, complete successful report, all four layers succeeded; one-run duration 19m03.819s.
-- #147/#191/#193 source freshness and #199/#206/#207/#212 Google HR performance/reliability remain complete.
+Latest completed work includes:
+- #238: explicit reversible collection policy/freshness alignment; disabled Google high-frequency HR is no longer treated as an enabled stale action.
+- #148 + #252/#254: practical Google Drive ZIP recovery path and bounded backup capacity; a clean real-profile restore rehearsal passed.
+- #251: three existing Linux CI lanes rebalanced by timing without dropping the complete test union.
+- #256: Owner filesystem migrated to `D:\HealthCheck`, legacy cleanup reclaimed ~6.64 GiB, canonical workspace rules documented, and a fail-closed seven-day workspace janitor deployed as a daily 12:00 Scheduled Task.
+- #181/#229 and the earlier reliability/correction work remain complete.
 
-#214 completion is not an all-fresh claim: Owner/Google aggregates remain stale solely from intentionally disabled Google HR; #238 now owns explicit collection-policy/freshness alignment. Optional Garmin chronology warnings remain unknown. See [closeout](OWNER_REFRESH_CLOSEOUT_2026-10-01.md).
+## Current backlog — 2026-10-03
 
-## Current backlog — 2026-10-01
-
-Eleven open issues after closing #214 and opening #238, excluding pull requests:
+Fifteen open issues, excluding pull requests:
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
-| #215 | Owner input required | One real private Context note and supported read-back; do not fabricate text or require daily notes |
-| #238 | New collection-policy/freshness gap | Freeze explicit durable-versus-per-run collection intent, then implement shared-consumer behavior without hiding real stale enabled streams |
-| #148 | Durability/security not complete | Define protection/publication/retention and recovery contract; then implementation/review and separate Owner rehearsal |
-| #228 | Phase 1 research accepted; implementation parked | Wait for trustworthy event identity; no date/value/fuzzy auto-merge |
-| #153 | Optional compatibility | Numeric userId from openScale-sync versus current string receiver; not a Weight prerequisite |
-| #172 | Deferred UX follow-up | Coordinate with #189; do not duplicate the redesign |
-| #189 | Deferred Owner UI umbrella | Revisit after current operational/durability priorities or explicit Owner reprioritization |
-| #167 | Owner-deferred | No history rewrite/visibility change without explicit decision and freeze |
-| #126 | Owner/capability decision | Recheck capability before settings changes; preserve manual exact-SHA gate |
-| #105 | NOT_ELIGIBLE | No canonical sleep switch until existing device-pair gate is met |
-| #210 | Ongoing journal | Record actual model roles/outcomes and Owner-confirmed labels; not a product coding task |
+| #246 | **Active CI optimization** | Finish Stage A docs-only PR fast path on refreshed post-#259 baseline; independent CI semantic review; Stage B event dedup remains separate |
+| #243 | Windows CI investigation | Reproduce/resolve the exit-255 transcript blank-item mismatch without weakening process ownership/cleanup guarantees |
+| #242 | Dependency maintenance | Reproduce advisory audit; minimally update urllib3/pytest and preserve CI completeness |
+| #244 | Security hardening | Freeze and implement bounded loopback Host/Origin mutation guard; independent security review |
+| #247 | Deferred security hardening | Replace non-Windows custom Google cipher with standard AEAD without changing Windows DPAPI or whole-profile threat boundary |
+| #248 | CLI technical follow-up | Add explicit Period Brief JSON/text stdout without changing the deterministic packet |
+| #240 | Owner screenshot metadata | Add explicit Owner-attested date/source metadata under the existing screenshot-import provenance boundary |
+| #153 | Optional compatibility | openScale-sync numeric userId compatibility; not a Weight prerequisite |
+| #228 | Research accepted / parked | No cross-image semantic auto-merge until trustworthy event identity exists |
+| #189 | Deferred UI umbrella | No implementation during the current technical-maintenance track |
+| #172 | Deferred UX follow-up | Coordinate with #189 later; do not duplicate redesign |
+| #167 | Owner-deferred privacy/history operation | Requires explicit freeze/decision before any rewrite |
+| #126 | Owner/capability decision | Recheck repository protection capability before settings changes |
+| #105 | NOT_ELIGIBLE | No canonical sleep switch until the accepted device-pair evidence gate is met |
+| #210 | Ongoing model journal | Record actual model roles/outcomes; not a product coding queue |
 
-This is a status/priority map, not an automatic Worker queue. #215 Owner-only capture and read-only #238 design can proceed independently. UI remains deferred.
+This is a status map, not an automatic Worker queue. The current technical track prioritizes CI/dependencies/security/runtime/CLI/provenance work; UI remains deferred.
 
 ### Operational disposition
 
-Phase A audit did not justify a broad Garmin/all-stream Google rebuild. The identified historical sample-HR gap remains intentionally deferred while Google high-frequency HR is OFF in the local Ops runner. Existing history stays intact; re-enabling/backfill needs an explicit bounded decision.
+The durable Owner runtime is `D:\HealthCheck\stable`; the clean control checkout is `D:\HealthCheck\main`; Owner Ops live in `D:\HealthCheck\ops`; new agent tasks use `D:\HealthCheck\workspaces\<client>\<issue-or-task>`. See [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md).
 
-Other Google streams, fixed wearables sleep, Garmin and Garmin Training remain enabled with the accepted seven-day reconciliation horizon. #214's successful run proves actual automatic selected-stream execution; it does not prove every day, graceful cancellation, continuous execution during sleep or once-per-day deduplication. Earlier interrupted attempts remain interrupted.
+Google high-frequency sample HR remains intentionally disabled under the accepted explicit collection policy; existing history is preserved and no broad backfill/re-enable is authorized merely to make freshness look green. Other accepted Garmin/Google/Training/wearables-sleep collection remains bounded by the existing operational contracts.
 
-The last observed local Owner checkout was `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e`. A newer GitHub main is not local deployment. An idle/clean safe update is an Owner operation, not another broad refresh or a license to modify Stable.
+The tested off-site recovery path is a verified ordinary ZIP in the Owner's materialized Google Drive folder plus supported clean restore. Protected age-based publication remains optional rather than required for the Owner workflow.
 
-Weight is operational through screenshots; #229 adds explicit correction/replay semantics. #153 stays optional. #228 research does not add cross-image dedup. #238 must preserve historical age/coverage and unknown states, not simply set disabled data fresh.
+Workspace cleanup runs daily at 12:00 with a seven-day minimum retention and fail-closed eligibility. Legacy roots such as `D:\Garmin` or old client roots are not in the janitor allowlist and require explicit/manual disposition.
 
-See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner Refresh](OWNER_REFRESH.md), [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md) and [Model Journal](MODEL_BENCHMARK.md).
+Weight remains operational through screenshots; #229 provides explicit correction/replay semantics. #153 stays optional; #228 remains parked. UI #172/#189 remains deferred while the technical backlog above is active.
+
+See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md), [Owner Refresh](OWNER_REFRESH.md), [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md) and [Model Journal](MODEL_BENCHMARK.md).
 
 ## R00 — Final architecture (complete)
 
