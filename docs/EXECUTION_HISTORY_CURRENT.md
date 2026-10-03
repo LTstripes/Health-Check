@@ -1,5 +1,21 @@
 # Current Execution History
 
+## 2026-10-03 — durability, filesystem and CI-maintenance checkpoint
+
+Canonical checkpoint before this docs closeout: `main @ 0339088c52dcefac93bb372a3a460c12cc4b6152`; exact post-main CI `37137153269` SUCCESS. The clean Owner operation checkout was also fast-forwarded/read back at this SHA.
+
+Completed in this later 2026-10-03 slice:
+- **#148 / #252 / #254:** practical off-site recovery path proven. The existing materialized Google Drive ZIP passed supported clean restore into a disposable profile without touching Stable; real-profile size exposed and closed bounded payload/manifest-capacity gaps.
+- **#251:** Linux test lanes rebalanced through PR #258 without changing the complete test union or Windows gate.
+- **#256:** Owner filesystem migrated from the old Garmin-era layout to `D:\HealthCheck\{main,stable,uat,ops,workspaces}`; first cleanup reclaimed ~6.64 GiB; canonical machine-layout documentation merged; fail-closed workspace janitor accepted through PR #259 and deployed daily at 12:00 with seven-day minimum retention.
+- **#238:** explicit collection-policy/freshness reconciliation is complete; intentionally disabled sample HR remains preserved as historical evidence rather than fabricated fresh/enabled collection.
+
+Current active non-UI technical thread is **#246 Stage A** (docs-only PR fast path). Its first Worker candidate was built on `8b9c6f9...`; #259 later overlapped `.github/workflows/ci.yml` / workflow tests, so the same Stage A branch/workspace was explicitly assigned one refresh onto `main @ 0339088...` before independent CI semantic review. Stage B event dedup remains separate.
+
+Other open technical maintenance remains independently scoped: #243 Windows exit-255 transcript diagnosis, #242 dependency advisories, #244 loopback Host/Origin hardening, #247 non-Windows Google AEAD, #248 Period Brief JSON/text CLI and #240 screenshot date/source provenance. UI #172/#189 remains deferred.
+
+The older sections below are retained as dated evidence of the prior 2026-10-01 checkpoint; where they say #238/#148 were still open, this newer checkpoint supersedes that status without rewriting the historical record.
+
 ## 2026-10-03 — Owner-approved process simplification (#245)
 
 [Issue #245](https://github.com/LTstripes/Health-Check/issues/245) owns the exact candidate, documentation checks, CI and integration disposition. Baseline: `e63287536c8e8568f0cb4ffd689009710311574f`. Integrator-authored maintenance: shorter AGENTS/process/adapters/template, conditional coordination/early checkpoints and reuse of valid evidence across roles. Architecture, private-data boundaries, product code and CI contracts are unchanged; existing task-specific assignments/gates are not waived.
@@ -74,12 +90,13 @@ The 19-minute and earlier 35-minute runs are observations under differing condit
 
 ## Documentation and next-session handoff
 
-Current README, Wiki, Roadmap, Owner Refresh, this history and model journal point to the accepted operational evidence and #238. The prior long history is retained as an immutable archival copy. An attempted broader update of `DECISIONS_AND_OPEN_QUESTIONS.md` was rejected by the connector safety layer and was not published; that file can still contain obsolete #214/#181/#229 status text. Live issue closeouts and this dated handoff supersede those status summaries; governing architecture/security contracts are unchanged.
+Current README, Roadmap, Owner Machine Layout and this history reflect the 2026-10-03 durability/layout closeout. Detailed task evidence remains in the issues/PRs; older sections above stay as dated historical observations.
 
-Next sequence:
-1. Verify live main/CI/issues and safely reconcile local Owner code only when relevant processes are idle and checkout clean.
-2. #215: one real private Owner-authored Context note and supported read-back. No invented text.
-3. #238: bounded read-only collection-intent contract checkpoint, then separately assigned implementation/review. It can run independently of the Owner-only #215 action.
-4. #148: protected off-site backup/publication/retention and clean recovery rehearsal.
+Next technical sequence:
+1. Re-read live main/open PRs/issues; current reference at this checkpoint is `0339088c52dcefac93bb372a3a460c12cc4b6152`.
+2. Continue **#246 Stage A only** from its refreshed exact baseline/workspace, then independent CI semantic review and Integrator acceptance. Do not start Stage B automatically.
+3. After Stage A disposition, choose the next bounded non-UI maintenance item from #243 / #242 / #244 based on overlap and priority; keep #247/#248/#240 separate unless explicitly assigned.
+4. Keep UI #172/#189 deferred during this technical-maintenance session.
+5. New task workspaces use `D:\HealthCheck\workspaces\<client>\<issue-or-task>`; legacy `D:\Garmin` / old client roots are not canonical and are not auto-cleaned by the janitor.
 
-Eleven open issues: #238, #215, #148, #228, #153, #172, #189, #167, #126, #105, #210. UI remains deferred; #228 parked; #153 optional; #167 Owner-deferred; #126 capability decision; #105 NOT_ELIGIBLE; #210 ongoing journal. This is not an automatic Worker queue.
+Fifteen open issues at this checkpoint: #246, #243, #248, #247, #244, #242, #240, #153, #228, #189, #172, #167, #126, #105 and #210. This list is status context, not an automatic Worker queue.
