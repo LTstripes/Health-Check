@@ -41,3 +41,6 @@ duplicate/extra entries, traversal paths, absolute paths, ZIP symlinks and
 special files, oversized members, and databases that fail integrity or
 migration-identity checks. Commands print only status, counts and classification;
 they never print profile file contents, measurements or secrets.
+
+Protected filesystem publication, retention and clean disaster recovery are documented in
+[Off-site backup v1](OFFSITE_BACKUP.md). ZIP format and expanded-size limits are unchanged.

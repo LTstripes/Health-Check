@@ -61,7 +61,8 @@
       "tests/test_photo_import_review.py",
       "tests/test_photo_vision.py",
       "tests/test_owner_weight_screenshot_import.py",
-      "tests/test_profile_backup.py"
+      "tests/test_profile_backup.py",
+      "tests/test_offsite_backup.py"
     ]
   },
   "allowed_skips": [
