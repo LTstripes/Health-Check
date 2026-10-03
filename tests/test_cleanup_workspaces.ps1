@@ -84,7 +84,7 @@ try {
     [void](Git $script:Temp @('init','--bare','--initial-branch=main',$script:Remote))
     $seed = Join-Path $script:Temp 'seed'
     [void](Git $script:Temp @('init','--initial-branch=main',$seed))
-    [IO.File]::WriteAllText((Join-Path $seed '.gitignore'), "*.db`n*.token`nruntime/`n.env`n")
+    [IO.File]::WriteAllText((Join-Path $seed '.gitignore'), "*.db`n*.token`n*.key`n*.zip`nruntime/`n.env`n.venv/`n.pytest_cache/`n.ruff_cache/`n__pycache__/`n*.py[cod]`n")
     [void](Git $seed @('add','.gitignore'))
     Commit $seed 'base'
     [void](Git $seed @('push',$script:Remote,'main'))
@@ -142,7 +142,7 @@ try {
     $rewrite=Fixture 'rewritten-origin'
     [void](Git $rewrite @('config','url.https://example.invalid/.insteadOf','https://github.com/'))
     [void](Check $rewrite 'remote-rewrite-or-unknown' $true)
-    foreach ($marker in @('owner.db','private.token','.env','runtime')) {
+    foreach ($marker in @('owner.db','private.token','owner.key','backup.zip','.env','runtime')) {
         $private=Fixture ('marker-' + $marker.Replace('.','-'))
         if ($marker -eq 'runtime') { [void][IO.Directory]::CreateDirectory((Join-Path $private $marker)) }
         else { [IO.File]::WriteAllText((Join-Path $private $marker),'SECRET_HEALTH_VALUE') }
@@ -210,6 +210,69 @@ try {
     $applyFixture=Fixture 'apply-clone'
     [void](Check $applyFixture 'removed' $true)
     Assert (-not [IO.Directory]::Exists($applyFixture)) 'Apply removes eligible clone'
+    # Realistic generated caches: normal dependency assets and a uv-style hardlink.
+    $cacheFixture=Fixture 'generated-cache-apply'
+    $package=Join-Path $cacheFixture '.venv\Lib\site-packages\synthetic_package\data'
+    [void][IO.Directory]::CreateDirectory($package)
+    [IO.File]::WriteAllText((Join-Path $package 'cacert.pem'),'synthetic public CA asset')
+    [IO.File]::WriteAllBytes((Join-Path $package 'package.png'),[Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5x8AAAAASUVORK5CYII='))
+    foreach ($dir in @('.pytest_cache\v\cache','.ruff_cache\version','src\__pycache__')) {
+        [void][IO.Directory]::CreateDirectory((Join-Path $cacheFixture $dir))
+    }
+    [IO.File]::WriteAllText((Join-Path $cacheFixture '.pytest_cache\v\cache\nodeids'),'synthetic cache')
+    [IO.File]::WriteAllText((Join-Path $cacheFixture '.ruff_cache\version\cache.bin'),'synthetic cache')
+    [IO.File]::WriteAllText((Join-Path $cacheFixture 'src\__pycache__\module.pyc'),'synthetic bytecode')
+    [IO.File]::WriteAllText((Join-Path $cacheFixture 'loose.pyo'),'synthetic bytecode')
+    $cacheTarget=Join-Path $script:Temp 'shared-dependency.bin'
+    [IO.File]::WriteAllText($cacheTarget,'synthetic shared dependency')
+    $cacheLink=Join-Path $package 'shared.bin'
+    [void](New-Item -ItemType HardLink -Path $cacheLink -Target $cacheTarget)
+    Old $cacheFixture
+    $scan=New-Object HealthCheck.WorkspaceCleanup.Tree($false)
+    try {
+        $scan.Scan($cacheFixture,$script:EntryLimit)
+        $cacheEntry=$scan.Entries | Where-Object { $_.Path -eq $cacheLink }
+        Assert ($cacheEntry.Links -eq 2 -and -not $cacheEntry.GeneratedCache) 'hardlink is provisional until Git cache proof'
+    } finally { $scan.Dispose() }
+    $record=Check $cacheFixture 'clean-published-inactive'
+    Assert ($record.Result -eq 'ELIGIBLE' -and [IO.File]::Exists($cacheLink)) 'realistic cache eligible and dry-run preserves'
+    Old $cacheFixture
+    # Readonly dependency hardlinks must be unlinked without changing shared attributes.
+    [IO.File]::SetAttributes($cacheTarget, [IO.File]::GetAttributes($cacheTarget) -bor [IO.FileAttributes]::ReadOnly)
+    $targetHash=(Get-FileHash -LiteralPath $cacheTarget).Hash
+    $targetBefore=Get-Item -LiteralPath $cacheTarget
+    $targetAttributes=$targetBefore.Attributes; $targetWritten=$targetBefore.LastWriteTimeUtc; $targetLength=$targetBefore.Length
+    [void](Check $cacheFixture 'removed' $true)
+    Assert (-not [IO.Directory]::Exists($cacheFixture)) 'Apply removes workspace including generated cache'
+    Assert ([IO.File]::Exists($cacheTarget) -and (Get-FileHash -LiteralPath $cacheTarget).Hash -eq $targetHash) 'external hardlink target survives with identical contents'
+    $targetAfter=Get-Item -LiteralPath $cacheTarget
+    Assert ($targetAfter.Attributes -eq $targetAttributes -and $targetAfter.LastWriteTimeUtc -eq $targetWritten -and $targetAfter.Length -eq $targetLength) 'external hardlink target metadata unchanged'
+    $unignoredCache=Fixture 'cache-not-ignored'
+    [void](Git $unignoredCache @('config','core.excludesFile','NUL'))
+    [IO.File]::WriteAllText((Join-Path $unignoredCache '.gitignore'),'')
+    [void][IO.Directory]::CreateDirectory((Join-Path $unignoredCache '.venv'))
+    [IO.File]::WriteAllText((Join-Path $unignoredCache '.venv\cacert.pem'),'synthetic CA')
+    [void](Check $unignoredCache 'generated-cache-unproven' $true)
+    $trackedCache=Fixture 'cache-tracked'
+    [void][IO.Directory]::CreateDirectory((Join-Path $trackedCache '.venv'))
+    [IO.File]::WriteAllText((Join-Path $trackedCache '.venv\cacert.pem'),'synthetic CA')
+    [void](Git $trackedCache @('add','--force','.venv/cacert.pem'))
+    [void](Check $trackedCache 'generated-cache-unproven' $true)
+    $cacheJunction=Fixture 'cache-junction'
+    $junction=Join-Path $cacheJunction '.venv'
+    [void](New-Item -ItemType Junction -Path $junction -Target $outside)
+    [void](Check $cacheJunction 'filesystem-or-check-unknown' $true)
+    Assert ([IO.Directory]::Exists($outside)) 'generated-cache junction target survives'
+    (Get-Item -LiteralPath $junction -Force).Delete(); $junction=$null
+    $privateInCache=Fixture 'cache-private-marker'
+    [void][IO.Directory]::CreateDirectory((Join-Path $privateInCache '.venv'))
+    [IO.File]::WriteAllText((Join-Path $privateInCache '.venv\owner.db'),'SECRET_HEALTH_VALUE')
+    [void](Check $privateInCache 'private-runtime-marker' $true)
+    $lookalike=Fixture 'cache-lookalike'
+    [void][IO.Directory]::CreateDirectory((Join-Path $lookalike '.venv-other'))
+    [void](New-Item -ItemType HardLink -Path (Join-Path $lookalike '.venv-other\shared.bin') -Target $cacheTarget)
+    [void](Check $lookalike 'filesystem-or-check-unknown' $true)
+    Assert ([IO.File]::Exists($cacheTarget)) 'lookalike cache hardlink remains protected'
     $owner=Fixture 'worktree-owner'
     $worktree=Join-Path $script:Client 'linked-worktree'
     [void](Git $owner @('worktree','add','--detach',$worktree,'HEAD'))

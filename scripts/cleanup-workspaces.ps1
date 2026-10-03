@@ -9,7 +9,7 @@ A bounded, overwritten JSON summary is saved to the fixed Owner Ops directory.
 Run after code acceptance from canonical main, with no concurrent workspace writers.
 Fetch is mandatory even in dry-run and updates local Git metadata. Conservatively,
 that write can postpone eligibility at a later invocation. Unknown process command
-lines, ignored non-cache files, hardlinks, SSH/alternate origin URL spellings and
+lines, ignored non-cache files, non-cache hardlinks, SSH/alternate origin URL spellings and
 metadata outside these roots are preserved. Max 200 tasks / 25,000 entries per task.
 #>
 [CmdletBinding()]
@@ -108,17 +108,56 @@ function Test-JanitorProcess([string]$Path, $Processes) {
             $command.IndexOf($Path.Replace('\', '/'), [StringComparison]::OrdinalIgnoreCase) -ge 0) { throw 'active-process' }
     }
 }
+function Get-JanitorCacheProof($Tree, [string]$Path) {
+    $proof=@{}
+    $candidates=@($Tree.Entries | Where-Object { $null -ne $_.CacheRoot })
+    if (-not $candidates.Count) { return $proof }
+    $tracked=New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($file in (Get-JanitorGitText $Path @('ls-files', '-z')).Split([char]0)) {
+        if ($file) { [void]$tracked.Add((Join-Path $Path ($file.Replace('/', '\')))) }
+    }
+    foreach ($cacheRoot in @($candidates | ForEach-Object { $_.CacheRoot } | Select-Object -Unique)) {
+        $relative=$cacheRoot.Substring($Path.Length + 1).Replace('\', '/')
+        if ([IO.Directory]::Exists($cacheRoot)) { $relative += '/' }
+        $check=Invoke-JanitorGit $Path @('check-ignore', '--quiet', '--no-index', '--', $relative)
+        if ($check.Code -ne 0) { throw 'generated-cache-unproven' }
+    }
+    foreach ($entry in $candidates) {
+        # Every cache file is absent from the index. Git ignores its directory root
+        # (or the exact loose bytecode file); an ignored parent excludes descendants.
+        # Scan has pinned all ancestors and rejected reparse/alias paths. The existing
+        # full clean-status guard remains mandatory; no dependency contents are read.
+        if ($tracked.Contains($entry.Path)) {
+            throw 'generated-cache-unproven'
+        }
+        $proof[$entry.Path]=$entry.Stamp
+        $Tree.ApproveGeneratedCache($entry.Path, $entry.Stamp)
+    }
+    return $proof
+}
+function Set-JanitorCacheProof($Tree, $Proof) {
+    foreach ($entry in $Tree.Entries) {
+        if ($Proof.ContainsKey($entry.Path)) { $Tree.ApproveGeneratedCache($entry.Path, $Proof[$entry.Path]) }
+        elseif ($null -ne $entry.CacheRoot) { throw 'generated-cache-unproven' }
+    }
+}
 function Test-JanitorMarkers($Entries, [string]$Path) {
     foreach ($entry in $Entries) {
         $relative = $entry.Path.Substring($Path.Length).TrimStart('\')
         $name = [IO.Path]::GetFileName($entry.Path)
+        $cache = $null -ne $entry.PSObject.Properties['GeneratedCache'] -and $entry.GeneratedCache
         if ($entry.Directory) {
-            # Exact code/reflog directories are structural; their files still receive every marker check.
-            if ($relative -notin @('src\healthcheck\ingestion\photo', '.git\logs') -and
-                $relative -notmatch '^\.git\\worktrees\\[A-Za-z0-9._-]+\\logs$' -and $name -match '^(data|runtime|private|profiles?|backups?|recovery|artifacts|payloads?|photos?|screenshots?|credentials?|secrets?|tokens?|logs|reports|\.aws|\.ssh|\.gnupg)$') { throw 'private-runtime-marker' }
-        } elseif ($name -match '(?i)\.(db|sqlite|sqlite3)(-|$)|\.(zip|7z|rar|tar|tgz|gz|bz2|xz|zst|age|bak|backup|key|pem|pfx|secret|token|pdf|jpe?g|png|heic|webp|gif|bmp|tiff?|dcm)$' -or
-            $name -match '^(config\.toml|collection-policy\.json|\.env|\.env\..+)$' -and $name -ne '.env.example' -or
-            $name -match '(?i)(credential|refresh.?token|access.?token|bind.?key|session|oauth).*(\.(json|bin|dat|enc|txt|toml))$') { throw 'private-runtime-marker' }
+            # Strong private boundaries are never exempted, even within a cache.
+            if ($name -match '^(private|profiles?|backups?|recovery|credentials?|secrets?|tokens?|\.aws|\.ssh|\.gnupg)$') { throw 'private-runtime-marker' }
+            # Known caches may contain normal package data, images, logs and runtime assets.
+            if (-not $cache -and $relative -notin @('src\healthcheck\ingestion\photo', '.git\logs') -and
+                $relative -notmatch '^\.git\\worktrees\\[A-Za-z0-9._-]+\\logs$' -and $name -match '^(data|runtime|artifacts|payloads?|photos?|screenshots?|logs|reports)$') { throw 'private-runtime-marker' }
+        } else {
+            if ($name -match '(?i)\.(db|sqlite|sqlite3)(-|$)|\.(age|bak|backup|key|pfx|secret|token)$' -or
+                $name -match '^(config\.toml|collection-policy\.json|\.env|\.env\..+)$' -and $name -ne '.env.example' -or
+                $name -match '(?i)(credential|refresh.?token|access.?token|bind.?key|session|oauth).*(\.(json|bin|dat|enc|txt|toml))$') { throw 'private-runtime-marker' }
+            if (-not $cache -and $name -match '(?i)\.(zip|7z|rar|tar|tgz|gz|bz2|xz|zst|pem|pdf|jpe?g|png|heic|webp|gif|bmp|tiff?|dcm)$') { throw 'private-runtime-marker' }
+        }
     }
 }
 function Get-JanitorAge($Tree, [string]$Path, [datetime]$Now) {
@@ -174,8 +213,13 @@ function Test-JanitorClean([string]$Path) {
     if ((Get-JanitorGitText $Path @('status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none')).Length) { throw 'dirty-or-untracked' }
     if ((Get-JanitorGitText $Path @('ls-files', '--stage')) -match '(?m)^160000 ') { throw 'submodule-unknown' }
     # Unknown ignored material is preserved, including outside recognizable caches.
-    $ignored = Get-JanitorGitText $Path @('ls-files', '--others', '--ignored', '--exclude-standard')
-    foreach ($file in @($ignored -split "`n" | Where-Object { $_ })) {
+    # Exclude only recognized generated paths from this unknown-material query.
+    # Their ignored roots/index absence are separately proved, without a multi-MB
+    # list of every .venv dependency asset overflowing the bounded Git output.
+    $ignored = Get-JanitorGitText $Path @('ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', '.',
+        ':(icase,glob,exclude).venv/**', ':(icase,glob,exclude).pytest_cache/**', ':(icase,glob,exclude).ruff_cache/**',
+        ':(icase,glob,exclude)**/__pycache__/**', ':(icase,glob,exclude)**/*.py[co]')
+    foreach ($file in @($ignored.Split([char]0) | Where-Object { $_ })) {
         if ($file -notmatch '^(\.venv/|\.pytest_cache/|\.ruff_cache/|(.*/)?__pycache__/|.*\.py[co]$)') { throw 'unknown-ignored-material' }
     }
 }
@@ -221,9 +265,11 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         $guard.PinAncestors([IO.Path]::GetDirectoryName($path))
         $tree = New-Object HealthCheck.WorkspaceCleanup.Tree($false)
         $tree.Scan($path, $script:EntryLimit)
+        Test-JanitorMarkers @($tree.Entries | Where-Object { $null -eq $_.CacheRoot }) $path
+        $state = Get-JanitorGitState $path $guard
+        $cacheProof = Get-JanitorCacheProof $tree $path
         Test-JanitorMarkers $tree.Entries $path
         Test-JanitorProcess $path (Get-JanitorProcesses)
-        $state = Get-JanitorGitState $path $guard
         $record.Git = $state.Kind
         Test-JanitorClean $path
         $age = Get-JanitorAge $tree $path $Now
@@ -235,10 +281,12 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         [void](Get-JanitorGitText $path @('fetch', '--prune', '--no-tags', '--no-recurse-submodules', 'origin', '+refs/heads/*:refs/remotes/origin/*'))
         Test-JanitorClean $path
         Test-JanitorRefs $path
+        $cacheProof = Get-JanitorCacheProof $tree $path
         if ((Get-JanitorGitText $path @('rev-parse', 'HEAD')) -ne $head) { throw 'workspace-changed' }
         $tree.Dispose(); $tree=$null
         $fresh = New-Object HealthCheck.WorkspaceCleanup.Tree($Delete -and $state.Kind -eq 'clone')
         $fresh.Scan($path, $script:EntryLimit)
+        Set-JanitorCacheProof $fresh $cacheProof
         Test-JanitorMarkers $fresh.Entries $path
         Assert-JanitorSnapshot $before (Get-JanitorSnapshot $fresh $path)
         Test-JanitorProcess $path (Get-JanitorProcesses)
@@ -260,7 +308,7 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
     } catch {
         $reason = [string]$_.Exception.Message
         $known = @('path-rejected','root-rejected','task-name-rejected','process-state-unknown','active-process',
-            'private-runtime-marker','not-task-checkout','external-git-metadata','wrong-origin','remote-rewrite-or-unknown',
+            'private-runtime-marker','generated-cache-unproven','not-task-checkout','external-git-metadata','wrong-origin','remote-rewrite-or-unknown',
             'registration-unknown','dependent-worktrees','dirty-or-untracked','submodule-unknown','unknown-ignored-material',
             'age-unknown','younger-than-retention','unique-head-commit','ancestry-unknown','unknown-local-ref','unique-local-ref',
             'workspace-changed','git-check-failed','git-timeout','git-output-limit','delete-failed')
