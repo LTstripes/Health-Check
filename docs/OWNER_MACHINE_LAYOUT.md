@@ -60,17 +60,32 @@ Do not implement by switching branches in `main`. Never place real Owner health 
 
 ## Workspace lifecycle and cleanup
 
-Task workspaces are disposable after delivery. They may be removed only after the workspace-cleanup contract proves there is no dirty/untracked content, unique local work or private/runtime material and the task is old enough for cleanup.
+Task workspaces are disposable after delivery. The accepted #256 janitor is deployed as Windows Scheduled Task `Health-Check workspace cleanup`:
 
-The automatic janitor being completed under #256 is allowed to delete only task children under the four `workspaces` client roots. It must never treat `main`, `stable`, `uat` or `ops` as cleanup roots.
+- runs **daily at 12:00 local time** with `StartWhenAvailable` and `IgnoreNew`;
+- uses `-Apply -RetentionDays 7`;
+- writes the latest bounded sanitized report to `D:\HealthCheck\ops\workspace-cleanup-latest.json`;
+- considers only immediate task children under the four canonical `workspaces\<client>` roots;
+- deletes only when the workspace is old enough, clean, belongs to the expected repository, has no unique local work/private runtime material and passes the remaining fail-closed guards.
 
-Do not manually drag active Git worktrees between roots. Let an active task finish in its assigned location, then retire/recreate it safely.
+This is a daily sweep with a seven-day minimum retention, not a weekly batch. A task normally becomes eligible on the first daily run after it is at least seven days old.
+
+The janitor must never treat `main`, `stable`, `uat`, `ops` or a path outside the four approved workspace roots as a cleanup root. Unknown, active, young, wrong-origin or otherwise ambiguous task directories are preserved.
+
+Do not manually drag active Git worktrees between roots. Let an active task finish in its assigned location, then let the janitor retire it or recreate it safely.
 
 ## Legacy paths
 
-`D:\Garmin`, `D:\Codex\Garmin`, old OpenCode/Grok/Hermes Health-Check roots and historical UAT/promotion folders are legacy locations. Do not assign new work there.
+`D:\Garmin`, `D:\Codex\Garmin`, `D:\OpenCode\Health-Check`, old Grok/Hermes Health-Check roots and historical UAT/promotion folders are legacy locations. Do not assign new work there. **The automatic janitor does not inspect or delete these legacy roots.**
 
-Legacy directories are deleted only through the #256 inventory/cleanup decisions; an old path existing on disk does not make it canonical.
+#256 Phase B already removed the approved historical checkout/UAT/promotion set and reclaimed about 6.64 GiB. Two legacy cases remain deliberately explicit:
+
+- `D:\Garmin\Garmin-Main` was structurally classified READY TO REMOVE (old checkout, no live references; its tiny DB contained only an empty migration marker). It may be removed manually when no process/client uses it.
+- `D:\Garmin\HealthCheck-Owner-Data` was intentionally retained because it is historical private Owner evidence. Do not delete the whole `D:\Garmin` root while this directory remains without a separate disposition.
+- `D:\OpenCode\Health-Check` was inventoried as a clean client reference checkout with no unique refs and no runtime DB. After OpenCode is repointed to `D:\HealthCheck\workspaces\opencode` and no active process uses the old checkout, it may be removed manually.
+- A task directory under the new OpenCode root that reports `wrong-origin` is preserved by design and needs separate manual inspection; do not equate it with the old reference checkout above.
+
+An old path existing on disk does not make it canonical. Legacy cleanup is explicit and manual unless a future task extends the allowlist deliberately.
 
 ## When paths change
 

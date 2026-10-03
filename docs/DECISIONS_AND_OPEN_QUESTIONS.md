@@ -15,7 +15,7 @@ Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - #119 deterministic Period Brief, its correctness/presentation/UAT closeout, durable Runtime foundation, Context v0, Garmin Training/Recovery and source freshness are completed and canonical.
 - Owner screenshot workflow #217/#219/#221, Windows CLI fix #203, screenshot algorithm guard #226, coherent reads #227, Garmin Training privacy-oracle fix #233, Windows cleanup/CI reliability #181 and changed-sidecar correction workflow #229 are also complete.
-- Near-term work is #214 automatic collection proof, #215 first real Context note and then #148 protected off-site recovery. #228/#153 remain parked/optional; UI remains deferred under #172/#189.
+- Near-term work is the non-UI technical maintenance track: #246 Stage A CI fast path, then separately selected #243/#242/#244 work according to overlap/priority. #247/#248/#240 remain bounded follow-ups; #228/#153 stay parked/optional; UI remains deferred under #172/#189.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -135,7 +135,7 @@ The accepted local helper preserves caller-owned commit/rollback/close, rejects 
 
 ### Stable Owner Runtime / owner operations
 
-- Private durable profile: `D:\Garmin\HealthCheck-Stable`.
+- Private durable profile: `D:\HealthCheck\stable`; clean Owner/control checkout: `D:\HealthCheck\main`; Owner Ops: `D:\HealthCheck\ops`.
 - Stable is the long-lived accumulation point, never reset for release UAT. Use verified backup/restore clones.
 - No direct SQLite grafting between historical profiles.
 - Supported bounded large-profile backup/verify/restore retains checksum/integrity/atomic-restore protections; a prior verified local archive is not an off-site disaster-recovery proof.
@@ -145,11 +145,13 @@ The accepted local helper preserves caller-owned commit/rollback/close, rejects 
 - Historical #132 closeout proved no stale running SyncRun rows/current instant duplicate groups at that time. Later interruptions need their own honest assessment.
 - Owner operation checkout and local Ops runner are separate from GitHub main and from Worker workspaces. No automatic deployment is implied by merge.
 
-#### #214 operational status
+#### Owner refresh / collection-policy operational status
 
-Phase A audit and manual refresh are accepted. Scheduler is configured for 10:30 local Windows time plus Owner logon, StartWhenAvailable, one-instance execution, allowed battery start and no stop merely on switching to battery. A manually triggered selected-stream run passed in 35m32.734s with current structural dates across Garmin/Google/Training/wearables sleep.
+#214 automatic collection proof is complete: the accepted Owner-reported automatic/logon run finished with Scheduler result 0 and all selected Garmin / Garmin Training / Google normal / wearables-sleep layers succeeded. The observed run time is evidence for that run, not a future duration guarantee.
 
-The prior automatic attempt ended with `0xC000013A` and no final JSON. Its cause was not established; Disable/Enable testing is context, not a proven cause. One untouched automatic run remains the final Phase B gate. Current configuration does not prove successful resume-from-sleep or exactly one run per day: logon is an additional trigger and IgnoreNew prevents overlap, not sequential duplicate triggers.
+#238 is also complete. Durable collection intent is explicit and reversible: intentionally disabled Google high-frequency HR is non-actionable for collection without being relabelled fresh/provider-empty, while real age/history remains preserved. Re-enabling does not authorize broad backfill. Shared freshness consumers use the accepted policy rather than inferring durable intent from a one-off omitted stream.
+
+`Health-Check owner refresh` remains the normal bounded Scheduler workflow. The project does not claim guaranteed resume-from-sleep, exact once-per-day semantics or perpetual provider availability from one successful run.
 
 ### Source freshness / data quality
 
@@ -158,7 +160,7 @@ The prior automatic attempt ended with `0xC000013A` and no final JSON. Its cause
 - Attempt/success, evidence time, coverage/checkpoints and configuration/request state remain distinct facts.
 - Daily streams use versioned due/grace policy; activities use proven inventory; voluntary Weight is non-alert by default.
 - Unknown/insufficient chronology never becomes healthy; optional/unsupported metrics do not fail an otherwise healthy provider.
-- #214 operational use does not alter those policies or relabel disabled history complete.
+- #238 completes the policy alignment: explicit disabled collection remains historically truthful and non-actionable without being relabelled fresh; enabled/unknown/unavailable failures remain visible.
 
 ### Time, coverage and agreement
 
@@ -178,7 +180,7 @@ The prior automatic attempt ended with `0xC000013A` and no final JSON. Its cause
 - no skipped platform proof or green subset is substituted for the final gate;
 - no full Windows matrix, xdist/cache or micro-tuning without a material measured need.
 
-Historical remote timing moved from ~5m02s to ~2m48s during that maintenance campaign. #181 now tracks fresh Windows cleanup exit-255 and partial-rerun evidence failures, not an unverified performance opportunity. Green later runs do not close it.
+#181 is complete for its accepted Windows ownership/lifecycle and same-attempt evidence contract. #251 later rebalanced the three serial Linux lanes without changing their exact complete union. #246 is the current staged CI-efficiency track (docs-only PR fast path first, event dedup separately); #243 remains the narrow post-#181 blank-transcript recurrence investigation. Green later runs never erase retained failed evidence.
 
 #### Repository protection / #126
 
@@ -193,7 +195,7 @@ Historical remote timing moved from ~5m02s to ~2m48s during that maintenance cam
 - LLM access is typed, bounded and read-only through analytics services, not unrestricted SQL.
 - Reports are deterministic/versioned before rendering/delivery.
 - Context v0 preserves revisioned Owner-authored text and optional tags; no mandatory diary.
-- #215 is first real Stable adoption; later adapters must not invent dates/tags/interpretations.
+- #215 completed the first real private Stable adoption; Context Capture v0 is an accepted manual evidence source. Later adapters must not invent dates/tags/interpretations.
 
 ### Model attribution — Owner clarification 2026-09-29
 
@@ -235,11 +237,13 @@ Explicit Owner confirmation of the model actually used is valid alongside runtim
 
 ### Operations / durability / CI
 
-- #214 uninterrupted automatic-run proof pending; manual PASS is not that proof.
-- #215 first real private Context note/read-back pending.
-- #148 protection/publication/retention and off-machine clean restore rehearsal not complete.
-- #181 Windows reliability/partial-rerun contract unresolved; current main green is not a repair.
-- #126 server-side enforcement must be verified before any setting change.
+- #214 automatic selected-stream collection proof is complete.
+- #215 first real private Context note/read-back is complete.
+- #148 practical off-site recovery is complete; the accepted Owner workflow is an ordinary verified ZIP in the materialized Google Drive folder plus supported clean restore. Optional protected age publication is not required.
+- #181 accepted Windows ownership/lifecycle and full-rerun-only evidence contract is complete; #243 separately tracks the narrow blank transcript recurrence.
+- #251 CI lane balancing is complete; #246 owns the next CI-efficiency stages.
+- #256 Owner filesystem migration and automatic workspace cleanup are complete. Canonical roots are under `D:\HealthCheck`; janitor runs daily at 12:00 with seven-day minimum retention and does not touch legacy roots.
+- #126 server-side enforcement still requires an Owner/capability decision before settings changes.
 
 ## Deferred owner choices
 

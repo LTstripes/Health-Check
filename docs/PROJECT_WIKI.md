@@ -2,20 +2,18 @@
 
 This is the compact current-state entry point. Historical contracts and release evidence remain in release-specific documents and GitHub issues.
 
-## Current canonical state — 2026-10-01
+## Current canonical state — 2026-10-03
 
-- Canonical Git branch: `main`. Repository checkpoint before this operational closeout: `4029fd8c70e5bde0120bdf7902f2016faec118ed`; exact-main CI `36820492189` SUCCESS. Re-read live GitHub state before launch/integration.
-- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness, screenshot workflow, #203/#226/#227/#233/#181/#229 are canonical.
-- **#214 CLOSED / operational PASS:** Owner-reported automatic post-reboot/logon run completed with Scheduler result 0, complete successful seven-day report and all four acquisition layers succeeded. Measured duration 19m03.819s; Google sample HR OFF.
-- **Freshness caveat:** Owner/Google aggregates remain stale solely from disabled `google:heart_rate / refresh_overdue`; Garmin aggregate is fresh. Optional Garmin HRV-status/resting-HR chronology remains unknown. #238 tracks explicit collection-intent/freshness alignment, not a request to enable HR or fabricate freshness.
-- Stable private data: `D:\Garmin\HealthCheck-Stable`. Candidate UAT uses disposable verified backup/restore clones, never Stable as a development workspace.
-- Owner operation checkout: `D:\Garmin\HealthCheck-Owner-Main`; local Ops: `D:\Garmin\HealthCheck-Ops`. Last observed Owner HEAD was `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e`; updating it to newer main has not been evidenced. GitHub merges do not deploy locally.
-- #229 correction workflow is released: changed sidecars stage pending evidence; reject preserves prior state; confirm reuses revision/supersession history; terminal replay is duplicate-safe.
-- #181 is complete through PR #236 and post-main WMI follow-up PR #237. Fail-closed ownership/CreationTime evidence, exact exit-255 transcript parsing and full-rerun-only CI remain mandatory.
-- #215 first real Context note/read-back remains open; #148 off-site protection/recovery remains open. #228 research accepted/parked; #153 optional; #172/#189 UI deferred; #167 Owner-deferred; #126 capability gate; #105 NOT_ELIGIBLE; #210 ongoing journal.
-- PR #232 merged; obsolete PR #224 closed as superseded without merge. Repository visibility remains public; this closeout does not authorize visibility, protection or historical metadata rewrite.
+- Canonical Git branch: `main`. Checkpoint before this docs closeout: `0339088c52dcefac93bb372a3a460c12cc4b6152`; exact-main CI `37137153269` SUCCESS. Owner `D:\HealthCheck\main` was also clean/read back at this SHA.
+- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness/collection policy, screenshot workflow and reliability/correction work are canonical.
+- #214 automatic selected-stream collection proof and #238 collection-policy/freshness reconciliation are complete. Google high-frequency sample HR remains intentionally disabled under explicit reversible policy; historical age/evidence is preserved rather than called fresh.
+- Stable private data: `D:\HealthCheck\stable`; Owner/control checkout: `D:\HealthCheck\main`; local Ops: `D:\HealthCheck\ops`; disposable Owner UAT: `D:\HealthCheck\uat`; agent tasks: `D:\HealthCheck\workspaces\<client>\<issue-or-task>`.
+- #148 practical off-site recovery is complete: the accepted Owner workflow is an ordinary verified ZIP in the materialized Google Drive folder plus supported clean restore. Optional protected age publication is not required.
+- #251 CI lane balancing and #256 filesystem/workspace maintenance are complete. The workspace janitor runs daily at 12:00 local with seven-day minimum retention and preserves ambiguous/active/young/wrong-origin tasks.
+- Current active non-UI technical thread: #246 Stage A docs-only PR fast path. #243/#242/#244 are separate maintenance/security tasks; #247/#248/#240 are later bounded follow-ups. UI #172/#189 remains deferred.
+- Repository visibility remains public at this checkpoint; #126 and #167 remain explicit Owner/capability/privacy decisions rather than implicit authorization for settings/history changes.
 
-See the [11-issue backlog](ROADMAP.md#current-backlog--2026-10-01), [automatic-run closeout](OWNER_REFRESH_CLOSEOUT_2026-10-01.md), [current history](EXECUTION_HISTORY_CURRENT.md) and [model journal](MODEL_BENCHMARK.md).
+See the [current backlog](ROADMAP.md#current-backlog--2026-10-03), [Owner machine layout](OWNER_MACHINE_LAYOUT.md), [current history](EXECUTION_HISTORY_CURRENT.md) and [model journal](MODEL_BENCHMARK.md).
 
 ## What the product can do today
 
@@ -46,7 +44,7 @@ See the [11-issue backlog](ROADMAP.md#current-backlog--2026-10-01), [automatic-r
 - Privacy-safe structural diagnostics.
 - Selectable normal streams; fixed wearables-sleep reconciliation remains a separate required layer.
 
-The bare CLI default still includes sample HR. The local Scheduler/Ops wrapper applies the Owner's HR-OFF choice. That choice is not yet represented consistently in the shared freshness policy; #238 remains open. See [Owner Refresh](OWNER_REFRESH.md).
+The bare CLI default still includes sample HR. The local Scheduler/Ops wrapper applies the Owner's HR-OFF choice, and #238 now supplies the accepted explicit reversible collection-policy semantics used by shared freshness consumers. Disabled HR remains historically truthful/non-actionable rather than fabricated fresh. See [Owner Refresh](OWNER_REFRESH.md).
 
 ### Cross-domain reporting
 
