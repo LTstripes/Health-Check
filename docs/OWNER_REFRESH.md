@@ -42,14 +42,14 @@ The historical Google HR gap is intentionally not a backfill target while disabl
 
 | Role | Owner-local location |
 | --- | --- |
-| Accepted-code operation checkout | `D:\Garmin\HealthCheck-Owner-Main` |
-| Durable private data | `D:\Garmin\HealthCheck-Stable` |
-| Operational wrapper | `D:\Garmin\HealthCheck-Ops\owner-refresh-scheduled.ps1` |
-| Enable Google sample HR | `D:\Garmin\HealthCheck-Ops\google-hr.enabled` |
-| Private operational logs | `D:\Garmin\HealthCheck-Stable\logs\owner-refresh-*.log` |
+| Accepted-code operation checkout | `D:\HealthCheck\main` |
+| Durable private data | `D:\HealthCheck\stable` |
+| Operational wrapper | `D:\HealthCheck\ops\owner-refresh-scheduled.ps1` |
+| Enable Google sample HR | `D:\HealthCheck\ops\google-hr.enabled` |
+| Private operational logs | `D:\HealthCheck\stable\logs\owner-refresh-*.log` |
 | Task name | `Health-Check owner refresh` |
 
-These are operational assignments, not Worker development locations. Never use reset/clean as routine setup. GitHub merges do not deploy automatically. Last observed local HEAD was `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e`; only remote-tracking origin/main was fetched to the newer repository checkpoint. A subsequent local update has not been evidenced.
+These are operational assignments, not Worker development locations. New agent tasks use the separate roots documented in [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md). Never use reset/clean as routine setup. GitHub merges do not deploy automatically. The Owner operation checkout was last read back clean at `0339088c52dcefac93bb372a3a460c12cc4b6152` after #256 deployment; later GitHub changes still require their own safe local fast-forward.
 
 Before an explicit safe code update verify accepted target SHA, clean local state and idle relevant Owner processes, including refresh and application processes using that checkout. Do not switch/pull mid-run. This closeout does not itself modify the task, wrapper, checkout or Stable data.
 
@@ -68,9 +68,9 @@ HR toggle, applied at the next runner start:
 
 ```powershell
 # ON only after an explicit Owner choice
-New-Item -ItemType File -Path 'D:\Garmin\HealthCheck-Ops\google-hr.enabled' -Force | Out-Null
+New-Item -ItemType File -Path 'D:\HealthCheck\ops\google-hr.enabled' -Force | Out-Null
 # OFF
-Remove-Item -LiteralPath 'D:\Garmin\HealthCheck-Ops\google-hr.enabled' -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath 'D:\HealthCheck\ops\google-hr.enabled' -ErrorAction SilentlyContinue
 ```
 
 Disable/enable future task execution:
@@ -117,7 +117,7 @@ Battery permissions do not prove execution through sleep. A closed lid, sleep/of
 
 The report's persisted freshness projection is the read-back evidence; no separate Scheduler event-log audit or fresh direct SQL inventory was performed. Last observed local code remains the older accepted checkout; this result does not prove deployment of later GitHub work.
 
-**Important residual:** actual freshness is Owner/Google `stale`, Garmin `fresh`. The sole actionable reason is disabled `google:heart_rate / refresh_overdue`; optional Garmin HRV-status/resting-HR chronology remains unknown. [#238](https://github.com/LTstripes/Health-Check/issues/238) owns an explicit collection-intent/freshness contract. Do not relabel these values fresh, silently filter one-off omitted streams, delete old evidence or re-enable HR to obtain a green aggregate.
+**Policy follow-up completed:** #238 added the accepted explicit reversible collection-policy contract. Intentionally disabled `google:heart_rate` remains historically preserved and non-actionable for collection rather than being relabelled fresh/provider-empty; enabled/unknown/unavailable failures still remain visible. Re-enabling does not authorize broad historical backfill.
 
 Earlier evidence remains historical:
 - Ten-day full catch-up succeeded in 117m06.216s.
