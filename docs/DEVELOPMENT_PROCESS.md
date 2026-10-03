@@ -47,7 +47,7 @@ Workers stay pinned while implementing. Integrator decides whether a candidate m
 
 ## 3. Local workspace layout
 
-Concrete paths belong to Owner-local configuration and the assignment, not permanent policy. Record the actual task workspace; resolve missing/conflicting protected-location assignments before writing.
+The current Owner Windows paths are maintained in [Owner machine layout](OWNER_MACHINE_LAYOUT.md). Use those roots for new Health-Check assignments unless the Integrator explicitly assigns a temporary exception. Record the exact task workspace and resolve missing/conflicting protected-location assignments before writing; portable process policy remains role-based rather than duplicating the absolute path table here.
 
 Protected location roles are unchanged:
 - Owner canonical checkout: accepted-main read/run location, not agent development; do not inspect/switch/reset without an explicit Owner-controlled assignment.
