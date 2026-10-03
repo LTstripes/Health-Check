@@ -74,6 +74,8 @@ def test_windows_smoke_is_focused_and_is_required_by_the_final_gate():
     assert "shell: pwsh" in windows
     assert "scripts/ci_windows_smoke.ps1" in windows
     assert "tests/test_ci_windows_process.ps1" in windows
+    assert "tests/test_cleanup_workspaces.ps1" in windows
+    assert "powershell.exe -NoLogo -NoProfile -NonInteractive" in windows
     smoke_script = (Path(__file__).parents[1] / "scripts" / "ci_windows_smoke.ps1").read_text(
         encoding="utf-8"
     )
