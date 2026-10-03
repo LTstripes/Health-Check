@@ -48,7 +48,8 @@ def test_quality_and_three_serial_lanes_are_independent_and_locked():
 
     for job in (quality, test):
         assert "needs: classify" in job
-        assert "needs.classify.result != 'success' || needs.classify.outputs.mode != 'docs'" in job
+        assert "needs.classify.result != 'success' || (needs.classify.outputs.mode != 'docs'" in job
+        assert "&& needs.classify.outputs.delegated != 'true')" in job
         assert "needs: quality" not in job
     assert "uv sync --locked" in quality
     assert "uv sync --locked" in test
@@ -117,7 +118,10 @@ def test_lane_artifacts_keep_timing_junit_metadata_and_distinct_provenance():
 def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
     checks = _job("checks")
 
-    assert checks.startswith("    if: always()\n")
+    assert checks.startswith(
+        "    if: ${{ always() && (needs.classify.result != 'success' || "
+        "needs.classify.outputs.delegated != 'true') }}\n"
+    )
     assert "      - quality\n" in checks
     assert "      - test\n" in checks
     assert "actions/download-artifact@v4" in checks
@@ -160,7 +164,7 @@ def test_docs_routing_preserves_terminal_checks_and_full_fallback():
     assert "ci_docs_gate.py check" in docs
     for job in ("quality", "test", "windows-smoke"):
         assert "always() && (needs.classify.result != 'success'" in _job(job)
-    assert checks.startswith("    if: always()\n")
+    assert "always() && (needs.classify.result != 'success'" in checks
     assert "      - classify\n" in checks and "      - docs\n" in checks
     assert "CI_MODE: ${{ needs.classify.outputs.mode }}" in checks
     assert "CLASSIFY_RESULT: ${{ needs.classify.result }}" in checks
@@ -180,6 +184,30 @@ def test_checks_enforces_full_rerun_only_before_content_verdicts():
     assert "scripts/ci_test_lanes.py verify-attempt" in checks
     assert '--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"' in checks
     assert 'if [ "$attempt_status" -ne 0 ]' in checks
+
+
+def test_event_delegation_is_explicit_non_gate_and_keeps_evidence_sets_separate():
+    classify = _job("classify", "docs")
+    assert "scripts/ci_event_route.py" in classify
+    assert "delegated: ${{ steps.event-route.outputs.delegated }}" in classify
+    assert "GH_TOKEN: ${{ github.token }}" in classify
+    assert "contents: read" in classify
+    assert "pull-requests: read" in classify
+    assert "actions: read" in classify
+    assert "name: event-decision-${{ github.run_id }}-${{ github.run_attempt }}" in classify
+    for name in ("quality", "test", "windows-smoke"):
+        assert (
+            "always() && (needs.classify.result != 'success' || "
+            "(needs.classify.outputs.mode != 'docs' && "
+            "needs.classify.outputs.delegated != 'true'))"
+        ) in _job(name)
+    checks = _job("checks")
+    assert (
+        "needs.classify.result != 'success' || needs.classify.outputs.delegated != 'true'"
+    ) in checks
+    assert "event-decision" not in checks
+    assert "if [ \"$route\" = docs ]; then" in checks
+    assert "verify-attempt" in checks and "ci_windows_smoke.py" in checks
 
 
 def _absent_observations(owned):

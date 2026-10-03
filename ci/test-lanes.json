@@ -27,6 +27,7 @@
       "tests/test_canonical_coverage.py",
       "tests/test_ci_evidence_summary.py",
       "tests/test_ci_docs_gate.py",
+      "tests/test_ci_event_route.py",
       "tests/test_ci_test_lanes.py",
       "tests/test_ci_workflow.py",
       "tests/test_collection_policy.py",
