@@ -30,19 +30,20 @@ R04 release lineage:
 
 The final R04 owner gate proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations.
 
-## Current focus — 2026-10-01
+## Current focus — 2026-10-03
 
-Repository checkpoint before this operational documentation update: `4029fd8c70e5bde0120bdf7902f2016faec118ed`; exact-main CI `36820492189` SUCCESS, including Windows smoke and final `checks`. This is dated evidence, not a permanent branch pointer. Re-read live GitHub state before launch/integration.
+Canonical GitHub checkpoint before this docs closeout: `0339088c52dcefac93bb372a3a460c12cc4b6152`; exact post-main CI `37137153269` SUCCESS. The Owner operation checkout was also read back clean at this SHA after #256 deployment. This is dated evidence, not a permanent branch pointer; re-read live GitHub state before a later integration.
 
-**#214 is CLOSED / operational PASS.** The accepted automatic run has a complete successful seven-day report, all four provider layers succeeded, and Google high-frequency HR OFF. Total measured runtime was **19m03.819s**. This is not a future runtime guarantee or proof of local deployment of recent GitHub changes.
+Recent operational/maintenance completion:
+- **#148 durability/recovery:** the existing Google Drive ZIP restored cleanly into a disposable profile (5109 files; full SQLite restored) without mutating Stable. #252/#254 raised bounded payload/manifest capacity uncovered by the real profile.
+- **#256 filesystem layout:** canonical Owner roots are now `D:\HealthCheck\{main,stable,uat,ops,workspaces}`; initial legacy cleanup reclaimed about 6.64 GiB; the fail-closed workspace janitor is deployed daily at 12:00 with seven-day minimum retention.
+- **#251 CI lane balance:** merged through PR #258; the same complete Linux test set is redistributed across the existing three serial lanes without dropping coverage.
 
-**Freshness is not all green:** the actual report has `owner=stale`, `google=stale`, `garmin=fresh`. Its only actionable item is the intentionally disabled `google:heart_rate / refresh_overdue`. Optional Garmin HRV-status/resting-HR chronology remains unknown. [#238](https://github.com/LTstripes/Health-Check/issues/238) owns collection-policy/freshness alignment; do not enable HR or fabricate fresh history to clear the warning. See [Owner refresh closeout](docs/OWNER_REFRESH_CLOSEOUT_2026-10-01.md).
+**Active non-UI technical work:** #246 Stage A docs-only PR fast path is the current assigned CI optimization and is being refreshed against the post-#259 main before independent review. Stage B event dedup remains separate. Other open technical maintenance includes #243 Windows exit-255 transcript diagnosis, #242 dependency advisories, #244 loopback Host/Origin hardening, #247 non-Windows Google AEAD replacement, #248 explicit Period Brief CLI JSON/text output and #240 Owner-attested screenshot metadata. Do not start these automatically or fold them into #246.
 
-#181 is complete through PR #236 and post-main WMI polling follow-up PR #237. #229 is complete through PR #235 after signed-zero remediation and independent re-review. #233 and earlier #203/#226/#227, freshness #147/#191/#193 and Google HR performance/reliability #199/#206/#207/#212 remain complete. PR #232 published the preceding handoff; stale PR #224 is closed as superseded, not merged.
+UI remains deferred under #172/#189. #228 remains parked, #153 optional, #167 Owner-deferred, #126 an Owner/capability decision, #105 NOT_ELIGIBLE and #210 the ongoing model journal.
 
-**Next non-UI work:** #215 first real private Context note/read-back; #238 bounded collection-intent contract and fix; then #148 protected off-site recovery. #215 and read-only #238 design are independent. #228 remains research-accepted/implementation-parked; #153 optional compatibility; #172/#189 UI deferred.
-
-There are **11 open issues** after closing #214 and opening #238. The [roadmap](docs/ROADMAP.md#current-backlog--2026-10-01), [current history](docs/EXECUTION_HISTORY_CURRENT.md) and [model journal](docs/MODEL_BENCHMARK.md) preserve the full disposition. No broad historical backfill or HR re-enable is authorized.
+There are **15 open issues** at this checkpoint. The [roadmap](docs/ROADMAP.md), [current history](docs/EXECUTION_HISTORY_CURRENT.md), [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md) and [model journal](docs/MODEL_BENCHMARK.md) preserve the current disposition. No broad historical backfill or Google HR re-enable is authorized.
 
 ## Architecture in one minute
 
@@ -103,7 +104,7 @@ Start the canonical Windows runtime:
 
 Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HEALTHCHECK_DATA_DIR`.
 
-For normal Owner operation, the accepted durable private profile is `D:\Garmin\HealthCheck-Stable`. It is persistent owner data, not a release-UAT sandbox; candidate UAT uses a disposable verified backup/restore clone. The Owner operation checkout is `D:\Garmin\HealthCheck-Owner-Main`. Its last observed HEAD was `aafc407c1760780e82a5ae922a93b4d4d9fdfd0e`; deployment to newer main has not been verified. GitHub merges do not update the local checkout or restart its processes.
+For normal Owner operation, the durable private profile is `D:\HealthCheck\stable`; the clean control checkout is `D:\HealthCheck\main`; disposable private UAT/recovery state belongs under `D:\HealthCheck\uat`; Owner-local wrappers live in `D:\HealthCheck\ops`. New agent work uses `D:\HealthCheck\workspaces\<client>\<issue-or-task>`. See [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md) for the canonical roles and cleanup lifecycle. GitHub merges still do not update the local checkout or restart its processes automatically.
 
 [Owner Refresh](docs/OWNER_REFRESH.md) documents the local selected-stream runner, Scheduler controls and unchanged bounded CLI. The command requires an already-established external runtime and does not create a new profile. Never switch/pull code while the Owner refresh or dependent application processes are using that checkout.
 
@@ -126,6 +127,7 @@ The accepted final GitHub Actions verdict is **`checks`**. It fail-closes over m
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
 - [Model Evidence Journal](docs/MODEL_BENCHMARK.md)
+- [Owner Machine Layout](docs/OWNER_MACHINE_LAYOUT.md)
 - [Owner Refresh](docs/OWNER_REFRESH.md)
 - [Owner Refresh Closeout](docs/OWNER_REFRESH_CLOSEOUT_2026-10-01.md)
 - [Owner Screenshot Import](docs/OWNER_WEIGHT_SCREENSHOT_IMPORT.md)
