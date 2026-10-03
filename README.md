@@ -41,9 +41,9 @@ Recent operational/maintenance completion:
 
 **Active non-UI technical work:** #246 Stage A docs-only PR fast path is the current assigned CI optimization and is being refreshed against the post-#259 main before independent review. Stage B event dedup remains separate. Other open technical maintenance includes #243 Windows exit-255 transcript diagnosis, #242 dependency advisories, #244 loopback Host/Origin hardening, #247 non-Windows Google AEAD replacement, #248 explicit Period Brief CLI JSON/text output and #240 Owner-attested screenshot metadata. Do not start these automatically or fold them into #246.
 
-UI remains deferred under #172/#189. #228 remains parked, #153 optional, #167 Owner-deferred, #126 an Owner/capability decision, #105 NOT_ELIGIBLE and #210 the ongoing model journal.
+UI remains deferred under #172/#189. #228 remains parked, #153 optional, #167 Owner-deferred, #126 an Owner/capability decision and #105 NOT_ELIGIBLE. #210 is closed by Owner decision; model bookkeeping is retired.
 
-There are **15 open issues** at this checkpoint. The [roadmap](docs/ROADMAP.md), [current history](docs/EXECUTION_HISTORY_CURRENT.md), [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md) and [model journal](docs/MODEL_BENCHMARK.md) preserve the current disposition. No broad historical backfill or Google HR re-enable is authorized.
+The [roadmap](docs/ROADMAP.md), [current history](docs/EXECUTION_HISTORY_CURRENT.md) and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md) preserve the current disposition; use live GitHub issues for the current count. No broad historical backfill or Google HR re-enable is authorized.
 
 ## Architecture in one minute
 
@@ -126,7 +126,6 @@ The accepted final GitHub Actions verdict is **`checks`**. It fail-closes over m
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
-- [Model Evidence Journal](docs/MODEL_BENCHMARK.md)
 - [Owner Machine Layout](docs/OWNER_MACHINE_LAYOUT.md)
 - [Owner Refresh](docs/OWNER_REFRESH.md)
 - [Owner Refresh Closeout](docs/OWNER_REFRESH_CLOSEOUT_2026-10-01.md)

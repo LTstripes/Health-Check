@@ -13,7 +13,7 @@ This is the compact current-state entry point. Historical contracts and release 
 - Current active non-UI technical thread: #246 Stage A docs-only PR fast path. #243/#242/#244 are separate maintenance/security tasks; #247/#248/#240 are later bounded follow-ups. UI #172/#189 remains deferred.
 - Repository visibility remains public at this checkpoint; #126 and #167 remain explicit Owner/capability/privacy decisions rather than implicit authorization for settings/history changes.
 
-See the [current backlog](ROADMAP.md#current-backlog--2026-10-03), [Owner machine layout](OWNER_MACHINE_LAYOUT.md), [current history](EXECUTION_HISTORY_CURRENT.md) and [model journal](MODEL_BENCHMARK.md).
+See the [current backlog](ROADMAP.md#current-backlog--2026-10-03), [Owner machine layout](OWNER_MACHINE_LAYOUT.md) and [current history](EXECUTION_HISTORY_CURRENT.md).
 
 ## What the product can do today
 
@@ -98,7 +98,6 @@ Before updating local code, verify idle relevant Owner processes and a clean acc
 - Real health data, screenshots, tokens, payloads and runtime DBs never enter Git/CI/Worker workspaces.
 - Missing/null/zero/unavailable/unknown remain distinct.
 - Deterministic analytics own mathematics; UI/LLM explain rather than reimplement them.
-- Owner-confirmed actual model labels count as evidence even when a client reports unknown; unreported versions stay unknown.
 
 ## Useful docs
 
@@ -108,7 +107,6 @@ Before updating local code, verify idle relevant Owner processes and a clean acc
 - [Roadmap](ROADMAP.md)
 - [Decisions and Open Questions](DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](EXECUTION_HISTORY_CURRENT.md)
-- [Model Evidence Journal](MODEL_BENCHMARK.md)
 - [Owner Refresh](OWNER_REFRESH.md)
 - [Owner Refresh Closeout](OWNER_REFRESH_CLOSEOUT_2026-10-01.md)
 - [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md)

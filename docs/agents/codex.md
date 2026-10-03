@@ -14,4 +14,4 @@ Only an explicit request activates [Agent orchestration](../AGENT_ORCHESTRATION.
 
 ## Local helpers
 
-Load only a relevant procedure skill; keep implicit delivery-loop invocation disabled and avoid duplicate active skills. Skills may add mechanics, not weaken policy. Concrete model IDs/effort/local paths stay in launch/local configuration; report actual identity under [Completion reporting](../../AGENTS.md#completion-reporting).
+Load only a relevant procedure skill; keep implicit delivery-loop invocation disabled and avoid duplicate active skills. Skills may add mechanics, not weaken policy. Concrete model IDs/effort/local paths stay in local configuration; return the technical [completion report](../../AGENTS.md#completion-reporting).

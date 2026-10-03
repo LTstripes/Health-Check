@@ -1,5 +1,13 @@
 # Current Execution History
 
+## 2026-10-03 — model bookkeeping retired (#210)
+
+The Owner discontinued model benchmarking and runtime-model/provider attribution intake. [#210](https://github.com/LTstripes/Health-Check/issues/210) is closed as not planned, not as a claim that every former benchmark case completed. This docs-only change removes model-confirmation waits, reporting fields and journal-maintenance rules from active policy, client adapters and templates. Technical outcomes, actual checks, failures, independent review and integration evidence remain.
+
+Baseline for this retirement change: `d4529df9b5c0f3df28d637a259fbe82d0b4fde43`, after #262. The parallel #246 session retains CI/test-reduction and Stage A proof ownership; this change does not modify workflow, manifest, tests, product code or Owner runtime. The linked issue/PR records exact delivery and CI disposition; no local deployment is implied.
+
+Older model labels and journal references below are historical evidence, not active reporting instructions. The former journal remains in Git history; no further model intake, backfill or rescoring is required.
+
 ## 2026-10-03 — durability, filesystem and CI-maintenance checkpoint
 
 Canonical checkpoint before this docs closeout: `main @ 0339088c52dcefac93bb372a3a460c12cc4b6152`; exact post-main CI `37137153269` SUCCESS. The clean Owner operation checkout was also fast-forwarded/read back at this SHA.
@@ -51,7 +59,7 @@ Last observed local Owner checkout remains `aafc407c1760780e82a5ae922a93b4d4d9fd
 | #232/#224 | Current docs/model journal published in #232; obsolete #224 closed without merge |
 | #214 | Owner automatic selected-stream collection proof accepted; residual freshness-policy gap split into #238 |
 
-Older generic model labels remain generic; exact versions are recorded only when established. Two Sol 6.1 reviewer preflights for #229 were BLOCKED before semantics, not code findings. See [Model Journal](MODEL_BENCHMARK.md).
+The model labels in this dated table are historical. Two Sol 6.1 reviewer preflights for #229 were BLOCKED before semantics, not code findings. The [former journal](MODEL_BENCHMARK.md) is retired.
 
 ## Integration evidence retained
 
@@ -99,4 +107,4 @@ Next technical sequence:
 4. Keep UI #172/#189 deferred during this technical-maintenance session.
 5. New task workspaces use `D:\HealthCheck\workspaces\<client>\<issue-or-task>`; legacy `D:\Garmin` / old client roots are not canonical and are not auto-cleaned by the janitor.
 
-Fifteen open issues at this checkpoint: #246, #243, #248, #247, #244, #242, #240, #153, #228, #189, #172, #167, #126, #105 and #210. This list is status context, not an automatic Worker queue.
+The historical checkpoint had fifteen open issues: #246, #243, #248, #247, #244, #242, #240, #153, #228, #189, #172, #167, #126, #105 and #210. #210 has since been retired as recorded above; use live issues for the current count. This list is status context, not an automatic Worker queue.

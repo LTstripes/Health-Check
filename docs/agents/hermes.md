@@ -1,6 +1,6 @@
 # Hermes — Worker / Delegation Adapter
 
-Use [AGENTS.md](../../AGENTS.md). The receiving Hermes Worker remains accountable for the final candidate when it delegates or changes model.
+Use [AGENTS.md](../../AGENTS.md). The receiving Hermes Worker remains accountable for the final candidate when it delegates or changes execution route.
 
 ## Delegation mechanics
 
@@ -8,9 +8,9 @@ Helpers are Delegates unless explicitly assigned another role. Read-only helpers
 
 A helper that contributes implementation is not the independent Reviewer of that work. Apply the issue's review requirement independently of the delegation mechanism.
 
-## Fallback evidence
+## Completion
 
-Report material actual delegate/fallback use in surrounding completion context, preserving unknown identity when necessary. A fallback is not automatically a failure. Use the shared two-field [Model evidence](../../AGENTS.md#completion-reporting), not a mandatory expanded telemetry form.
+Report material effects of delegation/fallback on scope, verification or review independence through the shared [completion report](../../AGENTS.md#completion-reporting).
 
 ## Client distinction
 
