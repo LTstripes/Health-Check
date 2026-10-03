@@ -204,6 +204,11 @@ jobs:
         run: >-
           pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
           -File tests/test_ci_windows_process.ps1
+      - name: Run workspace janitor synthetic regression (Windows PowerShell 5.1)
+        shell: pwsh
+        run: >-
+          powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
+          -File tests/test_cleanup_workspaces.ps1
       - name: Run focused Windows smoke
         shell: pwsh
         env:
