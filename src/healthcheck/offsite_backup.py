@@ -16,7 +16,7 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -326,35 +326,24 @@ def _environment(
     identity: Path,
     *,
     nonsynced: bool,
+    target: Path | None = None,
 ):
     if not nonsynced:
         raise fs.OffsiteError("staging_attestation_required")
-    paths = [
-        fs.absolute(p)
-        for p in (profile, destination, staging, executable, identity)
-        if p is not None
-    ]
-    for path in paths:
-        fs.outside_checkout(path)
-    for index, first in enumerate(paths):
-        if any(fs.overlaps(first, second) for second in paths[index + 1 :]):
-            raise fs.OffsiteError("path_overlap")
     if executable.suffix.lower() != ".exe":
         raise fs.OffsiteError("explicit_executable_required")
-    with ExitStack() as stack:
-        for path in (profile, destination, staging):
-            if path is not None:
-                fs.identity(path, directory=True)
-                stack.enter_context(fs.pin_directories(path))
-                fs.require_ntfs(path)
+    directories = tuple(p for p in (profile, destination, staging) if p is not None)
+    with fs.pin_disjoint_paths(directories, (executable, identity), new_directory=target):
+        for path in directories:
+            fs.require_ntfs(path)
         fs.require_private(staging)
+        if target is not None:
+            fs.require_ntfs(target.parent)
+            fs.require_private(target.parent)
         if profile is not None:
             fs.require_private(profile)  # trusted ledger cannot be writable by unrelated users
             for item in _profile_files(profile):
                 fs.identity(item)
-        for path in (executable, identity):
-            stack.enter_context(fs.pin_directories(path.parent))
-            stack.enter_context(fs.read_file(path))  # deny replacement for whole operation
         fs.require_private(identity)
         yield
 
@@ -622,11 +611,7 @@ def list_backups(profile: Path, destination: Path) -> dict[str, Any]:
     }
     try:
         profile, destination = fs.absolute(profile), fs.absolute(destination)
-        for path in (profile, destination):
-            fs.outside_checkout(path)
-        if fs.overlaps(profile, destination):
-            raise fs.OffsiteError("path_overlap")
-        with fs.pin_directories(profile), fs.pin_directories(destination):
+        with fs.pin_disjoint_paths((profile, destination)):
             fs.require_ntfs(destination)
             fs.require_private(profile)
             inventory = _inventory(profile, destination)
@@ -724,21 +709,18 @@ def recover_backup(
         match = NAME.fullmatch(archive.name)
         if not match or expected_uuid != match[2] or not HASH.fullmatch(expected_sha256):
             raise fs.OffsiteError("independent_fingerprint_required")
-        fs.outside_checkout(target)
-        for other in (archive.parent, staging, executable, identity):
-            if fs.overlaps(target, other):
-                raise fs.OffsiteError("path_overlap")
         # Lexists semantics: dangling links are not an absent new target.
         if os.path.lexists(target):
             raise fs.OffsiteError("new_restore_target_required")
-        with (
-            _environment(
-                None, archive.parent, staging, executable, identity, nonsynced=staging_nonsynced
-            ),
-            fs.pin_directories(target.parent),
+        with _environment(
+            None,
+            archive.parent,
+            staging,
+            executable,
+            identity,
+            nonsynced=staging_nonsynced,
+            target=target,
         ):
-            fs.require_ntfs(target.parent)
-            fs.require_private(target.parent)
             with fs.read_file(archive) as source:
                 if _hash(source) != expected_sha256:
                     raise fs.OffsiteError("recovery_hash_mismatch")

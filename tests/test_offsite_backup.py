@@ -674,3 +674,203 @@ def test_newest_is_preserved_even_with_identical_timestamps(workflow, monkeypatc
     points = [published(workflow, rotate=True) for _ in range(5)]
     assert all((config.destination / p["archive"]).exists() for p in points[-3:])
     assert all(not (config.destination / p["archive"]).exists() for p in points[:2])
+
+
+@pytest.mark.parametrize("first,second", [(a, b) for a in range(6) for b in range(a + 1, 6)])
+@pytest.mark.parametrize("relationship", ["same", "ancestor", "descendant"])
+def test_identity_topology_rejects_all_protected_pairs(first, second, relationship):
+    # Inputs model distinct spellings: profile, destination, staging, checkout,
+    # executable and recovery identity. IDs, not their spellings, decide overlap.
+    topologies = [fs.PathTopology((7, index + 1), ((7, 0),)) for index in range(6)]
+    a, b = topologies[first], topologies[second]
+    if relationship == "same":
+        topologies[second] = fs.PathTopology(a.target, b.ancestors)
+    elif relationship == "ancestor":
+        topologies[second] = fs.PathTopology(b.target, (a.target, *b.ancestors))
+    else:
+        topologies[first] = fs.PathTopology(a.target, (b.target, *a.ancestors))
+    with pytest.raises(fs.OffsiteError, match="^path_identity_overlap$"):
+        fs._require_disjoint(topologies)
+
+
+def test_identity_topology_allows_siblings_and_same_id_on_other_volume():
+    fs._require_disjoint(
+        [
+            fs.PathTopology((7, 1), ((7, 0),)),
+            fs.PathTopology((7, 2), ((7, 0),)),
+            fs.PathTopology((8, 1), ((8, 0),)),
+            fs.PathTopology((7, 3), ((7, 9), (7, 0))),
+            fs.PathTopology((7, 4), ((7, 9), (7, 0))),
+        ]
+    )
+
+
+def _assert_overlap_before_workflow(config, monkeypatch):
+    from contextlib import contextmanager
+
+    original_read = fs.read_file
+
+    @contextmanager
+    def metadata_only(path, **kwargs):
+        with original_read(path, **kwargs) as stream:
+            if path == config.identity:
+                stream.read = lambda *args: pytest.fail("identity contents read before separation")
+            yield stream
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("workflow side effect before identity separation")
+
+    monkeypatch.setattr(fs, "read_file", metadata_only)
+    for name in ("_profile_files", "create_backup", "_Age", "_operation_lock"):
+        monkeypatch.setattr(offsite, name, forbidden)
+    monkeypatch.setattr(offsite.tempfile, "TemporaryDirectory", forbidden)
+    before = sorted(path.name for path in config.destination.iterdir())
+    report = offsite.publish_backup(config)
+    assert report["action_required"] == ["path_identity_overlap"]
+    assert not report["created"] and not report["protected"] and not report["published"]
+    assert not list(config.staging.iterdir())
+    assert sorted(path.name for path in config.destination.iterdir()) == before
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "destination_staging_same",
+        "staging_inside_destination",
+        "destination_inside_staging",
+        "identity_inside_profile",
+        "destination_inside_checkout",
+    ],
+)
+def test_injected_alias_topology_is_rejected_before_sensitive_work(workflow, monkeypatch, case):
+    from contextlib import contextmanager
+
+    config, root, _ = workflow
+    original = fs.pin_directories
+    if case == "identity_inside_profile":
+        alias_parent = root / "separate-key-spelling"
+        alias_parent.mkdir()
+        alias_key = alias_parent / "identity.txt"
+        alias_key.write_text(IDENTITY)
+        config = replace(config, identity=alias_key)
+    with (
+        original(config.destination) as dest,
+        original(config.staging) as stage,
+        original(config.profile) as profile,
+        original(fs._repository_root()) as checkout,
+    ):
+        chains = {config.destination: dest, config.staging: stage}
+        if case == "destination_staging_same":
+            chains[config.staging] = dest
+        elif case == "staging_inside_destination":
+            chains[config.staging] = (stage[0], *dest)
+        elif case == "destination_inside_staging":
+            chains[config.destination] = (dest[0], *stage)
+        elif case == "identity_inside_profile":
+            chains[config.identity.parent] = profile
+        else:
+            chains[config.destination] = (dest[0], *checkout)
+
+        @contextmanager
+        def injected(path):
+            with original(path) as chain:
+                yield chains.get(path, chain)
+
+        monkeypatch.setattr(fs, "pin_directories", injected)
+        _assert_overlap_before_workflow(config, monkeypatch)
+
+
+def test_pinned_distinct_siblings_and_sibling_file_inputs_allowed(workflow):
+    config, _, _ = workflow
+    with offsite._environment(
+        config.profile,
+        config.destination,
+        config.staging,
+        config.executable,
+        config.identity,
+        nonsynced=True,
+    ):
+        pass
+
+
+def test_list_and_new_restore_target_use_identity_containment(workflow, monkeypatch):
+    from contextlib import contextmanager
+
+    config, root, _ = workflow
+    original = fs.pin_directories
+    with original(config.profile) as profile:
+
+        @contextmanager
+        def alias(path):
+            with original(path) as chain:
+                yield profile if path == config.destination else chain
+
+        monkeypatch.setattr(fs, "pin_directories", alias)
+        monkeypatch.setattr(offsite, "_inventory", lambda *args: pytest.fail("inventory read"))
+        assert offsite.list_backups(config.profile, config.destination)["status"] == "failed"
+    monkeypatch.setattr(fs, "pin_directories", original)
+    with pytest.raises(fs.OffsiteError, match="path_identity_overlap"):
+        with fs.pin_disjoint_paths((config.staging,), new_directory=config.staging / "new-target"):
+            pytest.fail("unsafe restore target accepted")
+    with fs.pin_disjoint_paths((config.staging,), new_directory=root / "new-safe-target"):
+        pass
+
+
+def _native_short_path(path):
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    api = ctypes.WinDLL("kernel32", use_last_error=True)
+    api.GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    api.GetShortPathNameW.restype = wintypes.DWORD
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = api.GetShortPathNameW(str(path), buffer, len(buffer))
+    if not 0 < length < len(buffer) or Path(buffer.value) == path:
+        return None
+    return Path(buffer.value)
+
+
+@pytest.mark.parametrize(
+    "case", ["destination_staging", "identity_profile", "destination_checkout", "distinct_siblings"]
+)
+def test_native_windows_83_identity_separation(workflow, monkeypatch, case, record_property):
+    config, root, _ = workflow
+    if case == "destination_staging":
+        alias = _native_short_path(config.destination)
+        changed = replace(config, staging=alias) if alias is not None else config
+    elif case == "identity_profile":
+        parent = config.profile / "identity storage directory"
+        parent.mkdir()
+        key = parent / "recovery.txt"
+        key.write_text(IDENTITY)
+        alias = _native_short_path(parent)
+        changed = replace(config, identity=alias / key.name) if alias is not None else config
+    elif case == "destination_checkout":
+        checkout = root / "synthetic checkout with long name"
+        checkout.mkdir()
+        destination = checkout / "synced destination directory"
+        destination.mkdir()
+        monkeypatch.setattr(fs, "_repository_root", lambda: checkout)
+        alias = _native_short_path(destination)
+        changed = replace(config, destination=alias) if alias is not None else config
+    else:
+        alias = _native_short_path(config.destination)
+        changed = replace(config, destination=alias) if alias is not None else config
+    if alias is None:
+        record_property("native_83", "unavailable")
+        return  # Availability probe; deterministic identity regressions always run.
+    record_property("native_83", "executed")
+    if case == "distinct_siblings":
+        with offsite._environment(
+            changed.profile,
+            changed.destination,
+            changed.staging,
+            changed.executable,
+            changed.identity,
+            nonsynced=True,
+        ):
+            pass
+    else:
+        _assert_overlap_before_workflow(changed, monkeypatch)

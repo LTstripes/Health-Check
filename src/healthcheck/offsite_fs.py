@@ -11,7 +11,8 @@ import ctypes
 import os
 import stat
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
@@ -32,12 +33,8 @@ def absolute(value: Path | str) -> Path:
 
 
 def overlaps(a: Path, b: Path) -> bool:
+    """Lexical relation only; never the filesystem separation authority."""
     return a == b or a in b.parents or b in a.parents
-
-
-def outside_checkout(path: Path) -> None:
-    if overlaps(path, _repository_root().resolve()):
-        raise OffsiteError("checkout_overlap")
 
 
 def identity(path: Path, *, directory: bool = False) -> os.stat_result:
@@ -189,19 +186,56 @@ def _windows_handle(
     return handle
 
 
+FileIdentity = tuple[int, int]
+
+
+def _handle_identity(handle: int) -> FileIdentity:
+    """Volume/file ID from an already-open no-follow Windows handle."""
+    from ctypes import wintypes
+
+    class FileInformation(ctypes.Structure):
+        _fields_ = [
+            ("attributes", wintypes.DWORD),
+            ("creation", wintypes.FILETIME),
+            ("access", wintypes.FILETIME),
+            ("write", wintypes.FILETIME),
+            ("volume", wintypes.DWORD),
+            ("size_high", wintypes.DWORD),
+            ("size_low", wintypes.DWORD),
+            ("links", wintypes.DWORD),
+            ("index_high", wintypes.DWORD),
+            ("index_low", wintypes.DWORD),
+        ]
+
+    api = ctypes.WinDLL("kernel32", use_last_error=True)
+    api.GetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.POINTER(FileInformation)]
+    api.GetFileInformationByHandle.restype = wintypes.BOOL
+    info = FileInformation()
+    if not api.GetFileInformationByHandle(handle, ctypes.byref(info)):
+        raise OffsiteError("file_identity_unknown")
+    if info.attributes & 0x400:
+        raise OffsiteError("unsafe_reparse")
+    return info.volume, (info.index_high << 32) | info.index_low
+
+
 @contextmanager
-def pin_directories(path: Path) -> Iterator[None]:
-    """Pin every existing ancestor without following reparse entries."""
+def pin_directories(path: Path) -> Iterator[tuple[FileIdentity, ...]]:
+    """Pin ancestors root-first; yield target-first identities from their handles."""
     opened: list[int] = []
+    identities: list[FileIdentity] = []
     try:
         for parent in reversed((path, *path.parents)):
             before = identity(parent, directory=True)
             if os.name == "nt":
                 handle = _windows_handle(parent, directory=True)
                 opened.append(handle)
+                key = _handle_identity(handle)
+            else:
+                key = (before.st_dev, before.st_ino)
             if not same(before, identity(parent, directory=True)):
                 raise OffsiteError("identity_changed")
-        yield
+            identities.append(key)
+        yield tuple(reversed(identities))
     finally:
         if opened:
             from ctypes import wintypes
@@ -211,6 +245,60 @@ def pin_directories(path: Path) -> Iterator[None]:
             api.CloseHandle.restype = wintypes.BOOL
             for handle in reversed(opened):
                 api.CloseHandle(handle)
+
+
+@dataclass(frozen=True)
+class PathTopology:
+    target: FileIdentity | None
+    ancestors: tuple[FileIdentity, ...]
+
+
+def _require_disjoint(topologies: list[PathTopology]) -> None:
+    for index, first in enumerate(topologies):
+        for second in topologies[index + 1 :]:
+            if (
+                first.target is not None and first.target in (second.target, *second.ancestors)
+            ) or (second.target is not None and second.target in (first.target, *first.ancestors)):
+                raise OffsiteError("path_identity_overlap")
+
+
+@contextmanager
+def pin_disjoint_paths(
+    directories: tuple[Path, ...],
+    files: tuple[Path, ...] = (),
+    *,
+    new_directory: Path | None = None,
+) -> Iterator[None]:
+    """Validate identity containment before any content read or workflow mutation.
+
+    File handles are opened only for metadata here and held to deny replacement;
+    no identity contents are read. An absent restore target uses its pinned parent
+    chain. Common ancestors of distinct siblings do not imply containment.
+    """
+    with ExitStack() as stack:
+        topologies = []
+        # The runtime checkout path locates the root; open identities decide safety.
+        for directory in (_repository_root(), *directories):
+            chain = stack.enter_context(pin_directories(directory))
+            topologies.append(PathTopology(chain[0], chain[1:]))
+        for file in files:
+            parents = stack.enter_context(pin_directories(file.parent))
+            stream = stack.enter_context(read_file(file))
+            if os.name == "nt":
+                import msvcrt
+
+                key = _handle_identity(msvcrt.get_osfhandle(stream.fileno()))
+            else:
+                info = os.fstat(stream.fileno())
+                key = (info.st_dev, info.st_ino)
+            topologies.append(PathTopology(key, parents))
+        if new_directory is not None:
+            if os.path.lexists(new_directory):
+                raise OffsiteError("new_restore_target_required")
+            parents = stack.enter_context(pin_directories(new_directory.parent))
+            topologies.append(PathTopology(None, parents))
+        _require_disjoint(topologies)
+        yield
 
 
 @contextmanager
