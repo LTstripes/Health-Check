@@ -141,13 +141,6 @@ jobs:
           quality_dir="$RUNNER_TEMP/ci-quality-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           uv run python scripts/ci_test_lanes.py validate-manifest
           uv run python scripts/ci_test_lanes.py collect --output-dir "$quality_dir"
-      - name: Audit locked dependency advisories
-        shell: bash
-        run: |
-          set -euo pipefail
-          quality_dir="$RUNNER_TEMP/ci-quality-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          python scripts/dependency_audit.py \
-            --output-dir "$quality_dir/dependency-audit"
       - name: Capture quality failure diagnostics
         if: failure()
         shell: bash
@@ -405,9 +398,6 @@ jobs:
             --pr-head-ref "$EXPECTED_PR_HEAD_REF" \
             --pr-head-sha "$EXPECTED_PR_HEAD_SHA"
           windows_status=$?
-          audit_evidence=( "$evidence_root"/ci-quality-*/dependency-audit/result.json )
-          python scripts/dependency_audit.py --verify "${audit_evidence[@]}"
-          audit_status=$?
-          if [ "$attempt_status" -ne 0 ] || [ "$linux_status" -ne 0 ] || [ "$windows_status" -ne 0 ] || [ "$audit_status" -ne 0 ]; then
+          if [ "$attempt_status" -ne 0 ] || [ "$linux_status" -ne 0 ] || [ "$windows_status" -ne 0 ]; then
             exit 1
           fi

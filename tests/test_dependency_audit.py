@@ -220,21 +220,60 @@ def test_verify_accepts_only_a_clean_osv_result_that_keeps_the_garmin_limit(tmp_
     assert audit.verify_result(tmp_path / "missing.json") == 2
 
 
-def test_full_ci_audits_inside_quality_and_docs_route_returns_first():
+def _event_block(workflow: str, name: str) -> str:
+    rest = workflow.split(f"  {name}:\n", 1)[1]
+    lines = []
+    for line in rest.splitlines(keepends=True):
+        if line.startswith("  ") and not line.startswith("   "):
+            break
+        lines.append(line)
+    return "".join(lines)
+
+
+def test_dependency_audit_stays_outside_ordinary_ci_and_is_path_scoped():
     root = Path(__file__).parents[1]
-    workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    quality = workflow.split("  quality:\n", 1)[1].split("  test:\n", 1)[0]
-    checks = workflow.split("  checks:\n", 1)[1]
-    assert "scripts/dependency_audit.py" in quality
-    assert "--output-dir" in quality and "dependency-audit" in quality
-    assert "continue-on-error" not in workflow and "|| true" not in workflow
-    assert not (root / ".github/workflows/dependency-audit.yml").exists()
-    docs_return = checks.index('if [ "$route" = docs ]; then')
-    verify_at = checks.index("dependency_audit.py --verify")
-    assert verify_at > docs_return
+    ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "dependency_audit.py" not in ci
+    assert "audit_status" not in ci
+    checks = ci.split("  checks:\n", 1)[1]
+    assert 'if [ "$route" = docs ]; then' in checks
     assert "pytest and Windows were not run" in checks
-    assert 'if [ "$attempt_status" -ne 0 ]' in checks
-    assert '"$audit_status" -ne 0' in checks
+    assert (
+        'if [ "$attempt_status" -ne 0 ] || [ "$linux_status" -ne 0 ] '
+        '|| [ "$windows_status" -ne 0 ]; then'
+    ) in checks
+    audit = (root / ".github/workflows/dependency-audit.yml").read_text(encoding="utf-8")
+    assert "\npermissions:\n  contents: read\n" in audit
+    assert ": write" not in audit
+    assert "pull_request_target" not in audit and "paths-ignore" not in audit
+    assert "continue-on-error" not in audit and "|| true" not in audit
+    assert "workflow_dispatch:" in audit
+    pins = []
+    for line in audit.splitlines():
+        if "uses:" not in line:
+            continue
+        pin = line.split("uses:", 1)[1].strip().split()[0]
+        pins.append(pin)
+        sha = pin.rsplit("@", 1)[1]
+        assert len(sha) == 40 and all(character in "0123456789abcdef" for character in sha)
+    assert pins
+    assert "python scripts/dependency_audit.py" in audit
+    assert "--output-dir" in audit
+    assert audit.index("python scripts/dependency_audit.py") < audit.index("if: always()")
+    assert "if-no-files-found: error" in audit
+    required = (
+        "pyproject.toml",
+        "uv.lock",
+        "scripts/dependency_audit.py",
+        "tests/test_dependency_audit.py",
+        ".github/workflows/dependency-audit.yml",
+        ".github/dependabot.yml",
+    )
+    for event in ("pull_request", "push"):
+        block = _event_block(audit, event)
+        assert "main" in block
+        for path in required:
+            assert f"- {path}\n" in block
 
 
 def test_installed_pytest_preserves_real_plugin_collection_junit_and_declared_skips(tmp_path):

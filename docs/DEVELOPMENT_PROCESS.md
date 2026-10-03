@@ -146,13 +146,16 @@ incomplete, never successful evidence. The final stable `checks` job runs under
 `if: always()` and requires explicit success plus complete matching evidence
 from quality and all three lanes.
 
-Full-mode quality also runs `scripts/dependency_audit.py` against every registry
-version in the exact `uv.lock`. Advisory findings and scanner, network, or tool
-failures are different non-zero results; `checks` accepts only a clean OSV
-result on the full route. Docs-only PRs and delegated pushes skip quality, so
-they do not run that network audit. The Garmin git pin remains an explicit
-unaudited coverage limit, not an audited package. The baseline reproduction
-and local entrypoint are recorded in `docs/DEPENDENCY_SECURITY.md`.
+Dependency advisories are outside ordinary `quality` and `checks`.
+`.github/workflows/dependency-audit.yml` runs `scripts/dependency_audit.py`
+for pull requests and pushes to `main` that change dependency or audit policy
+files, and for manual dispatch. Advisory findings and scanner, network, or
+tool failures both fail that workflow, and it uploads evidence either way.
+Docs-only PRs and unrelated code PRs do not run that network audit. Ordinary
+CI stays the test and provenance gate; a dependency change is accepted only
+when both gates pass. The Garmin git pin remains an explicit unaudited
+coverage limit, not an audited package. The baseline reproduction and local
+entrypoint are recorded in `docs/DEPENDENCY_SECURITY.md`.
 
 Stage A permits a narrow **docs-only PR** outcome. `scripts/ci_docs_gate.py`
 contains the explicit individual-path allowlist; README/build metadata, new files,

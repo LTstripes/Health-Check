@@ -16,10 +16,12 @@ change the lock, or apply fixes.
 Exit `0` means a complete clean registry audit. Exit `1` means complete
 advisory findings. Exit `2` means a scanner, network, tool, or coverage
 failure. Missing packages, malformed output, and status disagreement fail
-closed. Neither nonzero outcome is a pass. Full-mode `quality` runs this
-audit, and `checks` accepts only one clean OSV `result.json`. Docs-only PRs
-and delegated pushes skip `quality`, so they do not run the network audit.
-There is no separate audit workflow.
+closed. Neither nonzero outcome is a pass. Ordinary CI does not run this
+audit. `.github/workflows/dependency-audit.yml` runs it for pull requests and
+pushes to `main` that touch dependency or audit policy paths, and for manual
+dispatch. It uploads evidence even when the audit fails. Docs-only and
+unrelated code changes do not trigger that network work. A dependency change
+needs both ordinary CI and this workflow.
 
 Weekly Dependabot groups cover uv registry version updates (limit two open
 PRs) and GitHub Actions version updates (limit one). Those limits do not cap
@@ -46,6 +48,10 @@ Fix versions were urllib3 2.8.0 and pytest 9.0.3. The patched OSV result was
 `clean` (exit 0). No other registry package had an OSV finding. The only
 version changes are those two packages. The lock also records the pytest
 specifier `>=9.0.3,<10` and the uv constraint `urllib3>=2.8.0,<3`.
+A clean-workspace re-run at 2026-10-03T21:19Z repeated that result: the same
+entrypoint against an isolated checkout of baseline `754f190` and against the
+patched lock. Python for that re-run was 3.13.15. The git blob of `uv.lock`
+was unchanged.
 
 urllib3 is reachable through the Garmin client's requests dependency. The
 audit establishes affected versions, not exploitation in any Owner runtime.
@@ -64,6 +70,7 @@ of that source are included. The scanner checks known package advisories, not
 VCS integrity, build dependencies, exploitability, or live providers.
 No Owner or provider access was used.
 
-CI pins the action SHAs already used by the workflow and sets the default
-token to `contents: read`. Only classify keeps `pull-requests: read` and
-`actions: read` for Stage B discovery. No write scopes were added.
+Ordinary CI pins action SHAs and defaults the token to `contents: read`.
+Only classify keeps `pull-requests: read` and `actions: read` for Stage B
+discovery. The audit workflow uses `contents: read` and the same pinned
+action SHAs. No write scopes were added.
