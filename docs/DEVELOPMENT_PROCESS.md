@@ -135,9 +135,9 @@ Automation may remove manual message shuttling, not issue authority, workspace/d
 
 ## 13. CI evidence and complete-suite gates
 
-The CI workflow keeps both `push` and `pull_request` coverage. Every qualifying
-candidate gate runs the complete pytest collection and suite through the three
-ordinary serial Linux lanes in `ci/test-lanes.json`. The same checked-in
+The CI workflow keeps both `push` and `pull_request` coverage. All pushes and
+code-mode PR candidate gates run the complete pytest collection and suite through
+the three ordinary serial Linux lanes in `ci/test-lanes.json`. The same checked-in
 manifest is the only file-assignment source for local and CI invocation. An
 independent unrestricted collection must equal the exact disjoint multiset
 union of lane nodeids, including parametrizations and duplicate multiplicity.
@@ -154,10 +154,36 @@ incomplete, never successful evidence. The final stable `checks` job runs under
 `if: always()` and requires explicit success plus complete matching evidence
 from quality and all three lanes.
 
+Stage A permits a narrow **docs-only PR** outcome. `scripts/ci_docs_gate.py`
+contains the explicit individual-path allowlist; README/build metadata, new files,
+fixtures, runtime inputs and unlisted Markdown require full CI. Only modifications
+of existing `100644` prose qualify. The classifier consumes the complete raw Git
+diff, verifies event base/head/merge commits, trees and exact merge parents, and
+requires the merge tree to equal the PR head tree. This deliberately sends base
+movement or merge-resolution ambiguity to full CI. Mixed, unknown, rename/delete,
+mode, symlink/submodule, classifier/workflow and config/dependency changes also
+require full CI. No labels, PR descriptions or path-ignore triggers authorize skips.
+
+The classifier retains `docs-decision-<run>-<attempt>/decision.json`, binding
+event/ref/base/head/checkout, all trees, both diff digests and classifier/workflow
+digests. The docs job checks UTF-8 prose, repository-local link existence and
+credential patterns without executing Markdown or fetching URLs, and retains
+`docs-outcome-<run>-<attempt>/outcome.json`. Credential pattern detection is a
+bounded automated privacy guard, not proof that arbitrary prose contains no
+private information; the normal documentation/privacy review still applies.
+Final `checks` independently recomputes the decision and document checks and
+requires exactly these two matching artifacts, successful classifier/docs jobs,
+and explicit skips of quality, Linux lanes and Windows. Missing, stale, foreign,
+mixed or contradictory evidence and unexpected failure/cancellation/skip fail.
+Its terminal success explicitly says **docs-only; pytest and Windows were not run**.
+Classifier errors fall back to full CI; they never authorize missing full evidence.
+Full-mode evidence/verifiers, push events and same-attempt completeness remain
+unchanged. Stage B event deduplication is a separate assignment.
+
 | Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
 | --- | --- | --- | --- | --- |
 | Task push | task branch SHA | Same task branch only | Exact checkout, complete lane union, timing/JUnit, metadata | Changed tree/config/lock/manifest/selection |
-| PR event | PR merge ref plus PR head SHA | Same PR number only | Same evidence, with merge checkout distinct from head | Any changed candidate/configuration |
+| PR event | PR merge ref plus PR head SHA | Same PR number only | Full code-mode set or verified docs-only decision/outcome; merge checkout distinct from head | Any changed candidate/configuration |
 | Integration push | integration SHA | No task/PR cancellation | Exact integration checkout and complete gate | New integration commit |
 | Main push | main SHA | No task/PR cancellation | Exact post-main checkout and complete gate | New main commit |
 
