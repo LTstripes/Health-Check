@@ -77,8 +77,11 @@ function taskkill.exe {
     $script:taskkillCalls += [string]$Arguments[1]
     $global:LASTEXITCODE = $taskkillExitCode
     if ($taskkillExitCode -eq 0 -or ($taskkillExitCode -eq 255 -and $exitDuringTermination)) { $script:identityMissing = $true }
+    if ($null -ne $taskkillTranscriptOverride) {
+        if ($exitDuringTermination) { $script:identityMissing = $true }
+        return $taskkillTranscriptOverride
+    }
     if ($taskkillExitCode -eq 255) {
-        if ($null -ne $taskkillTranscriptOverride) { return $taskkillTranscriptOverride }
         if ($taskkillDiagnosticMode -ne "empty") {
             "ERROR: The process with PID 100 (child process of PID 1) could not be terminated."
             if ($taskkillDiagnosticMode -eq "access-denied") { "Reason: Access is denied." }
@@ -269,6 +272,58 @@ $taskkillTranscriptOverride = $null
 $identityMissing = $false
 Assert-Equal 0 $transcriptFailures.Count "complete-transcript cases failed: $($transcriptFailures -join ', ')"
 Write-Output "Windows complete-transcript regressions PASS ($($transcripts.Count) cases)"
+
+# Retained #243 shape: seven child SUCCESS records, child ERROR + Reason,
+# exactly one empty item, then root SUCCESS. Synthetic replay proves parser
+# behavior, not whether native taskkill or stream merging emitted the item.
+$matrix = Get-Content (Join-Path $PSScriptRoot "fixtures\ci_windows_exit255_transcripts.json") -Raw | ConvertFrom-Json
+foreach ($id in 102..108) {
+    $identityById[$id] = [pscustomobject]@{ Id = $id; Name = "python.exe"; CommandLine = "synthetic child $id"; CreationTime = "637134336010000000" }
+}
+foreach ($case in $matrix.cases) {
+    if ($null -ne $case.separator_codepoint) {
+        Assert-True ($case.output[9] -is [string]) "Unicode separator must be a string"
+        Assert-Equal 1 $case.output[9].Length "Unicode negative must be nonempty"
+        Assert-Equal $case.separator_codepoint ([int][char]$case.output[9][0]) "Unicode separator code point"
+        Assert-Equal $false $case.accepted "Unicode separator must be a negative case"
+    }
+    $identityMissing = $false
+    $taskkillCalls = @()
+    $postQueriedIds = @()
+    $taskkillTranscriptOverride = @($case.output)
+    $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    $accepted = $result.Outcome -eq "exited-during-termination" -and @($result.Errors).Count -eq 0
+    Assert-Equal $case.accepted $accepted "retained transcript case $($case.name)"
+    Assert-Equal 1 $taskkillCalls.Count "retained transcript uses one root-scoped kill"
+    Assert-Equal 9 @($result.PostTerminationObservations).Count "all captured PIDs independently observed"
+    Assert-Equal ($case.output | ConvertTo-Json -Compress) ($result.TaskkillOutput | ConvertTo-Json -Compress) "raw transcript retained"
+    if ($null -ne $case.separator_codepoint) {
+        Write-Output ("PowerShell Unicode U+{0:X4}: length=1 rejected" -f [int]$case.separator_codepoint)
+    }
+}
+$taskkillTranscriptOverride = @($matrix.cases[0].output)
+foreach ($mode in @("alive", "query_error", "reuse")) {
+    $identityMissing = $false
+    $postModeById = @{ 108 = $mode }
+    $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    Assert-Equal ($mode -eq "reuse") ($result.Outcome -eq "exited-during-termination") "retained separator preserves child identity contract ($mode)"
+}
+$postModeById = @{}
+foreach ($code in @(1, 5, 254, 256, -1)) {
+    $identityMissing = $false
+    $taskkillExitCode = $code
+    $taskkillCalls = @()
+    $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    Assert-True (@($result.Errors).Count -gt 0) "other nonzero code $code fails even with accepted transcript and absent tree"
+    Assert-Equal "failed" $result.Outcome "other nonzero code cannot be waived"
+    Assert-True $result.LifecycleDiagnosticVerified "exact transcript cannot waive another nonzero code"
+    Assert-Equal 1 $taskkillCalls.Count "other nonzero code uses one kill"
+}
+$taskkillExitCode = 255
+$taskkillTranscriptOverride = $null
+$identityMissing = $false
+foreach ($id in 102..108) { $identityById.Remove($id) }
+Write-Output "Windows retained separator regressions PASS ($($matrix.cases.Count) transcripts + 3 child identity cases + 5 nonzero codes)"
 $exitDuringTermination = $false
 $taskkillExitCode = 0
 
@@ -295,3 +350,8 @@ try {
 }
 
 Write-Output "Windows root-tree lifecycle regression PASS"
+
+# This standalone suite uses the same matrix and the full Python artifact
+# validation entry point; keep workflow/routing/manifest ownership unchanged.
+& (Join-Path $repoRoot ".venv\Scripts\python.exe") (Join-Path $PSScriptRoot "ci_windows_transcript_regressions.py")
+if ($LASTEXITCODE -ne 0) { throw "Python Windows transcript/evidence regressions failed" }

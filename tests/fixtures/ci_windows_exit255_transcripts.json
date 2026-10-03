@@ -1,0 +1,653 @@
+{
+  "note": "Sanitized retained #243 structure; does not establish native capture cause.",
+  "owned_ids": [
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108
+  ],
+  "cases": [
+    {
+      "name": "retained_shape",
+      "accepted": true,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "without_separator",
+      "accepted": true,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_0",
+      "accepted": false,
+      "output": [
+        "",
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_1",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_2",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_3",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_4",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_5",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_6",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_7",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_8",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_9",
+      "accepted": true,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "blank_at_10",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated.",
+        ""
+      ]
+    },
+    {
+      "name": "two_blanks",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "two_separators",
+      "accepted": false,
+      "output": [
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "whitespace_separator",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        " ",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "tab_separator",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\t",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "cr_separator",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\r",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "lf_separator",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\n",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "missing_reason",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "different_reason",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: Access is denied.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "missing_pid",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "duplicate_pid",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "extra_pid",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 109 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "root_not_final",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated.",
+        "SUCCESS: The process with PID 109 (child process of PID 100) has been terminated."
+      ]
+    },
+    {
+      "name": "root_before_separator",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated.",
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        ""
+      ]
+    },
+    {
+      "name": "child_after_separator",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated."
+      ]
+    },
+    {
+      "name": "unknown_content",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "UNKNOWN"
+      ]
+    },
+    {
+      "name": "root_success_suffix",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated. garbage"
+      ]
+    },
+    {
+      "name": "root_success_lowercase",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "success: the process with pid 100 (child process of pid 1) has been terminated."
+      ]
+    },
+    {
+      "name": "reason_cr",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.\r",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "success_only",
+      "accepted": false,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 108 (child process of PID 100) has been terminated.",
+        "",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "unicode_separator_u0000",
+      "accepted": false,
+      "separator_codepoint": 0,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\u0000",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "unicode_separator_u00ad",
+      "accepted": false,
+      "separator_codepoint": 173,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\u00ad",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "unicode_separator_u034f",
+      "accepted": false,
+      "separator_codepoint": 847,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\u034f",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "unicode_separator_u200b",
+      "accepted": false,
+      "separator_codepoint": 8203,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\u200b",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    },
+    {
+      "name": "unicode_separator_ufeff",
+      "accepted": false,
+      "separator_codepoint": 65279,
+      "output": [
+        "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 103 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 104 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 105 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 106 (child process of PID 100) has been terminated.",
+        "SUCCESS: The process with PID 107 (child process of PID 100) has been terminated.",
+        "ERROR: The process with PID 108 (child process of PID 100) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "\ufeff",
+        "SUCCESS: The process with PID 100 (child process of PID 1) has been terminated."
+      ]
+    }
+  ]
+}
