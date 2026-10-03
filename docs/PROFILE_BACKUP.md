@@ -43,4 +43,6 @@ migration-identity checks. Commands print only status, counts and classification
 they never print profile file contents, measurements or secrets.
 
 Protected filesystem publication, retention and clean disaster recovery are documented in
-[Off-site backup v1](OFFSITE_BACKUP.md). ZIP format and expanded-size limits are unchanged.
+[Off-site backup v1](OFFSITE_BACKUP.md). Format v1 remains ZIP64-compatible and accepts a
+maximum expanded size of 16 GiB per member and 20 GiB total. Backup creation checks the
+staged SQLite-consistent file sizes against these bounds before writing the ZIP.

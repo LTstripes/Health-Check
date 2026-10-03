@@ -247,17 +247,56 @@ def test_archive_symlink_entry_and_cli_output_do_not_expose_content(
     assert secret not in capsys.readouterr().out
 
 
-def test_archive_size_caps_cover_observed_multi_gib_owner_db() -> None:
+def test_archive_size_caps_are_bounded_format_v1_limits() -> None:
     from healthcheck.profile_backup import MAX_ARCHIVE_MEMBER_BYTES, MAX_ARCHIVE_TOTAL_BYTES
 
-    # Keep the member and total envelopes explicit and independently bounded.
-    observed_database_bytes = 5_734_481_920
-    observed_total_bytes = 6_010_738_699
-    assert MAX_ARCHIVE_MEMBER_BYTES == 7 * 1024 * 1024 * 1024
-    assert MAX_ARCHIVE_TOTAL_BYTES == 8 * 1024 * 1024 * 1024
-    assert MAX_ARCHIVE_MEMBER_BYTES > observed_database_bytes
-    assert MAX_ARCHIVE_TOTAL_BYTES > observed_total_bytes
+    assert MAX_ARCHIVE_MEMBER_BYTES == 16 * 1024 * 1024 * 1024
+    assert MAX_ARCHIVE_TOTAL_BYTES == 20 * 1024 * 1024 * 1024
     assert MAX_ARCHIVE_TOTAL_BYTES > MAX_ARCHIVE_MEMBER_BYTES
+
+
+def test_staged_size_preflight_accepts_member_and_total_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    monkeypatch.setattr(profile_backup, "MAX_ARCHIVE_MEMBER_BYTES", 10)
+    monkeypatch.setattr(profile_backup, "MAX_ARCHIVE_TOTAL_BYTES", 20)
+
+    profile_backup._preflight_staged_sizes([{"size": 9}, {"size": 10}])
+    profile_backup._preflight_staged_sizes([{"size": 10}, {"size": 10}])
+
+
+def test_staged_size_preflight_rejects_member_and_total_overages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    monkeypatch.setattr(profile_backup, "MAX_ARCHIVE_MEMBER_BYTES", 10)
+    monkeypatch.setattr(profile_backup, "MAX_ARCHIVE_TOTAL_BYTES", 20)
+
+    with pytest.raises(ProfileBackupError, match="member size"):
+        profile_backup._preflight_staged_sizes([{"size": 11}])
+    with pytest.raises(ProfileBackupError, match="too large"):
+        profile_backup._preflight_staged_sizes([{"size": 7}, {"size": 7}, {"size": 7}])
+
+
+def test_create_backup_preflights_staged_sizes_before_archive_write(
+    external_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    source = _synthetic_profile(external_tmp_path)
+    archive = external_tmp_path / "profile.zip"
+    monkeypatch.setattr(profile_backup, "MAX_ARCHIVE_TOTAL_BYTES", 1)
+
+    def unexpected_write(*args, **kwargs):
+        pytest.fail("archive write started before staged-size preflight")
+
+    monkeypatch.setattr(profile_backup, "_write_archive", unexpected_write)
+    with pytest.raises(ProfileBackupError, match="too large"):
+        create_backup(source, archive)
+    assert not archive.exists()
 
 
 def test_member_over_hard_max_fails_closed_against_production_cap() -> None:

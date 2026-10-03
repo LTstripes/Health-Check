@@ -25,11 +25,11 @@ MANIFEST_NAME = "manifest.json"
 PROFILE_PREFIX = "profile/"
 DATABASE_NAME = "healthcheck.db"
 LOGS_DIRECTORY = "logs"
-# Hard expanded-size caps. The member limit covers the current ~6.402 GiB
-# owner Stable SQLite DB; the existing total limit still has ample headroom.
-# Format-v1 is unchanged; ZIP64 is used when member/archive sizes require it.
-MAX_ARCHIVE_MEMBER_BYTES = 7 * 1024 * 1024 * 1024  # 7 GiB
-MAX_ARCHIVE_TOTAL_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB
+# Hard expanded-size caps for format-v1. ZIP64 is used when member/archive
+# sizes require it; staged files are checked against these limits before ZIP
+# compression begins.
+MAX_ARCHIVE_MEMBER_BYTES = 16 * 1024 * 1024 * 1024  # 16 GiB
+MAX_ARCHIVE_TOTAL_BYTES = 20 * 1024 * 1024 * 1024  # 20 GiB
 MAX_MANIFEST_BYTES = 1_048_576
 
 
@@ -112,6 +112,7 @@ def create_backup(profile: Path, archive: Path, *, scratch: Path | None = None) 
         }:
             raise ProfileBackupError("profile file list changed while backup was being created")
 
+        _preflight_staged_sizes(staged_files)
         migration_revision = _migration_revision(staged_database)
         manifest = _build_manifest(
             staged_files,
@@ -450,6 +451,18 @@ def _write_archive(
         except OSError:
             pass
         raise ProfileBackupError("backup archive could not be written") from exc
+
+
+def _preflight_staged_sizes(files: list[dict[str, Any]]) -> None:
+    """Reject staged payloads outside the verifier's bounds before ZIP work."""
+
+    total = 0
+    for item in files:
+        size = item["size"]
+        if size > MAX_ARCHIVE_MEMBER_BYTES:
+            raise ProfileBackupError("staged backup file exceeds the member size limit")
+        total += size
+        _validate_total_expanded_size(total)
 
 
 def _validate_archive(archive: Path, *, scratch: Path | None = None) -> _ArchivePlan:
