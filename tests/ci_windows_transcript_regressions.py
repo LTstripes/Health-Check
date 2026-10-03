@@ -89,7 +89,14 @@ class TranscriptEvidenceTests(unittest.TestCase):
     def test_shared_transcript_matrix(self):
         for case in MATRIX["cases"]:
             with self.subTest(case=case["name"]):
+                if "separator_codepoint" in case:
+                    self.assertIsInstance(case["output"][9], str)
+                    self.assertEqual(len(case["output"][9]), 1)
+                    self.assertEqual(ord(case["output"][9]), case["separator_codepoint"])
+                    self.assertFalse(case["accepted"])
                 self.validate_case(case["output"], case["accepted"])
+                if "separator_codepoint" in case:
+                    print(f"Python Unicode U+{case['separator_codepoint']:04X}: length=1 rejected")
 
     def test_separator_preserves_lifecycle_and_final_evidence(self):
         transcript = MATRIX["cases"][0]["output"]

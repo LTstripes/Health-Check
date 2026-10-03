@@ -281,6 +281,12 @@ foreach ($id in 102..108) {
     $identityById[$id] = [pscustomobject]@{ Id = $id; Name = "python.exe"; CommandLine = "synthetic child $id"; CreationTime = "637134336010000000" }
 }
 foreach ($case in $matrix.cases) {
+    if ($null -ne $case.separator_codepoint) {
+        Assert-True ($case.output[9] -is [string]) "Unicode separator must be a string"
+        Assert-Equal 1 $case.output[9].Length "Unicode negative must be nonempty"
+        Assert-Equal $case.separator_codepoint ([int][char]$case.output[9][0]) "Unicode separator code point"
+        Assert-Equal $false $case.accepted "Unicode separator must be a negative case"
+    }
     $identityMissing = $false
     $taskkillCalls = @()
     $postQueriedIds = @()
@@ -291,6 +297,9 @@ foreach ($case in $matrix.cases) {
     Assert-Equal 1 $taskkillCalls.Count "retained transcript uses one root-scoped kill"
     Assert-Equal 9 @($result.PostTerminationObservations).Count "all captured PIDs independently observed"
     Assert-Equal ($case.output | ConvertTo-Json -Compress) ($result.TaskkillOutput | ConvertTo-Json -Compress) "raw transcript retained"
+    if ($null -ne $case.separator_codepoint) {
+        Write-Output ("PowerShell Unicode U+{0:X4}: length=1 rejected" -f [int]$case.separator_codepoint)
+    }
 }
 $taskkillTranscriptOverride = @($matrix.cases[0].output)
 foreach ($mode in @("alive", "query_error", "reuse")) {
