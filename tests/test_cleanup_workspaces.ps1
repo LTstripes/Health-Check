@@ -7,7 +7,8 @@ $script:RealGit = ${function:Invoke-JanitorGit}
 $script:RemoteFor = @{}
 $script:FailFetch=@{}
 $script:Calls = New-Object Collections.Generic.List[object]
-$script:Processes = [pscustomobject]@{ Known=$true; Commands=@() }
+$script:CimFails = $false
+$script:CimRows = @()
 function Invoke-JanitorGit([string]$Path, [string[]]$Arguments) {
     $script:Calls.Add([pscustomobject]@{ Path=$Path; Args=$Arguments.Clone() })
     if ($Arguments[0] -eq 'fetch') {
@@ -18,7 +19,14 @@ function Invoke-JanitorGit([string]$Path, [string[]]$Arguments) {
     }
     return & $script:RealGit $Path $Arguments
 }
-function Get-JanitorProcesses { return $script:Processes }
+# Mock only the CIM boundary so every check exercises production process visibility.
+function Get-CimInstance {
+    [CmdletBinding()]
+    param([string]$ClassName)
+    if ($ClassName -ne 'Win32_Process') { throw 'unexpected-cim-query' }
+    if ($script:CimFails) { throw 'synthetic-cim-query-failure' }
+    return $script:CimRows
+}
 function Assert($Condition, [string]$Message) { if (-not $Condition) { throw "FAIL: $Message" }; $script:Assertions++ }
 function Git([string]$Path, [string[]]$Arguments) {
     $start=New-Object Diagnostics.ProcessStartInfo
@@ -89,9 +97,20 @@ try {
     Commit $seed 'base'
     [void](Git $seed @('push',$script:Remote,'main'))
 
+    $script:CimRows=@(
+        [pscustomobject]@{ ProcessId=123; CommandLine=$null },
+        [pscustomobject]@{ ProcessId=124; CommandLine='  ' },
+        [pscustomobject]@{ ProcessId=125 },
+        [pscustomobject]@{ ProcessId=126; CommandLine='SYNTHETIC_UNRELATED_COMMAND --private-argument' }
+    )
     $clean=Fixture 'clean-merged'
     $record=Check $clean 'clean-published-inactive'
-    Assert ($record.Result -eq 'ELIGIBLE') 'old merged eligible'
+    Assert ($record.Result -eq 'ELIGIBLE') 'old merged eligible despite unrelated unavailable command lines'
+    Assert ($record.HiddenProcessCommandLines -eq 3) 'only blank or unavailable commands counted'
+    Assert (($record | ConvertTo-Json) -notmatch 'SYNTHETIC_UNRELATED_COMMAND|private-argument|"Commands"|ProcessId') 'task report contains no process commands or identifiers'
+    $script:CimRows=@([pscustomobject]@{ CommandLine=$null }) * 65536
+    Assert ((Get-JanitorProcesses).HiddenProcessCommandLines -eq 65535) 'hidden command diagnostic count is bounded'
+    $script:CimRows=@()
     Assert ([IO.Directory]::Exists($clean)) 'dry-run never deletes'
     # Fetch bookkeeping must not make a later dry-run age young.
     Old $clean
@@ -150,11 +169,20 @@ try {
         Assert (($record | ConvertTo-Json) -notmatch 'SECRET_HEALTH_VALUE|owner\.db|private\.token') 'marker detail never logged'
     }
     $active=Fixture 'active'
-    $script:Processes=[pscustomobject]@{ Known=$true; Commands=@("synthetic --cwd $active") }
-    [void](Check $active 'active-process')
-    $script:Processes=[pscustomobject]@{ Known=$false; Commands=@() }
-    [void](Check $active 'process-state-unknown')
-    $script:Processes=[pscustomobject]@{ Known=$true; Commands=@() }
+    foreach ($visiblePath in @($active, $active.Replace('\','/'))) {
+        $script:CimRows=@(
+            [pscustomobject]@{ ProcessId=123; CommandLine=$null },
+            [pscustomobject]@{ ProcessId=124; CommandLine="synthetic --cwd $visiblePath" }
+        )
+        $record=Check $active 'active-process'
+        Assert ($record.HiddenProcessCommandLines -eq 1) 'visible match still blocks with unrelated hidden command'
+    }
+    $script:CimFails=$true
+    $record=Check $active 'process-state-unknown'
+    Assert ($null -eq $record.HiddenProcessCommandLines) 'failed CIM query never claims a known hidden count'
+    Assert ([IO.Directory]::Exists($active)) 'failed CIM query preserves workspace'
+    $script:CimFails=$false
+    $script:CimRows=@()
     $outside=Join-Path $script:Temp 'outside'
     [void][IO.Directory]::CreateDirectory($outside)
     $junction=Join-Path $script:Client 'junction'
@@ -295,9 +323,16 @@ try {
     [void](Git $owner @('worktree','unlock',$locked))
     # Bounded sanitized report and production runner dry-run, with synthetic fixed roots.
     Old $clean
+    $script:CimRows=@(
+        [pscustomobject]@{ ProcessId=123; CommandLine=$null },
+        [pscustomobject]@{ ProcessId=124; CommandLine='SYNTHETIC_UNRELATED_COMMAND --private-argument' }
+    )
     $report=Invoke-WorkspaceJanitor @($script:Client) 7
     $json=$report | ConvertTo-Json -Depth 5
     Assert ($json -notmatch 'SECRET_HEALTH_VALUE|example.invalid|synthetic@example|same-patch') 'no content/URL/commit messages in report'
+    Assert ($json -notmatch 'SYNTHETIC_UNRELATED_COMMAND|private-argument|"Commands"|ProcessId') 'runner report never exposes unrelated process commands or identifiers'
+    $cleanReport=@($report.Records | Where-Object { $_.Task -eq 'clean-merged' })[0]
+    Assert ($cleanReport.HiddenProcessCommandLines -eq 1 -and $cleanReport.Result -eq 'ELIGIBLE') 'runner report exposes count only and keeps eligibility'
     $log=Join-Path $script:LogDirectory 'workspace-cleanup-latest.json'
     Assert ([IO.File]::Exists($log) -and (Get-Item $log).Length -lt 262144) 'bounded fixed latest Ops summary'
     Assert ([IO.Directory]::Exists($clean)) 'runner default dry-run preserved eligible clone'

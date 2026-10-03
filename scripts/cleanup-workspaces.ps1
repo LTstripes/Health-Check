@@ -92,14 +92,22 @@ function Get-JanitorGitText([string]$Path, [string[]]$Arguments) {
     return $result.Text
 }
 function Get-JanitorProcesses {
-    try {
-        $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-        # Missing command lines outside the kernel/idle processes cannot prove inactivity.
-        if (@($processes | Where-Object { $_.ProcessId -gt 4 -and [string]::IsNullOrWhiteSpace($_.CommandLine) }).Count) {
-            return [pscustomobject]@{ Known=$false; Commands=@() }
-        }
-        return [pscustomobject]@{ Known=$true; Commands=@($processes | ForEach-Object { [string]$_.CommandLine }) }
-    } catch { return [pscustomobject]@{ Known=$false; Commands=@() } }
+    try { $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop) }
+    catch { return [pscustomobject]@{ Known=$false; Commands=@(); HiddenProcessCommandLines=$null } }
+    $commands = New-Object 'Collections.Generic.List[string]'
+    $hidden = 0
+    foreach ($process in $processes) {
+        # Unavailable command lines are diagnostic only after successful enumeration.
+        # Keep visible commands internal; reports expose only a count capped at 65535.
+        $command = $null
+        try {
+            $property = $process.PSObject.Properties['CommandLine']
+            if ($null -ne $property) { $command = [string]$property.Value }
+        } catch { $command = $null }
+        if ([string]::IsNullOrWhiteSpace($command)) { $hidden = [math]::Min(65535, $hidden + 1) }
+        else { $commands.Add($command) }
+    }
+    return [pscustomobject]@{ Known=$true; Commands=@($commands.ToArray()); HiddenProcessCommandLines=$hidden }
 }
 function Test-JanitorProcess([string]$Path, $Processes) {
     if (-not $Processes.Known) { throw 'process-state-unknown' }
@@ -240,7 +248,7 @@ function Test-JanitorRefs([string]$Path) {
     }
 }
 function New-JanitorRecord([string]$Path) {
-    return [pscustomobject]@{ Task=[IO.Path]::GetFileName($Path); Path=$Path; AgeDays=$null; Git='unknown'; Result='PRESERVE'; Reason='check-unknown' }
+    return [pscustomobject]@{ Task=[IO.Path]::GetFileName($Path); Path=$Path; AgeDays=$null; Git='unknown'; HiddenProcessCommandLines=$null; Result='PRESERVE'; Reason='check-unknown' }
 }
 function Get-JanitorSnapshot($Tree, [string]$Path) {
     # Fetch writes its own Git metadata. It must neither make an old workspace young
@@ -269,7 +277,9 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         $state = Get-JanitorGitState $path $guard
         $cacheProof = Get-JanitorCacheProof $tree $path
         Test-JanitorMarkers $tree.Entries $path
-        Test-JanitorProcess $path (Get-JanitorProcesses)
+        $processes = Get-JanitorProcesses
+        $record.HiddenProcessCommandLines = $processes.HiddenProcessCommandLines
+        Test-JanitorProcess $path $processes
         $record.Git = $state.Kind
         Test-JanitorClean $path
         $age = Get-JanitorAge $tree $path $Now
@@ -289,7 +299,9 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         Set-JanitorCacheProof $fresh $cacheProof
         Test-JanitorMarkers $fresh.Entries $path
         Assert-JanitorSnapshot $before (Get-JanitorSnapshot $fresh $path)
-        Test-JanitorProcess $path (Get-JanitorProcesses)
+        $processes = Get-JanitorProcesses
+        $record.HiddenProcessCommandLines = $processes.HiddenProcessCommandLines
+        Test-JanitorProcess $path $processes
         $record.Result='ELIGIBLE'; $record.Reason='clean-published-inactive'
         if (-not $Delete) { return $record }
         # Print sanitized decision before the destructive operation, not raw Git diagnostics.
