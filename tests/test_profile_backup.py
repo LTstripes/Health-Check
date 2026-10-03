@@ -247,6 +247,79 @@ def test_archive_symlink_entry_and_cli_output_do_not_expose_content(
     assert secret not in capsys.readouterr().out
 
 
+def test_manifest_cap_and_serialization_boundaries(monkeypatch: pytest.MonkeyPatch) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    assert profile_backup.MAX_MANIFEST_BYTES == 8 * 1024 * 1024
+    manifest = {"x": "é"}
+    serialized = profile_backup._serialize_manifest(manifest)
+    assert "é".encode() in serialized
+    exact_size = len(serialized)
+
+    monkeypatch.setattr(profile_backup, "MAX_MANIFEST_BYTES", exact_size)
+    assert len(profile_backup._serialize_manifest(manifest)) == exact_size
+
+    monkeypatch.setattr(profile_backup, "MAX_MANIFEST_BYTES", exact_size + 1)
+    assert len(profile_backup._serialize_manifest(manifest)) < profile_backup.MAX_MANIFEST_BYTES
+
+    monkeypatch.setattr(profile_backup, "MAX_MANIFEST_BYTES", exact_size - 1)
+    with pytest.raises(ProfileBackupError, match="manifest is too large"):
+        profile_backup._serialize_manifest(manifest)
+
+
+def test_create_backup_reuses_preflighted_manifest_bytes(
+    external_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    source = _synthetic_profile(external_tmp_path)
+    archive = external_tmp_path / "profile.zip"
+    written: dict[str, bytes] = {}
+    write_archive = profile_backup._write_archive
+
+    def capture_manifest(archive_path, stage, manifest_bytes, files):
+        written["manifest"] = manifest_bytes
+        write_archive(archive_path, stage, manifest_bytes, files)
+
+    monkeypatch.setattr(profile_backup, "_write_archive", capture_manifest)
+    create_backup(source, archive)
+
+    with zipfile.ZipFile(archive) as handle:
+        assert handle.read("manifest.json") == written["manifest"]
+
+
+def test_create_backup_rejects_oversized_manifest_before_archive_write(
+    external_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    source = _synthetic_profile(external_tmp_path)
+    archive = external_tmp_path / "profile.zip"
+    monkeypatch.setattr(profile_backup, "MAX_MANIFEST_BYTES", 1)
+
+    def unexpected_write(*args, **kwargs):
+        pytest.fail("archive write started before manifest-size preflight")
+
+    monkeypatch.setattr(profile_backup, "_write_archive", unexpected_write)
+    with pytest.raises(ProfileBackupError, match="manifest is too large"):
+        create_backup(source, archive)
+    assert not archive.exists()
+
+
+def test_verify_backup_rejects_manifest_over_the_configured_cap(
+    external_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    source = _synthetic_profile(external_tmp_path)
+    archive = external_tmp_path / "profile.zip"
+    create_backup(source, archive)
+
+    monkeypatch.setattr(profile_backup, "MAX_MANIFEST_BYTES", 1)
+    with pytest.raises(ProfileBackupError, match="manifest is too large"):
+        verify_backup(archive)
+
+
 def test_archive_size_caps_are_bounded_format_v1_limits() -> None:
     from healthcheck.profile_backup import MAX_ARCHIVE_MEMBER_BYTES, MAX_ARCHIVE_TOTAL_BYTES
 

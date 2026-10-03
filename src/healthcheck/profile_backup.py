@@ -30,7 +30,7 @@ LOGS_DIRECTORY = "logs"
 # compression begins.
 MAX_ARCHIVE_MEMBER_BYTES = 16 * 1024 * 1024 * 1024  # 16 GiB
 MAX_ARCHIVE_TOTAL_BYTES = 20 * 1024 * 1024 * 1024  # 20 GiB
-MAX_MANIFEST_BYTES = 1_048_576
+MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 
 class ProfileBackupError(ValueError):
@@ -120,7 +120,8 @@ def create_backup(profile: Path, archive: Path, *, scratch: Path | None = None) 
             migration_revision=migration_revision,
             journal_mode=journal_mode,
         )
-        _write_archive(archive_path, stage, manifest, staged_files)
+        manifest_bytes = _serialize_manifest(manifest)
+        _write_archive(archive_path, stage, manifest_bytes, staged_files)
 
     verification = verify_backup(archive_path, scratch=scratch)
     return BackupResult(
@@ -424,8 +425,17 @@ def _build_manifest(
     }
 
 
+def _serialize_manifest(manifest: dict[str, Any]) -> bytes:
+    manifest_bytes = json.dumps(
+        manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    if len(manifest_bytes) > MAX_MANIFEST_BYTES:
+        raise ProfileBackupError("backup manifest is too large")
+    return manifest_bytes
+
+
 def _write_archive(
-    archive: Path, stage: Path, manifest: dict[str, Any], files: list[dict[str, Any]]
+    archive: Path, stage: Path, manifest_bytes: bytes, files: list[dict[str, Any]]
 ) -> None:
     temporary = archive.with_name(f".{archive.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -437,10 +447,7 @@ def _write_archive(
             allowZip64=True,
             strict_timestamps=False,
         ) as handle:
-            handle.writestr(
-                MANIFEST_NAME,
-                json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-            )
+            handle.writestr(MANIFEST_NAME, manifest_bytes)
             for item in files:
                 source = stage / Path(*PurePosixPath(item["path"]).parts)
                 handle.write(source, f"{PROFILE_PREFIX}{item['path']}")
