@@ -46,8 +46,10 @@ def test_quality_and_three_serial_lanes_are_independent_and_locked():
     quality = _job("quality", "test")
     test = _job("test", "checks")
 
-    assert "needs:" not in quality
-    assert "needs:" not in test
+    for job in (quality, test):
+        assert "needs: classify" in job
+        assert "needs.classify.result != 'success' || needs.classify.outputs.mode != 'docs'" in job
+        assert "needs: quality" not in job
     assert "uv sync --locked" in quality
     assert "uv sync --locked" in test
     assert "uv run ruff check ." in quality
@@ -145,6 +147,31 @@ def test_workflow_has_no_per_candidate_fourth_serial_suite():
     assert WORKFLOW.count("run-lane") == 1
     assert "uv run pytest" not in WORKFLOW
     assert "full pytest" not in WORKFLOW.lower()
+
+
+def test_docs_routing_preserves_terminal_checks_and_full_fallback():
+    classify = _job("classify", "docs")
+    docs = _job("docs", "quality")
+    checks = _job("checks")
+    assert "fetch-depth: 0" in classify
+    assert "ci_docs_gate.py classify" in classify
+    assert "steps.decision.outputs.mode" in classify
+    assert "needs.classify.result == 'success' && needs.classify.outputs.mode == 'docs'" in docs
+    assert "ci_docs_gate.py check" in docs
+    for job in ("quality", "test", "windows-smoke"):
+        assert "always() && (needs.classify.result != 'success'" in _job(job)
+    assert checks.startswith("    if: always()\n")
+    assert "      - classify\n" in checks and "      - docs\n" in checks
+    assert "CI_MODE: ${{ needs.classify.outputs.mode }}" in checks
+    assert "CLASSIFY_RESULT: ${{ needs.classify.result }}" in checks
+    assert "DOCS_RESULT: ${{ needs.docs.result }}" in checks
+    assert "pattern: docs-*-${{ github.run_id }}-${{ github.run_attempt }}" in checks
+    assert 'ci_docs_gate.py route --artifacts-root "$evidence_root")" || exit 1' in checks
+    assert "pytest and Windows were not run" in checks
+    assert 'if [ "$route" = docs ]; then' in checks
+    assert 'tee -a "$GITHUB_STEP_SUMMARY"' in checks
+    assert "pull_request_target" not in WORKFLOW
+    assert "paths-ignore" not in WORKFLOW
 
 
 def test_checks_enforces_full_rerun_only_before_content_verdicts():

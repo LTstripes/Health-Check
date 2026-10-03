@@ -9,7 +9,65 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/task/')) }}
 
 jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.decision.outputs.mode }}
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Classify complete comparison
+        id: decision
+        run: >-
+          python scripts/ci_docs_gate.py classify
+          --output-dir "$RUNNER_TEMP/docs-decision-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Upload routing evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docs-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+
+  docs:
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.mode == 'docs' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check documentation and privacy
+        run: >-
+          python scripts/ci_docs_gate.py check
+          --output-dir "$RUNNER_TEMP/docs-outcome-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Upload docs outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-outcome-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docs-outcome-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 14
+
   quality:
+    needs: classify
+    if: ${{ always() && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'docs') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -82,6 +140,8 @@ jobs:
           retention-days: 14
 
   test:
+    needs: classify
+    if: ${{ always() && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'docs') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -183,6 +243,8 @@ jobs:
           retention-days: 14
 
   windows-smoke:
+    needs: classify
+    if: ${{ always() && (needs.classify.result != 'success' || needs.classify.outputs.mode != 'docs') }}
     runs-on: windows-latest
     timeout-minutes: 15
     env:
@@ -228,6 +290,8 @@ jobs:
   checks:
     if: always()
     needs:
+      - classify
+      - docs
       - quality
       - test
       - windows-smoke
@@ -245,11 +309,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: ci-*-${{ github.run_id }}-${{ github.run_attempt }}
-          path: downloaded-evidence
+          path: ${{ runner.temp }}/downloaded-evidence
+          merge-multiple: false
+      - name: Download current routing and docs evidence
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: docs-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/downloaded-evidence
           merge-multiple: false
       - name: Fail-closed final verdict
         if: always()
         env:
+          CI_MODE: ${{ needs.classify.outputs.mode }}
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           TEST_RESULT: ${{ needs.test.result }}
           WINDOWS_RESULT: ${{ needs.windows-smoke.result }}
@@ -262,13 +338,20 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          evidence_root="$RUNNER_TEMP/downloaded-evidence"
+          route="$(python scripts/ci_docs_gate.py route --artifacts-root "$evidence_root")" || exit 1
+          if [ "$route" = docs ]; then
+            echo "checks PASS: docs-only; pytest and Windows were not run" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [ "$route" = full ] || exit 1
           # Full-rerun-only: no fallback to evidence from earlier attempts.
           python scripts/ci_test_lanes.py verify-attempt \
-            --artifacts-root downloaded-evidence \
+            --artifacts-root "$evidence_root" \
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
           attempt_status=$?
           python scripts/ci_test_lanes.py gate \
-            --artifacts-root downloaded-evidence \
+            --artifacts-root "$evidence_root" \
             --quality-result "$QUALITY_RESULT" \
             --test-result "$TEST_RESULT" \
             --head-sha "$(git rev-parse HEAD)" \
@@ -282,7 +365,7 @@ jobs:
             --expected-platform linux
           linux_status=$?
           python scripts/ci_windows_smoke.py \
-            --artifacts-root downloaded-evidence \
+            --artifacts-root "$evidence_root" \
             --job-result "$WINDOWS_RESULT" \
             --head-sha "$(git rev-parse HEAD)" \
             --tree-sha "$(git rev-parse 'HEAD^{tree}')" \
