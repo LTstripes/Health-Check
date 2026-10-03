@@ -43,7 +43,7 @@ Stay on the assigned pinned baseline; the Integrator decides refresh/retest at i
 
 ## Physical workspace isolation
 
-One active write/verification task owns one physical working tree. Use only the assigned task directory; do not inspect/create/move/rename/delete sibling workspaces without an explicit filesystem assignment. Owner canonical, Stable/private-runtime and preview/UAT locations are not development workspaces, regardless of paths.
+One active write/verification task owns one physical working tree. Use only the assigned task directory; do not inspect/create/move/rename/delete sibling workspaces without an explicit filesystem assignment. Owner canonical, Stable/private-runtime and preview/UAT locations are not development workspaces, regardless of paths. Current Owner-machine roles and Windows roots are maintained in [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md); do not duplicate that path table here.
 
 ## Runtime/private-data isolation — hard invariant
 
