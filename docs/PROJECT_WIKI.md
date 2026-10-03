@@ -84,6 +84,8 @@ Garmin remains canonical/default. #105 is NOT_ELIGIBLE until its existing eviden
 
 #126 is still an explicit Owner/capability decision. Before advancing canonical/shared refs the Integrator requires exact-tree/SHA final `checks: SUCCESS` under the accepted PR protocol. Green constituent lanes alone are insufficient. No history rewrite, forced ref update or protection change is part of ordinary work.
 
+Eligible pull requests that modify only the explicitly allowlisted prose documents use the fail-closed docs-only CI outcome; pushes and all non-qualifying PRs still require the full gate. A docs-only PASS is reported explicitly and is not a pytest or Windows PASS.
+
 ## Next work
 
 #215 first real private Context note/read-back; #238 collection-intent contract and fix; then #148 protected off-site recovery. The Owner-only #215 action and read-only #238 design can proceed independently. Do not repeat #214's expensive refresh solely to close an already-proven automatic gate. UI remains deferred.
