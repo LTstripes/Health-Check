@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -124,7 +125,7 @@ def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
     )
     assert "      - quality\n" in checks
     assert "      - test\n" in checks
-    assert "actions/download-artifact@v4" in checks
+    assert "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0" in checks
     assert "merge-multiple: false" in checks
     assert "QUALITY_RESULT: ${{ needs.quality.result }}" in checks
     assert "TEST_RESULT: ${{ needs.test.result }}" in checks
@@ -151,6 +152,18 @@ def test_workflow_has_no_per_candidate_fourth_serial_suite():
     assert WORKFLOW.count("run-lane") == 1
     assert "uv run pytest" not in WORKFLOW
     assert "full pytest" not in WORKFLOW.lower()
+
+
+def test_ci_security_pins_actions_and_limits_token_permissions():
+    assert "\npermissions:\n  contents: read\n" in WORKFLOW
+    actions = re.findall(r"uses: ([^\s]+)", WORKFLOW)
+    assert actions and all(re.fullmatch(r"[\w/-]+@[0-9a-f]{40}", action) for action in actions)
+    assert WORKFLOW.count("    permissions:\n") == 1
+    classify = _job("classify", "docs")
+    assert "      contents: read\n" in classify
+    assert "      pull-requests: read\n" in classify
+    assert "      actions: read\n" in classify
+    assert ": write" not in WORKFLOW
 
 
 def test_docs_routing_preserves_terminal_checks_and_full_fallback():
