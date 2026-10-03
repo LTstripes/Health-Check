@@ -12,7 +12,7 @@ about: Bounded Health-Check implementation/review task
 ## Assignment
 
 - **Implementation complexity / risk:** <brief reason; independent review or Owner gate only when required>
-- **Execution:** <one Worker by default; selected route, not actual Model evidence>
+- **Execution:** <one Worker by default; selected client>
 - **Target / exact baseline:**
 - **Task branch / assigned workspace:**
 

@@ -115,19 +115,11 @@ Detailed task scope, attempts, exact candidates/checks/review/integration and me
 
 Issue: task authority/evidence. Architecture/decision docs or ADR: a durable contract change. Roadmap: release sequence. Backlog: uncommitted ideas. README: product overview, stable usage and links, not a running task-status ledger. Release notes describe product changes. Update a second document only when its own meaning became stale; do not synchronize the same report across all of them. Git retains old policy versions; do not add archival copies merely to preserve replaced prose.
 
-## 9. Model/agent attribution
-
-Use the two-field [completion block](../AGENTS.md#completion-reporting) and [Model evidence rules](MODEL_ROUTING.md#model-evidence). Integrator records role/model/provider/outcome plus material limitations and issue/PR links in the model journal. Worker/Reviewer/research/Integrator maintenance are separate; timing/cost is optional measured context, not mandatory telemetry or a self-grade.
-
 ## 10. Release integration and UAT
 
 At release, review the integrated diff against the active spec; pass full automated release checks; run the required Owner-only preview/device/provider gates from a disposable verified Stable backup/restore clone. Do not use old release checklists as current by default; use that release's issue/checklist. Unperformed permitted live gates stay UNVERIFIED, never implicitly passed.
 
 Resolve findings in dedicated task branches, not ad-hoc UAT edits. After accepted integration-to-main PR merge, read back canonical main and exact post-merge CI, record release/UAT outcome and start subsequent release work from this new main. GitHub publication does not update/restart Owner-local code. Owner fast-forwards the clean operation checkout only when relevant processes are idle and the update is appropriate.
-
-## 11. Benchmark / A-B tasks
-
-Intentional model comparison is opt-in under [Independent benchmark mode](MODEL_ROUTING.md#independent-benchmark-mode). It is not another gate on routine work or an excuse to rerun completed tasks.
 
 ## 12. Current Codex and future provider automation
 

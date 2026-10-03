@@ -2,7 +2,7 @@
 
 This file contains current architecture/product decisions plus only those `UNVERIFIED` items that still matter after released R01–R05 evidence. Historical decision archaeology remains in release issues, audits and Git history.
 
-Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`, exact-main CI `36818997839` SUCCESS. Re-read live GitHub state before an assignment; see [current backlog](ROADMAP.md#current-backlog--2026-10-01).
+Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`, exact-main CI `36818997839` SUCCESS. Re-read live GitHub state before an assignment; see [current backlog](ROADMAP.md#current-backlog--2026-10-03).
 
 ## Final decisions
 
@@ -197,9 +197,9 @@ The accepted local helper preserves caller-owned commit/rollback/close, rejects 
 - Context v0 preserves revisioned Owner-authored text and optional tags; no mandatory diary.
 - #215 completed the first real private Stable adoption; Context Capture v0 is an accepted manual evidence source. Later adapters must not invent dates/tags/interpretations.
 
-### Model attribution — Owner clarification 2026-09-29
+### Development model bookkeeping — retired 2026-10-03
 
-Explicit Owner confirmation of the model actually used is valid alongside runtime-reported evidence. Preserve raw client unknown fields, label the journal attribution Owner-confirmed, and use exactly the supplied model label without unreported version expansion. Keep routine Model evidence to only model and provider/client. This records attribution; it never relaxes code/CI/independent-review gates. See [Model Journal](MODEL_BENCHMARK.md).
+The Owner discontinued model benchmarking and attribution tracking in [#210](https://github.com/LTstripes/Health-Check/issues/210). Task/PR reports retain technical outcomes and actual checks without model/provider confirmation, waiting, or journal entries. Independent review and CI/privacy boundaries are unchanged.
 
 ### License
 

@@ -4,7 +4,6 @@
 - Target integration branch:
 - Baseline SHA:
 - Candidate SHA:
-- Executor / runtime-reported model:
 
 ## What changed
 

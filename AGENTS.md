@@ -65,17 +65,11 @@ Never claim tests, browser/device/provider checks, independent review or success
 
 Return one concise report: issue/status; baseline/target; branch/workspace/final SHA; change summary (diff stat when available); actual checks/results; material deviations/blockers/limitations. For local Git work include clean/dirty status and HEAD/remote read-back; state any departure from assigned branch/workspace boundaries. Omit irrelevant optional fields rather than filling N/A sections.
 
-```text
-Model evidence
-model: <known label/version, otherwise unknown>
-provider/client: <known provider/client, otherwise unknown>
-```
-
-Runtime evidence or explicit Owner confirmation of actual use establishes identity, never a proposed route/alias. Preserve raw unknown/conflicts and Owner-confirmed context outside this two-field block; do not invent versions. Routine handoffs need no cost/token/timing/effort fields. Never include private prompts, hidden reasoning, secrets or health values. Attribution details belong to [Model evidence](docs/MODEL_ROUTING.md#model-evidence).
+Model benchmarking and attribution bookkeeping were retired by the Owner in [#210](https://github.com/LTstripes/Health-Check/issues/210). Do not request or wait for model/provider labels, require a Model evidence block, or append model scores/journal entries. Older model-reporting instructions are explicitly superseded; ordinary technical evidence and review gates remain required. Never include private prompts, hidden reasoning, secrets or health values.
 
 ## Durable history and decisions
 
-Detailed evidence lives in issue/PR; Integrator-maintained history/model journals keep short linked outcomes, including useful failures. Workers/Orchestrators do not edit shared journals or grade themselves. Durable contract changes belong in architecture/decision docs or ADRs; product releases need release notes, not copied engineering reports.
+Detailed evidence lives in issue/PR; Integrator-maintained engineering history keeps short linked outcomes, including useful failures. Workers/Orchestrators do not edit shared history. Durable contract changes belong in architecture/decision docs or ADRs; product releases need release notes, not copied engineering reports.
 
 ## Delivery
 

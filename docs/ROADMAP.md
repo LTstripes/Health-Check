@@ -19,7 +19,7 @@ Latest completed work includes:
 
 ## Current backlog — 2026-10-03
 
-Fifteen open issues, excluding pull requests:
+Technical and Owner-deferred backlog, excluding pull requests. #210 is retired by Owner decision and is no longer an ongoing journal; re-read live GitHub for subsequent status changes.
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
@@ -37,7 +37,6 @@ Fifteen open issues, excluding pull requests:
 | #167 | Owner-deferred privacy/history operation | Requires explicit freeze/decision before any rewrite |
 | #126 | Owner/capability decision | Recheck repository protection capability before settings changes |
 | #105 | NOT_ELIGIBLE | No canonical sleep switch until the accepted device-pair evidence gate is met |
-| #210 | Ongoing model journal | Record actual model roles/outcomes; not a product coding queue |
 
 This is a status map, not an automatic Worker queue. The current technical track prioritizes CI/dependencies/security/runtime/CLI/provenance work; UI remains deferred.
 
@@ -53,7 +52,7 @@ Workspace cleanup runs daily at 12:00 with a seven-day minimum retention and fai
 
 Weight remains operational through screenshots; #229 provides explicit correction/replay semantics. #153 stays optional; #228 remains parked. UI #172/#189 remains deferred while the technical backlog above is active.
 
-See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md), [Owner Refresh](OWNER_REFRESH.md), [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md) and [Model Journal](MODEL_BENCHMARK.md).
+See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md), [Owner Refresh](OWNER_REFRESH.md) and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
 
 ## R00 — Final architecture (complete)
 

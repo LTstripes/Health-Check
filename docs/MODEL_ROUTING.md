@@ -26,7 +26,7 @@ Implementation effort and risk are separate. A small privacy/migration change ca
 
 ## Routing principles
 
-Use evidence and current availability, not permanent model names. High reasoning is not a substitute for tests; stronger models do not turn self-review into independent review. For provider/device/API facts use pinned contracts/current official sources; for analytics prefer explainable methods appropriate to coverage/sample size. Do not rerun completed tasks merely to generate model scores.
+Use current capability and availability, not permanent model names. High reasoning is not a substitute for tests; stronger models do not turn self-review into independent review. For provider/device/API facts use pinned contracts/current official sources; for analytics prefer explainable methods appropriate to coverage/sample size.
 
 ## Independent review triggers
 
@@ -36,7 +36,7 @@ Risk escalation does not authorize new requirements or scope expansion. If it ch
 
 ## Capability-based selection
 
-Choose fast execution for mechanical work, strong coding for established cross-layer contracts and strong reasoning for unresolved decisions. Concrete model IDs/effort belong in the launch/local configuration. Trial/anonymous routes start on bounded noncritical synthetic tasks; historical grades never waive required semantic/privacy review.
+Choose fast execution for mechanical work, strong coding for established cross-layer contracts and strong reasoning for unresolved decisions. Concrete model IDs/effort are local execution choices, not required task or completion metadata. Selection never waives required semantic/privacy review.
 
 ## Manual and orchestrated clients
 
@@ -44,11 +44,7 @@ Codex, Grok, Hermes and other clients may all be ordinary Workers. A client name
 
 ## Hermes delegation/fallback
 
-The accountable Worker reports material actual delegate/fallback chains; a fallback is not automatically failure. Client-specific coordination belongs in [the Hermes adapter](agents/hermes.md).
-
-## Independent benchmark mode
-
-Only by explicit request: identical pinned contract/base, isolated candidates that do not read/copy each other, comparison of actual diff/checks, and Integrator disposition. Timings/costs are optional measured evidence, not mandatory handoff fields.
+The accountable Worker reports material changes to scope, verification or review independence caused by delegation/fallback, not model identities. Client-specific coordination belongs in [the Hermes adapter](agents/hermes.md).
 
 ## Escalation triggers
 
@@ -56,18 +52,6 @@ Return to the Integrator for conflicting authority; possible history loss/reinte
 
 ## Owner task proposal
 
-In plain Russian: task title; intended change/value; implementation complexity and separate risk; a concrete Codex option (model/supported effort) and external/OpenCode option (model/provider/client); preference and necessary review/Owner action. Choose one execution route. Do not invent an unavailable alternative.
+In plain Russian: task title; intended change/value; implementation complexity and separate risk; a suitable execution client and necessary review/Owner action. Honor an already selected route. A model/effort recommendation may help choose execution, but no model confirmation or attribution intake is needed before starting or accepting work.
 
 Add one short copyable locator prompt, normally 5–8 lines: repo/issue/applicable note, role, target/exact baseline, assigned branch/workspace, outcome and authorized delivery. The issue is the specification; do not duplicate it in the prompt. Resolve missing safety-critical assignments first. Add queue/parallel fields only when that mode is actually authorized.
-
-## Model evidence
-
-Routine intake has exactly `model` and `provider/client`, using the [completion block](../AGENTS.md#completion-reporting). Runtime-reported identity or an explicit Owner confirmation of actual use establishes a label. A recommendation, subscription or alias mapping does not.
-
-Keep the label exactly as established; do not expand Sol/Astra/Luna into an unreported version. Preserve the original client unknown; record Owner-confirmed identity, material delegate/fallback use and conflicts in surrounding issue/journal context, outside the two fields. Effort is not a model version. No routine token/cost/timing/effort form is required; record measurements only when useful and actually known.
-
-## Evidence-backed routing
-
-Use the dated [model journal](MODEL_BENCHMARK.md) and [#210](https://github.com/LTstripes/Health-Check/issues/210). Integrator records concise linked task/role/model/provider/outcome/limitations; detailed candidate, checks and remediation evidence stay in the issue/PR. Keep Worker, Reviewer, research and Integrator maintenance distinct; no self-grading by Workers.
-
-Useful failures remain visible after success. Infrastructure contention, blocked preflights and assignment errors are not automatically model defects. A slice merge is not aggregate acceptance or Owner UAT. Shared-machine limits belong to [verification policy](DEVELOPMENT_PROCESS.md#verification-by-change), not a model ranking.
