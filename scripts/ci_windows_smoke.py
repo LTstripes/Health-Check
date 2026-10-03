@@ -171,7 +171,9 @@ def _validate_exit_255_transcript(output: list[str], owned_ids: list[int]) -> No
     """Consume the exact case-sensitive English grammar, one item per whole line.
 
     transcript := (SUCCESS | ERROR Reason)+, with at least one ERROR.
-    PID/parent := [1-9][0-9]*. No blank lines, trimming or embedded CR/LF.
+    One optional exact empty item is allowed only after Reason immediately
+    before the final root SUCCESS (root is owned_ids[0]). Retain it raw.
+    PID/parent := [1-9][0-9]*. No other blanks, trimming or embedded CR/LF.
     Each owned PID has exactly one record; no other PID may have a record.
     Keep this grammar mirrored in Test-Exit255LifecycleTranscript.
     """
@@ -201,6 +203,14 @@ def _validate_exit_255_transcript(output: list[str], owned_ids: list[int]) -> No
             )
             error_count += 1
             index += 2
+            if index < len(output) and output[index] == "":
+                _require(index + 2 == len(output), failure)
+                root_success = re.fullmatch(success_pattern, output[index + 1])
+                _require(
+                    root_success is not None and int(root_success.group(1)) == owned_ids[0],
+                    failure,
+                )
+                index += 1
         assert record is not None
         pid = int(record.group(1))
         _require(pid in expected and pid not in reported, failure)

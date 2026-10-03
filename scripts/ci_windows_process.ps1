@@ -141,7 +141,9 @@ function Test-Exit255LifecycleTranscript {
 
     # Exact, case-sensitive English grammar (one output item = one whole line):
     # transcript := (SUCCESS | ERROR Reason)+, with at least one ERROR.
-    # PID/parent := [1-9][0-9]*. No blank lines, trimming or embedded CR/LF.
+    # One optional exact empty item is allowed only after Reason immediately
+    # before the final root SUCCESS (root is OwnedProcessIds[0]). Retain it raw.
+    # PID/parent := [1-9][0-9]*. No other blanks, trimming or embedded CR/LF.
     # Each owned PID has exactly one record; no other PID may have a record.
     $successPattern = '\ASUCCESS: The process with PID ([1-9][0-9]*) \(child process of PID ([1-9][0-9]*)\) has been terminated\.\z'
     $errorPattern = '\AERROR: The process with PID ([1-9][0-9]*) \(child process of PID ([1-9][0-9]*)\) could not be terminated\.\z'
@@ -167,6 +169,13 @@ function Test-Exit255LifecycleTranscript {
             }
             $errorCount++
             $index += 2
+            if ($index -lt $OutputLines.Count -and $OutputLines[$index] -is [string] -and
+                $OutputLines[$index] -ceq "") {
+                if ($index + 2 -ne $OutputLines.Count -or $OutputLines[$index + 1] -isnot [string]) { return $false }
+                $rootSuccess = [regex]::Match($OutputLines[$index + 1], $successPattern)
+                if (-not $rootSuccess.Success -or $rootSuccess.Groups[1].Value -cne [string]$OwnedProcessIds[0]) { return $false }
+                $index++
+            }
         }
         $reportedId = $record.Groups[1].Value
         if (-not $expected.Contains($reportedId) -or -not $reported.Add($reportedId)) { return $false }
