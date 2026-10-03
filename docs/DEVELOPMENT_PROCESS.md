@@ -135,7 +135,7 @@ Automation may remove manual message shuttling, not issue authority, workspace/d
 
 ## 13. CI evidence and complete-suite gates
 
-The CI workflow keeps both `push` and `pull_request` coverage. All pushes and
+The CI workflow keeps both `push` and `pull_request` coverage. Non-delegated pushes and
 code-mode PR candidate gates run the complete pytest collection and suite through
 the three ordinary serial Linux lanes in `ci/test-lanes.json`. The same checked-in
 manifest is the only file-assignment source for local and CI invocation. An
@@ -178,11 +178,33 @@ mixed or contradictory evidence and unexpected failure/cancellation/skip fail.
 Its terminal success explicitly says **docs-only; pytest and Windows were not run**.
 Classifier errors fall back to full CI; they never authorize missing full evidence.
 Full-mode evidence/verifiers, push events and same-attempt completeness remain
-unchanged. Stage B event deduplication is a separate assignment.
+unchanged for every non-delegated event.
+
+Stage B permits a task push to delegate only to a current same-repository open
+PR targeting main, with the exact task head and an exact merge checkout tree
+equal to the task-head tree. `scripts/ci_event_route.py` records head/base/merge
+commits and trees separately. The PR classifier records its actual checkout in
+`event-decision-<run>-<attempt>/decision.json`; API head SHA alone is insufficient.
+The push selects the newest corresponding PR run and may wait up to seven minutes
+for that exact run/attempt, without rerunning jobs. Delegation requires successful
+classifier, quality, all three Linux lanes, Windows (including janitor), and final
+`checks`, with docs skipped, plus matching checkout routing identity from that
+attempt. The successful PR `checks` remains the authority for the complete
+same-attempt evidence set; the push neither combines nor republishes those results.
+Head/base/merge/PR/run identities are checked again after reading the evidence.
+
+No PR/run at lookup, ambiguity, stale/foreign/closed PR, changed merge/base/head,
+different tree, lookup error, missing/expired identity, docs-only PR, failed,
+cancelled or superseded run/attempt, or bounded-wait expiry keeps the push full.
+A delegated push skips its own quality/lanes/Windows and `checks`; its routing
+summary explicitly says it is **not a complete candidate gate** and identifies
+the PR run/attempt. Main/integration/other pushes and Stage A docs-only PR routing
+remain unchanged. A later changed candidate must obtain its own complete gate;
+delegation never makes a failed PR successful or erases earlier failures (#243).
 
 | Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
 | --- | --- | --- | --- | --- |
-| Task push | task branch SHA | Same task branch only | Exact checkout, complete lane union, timing/JUnit, metadata | Changed tree/config/lock/manifest/selection |
+| Task push | task branch SHA | Same task branch only | Full gate, or explicit non-gate delegation to a complete exact-tree PR run/attempt | Changed tree/config/lock/manifest/selection or PR identity |
 | PR event | PR merge ref plus PR head SHA | Same PR number only | Full code-mode set or verified docs-only decision/outcome; merge checkout distinct from head | Any changed candidate/configuration |
 | Integration push | integration SHA | No task/PR cancellation | Exact integration checkout and complete gate | New integration commit |
 | Main push | main SHA | No task/PR cancellation | Exact post-main checkout and complete gate | New main commit |
