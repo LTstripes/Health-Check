@@ -131,11 +131,11 @@ No custom Health-Check training/readiness score, medical/coaching claim, VO2 gue
 
 ### Source freshness / data quality
 
-#147/#191/#193 delivered provider-call-free shared freshness from persisted facts. Daily wearable streams, event-driven activities, voluntary Weight and optional evidence remain distinct. #238 requires explicit collection intent to be handled consistently without hiding failures or rewriting history.
+#147/#191/#193 delivered provider-call-free shared freshness from persisted facts. #238 completed explicit collection intent so intentionally disabled streams remain historically truthful/non-actionable without hiding enabled failures or rewriting history.
 
 ### Hardware/private Owner gates
 
-#215 is first real private Context note/read-back. #148 requires protection design and implementation acceptance before live off-site rehearsal. #153 remains optional openScale compatibility, not required for screenshots.
+#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 remains optional openScale compatibility, not required for screenshots.
 
 ### Deferred product presentation
 
@@ -151,7 +151,7 @@ No custom Health-Check training/readiness score, medical/coaching claim, VO2 gue
 
 ## R06 — Context, Telegram, and read-only AI tools
 
-Low-friction free-text event/exposure capture; typed read-only analytic tools over compact packets; conversational investigation over deterministic results; no unrestricted SQL/raw-series LLM mathematics. Context v0 is accepted, but real Stable adoption #215, Telegram and bounded AI are separate stages.
+Low-friction free-text event/exposure capture; typed read-only analytic tools over compact packets; conversational investigation over deterministic results; no unrestricted SQL/raw-series LLM mathematics. Context v0 and real Stable adoption #215 are accepted; Telegram and bounded AI remain separate later stages.
 
 ## R07 — Saved reports and delivery
 
