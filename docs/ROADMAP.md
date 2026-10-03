@@ -119,7 +119,7 @@ Deterministic bounded Weight/sleep/activity/data-quality packet, stable result h
 
 ## Post-R05 Stable Owner Runtime — completed foundation
 
-One persistent private cross-domain profile, supported backup/restore into disposable UAT clones, reproducible exploratory agreement, bounded provider refresh, stabilized Google identity and stale SyncRun recovery are canonical. #214 now adds one successful automatic selected-stream run. #238 remains a distinct collection-intent/freshness contract gap, not a failure of that run.
+One persistent private cross-domain profile, supported backup/restore into disposable UAT clones, reproducible exploratory agreement, bounded provider refresh, stabilized Google identity and stale SyncRun recovery are canonical. #214 added successful automatic selected-stream operation; #238 later completed explicit reversible collection-intent/freshness semantics.
 
 ## Post-R05 Garmin Training & Recovery — completed
 
