@@ -46,3 +46,59 @@ Protected filesystem publication, retention and clean disaster recovery are docu
 [Off-site backup v1](OFFSITE_BACKUP.md). Format v1 remains ZIP64-compatible and accepts a
 maximum expanded size of 16 GiB per member and 20 GiB total. Backup creation checks the
 staged SQLite-consistent file sizes against these bounds before writing the ZIP.
+
+## Targeted synthetic checks
+
+For everyday WAL or backup iterations, use external synthetic runtime/temp paths
+and the existing tests. These selections are targeted checks, not the complete CI:
+
+```powershell
+$probe = Join-Path ([System.IO.Path]::GetTempPath()) ("healthcheck-backup-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $probe | Out-Null
+$env:HEALTHCHECK_DATA_DIR = Join-Path $probe "runtime"
+$env:TEMP = $probe
+$env:TMP = $probe
+uv run --locked pytest tests/test_profile_backup.py -k wal `
+  --basetemp (Join-Path $probe "pytest-wal") --durations=5
+uv run --locked pytest tests/test_profile_backup.py -k "not large_sparse" `
+  --basetemp (Join-Path $probe "pytest-small") --durations=5
+```
+
+The WAL fixture checkpoints only the empty marker table, then pins a reader's
+pre-insert snapshot and holds the writer open after committing the marker. At
+the `create_backup` boundary, a normal read sees the marker while an immutable
+main-DB-only read sees an intact empty table. Both connections close on failure
+as well as success. The small positive test uses the real `create_backup`,
+`verify_backup` and `restore_profile`, checks sidecar exclusion and restored
+integrity/content. A separate negative test substitutes an intentionally wrong
+main-DB-only copy: real verification/restore still succeed, but the same restored
+marker assertion detects the lost committed WAL record.
+
+The >1 GiB zeroblob scenario remains in the ordinary complete CI, with unchanged
+source/restored size thresholds, payload/marker assertions and integrity checks.
+It retains the test-only `_fast_online_backup`: this is large-file evidence with
+a tuned copy, not an unchanged production backup round-trip. Compared with
+production `_online_backup`, its only behavioral difference is the SQLite backup
+call (`pages=0, sleep=0` instead of `pages=100, sleep=0.05`). Source/destination
+integrity checks and the real archive creation, verification and restore remain.
+[CPython 3.12.14's implementation](https://github.com/python/cpython/blob/v3.12.14/Modules/_sqlite/connection.c#L1937-L1962)
+sleeps on `SQLITE_BUSY`/`SQLITE_LOCKED`, not after each successful page batch.
+This sparse/compressible synthetic test proves large-file recovery, not private
+profile performance or behavior under concurrent writer contention.
+
+The bounded #275 assessment on Windows / Python 3.12.14 / SQLite 3.53.1 observed
+84.37 s call with the helper and 93.25 s with production in the same large test.
+An isolated comparison on one 1,201,188,864-byte synthetic DB measured the whole
+`_online_backup` stage (including its integrity checks): production 21.24 s, then
+the baseline helper 6.71 s. These are single observations in a fixed order, not
+a portable speed guarantee or a contention benchmark. The observed additional
+cost supports retaining the tuned large test and using the small WAL test for
+unmodified production-path evidence; no production pacing or CI routing changed.
+
+Run that large test locally only to answer a concrete large-file/production-path
+question; otherwise reuse the required exact-candidate complete CI:
+
+```powershell
+uv run --locked pytest tests/test_profile_backup.py::test_large_sparse_profile_above_one_gib_backup_verify_restore `
+  --basetemp (Join-Path $probe "pytest-large") --durations=1
+```
