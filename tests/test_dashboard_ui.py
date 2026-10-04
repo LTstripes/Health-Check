@@ -120,8 +120,11 @@ def test_empty_dashboard_does_not_fabricate_zeros(tmp_path):
         page = client.get("/")
         assert page.status_code == 200
         assert "text/html" in page.headers["content-type"]
-        assert "Consumer bioimpedance" in page.text
-        assert "does not diagnose" in page.text
+        assert "Потребительский биоимпеданс" in page.text
+        assert "не ставит диагнозы" in page.text
+        assert "Текущий подтверждённый вес" in page.text
+        assert "Это не означает ноль" in page.text
+        assert "Consumer bioimpedance" in page.text  # exact backend wording stays in technical JSON
         series = client.get("/api/weight/series")
         assert series.status_code == 200
         body = series.json()
@@ -138,8 +141,9 @@ def test_empty_dashboard_does_not_fabricate_zeros(tmp_path):
             "insufficient_observations",
             "insufficient_span",
         }
-        assert "0 kg" not in page.text or "Current confirmed weight" in page.text
-        assert "unavailable" in page.text
+        primary = page.text.split("Технические детали")[0]
+        assert "0 кг" not in primary or "Текущий подтверждённый вес" in page.text
+        assert 'data-owner-state="unavailable"' in page.text
 
 
 def test_pending_extraction_is_not_confirmed_or_canonical(tmp_path):
@@ -154,7 +158,8 @@ def test_pending_extraction_is_not_confirmed_or_canonical(tmp_path):
         assert series["raw_points"] == []
         assert series["canonical"]["selection_count"] == 0
         page = client.get("/")
-        assert "No confirmed weight observations" in page.text or "unavailable" in page.text
+        assert "Нет подтверждённых измерений" in page.text
+        assert 'data-owner-state="unavailable"' in page.text
         engine = create_sqlite_engine(paths)
         try:
             with session_scope(engine) as session:
@@ -244,7 +249,8 @@ def test_review_edit_reject_confirm_and_dashboard_points(tmp_path):
         assert "configuration_snapshot" not in provenance
         dashboard = client.get("/")
         assert "80.4" in dashboard.text
-        assert "21-day time-aware trend" in dashboard.text
+        assert "21-дневное взвешенное среднее" in dashboard.text
+        assert "Текущий подтверждённый вес" in dashboard.text
         summary = client.get("/api/weight/summary").json()
         assert summary["latest_composition"]["available"] is False
         assert summary["latest_composition"]["reason"]
@@ -282,9 +288,23 @@ def test_six_month_history_dashboard_smoke(tmp_path):
         assert "data-series" in html or "weight-chart" in html
         assert "Theil–Sen" in html or "Theil" in html
         assert "76.0" in html or "76" in html
-        assert "Estimated fat mass" in html or "estimated fat mass" in html.lower()
-        assert "Source muscle" in html or "source muscle" in html.lower()
+        assert "Текущий подтверждённый вес" in html
+        assert "Изменение за последнее время" in html
+        assert "Покрытие и свежесть" in html
+        assert "Последний состав тела" in html
+        assert "Оценки жира и сухой массы" in html
+        assert "Мышцы источника" in html
+        assert "Потребительский биоимпеданс" in html
+        # Exact backend wording stays in technical JSON, not primary copy.
+        assert "Estimated fat mass" in html
+        assert "Source muscle" in html
         assert "Consumer bioimpedance" in html
+        primary = html.split("Технические детали", 1)[0]
+        assert "Estimated fat mass" not in primary
+        assert "Source muscle" not in primary
+        assert "Consumer bioimpedance" not in primary
+        assert "Проверить состояние источников" in html
+        assert 'href="/imports' in html
         static_css = client.get("/static/dashboard.css")
         static_js = client.get("/static/dashboard.js")
         assert static_css.status_code == 200
@@ -367,7 +387,7 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
         assert "openscale-brozek" in groups
         assert series["algorithm_boundary"]["present"] is True
         page = client.get("/")
-        assert "Incompatible body-composition algorithms" in page.text
+        assert "Несовместимые алгоритмы состава тела показаны отдельными рядами" in page.text
         assert "xiaomi-home-unknown" in page.text
         assert "openscale-brozek" in page.text
     del settings
@@ -454,7 +474,7 @@ def test_unmigrated_dashboard_stays_available(tmp_path):
     ) as client:
         page = client.get("/")
         assert page.status_code == 200
-        assert "Consumer bioimpedance" in page.text
+        assert "Потребительский биоимпеданс" in page.text
         series = client.get("/api/weight/series")
         assert series.status_code == 200
         assert series.json()["raw_points"] == []
@@ -721,7 +741,7 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
         assert 'class="canonical-banner"' in html
         assert 'class="canonical-banner" role="status"' in html
         assert 'class="canonical-banner" role="alert"' not in html
-        assert "last successful snapshot and may be stale" in html
+        assert "из последнего удачного расчёта и могут быть устаревшими" in html
         assert "canonical_recompute_failed" in html
         # Embedded dashboard JSON keeps sanitized freshness fields.
         assert '"dashboard-data"' in html or 'id="dashboard-data"' in html
@@ -836,7 +856,7 @@ def test_failed_only_composition_scope_marks_weight_success_stale(tmp_path):
         assert 'class="canonical-banner"' in home.text
         assert 'class="canonical-banner" role="status"' in home.text
         assert 'class="canonical-banner" role="alert"' not in home.text
-        assert "may be stale" in home.text
+        assert "могут быть устаревшими" in home.text
         for payload in (series, summary):
             canonical = payload["canonical"]
             assert canonical["available"] is True
@@ -898,7 +918,7 @@ def test_dashboard_html_shows_canonical_banner_when_stale(tmp_path):
         assert home.status_code == 200
         assert 'data-canonical-warning="canonical_recompute_failed"' in home.text
         assert 'class="canonical-banner" role="status"' in home.text
-        assert "last successful snapshot and may be stale" in home.text
+        assert "из последнего удачного расчёта и могут быть устаревшими" in home.text
         assert "Traceback" not in home.text
         assert "SELECT " not in home.text
         assert "canonical_recompute_failed" in home.text
@@ -982,7 +1002,7 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
         assert 'class="canonical-banner"' in home.text
         assert 'class="canonical-banner" role="status"' in home.text
         assert 'class="canonical-banner" role="alert"' not in home.text
-        assert "last successful snapshot and may be stale" in home.text
+        assert "из последнего удачного расчёта и могут быть устаревшими" in home.text
         for payload in (series, summary):
             canonical = payload["canonical"]
             assert canonical["available"] is True
@@ -1056,8 +1076,8 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             assert "К содержимому" in response.text
             assert 'aria-label="Основные разделы"' in response.text
             assert expected_modes[section] in response.text
-            # Existing English bodies stay explicitly English; Russian Overview inherits ru.
-            if section == "Обзор" or path == "/imports":
+            # English bodies stay English; Overview/Data/Weight are Russian.
+            if section in ("Обзор", "Вес") or path == "/imports":
                 assert 'class="owner-page-content" lang="en"' not in response.text
             else:
                 assert 'class="owner-page-content" lang="en"' in response.text
@@ -1192,7 +1212,9 @@ def test_owner_shell_frozen_visual_system(tmp_path):
         assert "Потребительский BIA — не клиническое измерение" in overview
         assert "К содержимому" in overview
         assert 'aria-label="Основные разделы"' in overview
-        assert 'class="owner-page-content" lang="en"' in weight
+        assert 'class="owner-page-content" lang="en"' not in weight
+        assert "Текущий подтверждённый вес" in weight
+        assert "Вес — Health-Check" in weight or "Вес</h1>" in weight
         # Algorithm/canonical banners are status, never errors.
         assert 'class="canonical-banner" role="alert"' not in weight
         assert 'class="algorithm-banner" role="alert"' not in weight
@@ -1329,3 +1351,139 @@ def test_owner_data_unavailable_queue_never_presents_empty_or_zero(tmp_path):
         assert "Загрузок пока нет" not in page.text
         assert 'class="current data-queue-facts"' not in page.text
         assert '<dd>0</dd>' not in page.text
+
+
+def test_weight_owner_state_mapping_keeps_missing_and_insufficient_distinct():
+    from healthcheck.web.pages import _weight_owner_state
+
+    assert _weight_owner_state(True, None) == "present"
+    assert _weight_owner_state(False, "insufficient_observations") == "insufficient"
+    assert _weight_owner_state(False, "insufficient_span") == "insufficient"
+    assert _weight_owner_state(False, "insufficient_gap") == "insufficient"
+    assert _weight_owner_state(False, "no_data") == "unavailable"
+    assert _weight_owner_state(False, "missing_session") == "unavailable"
+    assert _weight_owner_state(False, "database_unavailable") == "unavailable"
+    assert _weight_owner_state(False, "future_reason") == "unavailable"
+    assert _weight_owner_state(False, None) == "unknown"
+    assert _weight_owner_state(False, "") == "unknown"
+
+
+def test_weight_owner_reason_is_russian_and_keeps_exact_codes_behind():
+    from healthcheck.web.pages import _weight_owner_reason
+
+    assert "Нет подтверждённых измерений" in _weight_owner_reason("no_data")
+    assert "Недостаточно измерений" in _weight_owner_reason("insufficient_observations")
+    assert "Нет принятого расчёта" in _weight_owner_reason("no_canonical_run")
+    assert "Локальное хранилище" in _weight_owner_reason("database_unavailable")
+    expected_fallback = "Подробности доступны в технических данных."
+    assert _weight_owner_reason("future_unknown_reason") == expected_fallback
+    # Exact codes are not translated away: caller keeps them for technical disclosure.
+    assert _weight_owner_reason("no_data") != "no_data"
+
+
+def test_weight_page_is_russian_owner_first_with_technical_disclosure(tmp_path):
+    app, _settings, _paths = _ui(tmp_path, weight_goal_kg=76.0)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        _confirm_all_pending(client, _upload_batch(client).json()["id"])
+        page = client.get("/")
+        assert page.status_code == 200
+        html = page.text
+        # Owner-first Russian primary surface.
+        for snippet in (
+            "Текущий подтверждённый вес",
+            "Текущий вес и цель",
+            "Ряд веса",
+            "Подтверждённый вес (источник)",
+            "Тренд 21 день (расчёт Health-Check)",
+            "Настроенная цель",
+            "Изменение за последнее время",
+            "Покрытие и свежесть",
+            "Последний состав тела",
+            "Изменения при похожем весе",
+            "Состав тела по группам алгоритмов",
+            "Происхождение точек",
+            "Выбери точку на графике",
+            "Проверить состояние источников",
+            "Технические детали",
+        ):
+            assert snippet in html
+        # Interpretation-changing limitations stay visible in Russian.
+        assert "Потребительский биоимпеданс" in html
+        assert "не ставит диагнозы" in html
+        # Exact mechanics/reasons stay behind closed disclosure, not primary.
+        assert '<details class="card owner-details' in html
+        assert 'class="card owner-details" open' not in html
+        primary, technical = html.split("Технические детали", 1)
+        assert "weight_trend_taewma_v1" not in primary
+        assert "weight_rate_theil_sen_90d_v1" not in primary
+        assert "no_data" not in primary or 'data-owner-state' in primary
+        assert "weight_trend_taewma_v1" in technical
+        assert "canonical" in technical.lower() or "Канонический" in technical
+        # Import needs link toward Data, not duplicated source-status UX.
+        assert 'href="/imports' in primary
+        assert "на проверке" in primary or "Открыть данные" in primary
+        # Missing is never zero in primary (exact zero, not goal substring).
+        assert " 0 кг" not in primary
+        assert ">0 кг" not in primary
+        # API semantics unchanged.
+        series = client.get("/api/weight/series").json()
+        assert series["trend_algorithm"] == "weight_trend_taewma_v1"
+        assert series["metric_labels"]["raw_weight"] == "Raw confirmed weight (source)"
+        assert series["bia_uncertainty"].startswith("Consumer bioimpedance")
+
+
+def test_weight_empty_states_use_frozen_chips_and_no_zero(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        html = client.get("/").text
+        primary = html.split("Технические детали", 1)[0]
+        assert 'data-owner-state="unavailable"' in primary
+        assert "Это не означает ноль" in primary
+        assert "Нет подтверждённых измерений" in primary
+        assert "Не настроена" in primary
+        assert "Нет кандидатов на проверке" in primary
+        assert "0 кг" not in primary
+        assert "<dd>0</dd>" not in primary
+
+
+def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        html = client.get("/").text
+        js = client.get("/static/dashboard.js").text
+        css = client.get("/static/dashboard.css").text
+        # Viewport, skip link, focus, chart scroller present.
+        assert 'name="viewport"' in html
+        assert 'href="#owner-main"' in html
+        assert 'id="weight-chart" class="chart"' in html
+        assert 'aria-label="График веса"' in html
+        assert 'id="trend-status"' in html
+        # Legend uses frozen 8px squares (CSS) and Russian labels (HTML).
+        assert "Подтверждённый вес (источник)" in html
+        assert ".swatch" in css and "width: 8px" in css
+        # Tables keep real layout inside dedicated scroller (JS creates wrapper).
+        assert "table-scroll" in js
+        assert 'aria-label", "Состав тела' in js or "Состав тела, прокрутка таблицы" in js
+        assert 'createElement("table")' in js
+        assert "display: block" not in js
+        # Frozen series colors reused, no page-local palette.
+        assert "#1d4e89" in js
+        assert "#9a4f1a" in js
+        assert "#5c4d86" in js
+        assert "#c45c26" not in js
+        assert "#6b4ea2" not in js
+        # Owner-facing JS copy is Russian; exact reason codes stay in JSON only.
+        assert "Тренд доступен" in js or "Тренд недоступен" in js
+        assert "кг/нед." in js
+        assert "Покрытие" not in js or "Даты наблюдений" in js
+        assert "Trend algorithm" not in js
+        assert "kg/week" not in js
+        # No new visual tokens introduced by Stage 4.
+        assert "border-radius: 999px" not in css
+        assert "font-weight: 700" not in css

@@ -143,6 +143,79 @@ def _brief_owner_reason(reason: object) -> str:
     return _BRIEF_REASON_LABELS.get(token, "Подробности доступны в технических данных.")
 
 
+_WEIGHT_OWNER_REASONS = {
+    "no_data": "Нет подтверждённых измерений.",
+    "no_data_in_window": "В выбранном окне нет подтверждённых измерений.",
+    "insufficient_observations": "Недостаточно измерений для надёжного показателя.",
+    "insufficient_span": "Недостаточно охвата по времени для надёжного показателя.",
+    "insufficient_evidence": "Принятых данных недостаточно для этого показателя.",
+    "not_enough_points": "Недостаточно измерений для надёжного показателя.",
+    "no_canonical_run": "Нет принятого расчёта.",
+    "no_canonical_weight_run": "Нет принятого расчёта веса.",
+    "canonical_selection_failed": "Принятый расчёт недоступен после неудачного пересчёта.",
+    "canonical_selection_in_progress": "Принятый расчёт ещё не готов.",
+    "canonical_recompute_failed": "Последний пересчёт не удался.",
+    "canonical_recompute_in_progress": "Идёт пересчёт.",
+    "database_unavailable": "Локальное хранилище данных не готово.",
+    "missing_session": "Нет подходящей сессии измерений.",
+    "missing_weight": "Нет веса для сравнения.",
+    "missing_composition_evidence": "Нет подходящих данных состава тела.",
+    "missing_observed_date": "Нет даты измерения.",
+    "missing_value": "Нет пригодного значения.",
+    "missing_compatibility_group": "Группа алгоритма не определена.",
+    "cross_session": "Измерения из разных сессий нельзя объединять.",
+    "conflicting_observed_date": "Даты измерений не совпадают.",
+    "incompatible_algorithm_group": "Другой алгоритм; сравнение через границу недоступно.",
+    "insufficient_gap": "Интервал между измерениями меньше 28 дней.",
+    "weight_diff_exceeds_threshold": "Вес отличается более чем на 1%.",
+    "invalid_weight_value": "Значение веса непригодно.",
+    "invalid_body_fat_value": "Значение жира непригодно.",
+    "invalid_weight_metric": "Показатель веса непригоден.",
+    "invalid_body_fat_metric": "Показатель жира непригоден.",
+    "invalid_unit": "Единицы измерения непригодны.",
+    "non_positive_weight": "Значение веса непригодно.",
+    "not_confirmed": "Измерение не подтверждено.",
+    "superseded": "Есть более новое измерение.",
+    "source_muscle_not_lean": "Мышцы источника — не сухая масса.",
+}
+
+_WEIGHT_INSUFFICIENT_REASONS = frozenset(
+    {
+        "insufficient_observations",
+        "insufficient_span",
+        "insufficient_evidence",
+        "not_enough_points",
+        "insufficient_gap",
+    }
+)
+
+
+def _weight_owner_reason(reason: object) -> str:
+    """Translate a weight analytic reason without changing packet semantics."""
+
+    token = str(reason or "")
+    if token in _WEIGHT_OWNER_REASONS:
+        return _WEIGHT_OWNER_REASONS[token]
+    if token.startswith("missing_"):
+        return "Нет подходящих данных."
+    if token.startswith("invalid_"):
+        return "Данные непригодны для этого показателя."
+    return "Подробности доступны в технических данных."
+
+
+def _weight_owner_state(available: object, reason: object) -> str:
+    """Map weight availability to a frozen owner state key only."""
+
+    if available is True:
+        return "present"
+    token = str(reason or "unknown")
+    if token in _WEIGHT_INSUFFICIENT_REASONS:
+        return "insufficient"
+    if token in {"unknown", "", "none", "None"}:
+        return "unknown"
+    return "unavailable"
+
+
 def _brief_owner_activity(activity_type: object) -> str:
     token = str(activity_type or "unknown")
     return _BRIEF_ACTIVITY_LABELS.get(token, "Другая активность")
@@ -551,7 +624,16 @@ def dashboard_page(request: Request) -> HTMLResponse:
         if not database_unavailable(exc):
             return _persist_error(request, "dashboard")
         payload = empty_dashboard_payload(reason="database_unavailable")
-    return render(request, "dashboard.html", {"payload": payload, "page": "dashboard"})
+    return render(
+        request,
+        "dashboard.html",
+        {
+            "payload": payload,
+            "page": "dashboard",
+            "weight_owner_reason": _weight_owner_reason,
+            "weight_owner_state": _weight_owner_state,
+        },
+    )
 
 
 @router.get("/agreement", response_class=HTMLResponse)

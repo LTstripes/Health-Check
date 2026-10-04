@@ -1,4 +1,38 @@
+/* Owner-first Weight presentation. Analytics/canonical semantics unchanged; UI only translates. */
 (function () {
+  const STATE_LABELS = {
+    present: "Данные доступны",
+    partial: "Данные доступны частично",
+    confirmed_empty: "За период записей нет",
+    unknown: "Состояние данных не определено",
+    unavailable: "Источник данных недоступен",
+    insufficient: "Недостаточно данных",
+    not_requested: "Не запрашивалось",
+    loading: "Загрузка данных",
+    error: "Не удалось выполнить запрос",
+    no_change: "Изменений не обнаружено"
+  };
+
+  const REASON_TEXT = {
+    no_data: "Нет подтверждённых измерений.",
+    no_data_in_window: "В выбранном окне нет подтверждённых измерений.",
+    insufficient_observations: "Недостаточно измерений для надёжного показателя.",
+    insufficient_span: "Недостаточно охвата по времени для надёжного показателя.",
+    insufficient_evidence: "Принятых данных недостаточно для этого показателя.",
+    not_enough_points: "Недостаточно измерений для надёжного показателя.",
+    no_canonical_run: "Нет принятого расчёта.",
+    database_unavailable: "Локальное хранилище не готово.",
+    missing_session: "Нет подходящей сессии измерений.",
+    missing_weight: "Нет веса для сравнения.",
+    missing_composition_evidence: "Нет подходящих данных состава тела.",
+    cross_session: "Измерения из разных сессий нельзя объединять.",
+    conflicting_observed_date: "Даты измерений не совпадают.",
+    incompatible_algorithm_group: "Другой алгоритм; сравнение через границу недоступно.",
+    insufficient_gap: "Интервал между измерениями меньше 28 дней.",
+    weight_diff_exceeds_threshold: "Вес отличается более чем на 1%.",
+    source_muscle_not_lean: "Мышцы источника — не сухая масса."
+  };
+
   const dataNode = document.getElementById("dashboard-data");
   if (dataNode) {
     const payload = JSON.parse(dataNode.textContent);
@@ -20,9 +54,32 @@
 
   function fmt(value, digits) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
-      return "unavailable";
+      return "недоступно";
     }
     return Number(value).toFixed(digits);
+  }
+
+  function ownerState(available, reason) {
+    if (available === true) return "present";
+    const token = String(reason || "unknown");
+    if (["insufficient_observations", "insufficient_span", "insufficient_evidence", "not_enough_points", "insufficient_gap"].includes(token)) {
+      return "insufficient";
+    }
+    if (["unknown", "", "none", "None"].includes(token)) return "unknown";
+    return "unavailable";
+  }
+
+  function reasonText(reason) {
+    const token = String(reason || "");
+    if (REASON_TEXT[token]) return REASON_TEXT[token];
+    if (token.startsWith("missing_")) return "Нет подходящих данных.";
+    if (token.startsWith("invalid_")) return "Данные непригодны для этого показателя.";
+    return "Подробности доступны в технических данных.";
+  }
+
+  function chip(state) {
+    const key = STATE_LABELS[state] ? state : "unknown";
+    return '<span class="status-chip owner-state ' + key + '" data-owner-state="' + key + '">' + STATE_LABELS[key] + "</span>";
   }
 
   function renderTrendStatus(series) {
@@ -30,13 +87,14 @@
     if (!node) return;
     if (series.trend_available) {
       node.textContent =
-        "Trend algorithm " +
-        (series.trend_algorithm || "weight_trend_taewma_v1") +
-        " · " +
+        "Тренд доступен · " +
         (series.input_count || 0) +
-        " confirmed observations";
+        " подтверждённых наблюдений";
     } else {
-      node.textContent = "Trend unavailable (" + (series.trend_reason || "no_data") + ")";
+      const state = ownerState(false, series.trend_reason);
+      node.innerHTML =
+        chip(state) +
+        " <span>" + reasonText(series.trend_reason) + " Это не означает ноль.</span>";
     }
   }
 
@@ -45,22 +103,22 @@
     if (!node) return;
     if (!rate.available) {
       node.innerHTML =
-        '<p class="unavailable">unavailable</p><p class="muted">Reason: ' +
-        escapeHtml(rate.reason || "no_data") +
-        ". Missing rate is not shown as 0.</p>";
+        "<p>" + chip(ownerState(false, rate.reason)) + "</p><p class=\"muted\">" +
+        reasonText(rate.reason) +
+        " Отсутствующий темп не показан как 0.</p>";
       return;
     }
     node.innerHTML =
       "<p><strong>" +
       fmt(rate.slope_kg_per_week, 3) +
-      " kg/week</strong></p>" +
+      " кг/нед.</strong></p>" +
       "<p class=\"muted\">" +
       rate.observation_count +
-      " daily points spanning " +
+      " точек за " +
       rate.covered_span_days +
-      " days (" +
+      " дней (" +
       (rate.window_start_date || "") +
-      " to " +
+      " — " +
       (rate.window_end_date || "") +
       ").</p>";
   }
@@ -69,39 +127,41 @@
     const node = document.getElementById("coverage-panel");
     if (!node) return;
     if (!coverage) {
-      node.innerHTML = '<p class="unavailable">unavailable</p><p class="muted">Reason: no_data</p>';
+      node.innerHTML =
+        "<p>" + chip("unavailable") + "</p><p class=\"muted\">" +
+        reasonText("no_data") +
+        " Это не означает ноль.</p>";
       return;
     }
     const counts = coverage.status_counts || {};
+    const missing = function (value) {
+      return value === null || value === undefined ? "недоступно" : value;
+    };
     node.innerHTML =
       "<ul>" +
-      "<li>Observed dates: " +
+      "<li>Даты наблюдений: " +
       (coverage.observed_dates ? coverage.observed_dates.length : 0) +
       "</li>" +
-      "<li>Covered cadence bins: " +
-      (coverage.covered_bin_count ?? "unavailable") +
+      "<li>Закрытые интервалы: " +
+      missing(coverage.covered_bin_count) +
       " / " +
-      (coverage.expected_bin_count ?? "unavailable") +
+      missing(coverage.expected_bin_count) +
       "</li>" +
-      "<li>Freshness (days): " +
-      (coverage.freshness_days === null || coverage.freshness_days === undefined
-        ? "unavailable"
-        : coverage.freshness_days) +
+      "<li>Свежесть (дней): " +
+      missing(coverage.freshness_days) +
       "</li>" +
-      "<li>Longest gap (days): " +
-      (coverage.longest_gap_days === null || coverage.longest_gap_days === undefined
-        ? "unavailable"
-        : coverage.longest_gap_days) +
+      "<li>Самый длинный пропуск (дней): " +
+      missing(coverage.longest_gap_days) +
       "</li>" +
-      "<li>States — present " +
+      "<li>Состояния — доступно " +
       (counts.present || 0) +
-      ", unknown " +
+      ", неизвестно " +
       (counts.unknown || 0) +
-      ", unavailable " +
+      ", недоступно " +
       (counts.unavailable || 0) +
-      ", failed " +
+      ", сбой " +
       (counts.failed || 0) +
-      ", confirmed empty " +
+      ", пусто " +
       (counts.confirmed_empty || 0) +
       "</li>" +
       "</ul>";
@@ -112,26 +172,24 @@
     if (!node) return;
     if (!item.available) {
       node.innerHTML =
-        '<p class="unavailable">unavailable</p><p class="muted">Reason: ' +
-        escapeHtml(item.reason || "no_data") +
+        "<p>" + chip(ownerState(false, item.reason)) + "</p><p class=\"muted\">" +
+        reasonText(item.reason) +
         "</p>";
       return;
     }
     node.innerHTML =
-      "<p>Body fat " +
+      "<p>Жир " +
       fmt(item.body_fat_pct, 1) +
-      "% (source)</p>" +
-      "<p>Estimated fat mass " +
+      "% (источник)</p>" +
+      "<p>Оценка жировой массы " +
       fmt(item.estimated_fat_mass_kg, 1) +
-      " kg (Health-Check derived)</p>" +
-      "<p>Estimated lean mass " +
+      " кг (расчёт Health-Check)</p>" +
+      "<p>Оценка сухой массы " +
       fmt(item.estimated_lean_mass_kg, 1) +
-      " kg (Health-Check derived)</p>" +
-      "<p class=\"muted\">Group " +
-      escapeHtml(item.compatibility_group || "unknown") +
-      ". " +
-      escapeHtml(item.caution || "") +
-      "</p>";
+      " кг (расчёт Health-Check)</p>" +
+      "<p class=\"muted\">Группа " +
+      escapeHtml(item.compatibility_group || "неизвестна") +
+      ".</p>";
   }
 
   function renderSimilar(item) {
@@ -139,8 +197,8 @@
     if (!node) return;
     if (!item.available) {
       node.innerHTML =
-        '<p class="unavailable">unavailable</p><p class="muted">Reason: ' +
-        escapeHtml(item.reason || "no_data") +
+        "<p>" + chip(ownerState(false, item.reason)) + "</p><p class=\"muted\">" +
+        reasonText(item.reason) +
         "</p>";
       return;
     }
@@ -151,20 +209,20 @@
       escapeHtml(item.later_date) +
       " (" +
       item.days_apart +
-      " days)</p>" +
-      "<p>Weight " +
+      " дней)</p>" +
+      "<p>Вес " +
       fmt(item.earlier_weight_kg, 1) +
       " → " +
       fmt(item.later_weight_kg, 1) +
-      " kg</p>" +
-      "<p>Body fat " +
+      " кг</p>" +
+      "<p>Жир " +
       fmt(item.earlier_body_fat_pct, 1) +
       " → " +
       fmt(item.later_body_fat_pct, 1) +
-      " pp (source)</p>" +
-      "<p class=\"muted\">Same group " +
+      " п.п. (источник)</p>" +
+      "<p class=\"muted\">Та же группа " +
       escapeHtml(item.compatibility_group || "") +
-      ". Not a claim of real muscle gain or fat loss.</p>";
+      ". Не утверждение о реальном росте мышц или потере жира.</p>";
   }
 
   function renderCompositionGroups(groups) {
@@ -172,13 +230,13 @@
     if (!node) return;
     const names = Object.keys(groups);
     if (!names.length) {
-      node.innerHTML = '<p class="unavailable">No confirmed composition series.</p>';
+      node.innerHTML = "<p>" + chip("unavailable") + '</p><p class="muted">Нет подтверждённого ряда состава тела. Это не означает ноль.</p>';
       return;
     }
     node.innerHTML = "";
     names.forEach(function (group) {
       const wrap = document.createElement("div");
-      wrap.innerHTML = "<h3>Algorithm group <code>" + escapeHtml(group) + "</code></h3>";
+      wrap.innerHTML = "<h3>Группа алгоритма <code>" + escapeHtml(group) + "</code></h3>";
       const chart = document.createElement("div");
       chart.className = "chart";
       wrap.appendChild(chart);
@@ -193,7 +251,7 @@
     const raw = series.raw_points || [];
     const trend = series.trend_points || [];
     if (!raw.length && !trend.length) {
-      host.innerHTML = '<p class="unavailable">No confirmed weight observations.</p>';
+      host.innerHTML = "<p>" + chip("unavailable") + '</p><p class="muted">Нет подтверждённых измерений веса. Это не означает ноль.</p>';
       return;
     }
     const points = raw.map(function (item) {
@@ -219,13 +277,18 @@
         return { date: item.observed_date, value: item.body_fat_pct, kind: "raw" };
       });
     if (!fat.length) {
-      host.innerHTML = '<p class="unavailable">No body-fat points in ' + escapeHtml(group) + ".</p>";
+      host.innerHTML = '<p class="muted">Нет точек жира в ' + escapeHtml(group) + ".</p>";
       return;
     }
     host.appendChild(svgSeries(fat, [], null, fat.map(function (item) { return item.value; }), null, "%"));
+    const scroller = document.createElement("div");
+    scroller.className = "table-scroll";
+    scroller.setAttribute("tabindex", "0");
+    scroller.setAttribute("role", "region");
+    scroller.setAttribute("aria-label", "Состав тела, прокрутка таблицы");
     const table = document.createElement("table");
     table.innerHTML =
-      "<thead><tr><th>Date</th><th>Body fat % (source)</th><th>Est. fat mass kg (derived)</th><th>Est. lean mass kg (derived)</th><th>Source muscle kg</th></tr></thead>";
+      "<thead><tr><th>Дата</th><th>Жир % (источник)</th><th>Оценка жира кг (расчёт)</th><th>Оценка сухой массы кг (расчёт)</th><th>Мышцы источника кг</th></tr></thead>";
     const body = document.createElement("tbody");
     points.forEach(function (item) {
       const row = document.createElement("tr");
@@ -240,13 +303,14 @@
         fmt(item.estimated_lean_mass_kg, 1) +
         "</td><td>" +
         (item.source_muscle_mass_kg === null || item.source_muscle_mass_kg === undefined
-          ? "unavailable"
+          ? "недоступно"
           : fmt(item.source_muscle_mass_kg, 1)) +
         "</td>";
       body.appendChild(row);
     });
     table.appendChild(body);
-    host.appendChild(table);
+    scroller.appendChild(table);
+    host.appendChild(scroller);
   }
 
   function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit) {
@@ -295,7 +359,7 @@
       goalLine.setAttribute("x2", width - pad.r);
       goalLine.setAttribute("y1", gy);
       goalLine.setAttribute("y2", gy);
-      goalLine.setAttribute("stroke", "#6b4ea2");
+      goalLine.setAttribute("stroke", "#5c4d86");
       goalLine.setAttribute("stroke-dasharray", "6 4");
       goalLine.setAttribute("data-series", "goal");
       svg.appendChild(goalLine);
@@ -309,7 +373,7 @@
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", d);
       path.setAttribute("fill", "none");
-      path.setAttribute("stroke", "#c45c26");
+      path.setAttribute("stroke", "#9a4f1a");
       path.setAttribute("stroke-width", "2.5");
       path.setAttribute("data-series", "trend");
       svg.appendChild(path);
@@ -324,7 +388,7 @@
       circle.setAttribute("data-evidence-id", item.id || "");
       circle.setAttribute("tabindex", "0");
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      title.textContent = item.date + " · " + fmt(item.value, 1) + (unit || " kg");
+      title.textContent = item.date + " · " + fmt(item.value, 1) + (unit || " кг");
       circle.appendChild(title);
       if (onClick) {
         circle.addEventListener("click", function () { onClick(item); });
@@ -340,18 +404,19 @@
   function showProvenance(info) {
     const node = document.getElementById("provenance-panel");
     if (!node) return;
+    const missing = "недоступно";
     const lines = [
       "evidence_id: " + (info.evidence_id || ""),
-      "provider: " + (info.provider_code || "unavailable") + " (" + (info.provider_display_name || "") + ")",
-      "device: " + (info.device_code || "unavailable") + " (" + (info.device_display_name || "") + ")",
-      "input_method: " + (info.input_method || "unavailable"),
-      "source_application: " + (info.source_application || "unavailable"),
-      "algorithm: " + (info.algorithm_code || "unavailable") + " @ " + (info.algorithm_version || "unavailable"),
-      "compatibility_group: " + (info.compatibility_group || "unavailable"),
-      "temporal_precision: " + (info.temporal_precision || "unavailable"),
-      "source_local_date: " + (info.source_local_date || "unavailable"),
+      "provider: " + (info.provider_code || missing) + " (" + (info.provider_display_name || "") + ")",
+      "device: " + (info.device_code || missing) + " (" + (info.device_display_name || "") + ")",
+      "input_method: " + (info.input_method || missing),
+      "source_application: " + (info.source_application || missing),
+      "algorithm: " + (info.algorithm_code || missing) + " @ " + (info.algorithm_version || missing),
+      "compatibility_group: " + (info.compatibility_group || missing),
+      "temporal_precision: " + (info.temporal_precision || missing),
+      "source_local_date: " + (info.source_local_date || missing),
       "source_timestamp_utc: " + (info.source_timestamp_utc || "null (date-only, no invented midnight)"),
-      "artifact_content_hash: " + (info.artifact_content_hash || "unavailable"),
+      "artifact_content_hash: " + (info.artifact_content_hash || missing)
     ];
     node.classList.remove("empty");
     node.textContent = lines.join("\n");
@@ -385,7 +450,7 @@
       if (!preview) return;
       if (!selected.length) {
         preview.classList.add("empty");
-        preview.textContent = "Select candidates to preview committed values.";
+        preview.textContent = "Выбери кандидатов, чтобы увидеть итоговые значения.";
         return;
       }
       const items = selected.map(function (box) {
@@ -396,9 +461,9 @@
           row.getAttribute("data-value") +
           " " +
           (row.getAttribute("data-unit") || "") +
-          " on " +
-          (row.getAttribute("data-date") || "unknown date") +
-          (row.getAttribute("data-committed") === "true" ? " (already confirmed, replay)" : " (will confirm)")
+          " на " +
+          (row.getAttribute("data-date") || "неизвестная дата") +
+          (row.getAttribute("data-committed") === "true" ? " (уже подтверждено, повтор)" : " (будет подтверждено)")
         );
       });
       preview.classList.remove("empty");

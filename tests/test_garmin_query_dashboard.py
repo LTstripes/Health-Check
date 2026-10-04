@@ -201,7 +201,7 @@ def test_empty_garmin_dashboard_honest_no_data(tmp_path):
         assert "Garmin dashboard" in page.text
         weight = client.get("/")
         assert weight.status_code == 200
-        assert "Weight and body composition" in weight.text
+        assert "Текущий подтверждённый вес" in weight.text
 
 
 def test_single_source_scalar_delegates_r03_01_and_preserves_hash(tmp_path):
