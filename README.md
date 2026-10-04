@@ -30,20 +30,23 @@ R04 release lineage:
 
 The final R04 owner gate proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations.
 
-## Current focus — 2026-10-03
+## Current focus — 2026-10-04
 
-Canonical GitHub checkpoint before this docs closeout: `0339088c52dcefac93bb372a3a460c12cc4b6152`; exact post-main CI `37137153269` SUCCESS. The Owner operation checkout was also read back clean at this SHA after #256 deployment. This is dated evidence, not a permanent branch pointer; re-read live GitHub state before a later integration.
+Canonical GitHub checkpoint for this closeout: `9f41985c47f758f38186efade974bb7ba1d9bf4d`. Exact-main ordinary CI `37184776672` and path-scoped Dependency audit `37184776636` both completed SUCCESS on that SHA. GitHub publication still does not imply local Owner deployment; re-read the local checkout separately before runtime work.
 
-Recent operational/maintenance completion:
-- **#148 durability/recovery:** the existing Google Drive ZIP restored cleanly into a disposable profile (5109 files; full SQLite restored) without mutating Stable. #252/#254 raised bounded payload/manifest capacity uncovered by the real profile.
-- **#256 filesystem layout:** canonical Owner roots are now `D:\HealthCheck\{main,stable,uat,ops,workspaces}`; initial legacy cleanup reclaimed about 6.64 GiB; the fail-closed workspace janitor is deployed daily at 12:00 with seven-day minimum retention.
-- **#251 CI lane balance:** merged through PR #258; the same complete Linux test set is redistributed across the existing three serial lanes without dropping coverage.
+Recent technical/maintenance completion:
+- **#251 CI lane balance:** the complete Linux test union remains intact while three serial lanes were rebalanced. In the controlled candidate comparison, wall time improved from 5:13 to 4:21 (52 seconds / 16.6%); this is a critical-path observation, not a runner-minute or billing claim.
+- **#246 Stage A:** qualifying changes to five explicitly allowlisted existing prose documents use a live-proven docs-only PR path. Quality, pytest lanes and Windows are skipped only after the fail-closed classifier proves the narrow docs contract.
+- **#246 Stage B:** a later task-branch push may delegate to an already-complete same-repository PR gate only when head/base/merge identities and exact trees match. The delegated push is explicitly not a candidate gate. The first task push before a matching PR exists still runs full CI.
+- **#243 Windows reliability:** the recurrent exit-255 transcript case was repaired without weakening ownership, PID-set, CreationTime, port/runtime or same-attempt checks; only the exact accepted separator grammar is recognized.
+- **#242 dependency/security maintenance:** urllib3 2.7.0 -> 2.8.0 and pytest 8.4.2 -> 9.0.3; bounded weekly Dependabot, immutable action SHAs and least-privilege workflow permissions are in place. Dependency auditing is a separate path-scoped OSV/pip-audit gate, so unrelated ordinary CI does not gain a network dependency.
+- **#244 loopback Host/Origin hardening:** completed separately and integrated into the current test manifest during #242 reconciliation.
 
-**Active non-UI technical work:** #246 Stage A docs-only PR fast path is the current assigned CI optimization and is being refreshed against the post-#259 main before independent review. Stage B event dedup remains separate. Other open technical maintenance includes #243 Windows exit-255 transcript diagnosis, #242 dependency advisories, #244 loopback Host/Origin hardening, #247 non-Windows Google AEAD replacement, #248 explicit Period Brief CLI JSON/text output and #240 Owner-attested screenshot metadata. Do not start these automatically or fold them into #246.
+**CI/test optimization status:** the planned test/CI optimization wave is complete. There is no open pytest/lane/workflow-optimization implementation issue. #126 remains an explicit Owner/admin decision about repository required-check enforcement; it is not another test-code optimization task. Future CI tuning should start only from a new measured bottleneck, regression or security requirement rather than from an assumed need for more test reduction.
 
-UI remains deferred under #172/#189. #228 remains parked, #153 optional, #167 Owner-deferred, #126 an Owner/capability decision and #105 NOT_ELIGIBLE. #210 is closed by Owner decision; model bookkeeping is retired.
+Current bounded technical backlog is #247 (non-Windows Google AEAD), #248 (Period Brief JSON/text CLI) and #240 (Owner-attested screenshot metadata). #228 remains parked; UI #172/#189 and privacy/history #167 remain deferred; #105 remains NOT_ELIGIBLE. Use live GitHub issues for subsequent changes.
 
-The [roadmap](docs/ROADMAP.md), [current history](docs/EXECUTION_HISTORY_CURRENT.md) and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md) preserve the current disposition; use live GitHub issues for the current count. No broad historical backfill or Google HR re-enable is authorized.
+See [CI Optimization Closeout — 2026-10-04](docs/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md), the [roadmap](docs/ROADMAP.md), [current history](docs/EXECUTION_HISTORY_CURRENT.md) and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md).
 
 ## Architecture in one minute
 
@@ -135,6 +138,7 @@ The accepted final GitHub Actions verdict is **`checks`**. It fail-closes over m
 - [R05 Release Closeout](docs/R05_RELEASE_CLOSEOUT.md)
 - [Stable Owner Runtime Closeout](docs/STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md)
 - [CI Maintenance Closeout](docs/CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
+- [CI Optimization Closeout — 2026-10-04](docs/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md)
 - [R04 Google persistence contract](docs/R04_GOOGLE_PERSISTENCE_CONTRACT.md)
 - [R03 analytic input contract](docs/R03_ANALYTIC_INPUT_CONTRACT.md)
 - [Reference Projects and Reuse Strategy](docs/REFERENCE_PROJECTS.md)

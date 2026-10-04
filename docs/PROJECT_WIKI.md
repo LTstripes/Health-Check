@@ -2,18 +2,19 @@
 
 This is the compact current-state entry point. Historical contracts and release evidence remain in release-specific documents and GitHub issues.
 
-## Current canonical state — 2026-10-03
+## Current canonical state — 2026-10-04
 
-- Canonical Git branch: `main`. Checkpoint before this docs closeout: `0339088c52dcefac93bb372a3a460c12cc4b6152`; exact-main CI `37137153269` SUCCESS. Owner `D:\HealthCheck\main` was also clean/read back at this SHA.
-- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness/collection policy, screenshot workflow and reliability/correction work are canonical.
-- #214 automatic selected-stream collection proof and #238 collection-policy/freshness reconciliation are complete. Google high-frequency sample HR remains intentionally disabled under explicit reversible policy; historical age/evidence is preserved rather than called fresh.
+- Canonical Git branch: `main`. Closeout checkpoint: `9f41985c47f758f38186efade974bb7ba1d9bf4d`; exact-main ordinary CI `37184776672` SUCCESS and Dependency audit `37184776636` SUCCESS.
+- Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness/collection policy, screenshot workflow and the reliability/correction slice remain canonical.
 - Stable private data: `D:\HealthCheck\stable`; Owner/control checkout: `D:\HealthCheck\main`; local Ops: `D:\HealthCheck\ops`; disposable Owner UAT: `D:\HealthCheck\uat`; agent tasks: `D:\HealthCheck\workspaces\<client>\<issue-or-task>`.
-- #148 practical off-site recovery is complete: the accepted Owner workflow is an ordinary verified ZIP in the materialized Google Drive folder plus supported clean restore. Optional protected age publication is not required.
-- #251 CI lane balancing and #256 filesystem/workspace maintenance are complete. The workspace janitor runs daily at 12:00 local with seven-day minimum retention and preserves ambiguous/active/young/wrong-origin tasks.
-- Current active non-UI technical thread: #246 Stage A docs-only PR fast path. #243/#242/#244 are separate maintenance/security tasks; #247/#248/#240 are later bounded follow-ups. UI #172/#189 remains deferred.
-- Repository visibility remains public at this checkpoint; #126 and #167 remain explicit Owner/capability/privacy decisions rather than implicit authorization for settings/history changes.
+- #148 practical off-site recovery and #256 canonical filesystem/workspace maintenance are complete; the fail-closed workspace janitor remains the accepted daily cleanup mechanism.
+- The 2026-10-03/04 CI/test-maintenance wave is complete: #251 lane balancing, #246 docs-only + exact-tree event dedup, #243 Windows transcript reliability and #242 dependency/security audit all closed with live integration evidence.
+- #244 loopback Host/Origin hardening is also complete and reconciled into the current lane manifest.
+- There is no open test-suite/pytest/lane/workflow optimization implementation task. #126 is still an explicit Owner/admin decision about required-check enforcement, not unfinished test engineering.
+- Current bounded non-UI technical work is #247 / #248 / #240. #228 is parked; #172/#189 UI and #167 privacy/history remain deferred; #105 remains NOT_ELIGIBLE.
+- Repository visibility remains public at this checkpoint. No settings/history rewrite is implied by engineering acceptance.
 
-See the [current backlog](ROADMAP.md#current-backlog--2026-10-03), [Owner machine layout](OWNER_MACHINE_LAYOUT.md) and [current history](EXECUTION_HISTORY_CURRENT.md).
+See the [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md), [current backlog](ROADMAP.md#current-backlog--2026-10-04), [Owner machine layout](OWNER_MACHINE_LAYOUT.md) and [current history](EXECUTION_HISTORY_CURRENT.md).
 
 ## What the product can do today
 
@@ -78,17 +79,30 @@ Garmin remains canonical/default. #105 is NOT_ELIGIBLE until its existing eviden
 
 ## Engineering reliability / CI
 
-#123–#125 established provenance-bound evidence, three serial Linux lanes with exact nodeid/multiplicity reconciliation, and focused native Windows DPAPI/startup/HTTP/cleanup proof. Historical timing improvement is recorded in [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), not promised for every run.
+#123–#125 established provenance-bound evidence, three serial Linux lanes with exact nodeid/multiplicity reconciliation, and focused native Windows proof. #181 and #243 retain fail-closed Windows process/cleanup semantics, including complete transcript/PID/CreationTime evidence and the narrow accepted exit-255 separator grammar.
 
-#181 is complete. Captured root/child identities are checked independently; post-termination reuse requires changed trustworthy CreationTime. Exit-255 reconciliation consumes the complete accepted transcript. The post-main transient-WMI failure was retained and repaired by bounded polling, not a retry-until-green waiver. See `docs/DEVELOPMENT_PROCESS.md` for the precise success/failure contract.
+The later optimization wave changed execution cost without deleting test coverage:
+- #251 rebalanced the same complete Linux test union across the three lanes; the controlled candidate wall time moved from 5:13 to 4:21 (52 seconds / 16.6%).
+- #246 Stage A live-proved a fail-closed docs-only route for five existing prose files; its terminal verdict explicitly states that pytest and Windows were not run.
+- #246 Stage B live-proved exact-tree task-push delegation to an already-complete PR gate; the delegated push skips its own quality/Linux/Windows/checks and is explicitly not a candidate gate. The first push before a matching PR exists remains full.
+- #242 moved dependency advisories into a separate path-scoped workflow, patched urllib3/pytest, pinned actions to immutable SHAs and added bounded Dependabot visibility. Ordinary CI therefore stays deterministic and does not depend on OSV/network availability for unrelated changes.
 
-#126 is still an explicit Owner/capability decision. Before advancing canonical/shared refs the Integrator requires exact-tree/SHA final `checks: SUCCESS` under the accepted PR protocol. Green constituent lanes alone are insufficient. No history rewrite, forced ref update or protection change is part of ordinary work.
+Detailed rollout evidence and limitations are in [CI Optimization Closeout — 2026-10-04](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
+
+#126 remains an explicit Owner/capability decision. The Integrator process still requires exact-tree/SHA successful gates before advancing canonical history even without server-side protection.
 
 ## Next work
 
-#215 first real private Context note/read-back; #238 collection-intent contract and fix; then #148 protected off-site recovery. The Owner-only #215 action and read-only #238 design can proceed independently. Do not repeat #214's expensive refresh solely to close an already-proven automatic gate. UI remains deferred.
+There is no automatic next CI/test optimization task. Reopen performance work only for a new measured bottleneck, regression or security need.
 
-Before updating local code, verify idle relevant Owner processes and a clean accepted checkout. Do not switch/pull while refresh is running. Do not infer local deployment from `git fetch`.
+Current bounded non-UI backlog:
+- #247 — replace the non-Windows Google custom cipher with standard AEAD without changing the accepted Windows DPAPI boundary.
+- #248 — explicit Period Brief JSON/text stdout without changing deterministic packet semantics.
+- #240 — explicit Owner-attested screenshot date/source metadata under the existing provenance boundary.
+
+#228 remains parked, #172/#189 UI and #167 privacy/history remain deferred, and #105 remains NOT_ELIGIBLE. #126 is a repository-settings/Owner decision rather than implementation work.
+
+Before updating local code, verify idle relevant Owner processes and a clean accepted checkout. Do not switch/pull while refresh or dependent runtime processes use that checkout. GitHub publication and local deployment remain separate.
 
 ## Core engineering rules
 

@@ -205,6 +205,8 @@ the PR run/attempt. Main/integration/other pushes and Stage A docs-only PR routi
 remain unchanged. A later changed candidate must obtain its own complete gate;
 delegation never makes a failed PR successful or erases earlier failures (#243).
 
+Measured rollout results, live proofs and accepted limitations for #251/#246/#243/#242 are recorded in [CI Optimization Closeout — 2026-10-04](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md). No further CI optimization stage is implied by that closeout.
+
 | Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
 | --- | --- | --- | --- | --- |
 | Task push | task branch SHA | Same task branch only | Full gate, or explicit non-gate delegation to a complete exact-tree PR run/attempt | Changed tree/config/lock/manifest/selection or PR identity |
