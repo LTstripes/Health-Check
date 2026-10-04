@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,9 @@ from healthcheck.ingestion.photo.service import (
     MAX_PHOTO_BYTES,
     PhotoImportService,
     PhotoUpload,
+    candidate_core_evidence_fingerprint,
     candidate_evidence_fingerprint,
+    extraction_core_evidence_fingerprint,
     extraction_evidence_fingerprint,
     normalize_extraction_result,
 )
@@ -94,6 +97,7 @@ def import_owner_weight_screenshot(
     *,
     extraction_json_path: str | Path | None = None,
     extractor: ImageMeasurementExtractor | None = None,
+    owner_attested_date: str | Path | date | None = None,
 ) -> OwnerWeightScreenshotImportResult:
     """Import one image and auto-confirm only a single complete, evidenced set.
 
@@ -108,6 +112,13 @@ def import_owner_weight_screenshot(
     try:
         if image_path is None:
             return _result("FAILED", "missing_image")
+        attested_date = _parsed_owner_attested_date(owner_attested_date)
+        if attested_date is None and owner_attested_date is not None:
+            return _result("FAILED", "attested_date_invalid")
+        if attested_date is not None and extraction_json_path is None:
+            # Vision routes never accept Owner attestation; attestation must
+            # accompany an explicit current-request sidecar.
+            return _result("FAILED", "attestation_not_accepted")
         paths = require_established_runtime(settings)
         image = _read_image(image_path)
         if image is None:
@@ -159,10 +170,17 @@ def import_owner_weight_screenshot(
         engine = create_sqlite_engine(paths)
         with session_scope(engine) as session:
             service = PhotoImportService(session, paths, configured_extractor)
-            batch = service.import_photos(
-                [PhotoUpload(filename=None, content=image)],
-                provider_code=XIAOMI_HOME_PROVIDER,
-            )
+            try:
+                batch = service.import_photos(
+                    [PhotoUpload(filename=None, content=image)],
+                    provider_code=XIAOMI_HOME_PROVIDER,
+                    is_owner_workflow=True,
+                    owner_attested_date=attested_date,
+                )
+            except PhotoImportError as exc:
+                if exc.code in {"attested_date_invalid", "attestation_not_accepted"}:
+                    return _result("FAILED", exc.code)
+                raise
         if len(batch.items) != 1:
             return _result("FAILED", "import_failed")
         item = batch.items[0]
@@ -177,6 +195,7 @@ def import_owner_weight_screenshot(
                 item,
                 expected_extraction=prevalidated,
                 expected_evidence=normalized_evidence,
+                owner_attested_date=attested_date,
             )
         if item.duplicate_artifact:
             # The bytes are already known but the extractor produced a new
@@ -260,6 +279,30 @@ def _owner_profile_conflicts(result: ExtractionResult) -> bool:
     )
 
 
+def _parsed_owner_attested_date(value: str | Path | date | None) -> date | None:
+    """Parse an explicit current-request Owner-attested date without inference."""
+
+    if value is None:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return None
+    if isinstance(value, Path):
+        return None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        if len(text) != 10 or text[4] != "-" or text[7] != "-":
+            return None
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
 def _read_image(image_path: str | Path) -> bytes | None:
     try:
         path = Path(image_path)
@@ -279,6 +322,7 @@ def _duplicate_result(
     *,
     expected_extraction: ExtractionResult | None = None,
     expected_evidence: tuple[tuple[str, NormalizedField], ...] | None = None,
+    owner_attested_date: date | None = None,
 ) -> OwnerWeightScreenshotImportResult:
     if not item.candidate_ids:
         return _result("NEEDS_REVIEW", "duplicate_candidates_missing")
@@ -294,9 +338,18 @@ def _duplicate_result(
         if len(selected) != len(item.candidate_ids):
             return _result("NEEDS_REVIEW", "duplicate_candidates_missing", len(selected))
         if expected_extraction is not None and expected_evidence is not None:
-            if not _same_extraction_evidence(selected, expected_extraction, expected_evidence):
+            if not _same_extraction_evidence(
+                selected,
+                expected_extraction,
+                expected_evidence,
+                owner_attested_date=owner_attested_date,
+            ):
                 return _staged_correction_result(
-                    service, selected, expected_extraction, expected_evidence
+                    service,
+                    selected,
+                    expected_extraction,
+                    expected_evidence,
+                    owner_attested_date=owner_attested_date,
                 )
         views = [service.candidate_view(candidate) for candidate in selected]
         if any(candidate.user_decision == "pending" for candidate in selected):
@@ -313,9 +366,30 @@ def _same_extraction_evidence(
     candidates: list[ImportCandidate],
     extracted: ExtractionResult,
     normalized_evidence: tuple[tuple[str, NormalizedField], ...],
+    *,
+    owner_attested_date: date | None = None,
 ) -> bool:
-    return candidate_evidence_fingerprint(candidates) == extraction_evidence_fingerprint(
-        extracted, normalized_evidence
+    from healthcheck.ingestion.photo.metadata_origins import (
+        candidate_set_is_fully_legacy,
+    )
+
+    if candidate_set_is_fully_legacy(
+        [candidate.metadata_origins_json for candidate in candidates]
+    ):
+        # D1 legacy wildcard: unchanged core evidence stays DUPLICATE with
+        # zero provenance rewrite.
+        return candidate_core_evidence_fingerprint(
+            candidates
+        ) == extraction_core_evidence_fingerprint(
+            extracted, normalized_evidence, owner_attested_date=owner_attested_date
+        )
+    return candidate_evidence_fingerprint(
+        candidates
+    ) == extraction_evidence_fingerprint(
+        extracted,
+        normalized_evidence,
+        is_owner_workflow=True,
+        owner_attested_date=owner_attested_date,
     )
 
 
@@ -324,6 +398,8 @@ def _staged_correction_result(
     selected: list[ImportCandidate],
     extracted: ExtractionResult,
     normalized_evidence: tuple[tuple[str, NormalizedField], ...],
+    *,
+    owner_attested_date: date | None = None,
 ) -> OwnerWeightScreenshotImportResult:
     """Persist and classify a changed interpretation of already-known content.
 
@@ -337,7 +413,12 @@ def _staged_correction_result(
     if len(event_ids) != 1:
         return _result("NEEDS_REVIEW", "candidate_set_incomplete", len(selected))
     try:
-        staged = service.stage_correction(selected[0].ingest_event_id, extracted)
+        staged = service.stage_correction(
+            selected[0].ingest_event_id,
+            extracted,
+            is_owner_workflow=True,
+            owner_attested_date=owner_attested_date,
+        )
     except PhotoImportError as exc:
         if exc.code == "persistence_error":
             return _result("FAILED", "correction_failed", len(selected))
@@ -346,7 +427,10 @@ def _staged_correction_result(
     if not correction:
         return _result("NEEDS_REVIEW", "content_seen_new_extraction", len(selected))
     if candidate_evidence_fingerprint(correction) != extraction_evidence_fingerprint(
-        extracted, normalized_evidence
+        extracted,
+        normalized_evidence,
+        is_owner_workflow=True,
+        owner_attested_date=owner_attested_date,
     ):
         # Never classify or decide on a candidate set that does not carry
         # exactly the incoming sidecar evidence.

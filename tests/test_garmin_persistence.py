@@ -583,7 +583,7 @@ def test_garmin_migration_downgrade_and_upgrade_are_linear(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0014_garmin_training_evidence"
+        == "0015_candidate_metadata_origins"
     )
 
     engine = create_sqlite_engine(paths)
@@ -611,7 +611,7 @@ def test_garmin_migration_downgrade_and_upgrade_are_linear(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0014_garmin_training_evidence"
+            == "0015_candidate_metadata_origins"
         )
         assert "garmin_sleep_stage_intervals" in inspect(engine).get_table_names()
     finally:

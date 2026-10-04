@@ -1,6 +1,6 @@
 # Owner Xiaomi Home Screenshot Import
 
-This command is the Owner/ChatGPT Work entry point for one Xiaomi Home weight screenshot. It calls the existing R01 `PhotoImportService`, photo extractor, normalization and confirmation path. It adds no webhook requirement, listener, poller, OCR stack, table or migration.
+This command is the Owner/ChatGPT Work entry point for one Xiaomi Home weight screenshot. It calls the existing R01 `PhotoImportService`, photo extractor, normalization and confirmation path. It adds no webhook requirement, listener, poller, OCR stack or table beyond the additive 0015 per-candidate origin map.
 
 ## Work handoff
 
@@ -21,6 +21,11 @@ uv run --locked healthcheck owner-weight-screenshot-import `
   --image "<path to this uploaded attachment>" `
   --extraction-json "<temporary JSON outside the repository>"
 ```
+
+When the Owner explicitly states the source date in the same request, Work may add
+`--owner-attested-date "YYYY-MM-DD"` together with `--extraction-json`. Never supply
+it from memory, prior chat, filename, EXIF, clock, or defaults, and never without the
+sidecar. Provider vision routes never accept attestation.
 
 This sidecar is bounded to 512 KiB, parsed and profile-checked before the R01 photo service
 writes evidence, and uses the fixed `healthcheck-owner-assisted-structured-extraction` v1
@@ -52,6 +57,35 @@ Any conflicting group, candidate set, duplicate metric, missing value/date/unit,
 
 A changed Owner-assisted sidecar for already-imported bytes follows the same rule even when it reuses the stored extraction identity: the changed interpretation is appended as its own pending correction candidate set in the existing review queue, linked to the original photo event. The original artifact, original candidate set and confirmed semantic history are never overwritten, and nothing is confirmed before the Owner's explicit decision. Replaying the same changed sidecar resolves to that same pending set (`NEEDS_REVIEW`, no duplicate evidence rows); after the correction has been confirmed, an exact replay is a no-op `DUPLICATE`. Confirming the staged correction uses the existing session/measurement revision mechanics, so the prior value is superseded but never erased; rejecting it leaves the current semantic and canonical state unchanged.
 
+## Metadata origins (#240)
+
+Every post-0015 `ImportCandidate` persists one complete canonical `metadata_origins_json`
+map with exactly `provider_code`, `physical_device_code`, `source_application`,
+`source_local_date` in `visible | owner_attested | workflow_profile | unknown`.
+Database NULL is reserved exclusively for pre-0015 legacy rows and reads as
+"origin not recorded"; there is no backfill, default, or history rewrite.
+
+- The fixed `xiaomi_home / xiaomi_s400 / Xiaomi Home` workflow default, when the
+  sidecar omits it, is `workflow_profile`, never visible/attested.
+- `source_local_date` is never `workflow_profile`. It is `visible` when the
+  sidecar carries it, `owner_attested` only for an explicit current-request
+  `--owner-attested-date`, otherwise `unknown`. No clock/EXIF/filename/memory/
+  prior-chat/default inference is permitted.
+- Provider vision routes never accept attestation and never emit
+  `workflow_profile` (`visible | unknown` only).
+- Terminal-candidate immutability covers the new column; confirmed/rejected
+  history stays immutable.
+
+Replay/correction preserves #229:
+
+- exact replay with equal core evidence plus equal origin map stays `DUPLICATE`;
+- a fully legacy NULL set with unchanged core evidence uses the D1 read-time
+  wildcard and stays `DUPLICATE` with zero provenance rewrite;
+- changed core evidence follows normal #229 correction;
+- a post-0015 provenance-only change is identity-bearing and stages a reviewable
+  correction with its own `correction:` identity; distinct provenance claims get
+  distinct identities.
+
 ## Work result contract
 
 The command writes one privacy-safe JSON object to stdout:
@@ -70,8 +104,8 @@ The JSON includes only status, a fixed reason code and structural candidate/meas
 The synthetic worker gate exercises the CLI, existing R01 photo contracts, provenance and replay behavior:
 
 ```powershell
-uv run --locked ruff check src/healthcheck/owner_weight_screenshot_import.py src/healthcheck/cli.py tests/test_owner_weight_screenshot_import.py
-uv run --locked pytest -q -p no:cacheprovider tests/test_owner_weight_screenshot_import.py tests/test_photo_import.py tests/test_photo_vision.py
+uv run --locked ruff check src/healthcheck/owner_weight_screenshot_import.py src/healthcheck/cli.py tests/test_owner_weight_screenshot_import.py tests/test_metadata_origins_240.py
+uv run --locked pytest -q -p no:cacheprovider tests/test_owner_weight_screenshot_import.py tests/test_photo_import.py tests/test_photo_vision.py tests/test_metadata_origins_240.py
 uv run --locked python scripts/ci_test_lanes.py validate-manifest
 ```
 

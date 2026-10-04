@@ -40,6 +40,29 @@ Use the fixed Owner profile only when visibly consistent: `provider_code=xiaomi_
 evidence date-only with a null timestamp/timezone/offset. Do not invent confidence,
 algorithm/app versions, missing metrics, or a timestamp. If the image is ambiguous, stop
 before invoking the CLI and report that review is required instead of fabricating JSON.
+Omit the fixed triple from the sidecar when it is not visibly evidenced; the pipeline
+records that workflow default as `workflow_profile`, never as visible/attested.
+
+For date-only evidence the pipeline records per-candidate `metadata_origins_json` with
+exactly `provider_code`, `physical_device_code`, `source_application`,
+`source_local_date` in `visible | owner_attested | workflow_profile | unknown`.
+`source_local_date` is never `workflow_profile`. A missing date stays `unknown`;
+never infer it from clock, EXIF, filename, memory, prior chat, or defaults.
+
+Pass an explicit current-request Owner attestation only when the Owner states the
+source date in the same request, and only together with `--extraction-json`:
+
+```powershell
+uv run --locked healthcheck owner-weight-screenshot-import `
+  --data-dir "D:\Garmin\HealthCheck-Stable" `
+  --image "<single uploaded PNG or JPEG>" `
+  --extraction-json "<temporary JSON outside the repository>" `
+  --owner-attested-date "YYYY-MM-DD"
+```
+
+Never supply `--owner-attested-date` from memory, prior chat, filename, EXIF, clock,
+or defaults, and never without `--extraction-json`. Provider vision routes never
+accept attestation and never emit `workflow_profile`.
 
 Write the JSON in the normal OS temporary directory outside the repo/workspace.
 Pass that one file with `--extraction-json`, then remove it in a `finally` cleanup whether the

@@ -208,6 +208,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--extraction-json",
         help="one temporary structured extraction JSON for Owner screenshot import",
     )
+    parser.add_argument(
+        "--owner-attested-date",
+        help="explicit Owner-attested source date (YYYY-MM-DD) for the current request only",
+    )
     parser.add_argument("--family")
     parser.add_argument("--query-mode")
     parser.add_argument(
@@ -994,6 +998,7 @@ def _run_owner_weight_screenshot_import(args: argparse.Namespace, settings: Sett
             settings,
             args.image,
             extraction_json_path=args.extraction_json,
+            owner_attested_date=getattr(args, "owner_attested_date", None),
         )
     print(result.to_json())
     return result.exit_code
