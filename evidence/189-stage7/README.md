@@ -4,14 +4,16 @@ This package addresses the retrieval gap in [Integrator finding F1](https://gith
 
 ## Original run identity and provenance
 
-The `original-1913073` files are byte-preserving copies of the Stage-7 execution artifacts produced before this continuation. `original-sha256.json` records source/copy SHA-256 and byte lengths. The scoped Git attributes preserve original line endings as well as PNG bytes.
+The `original-1913073` JSON files are byte-preserving copies of the Stage-7 execution artifacts produced before this continuation. `original-sha256.json` records source/copy SHA-256 and byte lengths for all 43 originally published artifacts. The scoped Git attributes preserve original line endings.
+
+The 36 original PNGs remain retrievable in the [immutable evidence-publication commit](https://github.com/LTstripes/Health-Check/tree/16a35fb9657e4a73b3045f5ab28e06f240106bdc/evidence/189-stage7/original-1913073). They are intentionally absent from the final working tree: the repository hygiene guard forbids image binaries, including synthetic screenshots. CI run `37234345441`, attempt 1, caught this publication error in `test_repository_hygiene_has_no_runtime_or_photo_binaries`. The correction removes only the newly published PNGs from the current tree; the guard is unchanged and the original files/hash manifest remain available at the immutable link. This failed CI is not a product/browser defect and is not relabeled as a pass.
 
 - Candidate: `1913073fb35328f2f0c3ff8b4d5ba73b4cb11f3d`.
 - Tree: `f8a47f986af06aa4ab3e50dbedd8b08aaea26ae1`.
 - Pinned product base: `50b6638101e2327eb105e5d38921d6ce6ed2de42`; target `main`; branch `task/189-owner-acceptance-stage7`.
 - [Original exact-candidate CI](https://github.com/LTstripes/Health-Check/actions/runs/37231809501), attempt 1: success; 2013 exact nodeids reconciled; Windows smoke evidence passed.
 
-[owner-stage7-browser.json](original-1913073/owner-stage7-browser.json) is the original runner output, including its embedded clean candidate/tree, actual browser version, 174 check entries, expected HTTP resource failures and empty unexpected-error/write-request lists. The `populated-*` and `empty-*` PNGs are original viewport screenshots: section indices 0 Overview, 1 Weight, 2 Sleep, 3 Activity, 4 Data, 5 Agreement; widths 1100/800/390, height 900. Screenshots capture the closed initial surface; the execution JSON additionally records opened disclosures and local scrolling.
+[owner-stage7-browser.json](original-1913073/owner-stage7-browser.json) is the original runner output, including its embedded clean candidate/tree, actual browser version, 174 check entries, expected HTTP resource failures and empty unexpected-error/write-request lists. The `populated-*` and `empty-*` PNGs at the immutable link are original viewport screenshots: section indices 0 Overview, 1 Weight, 2 Sleep, 3 Activity, 4 Data, 5 Agreement; widths 1100/800/390, height 900. Screenshots capture the closed initial surface; the execution JSON additionally records opened disclosures and local scrolling.
 
 ## Invocation and fixture context (reconstructed execution note)
 
@@ -45,7 +47,7 @@ The fixture reuses focused-test Activity/Sleep seeds and synthetic photo imports
 
 ## Continuation boundary and limitations
 
-The continuation changes only the Stage-7 acceptance harness to select Firefox/WebKit and report engine identity/limitations, plus this evidence publication. It leaves product code, semantic contracts and the pinned baseline unchanged. New engine execution output and new exact-candidate CI are published in the issue handoff after freezing the continuation candidate; original Chromium evidence is never relabeled as execution of that new SHA.
+The continuation changes only the Stage-7 acceptance harness to select Firefox/WebKit and report engine identity/limitations, plus this evidence publication. It leaves product code, semantic contracts and the pinned baseline unchanged. All three engines executed against clean `16a35fb9657e4a73b3045f5ab28e06f240106bdc`, tree `162db05cf4f6b67aceaeba3fb82d8a55a17453fa`: [Chromium output](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5984370799), [Firefox output](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5984371850), [WebKit output](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5984372840). The subsequent hygiene correction changes only artifact/prose paths; browser evidence retains its actual execution SHA. The final candidate receives a fresh exact-candidate CI run. Neither original nor continuation browser evidence is relabeled as execution of another SHA.
 
 Windows Playwright WebKit excludes native unstyled links from its default Tab order. The harness probes that behavior separately. If reproduced, it records first-Tab skip-link access as `UNVERIFIED`, tests skip-link activation after explicit focus, and reports `PASS_WITH_LIMITATIONS`; it does not turn that cell into a pass. See [WebKit's keyboard preference discussion](https://bugs.webkit.org/show_bug.cgi?id=199671). Enter/Space disclosure behavior, focus retention and the rest of the matrix remain asserted.
 
