@@ -168,6 +168,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ingest-url")
     parser.add_argument("--timeout", type=float, default=3.0)
     parser.add_argument("--output", help="output path")
+    parser.add_argument(
+        "--format",
+        choices=("json", "text"),
+        help=(
+            "period-brief stdout format: json for the packet document alone, "
+            "text for the rendered brief alone; default keeps the current "
+            "packet plus rendered text behavior"
+        ),
+    )
     parser.add_argument("--backup", help="backup archive path")
     parser.add_argument("--target-dir", help="explicit restore target profile")
     parser.add_argument("--destination", type=Path)
@@ -1547,13 +1556,29 @@ def _run_period_brief(args: argparse.Namespace) -> int:
         return 2
     text = payload["rendered_text"]
     packet_json = json.dumps(payload["packet"], ensure_ascii=True, sort_keys=True, indent=2)
+    status: str | None = None
     if args.output:
         out = Path(args.output)
         out.write_text(packet_json + "\n", encoding="utf-8")
-        print(f"period-brief: wrote packet to {out}")
+        status = f"period-brief: wrote packet to {out}"
+    if args.format == "json":
+        # Machine-readable mode: stdout is exactly one packet JSON document plus
+        # a final newline; the diagnostics/status line goes to stderr.
+        if status is not None:
+            print(status, file=sys.stderr)
+        _write_stdout_safely(packet_json + "\n")
+        return 0
+    if args.format == "text":
+        # Human-readable mode: stdout is only the existing rendered text, with
+        # the #203 limited-encoding handling; the status line goes to stderr.
+        if status is not None:
+            print(status, file=sys.stderr)
         _write_stdout_safely(text)
         return 0
-    print(packet_json)
+    if status is not None:
+        print(status)
+    else:
+        print(packet_json)
     _write_stdout_safely(text)
     return 0
 
