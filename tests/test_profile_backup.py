@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import tempfile
 import zipfile
+from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -92,34 +95,79 @@ def test_backup_round_trip_includes_collection_policy(external_tmp_path: Path) -
     assert restored == policy_payload
 
 
-def test_wal_backup_contains_committed_uncheckpointed_data(external_tmp_path: Path) -> None:
-    tmp_path = external_tmp_path
-    source = prepare_runtime(Settings(data_dir=tmp_path / "wal-source"))
-    connection = sqlite3.connect(source.database)
-    try:
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA wal_autocheckpoint=0")
-        connection.execute("CREATE TABLE synthetic_wal_marker (value TEXT NOT NULL)")
-        connection.execute("INSERT INTO synthetic_wal_marker VALUES ('synthetic-only')")
-        connection.commit()
-        assert Path(f"{source.database}-wal").is_file()
-    finally:
-        connection.close()
+@pytest.fixture
+def uncheckpointed_wal_source(external_tmp_path: Path) -> Iterator[Path]:
+    source = prepare_runtime(Settings(data_dir=external_tmp_path / "wal-source"))
+    with closing(sqlite3.connect(source.database)) as writer:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("CREATE TABLE synthetic_wal_marker (value TEXT NOT NULL)")
+        writer.commit()
+        # Checkpoint only the empty table, before the record under test exists.
+        assert writer.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone() == (0, 0, 0)
+        with closing(sqlite3.connect(source.database)) as reader:
+            reader.execute("BEGIN")
+            assert reader.execute("SELECT value FROM synthetic_wal_marker").fetchall() == []
+            writer.execute("INSERT INTO synthetic_wal_marker VALUES ('synthetic-only')")
+            writer.commit()
+            # Pin the pre-insert snapshot and keep both connections alive through backup.
+            yield source.root
 
-    archive = tmp_path / "wal.zip"
-    create_backup(source.root, archive)
+
+def _wal_backup_round_trip(source: Path, archive: Path, target: Path) -> None:
+    database = source / "healthcheck.db"
+    assert Path(f"{database}-wal").stat().st_size > 0
+    with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as live:
+        assert live.execute("SELECT value FROM synthetic_wal_marker").fetchall() == [
+            ("synthetic-only",)
+        ]
+    # immutable=1 deliberately ignores WAL: the committed marker still requires it
+    # at the create_backup boundary, rather than merely leaving a nonempty sidecar.
+    with closing(sqlite3.connect(f"{database.as_uri()}?immutable=1", uri=True)) as main_only:
+        assert main_only.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert main_only.execute("SELECT value FROM synthetic_wal_marker").fetchall() == []
+    created = create_backup(source, archive)
+    verified = verify_backup(archive)
     with zipfile.ZipFile(archive) as handle:
         assert "profile/healthcheck.db" in handle.namelist()
         assert "profile/healthcheck.db-wal" not in handle.namelist()
-    target = tmp_path / "wal-restored"
-    restore_profile(archive, target)
-    restored = sqlite3.connect(target / "healthcheck.db")
-    try:
-        assert restored.execute("SELECT value FROM synthetic_wal_marker").fetchone() == (
-            "synthetic-only",
+        assert "profile/healthcheck.db-shm" not in handle.namelist()
+    restored = restore_profile(archive, target)
+    assert created.file_count == verified.file_count == restored.file_count
+    with closing(sqlite3.connect(target / "healthcheck.db")) as restored_db:
+        assert restored_db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        rows = restored_db.execute("SELECT value FROM synthetic_wal_marker").fetchall()
+        assert rows == [("synthetic-only",)], "committed WAL marker is missing"
+
+
+def test_wal_backup_contains_committed_uncheckpointed_data(
+    external_tmp_path: Path, uncheckpointed_wal_source: Path
+) -> None:
+    _wal_backup_round_trip(
+        uncheckpointed_wal_source,
+        external_tmp_path / "wal.zip",
+        external_tmp_path / "wal-restored",
+    )
+
+
+def test_wal_regression_detects_main_db_only_copy(
+    external_tmp_path: Path, uncheckpointed_wal_source: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healthcheck.profile_backup as profile_backup
+
+    def wrong_main_db_only_copy(source_path: Path, destination_path: Path) -> str:
+        shutil.copyfile(source_path, destination_path)
+        return "wal"
+
+    monkeypatch.setattr(profile_backup, "_online_backup", wrong_main_db_only_copy)
+    # The stale main DB is structurally valid and survives real verify/restore;
+    # the same semantic assertion used by the production-path test must catch it.
+    with pytest.raises(AssertionError, match="committed WAL marker is missing"):
+        _wal_backup_round_trip(
+            uncheckpointed_wal_source,
+            external_tmp_path / "wrong-wal.zip",
+            external_tmp_path / "wrong-wal-restored",
         )
-    finally:
-        restored.close()
 
 
 def test_checksum_corruption_and_traversal_are_rejected_before_replace(
@@ -474,8 +522,9 @@ def test_large_sparse_profile_above_one_gib_backup_verify_restore(
 ) -> None:
     """Prove DB >1 GiB can backup/verify/restore under the raised caps.
 
-    Uses SQLite zeroblob growth (highly compressible / sparse-friendly) and a
-    sleep-free online-backup wrapper so CI does not spend minutes sleeping.
+    Uses compressible zeroblobs and a tuned online-backup test implementation.
+    This is large-file evidence, not an unchanged production backup round-trip;
+    the small WAL regression exercises the real production path without a double.
     """
     import healthcheck.profile_backup as profile_backup
 
@@ -512,7 +561,8 @@ def test_large_sparse_profile_above_one_gib_backup_verify_restore(
             raise profile_backup.ProfileBackupError("SQLite backup could not be completed") from exc
         return journal_mode
 
-    # Keep production pacing unchanged; only accelerate this large synthetic proof.
+    # The measured large-file copy cost justifies retaining this test-only tuning.
+    # Integrity/verify/restore remain enabled; production pages/sleep are unchanged.
     assert original_online_backup is profile_backup._online_backup
     monkeypatch.setattr(profile_backup, "_online_backup", _fast_online_backup)
 
