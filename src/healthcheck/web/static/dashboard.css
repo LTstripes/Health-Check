@@ -212,6 +212,23 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 .preset-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .brief-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .brief-section { margin: 0; }
+.brief-controls button, .brief-controls input, .brief-controls select, .brief-controls .button-link { min-height: 44px; }
+.brief-period, .brief-statistics dd { font-variant-numeric: tabular-nums; }
+.brief-source { margin-top: 16px; }
+.brief-overview-list h3 { margin-top: 0; }
+.brief-overview-list p { margin: 8px 0 0; }
+.brief-overview a, .brief-priority a, .brief-limitations a, .brief-empty-state a { color: var(--accent); }
+.brief-priority li { margin-bottom: 12px; }
+.brief-limitations { margin: 16px 0; }
+.brief-limitations p { margin-top: 0; }
+.brief-sleep { margin-top: 16px; }
+.brief-comparison { padding: 12px; background: var(--sunken); border-radius: 8px; }
+.brief-comparison h4 { margin: 0; font-size: 1rem; font-weight: 600; }
+.brief-comparison p { margin: 8px 0; }
+.brief-statistics { margin: 12px 0; }
+.brief-statistics dt { color: var(--muted); font-size: .75rem; font-weight: 600; }
+.brief-statistics dd { margin: 0 0 8px; font-size: 1.5rem; font-weight: 600; }
+.brief-packet { max-width: 100%; }
 .brief-overview-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
 .brief-overview-list li { padding: 12px; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

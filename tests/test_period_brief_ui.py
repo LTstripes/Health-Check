@@ -88,7 +88,7 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_
         home = client.get("/")
 
     assert page.status_code == 200
-    assert "Сводка за период" in page.text
+    assert "Обзор за период" in page.text
     assert f"{start.isoformat()} → {end.isoformat()}" in page.text
     assert 'href="/brief"' in home.text
     assert "Источник Garmin" in page.text
@@ -121,16 +121,20 @@ def test_period_brief_source_label_is_human_and_identity_free():
     assert "source-uuid-1234" not in label
     assert "account-instance-uuid" not in label
     assert _brief_source_label({"provider_code": "garmin_connect"}) == "Garmin Connect"
-    assert _brief_source_label(
-        {"provider_code": "garmin_connect", "device_model": "Vivoactive 5"}
-    ) == "Garmin Connect"
-    assert _brief_source_label(
-        {
-            "provider_code": "garmin_connect",
-            "device_attributed": False,
-            "device_model": "Vivoactive 5",
-        }
-    ) == "Garmin Connect"
+    assert (
+        _brief_source_label({"provider_code": "garmin_connect", "device_model": "Vivoactive 5"})
+        == "Garmin Connect"
+    )
+    assert (
+        _brief_source_label(
+            {
+                "provider_code": "garmin_connect",
+                "device_attributed": False,
+                "device_model": "Vivoactive 5",
+            }
+        )
+        == "Garmin Connect"
+    )
 
 
 def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp_path):
@@ -187,9 +191,7 @@ def test_period_brief_notable_changes_are_deduplicated_and_prioritized():
     ]
 
 
-def test_period_brief_rendered_summary_deduplicates_warning_and_notables(
-    tmp_path, monkeypatch
-):
+def test_period_brief_rendered_summary_deduplicates_warning_and_notables(tmp_path, monkeypatch):
     class FakeGarmin:
         @staticmethod
         def resolve_source(_source_id):
@@ -274,7 +276,7 @@ def test_period_brief_rendered_summary_deduplicates_warning_and_notables(
         page = client.get("/brief", params={"start_date": "2099-01-01", "end_date": "2099-01-02"})
 
     assert page.status_code == 200
-    assert page.text.count("исследовательская когорта с неопределённой атрибуцией") == 1
+    assert page.text.count("Принадлежность устройству и роль записи сна могут быть неизвестны") == 1
     assert page.text.count("Обнаружено отклонение от личной базовой линии Garmin.") == 1
     assert page.text.count("Есть исследовательские данные сна с неопределённой атрибуцией.") == 1
     assert page.text.index("Обнаружено отклонение") < page.text.index(
@@ -321,7 +323,7 @@ def test_period_brief_page_supports_presets_and_custom_period(tmp_path):
 
     assert custom.status_code == 200
     assert "2099-02-03 → 2099-02-17" in custom.text
-    assert "15 days" in custom.text
+    assert "15 дней" in custom.text
 
 
 def test_period_brief_page_rejects_invalid_period_controls(tmp_path):
@@ -341,3 +343,293 @@ def test_period_brief_page_rejects_invalid_period_controls(tmp_path):
         assert response.status_code == 400
         assert "invalid_period" in response.text
         assert "request failed" not in response.text
+
+
+def _stage3_result():
+    """Private-safe presentation fixture; all rows remain separate packet observations."""
+    from copy import deepcopy
+
+    uncertain = "Uncertain Garmin account / Google source or family observations"
+    groups = []
+    for code, variant, bias, mae, n in [
+        ("sleep_duration_asleep_seconds", "STAGES", -120, 180, 7),
+        ("sleep_duration_asleep_seconds", "CLASSIC", 0, 90, 8),
+        ("sleep_stage_deep_seconds", "STAGES", 30, 50, 9),
+        ("resting_heart_rate_bpm", "DAILY", -2, 3, 10),
+        ("spo2_daily_average_pct", "DAILY", 0.5, 1.5, 11),
+        ("future_metric", "NEW", 999, 999, None),
+    ]:
+        groups.append(
+            {
+                "run_id": f"synthetic-run-{len(groups)}",
+                "cohort_label": uncertain,
+                "cohort": "account_wearables_sleep_observations_v1",
+                "metric_code": code,
+                "variant": variant,
+                "exploratory_label_required": True,
+                "n": n,
+                "paired_nights": 12,
+                "statistics_available": True,
+                "bias": bias,
+                "mae": mae,
+                "accepted_statistics_n": n,
+                "progress": {"gate": {"reason_codes": ["uncertain_attribution"]}},
+            }
+        )
+    groups.append(
+        {
+            **groups[0],
+            "run_id": "synthetic-missing",
+            "n": 3,
+            "statistics_available": False,
+            "bias": None,
+            "mae": None,
+            "accepted_statistics_n": None,
+        }
+    )
+    actions = [{"code": "confirm_pending_imports", "pending_candidate_count": 2}]
+    for scope, reason, state in [
+        ("garmin:sleep", "refresh_overdue", "stale"),
+        ("garmin:heart_rate", "expected_evidence_absent", "unknown"),
+        ("garmin:sleep", "refresh_overdue", "stale"),
+        ("garmin:daily_summary", "reauth_required", "unavailable"),
+        ("google:sleep", "refresh_overdue", "stale"),
+    ]:
+        actions.append(
+            {
+                "code": "source_freshness_attention",
+                "scope_key": scope,
+                "reason_code": reason,
+                "state": state,
+            }
+        )
+    sections = {
+        "weight": {
+            "state": "insufficient",
+            "summary_facts": [
+                {
+                    "code": "weight_observation_count",
+                    "value": 2,
+                    "unit": "count",
+                    "availability": "present",
+                },
+                {
+                    "code": "weight_rate_kg_per_week",
+                    "value": None,
+                    "unit": "kg/week",
+                    "availability": "insufficient",
+                },
+                {
+                    "code": "weight_last_daily_median_kg",
+                    "value": 65,
+                    "unit": "kg",
+                    "availability": "present",
+                },
+            ],
+            "display_points": [{"observed_date": "2099-01-01", "median_kg": 65}],
+        },
+        "sleep": {
+            "state": "present",
+            "groups": groups,
+            "summary_facts": [
+                {"code": "sleep_agreement_mode", "value": "published", "availability": "present"},
+            ],
+        },
+        "activity": {
+            "state": "confirmed_empty",
+            "summary_facts": [
+                {
+                    "code": "activity_session_count",
+                    "value": 0,
+                    "unit": "count",
+                    "availability": "confirmed_empty",
+                },
+            ],
+            "sessions": [],
+        },
+        "data_quality": {
+            "state": "present",
+            "summary_facts": [],
+            "coverage": {
+                "provider_states": [{"provider_code": "google", "state": "unknown"}],
+                "weight_sparse_note": "Synthetic technical sparse sampling note",
+            },
+        },
+    }
+    packet = {
+        "period": {"start_date": "2099-01-01", "end_date": "2099-01-07", "calendar_days": 7},
+        "sections": sections,
+        "notable_changes": [],
+        "owner_actions": actions,
+        "contract_version": "period-brief-v2",
+        "algorithm": "period_brief_assemble_v2",
+        "result_hash": "synthetic-result-hash",
+        "contracts_referenced": {},
+    }
+    display = deepcopy(packet)
+    display["source_result_hash"] = display.pop("result_hash")
+    return {"packet": packet, "display": display, "rendered_text": ""}
+
+
+def _stub_brief_service(monkeypatch, result, source_selection=None):
+    class FakeGarmin:
+        @staticmethod
+        def resolve_source(_source_id):
+            return source_selection or {
+                "status": "no_data",
+                "selected_source_id": None,
+                "sources": [],
+            }
+
+    class FakeService:
+        def __init__(self, *_args):
+            self.garmin = FakeGarmin()
+
+        def build_with_render(self, **_kwargs):
+            return result
+
+    monkeypatch.setattr("healthcheck.web.pages.PeriodBriefService", FakeService)
+
+
+def test_stage3_owner_presentation_keeps_packet_and_all_distinct_sleep_rows(tmp_path, monkeypatch):
+    from copy import deepcopy
+
+    result = _stage3_result()
+    before = deepcopy(result)
+    _stub_brief_service(monkeypatch, result)
+    with TestClient(_ui(tmp_path), base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief?start_date=2099-01-01&end_date=2099-01-07")
+    assert page.status_code == 200
+    assert result == before
+    primary, technical = page.text.split("Технические детали", 1)
+    text = _visible_text(primary)
+    assert "Уверенность и покрытие" not in text
+    assert "Полнота данных" not in text
+    assert "sleep_agreement_mode" not in primary
+    assert "Synthetic technical sparse" not in primary
+    for label in [
+        "Длительность и время",
+        "Стадии сна",
+        "Сопутствующие показатели за день",
+        "Со стадиями сна",
+        "Без стадий сна",
+        "Google минус Garmin",
+        "п.п.",
+        "уд/мин",
+    ]:
+        assert label in text
+    assert primary.count('class="brief-comparison"') == 7
+    assert "-120 с" in text and "0 с" in text and "180 с" in text
+    assert "999" not in text  # unknown units are not guessed
+    assert "Пригодных наблюдений: —" in text
+    assert "Принятое сравнение недоступно" in text
+    assert "не оценка точности" in text
+    assert "0 шт." in text  # explicit confirmed-empty count survives
+    assert "Недостаточно данных" in text
+    assert "Свежесть неизвестна" in text and "Данные недоступны" in text
+    assert "Полнота данных и происхождение" in technical
+    assert "synthetic-run-0" not in primary and "synthetic-run-0" in technical
+    assert "future_metric" in technical and "999" in technical
+    assert "synthetic-result-hash" in technical
+    assert "source_freshness_attention" not in primary
+    assert technical.count('"source_freshness_attention"') == 5
+    assert 'class="card owner-details brief-provenance" open' not in page.text
+
+
+def test_stage3_actions_group_same_work_but_keep_provider_and_distinct_remediation():
+    from copy import deepcopy
+
+    from healthcheck.web.pages import _brief_owner_actions
+
+    actions = _stage3_result()["packet"]["owner_actions"]
+    before = deepcopy(actions)
+    rows = _brief_owner_actions(actions)
+    assert actions == before
+    assert len(rows) == 4  # confirmation, Garmin collection, Garmin login, Google collection
+    assert rows[1]["contexts"] == ["Данные устарели", "Свежесть неизвестна"]
+    assert "Garmin" in rows[1]["text"] and "Garmin" in rows[2]["text"]
+    assert "Повторите вход" in rows[2]["text"]
+    assert "Google" in rows[3]["text"]
+    assert rows[0]["link"] == "/imports"
+    assert all(row["link"].startswith("/imports") for row in rows)
+
+
+def test_stage3_sleep_units_match_frozen_definitions_and_no_pooling():
+    from healthcheck.analytics.sleep_metrics import get_sleep_metric_definition
+    from healthcheck.web.pages import _brief_sleep_groups
+
+    groups = _stage3_result()["packet"]["sections"]["sleep"]["groups"]
+    rows = [row for bucket in _brief_sleep_groups(groups) for row in bucket["rows"]]
+    assert len(rows) == len(groups)
+    for group in groups:
+        assert sum(row["group"] is group for row in rows) == 1
+    for row in rows:
+        code = row["group"]["metric_code"]
+        assert row["unit"] == (
+            None if code == "future_metric" else get_sleep_metric_definition(code).difference_unit
+        )
+
+
+def test_stage3_source_choice_opens_only_when_needed_and_escapes_untrusted_text(
+    tmp_path, monkeypatch
+):
+    result = _stage3_result()
+    result["packet"]["sections"]["sleep"]["groups"][0]["run_id"] = "<img src=x onerror=alert(1)>"
+    selection = {
+        "status": "require_selection",
+        "selected_source_id": None,
+        "sources": [
+            {
+                "id": "synthetic-one",
+                "provider_code": "garmin_connect",
+                "device_attributed": True,
+                "device_model": "<script>alert(1)</script>",
+            },
+            {"id": "synthetic-two", "provider_code": "garmin_connect"},
+        ],
+    }
+    _stub_brief_service(monkeypatch, result, selection)
+    with TestClient(_ui(tmp_path), base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief")
+    assert 'class="owner-details brief-source" open' in page.text
+    assert "данные не объединяются молча" in page.text
+    assert "<script>alert(1)</script>" not in page.text
+    assert "<img src=x" not in page.text
+    assert "&lt;script&gt;" in page.text
+    assert 'name="start_date" value="2099-01-01"' in page.text
+    assert 'name="end_date" value="2099-01-07"' in page.text
+
+
+def test_stage3_notable_comparisons_identify_metric_and_use_exact_fact_unit():
+    from healthcheck.web.pages import _brief_note_value, _brief_owner_note
+
+    note = {
+        "code": "personal_baseline_deviation",
+        "fact_code": "garmin_sleep_baseline_sleep_duration_seconds",
+        "value": 18000,
+    }
+    brief = {
+        "sections": {
+            "sleep": {
+                "summary_facts": [
+                    {"code": note["fact_code"], "unit": "seconds", "value": 18000},
+                ]
+            }
+        }
+    }
+    assert _brief_owner_note(note) == "Длительность сна: отклонение от личной базовой линии."
+    assert _brief_note_value(note, brief) == "18000 с"
+    assert "единицы доступны" in _brief_note_value(note, {"sections": {}})
+    assert _brief_owner_note(
+        {"code": "sleep_exploratory_agreement", "metric_code": "sleep_stage_deep_seconds"}
+    ).startswith("Глубокий сон:")
+    assert _brief_note_value({"value": None}, brief) == ""
+
+
+def test_stage3_all_frozen_states_and_unknown_activity_copy_are_preserved():
+    from healthcheck.web.pages import _brief_owner_activity, _brief_owner_state, templates
+
+    for state, label in templates.get_template("owner_ui.html").module.state_labels.items():
+        assert _brief_owner_state(state) == label
+    assert _brief_owner_state("future_state") == "Состояние данных не определено"
+    assert _brief_owner_activity("future_provider_activity") == "Другая активность"
