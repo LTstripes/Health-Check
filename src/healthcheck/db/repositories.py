@@ -1026,6 +1026,8 @@ class ImportCandidateRepository:
             if stored_origins != incoming_origins_json:
                 raise ValueError("extraction identity already has different evidence")
             return existing
+        if incoming_origins_json is None:
+            raise ValueError("candidate metadata origins are required for new candidates")
         candidate = ImportCandidate(
             ingest_event_id=ingest_event_id,
             candidate_set_key=_required_text(candidate_set_key, "candidate set key"),

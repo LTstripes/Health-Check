@@ -424,3 +424,57 @@ def test_cli_owner_attested_date_flag(owner_photo_env, tmp_path, capsys):
         origins = parse_metadata_origins_json(candidate.metadata_origins_json)
         assert origins is not None
         assert origins["source_local_date"] == "owner_attested"
+
+
+def test_direct_new_insert_cannot_persist_null_origin(owner_photo_env):
+    from healthcheck.db.repositories import repositories_for
+
+    _settings, _paths, engine = owner_photo_env
+    with session_scope(engine) as session:
+        repos = repositories_for(session)
+        provider = repos.providers.get_or_create("synthetic-240", "Synthetic 240", "test")
+        source = repos.acquisition_sources.get_or_create(
+            provider_id=provider.id,
+            input_method="photo_import",
+        )
+        batch = repos.ingest_batches.create(
+            acquisition_source_id=source.id,
+            batch_kind="photo",
+        )
+        event = repos.ingest_events.get_or_create(
+            ingest_batch_id=batch.id,
+            acquisition_source_id=source.id,
+            semantic_fingerprint="240-null-invariant",
+            event_type="photo",
+        )
+        before = int(session.scalar(select(func.count(ImportCandidate.id))) or 0)
+        with pytest.raises(ValueError, match="origins are required"):
+            repos.import_candidates.create_pending(
+                ingest_event_id=event.id,
+                candidate_set_key="set-null",
+                measurement_group_key="weigh-in-1",
+                metric_code="weight",
+                proposed_value=77.0,
+                proposed_unit="kg",
+                proposed_source_local_date=date(2026, 5, 31),
+                temporal_precision="date",
+            )
+        assert (int(session.scalar(select(func.count(ImportCandidate.id))) or 0)) == before
+
+        created = repos.import_candidates.create_pending(
+            ingest_event_id=event.id,
+            candidate_set_key="set-known",
+            measurement_group_key="weigh-in-1",
+            metric_code="weight",
+            proposed_value=77.0,
+            proposed_unit="kg",
+            proposed_source_local_date=date(2026, 5, 31),
+            temporal_precision="date",
+            metadata_origins={
+                "provider_code": "unknown",
+                "physical_device_code": "unknown",
+                "source_application": "unknown",
+                "source_local_date": "unknown",
+            },
+        )
+        assert created.metadata_origins_json is not None
