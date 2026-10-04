@@ -3,12 +3,12 @@
 {% set sections = {
   'overview': ('Обзор', '/brief', 'За период'),
   'weight': ('Вес', '/', 'Вес и состав тела'),
-  'sleep': ('Сон', '/agreement', 'Сравнение сна'),
+  'sleep': ('Сон', '/sleep', 'Сравнение сна'),
   'activity': ('Активность', '/garmin', 'Тренировки и восстановление'),
   'data': ('Данные', '/imports', 'Проверка импорта')
 } %}
-{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'agreement': 'sleep', 'garmin': 'activity', 'imports': 'data'} %}
-{% set path_sections = {'/brief': 'overview', '/': 'weight', '/agreement': 'sleep', '/garmin': 'activity', '/imports': 'data'} %}
+{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'imports': 'data'} %}
+{% set path_sections = {'/brief': 'overview', '/': 'weight', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/imports': 'data'} %}
 {% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
 <html lang="ru">
@@ -31,10 +31,15 @@
   <main id="owner-main" tabindex="-1">
     <header class="owner-page-header">
       <h1>{{ sections[section][0] if section else 'Health-Check' }}</h1>
-      {% if section %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
+      {% if section == 'sleep' %}
+      <nav class="preset-links" aria-label="Режимы сна">
+        <a class="button-link{% if page == 'sleep' %} selected{% endif %}" href="/sleep"{% if page == 'sleep' %} aria-current="page"{% endif %}>Ночь и история</a>
+        <a class="button-link{% if page == 'agreement' %} selected{% endif %}" href="/agreement"{% if page == 'agreement' %} aria-current="page"{% endif %}>Сравнение сна</a>
+      </nav>
+      {% elif section %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
     </header>
     {# Existing English page bodies stay explicitly English until their stage translates them. #}
-    {% if section in ('sleep', 'activity') or (section == 'data' and request.url.path != '/imports') %}
+    {% if section == 'activity' or (section == 'data' and request.url.path != '/imports') %}
     <div class="owner-page-content" lang="en">
     {% else %}
     <div class="owner-page-content">

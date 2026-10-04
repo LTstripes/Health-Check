@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% import "owner_ui.html" as owner_ui %}
+{% block title %}Сон — Health-Check{% endblock %}
+{% block content %}
+<section class="card brief-controls">
+  <h2>Ночь по дате пробуждения</h2>
+  <form method="get" action="/sleep" class="upload">
+    <label>Дата пробуждения <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
+    {% if selection.sources %}
+    <label>Источник Garmin
+      <select name="garmin_source_id" required>
+        <option value="">Выберите источник</option>
+        {% for source in selection.sources %}
+        <option value="{{ source.id }}"{% if source.id == selection.selected_source_id %} selected{% endif %}>{{ source_label(source) }} · источник {{ loop.index }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <button type="submit">Показать</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Сон за {{ wake_date }}</h2>
+  <p>Основной источник — Garmin. Значения относятся только к выбранной дате пробуждения; предыдущая ночь её не заменяет.</p>
+  {% if selection.status != 'selected' %}
+    {{ owner_ui.state_chip('unknown' if selection.status == 'require_selection' else 'unavailable') }}
+    <p>{% if selection.status == 'require_selection' %}Найдено несколько источников Garmin. Выберите один; данные разных источников не объединяются.{% elif selection.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного источника Garmin. Отсутствие данных не означает отсутствие сна.{% endif %}</p>
+  {% else %}
+  <div class="grid">
+    {% for code, labels in sleep_metrics.items() %}
+    {% set night = night_metric(results[code], wake_date) %}
+    <section data-sleep-metric="{{ loop.index }}">
+      <h3>{{ labels[0] }}</h3>
+      {{ owner_ui.state_chip(night.state) }}
+      {% if night.value is not none %}<dl class="current"><dt>{{ wake_date }}</dt><dd>{{ metric_value(code, night.value) }}</dd></dl>{% endif %}
+      {% if night.ambiguous %}<p class="uncertainty-note">За эту дату есть несколько записей. Единое значение не выбрано; все записи доступны в истории.</p>
+      {% elif night.state == 'partial' %}<p class="uncertainty-note">Запись неполная. Доступное значение не доказывает полноту сведений о ночи.</p>
+      {% elif night.value is none %}<p>За выбранную дату нет пригодного значения. Это не ноль и не отсутствие сна.</p>{% endif %}
+    </section>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <p class="uncertainty-note" role="note">Длительность, стадии и дневной сон имеют отдельную полноту данных. Оценка сна Garmin — показатель источника для одной сессии, а не общая оценка восстановления. Точность устройств здесь не оценивается.</p>
+  <p><a class="button-link" href="/imports">Проверить источники в разделе «Данные»</a></p>
+</section>
+{% if results %}
+<section class="card">
+  <h2>История сна</h2>
+  <p>{{ start_date }} → {{ wake_date }} · Garmin · отдельные записи без объединения.</p>
+  <p class="muted">Пропуски не заполняются. Частичные и непригодные записи остаются видимыми.</p>
+  <div class="table-scroll sleep-history">
+    <table>
+      <thead><tr><th>Дата пробуждения</th><th>Показатель</th><th>Значение</th><th>Состояние</th></tr></thead>
+      <tbody>
+      {% for code, labels in sleep_metrics.items() %}
+        {% for point in results[code].points %}
+        {% set state = point_state(point) %}
+        <tr><th>{{ point.analytic_date or 'Дата неизвестна' }}</th><td>{{ labels[0] }}</td><td>{% if state in ('present', 'partial') %}{{ metric_value(code, point.value) }}{% else %}—{% endif %}</td><td>{{ owner_ui.state_chip(state) }}</td></tr>
+        {% else %}<tr><td colspan="4">{{ labels[0] }}: нет пригодных записей в выбранном периоде.</td></tr>{% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% call owner_ui.technical_details() %}
+  <h2>Происхождение и расчёты Garmin</h2>
+  <pre class="provenance">{{ {'source_selection': selection, 'series': results} | tojson(indent=2) }}</pre>
+{% endcall %}
+{% endblock %}

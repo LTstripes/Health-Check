@@ -113,6 +113,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 /* Tables keep real layout inside a dedicated scroller. Sticky muted headers, no zebra. */
 .table-scroll { overflow-x: auto; max-width: 100%; }
 .table-scroll table { margin: 0; }
+.sleep-history table { min-width: 640px; }
 table { width: 100%; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 thead th {
   position: sticky;
@@ -151,10 +152,11 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 .error-card { background: var(--error-bg); border-color: var(--error-ink); color: var(--error-ink); }
 .brief-empty-state { background: var(--unavailable-bg); border-color: var(--unavailable-ink); color: var(--unavailable-ink); }
 .brief-empty-state .muted { color: var(--unavailable-ink); }
-.agreement-groups { display: grid; gap: 16px; }
+.agreement-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.agreement-group { min-width: 0; }
 .agreement-group header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .agreement-group header h2 { margin: 0; }
-.agreement-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.agreement-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .agreement-metrics dt { color: var(--muted); font-size: 0.75rem; font-weight: 600; }
 .agreement-metrics dd { margin: 0; font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .agreement-chart { min-height: 150px; overflow-x: auto; }

@@ -1047,7 +1047,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
     expected = [
         ("/brief", "Обзор"),
         ("/", "Вес"),
-        ("/agreement", "Сон"),
+        ("/sleep", "Сон"),
         ("/garmin", "Активность"),
         ("/imports", "Данные"),
     ]
@@ -1062,7 +1062,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
         batch = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
-        for path, section in [*expected, (f"/imports/{batch}", "Данные")]:
+        for path, section in [*expected, ("/agreement", "Сон"), (f"/imports/{batch}", "Данные")]:
             response = client.get(path)
             assert response.status_code == 200
             parsed = _OwnerShellParser(response.text)
@@ -1077,7 +1077,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             assert 'aria-label="Основные разделы"' in response.text
             assert expected_modes[section] in response.text
             # English bodies stay English; Overview/Data/Weight are Russian.
-            if section in ("Обзор", "Вес") or path == "/imports":
+            if section in ("Обзор", "Вес", "Сон") or path == "/imports":
                 assert 'class="owner-page-content" lang="en"' not in response.text
             else:
                 assert 'class="owner-page-content" lang="en"' in response.text
