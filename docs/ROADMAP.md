@@ -6,33 +6,34 @@ Future ideas not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md
 
 ## Current state
 
-Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness/collection policy, Owner screenshot workflow and the completed reliability/correction slice.
+Released foundation in canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness/collection policy, Owner screenshot workflow and the completed reliability/correction slice.
 
-Repository checkpoint for this closeout: `9f41985c47f758f38186efade974bb7ba1d9bf4d`; exact-main ordinary CI `37184776672` SUCCESS and Dependency audit `37184776636` SUCCESS. GitHub publication and local Owner deployment remain separate.
+The Owner UI is no longer deferred: **#189 stages 1–6 are integrated**, ending with Activity PR #287. **Stage 7 remains open** for whole-product responsive/browser/loading/error acceptance. The latest exact implementation checkpoint and CI evidence live in [Current History](EXECUTION_HISTORY_CURRENT.md); publication is not Owner-local deployment or new private UAT.
 
 Latest completed work includes:
-- #251: three existing Linux CI lanes rebalanced without dropping the complete test union; controlled candidate wall time improved from 5:13 to 4:21.
-- #246: Stage A fail-closed docs-only PR path and Stage B exact-tree task-push/PR dedup both live-proved and complete.
-- #243: recurrent Windows exit-255 transcript false failure repaired without weakening cleanup/identity invariants.
-- #242: urllib3/pytest advisories patched; separate bounded dependency-audit workflow, Dependabot visibility, immutable action pins and least-privilege workflow permissions accepted.
-- #244: loopback Host/Origin hardening complete; its new tests were reconciled into the current lane manifest alongside #242.
-- #148/#238/#256 and the earlier durability/runtime maintenance remain complete.
+- #240 / PR #273: per-candidate metadata-origin provenance, legacy-safe replay and strict date-only Owner attestation for screenshots.
+- #247 / PR #278: non-Windows Google purpose-bound AEAD v2, authenticated legacy reads and write-time-only migration; Windows DPAPI unchanged.
+- #248 / PR #276: explicit Period Brief JSON/text stdout with unchanged default output and deterministic packet.
+- #172 / #283 / PR #284: Owner-first Period Brief UX plus measured backend reads. Full-size synthetic median 55.108 s -> 6.520 s with equal packets/hashes; no migration, new index or cache. These are synthetic proxy measurements, not exact Owner Stable timings.
+- #251/#246/#243/#242/#244: completed CI lane/dedup/docs-route, Windows transcript, dependency/security and loopback Host/Origin maintenance. Detailed rollout evidence remains in the [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
+- #274 / PR #277: completed measured NO-GO for the tested sync-fixture optimization; no optimization code retained.
+- #148/#238/#256 and earlier durability/runtime maintenance remain complete.
 
 ## Current backlog — 2026-10-04
 
-Technical and Owner-deferred backlog, excluding pull requests. The CI/test optimization wave has no remaining implementation issue.
+Five open issues at the session-closeout read-back, excluding pull requests:
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
-| #247 | Deferred security hardening | Replace non-Windows custom Google cipher with standard AEAD without changing Windows DPAPI or whole-profile threat boundary |
-| #248 | CLI technical follow-up | Add explicit Period Brief JSON/text stdout without changing the deterministic packet |
-| #240 | Owner screenshot metadata | Add explicit Owner-attested date/source metadata under the existing screenshot-import provenance boundary |
+| #189 | Stages 1–6 complete; Stage 7 pending | Review the already-dispatched acceptance task when its delivery arrives; do not duplicate the Worker |
 | #228 | Research accepted / parked | No cross-image semantic auto-merge until trustworthy event identity exists |
-| #189 | Deferred UI umbrella | No implementation during the current technical-maintenance track |
-| #172 | Deferred UX follow-up | Coordinate with #189 later; do not duplicate redesign |
 | #167 | Owner-deferred privacy/history operation | Requires explicit freeze/decision before any rewrite |
-| #126 | Owner/admin decision | Recheck repository required-check/protection capability before settings changes; not a test-code optimization task |
+| #126 | Owner/admin decision | Recheck required-check/protection capability before settings changes; not a test-code optimization task |
 | #105 | NOT_ELIGIBLE | No canonical sleep switch until the accepted device-pair evidence gate is met |
+
+#153 and #210 are closed as not planned: optional openScale compatibility and model-attribution bookkeeping are not unfinished readiness work. #240/#247/#248/#172/#283 are complete, not queued follow-ups.
+
+Dependabot PRs #270/#271 remain separate unreviewed proposals at this checkpoint. Do not merge broad dependency/action updates as documentation cleanup or confuse them with the completed #242 security fixes.
 
 This is a status map, not an automatic Worker queue. No additional test-suite reduction, pytest rewrite, lane split or CI trigger redesign is planned. Reopen CI optimization only for a new measured bottleneck, regression or security requirement.
 
@@ -44,11 +45,11 @@ Google high-frequency sample HR remains intentionally disabled under the accepte
 
 The tested off-site recovery path is a verified ordinary ZIP in the Owner's materialized Google Drive folder plus supported clean restore. Protected age-based publication remains optional rather than required for the Owner workflow.
 
-Workspace cleanup runs daily at 12:00 with a seven-day minimum retention and fail-closed eligibility. Legacy roots such as `D:\Garmin` or old client roots are not in the janitor allowlist and require explicit/manual disposition.
+Workspace cleanup runs daily at 12:00 with a seven-day minimum retention and fail-closed eligibility. Legacy roots such as `D:\Garmin` or old client roots are not in the janitor allowlist and require explicit/manual disposition. This session closeout does not delete local workspaces or change scheduled tasks.
 
-Weight remains operational through screenshots; #229 provides explicit correction/replay semantics. #153 stays optional; #228 remains parked. UI #172/#189 remains deferred while the technical backlog above is active.
+Weight remains operational through screenshots; #229 provides explicit correction/replay semantics and #240 records metadata origins without rewriting legacy history. #153 is closed as not planned; #228 remains parked.
 
-See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md), [Owner Refresh](OWNER_REFRESH.md) and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
+See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner UI](OWNER_UI_SHELL.md), [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md), [Owner Refresh](OWNER_REFRESH.md) and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
 
 ## R00 — Final architecture (complete)
 
@@ -110,7 +111,7 @@ See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md).
 
 ## Post-R05 / #119 — deterministic Period Brief v1 (completed)
 
-Deterministic bounded Weight/sleep/activity/data-quality packet, stable result hash, thin API/text/CLI renderers, direct R05 reuse, full bounded activity inventory and honest missing/unavailable/confirmed-empty distinctions. #203 fixes limited-encoding stdout; #227 provides coherent compound reads without changing packet mathematics. No new score or LLM/Telegram delivery.
+Deterministic bounded Weight/sleep/activity/data-quality packet, stable result hash, thin API/text/CLI renderers, direct R05 reuse, full bounded activity inventory and honest missing/unavailable/confirmed-empty distinctions. #203 fixes limited-encoding stdout; #227 provides coherent compound reads without changing packet mathematics; #248 adds explicit JSON/text output. #172 UX and #283 backend performance are complete. No new score or LLM/Telegram delivery.
 
 ## Post-R05 Stable Owner Runtime — completed foundation
 
@@ -120,21 +121,23 @@ One persistent private cross-domain profile, supported backup/restore into dispo
 
 Parent #160 closed after #175 bounded discovery, #180 typed persistence and live replay proof, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT.
 
-No custom Health-Check training/readiness score, medical/coaching claim, VO2 guessing or invented producer attribution. Technical presentation remains deferred to #189.
+No custom Health-Check training/readiness score, medical/coaching claim, VO2 guessing or invented producer attribution. #189 Stage 6 now provides Russian Owner-first Activity presentation; full UI acceptance remains Stage 7.
 
 ## Current owner-facing product work
 
 ### Source freshness / data quality
 
-#147/#191/#193 delivered provider-call-free shared freshness from persisted facts. #238 completed explicit collection intent so intentionally disabled streams remain historically truthful/non-actionable without hiding enabled failures or rewriting history.
+#147/#191/#193 delivered provider-call-free shared freshness from persisted facts. #238 completed explicit collection intent so intentionally disabled streams remain historically truthful/non-actionable without hiding enabled failures or rewriting history. #189 Stage 2 makes Данные the shared source/freshness/import entry point.
 
 ### Hardware/private Owner gates
 
-#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 remains optional openScale compatibility, not required for screenshots.
+#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is closed as not planned; screenshot import remains the accepted Weight workflow.
 
-### Deferred product presentation
+### Owner UI #189 — final acceptance pending
 
-#172 Period Brief-specific UX and #189 whole-product Owner UI remain deferred.
+Accepted IA and one frozen visual/language system govern all pages. Stages 1–6 are complete: shared shell, Данные, Обзор, Вес, Сон and Активность. Sleep is primary at `/sleep`; Agreement remains secondary at `/agreement`. No provider/analytics/schema semantics are changed by presentation redesign.
+
+Stage 7 owns the remaining whole-product responsive/browser/loading/error acceptance. Earlier per-page Chromium evidence is reusable but does not replace that gate. The Owner already dispatched the task and will bring the delivery to the next session. Do not mark #189 complete or start another implementation merely because the six page stages are merged. See [Owner UI](OWNER_UI_SHELL.md).
 
 ## Engineering maintenance — CI feedback/reliability closeout
 

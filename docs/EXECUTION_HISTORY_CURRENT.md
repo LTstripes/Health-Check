@@ -1,5 +1,59 @@
 # Current Execution History
 
+## 2026-10-04 — Owner UI stages 1–6 and technical follow-ups integrated
+
+**Implementation checkpoint before this docs-only session closeout:** `main @ 50b6638101e2327eb105e5d38921d6ce6ed2de42`, tree `b75ad7265af053d1e3ce95548fea80b1c3e5ea4e`. Stage 6 PR #287 merged; exact post-main CI `37229192825`, attempt 1 — SUCCESS. Stage-6 completion is recorded in [#189 comment 5983724709](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5983724709).
+
+This is accepted repository state, not evidence that Owner-local `main`/Stable has been updated or restarted. Stage 7 whole-product acceptance remains unperformed at this checkpoint.
+
+### Delivered Owner UI
+
+The [accepted IA](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5854312903) and [visual freeze](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5979374375) were implemented without reopening analytics/provider/data contracts.
+
+| #189 stage | Outcome | Integration | Exact post-main CI |
+| --- | --- | --- | --- |
+| 1 | Shared Russian shell, navigation, frozen visual/state/disclosure system | PR #279 | `37202332175` SUCCESS |
+| 2 | Данные: shared source freshness, actions and import queue | PR #281 | `37204884714` SUCCESS |
+| 3 | Обзор / За период: readable facts/actions/sleep comparisons, unchanged packet/hash | PR #282 | `37209192811` SUCCESS |
+| 4 | Вес: current weight, trend/goal/composition and visible limitations | PR #285 | `37221892123` SUCCESS |
+| 5 | Primary `/sleep` night/history; secondary `/agreement` comparison | PR #286 | `37224788808` SUCCESS |
+| 6 | Активность: Сессии and Тренировки и восстановление | PR #287 | `37229192825` SUCCESS |
+
+Narrow Chromium checks cover the implemented pages and viewports; full cross-browser/mobile/loading/error acceptance is still Stage 7. The Weight browser check exposed a real initial-render TDZ error that ordinary tests had missed; the call was moved after state-map initialization before acceptance. Stage-4 initial PR Windows failure and the subsequent incomplete partial rerun remain failed evidence; only the later complete same-tree PR gate was accepted. A later green gate is not, by itself, proof of the original failure's cause. Do not repeat partial reruns as a recovery gate or create no-op commits instead of following the current failure-classification/full-rerun contract.
+
+Current routes and presentation scope are documented in [Owner UI](OWNER_UI_SHELL.md); exact candidate/review/PR details stay in #189 and the linked PRs rather than another copied journal.
+
+### Completed technical follow-ups
+
+- **#240 / PR #273:** migration `0015_candidate_metadata_origins` records visible / owner_attested / workflow_profile / unknown per-candidate origins. Legacy NULL stays historical and unchanged; new inserts require a complete map. Payload evidence is classified before fallback merge; date-only attestation rejects conflicting temporal evidence before writes. Existing #226/#229 correction/provenance boundaries remain. Post-main `37188050103` SUCCESS.
+- **#247 / PR #278:** non-Windows Google protection now writes purpose-bound AES-256-GCM/HKDF v2, reads authenticated v1 and migrates only on normal writes. Pure reads do not create keys; Windows DPAPI is unchanged. Only `cryptography==50.0.2` was added to the resolved package set. Post-main CI `37199378603` and Dependency audit `37199378573` SUCCESS.
+- **#248 / PR #276:** explicit `period-brief --format json|text`, unchanged default behavior/output-file packet and hashes. Post-main `37195999220` SUCCESS.
+- **#283 / PR #284:** bounded three measured Period Brief backend reads using existing indexes and narrower SQL/ORM selection, without migration, added index or cache. Full-size synthetic medians over five before/after pairs: **55.108 s -> 6.520 s**; control **0.929 s -> 0.776 s**. Full packet/hash and ordered baseline candidate identities matched. Measurements are a synthetic proxy, not exact Owner Stable latency. [Reproduction and evidence](../evidence/283-read-performance.md). Post-main `37216884082` SUCCESS.
+- **#172:** closed COMPLETE after #189 Stage 3 UX and #283 backend performance, not after rendering-only changes.
+- **#274 / PR #277:** completed measured NO-GO; rejected sync-helper optimization was not retained. The profiling record is canonical, with no claimed speedup. Post-main `37198504893` SUCCESS. The parallel test-maintenance workflow is not reopened by this closeout.
+- **#153:** closed not planned; screenshots are the accepted operational Weight path. The historical openScale compatibility finding is preserved, not a current readiness blocker.
+- **#210:** closed not planned; model attribution/benchmark intake stays retired. Technical checks/review evidence still apply.
+
+Earlier #242/#243/#244/#246/#251 maintenance is recorded in the dated section below and its closeout document.
+
+### Remaining work and Owner actions
+
+Live read-back at closeout: **five open issues** — #189, #228, #167, #126, #105. #189 is active only for Stage 7; #228 is parked, #167 Owner-deferred, #126 requires an Owner/admin capability decision, and #105 is NOT_ELIGIBLE. Do not revive completed #172/#240/#247/#248/#283.
+
+The only open PRs before this documentation closeout were Dependabot #270/#271. They remain independent update proposals for later review; neither was merged or closed as housekeeping. No repo settings, history rewriting or branch deletion is authorized here.
+
+The Owner reports that the remaining acceptance task is already sent to Codex and will bring its result in the next chat. No matching `stage7` remote branch was found at this read-back; do not invent its SHA, duplicate the task or touch the existing Worker workspace. Local execution may precede remote publication.
+
+After acceptance, reconcile required Owner-local deployment and disposable-clone UAT explicitly. Current local code SHA, new whole-product Owner UAT and live-profile latency are **UNVERIFIED** by this session closeout. Preserve `D:\HealthCheck\{main,stable,uat,ops,workspaces}` roles and the existing janitor; no filesystem cleanup or provider call was performed here.
+
+### Next-session handoff
+
+Start with live GitHub, not copied SHAs: read AGENTS.md, #189/latest Integrator notes and this section. Recheck main, open PRs and exact candidate/run/attempt when the existing Worker report arrives. Stages 1–6 are completed; Stage 7 and its concrete findings are the next scope. Reuse valid unchanged evidence, review all concrete findings together where practical, and do not rerun full suites solely because the chat or reviewer changed.
+
+Integrator handles review/integration where the applicable risk policy permits; required role independence is not waived. Keep prompts short locators, with task complexity and recommended execution route outside the prompt. No model/provider confirmation wait, benchmark collection or Model evidence log. Docs-only target drift is not a reason to rebase/retest a Worker without material overlap.
+
+Closeout scope/authority: [#189 comment 5983851912](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5983851912). Documentation publication has its own PR/CI record; the implementation checkpoint above intentionally does not guess a self-referential future documentation SHA.
+
 ## 2026-10-04 — CI/test optimization and dependency-security wave complete
 
 Canonical checkpoint after the completed wave: `main @ 9f41985c47f758f38186efade974bb7ba1d9bf4d`. Exact-main ordinary CI `37184776672` SUCCESS and path-scoped Dependency audit `37184776636` SUCCESS.
@@ -113,7 +167,9 @@ LastRunTime plus a sleeping/off laptop did not establish seven active hours; a s
 
 The 19-minute and earlier 35-minute runs are observations under differing conditions, not a controlled speedup or a guaranteed daily duration. One run does not prove graceful cancellation, sleep continuity, once-per-day deduplication or multi-day stability.
 
-## Documentation and next-session handoff
+## Historical documentation and handoff — 2026-10-03
+
+The following sequence is retained as the older handoff, not the current task queue. Use the latest 2026-10-04 section above and live GitHub for resumption.
 
 Current README, Roadmap, Owner Machine Layout and this history reflect the 2026-10-03 durability/layout closeout. Detailed task evidence remains in the issues/PRs; older sections above stay as dated historical observations.
 
