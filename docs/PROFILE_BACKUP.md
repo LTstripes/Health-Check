@@ -81,7 +81,7 @@ a tuned copy, not an unchanged production backup round-trip. Compared with
 production `_online_backup`, its only behavioral difference is the SQLite backup
 call (`pages=0, sleep=0` instead of `pages=100, sleep=0.05`). Source/destination
 integrity checks and the real archive creation, verification and restore remain.
-[CPython 3.12.14's implementation](https://github.com/python/cpython/blob/v3.12.14/Modules/_sqlite/connection.c#L1937-L1962)
+[CPython 3.12.14's implementation](https://github.com/python/cpython/blob/v3.12.14/Modules/_sqlite/connection.c#L2100-L2106)
 sleeps on `SQLITE_BUSY`/`SQLITE_LOCKED`, not after each successful page batch.
 This sparse/compressible synthetic test proves large-file recovery, not private
 profile performance or behavior under concurrent writer contention.
