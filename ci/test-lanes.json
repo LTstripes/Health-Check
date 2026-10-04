@@ -42,6 +42,7 @@
       "tests/test_sleep_account_cohort.py",
       "tests/test_sleep_agreement_build.py",
       "tests/test_sleep_agreement_report.py",
+      "tests/test_period_brief_read_equivalence.py",
       "tests/test_sleep_agreement_statistics.py",
       "tests/test_sleep_metrics.py",
       "tests/test_sleep_pairing.py",

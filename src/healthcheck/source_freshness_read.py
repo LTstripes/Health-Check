@@ -113,19 +113,25 @@ def _garmin_series_evidence_query(
         | (timestamp_kind & model.source_timestamp_utc.is_(None))
     )
     conditions = (
-        GarminSource.provider_id == provider_id,
         model.stream_code == _GARMIN_STREAM[surface],
         model.surface_code == surface,
         model.projection_status == "current",
         model.record_status.in_(("ok", "partial")),
     )
-    latest_day, count = session.execute(select(
-        func.max(model.source_local_date),
-        func.count(),
-    ).select_from(model).join(
-        GarminSource, GarminSource.id == model.garmin_source_id,
-    ).where(*conditions)).one()
-    if not count:
+    # Probe each source's existing surface/date index backwards. The first
+    # accepted row supplies MAX(date); a returned NULL still proves observation.
+    # Do not aggregate the historical series just to find its latest civil day.
+    def latest(column):
+        return select(column).where(
+            *conditions, model.garmin_source_id == GarminSource.id,
+        ).order_by(model.source_local_date.desc()).limit(1).correlate(
+            GarminSource,
+        ).scalar_subquery()
+
+    latest_day, observed_sources = session.execute(select(
+        func.max(latest(model.source_local_date)), func.count(latest(model.id)),
+    ).select_from(GarminSource).where(GarminSource.provider_id == provider_id)).one()
+    if not observed_sources:
         return None, None, None, True, False
     if latest_day is None:
         return None, None, "invalid_chronology", True, True
@@ -133,9 +139,10 @@ def _garmin_series_evidence_query(
         func.max(case((timestamp_kind, model.source_timestamp_utc))),
         func.sum(case((invalid, 1), else_=0)),
         func.count(func.distinct(model.garmin_source_id)),
-    ).select_from(model).join(
-        GarminSource, GarminSource.id == model.garmin_source_id,
-    ).where(*conditions, model.source_local_date == latest_day)).one()
+    ).where(*conditions, model.garmin_source_id.in_(select(GarminSource.id).where(
+        GarminSource.provider_id == provider_id,
+    )),
+            model.source_local_date == latest_day)).one()
     return (
         restore_stored_utc(stamp), None if stamp is not None else latest_day,
         "invalid_chronology" if invalid_count else None,
