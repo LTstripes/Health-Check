@@ -1140,6 +1140,296 @@ def test_cli_period_brief_stdout_survives_limited_console_encoding(
     )
 
 
+def test_cli_period_brief_default_stdout_keeps_packet_then_text(tmp_path, capsys):
+    """#248: no --format keeps the current packet JSON plus rendered text stdout."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+            ]
+        )
+        == 0
+    )
+
+    stdout = capsys.readouterr().out
+    packet_part, text_part = stdout.split("Health-Check period brief", 1)
+    packet = json.loads(packet_part)
+    assert packet["contract_version"] == PERIOD_BRIEF_CONTRACT_VERSION
+    assert packet["result_hash"]
+    assert text_part.startswith(f" ({PERIOD_BRIEF_CONTRACT_VERSION})")
+    assert "## weight" in text_part
+    assert "period-brief: wrote packet" not in stdout
+
+
+def test_cli_period_brief_json_format_stdout_is_standalone_packet(tmp_path, capsys):
+    """#248: explicit json stdout is one packet document plus a final newline."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out.endswith("}\n")
+    packet = json.loads(captured.out)
+    assert packet["contract_version"] == PERIOD_BRIEF_CONTRACT_VERSION
+    assert packet["result_hash"]
+    assert "## weight" not in captured.out
+    assert "period-brief: wrote packet" not in captured.out
+
+
+def test_cli_period_brief_text_format_stdout_is_render_only(tmp_path, capsys):
+    """#248: explicit text stdout is only the existing rendered brief."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--format",
+                "text",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out.startswith(
+        f"Health-Check period brief ({PERIOD_BRIEF_CONTRACT_VERSION})"
+    )
+    assert "## weight" in captured.out
+    assert "## notable_changes" in captured.out
+    assert "## owner_actions" in captured.out
+    assert captured.out.endswith("no health formulas were recomputed.\n")
+    assert '"result_hash"' not in captured.out
+    assert "period-brief: wrote packet" not in captured.out
+
+
+@pytest.mark.parametrize("output_format", ["json", "text"])
+def test_cli_period_brief_explicit_format_with_output_keeps_canonical_file(
+    tmp_path, capsys, output_format
+):
+    """#248: --output keeps the canonical packet; explicit format governs stdout."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    reference = tmp_path / "reference.json"
+    output = tmp_path / f"period-brief-{output_format}.json"
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--output",
+                str(reference),
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--output",
+                str(output),
+                "--format",
+                output_format,
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    status = f"period-brief: wrote packet to {output}"
+    assert status in captured.err
+    assert status not in captured.out
+    output_text = output.read_text(encoding="utf-8")
+    assert output_text.endswith("\n")
+    output_packet = json.loads(output_text)
+    reference_packet = json.loads(reference.read_text(encoding="utf-8"))
+    assert output_packet == reference_packet
+    if output_format == "json":
+        assert captured.out == output_text
+        assert json.loads(captured.out) == output_packet
+    else:
+        assert captured.out.startswith(
+            f"Health-Check period brief ({PERIOD_BRIEF_CONTRACT_VERSION})"
+        )
+        assert '"result_hash"' not in captured.out
+
+
+@pytest.mark.parametrize(
+    ("console_encoding", "expected_period_line"),
+    [
+        ("utf-8", "Period: 2099-01-01 \u2192 2099-01-14 (14 days)"),
+        ("cp1251", r"Period: 2099-01-01 \u2192 2099-01-14 (14 days)"),
+        ("ascii", r"Period: 2099-01-01 \u2192 2099-01-14 (14 days)"),
+    ],
+)
+def test_cli_period_brief_text_format_survives_limited_console_encoding(
+    tmp_path, monkeypatch, console_encoding, expected_period_line
+):
+    """#248/#203: explicit text keeps the limited-encoding safe stdout path."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+
+    raw_stdout = io.BytesIO()
+    limited_stdout = io.TextIOWrapper(
+        raw_stdout, encoding=console_encoding, errors="strict", newline=""
+    )
+    monkeypatch.setattr(sys, "stdout", limited_stdout)
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--format",
+                "text",
+            ]
+        )
+        == 0
+    )
+    limited_stdout.flush()
+    stdout_text = raw_stdout.getvalue().decode(console_encoding)
+
+    assert expected_period_line in stdout_text
+    assert "## weight" in stdout_text
+    assert "## notable_changes" in stdout_text
+    assert "## owner_actions" in stdout_text
+    assert stdout_text.endswith("no health formulas were recomputed.\n")
+    assert '"result_hash"' not in stdout_text
+
+
+def test_cli_period_brief_json_format_survives_limited_console_encoding(tmp_path, monkeypatch):
+    """#248: explicit json stays a parseable standalone document on ascii stdout."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+
+    raw_stdout = io.BytesIO()
+    limited_stdout = io.TextIOWrapper(
+        raw_stdout, encoding="ascii", errors="strict", newline=""
+    )
+    monkeypatch.setattr(sys, "stdout", limited_stdout)
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-01",
+                "--end",
+                "2099-01-14",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    limited_stdout.flush()
+    stdout_text = raw_stdout.getvalue().decode("ascii")
+
+    assert stdout_text.endswith("}\n")
+    packet = json.loads(stdout_text)
+    assert packet["contract_version"] == PERIOD_BRIEF_CONTRACT_VERSION
+    assert packet["result_hash"]
+
+
+def test_cli_period_brief_json_format_failure_emits_no_partial_json(tmp_path, capsys):
+    """#248: validation failures stay nonzero with no success-looking stdout JSON."""
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+
+    assert (
+        cli.main(
+            [
+                "period-brief",
+                "--data-dir",
+                str(paths.root),
+                "--start",
+                "2099-01-14",
+                "--end",
+                "2099-01-01",
+                "--format",
+                "json",
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "period-brief: ERROR: end_date cannot precede start_date" in captured.err
+
+    assert cli.main(["period-brief", "--format", "json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "period-brief: --start and --end are required" in captured.err
+
+
 def test_activity_availability_distinguishes_inventory_outcomes():
     """#119 breaker: missing/not-fetched activity must not be confirmed_empty."""
 
