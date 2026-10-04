@@ -1,68 +1,69 @@
 {% extends "base.html" %}
-{% block title %}Weight dashboard — Health-Check{% endblock %}
+{% import "owner_ui.html" as owner_ui %}
+{% block title %}Вес — Health-Check{% endblock %}
 {% block content %}
 <section class="bia-banner" role="note">
-  {{ payload.bia_uncertainty }}
+  <p>Потребительский биоимпеданс (BIA) — не клиническое измерение и чувствителен к методике. Страница не ставит диагнозы, не утверждает причины и не сообщает точные изменения тканей. Небольшие колебания BIA могут отражать воду, гликоген или погрешность метода.</p>
 </section>
 {% if payload.algorithm_boundary.present %}
 <section class="algorithm-banner" role="status">
-  {{ payload.algorithm_boundary.warning }}
-  Groups:
+  <p>Несовместимые алгоритмы состава тела показаны отдельными рядами. Значения Xiaomi и openScale не смешиваются, не пересчитываются и не сравниваются через границу алгоритма.</p>
+  <p class="muted">Группы:
   {% for group in payload.algorithm_boundary.groups %}
     <code>{{ group }}</code>{% if not loop.last %}, {% endif %}
   {% endfor %}
+  </p>
 </section>
 {% endif %}
 {% if payload.canonical.warning or payload.canonical.stale or payload.canonical.reason in ["canonical_selection_failed", "canonical_selection_in_progress"] %}
 <section class="canonical-banner" role="status" data-canonical-warning="{{ payload.canonical.warning or payload.canonical.reason }}">
   {% if payload.canonical.available and payload.canonical.stale %}
-    Canonical analytics below come from the last successful snapshot and may be stale.
-    Latest recomputation status: <code>{{ payload.canonical.warning or payload.canonical.latest_attempt_status }}</code>.
+    Данные ниже — из последнего удачного расчёта и могут быть устаревшими.
   {% elif payload.canonical.reason == "canonical_selection_failed" or payload.canonical.warning == "canonical_recompute_failed" %}
-    Canonical selection is unavailable after a failed recomputation.
-    Status: <code>{{ payload.canonical.warning or payload.canonical.reason }}</code>.
+    Принятый расчёт недоступен после неудачного пересчёта. Ниже — последний удачный расчёт.
   {% else %}
-    Canonical selection is not ready yet.
-    Status: <code>{{ payload.canonical.warning or payload.canonical.reason or "unknown" }}</code>.
+    Принятый расчёт ещё не готов.
   {% endif %}
 </section>
 {% endif %}
 
 <section class="hero">
   <div>
-    <h2>Weight and body composition</h2>
-    <p class="muted">Raw confirmed source points stay visible. The trend is a 21-day time-aware EWMA, not a replacement for the observations.</p>
+    <h2>Текущий вес и цель</h2>
+    <p class="muted">Подтверждённые измерения источника видны как есть. Тренд — 21-дневное взвешенное среднее, а не замена наблюдениям.</p>
   </div>
   <dl class="current">
     <div>
-      <dt>Current confirmed weight</dt>
+      <dt>Текущий подтверждённый вес</dt>
       <dd>
         {% if payload.current.available %}
-          {{ '%.1f'|format(payload.current.value_kg) }} kg
-          <span class="muted">on {{ payload.current.observed_date }} (source)</span>
+          {{ '%.1f'|format(payload.current.value_kg) }} кг
+          <span class="muted">на {{ payload.current.observed_date }} (источник)</span>
         {% else %}
-          <span class="unavailable">unavailable</span>
-          <span class="muted">({{ payload.current.reason or 'no_data' }})</span>
+          {{ owner_ui.state_chip(weight_owner_state(payload.current.available, payload.current.reason)) }}
+          <span class="muted">{{ weight_owner_reason(payload.current.reason) }} Это не означает ноль.</span>
         {% endif %}
       </dd>
     </div>
     <div>
-      <dt>Goal</dt>
+      <dt>Цель</dt>
       <dd>
         {% if payload.goal_kg is not none %}
-          {{ '%.1f'|format(payload.goal_kg) }} kg
+          {{ '%.1f'|format(payload.goal_kg) }} кг
+          <span class="muted">Настроенная цель — ориентир, а не оценка «хорошо/плохо».</span>
         {% else %}
-          <span class="unavailable">not configured</span>
+          <span class="muted">Не настроена. Цель — ориентир, а не оценка.</span>
         {% endif %}
       </dd>
     </div>
     <div>
-      <dt>Pending import candidates</dt>
+      <dt>Проверка импорта</dt>
       <dd>
         {% if payload.imports.pending_candidate_count %}
-          <a href="/imports">{{ payload.imports.pending_candidate_count }} awaiting review</a>
+          <a href="/imports">{{ payload.imports.pending_candidate_count }} на проверке</a>
+          <span class="muted">Открой загрузку и проверь измерения.</span>
         {% else %}
-          0 pending
+          <span class="muted">Нет кандидатов на проверке. <a href="/imports">Открыть данные</a></span>
         {% endif %}
       </dd>
     </div>
@@ -70,47 +71,82 @@
 </section>
 
 <section class="card">
-  <h2>Weight series</h2>
+  <h2>Ряд веса</h2>
   <p class="legend">
-    <span class="swatch raw"></span> Raw confirmed weight (source)
-    <span class="swatch trend"></span> 21-day time-aware trend (Health-Check derived)
-    <span class="swatch goal"></span> Configured goal
+    <span class="swatch raw"></span> Подтверждённый вес (источник)
+    <span class="swatch trend"></span> Тренд 21 день (расчёт Health-Check)
+    <span class="swatch goal"></span> Настроенная цель
   </p>
-  <div id="weight-chart" class="chart" aria-label="Weight chart"></div>
+  <div id="weight-chart" class="chart" aria-label="График веса"></div>
   <p id="trend-status" class="muted"></p>
 </section>
 
-<section class="grid">
+<div class="grid">
   <article class="card">
-    <h2>Theil–Sen rate (trailing 90 days)</h2>
+    <h2>Изменение за последнее время</h2>
+    <p class="muted">Темп Theil–Sen за 90 дней и доступность тренда. Отсутствующий показатель не показан как 0.</p>
     <div id="rate-panel"></div>
   </article>
   <article class="card">
-    <h2>Coverage and freshness</h2>
+    <h2>Покрытие и свежесть</h2>
     <div id="coverage-panel"></div>
+    <p class="muted"><a href="/imports#data-status">Проверить состояние источников</a></p>
   </article>
   <article class="card">
-    <h2>Latest composition</h2>
+    <h2>Последний состав тела</h2>
     <div id="composition-latest"></div>
   </article>
   <article class="card">
-    <h2>Similar-weight recomposition evidence</h2>
-    <p class="muted">Same algorithm only, at least 28 days apart, weight within 1%. Not a tissue-change claim.</p>
+    <h2>Изменения при похожем весе</h2>
+    <p class="muted">Один алгоритм, интервал от 28 дней, вес в пределах 1%. Это не утверждение о росте мышц или потере жира.</p>
     <div id="similar-panel"></div>
   </article>
-</section>
+</div>
 
 <section class="card">
-  <h2>Body composition by algorithm group</h2>
-  <p class="muted">Estimated fat/lean are Health-Check derived from same-session weight and body fat. Source muscle mass is never renamed to lean mass.</p>
+  <h2>Состав тела по группам алгоритмов</h2>
+  <p class="muted">Оценки жира и сухой массы — расчёт Health-Check из веса и процента жира одной сессии. Мышцы источника никогда не переименовываются в сухую массу.</p>
   <div id="composition-groups"></div>
 </section>
 
 <section class="card">
-  <h2>Point provenance</h2>
-  <p class="muted">Click a raw weight point. Provenance shows source, device, input method and algorithm — not secrets or raw payload bodies.</p>
-  <div id="provenance-panel" class="provenance empty">Select a raw point on the chart.</div>
+  <h2>Происхождение точек</h2>
+  <p class="muted">Выбери точку подтверждённого веса на графике. Происхождение покажет источник, устройство, способ ввода и алгоритм — без секретов и тел исходных данных.</p>
+  <div id="provenance-panel" class="provenance empty">Выбери точку на графике.</div>
 </section>
+
+{% call owner_ui.technical_details() %}
+  <h2>Технические детали</h2>
+  <p>Доступность, полнота и свежесть — разные сведения. Состояния ниже не подтверждают ежедневное покрытие.</p>
+  <dl>
+    <div><dt>Алгоритм тренда</dt><dd><code>{{ payload.series.trend_algorithm }}</code></dd></div>
+    <div><dt>Причина тренда</dt><dd><code>{{ payload.series.trend_reason or 'none' }}</code></dd></div>
+    <div><dt>Темп</dt><dd><code>{{ payload.summary.rate.algorithm }}</code> · <code>{{ payload.summary.rate.reason or 'none' }}</code></dd></div>
+    <div><dt>Состав тела</dt><dd><code>{{ payload.summary.latest_composition.algorithm }}</code> · <code>{{ payload.summary.latest_composition.reason or 'none' }}</code></dd></div>
+    <div><dt>Похожий вес</dt><dd><code>{{ payload.summary.similar_weight.reason or 'none' }}</code></dd></div>
+    <div><dt>Канонический расчёт</dt><dd><code>{{ payload.canonical.run_id or payload.canonical.reason or 'none' }}</code> · выборок: {{ payload.canonical.selection_count }} · <code>{{ payload.canonical.warning or payload.canonical.latest_attempt_status or 'none' }}</code>{% if payload.canonical.failure_reason %} · <code>{{ payload.canonical.failure_reason }}</code>{% endif %}</dd></div>
+    <div><dt>Текущее измерение</dt><dd><code>{{ payload.current.reason or 'none' }}</code></dd></div>
+  </dl>
+  <h3>Исключения</h3>
+  {% if payload.series.exclusions %}
+  <ul class="exclusion-list">
+    {% for item in payload.series.exclusions %}
+    <li>{{ item.evidence_id or 'без ID' }}: <code>{{ item.reason_code }}</code></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Исключений нет.</p>
+  {% endif %}
+  <h3>Группы алгоритмов</h3>
+  {% if payload.algorithm_boundary.groups %}
+  <ul>
+    {% for group in payload.algorithm_boundary.groups %}<li><code>{{ group }}</code></li>{% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Групп нет.</p>
+  {% endif %}
+  <p class="muted">Полный пакет страницы сохранён в данных страницы; таблицы выше могут быть сокращены только для отображения.</p>
+{% endcall %}
 
 <script id="dashboard-data" type="application/json">{{ payload | tojson }}</script>
 {% endblock %}
