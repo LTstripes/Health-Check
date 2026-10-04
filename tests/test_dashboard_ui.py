@@ -7,6 +7,7 @@ enter this file.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from html.parser import HTMLParser
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -37,6 +38,47 @@ from healthcheck.ingestion.photo.synthetic import (
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
+
+
+class _OwnerShellParser(HTMLParser):
+    """Inspect rendered semantics without depending on whitespace or CSS classes."""
+
+    def __init__(self, html):
+        super().__init__()
+        self.in_nav = False
+        self.in_h1 = False
+        self.links = []
+        self.headings = []
+        self.details = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "nav" and attributes.get("aria-label") in {
+            "Primary navigation",
+            "Основная навигация",
+            "Основные разделы",
+        }:
+            self.in_nav = True
+        if tag == "a" and self.in_nav:
+            self.links.append([attributes, ""])
+        if tag == "h1":
+            self.in_h1 = True
+            self.headings.append("")
+        if tag == "details":
+            self.details.append(attributes)
+
+    def handle_endtag(self, tag):
+        if tag == "nav":
+            self.in_nav = False
+        if tag == "h1":
+            self.in_h1 = False
+
+    def handle_data(self, data):
+        if self.in_nav and self.links:
+            self.links[-1][1] += data.strip()
+        if self.in_h1:
+            self.headings[-1] += data
 
 
 def _ui(tmp_path, **settings_values):
@@ -677,7 +719,8 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
         assert home.status_code == 200
         html = home.text
         assert 'class="canonical-banner"' in html
-        assert 'role="alert"' in html
+        assert 'class="canonical-banner" role="status"' in html
+        assert 'class="canonical-banner" role="alert"' not in html
         assert "last successful snapshot and may be stale" in html
         assert "canonical_recompute_failed" in html
         # Embedded dashboard JSON keeps sanitized freshness fields.
@@ -791,7 +834,8 @@ def test_failed_only_composition_scope_marks_weight_success_stale(tmp_path):
         home = client.get("/")
         assert home.status_code == 200
         assert 'class="canonical-banner"' in home.text
-        assert 'role="alert"' in home.text
+        assert 'class="canonical-banner" role="status"' in home.text
+        assert 'class="canonical-banner" role="alert"' not in home.text
         assert "may be stale" in home.text
         for payload in (series, summary):
             canonical = payload["canonical"]
@@ -853,6 +897,7 @@ def test_dashboard_html_shows_canonical_banner_when_stale(tmp_path):
         home = client.get("/")
         assert home.status_code == 200
         assert 'data-canonical-warning="canonical_recompute_failed"' in home.text
+        assert 'class="canonical-banner" role="status"' in home.text
         assert "last successful snapshot and may be stale" in home.text
         assert "Traceback" not in home.text
         assert "SELECT " not in home.text
@@ -935,6 +980,8 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
         home = client.get("/")
         assert home.status_code == 200
         assert 'class="canonical-banner"' in home.text
+        assert 'class="canonical-banner" role="status"' in home.text
+        assert 'class="canonical-banner" role="alert"' not in home.text
         assert "last successful snapshot and may be stale" in home.text
         for payload in (series, summary):
             canonical = payload["canonical"]
@@ -973,3 +1020,253 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
         client.get("/api/weight/series")
         client.get("/")
         assert _canonical_snapshot(paths) == after_fail
+
+
+def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    expected = [
+        ("/brief", "Обзор"),
+        ("/", "Вес"),
+        ("/agreement", "Сон"),
+        ("/garmin", "Активность"),
+        ("/imports", "Данные"),
+    ]
+    expected_modes = {
+        "Обзор": "За период",
+        "Вес": "Вес и состав тела",
+        "Сон": "Сравнение сна",
+        "Активность": "Тренировки и восстановление",
+        "Данные": "Проверка импорта",
+    }
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        batch = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
+        for path, section in [*expected, (f"/imports/{batch}", "Данные")]:
+            response = client.get(path)
+            assert response.status_code == 200
+            parsed = _OwnerShellParser(response.text)
+            assert [(attrs["href"], text) for attrs, text in parsed.links] == expected
+            assert [text for attrs, text in parsed.links if attrs.get("aria-current")] == [section]
+            assert parsed.headings == [section]
+            assert 'href="#owner-main"' in response.text
+            assert 'id="owner-main" tabindex="-1"' in response.text
+            assert parsed.details and all("open" not in attrs for attrs in parsed.details)
+            assert '<html lang="ru"' in response.text
+            assert "К содержимому" in response.text
+            assert 'aria-label="Основные разделы"' in response.text
+            assert expected_modes[section] in response.text
+            # Existing English bodies stay explicitly English; Russian Overview inherits ru.
+            if section == "Обзор":
+                assert 'class="owner-page-content" lang="en"' not in response.text
+            else:
+                assert 'class="owner-page-content" lang="en"' in response.text
+        period = client.get("/brief?start_date=2099-02-03&end_date=2099-02-17")
+        assert "За период" in period.text
+        assert "2099-02-03 → 2099-02-17" in period.text
+        assert 'name="start_date" value="2099-02-03"' in period.text
+        assert 'href="/brief">Health-Check</a>' in period.text
+        # Frozen shell: paper sticky nav, table-scroll wrappers, no block tables.
+        css = client.get("/static/dashboard.css").text
+        assert "--bg: #f3f1ec" in css
+        assert "--card: #fffcf8" in css
+        assert "--accent: #1f5c57" in css
+        assert ".top" in css and "position: sticky" in css
+        assert ".table-scroll" in css
+        assert ".owner-page-content table { display: block" not in css
+        assert "border-radius: 999px" not in css
+        assert "text-transform: uppercase" not in css
+        assert 'class="table-scroll"' in client.get("/imports").text
+        assert 'class="table-scroll"' in client.get("/brief").text
+
+
+def test_owner_shell_errors_keep_context_and_disclose_reason(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        response = client.get("/brief?preset=invalid")
+        missing = client.get("/imports/missing-batch")
+        unknown = client.get("/unknown-owner-page", headers={"Accept": "text/html"})
+    assert response.status_code == 400
+    parsed = _OwnerShellParser(response.text)
+    assert parsed.headings == ["Обзор"]
+    primary, technical = response.text.split('<details class="card owner-details', 1)
+    assert 'role="alert"' in primary
+    assert 'data-owner-state="error"' in primary
+    assert "<code>invalid_period</code>" not in primary
+    assert "<code>invalid_period</code>" in technical
+    assert all("open" not in attrs for attrs in parsed.details)
+    assert "Не удалось показать страницу" in response.text
+    assert 'href="/brief">Обзор</a>' in response.text or ">Обзор<" in response.text
+    assert missing.status_code == 404
+    assert _OwnerShellParser(missing.text).headings == ["Данные"]
+    assert unknown.status_code == 404
+    assert _OwnerShellParser(unknown.text).headings == ["Health-Check"]
+    assert not any(
+        attrs.get("aria-current") for attrs, _text in _OwnerShellParser(unknown.text).links
+    )
+
+
+def test_owner_shell_frozen_visual_system(tmp_path):
+    """Frozen tokens, type, state treatments and Russian shell contract."""
+
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        css = client.get("/static/dashboard.css").text
+        # Core frozen tokens.
+        for token in (
+            "--bg: #f3f1ec",
+            "--card: #fffcf8",
+            "--sunken: #e8e4dc",
+            "--ink: #1c1916",
+            "--muted: #5e584e",
+            "--line: #ddd6cb",
+            "--line-strong: #c9c0b3",
+            "--accent: #1f5c57",
+            "--accent-soft: #e6f1ef",
+            "--series-1: #1d4e89",
+            "--series-2: #9a4f1a",
+            "--series-3: #5c4d86",
+            "--series-4: #3f5f73",
+        ):
+            assert token in css
+        # Frozen state fills.
+        assert "#f6efe2" in css  # attention
+        assert "#f3e4d4" in css  # unavailable
+        assert "#f8eceb" in css  # error
+        # Radii and surfaces: 8px cards, 6px buttons, 4px chips; no pills/shadows.
+        assert "border-radius: 8px" in css
+        assert "border-radius: 6px" in css
+        assert "border-radius: 4px" in css
+        assert "border-radius: 999px" not in css
+        assert "box-shadow" not in css.lower()
+        assert "linear-gradient" not in css.lower()
+        # Ordinary teal stripes and uppercase eyebrows are gone.
+        assert "border-left: 6px solid" not in css
+        assert "border-left: 5px solid" not in css
+        assert "text-transform: uppercase" not in css
+        # Paper sticky navigation with hairline and accent underline.
+        assert "position: sticky" in css
+        assert "border-bottom: 1px solid var(--line)" in css
+        assert "border-bottom-color: var(--accent)" in css
+        # Tables use dedicated scrollers with real layout and sticky muted headers.
+        assert ".table-scroll" in css and "overflow-x: auto" in css
+        assert ".owner-page-content table { display: block" not in css
+        assert "position: sticky" in css  # thead th
+        # Owner-state treatments for all ten keys.
+        for selector in (
+            ".owner-state.present",
+            ".owner-state.confirmed_empty",
+            ".owner-state.no_change",
+            ".owner-state.not_requested",
+            ".owner-state.loading",
+            ".owner-state.partial",
+            ".owner-state.insufficient",
+            ".owner-state.unavailable",
+            ".owner-state.unknown",
+            ".owner-state.error",
+        ):
+            assert selector in css
+        assert ".owner-state.partial" in css and "solid" in css
+        assert ".owner-state.insufficient" in css and "dashed" in css
+        # Chart legend samples are 8px squares; goal is a dashed reference sample.
+        assert ".swatch" in css and "width: 8px" in css and "height: 8px" in css
+        assert "border-radius: 50%" not in css
+        assert ".swatch.goal" in css and "dashed" in css
+        # Interpretation/status banners use attention treatment, not sunken or error red.
+        assert ".bia-banner, .algorithm-banner, .canonical-banner" in css
+        assert "background: var(--attention-bg)" in css
+        assert ".error-card" in css and "var(--error-bg)" in css
+        # Typography freeze: body 1.5, hierarchy stays 600 without 700 presentation.
+        assert "line-height: 1.5" in css
+        assert "font-weight: 700" not in css
+        # Shell is Russian; English bodies stay explicitly English.
+        overview = client.get("/brief").text
+        weight = client.get("/").text
+        assert '<html lang="ru"' in overview
+        assert "Обзор" in overview and "За период" in overview
+        assert "Интерфейс только на этом компьютере" in overview
+        assert "Потребительский BIA — не клиническое измерение" in overview
+        assert "К содержимому" in overview
+        assert 'aria-label="Основные разделы"' in overview
+        assert 'class="owner-page-content" lang="en"' in weight
+        # Algorithm/canonical banners are status, never errors.
+        assert 'class="canonical-banner" role="alert"' not in weight
+        assert 'class="algorithm-banner" role="alert"' not in weight
+        # Footer state guide stays Russian and closed.
+        assert "Как читать состояния данных" in overview
+
+
+def test_owner_shell_responsive_browser_contract(tmp_path):
+    """Browser-focused responsive contract: viewport, focus, targets, scrollers."""
+
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        css = client.get("/static/dashboard.css").text
+        # Responsive overrides stay after page rules (last media blocks win).
+        assert css.rfind("@media (max-width: 800px)") > css.find(".brief-grid")
+        assert css.rfind("@media (max-width: 480px)") > css.rfind("@media (max-width: 800px)")
+        # <=800px: one content column and one horizontal nav row, no hamburger.
+        assert "grid-template-columns: minmax(0, 1fr)" in css
+        assert ".owner-nav" in css and "overflow-x: auto" in css
+        assert "hamburger" not in css.lower()
+        assert "bottom-tab" not in css.lower()
+        # 44px minimum targets and visible focus.
+        assert "min-height: 44px" in css
+        assert ":focus-visible" in css
+        # Horizontal scroll only inside chart/table regions.
+        assert ".table-scroll" in css
+        assert ".chart" in css
+        assert "overflow-x:" in css
+        # Real pages expose scrollers and keep evidence.
+        for path in ("/brief", "/imports", "/garmin"):
+            html = client.get(path).text
+            assert 'name="viewport"' in html
+            assert 'href="#owner-main"' in html
+        assert 'class="table-scroll"' in client.get("/brief").text
+        # Empty import queue honestly has no table; populated queue must scroll.
+        assert "No import batches yet" in client.get("/imports").text
+        batch = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
+        assert 'class="table-scroll"' in client.get("/imports").text
+        assert 'class="table-scroll"' in client.get(f"/imports/{batch}").text
+        # Garmin tables render when training evidence exists; templates always wrap them.
+        from pathlib import Path
+
+        garmin_template = Path("src/healthcheck/web/templates/garmin.html").read_text(
+            encoding="utf-8"
+        )
+        assert garmin_template.count('class="table-scroll"') >= 2
+        assert "display: block" not in garmin_template
+
+
+def test_owner_state_vocabulary_is_distinct_and_fails_closed():
+    from healthcheck.web.pages import _brief_owner_state, templates
+
+    shared = templates.get_template("owner_ui.html").module
+    labels = shared.state_labels
+    assert len(set(labels.values())) == len(labels)
+    for state, label in labels.items():
+        rendered = str(shared.state_chip(state))
+        assert f'data-owner-state="{state}"' in rendered
+        assert label in rendered
+        if state in {
+            "present",
+            "confirmed_empty",
+            "unknown",
+            "unavailable",
+            "insufficient",
+            "not_requested",
+        }:
+            assert label == _brief_owner_state(state)
+    for state in [None, "", "unsupported", "<script>alert(1)</script>"]:
+        rendered = str(shared.state_chip(state))
+        assert 'data-owner-state="unknown"' in rendered
+        assert labels["unknown"] in rendered
+        assert "<script>" not in rendered
+        assert labels["confirmed_empty"] not in rendered
+        assert labels["no_change"] not in rendered
