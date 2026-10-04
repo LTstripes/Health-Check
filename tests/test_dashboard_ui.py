@@ -7,6 +7,7 @@ enter this file.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from html.parser import HTMLParser
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -37,6 +38,43 @@ from healthcheck.ingestion.photo.synthetic import (
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
+
+
+class _OwnerShellParser(HTMLParser):
+    """Inspect rendered semantics without depending on whitespace or CSS classes."""
+
+    def __init__(self, html):
+        super().__init__()
+        self.in_nav = False
+        self.in_h1 = False
+        self.links = []
+        self.headings = []
+        self.details = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "nav" and attributes.get("aria-label") == "Primary navigation":
+            self.in_nav = True
+        if tag == "a" and self.in_nav:
+            self.links.append([attributes, ""])
+        if tag == "h1":
+            self.in_h1 = True
+            self.headings.append("")
+        if tag == "details":
+            self.details.append(attributes)
+
+    def handle_endtag(self, tag):
+        if tag == "nav":
+            self.in_nav = False
+        if tag == "h1":
+            self.in_h1 = False
+
+    def handle_data(self, data):
+        if self.in_nav and self.links:
+            self.links[-1][1] += data.strip()
+        if self.in_h1:
+            self.headings[-1] += data
 
 
 def _ui(tmp_path, **settings_values):
@@ -973,3 +1011,87 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
         client.get("/api/weight/series")
         client.get("/")
         assert _canonical_snapshot(paths) == after_fail
+
+
+def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    expected = [
+        ("/brief", "Overview"),
+        ("/", "Weight"),
+        ("/agreement", "Sleep"),
+        ("/garmin", "Activity"),
+        ("/imports", "Data"),
+    ]
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        batch = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
+        for path, section in [*expected, (f"/imports/{batch}", "Data")]:
+            response = client.get(path)
+            assert response.status_code == 200
+            parsed = _OwnerShellParser(response.text)
+            assert [(attrs["href"], text) for attrs, text in parsed.links] == expected
+            assert [text for attrs, text in parsed.links if attrs.get("aria-current")] == [section]
+            assert parsed.headings == [section]
+            assert 'href="#owner-main"' in response.text
+            assert 'id="owner-main" tabindex="-1"' in response.text
+            assert parsed.details and all("open" not in attrs for attrs in parsed.details)
+        period = client.get("/brief?start_date=2099-02-03&end_date=2099-02-17")
+        assert "For period" in period.text
+        assert "2099-02-03 → 2099-02-17" in period.text
+        assert 'name="start_date" value="2099-02-03"' in period.text
+        assert 'href="/brief">Health-Check</a>' in period.text
+
+
+def test_owner_shell_errors_keep_context_and_disclose_reason(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        response = client.get("/brief?preset=invalid")
+        missing = client.get("/imports/missing-batch")
+        unknown = client.get("/unknown-owner-page", headers={"Accept": "text/html"})
+    assert response.status_code == 400
+    parsed = _OwnerShellParser(response.text)
+    assert parsed.headings == ["Overview"]
+    primary, technical = response.text.split('<details class="card owner-details', 1)
+    assert 'role="alert"' in primary
+    assert 'data-owner-state="error"' in primary
+    assert "<code>invalid_period</code>" not in primary
+    assert "<code>invalid_period</code>" in technical
+    assert all("open" not in attrs for attrs in parsed.details)
+    assert missing.status_code == 404
+    assert _OwnerShellParser(missing.text).headings == ["Data"]
+    assert unknown.status_code == 404
+    assert _OwnerShellParser(unknown.text).headings == ["Health-Check"]
+    assert not any(
+        attrs.get("aria-current") for attrs, _text in _OwnerShellParser(unknown.text).links
+    )
+
+
+def test_owner_state_vocabulary_is_distinct_and_fails_closed():
+    from healthcheck.web.pages import _brief_owner_state, templates
+
+    shared = templates.get_template("owner_ui.html").module
+    labels = shared.state_labels
+    assert len(set(labels.values())) == len(labels)
+    for state, label in labels.items():
+        rendered = str(shared.state_chip(state))
+        assert f'data-owner-state="{state}"' in rendered
+        assert label in rendered
+        if state in {
+            "present",
+            "confirmed_empty",
+            "unknown",
+            "unavailable",
+            "insufficient",
+            "not_requested",
+        }:
+            assert label == _brief_owner_state(state)
+    for state in [None, "", "unsupported", "<script>alert(1)</script>"]:
+        rendered = str(shared.state_chip(state))
+        assert 'data-owner-state="unknown"' in rendered
+        assert labels["unknown"] in rendered
+        assert "<script>" not in rendered
+        assert labels["confirmed_empty"] not in rendered
+        assert labels["no_change"] not in rendered

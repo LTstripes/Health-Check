@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% import "owner_ui.html" as owner_ui %}
 {% block title %}Сводка за период — Health-Check{% endblock %}
 {% block content %}
 <section class="hero brief-hero">
   <div>
     <p class="eyebrow">Локальная сводка данных</p>
-    <h1>Сводка за период</h1>
+    <h2>Сводка за период</h2>
     <p class="muted">Краткий обзор принятых данных веса, сна, активностей и полноты источников.</p>
   </div>
   <dl class="current">
@@ -106,7 +107,7 @@
 {% endif %}
 
 {% macro state_chip(section) -%}
-<span class="status-chip {{ section.state }}">{{ brief_owner_state(section.state) }}</span>
+{{ owner_ui.state_chip(section.state) }}
 {%- endmacro %}
 {% macro value_text(fact) -%}
   {{ brief_owner_value(fact.value, fact.unit, fact.availability, fact.code) }}
@@ -163,8 +164,7 @@
   </section>
 </div>
 
-<details class="card brief-provenance">
-  <summary>Технические детали</summary>
+{% call owner_ui.technical_details('brief-provenance') %}
   <dl>
     <div><dt>Контракт</dt><dd><code>{{ packet.contract_version }}</code></dd></div>
     <div><dt>Алгоритм</dt><dd><code>{{ packet.algorithm }}</code></dd></div>
@@ -179,5 +179,5 @@
     <div><dt>Внутренние показатели</dt><dd><code>{% for name, section in packet.sections.items() %}{{ name }}: [{% for fact in section.summary_facts %}{{ fact.code }}{% if not loop.last %}, {% endif %}{% endfor %}]{% if not loop.last %}; {% endif %}{% endfor %}</code></dd></div>
   </dl>
   <p class="muted">Списки на экране могут быть сокращены только для отображения. Числа, статистики и хеш аналитического пакета получены из принятого сервиса #119.</p>
-</details>
+{% endcall %}
 {% endblock %}

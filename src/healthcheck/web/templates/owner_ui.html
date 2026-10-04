@@ -1,0 +1,26 @@
+{# Presentation vocabulary only: callers supply evidence states, never infer them.
+   Interpretation-changing warnings stay outside technical_details. #}
+{% set state_labels = {
+  'present': 'Данные доступны',
+  'partial': 'Данные доступны частично',
+  'confirmed_empty': 'За период записей нет',
+  'unknown': 'Состояние данных не определено',
+  'unavailable': 'Источник данных недоступен',
+  'insufficient': 'Недостаточно данных',
+  'not_requested': 'Не запрашивалось',
+  'loading': 'Загрузка данных',
+  'error': 'Не удалось выполнить запрос',
+  'no_change': 'Изменений не обнаружено'
+} %}
+
+{% macro state_chip(state) -%}
+  {% set known_state = state if state in state_labels else 'unknown' %}
+  <span class="status-chip owner-state {{ known_state }}" data-owner-state="{{ known_state }}">{{ state_labels[known_state] }}</span>
+{%- endmacro %}
+
+{% macro technical_details(extra_class='') -%}
+<details class="card owner-details {{ extra_class }}">
+  <summary>Технические детали</summary>
+  <div class="owner-details-content">{{ caller() }}</div>
+</details>
+{%- endmacro %}
