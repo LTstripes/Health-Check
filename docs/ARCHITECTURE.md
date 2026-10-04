@@ -136,6 +136,33 @@ OAuth for one personal account (Web Application / Web Server client per current 
 7. Do not make PKCE a universal R04 requirement for this Web Application route unless later current provider evidence requires it.
 8. Surface token health and require manual reconnect on revocation/`invalid_grant`.
 
+Non-Windows Google credential writes use `healthcheck-google-local-key-v2`:
+canonical UTF-8 JSON (ASCII escapes, sorted compact keys) with exactly `format`,
+`purpose`, `nonce`, `ciphertext`. AES-256-GCM uses a fresh random 12-byte nonce
+per write and a 16-byte tag attached to ciphertext. The existing 32-byte raw
+key file derives a distinct AES key through HKDF-SHA256 (length 32, salt
+`healthcheck-google-local-key-v2`, info `aes-256-gcm`). AAD is the ASCII version
+constant, a NUL separator, and the trusted expected purpose supplied by code:
+`google-client-credentials` or `google-tokens`. Envelope purpose must match;
+relabeling it cannot bypass authentication. Repeated writes require fresh nonces;
+operational usage remains far below the GCM nonce/counter bounds.
+
+Plaintext is non-empty UTF-8 capped at 64 KiB; local envelopes are capped at
+96 KiB. Purposes match ASCII `[a-z0-9-]{1,64}`. Exact fields, strict base64,
+decoded sizes, UTF-8, format and authentication fail closed. Legacy v1 remains
+authenticated read-only HMAC/XOR (16-byte nonce, 32-byte MAC, 1..65536-byte
+ciphertext) with its original lack of role binding. Pure reads load the required
+key only, never create a missing key or rewrite keys/envelopes. Existing v1 files
+migrate individually on their next supported normal credential/token write.
+Windows user-scoped DPAPI bytes, entropy and SID checks remain unchanged; the
+uniform purpose argument is ignored by DPAPI and cryptography is loaded only
+by the local implementation.
+
+Local v2 protects a stolen envelope without its key and detects offline tampering
+and role transplant. It does not protect theft of the whole runtime profile or
+decrypted profile backup where the key and envelopes are together. This does not
+change backup membership/format, add a keyring, or redesign Owner recovery.
+
 Verification/policy and live API access remain a release gate with explicit owner-live acceptance probes (Console setup, fixed-callback authorization, secret/refresh behavior, `dataSource`/device attribution, envelope/pagination shapes, late-arrival behavior), not an excuse to switch to an unsafe token workflow.
 
 Google Health sleep and physiological records are source data. A local `healthcheck_*` or adapted `fettle_*` score is a derived, versioned metric; it must not be named or displayed as an official Fitbit Sleep Score or Readiness value. No documented provider-native Fitbit Sleep Score / Daily Readiness identity exists in the current Health API; no such claim in R04.

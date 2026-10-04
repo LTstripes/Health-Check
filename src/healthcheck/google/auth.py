@@ -579,7 +579,10 @@ class GoogleAuthService:
 
         if not credentials.client_id or not credentials.client_secret:
             raise ValueError("client_id and client_secret are required")
-        envelope = self.protector.protect(json.dumps(credentials.as_storage_dict(), sort_keys=True))
+        envelope = self.protector.protect(
+            json.dumps(credentials.as_storage_dict(), sort_keys=True),
+            purpose="google-client-credentials",
+        )
         _atomic_write_text(self.client_path, envelope)
 
     def load_client_credentials(self) -> GoogleClientCredentials:
@@ -589,7 +592,7 @@ class GoogleAuthService:
             raise FileNotFoundError("Google client credentials are missing")
         try:
             envelope = self.client_path.read_text(encoding="utf-8")
-            plaintext = self.protector.unprotect(envelope)
+            plaintext = self.protector.unprotect(envelope, purpose="google-client-credentials")
             payload = json.loads(plaintext)
         except GoogleCredentialCorruptError:
             raise
@@ -606,7 +609,9 @@ class GoogleAuthService:
         return GoogleClientCredentials(client_id=client_id, client_secret=client_secret)
 
     def _write_tokens(self, tokens: GoogleTokenSet) -> None:
-        envelope = self.protector.protect(json.dumps(tokens.as_storage_dict(), sort_keys=True))
+        envelope = self.protector.protect(
+            json.dumps(tokens.as_storage_dict(), sort_keys=True), purpose="google-tokens"
+        )
         _atomic_write_text(self.token_path, envelope)
 
     def _read_tokens(self) -> GoogleTokenSet:
@@ -614,7 +619,7 @@ class GoogleAuthService:
             raise FileNotFoundError("Google token store is missing")
         try:
             envelope = self.token_path.read_text(encoding="utf-8")
-            plaintext = self.protector.unprotect(envelope)
+            plaintext = self.protector.unprotect(envelope, purpose="google-tokens")
             payload = json.loads(plaintext)
             if not isinstance(payload, Mapping):
                 raise GoogleCredentialCorruptError("Google token store is corrupt")

@@ -55,6 +55,7 @@
       "tests/test_demo_tooling.py",
       "tests/test_google_normalization.py",
       "tests/test_google_oauth.py",
+      "tests/test_google_protection.py",
       "tests/test_google_persistence.py",
       "tests/test_google_terminal_diagnostics.py",
       "tests/test_metadata_origins_240.py",

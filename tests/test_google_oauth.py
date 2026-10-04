@@ -545,13 +545,13 @@ def test_local_key_protection_round_trip_and_rejects_tamper(
     )
     key_path = tmp_path / "key"
     protection = GoogleLocalKeyFileProtection(key_path)
-    envelope = protection.protect('{"access_token":"synthetic"}')
+    envelope = protection.protect('{"access_token":"synthetic"}', purpose="google-tokens")
     assert "synthetic" not in envelope
-    assert protection.unprotect(envelope) == '{"access_token":"synthetic"}'
+    assert protection.unprotect(envelope, purpose="google-tokens") == '{"access_token":"synthetic"}'
     tampered = json.loads(envelope)
     tampered["ciphertext"] = base64.b64encode(b"nope").decode()
     with pytest.raises(GoogleCredentialCorruptError):
-        protection.unprotect(json.dumps(tampered))
+        protection.unprotect(json.dumps(tampered), purpose="google-tokens")
 
 
 def test_normalize_redirect_uri_pins_default_and_rejects_non_loopback() -> None:
