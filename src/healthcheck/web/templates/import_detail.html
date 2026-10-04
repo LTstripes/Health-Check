@@ -47,6 +47,7 @@
     {% endif %}
   </header>
   {% if group.candidates %}
+  <div class="table-scroll">
   <table class="candidates">
     <thead>
       <tr>
@@ -176,6 +177,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="unavailable">No candidates for this image.</p>
   {% endif %}

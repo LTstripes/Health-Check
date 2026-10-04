@@ -1,17 +1,17 @@
 {% import "owner_ui.html" as owner_ui %}
 {# Existing routes remain entry points until the thematic pages are implemented. #}
 {% set sections = {
-  'overview': ('Overview', '/brief', 'For period'),
-  'weight': ('Weight', '/', 'Weight and body composition'),
-  'sleep': ('Sleep', '/agreement', 'Sleep comparison'),
-  'activity': ('Activity', '/garmin', 'Training & recovery'),
-  'data': ('Data', '/imports', 'Import review')
+  'overview': ('Обзор', '/brief', 'За период'),
+  'weight': ('Вес', '/', 'Вес и состав тела'),
+  'sleep': ('Сон', '/agreement', 'Сравнение сна'),
+  'activity': ('Активность', '/garmin', 'Тренировки и восстановление'),
+  'data': ('Данные', '/imports', 'Проверка импорта')
 } %}
 {% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'agreement': 'sleep', 'garmin': 'activity', 'imports': 'data'} %}
 {% set path_sections = {'/brief': 'overview', '/': 'weight', '/agreement': 'sleep', '/garmin': 'activity', '/imports': 'data'} %}
 {% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,10 +19,10 @@
   <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
-  <a class="skip-link" href="#owner-main">Skip to content</a>
+  <a class="skip-link" href="#owner-main">Перейти к содержимому</a>
   <header class="top">
     <a class="brand" href="/brief">Health-Check</a>
-    <nav class="owner-nav" aria-label="Primary navigation">
+    <nav class="owner-nav" aria-label="Основная навигация">
       {% for key, item in sections.items() %}
       <a href="{{ item[1] }}"{% if section == key %} class="active" aria-current="page"{% endif %}>{{ item[0] }}</a>
       {% endfor %}
@@ -33,12 +33,17 @@
       <h1>{{ sections[section][0] if section else 'Health-Check' }}</h1>
       {% if section %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
     </header>
+    {# Existing English page bodies stay explicitly English until their stage translates them. #}
+    {% if section in ('weight', 'sleep', 'activity', 'data') %}
+    <div class="owner-page-content" lang="en">
+    {% else %}
     <div class="owner-page-content">
+    {% endif %}
       {% block content %}{% endblock %}
     </div>
   </main>
   <footer class="legal">
-    <p>Local loopback UI. Consumer BIA is non-clinical. No diagnosis or causal claims.</p>
+    <p>Локальный интерфейс. Потребительский BIA вне клиники. Без диагнозов и причинных выводов.</p>
     <details class="owner-state-help">
       <summary>Как читать состояния данных</summary>
       <p>Частичные данные, недостаток данных и отсутствие обнаруженных изменений — разные состояния. Неизвестные и недоступные данные не означают ноль или отсутствие событий.</p>

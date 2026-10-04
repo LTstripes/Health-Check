@@ -33,6 +33,7 @@
 <section class="card">
   <h2>Batch history</h2>
   {% if batches %}
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -59,6 +60,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="unavailable">No import batches yet.</p>
   {% endif %}
