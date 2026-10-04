@@ -110,42 +110,39 @@ def build_owner_metadata_origins(
     source_application: str | None,
     normalized_local_date: date | None,
     attested_local_date: date | None,
+    provider_code_from_payload: bool | None = None,
+    physical_device_code_from_payload: bool | None = None,
+    source_application_from_payload: bool | None = None,
 ) -> dict[str, str]:
     """Build origins for the fixed authorized Owner screenshot workflow.
 
-    The fixed triple ``xiaomi_home / xiaomi_s400 / Xiaomi Home`` is recorded as
-    ``workflow_profile`` when the extracted value equals it, never as
-    visible/attested.  Foreign explicit values are recorded as visible.
-    Missing values are unknown.  The date is never workflow_profile: it is
-    owner_attested when the current request explicitly attests it, visible
-    when extraction carries it, otherwise unknown.
+    An explicit non-null fixed triple in the sidecar payload is ``visible``.
+    Only an omitted/null fixed triple filled by the authorized workflow is
+    ``workflow_profile``.  Foreign explicit values are ``visible``.  Missing
+    values are ``unknown``.  The date is never ``workflow_profile``.
     """
+
     # Import here to avoid a hard import cycle at module load for tooling.
     from healthcheck.ingestion.photo.provenance import (
         XIAOMI_HOME_PROVIDER,
         XIAOMI_S400_DEVICE,
     )
 
-    if provider_code and provider_code == XIAOMI_HOME_PROVIDER:
-        provider_origin = ORIGIN_WORKFLOW_PROFILE
-    elif provider_code:
-        provider_origin = ORIGIN_VISIBLE
-    else:
-        provider_origin = ORIGIN_UNKNOWN
-
-    if physical_device_code and physical_device_code == XIAOMI_S400_DEVICE:
-        device_origin = ORIGIN_WORKFLOW_PROFILE
-    elif physical_device_code:
-        device_origin = ORIGIN_VISIBLE
-    else:
-        device_origin = ORIGIN_UNKNOWN
-
-    if source_application and source_application == "Xiaomi Home":
-        app_origin = ORIGIN_WORKFLOW_PROFILE
-    elif source_application:
-        app_origin = ORIGIN_VISIBLE
-    else:
-        app_origin = ORIGIN_UNKNOWN
+    provider_origin = _owner_triple_origin(
+        value=provider_code,
+        expected=XIAOMI_HOME_PROVIDER,
+        from_payload=provider_code_from_payload,
+    )
+    device_origin = _owner_triple_origin(
+        value=physical_device_code,
+        expected=XIAOMI_S400_DEVICE,
+        from_payload=physical_device_code_from_payload,
+    )
+    app_origin = _owner_triple_origin(
+        value=source_application,
+        expected="Xiaomi Home",
+        from_payload=source_application_from_payload,
+    )
 
     if attested_local_date is not None:
         date_origin = ORIGIN_OWNER_ATTESTED
@@ -164,27 +161,53 @@ def build_owner_metadata_origins(
     )
 
 
+def _owner_triple_origin(
+    *, value: str | None, expected: str, from_payload: bool | None
+) -> str:
+    if from_payload is True:
+        return ORIGIN_VISIBLE if value else ORIGIN_UNKNOWN
+    if from_payload is False:
+        if value and value == expected:
+            return ORIGIN_WORKFLOW_PROFILE
+        return ORIGIN_VISIBLE if value else ORIGIN_UNKNOWN
+    # Untracked extractor (backward compat): value-based fallback.
+    if value and value == expected:
+        return ORIGIN_WORKFLOW_PROFILE
+    return ORIGIN_VISIBLE if value else ORIGIN_UNKNOWN
+
+
 def build_provider_metadata_origins(
     *,
     provider_code: str | None,
     physical_device_code: str | None,
     source_application: str | None,
     normalized_local_date: date | None,
+    provider_code_from_payload: bool | None = None,
+    physical_device_code_from_payload: bool | None = None,
+    source_application_from_payload: bool | None = None,
 ) -> dict[str, str]:
     """Build origins for generic provider vision routes.
 
     Provider routes never accept Owner attestation and never emit
-    workflow_profile.  Explicit extraction values are visible, missing
-    values are unknown.
+    workflow_profile.  Payload facts are ``visible``; request/config
+    fallbacks are ``unknown``.
     """
+
+    def _provider_origin(value: str | None, from_payload: bool | None) -> str:
+        if from_payload is True:
+            return ORIGIN_VISIBLE if value else ORIGIN_UNKNOWN
+        if from_payload is False:
+            return ORIGIN_UNKNOWN
+        return ORIGIN_VISIBLE if value else ORIGIN_UNKNOWN
+
     return validate_metadata_origins(
         {
-            "provider_code": ORIGIN_VISIBLE if provider_code else ORIGIN_UNKNOWN,
-            "physical_device_code": (
-                ORIGIN_VISIBLE if physical_device_code else ORIGIN_UNKNOWN
+            "provider_code": _provider_origin(provider_code, provider_code_from_payload),
+            "physical_device_code": _provider_origin(
+                physical_device_code, physical_device_code_from_payload
             ),
-            "source_application": (
-                ORIGIN_VISIBLE if source_application else ORIGIN_UNKNOWN
+            "source_application": _provider_origin(
+                source_application, source_application_from_payload
             ),
             "source_local_date": (
                 ORIGIN_VISIBLE if normalized_local_date is not None else ORIGIN_UNKNOWN

@@ -77,7 +77,7 @@ def test_migration_0015_head_and_nullable_column(owner_photo_env):
     assert cols["metadata_origins_json"].nullable is True
 
 
-def test_owner_new_candidate_persists_complete_workflow_profile_map(owner_photo_env, tmp_path):
+def test_owner_explicit_fixed_triple_is_visible(owner_photo_env, tmp_path):
     settings, _paths, engine = owner_photo_env
     payload = _structured_payload(source_local_date=date(2026, 5, 20), weight_kg=78.5)
     image = _save_image(tmp_path, payload)
@@ -95,9 +95,9 @@ def test_owner_new_candidate_persists_complete_workflow_profile_map(owner_photo_
             assert origins is not None
             assert set(origins) == set(METADATA_ORIGIN_KEYS)
             validate_metadata_origins(origins)
-            assert origins["provider_code"] == "workflow_profile"
-            assert origins["physical_device_code"] == "workflow_profile"
-            assert origins["source_application"] == "workflow_profile"
+            assert origins["provider_code"] == "visible"
+            assert origins["physical_device_code"] == "visible"
+            assert origins["source_application"] == "visible"
             assert origins["source_local_date"] == "visible"
             assert origins["source_local_date"] != "workflow_profile"
 
@@ -256,6 +256,9 @@ def test_provider_vision_never_workflow_profile_and_rejects_attestation(owner_ph
             assert origins is not None
             assert "workflow_profile" not in set(origins.values())
             assert "owner_attested" not in set(origins.values())
+            assert origins["provider_code"] == "visible"
+            assert origins["physical_device_code"] == "visible"
+            assert origins["source_application"] == "visible"
             assert origins["source_local_date"] == "visible"
 
     with session_scope(engine) as session:
@@ -281,6 +284,66 @@ def test_provider_vision_never_workflow_profile_and_rejects_attestation(owner_ph
             origins = parse_metadata_origins_json(candidate.metadata_origins_json)
             assert origins is not None
             assert origins["source_local_date"] == "unknown"
+
+
+def test_provider_fallback_without_payload_is_unknown(owner_photo_env):
+    from healthcheck.ingestion.photo.service import PhotoUpload as Upload
+
+    _settings, paths, engine = owner_photo_env
+    payload = weigh_in_payload(source_local_date=date(2026, 6, 3), weight_kg=79.2)
+    del payload["provider_code"]
+    del payload["physical_device_code"]
+    del payload["source_application"]
+    image_bytes = encode_synthetic_png(payload)
+
+    with session_scope(engine) as session:
+        service = PhotoImportService(session, paths, FakeImageMeasurementExtractor())
+        batch = service.import_photos([Upload(filename="fallback.png", content=image_bytes)])
+        assert batch.items[0].status == "pending-confirmation"
+        candidates = service.repos.import_candidates.list_for_event(
+            batch.items[0].ingest_event_id or ""
+        )
+        assert candidates
+        for candidate in candidates:
+            origins = parse_metadata_origins_json(candidate.metadata_origins_json)
+            assert origins is not None
+            assert origins["provider_code"] == "unknown"
+            assert origins["physical_device_code"] == "unknown"
+            assert origins["source_application"] == "unknown"
+            assert origins["source_local_date"] == "visible"
+
+
+def test_owner_explicit_vs_fallback_triple_gets_distinct_identity(owner_photo_env, tmp_path):
+    settings, _paths, engine = owner_photo_env
+    base = _structured_payload(source_local_date=date(2026, 6, 4), weight_kg=79.3)
+    image = _save_image(tmp_path, base)
+    explicit_json = _save_extraction_json(tmp_path, base, "explicit.json")
+
+    first = import_owner_weight_screenshot(settings, image, extraction_json_path=explicit_json)
+    assert first.status == "IMPORTED"
+
+    omitted = json.loads(json.dumps(base))
+    omitted["provider_code"] = None
+    omitted["physical_device_code"] = None
+    omitted["source_application"] = None
+    omitted_json = _save_extraction_json(tmp_path, omitted, "omitted.json")
+
+    second = import_owner_weight_screenshot(settings, image, extraction_json_path=omitted_json)
+    assert second.status == "NEEDS_REVIEW"
+    assert second.reason_code == "content_seen_new_extraction"
+    with session_scope(engine) as session:
+        all_rows = list(session.scalars(select(ImportCandidate)))
+        assert len(all_rows) == 2
+        by_key = {row.candidate_set_key: row for row in all_rows}
+        assert len(by_key) == 2
+        origins_list = [
+            parse_metadata_origins_json(row.metadata_origins_json) for row in all_rows
+        ]
+        assert all(origins is not None for origins in origins_list)
+        assert {origins["provider_code"] for origins in origins_list} == {
+            "visible",
+            "workflow_profile",
+        }
 
 
 def test_legacy_fully_null_wildcard_stays_duplicate_without_rewrite(owner_photo_env, tmp_path):

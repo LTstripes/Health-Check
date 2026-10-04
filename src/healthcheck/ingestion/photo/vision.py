@@ -611,20 +611,23 @@ def _result_from_payload(
         raise ExtractionFailure(
             "extractor_empty_result", "extractor returned no measurement groups"
         )
+    payload_provider = _optional_text(payload.get("provider_code"))
+    payload_device = _optional_text(payload.get("physical_device_code"))
+    payload_app = _optional_text(payload.get("source_application"))
     return ExtractionResult(
         extractor_name=extractor_name,
         extractor_version=extractor_version,
         schema_version=schema_version,
-        provider_code=_optional_text(payload.get("provider_code")) or request.provider_code,
+        provider_code=payload_provider or request.provider_code,
         physical_device_code=(
-            _optional_text(payload.get("physical_device_code")) or request.physical_device_code
+            payload_device or request.physical_device_code
         ),
         groups=groups,
         model_name=model_name,
         model_version=model_version,
         prompt_version=prompt_version,
         source_application=(
-            _optional_text(payload.get("source_application")) or request.source_application
+            payload_app or request.source_application
         ),
         source_application_version=(
             _optional_text(payload.get("source_application_version"))
@@ -632,6 +635,9 @@ def _result_from_payload(
         ),
         source_timezone=source_timezone,
         source_utc_offset_minutes=source_offset,
+        provider_code_from_payload=payload_provider is not None,
+        physical_device_code_from_payload=payload_device is not None,
+        source_application_from_payload=payload_app is not None,
     )
 
 

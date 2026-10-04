@@ -1068,6 +1068,15 @@ class PhotoImportService:
                         source_application=extracted.source_application,
                         normalized_local_date=normalized.source_local_date,
                         attested_local_date=owner_attested_date,
+                        provider_code_from_payload=getattr(
+                            extracted, "provider_code_from_payload", None
+                        ),
+                        physical_device_code_from_payload=getattr(
+                            extracted, "physical_device_code_from_payload", None
+                        ),
+                        source_application_from_payload=getattr(
+                            extracted, "source_application_from_payload", None
+                        ),
                     )
                 else:
                     origins = build_provider_metadata_origins(
@@ -1075,6 +1084,15 @@ class PhotoImportService:
                         physical_device_code=extracted.physical_device_code,
                         source_application=extracted.source_application,
                         normalized_local_date=normalized.source_local_date,
+                        provider_code_from_payload=getattr(
+                            extracted, "provider_code_from_payload", None
+                        ),
+                        physical_device_code_from_payload=getattr(
+                            extracted, "physical_device_code_from_payload", None
+                        ),
+                        source_application_from_payload=getattr(
+                            extracted, "source_application_from_payload", None
+                        ),
                     )
                 created.append(
                     self.repos.import_candidates.create_pending(
@@ -1695,12 +1713,30 @@ def _incoming_origins(
             source_application=extracted.source_application,
             normalized_local_date=normalized.source_local_date,
             attested_local_date=owner_attested_date,
+            provider_code_from_payload=getattr(
+                extracted, "provider_code_from_payload", None
+            ),
+            physical_device_code_from_payload=getattr(
+                extracted, "physical_device_code_from_payload", None
+            ),
+            source_application_from_payload=getattr(
+                extracted, "source_application_from_payload", None
+            ),
         )
     return build_provider_metadata_origins(
         provider_code=extracted.provider_code,
         physical_device_code=extracted.physical_device_code,
         source_application=extracted.source_application,
         normalized_local_date=normalized.source_local_date,
+        provider_code_from_payload=getattr(
+            extracted, "provider_code_from_payload", None
+        ),
+        physical_device_code_from_payload=getattr(
+            extracted, "physical_device_code_from_payload", None
+        ),
+        source_application_from_payload=getattr(
+            extracted, "source_application_from_payload", None
+        ),
     )
 
 
