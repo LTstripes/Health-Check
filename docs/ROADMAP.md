@@ -8,37 +8,33 @@ Future ideas not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md
 
 Released to canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness/collection policy, Owner screenshot workflow and the completed reliability/correction slice.
 
-Repository checkpoint before this closeout update: `0339088c52dcefac93bb372a3a460c12cc4b6152`; exact-main CI `37137153269` SUCCESS. The clean Owner operation checkout was also deployed/read back at this SHA. Re-read live GitHub main/CI before a later launch or integration.
+Repository checkpoint for this closeout: `9f41985c47f758f38186efade974bb7ba1d9bf4d`; exact-main ordinary CI `37184776672` SUCCESS and Dependency audit `37184776636` SUCCESS. GitHub publication and local Owner deployment remain separate.
 
 Latest completed work includes:
-- #238: explicit reversible collection policy/freshness alignment; disabled Google high-frequency HR is no longer treated as an enabled stale action.
-- #148 + #252/#254: practical Google Drive ZIP recovery path and bounded backup capacity; a clean real-profile restore rehearsal passed.
-- #251: three existing Linux CI lanes rebalanced by timing without dropping the complete test union.
-- #256: Owner filesystem migrated to `D:\HealthCheck`, legacy cleanup reclaimed ~6.64 GiB, canonical workspace rules documented, and a fail-closed seven-day workspace janitor deployed as a daily 12:00 Scheduled Task.
-- #181/#229 and the earlier reliability/correction work remain complete.
+- #251: three existing Linux CI lanes rebalanced without dropping the complete test union; controlled candidate wall time improved from 5:13 to 4:21.
+- #246: Stage A fail-closed docs-only PR path and Stage B exact-tree task-push/PR dedup both live-proved and complete.
+- #243: recurrent Windows exit-255 transcript false failure repaired without weakening cleanup/identity invariants.
+- #242: urllib3/pytest advisories patched; separate bounded dependency-audit workflow, Dependabot visibility, immutable action pins and least-privilege workflow permissions accepted.
+- #244: loopback Host/Origin hardening complete; its new tests were reconciled into the current lane manifest alongside #242.
+- #148/#238/#256 and the earlier durability/runtime maintenance remain complete.
 
-## Current backlog — 2026-10-03
+## Current backlog — 2026-10-04
 
-Technical and Owner-deferred backlog, excluding pull requests. #210 is retired by Owner decision and is no longer an ongoing journal; re-read live GitHub for subsequent status changes.
+Technical and Owner-deferred backlog, excluding pull requests. The CI/test optimization wave has no remaining implementation issue.
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
-| #246 | **Active CI optimization** | Finish Stage A docs-only PR fast path on refreshed post-#259 baseline; independent CI semantic review; Stage B event dedup remains separate |
-| #243 | Windows CI investigation | Reproduce/resolve the exit-255 transcript blank-item mismatch without weakening process ownership/cleanup guarantees |
-| #242 | Dependency maintenance | Reproduce advisory audit; minimally update urllib3/pytest and preserve CI completeness |
-| #244 | Security hardening | Freeze and implement bounded loopback Host/Origin mutation guard; independent security review |
 | #247 | Deferred security hardening | Replace non-Windows custom Google cipher with standard AEAD without changing Windows DPAPI or whole-profile threat boundary |
 | #248 | CLI technical follow-up | Add explicit Period Brief JSON/text stdout without changing the deterministic packet |
 | #240 | Owner screenshot metadata | Add explicit Owner-attested date/source metadata under the existing screenshot-import provenance boundary |
-| #153 | Optional compatibility | openScale-sync numeric userId compatibility; not a Weight prerequisite |
 | #228 | Research accepted / parked | No cross-image semantic auto-merge until trustworthy event identity exists |
 | #189 | Deferred UI umbrella | No implementation during the current technical-maintenance track |
 | #172 | Deferred UX follow-up | Coordinate with #189 later; do not duplicate redesign |
 | #167 | Owner-deferred privacy/history operation | Requires explicit freeze/decision before any rewrite |
-| #126 | Owner/capability decision | Recheck repository protection capability before settings changes |
+| #126 | Owner/admin decision | Recheck repository required-check/protection capability before settings changes; not a test-code optimization task |
 | #105 | NOT_ELIGIBLE | No canonical sleep switch until the accepted device-pair evidence gate is met |
 
-This is a status map, not an automatic Worker queue. The current technical track prioritizes CI/dependencies/security/runtime/CLI/provenance work; UI remains deferred.
+This is a status map, not an automatic Worker queue. No additional test-suite reduction, pytest rewrite, lane split or CI trigger redesign is planned. Reopen CI optimization only for a new measured bottleneck, regression or security requirement.
 
 ### Operational disposition
 

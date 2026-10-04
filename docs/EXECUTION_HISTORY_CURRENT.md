@@ -1,5 +1,22 @@
 # Current Execution History
 
+## 2026-10-04 — CI/test optimization and dependency-security wave complete
+
+Canonical checkpoint after the completed wave: `main @ 9f41985c47f758f38186efade974bb7ba1d9bf4d`. Exact-main ordinary CI `37184776672` SUCCESS and path-scoped Dependency audit `37184776636` SUCCESS.
+
+Completed work:
+- **#251 / PR #258:** rebalanced the unchanged complete Linux test union across the three serial lanes. Controlled candidate wall time moved from 5:13 to 4:21 (52 seconds / 16.6%). This is a critical-path observation; runner-minute or billing savings were not claimed.
+- **#246 Stage A / PR #262:** fail-closed docs-only PR route for five explicit existing prose files. Live proof PR #263 / run `37141354429` skipped quality, Linux pytest and Windows and ended with the explicit docs-only terminal verdict.
+- **#246 Stage B / PR #265:** exact-tree task-push delegation to an already-complete PR run. Live proof PR #266 used full PR run `37149653148`; matching task push `37149649729` delegated and skipped its own quality/Linux/Windows/checks. The first task push before a matching PR exists still remains full.
+- **#243 / PR #267:** recurrent Windows exit-255 transcript handling repaired with an exact narrow separator grammar, preserving PID-set, CreationTime, ownership, ports/runtime and same-attempt fail-closed invariants.
+- **#242 / PR #269:** urllib3 `2.7.0 -> 2.8.0` and pytest `8.4.2 -> 9.0.3`; no unrelated resolved versions changed and the Garmin VCS pin stayed fixed. Dependency auditing is a separate path-scoped `pip-audit==2.10.1` / OSV workflow. Refreshed current-main PR gates `37184547670` + `37184547667` and exact-main gates `37184776672` + `37184776636` all succeeded.
+- **#244 / PR #268:** separate loopback Host/Origin hardening completed during the same integration window; #242 reconciliation preserved both #244 and dependency-audit lane assignments.
+
+Outcome: the planned CI/test optimization wave is complete. There is no open pytest/lane/workflow-optimization implementation issue. #126 remains an Owner/admin required-check enforcement decision and is not unfinished test engineering. Future CI performance work requires a new measured bottleneck, regression or security need.
+
+Detailed evidence and limitations: [CI Optimization Closeout — 2026-10-04](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
+
+
 ## 2026-10-03 — model bookkeeping retired (#210)
 
 The Owner discontinued model benchmarking and runtime-model/provider attribution intake. [#210](https://github.com/LTstripes/Health-Check/issues/210) is closed as not planned, not as a claim that every former benchmark case completed. This docs-only change removes model-confirmation waits, reporting fields and journal-maintenance rules from active policy, client adapters and templates. Technical outcomes, actual checks, failures, independent review and integration evidence remain.
