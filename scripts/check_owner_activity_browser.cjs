@@ -51,6 +51,15 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.match(comparison, /Не предоставлено|Не вычисляется/);
       assert.doesNotMatch(comparison, /r03-|result_hash|acute_training_load/);
       await geometry();
+      if (width === 390) {
+        const table = await page.locator('#activity-result .table-scroll').last().evaluate(el => ({
+          scrolls: el.scrollWidth > el.clientWidth,
+          maxRowHeight: Math.max(...[...el.querySelectorAll('tbody tr')].map(row => row.getBoundingClientRect().height))
+        }));
+        assert.equal(table.scrolls, true, 'comparison scrolls locally on narrow screens');
+        assert.ok(table.maxRowHeight < 200, JSON.stringify(table));
+      }
+      await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: path.join(evidence, `sessions-${width}.png`), fullPage: true });
       await page.locator('[data-activity-mode="training-recovery"]').click();
       await page.waitForFunction(() => document.querySelector('#activity-journal').hidden);
