@@ -1076,8 +1076,8 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             assert "К содержимому" in response.text
             assert 'aria-label="Основные разделы"' in response.text
             assert expected_modes[section] in response.text
-            # English bodies stay English; Overview/Data/Weight are Russian.
-            if section in ("Обзор", "Вес", "Сон") or path == "/imports":
+            # The thematic pages are Russian; legacy import detail stays English.
+            if section in ("Обзор", "Вес", "Сон", "Активность") or path == "/imports":
                 assert 'class="owner-page-content" lang="en"' not in response.text
             else:
                 assert 'class="owner-page-content" lang="en"' in response.text

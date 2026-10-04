@@ -2,681 +2,245 @@
   const dataNode = document.getElementById("garmin-dashboard-data");
   if (!dataNode) return;
   const payload = JSON.parse(dataNode.textContent || "{}");
-  const state = {
-    sourceId: (payload.source_selection && payload.source_selection.selected_source_id) || "",
-    activities: payload.activities || [],
-    series: payload.series || null,
-    nativeLabels: payload.native_score_labels || {},
-  };
+  const names = JSON.parse(document.getElementById("activity-metric-names").textContent);
+  const state = { sourceId: (payload.source_selection || {}).selected_source_id || "",
+    activities: payload.activities || [], tickets: {} };
+  const labels = { present: "Данные доступны", partial: "Данные доступны частично",
+    confirmed_empty: "За период записей нет", unknown: "Состояние данных не определено",
+    unavailable: "Источник данных недоступен", insufficient: "Недостаточно данных",
+    not_requested: "Не запрашивалось", loading: "Загрузка данных",
+    error: "Не удалось выполнить запрос", no_change: "Изменений не обнаружено" };
+  const activityNames = { cycling: "Велотренировка", running: "Бег", walking: "Ходьба",
+    swimming: "Плавание", strength_training: "Силовая тренировка" };
+  const units = { seconds: "с", meters: "м", "m/s": "м/с", bpm: "уд/мин",
+    watts: "Вт", rpm: "об/мин", points: "баллы", percent: "%", "%": "%" };
 
   bindForms();
   populateActivities(state.activities);
   renderMetricWording();
-  if (state.series) {
-    renderSeries(state.series);
-  } else {
-    renderNoSeries(payload.unavailable_reason || (payload.source_selection && payload.source_selection.reason) || "no_data");
-  }
+  showMode();
+  window.addEventListener("hashchange", showMode);
+  if (payload.series) renderSeries(payload.series);
+  else renderNoSeries(payload.unavailable_reason || (payload.source_selection || {}).reason || "no_data");
 
+  function showMode() {
+    const mode = location.hash === "#training-recovery" ? "training-recovery" : "activity-journal";
+    document.querySelectorAll("[data-activity-panel]").forEach(el => { el.hidden = el.id !== mode; });
+    document.querySelectorAll("[data-activity-mode]").forEach(el => {
+      const selected = el.dataset.activityMode === mode;
+      el.classList.toggle("selected", selected);
+      if (selected) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current");
+    });
+  }
   function bindForms() {
-    const sourceForm = document.getElementById("source-form");
-    if (sourceForm) {
-      sourceForm.addEventListener("submit", function (event) {
-        event.preventDefault();
-        const sourceId = document.getElementById("garmin-source-id").value;
-        const metric = document.getElementById("metric-code").value;
-        const start = document.getElementById("series-start").value;
-        const end = document.getElementById("series-end").value;
-        const params = new URLSearchParams();
-        if (sourceId) params.set("garmin_source_id", sourceId);
-        if (metric) params.set("metric_code", metric);
-        if (start) params.set("start_date", start);
-        if (end) params.set("end_date", end);
-        window.location = "/garmin?" + params.toString();
-      });
-    }
-
-    const seriesForm = document.getElementById("series-form");
-    if (seriesForm) {
-      seriesForm.addEventListener("submit", function (event) {
-        event.preventDefault();
-        loadSeries();
-      });
-      const metricSelect = document.getElementById("metric-code");
-      if (metricSelect) metricSelect.addEventListener("change", renderMetricWording);
-    }
-
-    const activityForm = document.getElementById("activity-form");
-    if (activityForm) {
-      activityForm.addEventListener("submit", function (event) {
-        event.preventDefault();
-        loadActivityComparison();
-      });
-      const activitySelect = document.getElementById("activity-ids");
-      if (activitySelect) {
-        activitySelect.addEventListener("change", syncReferenceOptions);
-      }
-    }
-
-    const lagForm = document.getElementById("lag-form");
-    if (lagForm) {
-      lagForm.addEventListener("submit", function (event) {
-        event.preventDefault();
-        loadLaggedAssociation();
-      });
-    }
+    document.getElementById("garmin-source-id").addEventListener("change", () => {
+      setText("source-status", value("garmin-source-id") === state.sourceId ?
+        "Показаны данные применённого источника Garmin." :
+        "Источник ещё не применён. Показанные данные относятся к предыдущему источнику; нажми «Применить источник».");
+    });
+    document.getElementById("source-form").addEventListener("submit", event => {
+      event.preventDefault();
+      const params = new URLSearchParams();
+      const source = value("garmin-source-id"), metric = value("metric-code");
+      if (source) params.set("garmin_source_id", source);
+      if (metric) params.set("metric_code", metric);
+      if (value("series-start")) params.set("start_date", value("series-start"));
+      if (value("series-end")) params.set("end_date", value("series-end"));
+      window.location = "/garmin?" + params.toString() + location.hash;
+    });
+    document.getElementById("series-form").addEventListener("submit", event => { event.preventDefault(); loadSeries(); });
+    document.getElementById("metric-code").addEventListener("change", renderMetricWording);
+    document.getElementById("activity-form").addEventListener("submit", event => { event.preventDefault(); loadActivityComparison(); });
+    document.getElementById("activity-ids").addEventListener("change", syncReferenceOptions);
+    document.getElementById("lag-form").addEventListener("submit", event => { event.preventDefault(); loadLaggedAssociation(); });
   }
-
+  function value(id) { return document.getElementById(id).value; }
   function requireSourceId() {
-    const fromSelect = document.getElementById("garmin-source-id");
-    const sourceId = (fromSelect && fromSelect.value) || state.sourceId;
-    if (!sourceId) {
-      throw new Error("Select an explicit Garmin source first");
+    if (!state.sourceId || value("garmin-source-id") !== state.sourceId) {
+      throw new Error("Сначала примени источник Garmin выше. Сессии разных источников не объединяются.");
     }
-    return sourceId;
+    return state.sourceId;
   }
-
+  // Each panel owns its applied query. New submissions clear old results and
+  // evidence; late completions cannot replace a more recent request.
+  function request(panel, url, params, context, render) {
+    const ticket = (state.tickets[panel] || 0) + 1;
+    state.tickets[panel] = ticket;
+    const target = panel === "series" ? "series-chart" : panel + "-result";
+    setHtml(target, chip("loading") + "<p>" + escapeHtml(context) + "</p>");
+    if (panel === "series") { setHtml("series-summary", ""); setHtml("series-coverage", ""); setText("series-context", context); }
+    setText(panel + "-evidence", "");
+    setText("result-identity", "Загрузка нового результата");
+    const node = document.getElementById(panel + "-result");
+    node.setAttribute("aria-busy", "true");
+    fetchJson(url + "?" + params.toString()).then(body => {
+      if (state.tickets[panel] !== ticket) return;
+      render(body);
+      if (panel === "series") setText("series-context", context);
+      else document.getElementById(target).insertAdjacentHTML("afterbegin", "<p class=\"muted\">" + escapeHtml(context) + "</p>");
+    }).catch(err => {
+      if (state.tickets[panel] !== ticket) return;
+      setHtml(target, '<div role="alert">' + chip("error") + "<p>Попробуй повторить запрос. Предыдущий результат не показан.</p></div>");
+      setText(panel + "-evidence", JSON.stringify(err.body || { reason: "request_failed" }, null, 2));
+      setText("result-identity", "Запрос не выполнен");
+    }).finally(() => { if (state.tickets[panel] === ticket) node.setAttribute("aria-busy", "false"); });
+  }
   function loadSeries() {
+    resetRequest("series");
     let sourceId;
-    try {
-      sourceId = requireSourceId();
-    } catch (err) {
-      renderNoSeries(err.message);
-      return;
-    }
-    const metric = document.getElementById("metric-code").value;
-    const start = document.getElementById("series-start").value;
-    const end = document.getElementById("series-end").value;
-    const params = new URLSearchParams({
-      garmin_source_id: sourceId,
-      metric_code: metric,
-      start_date: start,
-      end_date: end,
-    });
-    fetchJson("/api/garmin/series?" + params.toString())
-      .then(function (body) {
-        state.series = body;
-        renderSeries(body);
-      })
-      .catch(function (err) {
-        renderNoSeries(err.message || "request_failed");
-      });
+    try { sourceId = requireSourceId(); } catch (err) { renderNoSeries(err.message); return; }
+    const params = new URLSearchParams({ garmin_source_id: sourceId, metric_code: value("metric-code"), start_date: value("series-start"), end_date: value("series-end") });
+    const context = metricName(value("metric-code")) + " · " + value("series-start") + " — " + value("series-end");
+    request("series", "/api/garmin/series", params, context, renderSeries);
   }
-
   function loadActivityComparison() {
+    resetRequest("activity");
     let sourceId;
-    try {
-      sourceId = requireSourceId();
-    } catch (err) {
-      setHtml("activity-result", unavailable(err.message));
-      return;
-    }
-    const selected = Array.from(document.getElementById("activity-ids").selectedOptions).map(
-      function (option) {
-        return option.value;
-      }
-    );
-    const reference = document.getElementById("reference-activity-id").value;
-    if (selected.length < 2) {
-      setHtml("activity-result", unavailable("select 2..20 activity records"));
-      return;
-    }
-    const params = new URLSearchParams({
-      garmin_source_id: sourceId,
-      activity_record_ids: selected.join(","),
-      reference_activity_id: reference,
-    });
-    fetchJson("/api/garmin/activity-comparison?" + params.toString())
-      .then(renderActivityResult)
-      .catch(function (err) {
-        setHtml("activity-result", unavailable(err.message || "request_failed"));
-      });
+    try { sourceId = requireSourceId(); } catch (err) { setHtml("activity-result", unavailable(err.message)); return; }
+    const selected = Array.from(document.getElementById("activity-ids").selectedOptions).map(option => option.value);
+    const reference = value("reference-activity-id");
+    if (selected.length < 2) { setHtml("activity-result", unavailable("Выбери 2–20 сессий.")); return; }
+    const params = new URLSearchParams({ garmin_source_id: sourceId, activity_record_ids: selected.join(","), reference_activity_id: reference });
+    request("activity", "/api/garmin/activity-comparison", params, "Выбрано сессий: " + selected.length + "; опорная: " + sessionLabel(reference), renderActivityResult);
   }
-
   function loadLaggedAssociation() {
+    resetRequest("lag");
     let sourceId;
-    try {
-      sourceId = requireSourceId();
-    } catch (err) {
-      setHtml("lag-result", unavailable(err.message));
-      return;
-    }
-    const params = new URLSearchParams({
-      garmin_source_id: sourceId,
-      x_metric_code: document.getElementById("x-metric-code").value,
-      y_metric_code: document.getElementById("y-metric-code").value,
-      start_date: document.getElementById("lag-start").value,
-      end_date: document.getElementById("lag-end").value,
-      lag_days: document.getElementById("lag-days").value,
-    });
-    fetchJson("/api/garmin/lagged-association?" + params.toString())
-      .then(renderLagResult)
-      .catch(function (err) {
-        setHtml("lag-result", unavailable(err.message || "request_failed"));
-      });
+    try { sourceId = requireSourceId(); } catch (err) { setHtml("lag-result", unavailable(err.message)); return; }
+    const params = new URLSearchParams({ garmin_source_id: sourceId, x_metric_code: value("x-metric-code"), y_metric_code: value("y-metric-code"), start_date: value("lag-start"), end_date: value("lag-end"), lag_days: value("lag-days") });
+    const context = metricName(value("x-metric-code")) + " / " + metricName(value("y-metric-code")) + " · " + value("lag-start") + " — " + value("lag-end") + " · сдвиги: " + value("lag-days");
+    request("lag", "/api/garmin/lagged-association", params, context, renderLagResult);
   }
-
   function fetchJson(url) {
-    return fetch(url, { method: "GET", headers: { Accept: "application/json" } }).then(
-      function (response) {
-        return response.json().then(function (body) {
-          if (!response.ok) {
-            const message = (body && (body.message || body.code)) || "request_failed";
-            const error = new Error(message);
-            error.body = body;
-            throw error;
-          }
-          return body;
-        });
-      }
-    );
+    return fetch(url, { method: "GET", headers: { Accept: "application/json" } }).then(response => response.json().then(body => {
+      if (!response.ok) { const error = new Error("request_failed"); error.body = body; throw error; }
+      return body;
+    }));
   }
-
+  function resetRequest(panel) {
+    state.tickets[panel] = (state.tickets[panel] || 0) + 1;
+    document.getElementById(panel + "-result").setAttribute("aria-busy", "false");
+    setText(panel + "-evidence", "");
+    if (panel === "series") { setHtml("series-summary", ""); setHtml("series-coverage", ""); }
+  }
+  function activityLabel(activity, index) {
+    return "Сессия " + (index + 1) + " · " + (activityNames[activity.activity_type] || "Другой вид активности") + " · " + (activity.source_local_date || activity.local_wall_time || activity.measured_at_utc || "Дата не указана");
+  }
+  function sessionLabel(id) {
+    const index = state.activities.findIndex(a => a.record_id === id);
+    return index < 0 ? "Сессия" : activityLabel(state.activities[index], index);
+  }
   function populateActivities(activities) {
-    const multi = document.getElementById("activity-ids");
-    const reference = document.getElementById("reference-activity-id");
-    if (!multi || !reference) return;
-    multi.innerHTML = "";
-    reference.innerHTML = "";
-    (activities || []).forEach(function (activity, index) {
-      const label =
-        (activity.activity_type || "activity") +
-        " · " +
-        (activity.source_local_date || activity.local_wall_time || activity.measured_at_utc || "undated") +
-        " · " +
-        shortId(activity.record_id);
-      const option = document.createElement("option");
-      option.value = activity.record_id;
-      option.textContent = label;
-      if (index < 2) option.selected = true;
-      multi.appendChild(option);
-      const refOption = document.createElement("option");
-      refOption.value = activity.record_id;
-      refOption.textContent = label;
-      if (index === 0) refOption.selected = true;
-      reference.appendChild(refOption);
+    const multi = document.getElementById("activity-ids"), reference = document.getElementById("reference-activity-id");
+    activities.forEach((activity, index) => {
+      const option = document.createElement("option"); option.value = activity.record_id; option.textContent = activityLabel(activity, index); option.selected = index < 2; multi.appendChild(option);
+      const ref = option.cloneNode(true); ref.selected = index === 0; reference.appendChild(ref);
     });
     syncReferenceOptions();
   }
-
   function syncReferenceOptions() {
-    const multi = document.getElementById("activity-ids");
     const reference = document.getElementById("reference-activity-id");
-    if (!multi || !reference) return;
-    const selected = new Set(
-      Array.from(multi.selectedOptions).map(function (option) {
-        return option.value;
-      })
-    );
-    Array.from(reference.options).forEach(function (option) {
-      option.disabled = selected.size > 0 && !selected.has(option.value);
-    });
+    const selected = new Set(Array.from(document.getElementById("activity-ids").selectedOptions).map(option => option.value));
+    Array.from(reference.options).forEach(option => { option.disabled = selected.size > 0 && !selected.has(option.value); });
     if (reference.selectedOptions.length && reference.selectedOptions[0].disabled) {
-      const firstEnabled = Array.from(reference.options).find(function (option) {
-        return !option.disabled;
-      });
-      if (firstEnabled) reference.value = firstEnabled.value;
+      const first = Array.from(reference.options).find(option => !option.disabled); if (first) reference.value = first.value;
     }
   }
-
   function renderMetricWording() {
-    const node = document.getElementById("metric-wording");
-    const select = document.getElementById("metric-code");
-    if (!node || !select) return;
-    const code = select.value;
-    const metrics = payload.scalar_metrics || [];
-    const match = metrics.find(function (item) {
-      return item.metric_code === code;
-    });
-    if (!match) {
-      node.textContent = "";
-      return;
-    }
-    node.textContent = match.presentation_wording || match.description || "";
+    const code = value("metric-code");
+    setText("metric-wording", code === "sleep_score" ? "Оценка сна Garmin не доказывает полноту длительности, стадий или дневного сна и не является оценкой восстановления." :
+      ["training_effect", "acute_training_load"].includes(code) ? "Показатель Garmin относится к отдельной сессии, а не к дневной готовности или восстановлению." : "Показаны сохранённые значения и готовые результаты аналитики. Пропуски не заменяются нулём; отдельные измерения и дневные показатели различаются.");
   }
-
   function renderNoSeries(reason) {
-    setHtml(
-      "series-chart",
-      '<p class="unavailable">unavailable</p><p class="muted">Reason: ' +
-        escapeHtml(reason || "no_data") +
-        ". Missing values are not shown as 0.</p>"
-    );
-    setHtml("series-summary", "");
-    setHtml("series-coverage", "");
-    setText("result-identity", "no series result");
+    setHtml("series-chart", unavailable("Нет пригодного ряда. Пропущенные значения не показаны как 0."));
+    setHtml("series-summary", ""); setHtml("series-coverage", ""); setText("series-context", "Результат за период недоступен");
+    setText("series-evidence", JSON.stringify({ reason }, null, 2)); setText("result-identity", "Нет результата ряда");
   }
-
   function renderSeries(series) {
-    // Presentation only: plot already-computed usable/zero points. No fills,
-    // trends, percentiles, or z-scores are calculated in the browser.
-    const points = series.points || [];
-    const plottable = points.filter(function (point) {
-      return point.status === "usable" || point.status === "zero";
-    });
+    const points = series.points || [], plottable = points.filter(p => p.status === "usable" || p.status === "zero");
     const chart = document.getElementById("series-chart");
-    if (!chart) return;
-    if (!plottable.length) {
-      chart.innerHTML =
-        '<p class="unavailable">no usable/zero points</p><p class="muted">Coverage/status details remain below. Unavailable is not zero.</p>';
-    } else {
-      const width = Math.max(640, plottable.length * 28);
-      const height = 260;
-      const pad = 28;
-      const xs = plottable.map(function (_point, index) {
-        return index;
+    if (!plottable.length) chart.innerHTML = unavailable("Нет пригодных значений. Это не нулевая нагрузка.");
+    else {
+      // Coordinate projection only. Missing/excluded calendar days break the
+      // line; no interpolation, pooling or analytics are computed here.
+      const width = Math.max(640, points.length * 28), height = 260, pad = 28;
+      const ys = plottable.map(p => Number(p.value)), minY = Math.min(...ys), maxY = Math.max(...ys), spanY = maxY - minY || 1;
+      let path = "", previous = null, circles = "";
+      points.forEach((point, index) => {
+        if (point.status !== "usable" && point.status !== "zero") { previous = null; return; }
+        const x = pad + index / Math.max(points.length - 1, 1) * (width - pad * 2);
+        const y = height - pad - (Number(point.value) - minY) / spanY * (height - pad * 2);
+        const consecutive = previous && Date.parse(point.analytic_date) - Date.parse(previous.analytic_date) === 86400000;
+        path += (consecutive ? " L" : " M") + x.toFixed(1) + "," + y.toFixed(1);
+        circles += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4" fill="var(--series-1)"><title>' + escapeHtml((point.analytic_date || "Дата не указана") + " · " + point.value) + "</title></circle>";
+        previous = point;
       });
-      const ys = plottable.map(function (point) {
-        return Number(point.value);
-      });
-      const minY = Math.min.apply(null, ys);
-      const maxY = Math.max.apply(null, ys);
-      const spanY = maxY - minY || 1;
-      const circles = plottable
-        .map(function (point, index) {
-          const x = pad + (xs[index] / Math.max(plottable.length - 1, 1)) * (width - pad * 2);
-          const y = height - pad - ((ys[index] - minY) / spanY) * (height - pad * 2);
-          const title =
-            (point.analytic_date || "undated") +
-            " · status=" +
-            point.status +
-            " · value=" +
-            String(point.value);
-          return (
-            '<circle cx="' +
-            x.toFixed(1) +
-            '" cy="' +
-            y.toFixed(1) +
-            '" r="4" fill="' +
-            (point.status === "zero" ? "#1d4e89" : "#0f6d6a") +
-            '"><title>' +
-            escapeHtml(title) +
-            "</title></circle>"
-          );
-        })
-        .join("");
-      chart.innerHTML =
-        '<svg viewBox="0 0 ' +
-        width +
-        " " +
-        height +
-        '" width="100%" height="' +
-        height +
-        '" role="img" aria-label="Scalar series">' +
-        '<rect x="0" y="0" width="' +
-        width +
-        '" height="' +
-        height +
-        '" fill="#fffdf8"></rect>' +
-        circles +
-        "</svg>";
+      chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" role="img" aria-label="Значения Garmin; пропуски разрывают линию"><path d="' + path + '" fill="none" stroke="var(--series-1)" stroke-width="2"/>' + circles + '</svg>';
     }
-
-    const presentation = series.metric_presentation || {};
-    const baseline = series.baseline || {};
-    const percentile = series.personal_percentile || {};
-    const trend = series.trend || {};
-    const deviation = series.deviation || {};
-    setHtml(
-      "series-summary",
-      "<ul>" +
-        "<li>Metric: <strong>" +
-        escapeHtml(presentation.display_name || (series.metric_definition || {}).metric_code || "") +
-        "</strong>" +
-        (presentation.provider_native ? ' <span class="status-chip">provider-native</span>' : "") +
-        "</li>" +
-        "<li>Unit: " +
-        escapeHtml(String((series.metric_definition || {}).unit || "n/a")) +
-        "</li>" +
-        "<li>Baseline: " +
-        formatAvailable(baseline, function () {
-          return (
-            "count=" +
-            baseline.count +
-            ", mean=" +
-            fmt(baseline.mean) +
-            ", median=" +
-            fmt(baseline.median) +
-            ", p10=" +
-            fmt(baseline.p10) +
-            ", p90=" +
-            fmt(baseline.p90)
-          );
-        }) +
-        "</li>" +
-        "<li>Personal-window percentile: " +
-        formatAvailable(percentile, function () {
-          return fmt(percentile.value) + " (latest=" + fmt(percentile.latest_value) + ")";
-        }) +
-        "</li>" +
-        "<li>Trend slope/day: " +
-        formatAvailable(trend, function () {
-          return fmt(trend.slope_per_day);
-        }) +
-        "</li>" +
-        "<li>Personal baseline deviation: " +
-        formatAvailable(deviation, function () {
-          return (
-            "robust_z=" +
-            fmt(deviation.robust_z) +
-            ", flag=" +
-            String(deviation.personal_baseline_deviation)
-          );
-        }) +
-        "</li>" +
-        "</ul>"
-    );
-
-    const availability = series.availability || {};
-    const exclusions = availability.exclusions || [];
-    const exclusionItems = exclusions
-      .map(function (item) {
-        const reason = item.reason_code || "excluded";
-        const chipClass =
-          reason === "ambiguous_daily_aggregate"
-            ? "status-chip ambiguous_daily_aggregate excluded"
-            : "status-chip excluded";
-        const datePart = item.analytic_date ? " @ " + item.analytic_date : "";
-        const detailPart = item.detail ? " — " + item.detail : "";
-        return (
-          '<li><span class="' +
-          chipClass +
-          '">' +
-          escapeHtml(reason) +
-          "</span>" +
-          escapeHtml(datePart + detailPart) +
-          "</li>"
-        );
-      })
-      .join("");
-    setHtml(
-      "series-coverage",
-      "<p><strong>Coverage</strong></p><ul>" +
-        "<li>candidate=" +
-        (availability.candidate_count ?? "unavailable") +
-        ", usable=" +
-        (availability.usable_count ?? "unavailable") +
-        ", zero=" +
-        (availability.zero_count ?? "unavailable") +
-        ", excluded=" +
-        (availability.excluded_count ?? "unavailable") +
-        ", missing=" +
-        (availability.missing_count ?? "unavailable") +
-        ", null=" +
-        (availability.null_count ?? "unavailable") +
-        ", invalid=" +
-        (availability.invalid_count ?? "unavailable") +
-        ", partial=" +
-        (availability.partial_count ?? "unavailable") +
-        ", not_computable=" +
-        (availability.not_computable_count ?? "unavailable") +
-        "</li>" +
-        "<li>Exclusions (API reason codes; ambiguous is not zero): " +
-        (exclusions.length
-          ? "count=" +
-            (availability.excluded_count ?? exclusions.length) +
-            "<ul class=\"exclusion-list\">" +
-            exclusionItems +
-            "</ul>"
-          : "none") +
-        "</li>" +
-        "<li>Point statuses: " +
-        points
-          .slice(0, 40)
-          .map(function (point) {
-            const reason =
-              point.status === "excluded" && point.exclusion_reason
-                ? ":" + point.exclusion_reason
-                : "";
-            const chipClass =
-              point.status === "excluded" && point.exclusion_reason === "ambiguous_daily_aggregate"
-                ? "status-chip excluded ambiguous_daily_aggregate"
-                : "status-chip " + escapeHtml(point.status || "");
-            return (
-              '<span class="' +
-              chipClass +
-              '">' +
-              escapeHtml((point.analytic_date || "?") + ":" + (point.status || "unknown") + reason) +
-              (point.status === "zero" ? "=0" : "") +
-              "</span>"
-            );
-          })
-          .join(" ") +
-        (points.length > 40 ? " …" : "") +
-        "</li></ul>"
-    );
-
-    setText(
-      "result-identity",
-      (series.algorithm || "?") +
-        " / " +
-        (series.rule_version || "?") +
-        " / " +
-        (series.result_hash || "?")
-    );
+    const code = (series.metric_definition || {}).metric_code;
+    setText("series-context", metricName(code) + " · " + ((series.query || {}).start_date || "") + " — " + ((series.query || {}).end_date || ""));
+    const a = series.availability || {}, b = series.baseline || {}, t = series.trend || {}, p = series.personal_percentile || {}, d = series.deviation || {};
+    const missing = [a.missing_count, a.null_count, a.invalid_count, a.partial_count, a.not_computable_count, a.excluded_count].some(n => n > 0);
+    let html = chip(!plottable.length ? "unavailable" : missing ? "partial" : "present");
+    html += "<p>" + escapeHtml(metricName(code)) + " · единица: " + escapeHtml(units[(series.metric_definition || {}).unit] || "не предоставлена") + "</p>";
+    html += "<p>Пригодных значений: " + fmt(a.usable_count, 0) + "; явных нулей: " + fmt(a.zero_count, 0) + "; исключено: " + fmt(a.excluded_count, 0) + ".</p>";
+    if (missing) html += '<p class="uncertainty-note">Есть пропуски, исключения или неполные значения. Ряд не описывает весь период; неоднозначные дневные значения не объединяются.</p>';
+    html += "<ul><li>Среднее в личном окне: " + available(b, () => fmt(b.mean)) + "</li><li>Медиана: " + available(b, () => fmt(b.median)) + "</li><li>Изменение в день: " + available(t, () => fmt(t.slope_per_day)) + "</li><li>Процентиль в личном окне: " + available(p, () => fmt(p.value)) + "</li></ul>";
+    html += "<p>Отклонение от личного окна: " + available(d, () => d.personal_baseline_deviation === true ? "выделено алгоритмом" : d.personal_baseline_deviation === false ? "не выделено алгоритмом" : "не определено") + ". Это не медицинский порог.</p>";
+    setHtml("series-summary", html);
+    // Exact availability.exclusions, excluded_count, ambiguous_daily_aggregate,
+    // statuses and statistics remain in the untouched response disclosure.
+    setText("series-evidence", JSON.stringify(series, null, 2));
+    setText("series-coverage", "Подробное покрытие и исключения — в результате ниже.");
+    identity(series);
   }
-
   function renderActivityResult(body) {
-    const sessions = body.sessions || [];
-    const comparisons = body.comparisons || [];
-    const coverage = body.coverage || {};
-    const native = body.native_score_labels || state.nativeLabels || {};
-    let html = "<p class=\"muted\">" + escapeHtml(body.wording || "") + "</p>";
-    html +=
-      "<p>algorithm <code>" +
-      escapeHtml(body.algorithm || "") +
-      "</code> · rule <code>" +
-      escapeHtml(body.rule_version || "") +
-      "</code> · hash <code>" +
-      escapeHtml(body.result_hash || "") +
-      "</code></p>";
-    html +=
-      "<p>Coverage: usable=" +
-      (coverage.usable_count ?? "unavailable") +
-      ", zero=" +
-      (coverage.zero_count ?? "unavailable") +
-      ", missing=" +
-      (coverage.missing_count ?? "unavailable") +
-      ", null=" +
-      (coverage.null_count ?? "unavailable") +
-      ", comparable_pairs=" +
-      (coverage.comparable_pair_count ?? "unavailable") +
-      ", not_comparable_pairs=" +
-      (coverage.not_comparable_pair_count ?? "unavailable") +
-      "</p>";
-    html += "<h3>Sessions</h3><table class=\"garmin-table\"><thead><tr>" +
-      "<th>Record</th><th>Type</th><th>Reference</th><th>Native scores</th></tr></thead><tbody>";
-    sessions.forEach(function (session) {
-      const scores = (session.metric_coverage || [])
-        .filter(function (metric) {
-          return metric.metric_code === "training_effect" || metric.metric_code === "acute_training_load";
-        })
-        .map(function (metric) {
-          const label = native[metric.metric_code];
-          return (
-            escapeHtml((label && label.display_name) || metric.metric_code) +
-            ": " +
-            statusValue(metric.status, metric.value)
-          );
-        })
-        .join("; ");
-      html +=
-        "<tr><td class=\"code\">" +
-        escapeHtml(shortId(session.record_id)) +
-        "</td><td>" +
-        escapeHtml(session.activity_type || "unknown") +
-        "</td><td>" +
-        (session.is_reference ? "yes" : "no") +
-        "</td><td>" +
-        (scores || "n/a") +
-        "</td></tr>";
+    let html = "<p>Показатели и разницы рассчитаны существующей аналитикой. Эффект и нагрузка Garmin относятся к сессии.</p>";
+    html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Опорная</th><th>Показатели Garmin</th></tr></thead><tbody>';
+    (body.sessions || []).forEach(session => {
+      const scores = (session.metric_coverage || []).filter(m => ["training_effect", "acute_training_load"].includes(m.metric_code)).map(m => escapeHtml(metricName(m.metric_code)) + ": " + statusValue(m.status, m.value)).join("; ");
+      html += "<tr><td>" + escapeHtml(sessionLabel(session.record_id)) + "</td><td>" + (session.is_reference ? "Да" : "Нет") + "</td><td>" + (scores || "Не предоставлены") + "</td></tr>";
     });
-    html += "</tbody></table>";
-    html += "<h3>Comparisons</h3>";
-    comparisons.forEach(function (block) {
-      html +=
-        "<p>Compared <code>" +
-        escapeHtml(shortId(block.compared_record_id)) +
-        "</code> vs reference <code>" +
-        escapeHtml(shortId(block.reference_record_id)) +
-        "</code> · same_activity_type=" +
-        String(block.same_activity_type) +
-        "</p><table class=\"garmin-table\"><thead><tr>" +
-        "<th>Metric</th><th>Status</th><th>Abs Δ</th><th>% Δ</th><th>Notes</th></tr></thead><tbody>";
-      (block.metrics || []).forEach(function (metric) {
-        const nativeLabel = native[metric.metric_code];
-        html +=
-          "<tr><td>" +
-          escapeHtml((nativeLabel && nativeLabel.display_name) || metric.metric_code) +
-          "</td><td><span class=\"status-chip " +
-          escapeHtml(metric.status || "") +
-          "\">" +
-          escapeHtml(metric.status || "unknown") +
-          "</span></td><td>" +
-          (metric.absolute_delta === null || metric.absolute_delta === undefined
-            ? "unavailable"
-            : fmt(metric.absolute_delta)) +
-          "</td><td>" +
-          (metric.percent_delta === null || metric.percent_delta === undefined
-            ? escapeHtml(metric.percent_status || "unavailable")
-            : fmt(metric.percent_delta)) +
-          "</td><td class=\"muted\">" +
-          escapeHtml(metric.reason || "") +
-          (metric.same_activity_type ? "" : " · different activity type") +
-          "</td></tr>";
+    html += "</tbody></table></div><h3>Разница с опорной сессией</h3>";
+    (body.comparisons || []).forEach(block => {
+      html += "<p>" + escapeHtml(sessionLabel(block.compared_record_id)) + "</p>";
+      if (!block.same_activity_type) html += '<p class="uncertainty-note">Разные виды активности: часть показателей может быть несопоставима.</p>';
+      html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Показатель</th><th>Сопоставимость</th><th>Разница</th><th>Разница, %</th><th>Ограничение</th></tr></thead><tbody>';
+      (block.metrics || []).forEach(m => {
+        html += "<tr><td>" + escapeHtml(metricName(m.metric_code)) + " · " + escapeHtml(units[m.unit] || "единица не предоставлена") + "</td><td>" + statusLabel(m.status) + "</td><td>" + fmt(m.absolute_delta) + "</td><td>" + fmt(m.percent_delta) + "</td><td>" + (m.reason || m.percent_reason ? reasonText(m.reason || m.percent_reason) : "—") + "</td></tr>";
       });
-      html += "</tbody></table>";
+      html += "</tbody></table></div>";
     });
-    setHtml("activity-result", html);
-    setText(
-      "result-identity",
-      (body.algorithm || "?") + " / " + (body.rule_version || "?") + " / " + (body.result_hash || "?")
-    );
+    setHtml("activity-result", html); setText("activity-evidence", JSON.stringify(body, null, 2)); identity(body);
   }
-
   function renderLagResult(body) {
-    let html = "<p class=\"muted\">" + escapeHtml(body.wording || "") + "</p>";
-    html +=
-      "<p>algorithm <code>" +
-      escapeHtml(body.algorithm || "") +
-      "</code> · rule <code>" +
-      escapeHtml(body.rule_version || "") +
-      "</code> · hash <code>" +
-      escapeHtml(body.result_hash || "") +
-      "</code></p>";
-    html +=
-      "<table class=\"garmin-table\"><thead><tr>" +
-      "<th>Lag days</th><th>Status</th><th>Spearman rho</th><th>n</th><th>Coverage</th><th>Reason</th>" +
-      "</tr></thead><tbody>";
-    (body.lags || []).forEach(function (lag) {
-      const coverage = lag.coverage || {};
-      html +=
-        "<tr><td>" +
-        escapeHtml(String(lag.lag_days)) +
-        "</td><td><span class=\"status-chip " +
-        escapeHtml(lag.status || "") +
-        "\">" +
-        escapeHtml(lag.status || "unknown") +
-        "</span></td><td>" +
-        (lag.rho === null || lag.rho === undefined ? "unavailable" : fmt(lag.rho, 4)) +
-        "</td><td>" +
-        escapeHtml(String(lag.n)) +
-        "</td><td class=\"muted\">paired=" +
-        (coverage.paired_usable_count ?? "unavailable") +
-        ", x=" +
-        (coverage.candidate_x_count ?? "unavailable") +
-        ", y=" +
-        (coverage.candidate_y_count ?? "unavailable") +
-        ", zero_x=" +
-        (coverage.zero_x_participation_count ?? "unavailable") +
-        ", zero_y=" +
-        (coverage.zero_y_participation_count ?? "unavailable") +
-        "; exclusion_counts=" +
-        formatExclusionCounts(coverage.exclusion_counts) +
-        "</td><td class=\"muted\">" +
-        escapeHtml(lag.reason || "") +
-        "</td></tr>";
+    let html = '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сдвиг, дней</th><th>Состояние</th><th>Связь (Спирмен)</th><th>Пар значений</th><th>Ограничение</th></tr></thead><tbody>';
+    (body.lags || []).forEach(lag => {
+      html += "<tr><td>" + fmt(lag.lag_days, 0) + "</td><td>" + statusLabel(lag.status) + "</td><td>" + fmt(lag.rho, 4) + "</td><td>" + fmt(lag.n, 0) + "</td><td>" + (lag.reason ? reasonText(lag.reason) : "—") + "</td></tr>";
     });
-    html += "</tbody></table>";
-    html +=
-      "<p class=\"muted\">No p-values, significance labels, best-lag ranking, or causal claims are presented.</p>";
-    setHtml("lag-result", html);
-    setText(
-      "result-identity",
-      (body.algorithm || "?") + " / " + (body.rule_version || "?") + " / " + (body.result_hash || "?")
-    );
+    html += "</tbody></table></div><p>Результат зависит от покрытия и исключений. Нет статистической значимости, причинных выводов или выбора лучшего сдвига.</p>";
+    setHtml("lag-result", html); setText("lag-evidence", JSON.stringify(body, null, 2)); identity(body);
   }
-
-
-  function formatExclusionCounts(counts) {
-    if (!counts || typeof counts !== "object") return "none";
-    const keys = Object.keys(counts);
-    if (!keys.length) return "none";
-    return keys
-      .map(function (key) {
-        const chipClass =
-          key.indexOf("ambiguous") >= 0
-            ? "status-chip ambiguous_daily_aggregate excluded"
-            : "status-chip excluded";
-        return (
-          '<span class="' +
-          chipClass +
-          '">' +
-          escapeHtml(key) +
-          "=" +
-          escapeHtml(String(counts[key])) +
-          "</span>"
-        );
-      })
-      .join(" ");
+  function identity(body) { setText("result-identity", [body.algorithm, body.rule_version, body.result_hash].join(" / ")); }
+  function metricName(code) { return names[code] || "Другой показатель (определение в технических деталях)"; }
+  function reasonText(reason) {
+    if (reason === "zero_reference_percent") return "Опорное значение равно нулю: процент не вычисляется";
+    const reasons = { insufficient_paired_n: "Недостаточно пар значений", insufficient_usable_values: "Недостаточно пригодных значений", insufficient_temporal_sample: "Недостаточно дат для тренда", constant_or_degenerate_input: "Ряд постоянный или вырожденный: связь не вычисляется", mad_zero_or_non_finite: "Отклонение не вычисляется: разброс нулевой или некорректный", insufficient_samples: "Недостаточно значений", insufficient_pairs: "Недостаточно пар", constant_series: "Ряд не меняется: связь не вычисляется", different_activity_type: "Разные виды активности", reference_zero: "Опорное значение равно нулю: процент не вычисляется", zero_reference: "Опорное значение равно нулю: процент не вычисляется", ambiguous_daily_aggregate: "Неоднозначное дневное значение исключено", no_data: "Нет пригодных данных" };
+    return reasons[reason] || "Есть ограничение сопоставимости или данных; точная причина — в технических деталях";
   }
-
-  function formatAvailable(block, whenAvailable) {
-    if (!block || !block.available) {
-      return '<span class="unavailable">unavailable</span> (' + escapeHtml((block && block.reason) || "no_data") + ")";
-    }
-    return whenAvailable();
+  function statusLabel(status) {
+    const text = { usable: "Данные доступны", zero: "Явный ноль", compared: "Сопоставлено", association_available: "Данные доступны", comparable: "Сопоставимо", not_comparable: "Несопоставимо", available: "Данные доступны", insufficient: "Недостаточно данных", missing: "Не предоставлено", null: "Не предоставлено", invalid: "Некорректное значение", partial: "Данные доступны частично", excluded: "Исключено", not_computable: "Не вычисляется", insufficient_data: "Недостаточно данных" };
+    return escapeHtml(text[status] || labels[status] || labels.unknown);
   }
-
-  function statusValue(status, value) {
-    if (status === "zero") return '<span class="status-chip zero">zero (0)</span>';
-    if (status === "usable") return fmt(value);
-    return '<span class="status-chip ' + escapeHtml(status || "") + '">' + escapeHtml(status || "unavailable") + "</span>";
+  function available(block, render) { return block.available ? render() : chip(block.reason && block.reason.includes("insufficient") ? "insufficient" : "unavailable") + " " + escapeHtml(reasonText(block.reason)); }
+  function statusValue(status, val) {
+    if (status === "zero") return "0";
+    return status === "usable" ? fmt(val) : statusLabel(status);
   }
-
-  function unavailable(reason) {
-    return (
-      '<p class="unavailable">unavailable</p><p class="muted">Reason: ' +
-      escapeHtml(reason || "no_data") +
-      "</p>"
-    );
-  }
-
-  function fmt(value, digits) {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) return "unavailable";
-    return Number(value).toFixed(digits === undefined ? 3 : digits);
-  }
-
-  function shortId(value) {
-    const text = String(value || "");
-    return text.length <= 12 ? text : text.slice(0, 8) + "…";
-  }
-
-  function setHtml(id, html) {
-    const node = document.getElementById(id);
-    if (node) node.innerHTML = html;
-  }
-
-  function setText(id, text) {
-    const node = document.getElementById(id);
-    if (node) node.textContent = text;
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
+  function chip(key) { return '<span class="status-chip owner-state ' + key + '" data-owner-state="' + key + '">' + labels[key] + "</span>"; }
+  function unavailable(reason) { return chip("unavailable") + "<p>" + escapeHtml(reason) + "</p>"; }
+  function fmt(val, digits = 3) { return val === null || val === undefined || !Number.isFinite(Number(val)) ? "Не предоставлено" : Number(val).toFixed(digits); }
+  function setHtml(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
+  function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+  function escapeHtml(val) { return String(val).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 })();

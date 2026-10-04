@@ -279,10 +279,10 @@ def test_training_overview_chronology_zero_missing_and_units(tmp_path):
 
         page = client.get(f"/garmin?garmin_source_id={source_id}")
         assert page.status_code == 200
-        assert "Training &amp; recovery" in page.text or "Training & recovery" in page.text
+        assert "Тренировки и восстановление" in page.text
         assert "2099-01-02" in page.text
-        assert "Undated (request date not attached)" in page.text
-        assert "unit unavailable" in page.text
+        assert "Дата запроса не подставляется" in page.text
+        assert "Единица времени восстановления не предоставлена" in page.text
         assert "metric producer unverified" in page.text
         assert "associated device" in page.text
         assert "activity recorder" in page.text
@@ -291,9 +291,9 @@ def test_training_overview_chronology_zero_missing_and_units(tmp_path):
         assert "VO2Max" not in page.text
         assert "coaching" not in page.text.lower() or "no coaching" in page.text.lower()
         # R03 cards remain present.
-        assert "Scalar series / baseline / trend (R03-01)" in page.text
-        assert "Activity comparison (R03-02)" in page.text
-        assert "Lagged association (R03-03)" in page.text
+        assert "Показатель за период" in page.text
+        assert "Сравнить сессии" in page.text
+        assert "Связь показателей со сдвигом" in page.text
 
         dashboard = client.get(
             "/api/garmin/dashboard", params={"garmin_source_id": source_id}
@@ -311,8 +311,8 @@ def test_training_overview_source_selection_and_partial_evidence(tmp_path):
         empty = client.get("/api/garmin/training-overview").json()
         assert empty["status"] == "no_data"
         page = client.get("/garmin")
-        assert "No Garmin source" in page.text
-        assert "Training &amp; recovery" in page.text or "Training & recovery" in page.text
+        assert "Источник Garmin пока не найден" in page.text
+        assert "Тренировки и восстановление" in page.text
 
     engine = create_sqlite_engine(paths)
     try:
@@ -385,7 +385,7 @@ def test_training_overview_source_selection_and_partial_evidence(tmp_path):
         require = client.get("/api/garmin/training-overview").json()
         assert require["status"] == "require_selection"
         page = client.get("/garmin")
-        assert "Select a Garmin source" in page.text or "select a source" in page.text.lower()
+        assert "Выбери источник Garmin" in page.text
 
         overview = client.get(
             "/api/garmin/training-overview",
@@ -397,8 +397,8 @@ def test_training_overview_source_selection_and_partial_evidence(tmp_path):
         assert overview["readiness"] is None
         assert overview["load_focus"] is None
         page = client.get(f"/garmin?garmin_source_id={training_source_id}")
-        assert "Readiness not provided" in page.text
-        assert "Load focus not provided" in page.text
+        assert "Готовность не предоставлена" in page.text
+        assert "Распределение нагрузки не предоставлено" in page.text
 
         # A device source without training evidence stays honest.
         bare = client.get(
@@ -407,7 +407,7 @@ def test_training_overview_source_selection_and_partial_evidence(tmp_path):
         ).json()
         assert bare["status"] == "no_training_evidence"
         bare_page = client.get(f"/garmin?garmin_source_id={device_sources[0]}")
-        assert "No Training evidence yet" in bare_page.text
+        assert "пока нет сохранённых показателей тренировок и восстановления" in bare_page.text
 
 
 def test_training_overview_no_network_and_no_activity_detail(tmp_path, monkeypatch):

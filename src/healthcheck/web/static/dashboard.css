@@ -258,6 +258,15 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 .data-queue-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 16px 0; }
 #data-status button, #import-queue button, #import-queue input, .data-source-card summary { min-height: 44px; }
 
+/* Activity reuses frozen tokens, metric type and real scrollable tables. */
+[data-activity-panel][hidden] { display: none; }
+[data-activity-panel] .garmin-table td:not(:first-child) { font-variant-numeric: tabular-nums; }
+[data-activity-panel] .garmin-table td:nth-child(n+3) { text-align: right; }
+[data-activity-panel] .inline-edit label { display: grid; gap: 4px; min-width: 0; }
+[data-activity-panel] select, #source-form select { width: 100%; }
+[data-activity-panel] button, [data-activity-mode], #source-form button, #source-form select { min-height: 44px; }
+.activity-technical pre { font-size: .8125rem; }
+
 /* Shared Owner shell. Keep responsive overrides after page-specific rules. */
 main, .legal { max-width: var(--owner-content-width); }
 :focus-visible { outline: 3px solid var(--owner-focus); outline-offset: 3px; }

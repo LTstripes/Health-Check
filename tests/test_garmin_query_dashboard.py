@@ -188,17 +188,17 @@ def test_empty_garmin_dashboard_honest_no_data(tmp_path):
         assert page.status_code == 200
         assert "no data" in page.text.lower() or "no_garmin_sources" in page.text
         assert "0 kg" not in page.text
-        assert "Training &amp; recovery" in page.text or "Training & recovery" in page.text
-        assert "No Garmin source" in page.text
+        assert "Тренировки и восстановление" in page.text
+        assert "Источник Garmin пока не найден" in page.text
         assert "Recovery Score" not in page.text
-        assert "no custom readiness/status/load score" in page.text.lower()
+        assert "Показатели рассчитаны Garmin" in page.text
         sources = client.get("/api/garmin/sources").json()
         assert sources["sources"] == []
         dashboard = client.get("/api/garmin/dashboard").json()
         assert dashboard["source_selection"]["status"] == "no_data"
         assert dashboard["series"] is None
         assert dashboard["activities"] == []
-        assert "Garmin dashboard" in page.text
+        assert "Активность — Health-Check" in page.text
         weight = client.get("/")
         assert weight.status_code == 200
         assert "Текущий подтверждённый вес" in weight.text
@@ -381,7 +381,7 @@ def test_multiple_sources_require_explicit_selection(tmp_path):
         assert dashboard["series"] is None
         assert len(dashboard["source_selection"]["sources"]) == 2
         page = client.get("/garmin")
-        assert "select a source" in page.text.lower()
+        assert "Выбери источник Garmin" in page.text
         chosen = client.get(
             "/api/garmin/dashboard",
             params={"garmin_source_id": first_id, "metric_code": "stress_daily_average"},
@@ -790,8 +790,7 @@ def test_scalar_exclusions_and_lag_exclusion_counts_visible_in_ui(tmp_path):
         assert "excluded_count" in js_text
         assert "availability.exclusions" in js_text or "exclusions" in js_text
         assert "ambiguous_daily_aggregate" in js_text
-        assert "exclusion_counts" in js_text
-        assert "formatExclusionCounts" in js_text
+        assert 'setText("lag-evidence", JSON.stringify(body, null, 2))' in js_text
         # Zero presentation remains separate from excluded/ambiguous chips.
         assert 'status === "zero"' in js_text or "status === \"zero\"" in js_text
 
