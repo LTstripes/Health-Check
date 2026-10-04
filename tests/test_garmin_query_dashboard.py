@@ -621,8 +621,8 @@ def test_unavailable_distinct_from_zero_and_weight_unaffected(tmp_path):
         assert weight_series.json()["raw_points"] == []
         weight_page = client.get("/")
         assert weight_page.status_code == 200
-        assert "Garmin dashboard" in weight_page.text
-        assert "Weight dashboard" in weight_page.text
+        assert 'href="/garmin">Активность</a>' in weight_page.text
+        assert 'aria-current="page">Вес</a>' in weight_page.text
 
 
 def test_nav_and_no_network_side_effects(tmp_path, monkeypatch):

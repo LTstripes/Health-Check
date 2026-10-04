@@ -1,11 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Error — Health-Check{% endblock %}
+{% import "owner_ui.html" as owner_ui %}
+{% block title %}Ошибка — Health-Check{% endblock %}
 {% block content %}
-<section class="card error-card">
-  <h1>Something stopped</h1>
-  <p><code>{{ code }}</code></p>
+<section class="card error-card" role="alert">
+  <h2>Не удалось показать страницу</h2>
+  {{ owner_ui.state_chip('error') }}
   <p>{{ message }}</p>
-  <p class="muted">No database internals, secrets, or raw payloads are shown here.</p>
-  <p><a href="/">Dashboard</a> · <a href="/imports">Import queue</a></p>
+  <p><a href="/brief">Обзор</a> · <a href="/imports">Данные</a></p>
 </section>
+{% call owner_ui.technical_details() %}
+  <p><code>{{ code }}</code></p>
+  <p class="muted">Без внутренних деталей базы, секретов и сырых тел ответов.</p>
+{% endcall %}
 {% endblock %}

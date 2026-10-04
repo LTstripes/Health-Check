@@ -7,7 +7,7 @@
 
 <section class="hero">
   <div>
-    <h1>Garmin analytics</h1>
+    <h2>Garmin analytics</h2>
     <p class="muted">Read-only presentation of accepted R03-01/02/03 results. UI formats values; it does not recompute analytics.</p>
   </div>
   <dl class="current">
@@ -138,6 +138,7 @@
         · {{ focus.attribution_label }}
         · {{ overview.wording.metric_producer_unverified }}
       </p>
+      <div class="table-scroll">
       <table class="garmin-table">
         <thead>
           <tr><th>Bucket</th><th>Load</th><th>Target min</th><th>Target max</th></tr>
@@ -163,6 +164,7 @@
           </tr>
         </tbody>
       </table>
+      </div>
     {% else %}
       <p class="unavailable">Load focus not provided</p>
     {% endif %}
@@ -202,6 +204,7 @@
 
     <h3>Recent activities</h3>
     {% if overview.recent_activities %}
+      <div class="table-scroll">
       <table class="garmin-table">
         <thead>
           <tr>
@@ -226,6 +229,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     {% else %}
       <p class="unavailable">No recent activities with Training load / TE fields</p>
     {% endif %}

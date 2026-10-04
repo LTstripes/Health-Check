@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% import "owner_ui.html" as owner_ui %}
 {% block title %}Сводка за период — Health-Check{% endblock %}
 {% block content %}
 <section class="hero brief-hero">
   <div>
     <p class="eyebrow">Локальная сводка данных</p>
-    <h1>Сводка за период</h1>
+    <h2>Сводка за период</h2>
     <p class="muted">Краткий обзор принятых данных веса, сна, активностей и полноты источников.</p>
   </div>
   <dl class="current">
@@ -106,7 +107,7 @@
 {% endif %}
 
 {% macro state_chip(section) -%}
-<span class="status-chip {{ section.state }}">{{ brief_owner_state(section.state) }}</span>
+{{ owner_ui.state_chip(section.state) }}
 {%- endmacro %}
 {% macro value_text(fact) -%}
   {{ brief_owner_value(fact.value, fact.unit, fact.availability, fact.code) }}
@@ -115,6 +116,7 @@
 <div class="brief-grid">
   <section class="card brief-section">
     <header class="section-heading"><h2>Вес</h2>{{ state_chip(weight) }}</header>
+    <div class="table-scroll">
     <table>
       <tbody>
       {% for fact in weight.summary_facts %}
@@ -122,11 +124,14 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
     {% if weight.display_points %}
     <h3>Показанные измерения веса</h3>
+    <div class="table-scroll">
     <table><thead><tr><th>Дата</th><th>Вес</th></tr></thead><tbody>
       {% for point in weight.display_points %}<tr><td>{{ point.observed_date }}</td><td>{{ point.median_kg }} kg</td></tr>{% endfor %}
     </tbody></table>
+    </div>
     {% endif %}
     {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_thinning.max_display_points }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
   </section>
@@ -147,9 +152,11 @@
     <header class="section-heading"><h2>Активности</h2>{{ state_chip(activity) }}</header>
     {% for fact in activity.summary_facts %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
     {% if activity.sessions %}
+    <div class="table-scroll">
     <table><thead><tr><th>Дата</th><th>Тип</th><th>Запись</th></tr></thead><tbody>
       {% for session in activity.sessions %}<tr><td>{{ session.source_local_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td><td>Активность записана</td></tr>{% endfor %}
     </tbody></table>
+    </div>
     {% else %}<p class="muted">За этот период нет отображаемых активностей.</p>{% endif %}
     {% if activity.display_thinning %}<p class="muted">Для удобства показаны последние {{ activity.display_thinning.max_activity_sessions }} из {{ activity.display_thinning.original_session_count }} активностей.</p>{% endif %}
   </section>
@@ -163,8 +170,7 @@
   </section>
 </div>
 
-<details class="card brief-provenance">
-  <summary>Технические детали</summary>
+{% call owner_ui.technical_details('brief-provenance') %}
   <dl>
     <div><dt>Контракт</dt><dd><code>{{ packet.contract_version }}</code></dd></div>
     <div><dt>Алгоритм</dt><dd><code>{{ packet.algorithm }}</code></dd></div>
@@ -179,5 +185,5 @@
     <div><dt>Внутренние показатели</dt><dd><code>{% for name, section in packet.sections.items() %}{{ name }}: [{% for fact in section.summary_facts %}{{ fact.code }}{% if not loop.last %}, {% endif %}{% endfor %}]{% if not loop.last %}; {% endif %}{% endfor %}</code></dd></div>
   </dl>
   <p class="muted">Списки на экране могут быть сокращены только для отображения. Числа, статистики и хеш аналитического пакета получены из принятого сервиса #119.</p>
-</details>
+{% endcall %}
 {% endblock %}

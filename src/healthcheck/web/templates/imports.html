@@ -3,7 +3,7 @@
 {% block content %}
 <section class="hero">
   <div>
-    <h1>Photo import queue</h1>
+    <h2>Photo import queue</h2>
     <p class="muted">Uploading extracts candidates only. Nothing becomes confirmed or canonical until you explicitly confirm selected rows.</p>
   </div>
   <dl class="current">
@@ -33,6 +33,7 @@
 <section class="card">
   <h2>Batch history</h2>
   {% if batches %}
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -59,6 +60,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="unavailable">No import batches yet.</p>
   {% endif %}

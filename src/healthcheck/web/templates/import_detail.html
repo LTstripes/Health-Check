@@ -3,7 +3,7 @@
 {% block content %}
 <section class="hero">
   <div>
-    <h1>Review batch</h1>
+    <h2>Review batch</h2>
     <p class="muted">
       Status <code>{{ batch.status }}</code>.
       Extractor {{ batch.extractor_name }} {{ batch.extractor_version }}.
@@ -47,6 +47,7 @@
     {% endif %}
   </header>
   {% if group.candidates %}
+  <div class="table-scroll">
   <table class="candidates">
     <thead>
       <tr>
@@ -176,6 +177,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="unavailable">No candidates for this image.</p>
   {% endif %}
