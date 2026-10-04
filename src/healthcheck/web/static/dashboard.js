@@ -1,12 +1,5 @@
 /* Owner-first Weight presentation. Analytics/canonical semantics unchanged; UI only translates. */
 (function () {
-  const dataNode = document.getElementById("dashboard-data");
-  if (dataNode) {
-    const payload = JSON.parse(dataNode.textContent);
-    renderDashboard(payload);
-  }
-  bindReview();
-
   const STATE_LABELS = {
     present: "Данные доступны",
     partial: "Данные доступны частично",
@@ -39,6 +32,13 @@
     weight_diff_exceeds_threshold: "Вес отличается более чем на 1%.",
     source_muscle_not_lean: "Мышцы источника — не сухая масса."
   };
+
+  const dataNode = document.getElementById("dashboard-data");
+  if (dataNode) {
+    const payload = JSON.parse(dataNode.textContent);
+    renderDashboard(payload);
+  }
+  bindReview();
 
   function renderDashboard(payload) {
     const series = payload.series || {};
