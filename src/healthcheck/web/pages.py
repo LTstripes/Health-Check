@@ -16,6 +16,7 @@ from healthcheck.analytics.sleep_agreement_report import (
     SleepAgreementReportService,
     unavailable_report,
 )
+from healthcheck.analytics.sleep_metrics import get_sleep_metric_definition
 from healthcheck.db.engine import session_scope
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
@@ -43,6 +44,10 @@ _BRIEF_STATE_LABELS = {
     "unavailable": "Источник данных недоступен",
     "insufficient": "Недостаточно данных",
     "not_requested": "Не запрашивалось",
+    "partial": "Данные доступны частично",
+    "loading": "Загрузка данных",
+    "error": "Не удалось выполнить запрос",
+    "no_change": "Изменений не обнаружено",
 }
 _BRIEF_FACT_LABELS = {
     "weight_observation_count": "Измерения веса",
@@ -69,9 +74,23 @@ _BRIEF_REASON_LABELS = {
     "garmin_source_missing": "Источник Garmin за этот период не найден.",
     "insufficient_evidence": "Принятых данных недостаточно для этого показателя.",
     "not_enough_points": "Недостаточно измерений для надёжного показателя.",
-    "no_canonical_weight_run": "Нет принятого канонического расчёта веса.",
+    "no_canonical_weight_run": "Нет принятого расчёта веса.",
 }
-_BRIEF_UNIT_LABELS = {"count": "шт.", "kg/week": "кг/нед.", "kg": "кг"}
+_BRIEF_UNIT_LABELS = {
+    "count": "шт.",
+    "kg/week": "кг/нед.",
+    "kg": "кг",
+    "seconds": "с",
+    "bpm": "уд/мин",
+    "percentage_points": "п.п.",
+    "%": "%",
+    "ms": "мс",
+    "points": "баллы",
+    "meters": "м",
+    "m/s": "м/с",
+    "watts": "Вт",
+    "rpm": "об/мин",
+}
 _BRIEF_ACTIVITY_LABELS = {
     "cycling": "Велосипед",
     "running": "Бег",
@@ -126,7 +145,7 @@ def _brief_owner_reason(reason: object) -> str:
 
 def _brief_owner_activity(activity_type: object) -> str:
     token = str(activity_type or "unknown")
-    return _BRIEF_ACTIVITY_LABELS.get(token, token.replace("_", " ").capitalize())
+    return _BRIEF_ACTIVITY_LABELS.get(token, "Другая активность")
 
 
 def _brief_owner_cohort(label: object) -> str:
@@ -139,9 +158,9 @@ def _brief_owner_cohort(label: object) -> str:
 
 def _brief_owner_uncertainty(_: object) -> str:
     return (
-        "Это исследовательская когорта с неопределённой атрибуцией; "
-        "это не сравнение Garmin и Fitbit/устройств и не основание для выбора "
-        "канонического источника."
+        "Принадлежность устройству и роль записи сна могут быть неизвестны. "
+        "Это не сравнение Garmin и Fitbit/устройств, не оценка точности и не основание "
+        "для выбора основного источника."
     )
 
 
@@ -154,11 +173,7 @@ def _brief_source_label(source: object) -> str:
     provider_label = _BRIEF_PROVIDER_LABELS.get(provider_code, "Garmin Connect")
     # A model is useful only when the persisted source explicitly proves that
     # the device is attributed. Unknown and false attribution stay generic.
-    model = (
-        source.get("device_model")
-        if source.get("device_attributed") is True
-        else None
-    )
+    model = source.get("device_model") if source.get("device_attributed") is True else None
     model_text = str(model or "").strip()
     return f"{provider_label} · {model_text}" if model_text else provider_label
 
@@ -169,8 +184,7 @@ def _brief_sleep_uncertainty(groups: object) -> str | None:
     if not isinstance(groups, (list, tuple)):
         return None
     if any(
-        isinstance(group, Mapping) and group.get("exploratory_label_required")
-        for group in groups
+        isinstance(group, Mapping) and group.get("exploratory_label_required") for group in groups
     ):
         return _brief_owner_uncertainty(None)
     return None
@@ -185,24 +199,23 @@ def _brief_coverage_warning(brief: object) -> str | None:
     if not isinstance(sections, Mapping):
         return None
     warnings: list[str] = []
-    for name in ("weight", "sleep", "activity"):
-        section = sections.get(name)
-        if not isinstance(section, Mapping):
-            continue
-        state = str(section.get("state") or "unknown")
-        if state in {"unknown", "unavailable", "insufficient"}:
-            warnings.append(f"{name}: {_brief_owner_state(state)}")
     quality = sections.get("data_quality")
     coverage = quality.get("coverage") if isinstance(quality, Mapping) else None
     for provider in (coverage or {}).get("provider_states") or []:
         if not isinstance(provider, Mapping):
             continue
         state = str(provider.get("state") or "unknown")
-        if state in {"unknown", "unavailable", "insufficient"}:
-            warnings.append(f"Источник: {_brief_owner_state(state)}")
+        if state not in {"present", "confirmed_empty", "not_requested"}:
+            provider_name = {"garmin_connect": "Garmin", "google": "Google"}.get(
+                provider.get("provider_code"), "Источник"
+            )
+            warnings.append(f"{provider_name}: {_brief_owner_state(state)}")
     sparse_note = (coverage or {}).get("weight_sparse_note")
     if sparse_note:
-        warnings.append(str(sparse_note))
+        warnings.append(
+            "Нерегулярные измерения веса сами по себе не означают сбой источника; "
+            "обновление источника не означает новое измерение."
+        )
     return " · ".join(dict.fromkeys(warnings)) or None
 
 
@@ -259,10 +272,12 @@ def _brief_owner_value(
         return "Да" if value else "Нет"
     if isinstance(value, dict):
         if fact_code == "activity_type_counts":
-            return ", ".join(
-                f"{_brief_owner_activity(key)}: {count}"
-                for key, count in sorted(value.items())
-            ) or "Нет записей"
+            return (
+                ", ".join(
+                    f"{_brief_owner_activity(key)}: {count}" for key, count in sorted(value.items())
+                )
+                or "Нет записей"
+            )
         return "Детали доступны"
     if isinstance(value, (list, tuple)):
         return "Детали доступны"
@@ -274,7 +289,7 @@ def _brief_owner_value(
 
 def _brief_owner_note(note: object) -> str:
     code = str((note or {}).get("code") or "") if isinstance(note, dict) else ""
-    return {
+    text = {
         "weight_rate": "Темп изменения веса доступен.",
         "weight_trend": "Тренд веса доступен.",
         "sleep_exploratory_agreement": "Доступна исследовательская оценка согласованности сна.",
@@ -282,8 +297,52 @@ def _brief_owner_note(note: object) -> str:
             "Есть исследовательские данные сна с неопределённой атрибуцией."
         ),
         "personal_baseline_deviation": "Обнаружено отклонение от личной базовой линии Garmin.",
-        "activity_comparison": "Доступно детерминированное сравнение активностей.",
+        "activity_comparison": "Доступно сравнение активностей за период.",
     }.get(code, "Есть важное изменение в данных периода.")
+    if code == "sleep_exploratory_agreement":
+        metric = str(note.get("metric_code") or "")
+        if metric in _BRIEF_SLEEP_METRICS:
+            return f"{_BRIEF_SLEEP_METRICS[metric][1]}: доступно исследовательское сравнение."
+    if code == "personal_baseline_deviation":
+        metric = str(note.get("fact_code") or "")
+        for prefix in ("garmin_sleep_baseline_", "garmin_activity_related_baseline_"):
+            if metric.startswith(prefix):
+                label = _BRIEF_BASELINE_LABELS.get(metric.removeprefix(prefix))
+                return f"{label or 'Показатель Garmin'}: отклонение от личной базовой линии."
+    return text
+
+
+_BRIEF_BASELINE_LABELS = {
+    "sleep_duration_seconds": "Длительность сна",
+    "sleep_score": "Оценка сна Garmin",
+    "stress_daily_average": "Средний стресс Garmin",
+    "stress_daily_maximum": "Максимальный стресс Garmin",
+    "spo2_daily_average": "Средний кислород в крови",
+    "spo2_trailing_7d_average": "Кислород в крови за 7 дней",
+    "duration_seconds": "Длительность активности",
+    "distance_meters": "Расстояние",
+    "speed_mps": "Скорость",
+    "heart_rate_bpm": "Пульс",
+    "power_watts": "Мощность",
+    "cadence_rpm": "Каденс",
+    "training_effect": "Эффект тренировки Garmin",
+    "acute_training_load": "Нагрузка Garmin",
+}
+
+
+def _brief_note_value(note: Mapping[str, Any], brief: Mapping[str, Any]) -> str:
+    if note.get("value") is None:
+        return ""
+    unit = note.get("unit")
+    if note.get("code") == "personal_baseline_deviation":
+        # The notice omits its unit; recover only from its exact packet fact.
+        for section in brief.get("sections", {}).values():
+            for fact in section.get("summary_facts") or []:
+                if fact.get("code") == note.get("fact_code"):
+                    unit = fact.get("unit")
+    if not unit:
+        return "Значение и единицы доступны в технических деталях."
+    return _brief_owner_value(note["value"], unit, "present")
 
 
 def _brief_owner_action(action: object) -> str:
@@ -297,6 +356,143 @@ def _brief_owner_action(action: object) -> str:
             "Данные веса недоступны: проверьте источник и покрытие периода."
         ),
     }.get(code, "Для этого периода требуется проверить данные.")
+
+
+_BRIEF_SLEEP_METRICS = {
+    "sleep_duration_asleep_seconds": ("Длительность и время", "Длительность сна"),
+    "sleep_time_in_bed_seconds": ("Длительность и время", "Время в постели"),
+    "sleep_start_at": ("Длительность и время", "Начало сна"),
+    "sleep_end_at": ("Длительность и время", "Окончание сна"),
+    "sleep_stage_light_seconds": ("Стадии сна", "Лёгкий сон"),
+    "sleep_stage_deep_seconds": ("Стадии сна", "Глубокий сон"),
+    "sleep_stage_rem_seconds": ("Стадии сна", "Быстрый сон (REM)"),
+    "sleep_awake_waso_seconds": ("Стадии сна", "Бодрствование внутри сна"),
+    "resting_heart_rate_bpm": ("Сопутствующие показатели за день", "Пульс в покое"),
+    "spo2_daily_average_pct": ("Сопутствующие показатели за день", "Средний кислород в крови"),
+}
+
+
+def _brief_sleep_groups(groups: object) -> list[dict[str, Any]]:
+    """Arrange packet rows by meaning; never pool samples or recompute statistics."""
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for group in groups if isinstance(groups, (list, tuple)) else []:
+        if not isinstance(group, Mapping):
+            continue
+        code = str(group.get("metric_code") or "")
+        category, label = _BRIEF_SLEEP_METRICS.get(code, ("Другие сравнения", "Другой показатель"))
+        # Only a frozen metric definition proves the unit. Unknown metrics stay
+        # inspectable in disclosure without inventing comparable owner values.
+        unit = (
+            get_sleep_metric_definition(code).difference_unit
+            if code in _BRIEF_SLEEP_METRICS
+            else None
+        )
+        variant = {
+            "STAGES": "Со стадиями сна",
+            "CLASSIC": "Без стадий сна",
+            "DAILY": "За день",
+        }.get(
+            group.get("variant"),
+            "Вариант не указан" if group.get("variant") is None else "Другой вариант",
+        )
+        buckets.setdefault(category, []).append(
+            {
+                "label": label,
+                "variant": variant,
+                "unit": unit,
+                "group": group,
+            }
+        )
+    return [{"label": label, "rows": rows} for label, rows in buckets.items()]
+
+
+def _brief_owner_actions(actions: object) -> list[dict[str, Any]]:
+    """Deduplicate instructions by source and meaning, retaining every input in the packet."""
+    unique: dict[tuple[str, ...], dict[str, Any]] = {}
+    for action in actions if isinstance(actions, (list, tuple)) else []:
+        if not isinstance(action, Mapping):
+            continue
+        code = str(action.get("code") or "")
+        reason = str(action.get("reason_code") or "")
+        if code == "source_freshness_attention":
+            scope = str(action.get("scope_key") or "")
+            provider = (
+                "Garmin"
+                if scope.startswith("garmin:")
+                else "Google"
+                if scope.startswith("google:")
+                else "Источник"
+            )
+            family, text = {
+                "reauth_required": (
+                    "login",
+                    "Повторите вход в источник через локальный процесс сбора.",
+                ),
+                "refresh_overdue": (
+                    "collection",
+                    "Проверьте выполнение локального сбора и его последний отчёт.",
+                ),
+                "expected_evidence_absent": (
+                    "collection",
+                    "Проверьте выполнение локального сбора и его последний отчёт.",
+                ),
+                "refresh_failed": (
+                    "failure",
+                    "Проверьте ошибку в последнем отчёте локального сбора.",
+                ),
+            }.get(reason, ("inspect", "Проверьте сведения об источнике в разделе «Данные»."))
+            key = (code, provider, family)
+            text = f"{provider}: {text}"
+            context = {
+                "stale": "Данные устарели",
+                "unknown": "Свежесть неизвестна",
+                "unavailable": "Данные недоступны",
+                "not_requested": "Данные не запрашивались",
+            }.get(str(action.get("state")), "Состояние требует проверки")
+        elif code == "investigate_provider_sync":
+            provider = {"garmin_connect": "Garmin", "google": "Google"}.get(
+                action.get("provider_code"), "Источник"
+            )
+            key = (code, str(action.get("provider_code") or ""))
+            text, context = (
+                f"{provider}: проверьте последний отчёт локального сбора.",
+                "Данные недоступны",
+            )
+        else:
+            key = (code,)
+            text, context = _brief_owner_action(dict(action)), ""
+        item = unique.setdefault(
+            key,
+            {
+                "text": text,
+                "contexts": [],
+                "link": "/imports" if code == "confirm_pending_imports" else "/imports#data-status",
+                "link_label": "Проверить измерения"
+                if code == "confirm_pending_imports"
+                else "Открыть данные",
+            },
+        )
+        if context and context not in item["contexts"]:
+            item["contexts"].append(context)
+    return list(unique.values())
+
+
+def _brief_primary_facts(section: object) -> list[dict[str, Any]]:
+    codes = {
+        "weight_observation_count",
+        "weight_rate_kg_per_week",
+        "weight_first_daily_median_kg",
+        "weight_last_daily_median_kg",
+        "activity_session_count",
+        "activity_type_counts",
+    }
+    if not isinstance(section, Mapping):
+        return []
+    return [
+        fact
+        for fact in section.get("summary_facts") or []
+        if isinstance(fact, dict) and fact.get("code") in codes
+    ]
 
 
 def _brief_has_usable_evidence(brief: object) -> bool:
@@ -452,10 +648,14 @@ def period_brief_page(
             "selected_preset": selected_preset,
             "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"]),
             "brief_owner_action": _brief_owner_action,
+            "brief_owner_actions": _brief_owner_actions,
+            "brief_sleep_groups": _brief_sleep_groups,
+            "brief_primary_facts": _brief_primary_facts,
             "brief_owner_activity": _brief_owner_activity,
             "brief_owner_cohort": _brief_owner_cohort,
             "brief_owner_fact": _brief_owner_fact,
             "brief_owner_note": _brief_owner_note,
+            "brief_note_value": _brief_note_value,
             "brief_owner_reason": _brief_owner_reason,
             "brief_owner_state": _brief_owner_state,
             "brief_owner_uncertainty": _brief_owner_uncertainty,
