@@ -39,7 +39,7 @@
       {% elif section %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
     </header>
     {# Existing English page bodies stay explicitly English until their stage translates them. #}
-    {% if section == 'activity' or (section == 'data' and request.url.path != '/imports') %}
+    {% if section == 'data' and request.url.path != '/imports' %}
     <div class="owner-page-content" lang="en">
     {% else %}
     <div class="owner-page-content">
