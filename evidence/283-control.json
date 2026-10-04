@@ -1,0 +1,654 @@
+{
+  "baseline_sha": "9eb5b82221c99d96e7681f26c4f41e637186fe47",
+  "python": "3.13.15",
+  "sqlite": "3.53.1",
+  "counts": {
+    "garmin_source_records": 10056,
+    "garmin_record_metrics": 10364,
+    "coverage_intervals": 1000,
+    "sync_runs": 100
+  },
+  "database_bytes": 26361856,
+  "schema_sha256": "2936dcc986f86ef66d40173a577dd910992e3796a93d778e72f42dddb667892d",
+  "period": [
+    "2099-01-02",
+    "2099-01-29"
+  ],
+  "evaluated_at": "2099-01-30T12:00:00+00:00",
+  "generator_sha256": "5ddb4a1987c93e2fc0b1b61a6ca7236ed2e3fcc12d38897afbca6ba4f3069984",
+  "warmups_seconds": [
+    1.0154744000010396,
+    0.8344400000005407
+  ],
+  "repeats": 5,
+  "medians": {
+    "before": {
+      "total_seconds": 0.9294305999992503,
+      "phase_seconds": {
+        "freshness": 0.09617149999940011,
+        "quality": 0.015952300000208197,
+        "baseline": 0.19124550000015006
+      },
+      "baseline_candidate_seconds": 0.01626159999977972
+    },
+    "after": {
+      "total_seconds": 0.7764070000011998,
+      "phase_seconds": {
+        "freshness": 0.008789299998170463,
+        "quality": 0.004587100000208011,
+        "baseline": 0.13140550000025542
+      },
+      "baseline_candidate_seconds": 0.0032581000014033634
+    }
+  },
+  "samples": [
+    {
+      "arm": "before",
+      "total_seconds": 0.9736118000000715,
+      "phase_seconds": {
+        "quality": 0.01713699999891105,
+        "baseline": 0.18817390000003797,
+        "freshness": 0.09237360000042827
+      },
+      "sql_execute_seconds": {
+        "other": 0.12416299998403701,
+        "quality": 0.00029119999999238644,
+        "baseline": 0.06340539998200256,
+        "freshness": 0.08273199999712233
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.01626159999977972,
+      "plans": [
+        {
+          "phase": "quality",
+          "sql": "SELECT providers.id, providers.code, providers.display_name, providers.provider_kind, providers.created_at \nFROM providers ORDER BY providers.code, providers.id",
+          "parameters": [],
+          "plan": [
+            [
+              4,
+              0,
+              224,
+              "SCAN providers USING INDEX sqlite_autoindex_providers_2"
+            ]
+          ]
+        },
+        {
+          "phase": "quality",
+          "sql": "SELECT sync_stream_state.id, sync_stream_state.provider_id, sync_stream_state.acquisition_source_id, sync_stream_state.stream_code, sync_stream_state.cursor, sync_stream_state.watermark, sync_stream_state.last_success_at, sync_stream_state.last_attempt_at, sync_stream_state.trailing_window_days, sync_stream_state.diagnostic_status, sync_stream_state.updated_at \nFROM sync_stream_state",
+          "parameters": [],
+          "plan": [
+            [
+              2,
+              0,
+              216,
+              "SCAN sync_stream_state"
+            ]
+          ]
+        },
+        {
+          "phase": "quality",
+          "sql": "SELECT sync_runs.id, sync_runs.provider_id, sync_runs.acquisition_source_id, sync_runs.stream_code, sync_runs.requested_start, sync_runs.requested_end, sync_runs.actual_start, sync_runs.actual_end, sync_runs.status, sync_runs.item_count, sync_runs.received_count, sync_runs.accepted_count, sync_runs.failed_count, sync_runs.error_category, sync_runs.diagnostic_reason, sync_runs.started_at, sync_runs.completed_at \nFROM sync_runs",
+          "parameters": [],
+          "plan": [
+            [
+              2,
+              0,
+              216,
+              "SCAN sync_runs"
+            ]
+          ]
+        },
+        {
+          "phase": "quality",
+          "sql": "SELECT coverage_intervals.id, coverage_intervals.provider_id, coverage_intervals.acquisition_source_id, coverage_intervals.stream_code, coverage_intervals.metric_code, coverage_intervals.interval_start, coverage_intervals.interval_end, coverage_intervals.resolution, coverage_intervals.status, coverage_intervals.observed_count, coverage_intervals.expected_count, coverage_intervals.calculation_rule_version, coverage_intervals.diagnostic_reason, coverage_intervals.computed_at \nFROM coverage_intervals",
+          "parameters": [],
+          "plan": [
+            [
+              2,
+              0,
+              216,
+              "SCAN coverage_intervals"
+            ]
+          ]
+        },
+        {
+          "phase": "baseline",
+          "sql": "SELECT garmin_record_metrics.id, garmin_record_metrics.record_id, garmin_record_metrics.capability_code, garmin_record_metrics.metric_code, garmin_record_metrics.field_path, garmin_record_metrics.state, garmin_record_metrics.value_number, garmin_record_metrics.value_text, garmin_record_metrics.unit, garmin_record_metrics.reason, garmin_record_metrics.capability_status, garmin_record_metrics.source_device_attributed, garmin_record_metrics.collection_json, garmin_source_records.id AS id_1, garmin_source_records.garmin_source_id, garmin_source_records.raw_payload_id, garmin_source_records.ingest_event_id, garmin_source_records.stream_code, garmin_source_records.idempotency_key, garmin_source_records.external_record_id, garmin_source_records.record_index, garmin_source_records.activity_type, garmin_source_records.source_path, garmin_source_records.temporal_precision, garmin_source_records.source_local_date, garmin_source_records.source_timestamp_utc, garmin_source_records.local_wall_time, garmin_source_records.source_local_timestamp, garmin_source_records.source_utc_offset_minutes, garmin_source_records.source_timezone, garmin_source_records.source_field, garmin_source_records.source_local_field, garmin_source_records.source_utc_field, garmin_source_records.record_status, garmin_source_records.normalization_contract_version, garmin_source_records.diagnostics_json, garmin_source_records.unknown_fields_json, garmin_source_records.surface_code, garmin_source_records.collection_key, garmin_source_records.projection_status, garmin_source_records.projection_observed_at, garmin_source_records.retired_at, garmin_source_records.retire_reason, garmin_source_records.reconciliation_contract_version, garmin_source_records.created_at, garmin_source_records.last_seen_at, garmin_source_records.updated_at \nFROM garmin_record_metrics JOIN garmin_source_records ON garmin_record_metrics.record_id = garmin_source_records.id \nWHERE garmin_source_records.garmin_source_id = ? AND garmin_source_records.projection_status = ? AND garmin_record_metrics.metric_code = ? AND (garmin_source_records.source_local_date IS NOT NULL AND garmin_source_records.source_local_date >= ? AND garmin_source_records.source_local_date <= ? OR garmin_source_records.source_local_date IS NULL AND garmin_source_records.source_timestamp_utc IS NOT NULL AND garmin_source_records.source_timestamp_utc >= ? AND garmin_source_records.source_timestamp_utc < ?) ORDER BY garmin_source_records.source_local_date, garmin_source_records.source_timestamp_utc, garmin_source_records.id, garmin_record_metrics.id\n LIMIT ? OFFSET ?",
+          "parameters": [
+            "5463c191-feae-459b-bd99-43f904271115",
+            "current",
+            "sleep_duration_seconds",
+            "2099-01-02",
+            "2099-01-29",
+            "2099-01-02 00:00:00.000000",
+            "2099-01-30 00:00:00.000000",
+            2001,
+            0
+          ],
+          "plan": [
+            [
+              10,
+              0,
+              61,
+              "SEARCH garmin_source_records USING INDEX ix_garmin_source_records_stream_date (garmin_source_id=?)"
+            ],
+            [
+              33,
+              0,
+              47,
+              "SEARCH garmin_record_metrics USING INDEX sqlite_autoindex_garmin_record_metrics_2 (record_id=? AND metric_code=?)"
+            ],
+            [
+              97,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        },
+        {
+          "phase": "freshness",
+          "sql": "SELECT max(garmin_source_records.source_local_date) AS max_1, count(*) AS count_1 \nFROM garmin_source_records JOIN garmin_sources ON garmin_sources.id = garmin_source_records.garmin_source_id \nWHERE garmin_sources.provider_id = ? AND garmin_source_records.stream_code = ? AND garmin_source_records.surface_code = ? AND garmin_source_records.projection_status = ? AND garmin_source_records.record_status IN (?, ?)",
+          "parameters": [
+            "ed69c4d7-44ef-4721-a185-338cd4d9aa11",
+            "intraday",
+            "heart_rate",
+            "current",
+            "ok",
+            "partial"
+          ],
+          "plan": [
+            [
+              5,
+              0,
+              216,
+              "SCAN garmin_source_records"
+            ],
+            [
+              16,
+              0,
+              46,
+              "SEARCH garmin_sources USING INDEX sqlite_autoindex_garmin_sources_1 (id=?)"
+            ]
+          ]
+        },
+        {
+          "phase": "freshness",
+          "sql": "SELECT max(CASE WHEN (garmin_source_records.temporal_precision IN (?, ?)) THEN garmin_source_records.source_timestamp_utc END) AS max_1, sum(CASE WHEN (garmin_source_records.temporal_precision IN (?, ?) OR garmin_source_records.source_local_date IS NULL OR garmin_source_records.temporal_precision IN (?, ?) AND garmin_source_records.source_timestamp_utc IS NULL) THEN ? ELSE ? END) AS sum_1, count(distinct(garmin_source_records.garmin_source_id)) AS count_1 \nFROM garmin_source_records JOIN garmin_sources ON garmin_sources.id = garmin_source_records.garmin_source_id \nWHERE garmin_sources.provider_id = ? AND garmin_source_records.stream_code = ? AND garmin_source_records.surface_code = ? AND garmin_source_records.projection_status = ? AND garmin_source_records.record_status IN (?, ?) AND garmin_source_records.source_local_date = ?",
+          "parameters": [
+            "instant",
+            "minute",
+            "local",
+            "unknown",
+            "instant",
+            "minute",
+            1,
+            0,
+            "ed69c4d7-44ef-4721-a185-338cd4d9aa11",
+            "intraday",
+            "heart_rate",
+            "current",
+            "ok",
+            "partial",
+            "2099-01-29"
+          ],
+          "plan": [
+            [
+              3,
+              0,
+              0,
+              "USE TEMP B-TREE FOR count(DISTINCT)"
+            ],
+            [
+              7,
+              0,
+              216,
+              "SCAN garmin_source_records"
+            ],
+            [
+              20,
+              0,
+              46,
+              "SEARCH garmin_sources USING INDEX sqlite_autoindex_garmin_sources_1 (id=?)"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "arm": "after",
+      "total_seconds": 0.7444743000014569,
+      "phase_seconds": {
+        "quality": 0.004587100000208011,
+        "baseline": 0.1309170999993512,
+        "freshness": 0.008364500001334818
+      },
+      "sql_execute_seconds": {
+        "other": 0.10087730001214368,
+        "quality": 0.00025800000003073364,
+        "baseline": 0.009138800005530356,
+        "freshness": 0.000709400002961047
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.003525800000716117,
+      "plans": [
+        {
+          "phase": "quality",
+          "sql": "SELECT providers.id, providers.code, providers.display_name, providers.provider_kind, providers.created_at \nFROM providers ORDER BY providers.code, providers.id",
+          "parameters": [],
+          "plan": [
+            [
+              4,
+              0,
+              224,
+              "SCAN providers USING INDEX sqlite_autoindex_providers_2"
+            ]
+          ]
+        },
+        {
+          "phase": "quality",
+          "sql": "SELECT sync_stream_state.provider_id, sync_stream_state.last_success_at, sync_stream_state.last_attempt_at \nFROM sync_stream_state",
+          "parameters": [],
+          "plan": [
+            [
+              2,
+              0,
+              216,
+              "SCAN sync_stream_state"
+            ]
+          ]
+        },
+        {
+          "phase": "quality",
+          "sql": "SELECT sync_runs.provider_id, sync_runs.status, sync_runs.completed_at, sync_runs.started_at, sync_runs.id \nFROM sync_runs",
+          "parameters": [],
+          "plan": [
+            [
+              2,
+              0,
+              216,
+              "SCAN sync_runs"
+            ]
+          ]
+        },
+        {
+          "phase": "quality",
+          "sql": "SELECT coverage_intervals.id, coverage_intervals.provider_id, coverage_intervals.acquisition_source_id, coverage_intervals.stream_code, coverage_intervals.metric_code, coverage_intervals.interval_start, coverage_intervals.interval_end, coverage_intervals.resolution, coverage_intervals.status, coverage_intervals.observed_count, coverage_intervals.expected_count, coverage_intervals.calculation_rule_version, coverage_intervals.diagnostic_reason, coverage_intervals.computed_at \nFROM coverage_intervals \nWHERE substr(coverage_intervals.interval_end, ?, ?) >= ? AND substr(coverage_intervals.interval_start, ?, ?) <= ? OR date(julianday(coverage_intervals.interval_start)) IS NULL OR date(julianday(coverage_intervals.interval_end)) IS NULL OR date(julianday(coverage_intervals.interval_start)) != substr(coverage_intervals.interval_start, ?, ?) OR date(julianday(coverage_intervals.interval_end)) != substr(coverage_intervals.interval_end, ?, ?)",
+          "parameters": [
+            1,
+            10,
+            "2099-01-02",
+            1,
+            10,
+            "2099-01-29",
+            1,
+            10,
+            1,
+            10
+          ],
+          "plan": [
+            [
+              2,
+              0,
+              216,
+              "SCAN coverage_intervals"
+            ]
+          ]
+        },
+        {
+          "phase": "baseline",
+          "sql": "SELECT garmin_record_metrics.id, garmin_record_metrics.record_id, garmin_record_metrics.capability_code, garmin_record_metrics.metric_code, garmin_record_metrics.field_path, garmin_record_metrics.state, garmin_record_metrics.value_number, garmin_record_metrics.value_text, garmin_record_metrics.unit, garmin_record_metrics.reason, garmin_record_metrics.capability_status, garmin_record_metrics.source_device_attributed, garmin_record_metrics.collection_json, garmin_source_records.id AS id_1, garmin_source_records.garmin_source_id, garmin_source_records.raw_payload_id, garmin_source_records.ingest_event_id, garmin_source_records.stream_code, garmin_source_records.idempotency_key, garmin_source_records.external_record_id, garmin_source_records.record_index, garmin_source_records.activity_type, garmin_source_records.source_path, garmin_source_records.temporal_precision, garmin_source_records.source_local_date, garmin_source_records.source_timestamp_utc, garmin_source_records.local_wall_time, garmin_source_records.source_local_timestamp, garmin_source_records.source_utc_offset_minutes, garmin_source_records.source_timezone, garmin_source_records.source_field, garmin_source_records.source_local_field, garmin_source_records.source_utc_field, garmin_source_records.record_status, garmin_source_records.normalization_contract_version, garmin_source_records.diagnostics_json, garmin_source_records.unknown_fields_json, garmin_source_records.surface_code, garmin_source_records.collection_key, garmin_source_records.projection_status, garmin_source_records.projection_observed_at, garmin_source_records.retired_at, garmin_source_records.retire_reason, garmin_source_records.reconciliation_contract_version, garmin_source_records.created_at, garmin_source_records.last_seen_at, garmin_source_records.updated_at \nFROM garmin_record_metrics JOIN garmin_source_records ON garmin_record_metrics.record_id = garmin_source_records.id \nWHERE garmin_source_records.garmin_source_id = ? AND garmin_source_records.projection_status = ? AND garmin_record_metrics.metric_code = ? AND garmin_source_records.id IN (SELECT garmin_record_metrics.record_id \nFROM garmin_record_metrics \nWHERE garmin_record_metrics.metric_code = ?) AND (garmin_source_records.source_local_date IS NOT NULL AND garmin_source_records.source_local_date >= ? AND garmin_source_records.source_local_date <= ? OR garmin_source_records.source_local_date IS NULL AND garmin_source_records.source_timestamp_utc IS NOT NULL AND garmin_source_records.source_timestamp_utc >= ? AND garmin_source_records.source_timestamp_utc < ?) ORDER BY garmin_source_records.source_local_date, garmin_source_records.source_timestamp_utc, garmin_source_records.id, garmin_record_metrics.id\n LIMIT ? OFFSET ?",
+          "parameters": [
+            "5463c191-feae-459b-bd99-43f904271115",
+            "current",
+            "sleep_duration_seconds",
+            "sleep_duration_seconds",
+            "2099-01-02",
+            "2099-01-29",
+            "2099-01-02 00:00:00.000000",
+            "2099-01-30 00:00:00.000000",
+            2001,
+            0
+          ],
+          "plan": [
+            [
+              10,
+              0,
+              62,
+              "SEARCH garmin_record_metrics USING INDEX sqlite_autoindex_garmin_record_metrics_2 (record_id=? AND metric_code=?)"
+            ],
+            [
+              14,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              17,
+              14,
+              62,
+              "SEARCH garmin_record_metrics USING INDEX ix_garmin_record_metrics_metric_state (metric_code=?)"
+            ],
+            [
+              40,
+              0,
+              0,
+              "REUSE LIST SUBQUERY 1"
+            ],
+            [
+              46,
+              0,
+              46,
+              "SEARCH garmin_source_records USING INDEX sqlite_autoindex_garmin_source_records_1 (id=?)"
+            ],
+            [
+              125,
+              0,
+              0,
+              "USE TEMP B-TREE FOR ORDER BY"
+            ]
+          ]
+        },
+        {
+          "phase": "freshness",
+          "sql": "SELECT max((SELECT garmin_source_records.source_local_date \nFROM garmin_source_records \nWHERE garmin_source_records.stream_code = ? AND garmin_source_records.surface_code = ? AND garmin_source_records.projection_status = ? AND garmin_source_records.record_status IN (?, ?) AND garmin_source_records.garmin_source_id = garmin_sources.id ORDER BY garmin_source_records.source_local_date DESC\n LIMIT ? OFFSET ?)) AS max_1, count((SELECT garmin_source_records.id \nFROM garmin_source_records \nWHERE garmin_source_records.stream_code = ? AND garmin_source_records.surface_code = ? AND garmin_source_records.projection_status = ? AND garmin_source_records.record_status IN (?, ?) AND garmin_source_records.garmin_source_id = garmin_sources.id ORDER BY garmin_source_records.source_local_date DESC\n LIMIT ? OFFSET ?)) AS count_1 \nFROM garmin_sources \nWHERE garmin_sources.provider_id = ?",
+          "parameters": [
+            "intraday",
+            "heart_rate",
+            "current",
+            "ok",
+            "partial",
+            1,
+            0,
+            "intraday",
+            "heart_rate",
+            "current",
+            "ok",
+            "partial",
+            1,
+            0,
+            "ed69c4d7-44ef-4721-a185-338cd4d9aa11"
+          ],
+          "plan": [
+            [
+              3,
+              0,
+              216,
+              "SCAN garmin_sources"
+            ],
+            [
+              8,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 1"
+            ],
+            [
+              21,
+              8,
+              60,
+              "SEARCH garmin_source_records USING INDEX ix_garmin_source_records_surface_date (garmin_source_id=? AND surface_code=?)"
+            ],
+            [
+              46,
+              0,
+              0,
+              "CORRELATED SCALAR SUBQUERY 2"
+            ],
+            [
+              59,
+              46,
+              60,
+              "SEARCH garmin_source_records USING INDEX ix_garmin_source_records_surface_date (garmin_source_id=? AND surface_code=?)"
+            ]
+          ]
+        },
+        {
+          "phase": "freshness",
+          "sql": "SELECT max(CASE WHEN (garmin_source_records.temporal_precision IN (?, ?)) THEN garmin_source_records.source_timestamp_utc END) AS max_1, sum(CASE WHEN (garmin_source_records.temporal_precision IN (?, ?) OR garmin_source_records.source_local_date IS NULL OR garmin_source_records.temporal_precision IN (?, ?) AND garmin_source_records.source_timestamp_utc IS NULL) THEN ? ELSE ? END) AS sum_1, count(distinct(garmin_source_records.garmin_source_id)) AS count_1 \nFROM garmin_source_records \nWHERE garmin_source_records.stream_code = ? AND garmin_source_records.surface_code = ? AND garmin_source_records.projection_status = ? AND garmin_source_records.record_status IN (?, ?) AND garmin_source_records.garmin_source_id IN (SELECT garmin_sources.id \nFROM garmin_sources \nWHERE garmin_sources.provider_id = ?) AND garmin_source_records.source_local_date = ?",
+          "parameters": [
+            "instant",
+            "minute",
+            "local",
+            "unknown",
+            "instant",
+            "minute",
+            1,
+            0,
+            "intraday",
+            "heart_rate",
+            "current",
+            "ok",
+            "partial",
+            "ed69c4d7-44ef-4721-a185-338cd4d9aa11",
+            "2099-01-29"
+          ],
+          "plan": [
+            [
+              3,
+              0,
+              0,
+              "USE TEMP B-TREE FOR count(DISTINCT)"
+            ],
+            [
+              6,
+              0,
+              105,
+              "SEARCH garmin_source_records USING INDEX ix_garmin_source_records_surface_date (garmin_source_id=? AND surface_code=? AND source_local_date=?)"
+            ],
+            [
+              10,
+              0,
+              0,
+              "LIST SUBQUERY 1"
+            ],
+            [
+              12,
+              10,
+              216,
+              "SCAN garmin_sources"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "arm": "after",
+      "total_seconds": 0.7764070000011998,
+      "phase_seconds": {
+        "quality": 0.00444940000124916,
+        "baseline": 0.13260219999938272,
+        "freshness": 0.00914589999774762
+      },
+      "sql_execute_seconds": {
+        "other": 0.1015492999995331,
+        "quality": 0.0002310999989276752,
+        "baseline": 0.008874600003764499,
+        "freshness": 0.0009134000010817545
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.12418090000028315,
+      "plans": []
+    },
+    {
+      "arm": "before",
+      "total_seconds": 0.9144051999992371,
+      "phase_seconds": {
+        "quality": 0.015952300000208197,
+        "baseline": 0.1938659000024927,
+        "freshness": 0.09455530000013823
+      },
+      "sql_execute_seconds": {
+        "other": 0.1102017999983218,
+        "quality": 0.00020960000074410345,
+        "baseline": 0.06574419999560632,
+        "freshness": 0.08341330000075686
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.014866900000924943,
+      "plans": []
+    },
+    {
+      "arm": "before",
+      "total_seconds": 0.9485554000002594,
+      "phase_seconds": {
+        "quality": 0.014924099999916507,
+        "baseline": 0.19124550000015006,
+        "freshness": 0.09709649999967951
+      },
+      "sql_execute_seconds": {
+        "other": 0.12193160001697834,
+        "quality": 0.00031409999974130187,
+        "baseline": 0.06646060000821308,
+        "freshness": 0.08653140000023996
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.01756819999900472,
+      "plans": []
+    },
+    {
+      "arm": "after",
+      "total_seconds": 0.7833912999994936,
+      "phase_seconds": {
+        "quality": 0.004170599999270053,
+        "baseline": 0.13507639999806997,
+        "freshness": 0.008789299998170463
+      },
+      "sql_execute_seconds": {
+        "other": 0.09858370001347794,
+        "quality": 0.00021360000027925707,
+        "baseline": 0.009100600003876025,
+        "freshness": 0.0007377999972959515
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.0032581000014033634,
+      "plans": []
+    },
+    {
+      "arm": "after",
+      "total_seconds": 0.7969185000001744,
+      "phase_seconds": {
+        "quality": 0.0048325000007025665,
+        "baseline": 0.12777210000058403,
+        "freshness": 0.009125999999014311
+      },
+      "sql_execute_seconds": {
+        "other": 0.13236280000091938,
+        "quality": 0.0002505000011296943,
+        "baseline": 0.008683500003826339,
+        "freshness": 0.0007928000031824922
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.002747400001680944,
+      "plans": []
+    },
+    {
+      "arm": "before",
+      "total_seconds": 0.9294305999992503,
+      "phase_seconds": {
+        "quality": 0.01540720000048168,
+        "baseline": 0.189805999998498,
+        "freshness": 0.09617149999940011
+      },
+      "sql_execute_seconds": {
+        "other": 0.11199059999307792,
+        "quality": 0.00023150000197347254,
+        "baseline": 0.0657367999847338,
+        "freshness": 0.08640360000208602
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.015620600001057028,
+      "plans": []
+    },
+    {
+      "arm": "before",
+      "total_seconds": 0.9284389000004012,
+      "phase_seconds": {
+        "quality": 0.018778499999825726,
+        "baseline": 0.19675810000080673,
+        "freshness": 0.09647989999757556
+      },
+      "sql_execute_seconds": {
+        "other": 0.11401279998972313,
+        "quality": 0.0007566000003862428,
+        "baseline": 0.06908109999494627,
+        "freshness": 0.08534659999895666
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.016738600001190207,
+      "plans": []
+    },
+    {
+      "arm": "after",
+      "total_seconds": 0.7578119999998307,
+      "phase_seconds": {
+        "quality": 0.005154999998921994,
+        "baseline": 0.13140550000025542,
+        "freshness": 0.008110400001896778
+      },
+      "sql_execute_seconds": {
+        "other": 0.10171790000640613,
+        "quality": 0.00020820000281673856,
+        "baseline": 0.008959599988884293,
+        "freshness": 0.0006709000008413568
+      },
+      "sql_counts": {
+        "other": 164,
+        "quality": 4,
+        "baseline": 340,
+        "freshness": 10
+      },
+      "baseline_candidate_seconds": 0.0030331000016303733,
+      "plans": []
+    }
+  ],
+  "equivalence": {
+    "full_packet_equal": true,
+    "baseline_candidate_ids_equal": true,
+    "packet_result_hash": "c59ea8eef5618f7ef6df4cb6c2f60722224ca3b1be516368fa8ce1b1d08f1c38"
+  }
+}

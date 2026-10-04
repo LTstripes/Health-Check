@@ -1,0 +1,33 @@
+{
+  "baseline_sha": "9eb5b82221c99d96e7681f26c4f41e637186fe47",
+  "harness_sha256": "5ddb4a1987c93e2fc0b1b61a6ca7236ed2e3fcc12d38897afbca6ba4f3069984",
+  "schema_sha256": "72cc0f3a3116edc97637e49c4e3f4099f018debe77cf0fc12907f2f9df93c86d",
+  "profiles": {
+    "full": {
+      "counts": {
+        "garmin_source_records": 2000056,
+        "garmin_record_metrics": 2000364,
+        "coverage_intervals": 200000,
+        "sync_runs": 5000
+      },
+      "coverage_rows_to_orm": {
+        "before": 200000,
+        "after": 580
+      },
+      "packet_result_hash": "351d2bbe0df7b5799396a8d99c20b94654b515cf61bcf0d1fce6255c8699629d"
+    },
+    "control": {
+      "counts": {
+        "garmin_source_records": 10056,
+        "garmin_record_metrics": 10364,
+        "coverage_intervals": 1000,
+        "sync_runs": 100
+      },
+      "coverage_rows_to_orm": {
+        "before": 1000,
+        "after": 29
+      },
+      "packet_result_hash": "c59ea8eef5618f7ef6df4cb6c2f60722224ca3b1be516368fa8ce1b1d08f1c38"
+    }
+  }
+}

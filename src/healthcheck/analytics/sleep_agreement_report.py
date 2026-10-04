@@ -14,7 +14,7 @@ from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from healthcheck.analytics.sleep_agreement_statistics import (
@@ -473,9 +473,34 @@ class SleepAgreementReportService:
         providers = list(
             self.session.scalars(select(Provider).order_by(Provider.code, Provider.id))
         )
-        states = list(self.session.scalars(select(SyncStreamState)))
-        sync_runs = list(self.session.scalars(select(SyncRun)))
-        intervals = list(self.session.scalars(select(CoverageInterval)))
+        # Preserve datetime decoding and Python clock/tie-break semantics, but
+        # fetch only the columns consumed here rather than all historical entities.
+        states = list(self.session.execute(select(
+            SyncStreamState.provider_id, SyncStreamState.last_success_at,
+            SyncStreamState.last_attempt_at,
+        )))
+        sync_runs = list(self.session.execute(select(
+            SyncRun.provider_id, SyncRun.status, SyncRun.completed_at,
+            SyncRun.started_at, SyncRun.id,
+        )))
+        interval_statement = select(CoverageInterval)
+        if start_date is not None and end_date is not None:
+            # Compare the stored civil-date prefix, like Python .date(): retain
+            # inclusive endpoints, alternate ISO separators/fractions and offsets.
+            # SQLite date() would convert offset-bearing values to a different UTC day.
+            start_day = func.substr(CoverageInterval.interval_start, 1, 10)
+            end_day = func.substr(CoverageInterval.interval_end, 1, 10)
+            normalized_start = func.date(func.julianday(CoverageInterval.interval_start))
+            normalized_end = func.date(func.julianday(CoverageInterval.interval_end))
+            interval_statement = interval_statement.where(or_(
+                and_(end_day >= start_date.isoformat(), start_day <= end_date.isoformat()),
+                # Do not hide undecodable/normalized dates outside the window.
+                # Keep unusual encodings/offset-day shifts for the unchanged
+                # Python .date() filter, and malformed rows for fail-closed decode.
+                normalized_start.is_(None), normalized_end.is_(None),
+                normalized_start != start_day, normalized_end != end_day,
+            ))
+        intervals = list(self.session.scalars(interval_statement))
         latest_evidence_date = max((pair.wake_date for _run, pair in selected_pairs), default=None)
         actual_by_provider = {
             GARMIN_PROVIDER_CODE: latest_evidence_date,

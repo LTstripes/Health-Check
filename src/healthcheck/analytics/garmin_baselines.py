@@ -471,6 +471,12 @@ def _candidate_statement(query: GarminSeriesQuery) -> Select[Any]:
             GarminSourceRecord.garmin_source_id == query.garmin_source_id.strip(),
             GarminSourceRecord.projection_status == PROJECTION_CURRENT,
             GarminRecordMetric.metric_code == query.metric_code.strip(),
+            # Materialize record identities through the existing metric/state
+            # index before PK joins; a source/date-first plan walks intraday
+            # history even when this metric has only a few daily inputs.
+            GarminSourceRecord.id.in_(select(GarminRecordMetric.record_id).where(
+                GarminRecordMetric.metric_code == query.metric_code.strip(),
+            )),
             or_(date_in_window, utc_in_window),
         )
         .order_by(
