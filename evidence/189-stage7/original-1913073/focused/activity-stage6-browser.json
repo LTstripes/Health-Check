@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "checks": [
+    "1100px: Russian sessions/training, all 3 analytics render, gap/zero/partial, keyboard disclosure, 44px targets, no overflow",
+    "800px: Russian sessions/training, all 3 analytics render, gap/zero/partial, keyboard disclosure, 44px targets, no overflow",
+    "390px: Russian sessions/training, all 3 analytics render, gap/zero/partial, keyboard disclosure, 44px targets, no overflow",
+    "Loading clears old result; latest submitted filter wins delayed-response race",
+    "Request failure is error with alert; no stale result survives",
+    "Unapplied source cannot query old activity IDs",
+    "Narrow empty period is honest and usable",
+    "Data link reaches source status"
+  ],
+  "errors": []
+}

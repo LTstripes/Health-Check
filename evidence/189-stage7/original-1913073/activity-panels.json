@@ -1,0 +1,43 @@
+{
+  "status": "PASS",
+  "candidate": "1913073fb35328f2f0c3ff8b4d5ba73b4cb11f3d",
+  "checks": [
+    {
+      "width": 1100,
+      "panel": "activity",
+      "status": "PASS",
+      "checks": "real result -> delayed loading/cleared evidence -> HTTP 503/cleared result -> retry"
+    },
+    {
+      "width": 1100,
+      "panel": "lag",
+      "status": "PASS",
+      "checks": "real result -> delayed loading/cleared evidence -> HTTP 503/cleared result -> retry"
+    },
+    {
+      "width": 800,
+      "panel": "activity",
+      "status": "PASS",
+      "checks": "real result -> delayed loading/cleared evidence -> HTTP 503/cleared result -> retry"
+    },
+    {
+      "width": 800,
+      "panel": "lag",
+      "status": "PASS",
+      "checks": "real result -> delayed loading/cleared evidence -> HTTP 503/cleared result -> retry"
+    },
+    {
+      "width": 390,
+      "panel": "activity",
+      "status": "PASS",
+      "checks": "real result -> delayed loading/cleared evidence -> HTTP 503/cleared result -> retry"
+    },
+    {
+      "width": 390,
+      "panel": "lag",
+      "status": "PASS",
+      "checks": "real result -> delayed loading/cleared evidence -> HTTP 503/cleared result -> retry"
+    }
+  ],
+  "errors": []
+}

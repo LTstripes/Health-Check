@@ -1,13 +1,17 @@
-/* #189 Stage 7: real Chromium, production pages, isolated populated/empty stores.
+/* #189 Stage 7: real browser engines, production pages, isolated synthetic stores.
  * Run serve_owner_acceptance_fixture.py on four explicit loopback ports first:
  * populated (default), --empty, --unavailable, --read-errors. Each needs a fresh
  * external HEALTHCHECK_DATA_DIR named hc189s7-*. Set BASE/EMPTY/UNAVAILABLE/FAILURE
  * URLs through HEALTHCHECK_BROWSER_*_URL, plus HEALTHCHECK_BROWSER_EVIDENCE_DIR.
- * NODE_PATH exposes Playwright; HEALTHCHECK_BROWSER_* identifies URL/evidence.
+ * NODE_PATH exposes Playwright; HEALTHCHECK_BROWSER_ENGINE selects chromium
+ * (default), firefox or webkit; HEALTHCHECK_BROWSER_* identifies URL/evidence.
  * No provider, import, confirmation or other write request is sent by this check.
  */
-const { chromium } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
 const assert = require('node:assert/strict');
+const engine = process.env.HEALTHCHECK_BROWSER_ENGINE || 'chromium';
+assert.ok(['chromium', 'firefox', 'webkit'].includes(engine), 'Supported browser engine required');
+const browserType = {chromium, firefox, webkit}[engine];
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -35,9 +39,9 @@ const sections = [
 
 (async () => {
   fs.mkdirSync(evidence, { recursive: true });
-  const browser = await chromium.launch({ headless: true,
+  const browser = await browserType.launch({ headless: true,
     ...(process.env.HEALTHCHECK_BROWSER_EXECUTABLE ? {executablePath: process.env.HEALTHCHECK_BROWSER_EXECUTABLE} : {}) });
-  const checks = [], errors = [], expectedHttpErrors = [], forbiddenRequests = [];
+  const checks = [], errors = [], expectedHttpErrors = [], forbiddenRequests = [], unverified = [];
   const inducedFailures = new Set();
   let page;
   const frame = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -123,6 +127,16 @@ const sections = [
       else errors.push(item);
     });
 
+    // Windows WebKit can exclude even unstyled native links from Tab order.
+    // Prove that engine limitation separately; never relabel it as a passed
+    // sequential-focus check or alter production markup to work around it.
+    let nativeLinksSkipped = false;
+    if (engine === 'webkit') {
+      await page.setContent('<a id="native-first" href="#target">link</a><button>button</button><input><main id="target">target</main>');
+      await page.keyboard.press('Tab');
+      nativeLinksSkipped = !await page.locator('#native-first').evaluate(el => el === document.activeElement);
+    }
+
     for (const width of [1100, 800, 390]) {
       console.log(`Checking ${width}px navigation, populated/empty pages and request states`);
       await page.setViewportSize({width, height: 900});
@@ -141,10 +155,14 @@ const sections = [
       // Real first-tab skip link transfers focus to the content.
       await page.goto(base + '/brief');
       await page.keyboard.press('Tab');
-      assert.equal(await page.locator('.skip-link').evaluate(el => el === document.activeElement), true);
+      const skipFocused = await page.locator('.skip-link').evaluate(el => el === document.activeElement);
+      if (!skipFocused && nativeLinksSkipped) {
+        unverified.push({width, check: 'first Tab reaches skip link', reason: 'Windows WebKit also skips an unstyled native link; full link Tab navigation is unavailable in this engine configuration'});
+        await page.locator('.skip-link').focus();
+      } else assert.equal(skipFocused, true);
       await page.keyboard.press('Enter');
       assert.equal(await page.locator('main').evaluate(el => el === document.activeElement), true);
-      checks.push(`${width}: five real nav links, brand and keyboard skip link`);
+      checks.push(`${width}: five real nav links, brand and keyboard skip activation${skipFocused ? ', first Tab focus' : '; first Tab focus UNVERIFIED'}`);
 
       for (const [store, origin] of [['populated', base], ['empty', empty]]) {
         for (const [index, [name, url]] of sections.entries()) {
@@ -263,12 +281,12 @@ const sections = [
     assert.deepEqual(forbiddenRequests, [], 'Only local read requests permitted');
     assert.deepEqual(errors, [], 'No unexpected console or JavaScript errors');
     assert.deepEqual(candidateIdentity(), candidate, 'Candidate must remain unchanged during verification');
-    const result = {status: 'PASS', candidate, browser: browser.version(), widths: [1100, 800, 390], checks, errors, expectedHttpErrors, forbiddenRequests};
+    const result = {status: unverified.length ? 'PASS_WITH_LIMITATIONS' : 'PASS', candidate, engine, browser: browser.version(), widths: [1100, 800, 390], checks, errors, expectedHttpErrors, forbiddenRequests, unverified};
     fs.writeFileSync(path.join(evidence, 'owner-stage7-browser.json'), JSON.stringify(result, null, 2));
-    console.log(JSON.stringify({status: result.status, browser: result.browser, checks: checks.length, errors, expectedHttpErrors: expectedHttpErrors.length}, null, 2));
+    console.log(JSON.stringify({status: result.status, engine, browser: result.browser, checks: checks.length, errors, expectedHttpErrors: expectedHttpErrors.length, unverified}, null, 2));
   } catch (error) {
     if (page) await page.screenshot({path: path.join(evidence, 'failure.png')}).catch(() => {});
-    fs.writeFileSync(path.join(evidence, 'owner-stage7-browser-failure.json'), JSON.stringify({status: 'FAIL', message: error.message, url: page?.url(), checks, errors}, null, 2));
+    fs.writeFileSync(path.join(evidence, 'owner-stage7-browser-failure.json'), JSON.stringify({status: 'FAIL', candidate, engine, browser: browser.version(), message: error.message, url: page?.url(), checks, errors, unverified}, null, 2));
     throw error;
   } finally { await browser.close(); }
 })().catch(error => {console.error(error); process.exitCode = 1;});

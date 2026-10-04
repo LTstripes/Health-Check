@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "checks": [
+    "Russian Owner-first Weight surface loads with nav, hero and limitations",
+    "Chart/render JS executes: raw+goal series, filled panels, current 81.2 and goal 76.0",
+    "Honest missing states stay distinct and non-zero (rate insufficient, similar unavailable)",
+    "Technical disclosure is closed, opens exact evidence via keyboard and closes with focus retained",
+    "Data link is reachable and lands on Данные",
+    "1100/800/390px: no page overflow, one narrow column, single nav row, 44px targets, honest states stay usable",
+    "No console/page JavaScript errors throughout the smoke"
+  ],
+  "errors": []
+}

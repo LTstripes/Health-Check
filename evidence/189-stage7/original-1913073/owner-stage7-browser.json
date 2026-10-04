@@ -1,0 +1,803 @@
+{
+  "status": "PASS",
+  "candidate": {
+    "sha": "1913073fb35328f2f0c3ff8b4d5ba73b4cb11f3d",
+    "tree": "f8a47f986af06aa4ab3e50dbedd8b08aaea26ae1",
+    "trackedChanges": "",
+    "untracked": ""
+  },
+  "browser": "151.0.7922.34",
+  "widths": [
+    1100,
+    800,
+    390
+  ],
+  "checks": [
+    "1100: five real nav links, brand and keyboard skip link",
+    {
+      "label": "1100 populated Обзор /brief local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 populated Обзор /brief keyboard disclosures",
+      "count": 4
+    },
+    "1100 populated Обзор /brief: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 populated Вес / local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 populated Вес / keyboard disclosures",
+      "count": 2
+    },
+    "1100 populated Вес /: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 populated Сон /sleep local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 populated Сон /sleep keyboard disclosures",
+      "count": 2
+    },
+    "1100 populated Сон /sleep: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 populated Активность /garmin local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 populated Активность /garmin keyboard disclosures",
+      "count": 2
+    },
+    {
+      "label": "1100 populated Активность /garmin comparison local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 populated Активность /garmin training local scrolling",
+      "regions": []
+    },
+    "1100 populated Активность /garmin: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 populated Данные /imports local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 populated Данные /imports keyboard disclosures",
+      "count": 5
+    },
+    "1100 populated Данные /imports: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 populated Сон /agreement local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 populated Сон /agreement keyboard disclosures",
+      "count": 3
+    },
+    "1100 populated Сон /agreement: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 empty Обзор /brief local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 empty Обзор /brief keyboard disclosures",
+      "count": 4
+    },
+    "1100 empty Обзор /brief: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 empty Вес / local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 empty Вес / keyboard disclosures",
+      "count": 2
+    },
+    "1100 empty Вес /: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 empty Сон /sleep local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 empty Сон /sleep keyboard disclosures",
+      "count": 2
+    },
+    "1100 empty Сон /sleep: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 empty Активность /garmin local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 empty Активность /garmin keyboard disclosures",
+      "count": 2
+    },
+    "1100 empty Активность /garmin: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 empty Данные /imports local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 empty Данные /imports keyboard disclosures",
+      "count": 4
+    },
+    "1100 empty Данные /imports: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 empty Сон /agreement local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 empty Сон /agreement keyboard disclosures",
+      "count": 2
+    },
+    "1100 empty Сон /agreement: rendering, states, responsive layout, open evidence",
+    {
+      "label": "1100 Обзор backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 Обзор backend read error keyboard disclosures",
+      "count": 2
+    },
+    "1100 Обзор: real read-failure handler and unavailable-store state",
+    {
+      "label": "1100 Вес backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 Вес backend read error keyboard disclosures",
+      "count": 2
+    },
+    "1100 Вес: real read-failure handler and unavailable-store state",
+    {
+      "label": "1100 Сон backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 Сон backend read error keyboard disclosures",
+      "count": 2
+    },
+    "1100 Сон: real read-failure handler and unavailable-store state",
+    {
+      "label": "1100 Активность backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 Активность backend read error keyboard disclosures",
+      "count": 2
+    },
+    "1100 Активность: real read-failure handler and unavailable-store state",
+    {
+      "label": "1100 Данные backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 Данные backend read error keyboard disclosures",
+      "count": 2
+    },
+    "1100 Данные: real read-failure handler and unavailable-store state",
+    {
+      "label": "1100 Сон backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "1100 Сон backend read error keyboard disclosures",
+      "count": 2
+    },
+    "1100 Сон: real read-failure handler and unavailable-store state",
+    "1100: server navigation loading; five real validation/error routes; Data loading/error/retry",
+    "800: five real nav links, brand and keyboard skip link",
+    {
+      "label": "800 populated Обзор /brief local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 populated Обзор /brief keyboard disclosures",
+      "count": 4
+    },
+    "800 populated Обзор /brief: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 populated Вес / local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 populated Вес / keyboard disclosures",
+      "count": 2
+    },
+    "800 populated Вес /: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 populated Сон /sleep local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 populated Сон /sleep keyboard disclosures",
+      "count": 2
+    },
+    "800 populated Сон /sleep: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 populated Активность /garmin local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 populated Активность /garmin keyboard disclosures",
+      "count": 2
+    },
+    {
+      "label": "800 populated Активность /garmin comparison local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 populated Активность /garmin training local scrolling",
+      "regions": []
+    },
+    "800 populated Активность /garmin: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 populated Данные /imports local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 populated Данные /imports keyboard disclosures",
+      "count": 5
+    },
+    "800 populated Данные /imports: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 populated Сон /agreement local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 populated Сон /agreement keyboard disclosures",
+      "count": 3
+    },
+    "800 populated Сон /agreement: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 empty Обзор /brief local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 empty Обзор /brief keyboard disclosures",
+      "count": 4
+    },
+    "800 empty Обзор /brief: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 empty Вес / local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 empty Вес / keyboard disclosures",
+      "count": 2
+    },
+    "800 empty Вес /: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 empty Сон /sleep local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 empty Сон /sleep keyboard disclosures",
+      "count": 2
+    },
+    "800 empty Сон /sleep: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 empty Активность /garmin local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 empty Активность /garmin keyboard disclosures",
+      "count": 2
+    },
+    "800 empty Активность /garmin: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 empty Данные /imports local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 empty Данные /imports keyboard disclosures",
+      "count": 4
+    },
+    "800 empty Данные /imports: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 empty Сон /agreement local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 empty Сон /agreement keyboard disclosures",
+      "count": 2
+    },
+    "800 empty Сон /agreement: rendering, states, responsive layout, open evidence",
+    {
+      "label": "800 Обзор backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 Обзор backend read error keyboard disclosures",
+      "count": 2
+    },
+    "800 Обзор: real read-failure handler and unavailable-store state",
+    {
+      "label": "800 Вес backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 Вес backend read error keyboard disclosures",
+      "count": 2
+    },
+    "800 Вес: real read-failure handler and unavailable-store state",
+    {
+      "label": "800 Сон backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 Сон backend read error keyboard disclosures",
+      "count": 2
+    },
+    "800 Сон: real read-failure handler and unavailable-store state",
+    {
+      "label": "800 Активность backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 Активность backend read error keyboard disclosures",
+      "count": 2
+    },
+    "800 Активность: real read-failure handler and unavailable-store state",
+    {
+      "label": "800 Данные backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 Данные backend read error keyboard disclosures",
+      "count": 2
+    },
+    "800 Данные: real read-failure handler and unavailable-store state",
+    {
+      "label": "800 Сон backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "800 Сон backend read error keyboard disclosures",
+      "count": 2
+    },
+    "800 Сон: real read-failure handler and unavailable-store state",
+    "800: server navigation loading; five real validation/error routes; Data loading/error/retry",
+    "390: five real nav links, brand and keyboard skip link",
+    {
+      "label": "390 populated Обзор /brief local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 populated Обзор /brief keyboard disclosures",
+      "count": 4
+    },
+    "390 populated Обзор /brief: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 populated Вес / local scrolling",
+      "regions": [
+        {
+          "cls": "table-scroll",
+          "moved": true,
+          "overflow": "auto"
+        }
+      ]
+    },
+    {
+      "label": "390 populated Вес / keyboard disclosures",
+      "count": 2
+    },
+    "390 populated Вес /: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 populated Сон /sleep local scrolling",
+      "regions": [
+        {
+          "cls": "table-scroll sleep-history",
+          "moved": true,
+          "overflow": "auto"
+        }
+      ]
+    },
+    {
+      "label": "390 populated Сон /sleep keyboard disclosures",
+      "count": 2
+    },
+    "390 populated Сон /sleep: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 populated Активность /garmin local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 populated Активность /garmin keyboard disclosures",
+      "count": 2
+    },
+    {
+      "label": "390 populated Активность /garmin comparison local scrolling",
+      "regions": [
+        {
+          "cls": "table-scroll",
+          "moved": true,
+          "overflow": "auto"
+        },
+        {
+          "cls": "table-scroll",
+          "moved": true,
+          "overflow": "auto"
+        }
+      ]
+    },
+    {
+      "label": "390 populated Активность /garmin training local scrolling",
+      "regions": [
+        {
+          "cls": "table-scroll",
+          "moved": true,
+          "overflow": "auto"
+        },
+        {
+          "cls": "table-scroll",
+          "moved": true,
+          "overflow": "auto"
+        },
+        {
+          "cls": "chart",
+          "moved": true,
+          "overflow": "auto"
+        },
+        {
+          "cls": "table-scroll",
+          "moved": true,
+          "overflow": "auto"
+        }
+      ]
+    },
+    "390 populated Активность /garmin: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 populated Данные /imports local scrolling",
+      "regions": [
+        {
+          "cls": "table-scroll",
+          "moved": true,
+          "overflow": "auto"
+        }
+      ]
+    },
+    {
+      "label": "390 populated Данные /imports keyboard disclosures",
+      "count": 5
+    },
+    "390 populated Данные /imports: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 populated Сон /agreement local scrolling",
+      "regions": [
+        {
+          "cls": "agreement-chart",
+          "moved": true,
+          "overflow": "auto"
+        }
+      ]
+    },
+    {
+      "label": "390 populated Сон /agreement keyboard disclosures",
+      "count": 3
+    },
+    "390 populated Сон /agreement: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 empty Обзор /brief local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 empty Обзор /brief keyboard disclosures",
+      "count": 4
+    },
+    "390 empty Обзор /brief: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 empty Вес / local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 empty Вес / keyboard disclosures",
+      "count": 2
+    },
+    "390 empty Вес /: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 empty Сон /sleep local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 empty Сон /sleep keyboard disclosures",
+      "count": 2
+    },
+    "390 empty Сон /sleep: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 empty Активность /garmin local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 empty Активность /garmin keyboard disclosures",
+      "count": 2
+    },
+    "390 empty Активность /garmin: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 empty Данные /imports local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 empty Данные /imports keyboard disclosures",
+      "count": 4
+    },
+    "390 empty Данные /imports: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 empty Сон /agreement local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 empty Сон /agreement keyboard disclosures",
+      "count": 2
+    },
+    "390 empty Сон /agreement: rendering, states, responsive layout, open evidence",
+    {
+      "label": "390 Обзор backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 Обзор backend read error keyboard disclosures",
+      "count": 2
+    },
+    "390 Обзор: real read-failure handler and unavailable-store state",
+    {
+      "label": "390 Вес backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 Вес backend read error keyboard disclosures",
+      "count": 2
+    },
+    "390 Вес: real read-failure handler and unavailable-store state",
+    {
+      "label": "390 Сон backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 Сон backend read error keyboard disclosures",
+      "count": 2
+    },
+    "390 Сон: real read-failure handler and unavailable-store state",
+    {
+      "label": "390 Активность backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 Активность backend read error keyboard disclosures",
+      "count": 2
+    },
+    "390 Активность: real read-failure handler and unavailable-store state",
+    {
+      "label": "390 Данные backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 Данные backend read error keyboard disclosures",
+      "count": 2
+    },
+    "390 Данные: real read-failure handler and unavailable-store state",
+    {
+      "label": "390 Сон backend read error local scrolling",
+      "regions": []
+    },
+    {
+      "label": "390 Сон backend read error keyboard disclosures",
+      "count": 2
+    },
+    "390 Сон: real read-failure handler and unavailable-store state",
+    "390: server navigation loading; five real validation/error routes; Data loading/error/retry"
+  ],
+  "errors": [],
+  "expectedHttpErrors": [
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/brief?start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18972/brief?start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/sleep?wake_date=2099-01-02"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/garmin?metric_code=stress_daily_average&start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/imports"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18972/api/source-freshness?evaluated_at_utc=2026-10-04T20%3A23%3A57.139Z&evaluation_local_date=2026-10-04"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/agreement"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/brief?preset=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/sleep?wake_date=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 422 (Unprocessable Content)",
+      "url": "http://127.0.0.1:18970/garmin?start_date=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/garmin?garmin_source_id=stage7-unknown"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "url": "http://127.0.0.1:18970/imports/stage7-unknown"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18970/api/source-freshness?evaluated_at_utc=2026-10-04T20%3A23%3A58.748Z&evaluation_local_date=2026-10-04"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/brief?start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18972/brief?start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/sleep?wake_date=2099-01-02"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/garmin?metric_code=stress_daily_average&start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/imports"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18972/api/source-freshness?evaluated_at_utc=2026-10-04T20%3A24%3A06.004Z&evaluation_local_date=2026-10-04"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/agreement"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/brief?preset=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/sleep?wake_date=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 422 (Unprocessable Content)",
+      "url": "http://127.0.0.1:18970/garmin?start_date=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/garmin?garmin_source_id=stage7-unknown"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "url": "http://127.0.0.1:18970/imports/stage7-unknown"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18970/api/source-freshness?evaluated_at_utc=2026-10-04T20%3A24%3A07.596Z&evaluation_local_date=2026-10-04"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/brief?start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18972/brief?start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/sleep?wake_date=2099-01-02"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/garmin?metric_code=stress_daily_average&start_date=2099-01-01&end_date=2099-01-08"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/imports"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18972/api/source-freshness?evaluated_at_utc=2026-10-04T20%3A24%3A14.378Z&evaluation_local_date=2026-10-04"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "url": "http://127.0.0.1:18973/agreement"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/brief?preset=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/sleep?wake_date=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 422 (Unprocessable Content)",
+      "url": "http://127.0.0.1:18970/garmin?start_date=invalid"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+      "url": "http://127.0.0.1:18970/garmin?garmin_source_id=stage7-unknown"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "url": "http://127.0.0.1:18970/imports/stage7-unknown"
+    },
+    {
+      "type": "console",
+      "message": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+      "url": "http://127.0.0.1:18970/api/source-freshness?evaluated_at_utc=2026-10-04T20%3A24%3A15.859Z&evaluation_local_date=2026-10-04"
+    }
+  ],
+  "forbiddenRequests": []
+}
