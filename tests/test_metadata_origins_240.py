@@ -541,3 +541,35 @@ def test_direct_new_insert_cannot_persist_null_origin(owner_photo_env):
             },
         )
         assert created.metadata_origins_json is not None
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["timestamp", "timezone", "offset", "precision"],
+)
+def test_attested_date_rejects_non_date_evidence_pre_write(owner_photo_env, tmp_path, mutation):
+    from sqlalchemy import func as _func
+
+    settings, _paths, engine = owner_photo_env
+    payload = _structured_payload(source_local_date=date(2026, 6, 5), weight_kg=79.4)
+    if mutation == "timestamp":
+        payload["groups"][0]["source_timestamp"] = "2026-06-05T10:00:00+00:00"
+        payload["groups"][0]["temporal_precision"] = "instant"
+    elif mutation == "timezone":
+        payload["source_timezone"] = "UTC"
+    elif mutation == "offset":
+        payload["source_utc_offset_minutes"] = 0
+    else:
+        payload["groups"][0]["source_timestamp"] = "2026-06-05T10:00:00+00:00"
+        payload["groups"][0]["temporal_precision"] = "minute"
+    image = _save_image(tmp_path, payload)
+    extraction_json = _save_extraction_json(tmp_path, payload, f"attested-{mutation}.json")
+
+    result = import_owner_weight_screenshot(
+        settings, image, extraction_json_path=extraction_json, owner_attested_date="2026-06-05"
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "attested_date_invalid"
+    with session_scope(engine) as session:
+        assert (session.scalar(select(_func.count(ImportCandidate.id))) or 0) == 0

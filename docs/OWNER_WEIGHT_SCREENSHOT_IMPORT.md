@@ -8,7 +8,7 @@ The Work-side integration passes the single uploaded PNG or JPEG attachment as a
 
 ```powershell
 uv run --locked healthcheck owner-weight-screenshot-import `
-  --data-dir "D:\Garmin\HealthCheck-Stable" `
+  --data-dir "D:\HealthCheck\stable" `
   --image "<path to this uploaded attachment>"
 ```
 
@@ -17,7 +17,7 @@ strict `r01-photo-v1` extraction object:
 
 ```powershell
 uv run --locked healthcheck owner-weight-screenshot-import `
-  --data-dir "D:\Garmin\HealthCheck-Stable" `
+  --data-dir "D:\HealthCheck\stable" `
   --image "<path to this uploaded attachment>" `
   --extraction-json "<temporary JSON outside the repository>"
 ```
@@ -25,7 +25,9 @@ uv run --locked healthcheck owner-weight-screenshot-import `
 When the Owner explicitly states the source date in the same request, Work may add
 `--owner-attested-date "YYYY-MM-DD"` together with `--extraction-json`. Never supply
 it from memory, prior chat, filename, EXIF, clock, or defaults, and never without the
-sidecar. Provider vision routes never accept attestation.
+sidecar. An attested date is strictly date-only: the sidecar must carry no source
+timestamp, timezone, UTC offset, or non-date precision, otherwise the request is
+rejected before any write. Provider vision routes never accept attestation.
 
 This sidecar is bounded to 512 KiB, parsed and profile-checked before the R01 photo service
 writes evidence, and uses the fixed `healthcheck-owner-assisted-structured-extraction` v1
@@ -113,7 +115,7 @@ The new test file is assigned to the existing `app-ingest` CI lane; it does not 
 
 Before enabling the Work handoff against Stable, the Owner/Integrator gate remains required and must be performed with a recovery point and a private Xiaomi Home screenshot on the actual Work-to-local-CLI path:
 
-1. Upload one screenshot in ChatGPT Work and verify Work invokes this CLI against `D:\Garmin\HealthCheck-Stable` with that one attachment.
+1. Upload one screenshot in ChatGPT Work and verify Work invokes this CLI against `D:\HealthCheck\stable` with that one attachment.
 2. For a clear screenshot, verify through the normal Health-Check read path that one photo evidence/candidate set is retained and exactly one source measurement session is confirmed with Xiaomi Home, Xiaomi S400, `photo_import`, original photo hash, R01 algorithm identities and evidenced temporal precision.
 3. Replay the identical attachment. It must return `DUPLICATE` and leave the measurement/session/canonical counts unchanged.
 4. Exercise one ambiguous screenshot; it must return `NEEDS_REVIEW` and create no semantic measurement or canonical change.
@@ -121,6 +123,6 @@ Before enabling the Work handoff against Stable, the Owner/Integrator gate remai
 
 Until this live gate is completed, ChatGPT Work-to-Stable is `UNVERIFIED`; synthetic tests do not claim Owner UAT or Integrator acceptance.
 
-## Separate #153 context
+## Historical #153 context
 
-The separate openScale-sync webhook compatibility defect remains assigned to [#153](https://github.com/LTstripes/Health-Check/issues/153): the receiver currently requires a non-empty string `userId`, so a JSON numeric `userId` is rejected. This task records the finding only; it does not change that contract or implement a webhook fix. The screenshot command is an independent Owner path and must not depend on webhook setup or availability.
+#153 (openScale-sync webhook numeric `userId` compatibility) was closed by the Owner as not planned: screenshot ingestion is the accepted operational Weight path. The historical receiver note (non-empty string `userId`) is retained only as deferred context. This task does not change that contract or implement a webhook fix. The screenshot command is an independent Owner path and must not depend on webhook setup or availability.

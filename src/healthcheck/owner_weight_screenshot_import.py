@@ -163,6 +163,10 @@ def import_owner_weight_screenshot(
                 normalized_evidence = normalize_extraction_result(prevalidated)
             except ExtractionFailure:
                 return _result("FAILED", "extraction_json_invalid")
+            if attested_date is not None and not _attested_date_only_evidence(
+                prevalidated, normalized_evidence
+            ):
+                return _result("FAILED", "attested_date_invalid")
             if _owner_profile_conflicts(prevalidated):
                 return _result("NEEDS_REVIEW", "provenance_ambiguous")
         else:
@@ -277,6 +281,25 @@ def _owner_profile_conflicts(result: ExtractionResult) -> bool:
         or result.physical_device_code != XIAOMI_S400_DEVICE
         or result.source_application != "Xiaomi Home"
     )
+
+
+def _attested_date_only_evidence(
+    extracted: ExtractionResult,
+    prepared: tuple[tuple[str, NormalizedField], ...],
+) -> bool:
+    """Return whether sidecar evidence is date-only for an attested request."""
+
+    if extracted.source_timezone is not None or extracted.source_utc_offset_minutes is not None:
+        return False
+    for _, normalized in prepared:
+        if (
+            normalized.source_timestamp is not None
+            or normalized.source_timezone is not None
+            or normalized.source_utc_offset_minutes is not None
+            or normalized.temporal_precision not in (None, "date")
+        ):
+            return False
+    return True
 
 
 def _parsed_owner_attested_date(value: str | Path | date | None) -> date | None:

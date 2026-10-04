@@ -654,6 +654,7 @@ class PhotoImportService:
             prepared = normalize_extraction_result(extracted)
         except ExtractionFailure as exc:
             raise PhotoImportError("extractor_invalid_payload", exc.message) from None
+        _ensure_attested_date_only(extracted, prepared, attested_date)
         existing = self._existing_evidence_candidates(
             artifact.id,
             extracted,
@@ -1041,6 +1042,7 @@ class PhotoImportService:
         provider_code = resolve_provider_code(extracted.provider_code)
         set_key = candidate_set_key or _fingerprint_for_result(extracted)
         prepared = normalize_extraction_result(extracted)
+        _ensure_attested_date_only(extracted, prepared, owner_attested_date)
         created: list[ImportCandidate] = []
         nested = self.session.begin_nested()
         try:
@@ -1697,6 +1699,36 @@ def _persisted_date_and_precision(
     if normalized.temporal_precision is None:
         return attested, "date"
     return attested, normalized.temporal_precision
+
+
+def _ensure_attested_date_only(
+    extracted: ExtractionResult,
+    prepared: tuple[tuple[str, NormalizedField], ...],
+    attested: date | None,
+) -> None:
+    """Reject attested date-only requests combined with timestamp evidence."""
+
+    if attested is None:
+        return
+    if (
+        extracted.source_timezone is not None
+        or extracted.source_utc_offset_minutes is not None
+    ):
+        raise PhotoImportError(
+            "attested_date_invalid",
+            "Owner-attested date requires date-only evidence",
+        )
+    for _, normalized in prepared:
+        if (
+            normalized.source_timestamp is not None
+            or normalized.source_timezone is not None
+            or normalized.source_utc_offset_minutes is not None
+            or normalized.temporal_precision not in (None, "date")
+        ):
+            raise PhotoImportError(
+                "attested_date_invalid",
+                "Owner-attested date requires date-only evidence",
+            )
 
 
 def _incoming_origins(

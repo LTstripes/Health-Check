@@ -11,15 +11,15 @@ prefer the Owner-assisted structured route:
 
 ```powershell
 uv run --locked healthcheck owner-weight-screenshot-import `
-  --data-dir "D:\Garmin\HealthCheck-Stable" `
+  --data-dir "D:\HealthCheck\stable" `
   --image "<single uploaded PNG or JPEG>" `
   --extraction-json "<temporary JSON outside the repository>"
 ```
 
-- Treat `D:\Garmin\HealthCheck-Stable` as a protected Owner runtime. Run against it only with explicit Owner authorization for that live import.
+- Treat `D:\HealthCheck\stable` as a protected Owner runtime. Run against it only with explicit Owner authorization for that live import.
 - Pass one screenshot to one normal invocation. Do not scan folders or batch attachments. Replay only when the Owner explicitly requests an idempotency/live-gate check.
 - Do not copy the screenshot, extraction JSON, or private runtime artifacts into Git, fixtures, GitHub, CI, or ordinary logs.
-- Do not write SQLite directly or bypass the command with ad hoc scripts. Do not add or invoke the separate #153/openScale webhook path.
+- Do not write SQLite directly or bypass the command with ad hoc scripts. Do not add or invoke the separate openScale webhook path (#153 closed as not planned; screenshot ingestion is the accepted operational Weight path).
 - Let the R01 pipeline retain the original evidence and preserve Xiaomi Home, Xiaomi S400, and `photo_import` provenance. Never invent or repair missing values, dates, times, timezones, units, metrics, or provenance.
 - Read only the command's privacy-safe JSON result. Do not expose health values, timestamps, paths, IDs, hashes, provider responses, or private artifacts.
 
@@ -54,15 +54,17 @@ source date in the same request, and only together with `--extraction-json`:
 
 ```powershell
 uv run --locked healthcheck owner-weight-screenshot-import `
-  --data-dir "D:\Garmin\HealthCheck-Stable" `
+  --data-dir "D:\HealthCheck\stable" `
   --image "<single uploaded PNG or JPEG>" `
   --extraction-json "<temporary JSON outside the repository>" `
   --owner-attested-date "YYYY-MM-DD"
 ```
 
 Never supply `--owner-attested-date` from memory, prior chat, filename, EXIF, clock,
-or defaults, and never without `--extraction-json`. Provider vision routes never
-accept attestation and never emit `workflow_profile`.
+or defaults, and never without `--extraction-json`. An attested date is strictly
+date-only: the sidecar must carry no source timestamp, timezone, UTC offset, or
+non-date precision, otherwise the request is rejected before any write. Provider
+vision routes never accept attestation and never emit `workflow_profile`.
 
 Write the JSON in the normal OS temporary directory outside the repo/workspace.
 Pass that one file with `--extraction-json`, then remove it in a `finally` cleanup whether the
