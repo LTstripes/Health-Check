@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sys
 from collections.abc import Mapping
@@ -21,8 +22,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 _MAX_PLAINTEXT = 64 * 1024
+_MAX_LOCAL_ENVELOPE = 96 * 1024
 _DPAPI_ENVELOPE_FORMAT = "healthcheck-google-dpapi-v1"
 _LOCAL_ENVELOPE_FORMAT = "healthcheck-google-local-key-v1"
+_LOCAL_V2_FORMAT = "healthcheck-google-local-key-v2"
 GOOGLE_SESSION_PROTECTION_WINDOWS = "windows_user_dpapi_google"
 GOOGLE_SESSION_PROTECTION_LOCAL = "local_keyfile_google"
 
@@ -42,10 +45,10 @@ class GoogleCredentialProtection(Protocol):
     def kind(self) -> str:
         """Stable protection-kind label for sanitized diagnostics."""
 
-    def protect(self, plaintext: str) -> str:
+    def protect(self, plaintext: str, *, purpose: str) -> str:
         """Return a Google-specific protected envelope."""
 
-    def unprotect(self, envelope: str) -> str:
+    def unprotect(self, envelope: str, *, purpose: str) -> str:
         """Return plaintext or raise a safe local error."""
 
 
@@ -219,7 +222,7 @@ class GoogleWindowsUserScopedProtection:
 
     kind = GOOGLE_SESSION_PROTECTION_WINDOWS
 
-    def protect(self, plaintext: str) -> str:
+    def protect(self, plaintext: str, *, purpose: str) -> str:
         if not isinstance(plaintext, str) or not plaintext or len(plaintext) > _MAX_PLAINTEXT:
             raise GoogleCredentialCorruptError("Google credential snapshot is invalid")
         sid = _current_windows_user_sid()
@@ -235,7 +238,7 @@ class GoogleWindowsUserScopedProtection:
             sort_keys=True,
         )
 
-    def unprotect(self, envelope: str) -> str:
+    def unprotect(self, envelope: str, *, purpose: str) -> str:
         if not isinstance(envelope, str) or not envelope or len(envelope) > _MAX_PLAINTEXT:
             raise GoogleCredentialCorruptError("protected Google envelope is invalid")
         try:
@@ -281,8 +284,9 @@ def _xor_keystream(key: bytes, nonce: bytes, length: int) -> bytes:
 class GoogleLocalKeyFileProtection:
     """Non-Windows protected-store equivalent using a 0600 key file outside checkout.
 
-    Ciphertext is HMAC-SHA256 keystream XOR (stdlib-only). The key file must live
-    under the same validated external auth directory as the secret envelopes.
+    New writes use AES-256-GCM with a domain-separated key; v1 reads retain the
+    authenticated HMAC/XOR algorithm without role binding. Reads never migrate.
+    Copying the whole profile/backup also copies the key and defeats secrecy.
     """
 
     kind = GOOGLE_SESSION_PROTECTION_LOCAL
@@ -290,18 +294,22 @@ class GoogleLocalKeyFileProtection:
     def __init__(self, key_path: Path) -> None:
         self.key_path = Path(key_path)
 
+    def _load_required_key(self) -> bytes:
+        try:
+            with self.key_path.open("rb") as key_file:
+                raw = key_file.read(33)
+        except OSError as exc:
+            raise GoogleCredentialProtectionUnavailable(
+                "Google local protection key unavailable"
+            ) from exc
+        if len(raw) != 32:
+            raise GoogleCredentialCorruptError("Google local protection key is invalid")
+        return raw
+
     def _load_or_create_key(self) -> bytes:
         path = self.key_path
         if path.exists():
-            try:
-                raw = path.read_bytes()
-            except OSError as exc:
-                raise GoogleCredentialProtectionUnavailable(
-                    "Google local protection key unavailable"
-                ) from exc
-            if len(raw) != 32:
-                raise GoogleCredentialCorruptError("Google local protection key is invalid")
-            return raw
+            return self._load_required_key()
         key = secrets.token_bytes(32)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -322,60 +330,130 @@ class GoogleLocalKeyFileProtection:
             ) from exc
         return key
 
-    def protect(self, plaintext: str) -> str:
+    @staticmethod
+    def _aad(purpose: str) -> bytes:
+        if not isinstance(purpose, str) or re.fullmatch(r"[a-z0-9-]{1,64}", purpose) is None:
+            raise GoogleCredentialCorruptError("Google credential purpose is invalid")
+        return _LOCAL_V2_FORMAT.encode("ascii") + b"\x00" + purpose.encode("ascii")
+
+    @staticmethod
+    def _aead(key: bytes) -> Any:
+        # Only the non-Windows implementation loads cryptography.
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+        derived = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=_LOCAL_V2_FORMAT.encode("ascii"),
+            info=b"aes-256-gcm",
+        ).derive(key)
+        return AESGCM(derived)
+
+    def protect(self, plaintext: str, *, purpose: str) -> str:
+        aad = self._aad(purpose)
         if not isinstance(plaintext, str) or not plaintext or len(plaintext) > _MAX_PLAINTEXT:
             raise GoogleCredentialCorruptError("Google credential snapshot is invalid")
+        try:
+            raw = plaintext.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise GoogleCredentialCorruptError("Google credential snapshot is invalid") from exc
+        if len(raw) > _MAX_PLAINTEXT:
+            raise GoogleCredentialCorruptError("Google credential snapshot is invalid")
         key = self._load_or_create_key()
-        nonce = secrets.token_bytes(16)
-        raw = plaintext.encode("utf-8")
-        stream = _xor_keystream(key, nonce, len(raw))
-        cipher = bytes(a ^ b for a, b in zip(raw, stream, strict=True))
-        mac = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
+        nonce = secrets.token_bytes(12)
+        cipher = self._aead(key).encrypt(nonce, raw, aad)
         return json.dumps(
             {
-                "format": _LOCAL_ENVELOPE_FORMAT,
+                "format": _LOCAL_V2_FORMAT,
+                "purpose": purpose,
                 "nonce": base64.b64encode(nonce).decode("ascii"),
                 "ciphertext": base64.b64encode(cipher).decode("ascii"),
-                "mac": base64.b64encode(mac).decode("ascii"),
             },
             ensure_ascii=True,
             separators=(",", ":"),
             sort_keys=True,
         )
 
-    def unprotect(self, envelope: str) -> str:
-        if not isinstance(envelope, str) or not envelope or len(envelope) > _MAX_PLAINTEXT:
+    @staticmethod
+    def _unique_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for name, item in pairs:
+            if name in value:
+                raise GoogleCredentialCorruptError("protected Google fields are invalid")
+            value[name] = item
+        return value
+
+    @staticmethod
+    def _decode(value: Any) -> bytes:
+        if not isinstance(value, str):
+            raise GoogleCredentialCorruptError("protected Google encoding is invalid")
+        try:
+            return base64.b64decode(value.encode("ascii"), validate=True)
+        except (ValueError, UnicodeEncodeError) as exc:
+            raise GoogleCredentialCorruptError("protected Google encoding is invalid") from exc
+
+    def unprotect(self, envelope: str, *, purpose: str) -> str:
+        aad = self._aad(purpose)
+        if not isinstance(envelope, str) or not envelope or len(envelope) > _MAX_LOCAL_ENVELOPE:
             raise GoogleCredentialCorruptError("protected Google envelope is invalid")
         try:
-            value = json.loads(envelope)
-        except (TypeError, ValueError) as exc:
+            if len(envelope.encode("utf-8")) > _MAX_LOCAL_ENVELOPE:
+                raise GoogleCredentialCorruptError("protected Google envelope is invalid")
+            value = json.loads(envelope, object_pairs_hook=self._unique_fields)
+        except (TypeError, ValueError, RecursionError) as exc:
             raise GoogleCredentialCorruptError("protected Google envelope is invalid") from exc
-        if not isinstance(value, Mapping) or set(value) != {"format", "nonce", "ciphertext", "mac"}:
+        if not isinstance(value, dict):
             raise GoogleCredentialCorruptError("protected Google envelope is invalid")
-        if value.get("format") != _LOCAL_ENVELOPE_FORMAT:
+        version = value.get("format")
+        if version == _LOCAL_ENVELOPE_FORMAT:
+            raw = self._read_v1(value)
+        elif version == _LOCAL_V2_FORMAT:
+            raw = self._read_v2(value, purpose, aad)
+        else:
             raise GoogleCredentialCorruptError("protected Google format is unsupported")
-        try:
-            nonce = base64.b64decode(str(value["nonce"]).encode("ascii"), validate=True)
-            cipher = base64.b64decode(str(value["ciphertext"]).encode("ascii"), validate=True)
-            mac = base64.b64decode(str(value["mac"]).encode("ascii"), validate=True)
-        except (ValueError, UnicodeEncodeError, KeyError) as exc:
-            raise GoogleCredentialCorruptError("protected Google ciphertext is invalid") from exc
-        if not nonce or not cipher or not mac:
-            raise GoogleCredentialCorruptError("protected Google ciphertext is empty")
-        key = self._load_or_create_key()
-        expected = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
-        if not hmac.compare_digest(mac, expected):
-            raise GoogleCredentialCorruptError("protected Google envelope mac mismatch")
-        raw = bytes(
-            a ^ b for a, b in zip(cipher, _xor_keystream(key, nonce, len(cipher)), strict=True)
-        )
         try:
             result = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise GoogleCredentialCorruptError("protected Google text is invalid") from exc
-        if not result or len(result) > _MAX_PLAINTEXT:
+        if not result or len(raw) > _MAX_PLAINTEXT:
             raise GoogleCredentialCorruptError("protected Google text is invalid")
         return result
+
+    def _read_v1(self, value: dict[str, Any]) -> bytes:
+        if set(value) != {"format", "nonce", "ciphertext", "mac"}:
+            raise GoogleCredentialCorruptError("protected Google fields are invalid")
+        nonce = self._decode(value["nonce"])
+        cipher = self._decode(value["ciphertext"])
+        mac = self._decode(value["mac"])
+        if len(nonce) != 16 or len(mac) != 32 or not 1 <= len(cipher) <= _MAX_PLAINTEXT:
+            raise GoogleCredentialCorruptError("protected Google ciphertext is invalid")
+        key = self._load_required_key()
+        expected = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
+        if not hmac.compare_digest(mac, expected):
+            raise GoogleCredentialCorruptError("protected Google envelope mac mismatch")
+        return bytes(
+            a ^ b for a, b in zip(cipher, _xor_keystream(key, nonce, len(cipher)), strict=True)
+        )
+
+    def _read_v2(self, value: dict[str, Any], purpose: str, aad: bytes) -> bytes:
+        from cryptography.exceptions import InvalidTag
+
+        if set(value) != {"format", "purpose", "nonce", "ciphertext"}:
+            raise GoogleCredentialCorruptError("protected Google fields are invalid")
+        self._aad(value["purpose"])
+        if value["purpose"] != purpose:
+            raise GoogleCredentialCorruptError("protected Google purpose mismatch")
+        nonce = self._decode(value["nonce"])
+        cipher = self._decode(value["ciphertext"])
+        if len(nonce) != 12 or not 17 <= len(cipher) <= _MAX_PLAINTEXT + 16:
+            raise GoogleCredentialCorruptError("protected Google ciphertext is invalid")
+        key = self._load_required_key()
+        try:
+            return self._aead(key).decrypt(nonce, cipher, aad)
+        except InvalidTag as exc:
+            raise GoogleCredentialCorruptError("protected Google authentication failed") from exc
 
 
 def default_google_protection(auth_dir: Path) -> GoogleCredentialProtection:
