@@ -337,7 +337,9 @@ def test_account_persisted_report_reuses_statistics_but_never_strong_gate(pairin
         app, _ = create_ui_app(
             Settings(data_dir=paths.root), photo_extractor=FakeImageMeasurementExtractor()
         )
-        with TestClient(app) as client:
+        with TestClient(
+            app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+        ) as client:
             response = client.get("/api/agreement/report", params={"cohort": COHORT})
             assert response.status_code == 200
             assert response.json()["mode"] == "exploratory"

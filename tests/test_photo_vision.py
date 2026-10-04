@@ -148,7 +148,9 @@ def test_configured_runtime_uses_real_adapter_and_calls_provider_only_on_import(
     )
     app, _ = create_ui_app(settings)
     assert isinstance(app.state.photo_extractor, OpenAICompatibleVisionExtractor)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         assert client.get("/healthz").status_code == 200
         assert client.get("/api/imports").status_code == 200
         assert calls == []
@@ -306,7 +308,9 @@ def test_unconfigured_api_preserves_artifact_and_has_no_fake_or_confirmed_data(t
     settings, paths, engine = _service_env(tmp_path)
     app, _ = create_ui_app(settings)
     try:
-        with TestClient(app) as client:
+        with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
             response = client.post(
                 "/api/imports/photos",
                 files=[("files", ("ordinary.png", ORDINARY_PNG, "image/png"))],

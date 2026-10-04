@@ -993,7 +993,9 @@ def test_api_period_brief_on_empty_runtime(tmp_path):
     paths = prepare_runtime(settings)
     migrate_database(paths)
     app, _ = create_ui_app(settings)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         response = client.get(
             "/api/period-brief",
             params={"start_date": "2099-01-01", "end_date": "2099-01-14"},

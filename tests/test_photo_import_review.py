@@ -415,7 +415,9 @@ def test_invalid_persistence_does_not_log_health_values(photo_env):
     payload = weigh_in_payload(source_local_date=date(2026, 1, 7), weight_kg=77.77)
     payload["groups"][0]["fields"][0]["source_text"] = SECRET_TEXT
     app, _ = create_ui_app(settings, photo_extractor=extractor)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = client.post(
             "/api/imports/photos",
             files=[("files", ("secret.png", encode_synthetic_png(payload), "image/png"))],
@@ -466,7 +468,9 @@ def test_duplicate_upload_has_durable_occurrence_in_new_batch(photo_env):
     assert second.items[0].ingest_batch_id == second.batch.id
     assert second.items[0].ingest_event_id != first.items[0].ingest_event_id
     app, _ = create_ui_app(settings, photo_extractor=extractor)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         detail = client.get(f"/api/imports/{second.batch.id}")
         assert detail.status_code == 200
         body = detail.json()
@@ -645,7 +649,9 @@ def test_terminal_replay_is_noop_only_when_semantically_identical(photo_env):
         measurement = session.scalar(select(ScalarMeasurement))
         assert measurement.normalized_value == pytest.approx(80.0)
     app, _ = create_ui_app(settings, photo_extractor=extractor)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         edited = client.post(
             "/api/imports/photos",
             files=[
@@ -1004,7 +1010,9 @@ def test_staged_correction_is_reviewable_in_the_existing_import_review(photo_env
     assert len(correction_ids) == 1
 
     app, _ = create_ui_app(settings, photo_extractor=extractor)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         detail = client.get(f"/api/imports/{imported.batch.id}")
         assert detail.status_code == 200
         body = detail.json()

@@ -561,7 +561,7 @@ def test_route_isolation_ui_does_not_mount_openscale(tmp_path):
     settings = _settings(tmp_path)
     ui, _ = create_ui_app(settings)
     ingest, _ = create_ingest_app(settings)
-    with TestClient(ui) as client:
+    with TestClient(ui, base_url="http://127.0.0.1:8120") as client:
         assert (
             client.post("/api/ingest/openscale", content=b"{}", headers=_auth()).status_code == 404
         )

@@ -163,7 +163,9 @@ def test_full_publish_clean_restore_and_supported_reads(workflow):
     assert (root / "restored" / "garmin" / "auth" / "garmin_tokens.json").exists()
     app, _ = create_ui_app(Settings(data_dir=root / "restored"))
     try:
-        with TestClient(app) as client:
+        with TestClient(
+            app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+        ) as client:
             assert client.get("/healthz").status_code == 200
             assert client.get("/").status_code == 200
     finally:
