@@ -30,6 +30,7 @@
       "tests/test_ci_event_route.py",
       "tests/test_ci_test_lanes.py",
       "tests/test_ci_workflow.py",
+      "tests/test_dependency_audit.py",
       "tests/test_collection_policy.py",
       "tests/test_core_schema.py",
       "tests/test_context_capture.py",
