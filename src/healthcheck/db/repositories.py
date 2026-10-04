@@ -962,6 +962,7 @@ class ImportCandidateRepository:
         provider_code: str | None = None,
         source_timezone: str | None = None,
         source_utc_offset_minutes: int | None = None,
+        metadata_origins: Mapping[str, Any] | None = None,
     ) -> ImportCandidate:
         if confidence is not None and not 0 <= confidence <= 1:
             raise ValueError("candidate confidence must be between 0 and 1")
@@ -975,6 +976,13 @@ class ImportCandidateRepository:
             if proposed_source_timestamp is None
             else restore_stored_utc(proposed_source_timestamp)
         )
+        incoming_origins_json: str | None = None
+        if metadata_origins is not None:
+            from healthcheck.ingestion.photo.metadata_origins import (
+                canonical_metadata_origins_json,
+            )
+
+            incoming_origins_json = canonical_metadata_origins_json(metadata_origins)
         existing = self.session.scalar(
             select(ImportCandidate).where(
                 ImportCandidate.ingest_event_id == ingest_event_id,
@@ -1008,7 +1016,18 @@ class ImportCandidateRepository:
                 existing.proposed_source_timestamp, normalized_timestamp
             ):
                 raise ValueError("extraction identity already has different evidence")
+            stored_origins = getattr(existing, "metadata_origins_json", None)
+            if stored_origins is None:
+                # D1 legacy wildcard: unchanged core evidence reuses the legacy
+                # row with zero provenance rewrite.
+                return existing
+            if incoming_origins_json is None:
+                raise ValueError("extraction identity already has different evidence")
+            if stored_origins != incoming_origins_json:
+                raise ValueError("extraction identity already has different evidence")
             return existing
+        if incoming_origins_json is None:
+            raise ValueError("candidate metadata origins are required for new candidates")
         candidate = ImportCandidate(
             ingest_event_id=ingest_event_id,
             candidate_set_key=_required_text(candidate_set_key, "candidate set key"),
@@ -1033,6 +1052,7 @@ class ImportCandidateRepository:
             provider_code=provider_code,
             source_timezone=source_timezone,
             source_utc_offset_minutes=source_utc_offset_minutes,
+            metadata_origins_json=incoming_origins_json,
         )
         self.session.add(candidate)
         self.session.flush()

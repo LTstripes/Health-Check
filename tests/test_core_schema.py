@@ -104,7 +104,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0014_garmin_training_evidence",
+        "migration_revision": "0015_candidate_metadata_origins",
         "ready": True,
     }
 
@@ -189,6 +189,12 @@ def test_repositories_retain_provenance_and_deduplicate_raw_and_ingest(e2e_datab
         proposed_source_local_date=date(2026, 1, 2),
         temporal_precision="date",
         confidence=None,
+        metadata_origins={
+            "provider_code": "unknown",
+            "physical_device_code": "unknown",
+            "source_application": "unknown",
+            "source_local_date": "unknown",
+        },
     )
     assert candidate.confidence is None
     repositories.import_candidates.decide(
@@ -318,6 +324,12 @@ def test_photo_reprocessing_requires_a_session_revision(e2e_database):
         proposed_unit="kg",
         proposed_source_local_date=date(2026, 1, 2),
         temporal_precision="date",
+        metadata_origins={
+            "provider_code": "unknown",
+            "physical_device_code": "unknown",
+            "source_application": "unknown",
+            "source_local_date": "unknown",
+        },
     )
     repositories.import_candidates.decide(first_candidate.id, "confirmed")
     first_session = repositories.measurement_sessions.create_confirmed(
@@ -338,6 +350,12 @@ def test_photo_reprocessing_requires_a_session_revision(e2e_database):
         proposed_unit="kg",
         proposed_source_local_date=date(2026, 1, 2),
         temporal_precision="date",
+        metadata_origins={
+            "provider_code": "unknown",
+            "physical_device_code": "unknown",
+            "source_application": "unknown",
+            "source_local_date": "unknown",
+        },
     )
     repositories.import_candidates.decide(reprocessed_candidate.id, "confirmed")
     with pytest.raises(ValueError, match="call create_revision"):
@@ -776,12 +794,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0014_garmin_training_evidence"
+        == "0015_candidate_metadata_origins"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0014_garmin_training_evidence"
+        == "0015_candidate_metadata_origins"
     )
 
     engine = create_sqlite_engine(paths)
@@ -871,7 +889,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0014_garmin_training_evidence"
+            == "0015_candidate_metadata_origins"
         )
     finally:
         engine.dispose()

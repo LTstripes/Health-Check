@@ -74,6 +74,9 @@ class ExtractionResult:
     source_application_version: str | None = None
     source_timezone: str | None = None
     source_utc_offset_minutes: int | None = None
+    provider_code_from_payload: bool | None = None
+    physical_device_code_from_payload: bool | None = None
+    source_application_from_payload: bool | None = None
 
 
 class ImageMeasurementExtractor(Protocol):

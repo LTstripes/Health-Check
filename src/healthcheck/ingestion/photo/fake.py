@@ -75,17 +75,36 @@ class FakeImageMeasurementExtractor:
             provider_code = request.provider_code or "xiaomi_home"
         if self.provider_code_override is not None:
             provider_code = self.provider_code_override
+        payload_provider_explicit = _optional_text(payload.get("provider_code")) is not None
+        if self.provider_code_override is not None:
+            provider_from_payload = True
+        elif "provider_code" in payload:
+            provider_from_payload = payload_provider_explicit
+        else:
+            provider_from_payload = False
         physical_device_code = (
             self.physical_device_code_override
             or payload.get("physical_device_code")
             or request.physical_device_code
             or "xiaomi_s400"
         )
+        payload_device_explicit = (
+            _optional_text(payload.get("physical_device_code")) is not None
+        )
+        if self.physical_device_code_override:
+            device_from_payload = True
+        else:
+            device_from_payload = payload_device_explicit
         source_application = (
             self.source_application_override
             if self.source_application_override is not None
             else payload.get("source_application") or request.source_application
         )
+        payload_app_explicit = _optional_text(payload.get("source_application")) is not None
+        if self.source_application_override is not None:
+            app_from_payload = True
+        else:
+            app_from_payload = payload_app_explicit
         source_application_version = (
             self.source_application_version_override
             if self.source_application_version_override is not None
@@ -110,6 +129,9 @@ class FakeImageMeasurementExtractor:
                 if self.source_utc_offset_minutes is not None
                 else request.source_utc_offset_minutes
             ),
+            provider_code_from_payload=provider_from_payload,
+            physical_device_code_from_payload=device_from_payload,
+            source_application_from_payload=app_from_payload,
         )
 
     def with_version(self, version: str) -> FakeImageMeasurementExtractor:

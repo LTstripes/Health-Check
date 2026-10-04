@@ -29,6 +29,7 @@ ACCEPTED_MIGRATION_CHAIN: tuple[MigrationIdentity, ...] = (
     ("0012_r05_agreement_successor_publication", "0011_r05_agreement_run_persistence"),
     ("0013_context_capture_v0", "0012_r05_agreement_successor_publication"),
     ("0014_garmin_training_evidence", "0013_context_capture_v0"),
+    ("0015_candidate_metadata_origins", "0014_garmin_training_evidence"),
 )
 ACCEPTED_MIGRATION_HEAD = ACCEPTED_MIGRATION_CHAIN[-1][0]
 MIGRATION_SCRIPT_LOCATION = Path(__file__).with_name("migrations")

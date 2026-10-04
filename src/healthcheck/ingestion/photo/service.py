@@ -32,6 +32,12 @@ from healthcheck.ingestion.photo.extractor import (
     ExtractionResult,
     ImageMeasurementExtractor,
 )
+from healthcheck.ingestion.photo.metadata_origins import (
+    build_owner_metadata_origins,
+    build_provider_metadata_origins,
+    candidate_set_is_fully_legacy,
+    parse_metadata_origins_json,
+)
 from healthcheck.ingestion.photo.normalize import (
     NormalizedField,
     extraction_configuration_fingerprint,
@@ -122,6 +128,8 @@ class PhotoImportService:
         timezone: str | None = None,
         schema_version: str = DEFAULT_SCHEMA_VERSION,
         provider_code: str | None = None,
+        is_owner_workflow: bool = False,
+        owner_attested_date: date | str | None = None,
     ) -> ImportBatchResult:
         try:
             return self._import_photos_inner(
@@ -130,6 +138,8 @@ class PhotoImportService:
                 timezone=timezone,
                 schema_version=schema_version,
                 provider_code=provider_code,
+                is_owner_workflow=is_owner_workflow,
+                owner_attested_date=owner_attested_date,
             )
         except PhotoImportError:
             raise
@@ -144,12 +154,20 @@ class PhotoImportService:
         timezone: str | None,
         schema_version: str,
         provider_code: str | None,
+        is_owner_workflow: bool = False,
+        owner_attested_date: date | str | None = None,
     ) -> ImportBatchResult:
         if not uploads:
             raise PhotoImportError("empty_upload", "at least one photo is required")
         if len(uploads) > MAX_FILES:
             raise PhotoImportError(
                 "too_many_files", f"at most {MAX_FILES} photos can be imported at once"
+            )
+        attested_date = _parsed_attested_date(owner_attested_date)
+        if attested_date is not None and not is_owner_workflow:
+            raise PhotoImportError(
+                "attestation_not_accepted",
+                "provider vision routes do not accept Owner attestation",
             )
 
         source = ensure_photo_acquisition_source(
@@ -181,6 +199,8 @@ class PhotoImportService:
                 timezone=timezone,
                 schema_version=schema_version,
                 provider_code=provider_code,
+                is_owner_workflow=is_owner_workflow,
+                owner_attested_date=attested_date,
             )
             for upload in uploads
         ]
@@ -246,6 +266,15 @@ class PhotoImportService:
             algorithm = self.repos.measurement_algorithms.get_by_code_version(
                 candidate.algorithm_code, candidate.algorithm_version
             )
+        try:
+            metadata_origins: dict[str, str] | None = parse_metadata_origins_json(
+                getattr(candidate, "metadata_origins_json", None)
+            )
+        except ValueError:
+            metadata_origins = None
+        metadata_origin_display = (
+            "origin not recorded" if metadata_origins is None else metadata_origins
+        )
         return {
             "id": candidate.id,
             "ingest_event_id": candidate.ingest_event_id,
@@ -270,6 +299,7 @@ class PhotoImportService:
             "provider_code": candidate.provider_code,
             "source_timezone": candidate.source_timezone,
             "source_utc_offset_minutes": candidate.source_utc_offset_minutes,
+            "metadata_origins": metadata_origin_display,
             "edited_value": candidate.edited_value,
             "edited_unit": candidate.edited_unit,
             "edited_source_local_date": candidate.edited_source_local_date,
@@ -555,7 +585,14 @@ class PhotoImportService:
         )
         return ReprocessResult(candidates=candidates, ingest_event_id=target.id)
 
-    def stage_correction(self, event_id: str, extracted: ExtractionResult) -> ReprocessResult:
+    def stage_correction(
+        self,
+        event_id: str,
+        extracted: ExtractionResult,
+        *,
+        is_owner_workflow: bool = False,
+        owner_attested_date: date | str | None = None,
+    ) -> ReprocessResult:
         """Persist a changed interpretation of a known photo as pending review evidence.
 
         The raw artifact, existing candidate sets and confirmed semantic history
@@ -569,14 +606,24 @@ class PhotoImportService:
         """
 
         try:
-            return self._stage_correction_inner(event_id, extracted)
+            return self._stage_correction_inner(
+                event_id,
+                extracted,
+                is_owner_workflow=is_owner_workflow,
+                owner_attested_date=owner_attested_date,
+            )
         except PhotoImportError:
             raise
         except SQLAlchemyError:
             raise PhotoImportError("persistence_error", "photo persistence failed") from None
 
     def _stage_correction_inner(
-        self, event_id: str, extracted: ExtractionResult
+        self,
+        event_id: str,
+        extracted: ExtractionResult,
+        *,
+        is_owner_workflow: bool = False,
+        owner_attested_date: date | str | None = None,
     ) -> ReprocessResult:
         event = self.repos.ingest_events.get(event_id)
         if event is None:
@@ -597,20 +644,43 @@ class PhotoImportService:
         artifact = self.repos.raw_artifacts.get(event.raw_artifact_id)
         if artifact is None:
             raise PhotoImportError("unknown_artifact", "raw artifact is missing", status_code=404)
+        attested_date = _parsed_attested_date(owner_attested_date)
+        if attested_date is not None and not is_owner_workflow:
+            raise PhotoImportError(
+                "attestation_not_accepted",
+                "provider vision routes do not accept Owner attestation",
+            )
         try:
             prepared = normalize_extraction_result(extracted)
         except ExtractionFailure as exc:
             raise PhotoImportError("extractor_invalid_payload", exc.message) from None
-        existing = self._existing_evidence_candidates(artifact.id, extracted, prepared)
+        _ensure_attested_date_only(extracted, prepared, attested_date)
+        existing = self._existing_evidence_candidates(
+            artifact.id,
+            extracted,
+            prepared,
+            is_owner_workflow=is_owner_workflow,
+            owner_attested_date=attested_date,
+        )
         if existing is not None:
             return ReprocessResult(
                 candidates=_sorted_candidates(existing),
                 ingest_event_id=existing[0].ingest_event_id,
             )
-        set_key = correction_candidate_set_key(extracted, prepared)
+        set_key = correction_candidate_set_key(
+            extracted,
+            prepared,
+            is_owner_workflow=is_owner_workflow,
+            owner_attested_date=attested_date,
+        )
         target = self._target_event_for_extraction(event, artifact, extracted, batch_id=None)
         candidates = self._persist_candidates(
-            target, artifact, extracted, candidate_set_key=set_key
+            target,
+            artifact,
+            extracted,
+            candidate_set_key=set_key,
+            is_owner_workflow=is_owner_workflow,
+            owner_attested_date=attested_date,
         )
         self._refresh_event_status(target.id)
         log_event(
@@ -625,18 +695,42 @@ class PhotoImportService:
         artifact_id: str,
         extracted: ExtractionResult,
         prepared: tuple[tuple[str, NormalizedField], ...],
+        *,
+        is_owner_workflow: bool = False,
+        owner_attested_date: date | None = None,
     ) -> list[ImportCandidate] | None:
         """Return an existing candidate set that already carries this evidence."""
 
-        incoming = extraction_evidence_fingerprint(extracted, prepared)
+        incoming = extraction_evidence_fingerprint(
+            extracted,
+            prepared,
+            is_owner_workflow=is_owner_workflow,
+            owner_attested_date=owner_attested_date,
+        )
+        incoming_core = extraction_core_evidence_fingerprint(extracted, prepared)
         for set_key in (
             _fingerprint_for_result(extracted),
-            correction_candidate_set_key(extracted, prepared),
+            correction_candidate_set_key(
+                extracted,
+                prepared,
+                is_owner_workflow=is_owner_workflow,
+                owner_attested_date=owner_attested_date,
+            ),
         ):
             candidates = self.repos.import_candidates.find_for_artifact_set_key(
                 artifact_id, set_key
             )
-            if candidates and candidate_evidence_fingerprint(candidates) == incoming:
+            if not candidates:
+                continue
+            if candidate_set_is_fully_legacy(
+                [candidate.metadata_origins_json for candidate in candidates]
+            ):
+                # D1 legacy wildcard: unchanged core evidence stays DUPLICATE
+                # with zero provenance rewrite.
+                if candidate_core_evidence_fingerprint(candidates) == incoming_core:
+                    return candidates
+                continue
+            if candidate_evidence_fingerprint(candidates) == incoming:
                 return candidates
         return None
 
@@ -649,6 +743,8 @@ class PhotoImportService:
         timezone: str | None,
         schema_version: str,
         provider_code: str | None,
+        is_owner_workflow: bool = False,
+        owner_attested_date: date | None = None,
     ) -> PhotoItemResult:
         filename = None
         try:
@@ -757,7 +853,13 @@ class PhotoImportService:
             existing_event, artifact, extracted, batch_id=batch.id, provider_code=provider_code
         )
         try:
-            candidates = self._persist_candidates(event, artifact, extracted)
+            candidates = self._persist_candidates(
+                event,
+                artifact,
+                extracted,
+                is_owner_workflow=is_owner_workflow,
+                owner_attested_date=owner_attested_date,
+            )
         except (ValueError, ExtractionFailure) as exc:
             code = getattr(exc, "code", "extractor_invalid_payload")
             reason = getattr(exc, "message", None) or "extraction result could not be persisted"
@@ -928,15 +1030,72 @@ class PhotoImportService:
         extracted: ExtractionResult,
         *,
         candidate_set_key: str | None = None,
+        is_owner_workflow: bool = False,
+        owner_attested_date: date | None = None,
     ) -> list[ImportCandidate]:
         del artifact
+        if owner_attested_date is not None and not is_owner_workflow:
+            raise PhotoImportError(
+                "attestation_not_accepted",
+                "provider vision routes do not accept Owner attestation",
+            )
         provider_code = resolve_provider_code(extracted.provider_code)
         set_key = candidate_set_key or _fingerprint_for_result(extracted)
         prepared = normalize_extraction_result(extracted)
+        _ensure_attested_date_only(extracted, prepared, owner_attested_date)
         created: list[ImportCandidate] = []
         nested = self.session.begin_nested()
         try:
             for group_key, normalized in prepared:
+                persisted_date, persisted_precision = _persisted_date_and_precision(
+                    normalized, owner_attested_date
+                )
+                if persisted_date is not None or owner_attested_date is not None:
+                    try:
+                        validate_local_date_and_timestamp(
+                            persisted_date,
+                            normalized.source_timestamp,
+                            timezone=normalized.source_timezone,
+                            utc_offset_minutes=normalized.source_utc_offset_minutes,
+                        )
+                    except ValueError:
+                        raise ExtractionFailure(
+                            "temporal_conflict",
+                            "local date and timestamp are inconsistent",
+                        ) from None
+                if is_owner_workflow:
+                    origins = build_owner_metadata_origins(
+                        provider_code=extracted.provider_code,
+                        physical_device_code=extracted.physical_device_code,
+                        source_application=extracted.source_application,
+                        normalized_local_date=normalized.source_local_date,
+                        attested_local_date=owner_attested_date,
+                        provider_code_from_payload=getattr(
+                            extracted, "provider_code_from_payload", None
+                        ),
+                        physical_device_code_from_payload=getattr(
+                            extracted, "physical_device_code_from_payload", None
+                        ),
+                        source_application_from_payload=getattr(
+                            extracted, "source_application_from_payload", None
+                        ),
+                    )
+                else:
+                    origins = build_provider_metadata_origins(
+                        provider_code=extracted.provider_code,
+                        physical_device_code=extracted.physical_device_code,
+                        source_application=extracted.source_application,
+                        normalized_local_date=normalized.source_local_date,
+                        provider_code_from_payload=getattr(
+                            extracted, "provider_code_from_payload", None
+                        ),
+                        physical_device_code_from_payload=getattr(
+                            extracted, "physical_device_code_from_payload", None
+                        ),
+                        source_application_from_payload=getattr(
+                            extracted, "source_application_from_payload", None
+                        ),
+                    )
                 created.append(
                     self.repos.import_candidates.create_pending(
                         ingest_event_id=event.id,
@@ -946,8 +1105,8 @@ class PhotoImportService:
                         proposed_value=normalized.proposed_value,
                         proposed_unit=normalized.proposed_unit,
                         proposed_source_timestamp=normalized.source_timestamp,
-                        proposed_source_local_date=normalized.source_local_date,
-                        temporal_precision=normalized.temporal_precision,
+                        proposed_source_local_date=persisted_date,
+                        temporal_precision=persisted_precision,
                         source_text=normalized.source_text,
                         extractor_name=extracted.extractor_name,
                         extractor_version=extracted.extractor_version,
@@ -962,6 +1121,7 @@ class PhotoImportService:
                         provider_code=provider_code,
                         source_timezone=normalized.source_timezone,
                         source_utc_offset_minutes=normalized.source_utc_offset_minutes,
+                        metadata_origins=origins,
                     )
                 )
             nested.commit()
@@ -1408,11 +1568,36 @@ def _validate_normalized_field(normalized: NormalizedField) -> None:
 def extraction_evidence_fingerprint(
     extracted: ExtractionResult,
     prepared: tuple[tuple[str, NormalizedField], ...],
+    *,
+    is_owner_workflow: bool = False,
+    owner_attested_date: date | str | None = None,
 ) -> str:
     """Canonical fingerprint of one normalized interpretation's evidence."""
 
+    attested = _parsed_attested_date(owner_attested_date)
     return _evidence_fingerprint(
-        _normalized_evidence_row(group_key, normalized, extracted)
+        _normalized_evidence_row_with_origins(
+            group_key,
+            normalized,
+            extracted,
+            is_owner_workflow=is_owner_workflow,
+            owner_attested_date=attested,
+        )
+        for group_key, normalized in prepared
+    )
+
+
+def extraction_core_evidence_fingerprint(
+    extracted: ExtractionResult,
+    prepared: tuple[tuple[str, NormalizedField], ...],
+    *,
+    owner_attested_date: date | str | None = None,
+) -> str:
+    """Core fingerprint without origins for the D1 legacy wildcard."""
+
+    attested = _parsed_attested_date(owner_attested_date)
+    return _evidence_fingerprint(
+        _normalized_core_row_with_attested(group_key, normalized, extracted, attested)
         for group_key, normalized in prepared
     )
 
@@ -1423,9 +1608,20 @@ def candidate_evidence_fingerprint(candidates: Sequence[ImportCandidate]) -> str
     return _evidence_fingerprint(_candidate_evidence_row(candidate) for candidate in candidates)
 
 
+def candidate_core_evidence_fingerprint(candidates: Sequence[ImportCandidate]) -> str:
+    """Core fingerprint without origins for the D1 legacy wildcard."""
+
+    return _evidence_fingerprint(
+        _candidate_core_row(candidate) for candidate in candidates
+    )
+
+
 def correction_candidate_set_key(
     extracted: ExtractionResult,
     prepared: tuple[tuple[str, NormalizedField], ...],
+    *,
+    is_owner_workflow: bool = False,
+    owner_attested_date: date | str | None = None,
 ) -> str:
     """Build the correction candidate-set identity for a changed interpretation.
 
@@ -1437,7 +1633,12 @@ def correction_candidate_set_key(
     material = canonical_json(
         {
             "configuration": _fingerprint_for_result(extracted),
-            "evidence": extraction_evidence_fingerprint(extracted, prepared),
+            "evidence": extraction_evidence_fingerprint(
+                extracted,
+                prepared,
+                is_owner_workflow=is_owner_workflow,
+                owner_attested_date=owner_attested_date,
+            ),
         }
     )
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -1460,6 +1661,115 @@ def _storage_equivalent_float(value: float | None) -> float | None:
     if value is None or value != 0.0:
         return value
     return 0.0
+
+
+def _parsed_attested_date(value: date | str | None) -> date | None:
+    """Parse an explicit Owner-attested date without any inference."""
+
+    if value is None:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        raise PhotoImportError(
+            "attested_date_invalid", "Owner-attested date must be an ISO date"
+        )
+    if not isinstance(value, str):
+        raise PhotoImportError(
+            "attested_date_invalid", "Owner-attested date must be an ISO date"
+        )
+    text = value.strip()
+    try:
+        if len(text) != 10 or text[4] != "-" or text[7] != "-":
+            raise ValueError
+        return date.fromisoformat(text)
+    except ValueError:
+        raise PhotoImportError(
+            "attested_date_invalid", "Owner-attested date must be an ISO date"
+        ) from None
+
+
+def _persisted_date_and_precision(
+    normalized: NormalizedField, attested: date | None
+) -> tuple[date | None, str | None]:
+    """Return the persisted date/precision with explicit attestation override."""
+
+    if attested is None:
+        return normalized.source_local_date, normalized.temporal_precision
+    if normalized.temporal_precision is None:
+        return attested, "date"
+    return attested, normalized.temporal_precision
+
+
+def _ensure_attested_date_only(
+    extracted: ExtractionResult,
+    prepared: tuple[tuple[str, NormalizedField], ...],
+    attested: date | None,
+) -> None:
+    """Reject attested date-only requests combined with timestamp evidence."""
+
+    if attested is None:
+        return
+    if (
+        extracted.source_timezone is not None
+        or extracted.source_utc_offset_minutes is not None
+    ):
+        raise PhotoImportError(
+            "attested_date_invalid",
+            "Owner-attested date requires date-only evidence",
+        )
+    for _, normalized in prepared:
+        if (
+            normalized.source_timestamp is not None
+            or normalized.source_timezone is not None
+            or normalized.source_utc_offset_minutes is not None
+            or normalized.temporal_precision not in (None, "date")
+        ):
+            raise PhotoImportError(
+                "attested_date_invalid",
+                "Owner-attested date requires date-only evidence",
+            )
+
+
+def _incoming_origins(
+    extracted: ExtractionResult,
+    normalized: NormalizedField,
+    *,
+    is_owner_workflow: bool,
+    owner_attested_date: date | None,
+) -> dict[str, str]:
+    if is_owner_workflow:
+        return build_owner_metadata_origins(
+            provider_code=extracted.provider_code,
+            physical_device_code=extracted.physical_device_code,
+            source_application=extracted.source_application,
+            normalized_local_date=normalized.source_local_date,
+            attested_local_date=owner_attested_date,
+            provider_code_from_payload=getattr(
+                extracted, "provider_code_from_payload", None
+            ),
+            physical_device_code_from_payload=getattr(
+                extracted, "physical_device_code_from_payload", None
+            ),
+            source_application_from_payload=getattr(
+                extracted, "source_application_from_payload", None
+            ),
+        )
+    return build_provider_metadata_origins(
+        provider_code=extracted.provider_code,
+        physical_device_code=extracted.physical_device_code,
+        source_application=extracted.source_application,
+        normalized_local_date=normalized.source_local_date,
+        provider_code_from_payload=getattr(
+            extracted, "provider_code_from_payload", None
+        ),
+        physical_device_code_from_payload=getattr(
+            extracted, "physical_device_code_from_payload", None
+        ),
+        source_application_from_payload=getattr(
+            extracted, "source_application_from_payload", None
+        ),
+    )
 
 
 def _normalized_evidence_row(
@@ -1496,7 +1806,125 @@ def _normalized_evidence_row(
     }
 
 
+def _normalized_evidence_row_with_origins(
+    group_key: str,
+    normalized: NormalizedField,
+    extracted: ExtractionResult,
+    *,
+    is_owner_workflow: bool = False,
+    owner_attested_date: date | None = None,
+) -> dict[str, Any]:
+    persisted_date, persisted_precision = _persisted_date_and_precision(
+        normalized, owner_attested_date
+    )
+    row = {
+        "measurement_group_key": group_key,
+        "metric_code": normalized.metric_code,
+        "proposed_value": _storage_equivalent_float(normalized.proposed_value),
+        "proposed_unit": normalized.proposed_unit,
+        "proposed_source_timestamp": _timestamp_text(normalized.source_timestamp),
+        "proposed_source_local_date": _date_text(persisted_date),
+        "temporal_precision": persisted_precision,
+        "source_text": normalized.source_text,
+        "extractor_name": extracted.extractor_name,
+        "extractor_version": extracted.extractor_version,
+        "model_name": extracted.model_name,
+        "model_version": extracted.model_version,
+        "prompt_version": extracted.prompt_version,
+        "schema_version": extracted.schema_version,
+        "confidence": _storage_equivalent_float(normalized.confidence),
+        "evidence_region_json": (
+            None
+            if normalized.evidence_region is None
+            else canonical_json(normalized.evidence_region)
+        ),
+        "algorithm_code": normalized.algorithm_code,
+        "algorithm_version": normalized.algorithm_version,
+        "provider_code": resolve_provider_code(extracted.provider_code),
+        "source_timezone": normalized.source_timezone,
+        "source_utc_offset_minutes": normalized.source_utc_offset_minutes,
+        "metadata_origins": _incoming_origins(
+            extracted,
+            normalized,
+            is_owner_workflow=is_owner_workflow,
+            owner_attested_date=owner_attested_date,
+        ),
+    }
+    return row
+
+
+def _normalized_core_row_with_attested(
+    group_key: str,
+    normalized: NormalizedField,
+    extracted: ExtractionResult,
+    attested: date | None,
+) -> dict[str, Any]:
+    persisted_date, persisted_precision = _persisted_date_and_precision(
+        normalized, attested
+    )
+    return {
+        "measurement_group_key": group_key,
+        "metric_code": normalized.metric_code,
+        "proposed_value": _storage_equivalent_float(normalized.proposed_value),
+        "proposed_unit": normalized.proposed_unit,
+        "proposed_source_timestamp": _timestamp_text(normalized.source_timestamp),
+        "proposed_source_local_date": _date_text(persisted_date),
+        "temporal_precision": persisted_precision,
+        "source_text": normalized.source_text,
+        "extractor_name": extracted.extractor_name,
+        "extractor_version": extracted.extractor_version,
+        "model_name": extracted.model_name,
+        "model_version": extracted.model_version,
+        "prompt_version": extracted.prompt_version,
+        "schema_version": extracted.schema_version,
+        "confidence": _storage_equivalent_float(normalized.confidence),
+        "evidence_region_json": (
+            None
+            if normalized.evidence_region is None
+            else canonical_json(normalized.evidence_region)
+        ),
+        "algorithm_code": normalized.algorithm_code,
+        "algorithm_version": normalized.algorithm_version,
+        "provider_code": resolve_provider_code(extracted.provider_code),
+        "source_timezone": normalized.source_timezone,
+        "source_utc_offset_minutes": normalized.source_utc_offset_minutes,
+    }
+
+
 def _candidate_evidence_row(candidate: ImportCandidate) -> dict[str, Any]:
+    try:
+        origins = parse_metadata_origins_json(
+            getattr(candidate, "metadata_origins_json", None)
+        )
+    except ValueError:
+        origins = None
+    return {
+        "measurement_group_key": candidate.measurement_group_key,
+        "metric_code": candidate.metric_code,
+        "proposed_value": _storage_equivalent_float(candidate.proposed_value),
+        "proposed_unit": candidate.proposed_unit,
+        "proposed_source_timestamp": _timestamp_text(candidate.proposed_source_timestamp),
+        "proposed_source_local_date": _date_text(candidate.proposed_source_local_date),
+        "temporal_precision": candidate.temporal_precision,
+        "source_text": candidate.source_text,
+        "extractor_name": candidate.extractor_name,
+        "extractor_version": candidate.extractor_version,
+        "model_name": candidate.model_name,
+        "model_version": candidate.model_version,
+        "prompt_version": candidate.prompt_version,
+        "schema_version": candidate.schema_version,
+        "confidence": _storage_equivalent_float(candidate.confidence),
+        "evidence_region_json": candidate.evidence_region_json,
+        "algorithm_code": candidate.algorithm_code,
+        "algorithm_version": candidate.algorithm_version,
+        "provider_code": candidate.provider_code,
+        "source_timezone": candidate.source_timezone,
+        "source_utc_offset_minutes": candidate.source_utc_offset_minutes,
+        "metadata_origins": origins,
+    }
+
+
+def _candidate_core_row(candidate: ImportCandidate) -> dict[str, Any]:
     return {
         "measurement_group_key": candidate.measurement_group_key,
         "metric_code": candidate.metric_code,
