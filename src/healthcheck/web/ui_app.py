@@ -25,6 +25,7 @@ from healthcheck.web.pages import html_http_error, render_error
 from healthcheck.web.pages import router as pages_router
 from healthcheck.web.period_brief import router as period_brief_router
 from healthcheck.web.source_freshness import router as source_freshness_router
+from healthcheck.web.ui_guard import ui_guard_middleware
 from healthcheck.web.weight import router as weight_router
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -52,6 +53,7 @@ def create_ui_app(
     app.include_router(source_freshness_router)
     app.include_router(pages_router)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+    app.middleware("http")(ui_guard_middleware)
 
     @app.exception_handler(PhotoImportError)
     async def photo_import_error_handler(request: Request, exc: PhotoImportError) -> JSONResponse:

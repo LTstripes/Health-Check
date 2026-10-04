@@ -484,7 +484,9 @@ def test_api_create_list_detail_confirm_reject(photo_env):
     del engine
     app, _ = create_ui_app(settings, photo_extractor=_extractor)
     pngs = six_month_synthetic_batch()[:2]
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         response = client.post(
             "/api/imports/photos",
             files=[("files", (name, content, "image/png")) for name, content, _ in pngs],

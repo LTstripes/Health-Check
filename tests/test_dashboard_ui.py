@@ -72,7 +72,9 @@ def _confirm_all_pending(client, batch_id):
 
 def test_empty_dashboard_does_not_fabricate_zeros(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         page = client.get("/")
         assert page.status_code == 200
         assert "text/html" in page.headers["content-type"]
@@ -100,7 +102,9 @@ def test_empty_dashboard_does_not_fabricate_zeros(tmp_path):
 
 def test_pending_extraction_is_not_confirmed_or_canonical(tmp_path):
     app, _settings, paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = _upload_batch(client, six_month_synthetic_batch()[:3])
         assert uploaded.status_code == 200
         assert uploaded.json()["status"] == "pending-confirmation"
@@ -126,7 +130,9 @@ def test_review_edit_reject_confirm_and_dashboard_points(tmp_path):
     png = encode_synthetic_png(
         weigh_in_payload(source_local_date=date(2026, 3, 4), weight_kg=81.2, body_fat_pct=24.4)
     )
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = client.post(
             "/api/imports/photos", files=[("files", ("one.png", png, "image/png"))]
         )
@@ -206,7 +212,9 @@ def test_six_month_history_dashboard_smoke(tmp_path):
     app, settings, _paths = _ui(tmp_path, weight_goal_kg=76.0)
     del settings
     batch = six_month_synthetic_batch()
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = _upload_batch(client, batch)
         assert uploaded.status_code == 200
         _confirm_all_pending(client, uploaded.json()["id"])
@@ -308,7 +316,9 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         series = client.get("/api/weight/series").json()
         groups = series["composition_by_group"]
         assert "xiaomi-home-unknown" in groups
@@ -346,14 +356,16 @@ def test_ingest_listener_does_not_expose_dashboard_or_import_routes(tmp_path):
         for route in forbidden:
             assert client.get(route).status_code == 404
             assert client.post(route).status_code == 404
-    with TestClient(ui) as client:
+    with TestClient(ui, base_url="http://127.0.0.1:8120") as client:
         assert client.get("/healthz").json() == {"status": "ok", "service": "loopback-ui"}
         assert client.post("/api/ingest/openscale", content=b"{}").status_code == 404
 
 
 def test_safe_error_pages_do_not_leak_sql_or_payloads(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         missing = client.get("/imports/not-a-real-batch")
         assert missing.status_code == 404
         assert "text/html" in missing.headers["content-type"]
@@ -376,7 +388,9 @@ def test_safe_error_pages_do_not_leak_sql_or_payloads(tmp_path):
 def test_artifact_is_served_by_id_not_filesystem_path(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
     png = encode_synthetic_png(weigh_in_payload(source_local_date=date(2026, 5, 6), weight_kg=79.0))
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = client.post(
             "/api/imports/photos", files=[("files", ("shot.png", png, "image/png"))]
         )
@@ -393,7 +407,9 @@ def test_unmigrated_dashboard_stays_available(tmp_path):
     settings = Settings(data_dir=tmp_path / "runtime")
     prepare_runtime(settings)
     app, _ = create_ui_app(settings)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         page = client.get("/")
         assert page.status_code == 200
         assert "Consumer bioimpedance" in page.text
@@ -434,7 +450,9 @@ def _canonical_snapshot(paths):
 
 def test_dashboard_gets_do_not_mutate_canonical_state(tmp_path):
     app, _settings, paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = _upload_batch(client, six_month_synthetic_batch()[:8])
         _confirm_all_pending(client, uploaded.json()["id"])
         established = _canonical_snapshot(paths)
@@ -499,7 +517,9 @@ def test_competing_source_heads_use_canonical_evidence_for_analytics(tmp_path):
     png = encode_synthetic_png(
         weigh_in_payload(source_local_date=date(2026, 3, 4), weight_kg=81.2, body_fat_pct=24.4)
     )
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = client.post(
             "/api/imports/photos", files=[("files", ("one.png", png, "image/png"))]
         )
@@ -587,7 +607,9 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
     from healthcheck.db.repositories import repositories_for
 
     app, _settings, paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = _upload_batch(client, six_month_synthetic_batch()[:4])
         _confirm_all_pending(client, uploaded.json()["id"])
         before = client.get("/api/weight/series").json()["canonical"]
@@ -646,7 +668,9 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
     assert after_fail["run_count"] == snapshot["run_count"] + 1
     assert "failed" in after_fail["statuses"]
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         series = client.get("/api/weight/series").json()
         summary = client.get("/api/weight/summary").json()
         home = client.get("/")
@@ -689,7 +713,9 @@ def test_failed_only_composition_scope_marks_weight_success_stale(tmp_path):
     from healthcheck.db.repositories import repositories_for
 
     app, _settings, paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = _upload_batch(client, six_month_synthetic_batch()[:3])
         _confirm_all_pending(client, uploaded.json()["id"])
         before = client.get("/api/weight/series").json()["canonical"]
@@ -757,7 +783,9 @@ def test_failed_only_composition_scope_marks_weight_success_stale(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         series = client.get("/api/weight/series").json()
         summary = client.get("/api/weight/summary").json()
         home = client.get("/")
@@ -789,7 +817,9 @@ def test_dashboard_html_shows_canonical_banner_when_stale(tmp_path):
     from healthcheck.db.repositories import repositories_for
 
     app, _settings, paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         uploaded = _upload_batch(client, six_month_synthetic_batch()[:2])
         _confirm_all_pending(client, uploaded.json()["id"])
         success_run_id = client.get("/api/weight/series").json()["canonical"]["run_id"]
@@ -817,7 +847,9 @@ def test_dashboard_html_shows_canonical_banner_when_stale(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         home = client.get("/")
         assert home.status_code == 200
         assert 'data-canonical-warning="canonical_recompute_failed"' in home.text
@@ -837,7 +869,9 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
     group = XIAOMI_HOME_COMPOSITION_ALGORITHM
     composition_scope = dashboard_composition_scope(group)
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         png = encode_synthetic_png(
             weigh_in_payload(
                 source_local_date=date(2026, 3, 4), weight_kg=81.2, body_fat_pct=24.4
@@ -893,7 +927,9 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
         engine.dispose()
 
     after_fail = _canonical_snapshot(paths)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         series = client.get("/api/weight/series").json()
         summary = client.get("/api/weight/summary").json()
         home = client.get("/")

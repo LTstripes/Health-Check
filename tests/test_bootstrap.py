@@ -46,7 +46,9 @@ def test_listener_health_endpoints_are_non_sensitive(tmp_path):
     ui_app, _ = create_ui_app(settings)
     ingest_app, _ = create_ingest_app(settings)
 
-    with TestClient(ui_app) as client:
+    with TestClient(
+        ui_app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         response = client.get("/healthz")
         assert response.status_code == 200
         assert response.json() == {"status": "ok", "service": "loopback-ui"}
@@ -100,7 +102,9 @@ def test_structured_log_drops_arbitrary_health_and_secret_fields(tmp_path):
 def test_no_database_is_created_by_health_only(tmp_path):
     settings = Settings(data_dir=tmp_path / "runtime")
     app, _ = create_ui_app(settings)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         assert client.get("/healthz").status_code == 200
     assert not (tmp_path / "runtime" / "healthcheck.db").exists()
 

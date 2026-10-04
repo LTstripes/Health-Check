@@ -241,7 +241,9 @@ def test_empty_report_api_and_owner_page_are_honest(tmp_path):
     migrate_database(paths)
     app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         report = client.get("/api/agreement/report")
         assert report.status_code == 200
         assert report.json()["mode"] == "unavailable"

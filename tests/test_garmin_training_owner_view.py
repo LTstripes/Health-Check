@@ -263,7 +263,9 @@ def test_training_overview_chronology_zero_missing_and_units(tmp_path):
     assert activities[0]["attribution_label"] == "activity recorder"
     _assert_no_training_leaks(overview)
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         api = client.get(
             "/api/garmin/training-overview",
             params={"garmin_source_id": source_id, "activity_limit": 5},
@@ -303,7 +305,9 @@ def test_training_overview_chronology_zero_missing_and_units(tmp_path):
 
 def test_training_overview_source_selection_and_partial_evidence(tmp_path):
     app, _settings, paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         empty = client.get("/api/garmin/training-overview").json()
         assert empty["status"] == "no_data"
         page = client.get("/garmin")
@@ -375,7 +379,9 @@ def test_training_overview_source_selection_and_partial_evidence(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         require = client.get("/api/garmin/training-overview").json()
         assert require["status"] == "require_selection"
         page = client.get("/garmin")
@@ -428,7 +434,9 @@ def test_training_overview_no_network_and_no_activity_detail(tmp_path, monkeypat
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         assert client.get(f"/garmin?garmin_source_id={source_id}").status_code == 200
         assert (
             client.get(

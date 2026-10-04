@@ -81,7 +81,9 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_
     end = date.today()
     start = end - timedelta(days=29)
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         page = client.get("/brief")
         home = client.get("/")
 
@@ -133,7 +135,9 @@ def test_period_brief_source_label_is_human_and_identity_free():
 
 def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp_path):
     app, source_id, source_instance_id = _ui_with_garmin_source(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         page = client.get(
             "/brief",
             params={
@@ -264,7 +268,9 @@ def test_period_brief_rendered_summary_deduplicates_warning_and_notables(
     paths = prepare_runtime(settings)
     migrate_database(paths)
     app, _ = create_ui_app(settings)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         page = client.get("/brief", params={"start_date": "2099-01-01", "end_date": "2099-01-02"})
 
     assert page.status_code == 200
@@ -296,7 +302,9 @@ def test_period_brief_owner_state_labels_remain_distinct(state, label):
 
 def test_period_brief_page_supports_presets_and_custom_period(tmp_path):
     app = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         for days in (7, 30, 90):
             end = date.today()
             start = end - timedelta(days=days - 1)
@@ -318,7 +326,9 @@ def test_period_brief_page_supports_presets_and_custom_period(tmp_path):
 
 def test_period_brief_page_rejects_invalid_period_controls(tmp_path):
     app = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         bad_preset = client.get("/brief", params={"preset": "14"})
         bad_date = client.get(
             "/brief", params={"start_date": "not-a-date", "end_date": "2099-01-01"}

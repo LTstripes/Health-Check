@@ -181,7 +181,9 @@ def _assert_no_secrets(payload) -> None:
 
 def test_empty_garmin_dashboard_honest_no_data(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         page = client.get("/garmin")
         assert page.status_code == 200
         assert "no data" in page.text.lower() or "no_garmin_sources" in page.text
@@ -232,7 +234,9 @@ def test_single_source_scalar_delegates_r03_01_and_preserves_hash(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         first = client.get(
             "/api/garmin/series",
             params={
@@ -285,7 +289,9 @@ def test_invalid_queries_fail_sanitized(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         unknown = client.get(
             "/api/garmin/series",
             params={
@@ -367,7 +373,9 @@ def test_multiple_sources_require_explicit_selection(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         dashboard = client.get("/api/garmin/dashboard").json()
         assert dashboard["source_selection"]["status"] == "require_selection"
         assert dashboard["series"] is None
@@ -420,7 +428,9 @@ def test_activity_comparison_and_native_score_labels(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         response = client.get(
             "/api/garmin/activity-comparison",
             params={
@@ -491,7 +501,9 @@ def test_lagged_association_delegates_without_significance_language(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         response = client.get(
             "/api/garmin/lagged-association",
             params={
@@ -534,7 +546,9 @@ def test_local_only_timestamps_not_invented_as_utc(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         response = client.get(
             "/api/garmin/series",
             params={
@@ -579,7 +593,9 @@ def test_unavailable_distinct_from_zero_and_weight_unaffected(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         body = client.get(
             "/api/garmin/series",
             params={
@@ -633,7 +649,9 @@ def test_nav_and_no_network_side_effects(tmp_path, monkeypatch):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         assert client.get("/garmin").status_code == 200
         assert client.get("/api/garmin/sources").status_code == 200
         assert client.get("/api/garmin/metrics").status_code == 200
@@ -710,7 +728,9 @@ def test_scalar_exclusions_and_lag_exclusion_counts_visible_in_ui(tmp_path):
     finally:
         engine.dispose()
 
-    with TestClient(app) as client:
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
         series = client.get(
             "/api/garmin/series",
             params={
