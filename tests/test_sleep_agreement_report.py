@@ -249,5 +249,5 @@ def test_empty_report_api_and_owner_page_are_honest(tmp_path):
         assert report.json()["mode"] == "unavailable"
         page = client.get("/agreement")
         assert page.status_code == 200
-        assert "Accuracy is not assessed" in page.text
+        assert "Точность не оценивается" in page.text
         assert client.get("/static/agreement.js").status_code == 200

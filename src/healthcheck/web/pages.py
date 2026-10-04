@@ -31,6 +31,8 @@ from healthcheck.web.query import (
     empty_dashboard_payload,
     group_review_events,
 )
+from healthcheck.web.read_snapshot import ensure_read_snapshot
+from healthcheck.web.sleep_view import SLEEP_METRICS, metric_value, night_metric, point_state
 
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -604,7 +606,13 @@ def _photo_error(request: Request, exc: PhotoImportError) -> HTMLResponse:
 def _persist_error(request: Request, operation: str) -> HTMLResponse:
     log_event("persistence_error", operation=operation, status="error", reason="persistence_error")
     return render_error(
-        request, code="persistence_error", message="request failed", status_code=500
+        request,
+        code="persistence_error",
+        message=(
+            "Не удалось прочитать данные сна."
+            if operation in {"sleep_page", "agreement_report"} else "request failed"
+        ),
+        status_code=500,
     )
 
 
@@ -636,6 +644,55 @@ def dashboard_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/sleep", response_class=HTMLResponse)
+def sleep_page(
+    request: Request, wake_date: str | None = None, garmin_source_id: str | None = None
+) -> HTMLResponse:
+    try:
+        end = date.fromisoformat(wake_date) if wake_date is not None else date.today()
+    except ValueError:
+        return render_error(
+            request, code="invalid_sleep_date",
+            message="Укажите дату пробуждения в формате ГГГГ-ММ-ДД.",
+        )
+    if end < date.min + timedelta(days=29):
+        return render_error(
+            request, code="invalid_sleep_date",
+            message="Дата не позволяет показать 30 дней истории.",
+        )
+    start = end - timedelta(days=29)
+    results: dict[str, Any] = {}
+    selection: dict[str, Any] = {"status": "no_data", "sources": []}
+    try:
+        with session_scope(request_engine(request)) as session:
+            ensure_read_snapshot(session)
+            service = GarminQueryService(session, request.app.state.settings)
+            selection = service.resolve_source(garmin_source_id)
+            if selection["status"] == "selected":
+                for code in SLEEP_METRICS:
+                    results[code] = service.scalar_series(
+                        garmin_source_id=selection["selected_source_id"],
+                        metric_code=code, start_date=start, end_date=end,
+                    )
+    except GarminQueryError as exc:
+        return render_error(
+            request, code=exc.code, message="Не удалось показать данные сна для этого выбора.",
+            status_code=exc.status_code,
+        )
+    except SQLAlchemyError as exc:
+        if not database_unavailable(exc):
+            return _persist_error(request, "sleep_page")
+        results = {}
+        selection = {"status": "no_data", "reason": "database_unavailable", "sources": []}
+    return render(request, "sleep.html", {
+        "page": "sleep", "wake_date": end, "start_date": start,
+        "selection": selection, "results": results, "sleep_metrics": SLEEP_METRICS,
+        "night_metric": night_metric, "point_state": point_state,
+        "metric_value": metric_value,
+        "source_label": _brief_source_label,
+    })
+
+
 @router.get("/agreement", response_class=HTMLResponse)
 def agreement_page(request: Request) -> HTMLResponse:
     try:
@@ -645,11 +702,15 @@ def agreement_page(request: Request) -> HTMLResponse:
         if not database_unavailable(exc):
             return _persist_error(request, "agreement_report")
         payload = unavailable_report(reason="database_unavailable")
-    except ValueError as exc:
+    except ValueError:
         return render_error(
-            request, code="invalid_report_request", message=str(exc), status_code=400
+            request, code="invalid_report_request", message="Не удалось прочитать сравнение сна.",
+            status_code=400,
         )
-    return render(request, "agreement.html", {"payload": payload, "page": "agreement"})
+    return render(request, "agreement.html", {
+        "payload": payload, "page": "agreement", "sleep_groups": _brief_sleep_groups,
+        "owner_cohort": _brief_owner_cohort, "owner_units": _BRIEF_UNIT_LABELS,
+    })
 
 
 def _brief_period(
