@@ -1,68 +1,74 @@
 {% extends "base.html" %}
-{% block title %}Import review — Health-Check{% endblock %}
+{% block title %}Данные — Health-Check{% endblock %}
 {% block content %}
-<section class="hero">
-  <div>
-    <h2>Photo import queue</h2>
-    <p class="muted">Uploading extracts candidates only. Nothing becomes confirmed or canonical until you explicitly confirm selected rows.</p>
+<section class="card" aria-labelledby="sources-heading" id="data-status">
+  <div class="section-heading">
+    <h2 id="sources-heading">Источники и свежесть данных</h2>
+    <button type="button" id="data-refresh" hidden>Проверить состояние</button>
   </div>
-  <dl class="current">
-    <div>
-      <dt>Pending candidates</dt>
-      <dd>{{ queue.pending_candidate_count }}</dd>
-    </div>
-    <div>
-      <dt>Confirmed</dt>
-      <dd>{{ queue.confirmed_candidate_count }}</dd>
-    </div>
-    <div>
-      <dt>Rejected</dt>
-      <dd>{{ queue.rejected_candidate_count }}</dd>
-    </div>
-  </dl>
+  <p class="muted">Состояние по сохранённым данным. Проверка не запускает сбор у Garmin или Google.</p>
+  <p id="data-clock" class="muted"></p>
+  <div id="data-feedback" role="status" aria-live="polite">{{ owner_ui.state_chip('not_requested') }} Для проверки состояния нужен JavaScript.</div>
+  <div id="data-results" aria-busy="false"></div>
+  <noscript><p class="uncertainty-note">Свежесть источников не проверена. Очередь импорта ниже доступна без JavaScript.</p></noscript>
 </section>
 
-<section class="card">
-  <h2>Upload Xiaomi S400 screenshots or photos</h2>
+<section class="card" aria-labelledby="queue-heading" id="import-queue">
+  <h2 id="queue-heading">Проверка импорта</h2>
+  <p class="muted">Очередь показана на момент открытия страницы. <a class="button-link" href="/imports">Обновить очередь</a></p>
+  <p class="muted">Загрузка только извлекает кандидатов. Они становятся подтверждёнными данными после твоей проверки и подтверждения выбранных строк.</p>
+  {% if queue_available %}
+  {% if queue.pending_candidate_count %}
+  <p class="uncertainty-note">Ожидают проверки: <strong>{{ queue.pending_candidate_count }}</strong>. Открой загрузку в истории и проверь измерения.</p>
+  {% else %}
+  <p>{{ owner_ui.state_chip('confirmed_empty') }} В последних загрузках нет кандидатов, ожидающих проверки.</p>
+  {% endif %}
+  <p class="muted">Очередь и счётчики относятся к последним {{ queue.batch_count }} загрузкам (не более 50), а не ко всей истории измерений.</p>
+  <dl class="current data-queue-facts">
+    <div><dt>Ожидают проверки</dt><dd>{{ queue.pending_candidate_count }}</dd></div>
+    <div><dt>Подтверждены</dt><dd>{{ queue.confirmed_candidate_count }}</dd></div>
+    <div><dt>Отклонены</dt><dd>{{ queue.rejected_candidate_count }}</dd></div>
+  </dl>
+  {% else %}
+  <p class="uncertainty-note">{{ owner_ui.state_chip('unavailable') }} Очередь импорта недоступна: локальное хранилище не готово. Число кандидатов неизвестно.</p>
+  {% endif %}
+  <h3>Загрузить снимки Xiaomi S400</h3>
   <form class="upload" action="/imports/photos" method="post" enctype="multipart/form-data">
-    <input type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required>
-    <button type="submit">Upload for review</button>
+    <label for="import-files">Снимки или фотографии</label>
+    <input id="import-files" type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required>
+    <button type="submit">Загрузить для проверки</button>
   </form>
 </section>
 
-<section class="card">
-  <h2>Batch history</h2>
-  {% if batches %}
-  <div class="table-scroll">
+<section class="card" aria-labelledby="history-heading">
+  <h2 id="history-heading">История загрузок</h2>
+  {% if not queue_available %}
+  <p class="unavailable">История загрузок недоступна.</p>
+  {% elif batches %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="История загрузок, прокрутка таблицы">
   <table>
-    <thead>
-      <tr>
-        <th>Started</th>
-        <th>Status</th>
-        <th>Received</th>
-        <th>Parsed</th>
-        <th>Committed</th>
-        <th>Failed</th>
-        <th></th>
-      </tr>
-    </thead>
+    <thead><tr><th>Начало</th><th>Состояние</th><th>Получено</th><th>Распознано</th><th>Сохранено</th><th>Ошибки</th><th>Действие</th></tr></thead>
     <tbody>
       {% for batch in batches %}
       <tr>
         <td>{{ batch.started_at }}</td>
-        <td><code>{{ batch.status }}</code></td>
-        <td>{{ batch.received_count }}</td>
-        <td>{{ batch.parsed_count }}</td>
-        <td>{{ batch.committed_count }}</td>
-        <td>{{ batch.failed_count }}</td>
-        <td><a href="/imports/{{ batch.id }}">Review</a></td>
+        <td>{{ {'pending-confirmation': 'Ожидает проверки', 'received': 'Получена', 'parsed': 'Распознана', 'committed': 'Сохранена', 'rejected': 'Отклонена', 'duplicate': 'Повторная загрузка', 'failed': 'Не завершена'}.get(batch.status, 'Состояние не определено') }}</td>
+        <td>{{ batch.received_count }}</td><td>{{ batch.parsed_count }}</td><td>{{ batch.committed_count }}</td><td>{{ batch.failed_count }}</td>
+        <td><a class="button-link" href="/imports/{{ batch.id }}">Проверить</a></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
   {% else %}
-  <p class="unavailable">No import batches yet.</p>
+  <p>Загрузок пока нет.</p>
   {% endif %}
 </section>
+{% if batches %}
+{% call owner_ui.technical_details() %}
+<h2>Состояния загрузок</h2>
+<ul>{% for batch in batches %}<li>{{ batch.started_at }}: <code>{{ batch.status }}</code></li>{% endfor %}</ul>
+{% endcall %}
+{% endif %}
 {% endblock %}
+{% block scripts %}<script src="/static/data_status.js" defer></script>{% endblock %}

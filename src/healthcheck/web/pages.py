@@ -501,6 +501,7 @@ def garmin_dashboard_page(
 
 @router.get("/imports", response_class=HTMLResponse)
 def imports_page(request: Request) -> HTMLResponse:
+    queue_available = True
     try:
         with session_scope(request_engine(request)) as session:
             service = PhotoImportService(
@@ -514,11 +515,13 @@ def imports_page(request: Request) -> HTMLResponse:
         if not database_unavailable(exc):
             return _persist_error(request, "imports")
         batches = []
+        queue_available = False
         queue = empty_dashboard_payload(reason="database_unavailable")["imports"]
     return render(
         request,
         "imports.html",
-        {"batches": batches, "queue": queue, "page": "imports"},
+        {"batches": batches, "queue": queue, "queue_available": queue_available,
+         "page": "imports"},
     )
 
 

@@ -226,6 +226,19 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 .brief-provenance dt { color: var(--muted); }
 .brief-provenance dd { margin: 0; overflow-wrap: anywhere; }
 
+/* Data uses the shared frozen surfaces, state treatments and two-column grid. */
+.data-source-card { margin: 0; }
+.data-source-card > h3 { margin-top: 0; }
+.data-streams { list-style: none; margin: 12px 0; padding: 0; }
+.data-stream { border-top: 1px solid var(--line); padding: 8px 0; }
+.data-stream h3 { margin-top: 0; }
+.data-stream p { margin: 8px 0; }
+.data-chronology { margin: 8px 0; font-variant-numeric: tabular-nums; }
+.data-chronology dt { color: var(--muted); font-size: .75rem; font-weight: 600; }
+.data-chronology dd { margin: 0 0 8px; }
+.data-queue-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 16px 0; }
+#data-status button, #import-queue button, #import-queue input, .data-source-card summary { min-height: 44px; }
+
 /* Shared Owner shell. Keep responsive overrides after page-specific rules. */
 main, .legal { max-width: var(--owner-content-width); }
 :focus-visible { outline: 3px solid var(--owner-focus); outline-offset: 3px; }
@@ -247,7 +260,7 @@ main, .legal { max-width: var(--owner-content-width); }
 
 /* Responsive: overrides stay last. One content column at <=800px; horizontal scroll only in chart/table regions. */
 @media (max-width: 800px) {
-  .grid, .brief-grid, .brief-overview-list { grid-template-columns: minmax(0, 1fr); }
+  .grid, .brief-grid, .brief-overview-list, .data-queue-facts { grid-template-columns: minmax(0, 1fr); }
   .owner-nav { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
   .top { flex-direction: column; align-items: flex-start; }
   .agreement-group header, .section-heading { flex-wrap: wrap; }
