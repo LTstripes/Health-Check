@@ -1057,7 +1057,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             assert 'aria-label="Основные разделы"' in response.text
             assert expected_modes[section] in response.text
             # Existing English bodies stay explicitly English; Russian Overview inherits ru.
-            if section == "Обзор":
+            if section == "Обзор" or path == "/imports":
                 assert 'class="owner-page-content" lang="en"' not in response.text
             else:
                 assert 'class="owner-page-content" lang="en"' in response.text
@@ -1230,7 +1230,7 @@ def test_owner_shell_responsive_browser_contract(tmp_path):
             assert 'href="#owner-main"' in html
         assert 'class="table-scroll"' in client.get("/brief").text
         # Empty import queue honestly has no table; populated queue must scroll.
-        assert "No import batches yet" in client.get("/imports").text
+        assert "Загрузок пока нет" in client.get("/imports").text
         batch = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
         assert 'class="table-scroll"' in client.get("/imports").text
         assert 'class="table-scroll"' in client.get(f"/imports/{batch}").text
@@ -1270,3 +1270,62 @@ def test_owner_state_vocabulary_is_distinct_and_fails_closed():
         assert "<script>" not in rendered
         assert labels["confirmed_empty"] not in rendered
         assert labels["no_change"] not in rendered
+
+
+
+def test_owner_data_surface_queue_actions_are_scoped_and_read_only(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        empty = client.get("/imports").text
+        assert "Источники и свежесть данных" in empty
+        assert "Загрузок пока нет" in empty
+        assert "В последних загрузках нет кандидатов" in empty
+        assert 'class="owner-page-content" lang="en"' not in empty
+        assert 'id="data-feedback" role="status"' in empty
+        assert 'data-owner-state="not_requested"' in empty
+        assert 'src="/static/data_status.js"' in empty
+        batch = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
+        before = _canonical_snapshot(paths)
+        pending = client.get("/imports").text
+        assert "Ожидают проверки: <strong>" in pending
+        assert f'href="/imports/{batch}"' in pending
+        assert "не более 50" in pending
+        assert 'action="/imports/photos" method="post"' in pending
+        assert 'name="files"' in pending
+        assert 'role="region" aria-label="История загрузок' in pending
+        assert 'class="table-scroll"' in pending
+        assert _canonical_snapshot(paths) == before
+        freshness = client.get("/api/source-freshness", params={
+            "evaluated_at_utc": "2099-01-01T12:00:00Z",
+            "evaluation_local_date": "2099-01-01",
+        })
+        assert freshness.status_code == 200
+        weight = next(item for item in freshness.json()["components"]
+                      if item["scope_key"] == "weight")
+        assert weight["state"] == "unknown"  # pending extraction proves no measurement
+        assert _canonical_snapshot(paths) == before
+        _confirm_all_pending(client, batch)
+        confirmed = client.get("/imports").text
+        assert "В последних загрузках нет кандидатов" in confirmed
+        assert "Ожидают проверки: <strong>" not in confirmed
+        weight = next(item for item in client.get("/api/source-freshness", params={
+            "evaluated_at_utc": "2099-01-01T12:00:00Z",
+            "evaluation_local_date": "2099-01-01",
+        }).json()["components"] if item["scope_key"] == "weight")
+        assert (weight["state"], weight["reason_code"]) == ("quiet", "voluntary_sampling")
+
+
+def test_owner_data_unavailable_queue_never_presents_empty_or_zero(tmp_path):
+    settings = Settings(data_dir=tmp_path / "uninitialized-runtime")
+    app, _paths = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/imports")
+        assert page.status_code == 200
+        assert "Число кандидатов неизвестно" in page.text
+        assert "История загрузок недоступна" in page.text
+        assert "В последних загрузках нет кандидатов" not in page.text
+        assert "Загрузок пока нет" not in page.text
+        assert 'class="current data-queue-facts"' not in page.text
+        assert '<dd>0</dd>' not in page.text
