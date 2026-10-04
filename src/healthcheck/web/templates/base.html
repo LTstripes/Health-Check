@@ -19,10 +19,10 @@
   <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
-  <a class="skip-link" href="#owner-main">Перейти к содержимому</a>
+  <a class="skip-link" href="#owner-main">К содержимому</a>
   <header class="top">
     <a class="brand" href="/brief">Health-Check</a>
-    <nav class="owner-nav" aria-label="Основная навигация">
+    <nav class="owner-nav" aria-label="Основные разделы">
       {% for key, item in sections.items() %}
       <a href="{{ item[1] }}"{% if section == key %} class="active" aria-current="page"{% endif %}>{{ item[0] }}</a>
       {% endfor %}
@@ -43,7 +43,7 @@
     </div>
   </main>
   <footer class="legal">
-    <p>Локальный интерфейс. Потребительский BIA вне клиники. Без диагнозов и причинных выводов.</p>
+    <p>Интерфейс только на этом компьютере. Потребительский BIA — не клиническое измерение. Нет диагнозов и утверждений о причинах.</p>
     <details class="owner-state-help">
       <summary>Как читать состояния данных</summary>
       <p>Частичные данные, недостаток данных и отсутствие обнаруженных изменений — разные состояния. Неизвестные и недоступные данные не означают ноль или отсутствие событий.</p>

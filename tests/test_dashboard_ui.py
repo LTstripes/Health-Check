@@ -57,6 +57,7 @@ class _OwnerShellParser(HTMLParser):
         if tag == "nav" and attributes.get("aria-label") in {
             "Primary navigation",
             "Основная навигация",
+            "Основные разделы",
         }:
             self.in_nav = True
         if tag == "a" and self.in_nav:
@@ -1052,8 +1053,8 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             assert 'id="owner-main" tabindex="-1"' in response.text
             assert parsed.details and all("open" not in attrs for attrs in parsed.details)
             assert '<html lang="ru"' in response.text
-            assert "Перейти к содержимому" in response.text
-            assert 'aria-label="Основная навигация"' in response.text
+            assert "К содержимому" in response.text
+            assert 'aria-label="Основные разделы"' in response.text
             assert expected_modes[section] in response.text
             # Existing English bodies stay explicitly English; Russian Overview inherits ru.
             if section == "Обзор":
@@ -1171,12 +1172,26 @@ def test_owner_shell_frozen_visual_system(tmp_path):
             assert selector in css
         assert ".owner-state.partial" in css and "solid" in css
         assert ".owner-state.insufficient" in css and "dashed" in css
+        # Chart legend samples are 8px squares; goal is a dashed reference sample.
+        assert ".swatch" in css and "width: 8px" in css and "height: 8px" in css
+        assert "border-radius: 50%" not in css
+        assert ".swatch.goal" in css and "dashed" in css
+        # Interpretation/status banners use attention treatment, not sunken or error red.
+        assert ".bia-banner, .algorithm-banner, .canonical-banner" in css
+        assert "background: var(--attention-bg)" in css
+        assert ".error-card" in css and "var(--error-bg)" in css
+        # Typography freeze: body 1.5, hierarchy stays 600 without 700 presentation.
+        assert "line-height: 1.5" in css
+        assert "font-weight: 700" not in css
         # Shell is Russian; English bodies stay explicitly English.
         overview = client.get("/brief").text
         weight = client.get("/").text
         assert '<html lang="ru"' in overview
         assert "Обзор" in overview and "За период" in overview
-        assert "Локальный интерфейс" in overview
+        assert "Интерфейс только на этом компьютере" in overview
+        assert "Потребительский BIA — не клиническое измерение" in overview
+        assert "К содержимому" in overview
+        assert 'aria-label="Основные разделы"' in overview
         assert 'class="owner-page-content" lang="en"' in weight
         # Algorithm/canonical banners are status, never errors.
         assert 'class="canonical-banner" role="alert"' not in weight
