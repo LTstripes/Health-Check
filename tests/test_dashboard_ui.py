@@ -6,9 +6,12 @@ enter this file.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+import sqlite3
+from contextlib import closing
+from datetime import UTC, date, datetime, timedelta
 from html.parser import HTMLParser
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -25,11 +28,16 @@ from healthcheck.db.models import (
     CanonicalSelection,
     CanonicalSelectionRun,
     ImportCandidate,
+    IngestBatch,
+    IngestEvent,
     MeasurementSession,
     RunStatus,
     ScalarMeasurement,
 )
+from healthcheck.db.repositories import repositories_for
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+from healthcheck.ingestion.photo.provenance import ensure_photo_acquisition_source
+from healthcheck.ingestion.photo.service import PhotoImportService
 from healthcheck.ingestion.photo.synthetic import (
     encode_synthetic_png,
     six_month_synthetic_batch,
@@ -1355,6 +1363,135 @@ def test_owner_data_surface_queue_actions_are_scoped_and_read_only(tmp_path):
             "evaluation_local_date": "2099-01-01",
         }).json()["components"] if item["scope_key"] == "weight")
         assert (weight["state"], weight["reason_code"]) == ("quiet", "voluntary_sampling")
+
+
+@pytest.mark.parametrize("batch_count", [50, 51, 100, 101])
+def test_owner_data_history_outside_queue_window_renders_without_writes(tmp_path, batch_count):
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    batch_ids = []
+    decisions = ("pending", "confirmed", "rejected")
+    try:
+        with session_scope(engine) as session:
+            source = ensure_photo_acquisition_source(repositories_for(session))
+            for index in range(batch_count):
+                batch = IngestBatch(
+                    acquisition_source_id=source.id,
+                    batch_kind="photo",
+                    started_at=datetime(2099, 1, 1, tzinfo=UTC) + timedelta(minutes=index),
+                    status="pending-confirmation",
+                )
+                session.add(batch)
+                session.flush()
+                batch_ids.append(batch.id)
+                ingest_event = IngestEvent(
+                    ingest_batch_id=batch.id,
+                    acquisition_source_id=source.id,
+                    event_type="photo",
+                    deduplication_key=f"{index:064x}",
+                    status="pending-confirmation",
+                )
+                session.add(ingest_event)
+                session.flush()
+                # Legacy evidence has no metadata origins. Reads must preserve it.
+                session.add(
+                    ImportCandidate(
+                        ingest_event_id=ingest_event.id,
+                        candidate_set_key="synthetic-legacy",
+                        measurement_group_key="synthetic-group",
+                        metric_code="weight",
+                        user_decision=decisions[index % 3],
+                        metadata_origins_json=None,
+                    )
+                )
+    finally:
+        engine.dispose()
+
+    def stored_history():
+        with closing(sqlite3.connect(f"{paths.database.as_uri()}?mode=ro", uri=True)) as connection:
+            return tuple(connection.iterdump())
+
+    before = stored_history()
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/imports")
+        assert page.status_code == 200, page.text
+        assert "text/html" in page.headers["content-type"]
+        expected_ids = list(reversed(batch_ids))[:100]
+        for batch_id in expected_ids:
+            assert f'href="/imports/{batch_id}"' in page.text
+        for batch_id in batch_ids[:-100]:
+            assert f'href="/imports/{batch_id}"' not in page.text
+        assert page.text.count('href="/imports/') == len(expected_ids)
+        for decision in decisions:
+            expected = sum(
+                decisions[index % 3] == decision
+                for index in range(max(0, batch_count - 50), batch_count)
+            )
+            label = {
+                "pending": "Ожидают проверки", "confirmed": "Подтверждены", "rejected": "Отклонены"
+            }[decision]
+            assert f"<dt>{label}</dt><dd>{expected}</dd>" in page.text
+        assert "последним 50 загрузкам" in page.text
+        assert "В последних загрузках нет кандидатов" not in page.text
+    assert stored_history() == before
+
+
+def test_owner_data_queue_and_history_share_snapshot(tmp_path, monkeypatch):
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    original = PhotoImportService.list_batches
+    commits = []
+    try:
+        with TestClient(
+            app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+        ) as client:
+            uploaded = _upload_batch(client, six_month_synthetic_batch()[:1])
+            assert uploaded.status_code == 200, uploaded.text
+            batch_id = uploaded.json()["id"]
+
+            def change_between_queue_and_history(service, **kwargs):
+                if not commits:
+                    with session_scope(engine) as writer:
+                        repositories_for(writer).ingest_batches.update(batch_id, status="failed")
+                    commits.append(True)
+                return original(service, **kwargs)
+
+            monkeypatch.setattr(
+                PhotoImportService, "list_batches", change_between_queue_and_history
+            )
+            page = client.get("/imports")
+            assert page.status_code == 200
+            assert commits == [True]
+            assert "Ожидают проверки: <strong>" in page.text
+            assert "<code>pending-confirmation</code>" in page.text
+            assert "<code>failed</code>" not in page.text
+            after = client.get("/imports")
+            assert after.status_code == 200
+            assert "<code>failed</code>" in after.text
+    finally:
+        engine.dispose()
+
+
+def test_owner_data_sql_error_is_not_an_empty_queue(tmp_path, monkeypatch):
+    from sqlalchemy import text
+
+    from healthcheck.db.repositories import IngestBatchRepository
+
+    app, _settings, _paths = _ui(tmp_path)
+
+    def invalid_query(repository, **kwargs):
+        repository.session.execute(text("SELECT synthetic_missing_column FROM ingest_batches"))
+
+    monkeypatch.setattr(IngestBatchRepository, "list_recent", invalid_query)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/imports")
+        assert page.status_code == 200
+        assert "Число кандидатов неизвестно" in page.text
+        assert "История загрузок недоступна" in page.text
+        assert "В последних загрузках нет кандидатов" not in page.text
+        assert "Загрузок пока нет" not in page.text
+        assert "<dd>0</dd>" not in page.text
+        assert "synthetic_missing_column" not in page.text
 
 
 def test_owner_data_unavailable_queue_never_presents_empty_or_zero(tmp_path):
