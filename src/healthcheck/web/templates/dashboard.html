@@ -2,19 +2,7 @@
 {% import "owner_ui.html" as owner_ui %}
 {% block title %}Вес — Health-Check{% endblock %}
 {% block content %}
-<section class="bia-banner" role="note">
-  <p>Потребительский биоимпеданс (BIA) — не клиническое измерение и чувствителен к методике. Страница не ставит диагнозы, не утверждает причины и не сообщает точные изменения тканей. Небольшие колебания BIA могут отражать воду, гликоген или погрешность метода.</p>
-</section>
-{% if payload.algorithm_boundary.present %}
-<section class="algorithm-banner" role="status">
-  <p>Несовместимые алгоритмы состава тела показаны отдельными рядами. Значения Xiaomi и openScale не смешиваются, не пересчитываются и не сравниваются через границу алгоритма.</p>
-  <p class="muted">Группы:
-  {% for group in payload.algorithm_boundary.groups %}
-    <code>{{ group }}</code>{% if not loop.last %}, {% endif %}
-  {% endfor %}
-  </p>
-</section>
-{% endif %}
+<div class="weight-view">
 {% if payload.canonical.warning or payload.canonical.stale or payload.canonical.reason in ["canonical_selection_failed", "canonical_selection_in_progress"] %}
 <section class="canonical-banner" role="status" data-canonical-warning="{{ payload.canonical.warning or payload.canonical.reason }}">
   {% if payload.canonical.available and payload.canonical.stale %}
@@ -52,76 +40,71 @@
           {{ '%.1f'|format(payload.goal_kg) }} кг
           <span class="muted">Настроенная цель — ориентир, а не оценка «хорошо/плохо».</span>
         {% else %}
-          <span class="muted">Не настроена. Цель — ориентир, а не оценка.</span>
+          <span class="muted">Не настроена. Настройка цели появится в разделе «Настройки и контекст».</span>
         {% endif %}
       </dd>
     </div>
-    <div>
+    {% if payload.imports.pending_candidate_count %}<div>
       <dt>Проверка импорта</dt>
       <dd>
-        {% if payload.imports.pending_candidate_count %}
           <a href="/imports">{{ payload.imports.pending_candidate_count }} на проверке</a>
           <span class="muted">Открой загрузку и проверь измерения.</span>
-        {% else %}
-          <span class="muted">Нет кандидатов на проверке. <a href="/imports">Открыть данные</a></span>
-        {% endif %}
       </dd>
-    </div>
+    </div>{% endif %}
   </dl>
 </section>
 
 <section class="card">
   <h2>Ряд веса</h2>
   <p class="legend">
-    <span class="swatch raw"></span> Подтверждённый вес (источник)
-    <span class="swatch trend"></span> Тренд 21 день (расчёт Health-Check)
-    <span class="swatch goal"></span> Настроенная цель
+    <span><span class="swatch raw"></span> Подтверждённый вес (источник)</span>
+    <span><span class="swatch trend"></span> Тренд 21 день (расчёт Health-Check)</span>
+    {% if payload.goal_kg is not none %}<span><span class="swatch goal"></span> Настроенная цель</span>{% endif %}
   </p>
   <div id="weight-chart" class="chart" aria-label="График веса"></div>
+  <p class="muted">Наведи на точку или выбери её клавишей Tab. Стрелки ← → переключают наблюдения.</p>
+  <div id="observation-detail" class="weight-observation" role="status" aria-live="polite" aria-atomic="true"></div>
   <p id="trend-status" class="muted"></p>
 </section>
 
-<div class="grid">
-  <article class="card">
+<section class="card">
     <h2>Изменение за последнее время</h2>
-    <p class="muted">Темп Theil–Sen за 90 дней и доступность тренда. Отсутствующий показатель не показан как 0.</p>
+    <p class="muted">Направление изменения за последние 90 дней. Отсутствующий показатель не показан как 0.</p>
     <div id="rate-panel"></div>
-  </article>
-  <article class="card">
-    <h2>Покрытие и свежесть</h2>
-    <div id="coverage-panel"></div>
-    <p class="muted"><a href="/imports#data-status">Проверить состояние источников</a></p>
-  </article>
-  <article class="card">
-    <h2>Последний состав тела</h2>
-    <div id="composition-latest"></div>
-  </article>
-  <article class="card">
-    <h2>Изменения при похожем весе</h2>
+</section>
+
+<section class="card">
+  <h2>Состав тела во времени</h2>
+  <p class="muted">Процент жира — оценка источника. Оценки жира и сухой массы — расчёт Health-Check из веса и процента жира одной сессии. Мышцы источника — отдельная оценка, а не остаток веса.</p>
+  {% if payload.algorithm_boundary.present %}<p class="muted">Ряды рассчитаны разными методами и показаны отдельно. Сравнение через границу метода недоступно.</p>{% endif %}
+  <div id="composition-groups"></div>
+  <details class="weight-caveat">
+    <summary>Как читать оценки состава тела</summary>
+    <p>Потребительский биоимпеданс (BIA) — не клиническое измерение и чувствителен к методике. Страница не ставит диагнозы, не утверждает причины и не сообщает точные изменения тканей. Небольшие колебания BIA могут отражать воду, гликоген или погрешность метода.</p>
+    <p>Расчётные жир и сухая масса дополняют друг друга до веса. Сухая масса включает всё, кроме жира; она не равна мышцам источника. Мышцы и жир источника нельзя складывать как полный состав тела.</p>
+  </details>
+</section>
+
+{% if payload.summary.similar_weight.available %}
+  <details class="card weight-insight">
+    <summary>Как изменился состав тела при похожем весе</summary>
     <p class="muted">Один алгоритм, интервал от 28 дней, вес в пределах 1%. Это не утверждение о росте мышц или потере жира.</p>
     <div id="similar-panel"></div>
-  </article>
-</div>
-
-<section class="card">
-  <h2>Состав тела по группам алгоритмов</h2>
-  <p class="muted">Оценки жира и сухой массы — расчёт Health-Check из веса и процента жира одной сессии. Мышцы источника никогда не переименовываются в сухую массу.</p>
-  <div id="composition-groups"></div>
-</section>
-
-<section class="card">
-  <h2>Происхождение точек</h2>
-  <p class="muted">Выбери точку подтверждённого веса на графике. Происхождение покажет источник, устройство, способ ввода и алгоритм — без секретов и тел исходных данных.</p>
-  <div id="provenance-panel" class="provenance empty">Выбери точку на графике.</div>
-</section>
+  </details>
+{% endif %}
 
 {% call owner_ui.technical_details() %}
   <h2>Технические детали</h2>
+  <h3>Покрытие и свежесть</h3>
+  <div id="coverage-panel"></div>
+  <p class="muted"><a href="/imports#data-status">Проверить состояние источников</a></p>
+  <h3>Происхождение выбранной точки</h3>
+  <div id="provenance-panel" class="provenance empty">Выбери точку на графике.</div>
   <p>Доступность, полнота и свежесть — разные сведения. Состояния ниже не подтверждают ежедневное покрытие.</p>
   <dl>
     <div><dt>Алгоритм тренда</dt><dd><code>{{ payload.series.trend_algorithm }}</code></dd></div>
     <div><dt>Причина тренда</dt><dd><code>{{ payload.series.trend_reason or 'none' }}</code></dd></div>
-    <div><dt>Темп</dt><dd><code>{{ payload.summary.rate.algorithm }}</code> · <code>{{ payload.summary.rate.reason or 'none' }}</code></dd></div>
+    <div><dt>Темп Theil–Sen</dt><dd><code>{{ payload.summary.rate.algorithm }}</code> · <code>{{ payload.summary.rate.reason or 'none' }}</code></dd></div>
     <div><dt>Состав тела</dt><dd><code>{{ payload.summary.latest_composition.algorithm }}</code> · <code>{{ payload.summary.latest_composition.reason or 'none' }}</code></dd></div>
     <div><dt>Похожий вес</dt><dd><code>{{ payload.summary.similar_weight.reason or 'none' }}</code></dd></div>
     <div><dt>Канонический расчёт</dt><dd><code>{{ payload.canonical.run_id or payload.canonical.reason or 'none' }}</code> · выборок: {{ payload.canonical.selection_count }} · <code>{{ payload.canonical.warning or payload.canonical.latest_attempt_status or 'none' }}</code>{% if payload.canonical.failure_reason %} · <code>{{ payload.canonical.failure_reason }}</code>{% endif %}</dd></div>
@@ -147,9 +130,11 @@
   {% endif %}
   <p class="muted">Полный пакет страницы сохранён в данных страницы; таблицы выше могут быть сокращены только для отображения.</p>
 {% endcall %}
+</div>
 
 <script id="dashboard-data" type="application/json">{{ payload | tojson }}</script>
 {% endblock %}
 {% block scripts %}
+<link rel="stylesheet" href="/static/weight.css">
 <script src="/static/dashboard.js"></script>
 {% endblock %}

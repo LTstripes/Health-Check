@@ -1,0 +1,23 @@
+/* Scoped to the Weight surface; shared Owner shell and sibling pages stay intact. */
+.weight-view .hero { display: block; }
+.weight-view .current { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.weight-view .current dd .muted { display: block; font-size: 0.875rem; font-weight: 400; }
+.weight-view .chart { min-height: 0; }
+.weight-view .chart svg { display: block; width: 100%; min-width: 620px; height: auto; }
+.weight-view .weight-axis { fill: var(--muted); font: 13px "Segoe UI", sans-serif; }
+.weight-view .weight-point { cursor: pointer; outline: none; }
+.weight-view .weight-dot { stroke: var(--card); stroke-width: 2px; }
+.weight-view .weight-point:hover .weight-dot,
+.weight-view .weight-point:focus .weight-dot { stroke: var(--accent); stroke-width: 4px; }
+.weight-view .weight-observation { padding: 12px; margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
+.weight-view .weight-observation p { margin: 4px 0 12px; }
+.weight-view .weight-composition-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
+.weight-view .weight-composition-values dt { color: var(--muted); font-size: 0.875rem; }
+.weight-view .weight-composition-values dd { margin: 0; font-variant-numeric: tabular-nums; }
+.weight-view summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 600; }
+.weight-view label { display: block; margin: 8px 0; }
+.weight-view select { max-width: 100%; min-height: 44px; }
+.weight-view .table-scroll table { min-width: 620px; }
+@media (max-width: 480px) {
+  .weight-view .current, .weight-view .weight-composition-values { grid-template-columns: minmax(0, 1fr); }
+}
