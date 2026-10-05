@@ -46,6 +46,10 @@ PERIOD_BRIEF_BASELINE_WINDOW_POLICY = "period_brief_trailing_180_calendar_days_v
 PERIOD_BRIEF_BASELINE_WINDOW_LIMIT_REASON = (
     "requested_window_capped_to_trailing_180_calendar_days"
 )
+# Primary persisted sleep evidence for the Overview summary. The exploratory
+# Sleep Agreement remains a secondary diagnostic and never determines whether
+# primary sleep evidence exists (#291).
+_PRIMARY_SLEEP_METRIC_CODES = ("sleep_duration_seconds", "sleep_score")
 
 SECTION_STATES = (
     "present",
@@ -182,11 +186,21 @@ def _weight_section_from_summary(
     daily_points = _daily_weight_points(trend)
     first_point = daily_points[0] if daily_points else None
     last_point = daily_points[-1] if daily_points else None
-    state = _coverage_state_from_summary(coverage)
-    if not daily_points and not (current and current.get("value_kg") is not None):
+    coverage_state = _coverage_state_from_summary(coverage)
+    has_window_evidence = bool(daily_points) or bool(
+        current and current.get("value_kg") is not None
+    )
+    if has_window_evidence:
+        # Section presence is evidence-based. Incomplete window coverage is a
+        # separate limitation and must not mask real measurements (#291).
+        state = "present"
+    else:
+        state = coverage_state
         if state == "present":
             state = "insufficient"
-        elif state == "unknown" and not (summary.get("canonical") or {}).get("available", True):
+        elif state == "unknown" and not (summary.get("canonical") or {}).get(
+            "available", True
+        ):
             state = "unavailable"
     facts = [
         {
@@ -279,6 +293,8 @@ def _weight_section_from_summary(
         },
         "coverage": {
             "status": coverage.get("status") if coverage else None,
+            "state": coverage_state,
+            "evidence_in_window": has_window_evidence,
             "status_counts": dict(coverage.get("status_counts") or {}) if coverage else {},
             "observed_count": len(coverage.get("observed_dates") or []) if coverage else 0,
             "expected_bin_count": coverage.get("expected_bin_count") if coverage else None,
@@ -325,6 +341,7 @@ def _sleep_section_from_report(
     period: PeriodWindow,
     report: Mapping[str, Any],
     baseline_summaries: Sequence[Mapping[str, Any]] = (),
+    sleep_acquisition_state: str | None = None,
 ) -> dict[str, Any]:
     groups = report.get("groups") if isinstance(report.get("groups"), list) else []
     source_dq = (
@@ -393,11 +410,69 @@ def _sleep_section_from_report(
             }
         )
     if not report.get("available"):
-        state = "unavailable" if report.get("mode") == "unavailable" else "insufficient"
+        agreement_state = (
+            "unavailable" if report.get("mode") == "unavailable" else "insufficient"
+        )
     elif compact_groups:
-        state = "present"
+        agreement_state = "present"
     else:
-        state = "insufficient"
+        agreement_state = "insufficient"
+
+    primary_metrics: list[dict[str, Any]] = []
+    for item in baseline_summaries:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("metric_code") not in _PRIMARY_SLEEP_METRIC_CODES:
+            continue
+        counts = (
+            item.get("availability_counts")
+            if isinstance(item.get("availability_counts"), Mapping)
+            else {}
+        )
+        primary_metrics.append(
+            {
+                "metric_code": item.get("metric_code"),
+                "unit": item.get("unit"),
+                "availability": item.get("availability"),
+                "latest_value": item.get("latest_value"),
+                "latest_usable_point": item.get("latest_usable_point"),
+                "usable_count": counts.get("usable_count"),
+                "zero_count": counts.get("zero_count"),
+                "missing_count": counts.get("missing_count"),
+                "null_count": counts.get("null_count"),
+                "invalid_count": counts.get("invalid_count"),
+                "excluded_count": counts.get("excluded_count"),
+                "acquisition_state": item.get("acquisition_state"),
+                "reason": item.get("reason"),
+            }
+        )
+    usable_nights = any(
+        (metric.get("usable_count") or 0) > 0 for metric in primary_metrics
+    )
+    if usable_nights:
+        state = "present"
+    elif not primary_metrics:
+        # No primary sleep input was assembled; an explicit persisted-source
+        # disposition may classify the window, but Agreement never does.
+        if sleep_acquisition_state == "unavailable":
+            state = "unavailable"
+        elif sleep_acquisition_state == "confirmed_empty":
+            state = "confirmed_empty"
+        else:
+            state = "unknown"
+    else:
+        acquisition_states = [
+            metric.get("acquisition_state") for metric in primary_metrics
+        ]
+        if all(value == "confirmed_empty" for value in acquisition_states):
+            state = "confirmed_empty"
+        elif any(value in {"unavailable", "failed"} for value in acquisition_states):
+            state = "unavailable"
+        elif any(value == "present" for value in acquisition_states):
+            # Surface present but no usable primary metric value.
+            state = "unavailable"
+        else:
+            state = "unknown"
     facts: list[dict[str, Any]] = [
         {
             "code": "sleep_agreement_mode",
@@ -425,6 +500,64 @@ def _sleep_section_from_report(
             "availability": "present" if exploratory_cohorts else "absent",
         },
     ]
+    for metric in primary_metrics:
+        code = str(metric.get("metric_code") or "")
+        usable_count = int(metric.get("usable_count") or 0)
+        latest_point = (
+            metric.get("latest_usable_point")
+            if isinstance(metric.get("latest_usable_point"), Mapping)
+            else None
+        )
+        latest = metric.get("latest_value")
+        if latest is None and latest_point is not None:
+            latest = latest_point.get("value")
+        observed_date = (
+            latest_point.get("analytic_date") if latest_point is not None else None
+        )
+        latest_availability = (
+            "present"
+            if latest is not None
+            else ("insufficient" if usable_count else "absent")
+        )
+        nights_availability = "present" if usable_count else "absent"
+        if code == "sleep_duration_seconds":
+            facts.append(
+                {
+                    "code": "sleep_primary_duration_seconds",
+                    "value": latest,
+                    "unit": "seconds",
+                    "availability": latest_availability,
+                    "observed_date": observed_date,
+                    "reason": metric.get("reason"),
+                }
+            )
+            facts.append(
+                {
+                    "code": "sleep_primary_nights_with_duration",
+                    "value": usable_count,
+                    "unit": "count",
+                    "availability": nights_availability,
+                }
+            )
+        elif code == "sleep_score":
+            facts.append(
+                {
+                    "code": "sleep_primary_score",
+                    "value": latest,
+                    "unit": "points",
+                    "availability": latest_availability,
+                    "observed_date": observed_date,
+                    "reason": metric.get("reason"),
+                }
+            )
+            facts.append(
+                {
+                    "code": "sleep_primary_nights_with_score",
+                    "value": usable_count,
+                    "unit": "count",
+                    "availability": nights_availability,
+                }
+            )
     for item in baseline_summaries:
         if not isinstance(item, Mapping):
             continue
@@ -466,6 +599,17 @@ def _sleep_section_from_report(
                 for item in source_dq
                 if isinstance(item, Mapping)
             ],
+            "primary": {
+                "state": state,
+                "acquisition_state": sleep_acquisition_state,
+                "metrics": [dict(metric) for metric in primary_metrics],
+            },
+            "agreement": {
+                "state": agreement_state,
+                "available": bool(report.get("available")),
+                "mode": report.get("mode"),
+                "group_count": len(compact_groups),
+            },
             "period": period.as_dict(),
             "sync_vs_measurement_note": (
                 "last_successful_sync is distinct from last_actual_measurement_or_evidence_date"
@@ -652,12 +796,17 @@ def _data_quality_section(
     import_queue: Mapping[str, Any] | None = None,
     freshness_projection: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Presence and coverage are separate: the section state may be evidence-based
+    # while this fact keeps the conservative window-coverage classification (#291).
+    weight_coverage_state = (weight_section.get("coverage") or {}).get(
+        "state"
+    ) or weight_section.get("state")
     facts: list[dict[str, Any]] = [
         {
             "code": "weight_coverage_state",
-            "value": weight_section.get("state"),
+            "value": weight_coverage_state,
             "unit": None,
-            "availability": weight_section.get("state"),
+            "availability": weight_coverage_state,
         },
         {
             "code": "sleep_coverage_state",
@@ -938,12 +1087,16 @@ def build_period_brief_packet(
     activity_baselines: Sequence[Mapping[str, Any]] = (),
     import_queue: Mapping[str, Any] | None = None,
     freshness_projection: Mapping[str, Any] | None = None,
+    sleep_acquisition_state: str | None = None,
 ) -> dict[str, Any]:
     """Assemble one deterministic period-brief evidence packet from frozen inputs."""
 
     weight_section = _weight_section_from_summary(period=period, summary=weight_summary)
     sleep_section = _sleep_section_from_report(
-        period=period, report=sleep_report, baseline_summaries=sleep_baselines
+        period=period,
+        report=sleep_report,
+        baseline_summaries=sleep_baselines,
+        sleep_acquisition_state=sleep_acquisition_state,
     )
     activity_section = _activity_section_from_inventory(
         period=period,

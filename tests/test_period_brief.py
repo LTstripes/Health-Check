@@ -818,7 +818,15 @@ def test_missing_unknown_unavailable_zero_remain_distinct():
         activities=[],
     )
     assert empty_activity["sections"]["activity"]["state"] == "unknown"
-    assert empty_activity["sections"]["sleep"]["state"] == "unavailable"
+    # Agreement availability never determines primary Sleep presence (#291).
+    assert empty_activity["sections"]["sleep"]["state"] == "unknown"
+    no_source_sleep = build_period_brief_packet(
+        period=period,
+        weight_summary=weight,
+        sleep_report=_sleep_report(available=False),
+        sleep_acquisition_state="unavailable",
+    )
+    assert no_source_sleep["sections"]["sleep"]["state"] == "unavailable"
 
     inventoried_empty = build_period_brief_packet(
         period=period,
@@ -878,6 +886,252 @@ def test_missing_unknown_unavailable_zero_remain_distinct():
         sleep_report=_sleep_report(available=False),
     )
     assert failed["sections"]["weight"]["state"] == "unavailable"
+
+
+def _sleep_primary_summary(
+    metric_code: str,
+    *,
+    usable_count: int = 3,
+    latest_value: float | None = 27000.0,
+    zero_count: int = 0,
+    acquisition_state: str | None = "present",
+    availability: str = "insufficient",
+) -> dict[str, object]:
+    """Compact accepted R03-01 sleep baseline summary for primary projections."""
+
+    return {
+        "metric_code": metric_code,
+        "unit": "seconds" if metric_code == "sleep_duration_seconds" else "points",
+        "availability": availability,
+        "acquisition_state": acquisition_state,
+        "latest_value": latest_value,
+        "personal_baseline_deviation": None,
+        "trend_slope_per_day": None,
+        "result_hash": "synthetic-sleep-baseline",
+        "reason": "insufficient_usable_values",
+        "availability_counts": {
+            "candidate_count": max(usable_count, 1),
+            "usable_count": usable_count,
+            "zero_count": zero_count,
+            "excluded_count": 0,
+            "missing_count": 0,
+            "null_count": 0,
+            "invalid_count": 0,
+            "not_computable_count": 0,
+            "partial_count": 0,
+        },
+    }
+
+
+def test_weight_evidence_is_not_masked_by_incomplete_window_coverage():
+    """#291: present measurements and window coverage are separate concepts."""
+
+    # 30d: 1 present bin + 4 unknown bins must still surface present evidence.
+    period30 = normalize_period(date(2099, 1, 1), date(2099, 1, 30))
+    weight = _weight_summary(rate_available=False)
+    weight["coverage"]["status"] = "unknown"
+    weight["coverage"]["status_counts"] = {
+        "present": 1,
+        "confirmed_empty": 0,
+        "unavailable": 0,
+        "failed": 0,
+        "unknown": 4,
+    }
+    packet = build_period_brief_packet(
+        period=period30,
+        weight_summary=weight,
+        sleep_report=_sleep_report(available=False),
+    )
+    section = packet["sections"]["weight"]
+    assert section["state"] == "present"
+    assert section["coverage"]["state"] == "unknown"
+    assert section["coverage"]["evidence_in_window"] is True
+    coverage_fact = next(
+        fact
+        for fact in packet["sections"]["data_quality"]["summary_facts"]
+        if fact["code"] == "weight_coverage_state"
+    )
+    assert coverage_fact["value"] == "unknown"
+
+    # 7d: no in-window evidence and no conclusive interval evidence stays unknown.
+    period7 = normalize_period(date(2099, 1, 1), date(2099, 1, 7))
+    empty_weight = _weight_summary(points=[], rate_available=False)
+    empty_weight["coverage"]["status"] = "unknown"
+    empty_weight["coverage"]["status_counts"] = {
+        "present": 0,
+        "confirmed_empty": 0,
+        "unavailable": 0,
+        "failed": 0,
+        "unknown": 1,
+    }
+    empty_weight["current"] = {"value_kg": None, "observed_date": None}
+    empty_weight["trend"]["daily_points"] = []
+    empty_weight["trend"]["input_count"] = 0
+    empty_packet = build_period_brief_packet(
+        period=period7,
+        weight_summary=empty_weight,
+        sleep_report=_sleep_report(available=False),
+    )
+    empty_section = empty_packet["sections"]["weight"]
+    assert empty_section["state"] == "unknown"
+    assert empty_section["coverage"]["state"] == "unknown"
+    assert empty_section["coverage"]["evidence_in_window"] is False
+
+
+def test_sleep_primary_evidence_controls_state_and_agreement_stays_secondary():
+    """#291: Overview Sleep summarizes persisted primary nights, not Agreement."""
+
+    duration = _sleep_primary_summary("sleep_duration_seconds")
+    for period in (
+        normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+        normalize_period(date(2099, 1, 1), date(2099, 1, 30)),
+    ):
+        packet = build_period_brief_packet(
+            period=period,
+            weight_summary=_weight_summary(),
+            sleep_report=_sleep_report(available=False),
+            sleep_baselines=[duration],
+        )
+        sleep = packet["sections"]["sleep"]
+        assert sleep["state"] == "present"
+        assert sleep["coverage"]["primary"]["state"] == "present"
+        assert sleep["coverage"]["agreement"]["state"] == "unavailable"
+        primary_fact = next(
+            fact
+            for fact in sleep["summary_facts"]
+            if fact["code"] == "sleep_primary_duration_seconds"
+        )
+        assert primary_fact["value"] == 27000.0
+        assert primary_fact["unit"] == "seconds"
+        assert primary_fact["availability"] == "present"
+        nights_fact = next(
+            fact
+            for fact in sleep["summary_facts"]
+            if fact["code"] == "sleep_primary_nights_with_duration"
+        )
+        assert nights_fact["value"] == 3
+
+    # Agreement groups exist but no primary evidence: Sleep must not claim presence.
+    agreement_only = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(),
+    )
+    assert agreement_only["sections"]["sleep"]["state"] == "unknown"
+    assert agreement_only["sections"]["sleep"]["coverage"]["agreement"]["state"] == "present"
+
+    # Explicit no-source and confirmed-empty dispositions remain distinct.
+    for acquisition_state, expected in (
+        ("unavailable", "unavailable"),
+        ("confirmed_empty", "confirmed_empty"),
+        (None, "unknown"),
+    ):
+        packet = build_period_brief_packet(
+            period=normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+            weight_summary=_weight_summary(),
+            sleep_report=_sleep_report(available=False),
+            sleep_acquisition_state=acquisition_state,
+        )
+        assert packet["sections"]["sleep"]["state"] == expected
+
+    # Surface present but the primary metric has no usable value.
+    metric_absent = _sleep_primary_summary(
+        "sleep_duration_seconds",
+        usable_count=0,
+        latest_value=None,
+        acquisition_state="present",
+    )
+    absent_packet = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(available=False),
+        sleep_baselines=[metric_absent],
+    )
+    assert absent_packet["sections"]["sleep"]["state"] == "unavailable"
+
+    # Explicit zero stays a usable value, never null/unknown.
+    zero_packet = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(available=False),
+        sleep_baselines=[
+            _sleep_primary_summary(
+                "sleep_duration_seconds",
+                usable_count=1,
+                latest_value=0.0,
+                zero_count=1,
+                availability="present",
+            )
+        ],
+    )
+    zero_section = zero_packet["sections"]["sleep"]
+    assert zero_section["state"] == "present"
+    zero_fact = next(
+        fact
+        for fact in zero_section["summary_facts"]
+        if fact["code"] == "sleep_primary_duration_seconds"
+    )
+    assert zero_fact["value"] == 0.0
+    assert zero_fact["availability"] == "present"
+
+    # Sparse window: deviation/percentile unavailable, but the latest accepted
+    # point still summarizes the persisted night without inventing a value.
+    sparse = _sleep_primary_summary(
+        "sleep_duration_seconds",
+        usable_count=1,
+        latest_value=None,
+    )
+    sparse["latest_usable_point"] = {
+        "value": 25200.0,
+        "analytic_date": "2099-01-03",
+        "status": "usable",
+    }
+    sparse_packet = build_period_brief_packet(
+        period=normalize_period(date(2099, 1, 1), date(2099, 1, 7)),
+        weight_summary=_weight_summary(),
+        sleep_report=_sleep_report(available=False),
+        sleep_baselines=[sparse],
+    )
+    sparse_section = sparse_packet["sections"]["sleep"]
+    assert sparse_section["state"] == "present"
+    sparse_fact = next(
+        fact
+        for fact in sparse_section["summary_facts"]
+        if fact["code"] == "sleep_primary_duration_seconds"
+    )
+    assert sparse_fact["value"] == 25200.0
+    assert sparse_fact["observed_date"] == "2099-01-03"
+    assert sparse_fact["availability"] == "present"
+
+
+def test_latest_usable_point_projects_latest_accepted_value_only():
+    from types import SimpleNamespace
+
+    from healthcheck.web.period_brief_query import _latest_usable_point
+
+    def point(status, value, day, record="r"):
+        return SimpleNamespace(
+            status=status,
+            value=value,
+            analytic_date=day,
+            measured_at_utc=None,
+            record_id=record,
+        )
+
+    result = SimpleNamespace(
+        points=(
+            point("usable", 1.0, "2099-01-01"),
+            point("zero", 0.0, "2099-01-02"),
+            point("excluded", None, "2099-01-03"),
+            point("missing", None, "2099-01-04"),
+        )
+    )
+    assert _latest_usable_point(result) == {
+        "value": 0.0,
+        "analytic_date": "2099-01-02",
+        "status": "zero",
+    }
+    assert _latest_usable_point(SimpleNamespace(points=())) is None
 
 
 def test_display_thinning_does_not_change_analytical_numbers():
