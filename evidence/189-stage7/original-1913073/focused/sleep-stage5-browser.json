@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "checks": [
+    "1100px: Russian Sleep and comparison, charts execute, closed/keyboard disclosures, open/closed no overflow, honest missing date",
+    "800px: Russian Sleep and comparison, charts execute, closed/keyboard disclosures, open/closed no overflow, honest missing date",
+    "390px: Russian Sleep and comparison, charts execute, closed/keyboard disclosures, open/closed no overflow, honest missing date",
+    "Data link reaches source status surface",
+    "No console or page JavaScript errors"
+  ],
+  "errors": []
+}

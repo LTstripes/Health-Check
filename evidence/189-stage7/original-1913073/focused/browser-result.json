@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "checks": [
+    "real persisted API renders without inferring fresh/empty",
+    "populated synthetic queue keeps bounded counts, existing review links and real table layout",
+    "loading clears previous results/clocks and prevents concurrent requests",
+    "fresh/stale/reauth/quiet/weight/future chronology and invalid collection policy remain distinct",
+    "optional streams disclose confirmed empty and disabled without inventing owner actions",
+    "keyboard disclosure retains exact technical evidence",
+    "1100/800/480/360px: frozen tokens, one narrow column, nav row, 44px target, no document overflow with disclosures open",
+    "503, malformed and incomplete response clear prior success and permit retry",
+    "retry recovers; unknown reason uses plain text and never executable HTML",
+    "timeout clears loading, retains unknown source state and allows retry",
+    "no JavaScript keeps explicit unverified freshness and working import form"
+  ]
+}

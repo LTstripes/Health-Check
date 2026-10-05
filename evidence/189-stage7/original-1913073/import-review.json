@@ -1,0 +1,44 @@
+{
+  "status": "PASS",
+  "candidate": "1913073fb35328f2f0c3ff8b4d5ba73b4cb11f3d",
+  "checks": [
+    {
+      "width": 1100,
+      "status": "PASS",
+      "localScroller": {
+        "view": 1034,
+        "scroll": 1034,
+        "moved": false,
+        "display": "table"
+      },
+      "language": "Existing English review body explicitly declared; Russian shell",
+      "writes": "none"
+    },
+    {
+      "width": 800,
+      "status": "PASS",
+      "localScroller": {
+        "view": 734,
+        "scroll": 734,
+        "moved": false,
+        "display": "table"
+      },
+      "language": "Existing English review body explicitly declared; Russian shell",
+      "writes": "none"
+    },
+    {
+      "width": 390,
+      "status": "PASS",
+      "localScroller": {
+        "view": 340,
+        "scroll": 726,
+        "moved": true,
+        "display": "table"
+      },
+      "language": "Existing English review body explicitly declared; Russian shell",
+      "writes": "none"
+    }
+  ],
+  "errors": [],
+  "writes": []
+}

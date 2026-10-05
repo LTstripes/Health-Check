@@ -589,10 +589,28 @@ def render(
 def render_error(
     request: Request, *, code: str, message: str, status_code: int = 400
 ) -> HTMLResponse:
+    # HTML presentation only. API errors and exact diagnostic text stay unchanged.
+    owner_message = {
+        "unknown_batch": "Загрузка не найдена. Открой список загрузок в разделе «Данные».",
+        "unknown_garmin_source_id": "Источник Garmin не найден. Выбери доступный источник.",
+    }.get(code) or {
+        "choose a preset or enter both custom period dates":
+            "Выбери готовый период или укажи обе даты своего периода.",
+        "preset must be 7, 30, or 90 days": "Выбери период: 7, 30 или 90 дней.",
+        "custom period requires both start_date and end_date": "Укажи начало и окончание периода.",
+        "custom period dates must use YYYY-MM-DD": "Укажи даты периода в формате ГГГГ-ММ-ДД.",
+        "end_date cannot precede start_date": "Окончание периода не может быть раньше начала.",
+        "request could not be parsed":
+            "Не удалось прочитать параметры запроса. Проверь их и повтори.",
+        "request failed": "Не удалось выполнить запрос. Попробуй повторить его.",
+        "not found": "Страница не найдена. Открой нужный раздел через навигацию.",
+        "database is not ready": "Локальное хранилище данных не готово.",
+    }.get(message, message)
     return render(
         request,
         "error.html",
-        {"code": code, "message": message, "status_code": status_code},
+        {"code": code, "message": owner_message, "technical_message": message,
+         "status_code": status_code},
         status_code=status_code,
     )
 

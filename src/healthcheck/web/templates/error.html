@@ -10,6 +10,7 @@
 </section>
 {% call owner_ui.technical_details() %}
   <p><code>{{ code }}</code></p>
+  {% if technical_message != message %}<p>{{ technical_message }}</p>{% endif %}
   <p class="muted">Без внутренних деталей базы, секретов и сырых тел ответов.</p>
 {% endcall %}
 {% endblock %}

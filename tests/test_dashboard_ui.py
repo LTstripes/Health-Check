@@ -1118,14 +1118,32 @@ def test_owner_shell_errors_keep_context_and_disclose_reason(tmp_path):
     assert "<code>invalid_period</code>" in technical
     assert all("open" not in attrs for attrs in parsed.details)
     assert "Не удалось показать страницу" in response.text
+    assert "Выбери период: 7, 30 или 90 дней." in primary
+    assert "preset must be" not in primary
+    assert "preset must be 7, 30, or 90 days" in technical
     assert 'href="/brief">Обзор</a>' in response.text or ">Обзор<" in response.text
     assert missing.status_code == 404
     assert _OwnerShellParser(missing.text).headings == ["Данные"]
     assert unknown.status_code == 404
     assert _OwnerShellParser(unknown.text).headings == ["Health-Check"]
+    assert "Загрузка не найдена." in missing.text.split("Технические детали", 1)[0]
+    assert "Страница не найдена." in unknown.text.split("Технические детали", 1)[0]
     assert not any(
         attrs.get("aria-current") for attrs, _text in _OwnerShellParser(unknown.text).links
     )
+
+
+def test_owner_validation_error_is_russian_without_changing_api(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        html = client.get("/garmin?start_date=invalid")
+        api = client.get("/api/garmin/series?start_date=invalid")
+    assert html.status_code == api.status_code == 422
+    primary, technical = html.text.split('<details class="card owner-details', 1)
+    assert "Не удалось прочитать параметры запроса." in primary
+    assert "request could not be parsed" not in primary
+    assert "request could not be parsed" in technical
+    assert api.json() == {"code": "invalid_request", "message": "request could not be parsed"}
 
 
 def test_owner_shell_frozen_visual_system(tmp_path):
