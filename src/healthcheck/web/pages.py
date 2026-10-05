@@ -868,10 +868,13 @@ def imports_page(request: Request) -> HTMLResponse:
             service = PhotoImportService(
                 session, request.app.state.runtime_paths, _extractor(request)
             )
-            batches = service.list_batches()
             queue = WeightQueryService(
                 session, request.app.state.settings
             ).import_queue_summary()
+            # The queue expires cached ORM state and reloads only 50 batches.
+            # Load the 100-row history afterwards in the same read snapshot so
+            # every batch remains available when rendered outside the session.
+            batches = service.list_batches()
     except SQLAlchemyError as exc:
         if not database_unavailable(exc):
             return _persist_error(request, "imports")
