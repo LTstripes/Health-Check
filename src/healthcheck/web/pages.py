@@ -69,6 +69,10 @@ _BRIEF_FACT_LABELS = {
     "weight_coverage_state": "Полнота данных веса",
     "sleep_coverage_state": "Полнота данных сна",
     "activity_coverage_state": "Полнота данных активностей",
+    "sleep_primary_duration_seconds": "Последняя длительность сна",
+    "sleep_primary_nights_with_duration": "Ночей с длительностью",
+    "sleep_primary_score": "Последняя оценка сна Garmin",
+    "sleep_primary_nights_with_score": "Ночей с оценкой сна",
     "pending_import_candidates": "Ожидают проверки",
 }
 _BRIEF_REASON_LABELS = {
@@ -99,6 +103,7 @@ _BRIEF_ACTIVITY_LABELS = {
     "walking": "Ходьба",
     "swimming": "Плавание",
     "strength_training": "Силовая тренировка",
+    "tennis": "Теннис",
     "unknown": "Другая активность",
 }
 _BRIEF_COHORT_LABELS = {
@@ -294,6 +299,37 @@ def _brief_coverage_warning(brief: object) -> str | None:
     return " · ".join(dict.fromkeys(warnings)) or None
 
 
+_FRESHNESS_PROVIDER_STATES = {
+    "fresh": "present",
+    "quiet": "present",
+    "stale": "partial",
+    "unavailable": "unavailable",
+    "unknown": "unknown",
+    "not_requested": "not_requested",
+}
+
+
+def _brief_source_status(brief: object) -> str | None:
+    """Project provider freshness source-explicitly; Google is never pooled (#291)."""
+
+    if not isinstance(brief, Mapping):
+        return None
+    quality = (brief.get("sections") or {}).get("data_quality")
+    coverage = quality.get("coverage") if isinstance(quality, Mapping) else None
+    freshness = coverage.get("freshness") if isinstance(coverage, Mapping) else None
+    providers = freshness.get("providers") if isinstance(freshness, Mapping) else None
+    if not isinstance(providers, Mapping):
+        return None
+    parts: list[str] = []
+    for code, label in (("garmin", "Garmin"), ("google", "Google")):
+        provider = providers.get(code)
+        state = provider.get("state") if isinstance(provider, Mapping) else None
+        mapped = _FRESHNESS_PROVIDER_STATES.get(str(state))
+        if mapped:
+            parts.append(f"{label}: {_brief_owner_state(mapped)}")
+    return " · ".join(parts) or None
+
+
 def _brief_notable_changes(notes: object) -> list[dict[str, Any]]:
     """Deduplicate and order packet notices for the owner-facing summary only."""
 
@@ -358,6 +394,12 @@ def _brief_owner_value(
         return "Детали доступны"
     if isinstance(value, str) and value in _BRIEF_STATE_LABELS:
         return _brief_owner_state(value)
+    if (
+        fact_code == "sleep_primary_duration_seconds"
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    ):
+        return metric_value("sleep_duration_seconds", value)
     rendered_unit = _BRIEF_UNIT_LABELS.get(str(unit), str(unit or ""))
     return f"{value} {rendered_unit}".strip()
 
@@ -558,6 +600,9 @@ def _brief_primary_facts(section: object) -> list[dict[str, Any]]:
         "weight_rate_kg_per_week",
         "weight_first_daily_median_kg",
         "weight_last_daily_median_kg",
+        "sleep_primary_duration_seconds",
+        "sleep_primary_nights_with_duration",
+        "sleep_primary_score",
         "activity_session_count",
         "activity_type_counts",
     }
@@ -570,14 +615,55 @@ def _brief_primary_facts(section: object) -> list[dict[str, Any]]:
     ]
 
 
+def _brief_section_has_usable_evidence(name: str, section: object) -> bool:
+    """Inspect actual section evidence instead of only the aggregate state (#291)."""
+
+    if not isinstance(section, Mapping):
+        return False
+    if name == "weight":
+        if section.get("display_points"):
+            return True
+        return any(
+            isinstance(fact, Mapping)
+            and fact.get("code") == "weight_observation_count"
+            and fact.get("availability") == "present"
+            and fact.get("value")
+            for fact in section.get("summary_facts") or []
+        )
+    if name == "activity":
+        return bool(section.get("sessions"))
+    if name == "sleep":
+        coverage = section.get("coverage")
+        primary = coverage.get("primary") if isinstance(coverage, Mapping) else None
+        metrics = primary.get("metrics") if isinstance(primary, Mapping) else None
+        if isinstance(metrics, (list, tuple)) and any(
+            isinstance(metric, Mapping) and (metric.get("usable_count") or 0) > 0
+            for metric in metrics
+        ):
+            return True
+        return any(
+            isinstance(fact, Mapping)
+            and fact.get("code")
+            in {"sleep_primary_duration_seconds", "sleep_primary_score"}
+            and fact.get("value") is not None
+            for fact in section.get("summary_facts") or []
+        )
+    return False
+
+
 def _brief_has_usable_evidence(brief: object) -> bool:
     if not isinstance(brief, dict):
         return False
     sections = brief.get("sections") or {}
-    return any(
-        (sections.get(name) or {}).get("state") in {"present", "confirmed_empty"}
-        for name in ("weight", "sleep", "activity")
-    )
+    for name in ("weight", "sleep", "activity"):
+        section = sections.get(name)
+        if not isinstance(section, Mapping):
+            continue
+        if section.get("state") in {"present", "confirmed_empty"}:
+            return True
+        if _brief_section_has_usable_evidence(name, section):
+            return True
+    return False
 
 
 def render(
@@ -823,6 +909,7 @@ def period_brief_page(
             "brief_owner_value": _brief_owner_value,
             "brief_notable_changes": _brief_notable_changes,
             "brief_coverage_warning": _brief_coverage_warning,
+            "brief_source_status": _brief_source_status,
             "brief_sleep_uncertainty": _brief_sleep_uncertainty,
             "brief_source_label": _brief_source_label,
             "page": "brief",

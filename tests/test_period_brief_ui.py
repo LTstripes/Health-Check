@@ -633,3 +633,130 @@ def test_stage3_all_frozen_states_and_unknown_activity_copy_are_preserved():
         assert _brief_owner_state(state) == label
     assert _brief_owner_state("future_state") == "Состояние данных не определено"
     assert _brief_owner_activity("future_provider_activity") == "Другая активность"
+
+
+def test_brief_usable_evidence_inspects_section_evidence_not_only_state():
+    from healthcheck.web.pages import _brief_has_usable_evidence
+
+    # Real weight points remain usable even if a conservative state says unknown.
+    assert _brief_has_usable_evidence(
+        {
+            "sections": {
+                "weight": {
+                    "state": "unknown",
+                    "display_points": [{"observed_date": "2099-01-01", "median_kg": 70.0}],
+                },
+                "sleep": {"state": "insufficient"},
+                "activity": {"state": "unknown"},
+            }
+        }
+    )
+    # Primary persisted sleep nights count as usable section evidence.
+    assert _brief_has_usable_evidence(
+        {
+            "sections": {
+                "weight": {"state": "unknown"},
+                "sleep": {
+                    "state": "insufficient",
+                    "coverage": {"primary": {"metrics": [{"usable_count": 2}]}},
+                },
+                "activity": {"state": "unknown"},
+            }
+        }
+    )
+    # No section evidence anywhere stays empty.
+    assert not _brief_has_usable_evidence(
+        {
+            "sections": {
+                "weight": {"state": "unknown"},
+                "sleep": {"state": "insufficient", "coverage": {"primary": {"metrics": []}}},
+                "activity": {"state": "unknown"},
+            }
+        }
+    )
+    # Confirmed-empty inventory remains an explicit usable answer.
+    assert _brief_has_usable_evidence(
+        {"sections": {"weight": {"state": "unknown"}, "activity": {"state": "confirmed_empty"}}}
+    )
+
+
+def test_brief_source_status_is_source_explicit():
+    from healthcheck.web.pages import _brief_source_status
+
+    brief = {
+        "sections": {
+            "data_quality": {
+                "coverage": {
+                    "freshness": {
+                        "providers": {
+                            "garmin": {"state": "fresh"},
+                            "google": {"state": "unknown"},
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert _brief_source_status(brief) == (
+        "Garmin: Данные доступны · Google: Состояние данных не определено"
+    )
+    assert _brief_source_status({"sections": {}}) is None
+    assert _brief_source_status({"sections": {"data_quality": {"coverage": {}}}}) is None
+
+
+def test_brief_activity_tennis_label_and_unknown_fallback():
+    from healthcheck.web.pages import _brief_owner_activity
+
+    assert _brief_owner_activity("tennis") == "Теннис"
+    assert _brief_owner_activity("future_provider_activity") == "Другая активность"
+
+
+def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, monkeypatch):
+    from copy import deepcopy
+
+    result = _stage3_result()
+    display = result["display"]
+    sleep = display["sections"]["sleep"]
+    sleep["state"] = "present"
+    sleep["summary_facts"] = [
+        {
+            "code": "sleep_primary_duration_seconds",
+            "value": 27000,
+            "unit": "seconds",
+            "availability": "present",
+        },
+        {
+            "code": "sleep_primary_nights_with_duration",
+            "value": 14,
+            "unit": "count",
+            "availability": "present",
+        },
+        {
+            "code": "sleep_primary_score",
+            "value": 75,
+            "unit": "points",
+            "availability": "present",
+        },
+    ]
+    display["sections"]["data_quality"]["coverage"]["freshness"] = {
+        "providers": {"garmin": {"state": "fresh"}, "google": {"state": "stale"}}
+    }
+    packet = deepcopy(result["packet"])
+    packet["sections"]["sleep"] = deepcopy(display["sections"]["sleep"])
+    packet["sections"]["data_quality"] = deepcopy(display["sections"]["data_quality"])
+    result["packet"] = packet
+    _stub_brief_service(monkeypatch, result)
+
+    with TestClient(_ui(tmp_path), base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief?start_date=2099-01-01&end_date=2099-01-07")
+
+    assert page.status_code == 200
+    primary, _technical = page.text.split("Технические детали", 1)
+    assert 'href="/sleep"' in primary
+    assert "Последняя длительность сна" in primary
+    assert "7 ч 30 мин" in primary
+    assert "Ночей с длительностью" in primary
+    assert "Последняя оценка сна Garmin" in primary
+    assert "Источники: Garmin: Данные доступны · Google: Данные доступны частично" in primary
+    assert "За выбранный период нет доступных данных" not in primary
+    assert "оно не определяет наличие сна" in primary

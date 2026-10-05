@@ -8,6 +8,7 @@
 {% set quality = brief.sections.data_quality %}
 {% set sleep_uncertainty = brief_sleep_uncertainty(sleep.groups) %}
 {% set coverage_warning = brief_coverage_warning(brief) %}
+{% set source_status = brief_source_status(brief) %}
 {% set notable_changes = brief_notable_changes(brief.notable_changes) %}
 {% set actions = brief_owner_actions(brief.owner_actions) %}
 
@@ -64,10 +65,10 @@
 <section class="card brief-overview" aria-labelledby="brief-overview-heading">
   <h2 id="brief-overview-heading">За период</h2>
   <ul class="brief-overview-list">
-    {% for name, section, url in [('Вес', weight, '/'), ('Сон', sleep, '/agreement'), ('Активность', activity, '/garmin')] %}
+    {% for name, section, url in [('Вес', weight, '/'), ('Сон', sleep, '/sleep'), ('Активность', activity, '/garmin')] %}
     <li><h3><a href="{{ url }}">{{ name }}</a></h3>{{ owner_ui.state_chip(section.state) }}
       {% for fact in brief_primary_facts(section) %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
-      {% if name == 'Сон' %}<p class="muted">Сравнение сохранённых наблюдений — ниже. Доступность сравнения не означает полноту каждой ночи.</p>{% endif %}
+      {% if name == 'Сон' %}<p class="muted">Показаны сохранённые ночи Garmin. Исследовательское сравнение с Google — ниже; оно не определяет наличие сна.</p>{% endif %}
     </li>
     {% endfor %}
   </ul>
@@ -88,9 +89,11 @@
   </section>
 </div>
 
-{% if coverage_warning %}
+{% if coverage_warning or source_status %}
 <aside class="uncertainty-note brief-limitations" aria-label="Ограничения данных">
-  <p>{{ coverage_warning }}</p><a href="/imports#data-status">Проверить состояние источников</a>
+  {% if coverage_warning %}<p>{{ coverage_warning }}</p>{% endif %}
+  {% if source_status %}<p>Источники: {{ source_status }}</p>{% endif %}
+  <a href="/imports#data-status">Проверить состояние источников</a>
 </aside>
 {% endif %}
 

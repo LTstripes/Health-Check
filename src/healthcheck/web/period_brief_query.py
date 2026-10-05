@@ -54,6 +54,31 @@ PERIOD_BRIEF_SLEEP_BASELINE_METRICS = ("sleep_duration_seconds", "sleep_score")
 PERIOD_BRIEF_ACTIVITY_BASELINE_METRICS = (DEFAULT_SCALAR_METRIC, "spo2_daily_average")
 
 
+def _latest_usable_point(result: Any) -> dict[str, Any] | None:
+    """Project the latest accepted usable R03-01 point; no recomputation."""
+
+    usable = [
+        point
+        for point in getattr(result, "points", ())
+        if point.status in {"usable", "zero", "partial"} and point.value is not None
+    ]
+    if not usable:
+        return None
+    latest = max(
+        usable,
+        key=lambda point: (
+            point.analytic_date or "",
+            point.measured_at_utc or "",
+            point.record_id or "",
+        ),
+    )
+    return {
+        "value": latest.value,
+        "analytic_date": latest.analytic_date,
+        "status": latest.status,
+    }
+
+
 class PeriodBriefService:
     """Session-backed assembler that only consumes existing analytics services."""
 
@@ -85,6 +110,7 @@ class PeriodBriefService:
         sleep_baselines: list[dict[str, Any]] = []
         activity_baselines: list[dict[str, Any]] = []
         activity_acquisition_coverage: dict[str, Any] | None = None
+        sleep_acquisition_state: str | None = None
         source_selection = self.garmin.resolve_source(garmin_source_id)
         selected_id = source_selection.get("selected_source_id")
         if selected_id:
@@ -122,9 +148,11 @@ class PeriodBriefService:
         ):
             # Source absent: do not conflate with an inventoried empty window.
             activity_inventory_status = "unavailable"
+            sleep_acquisition_state = "unavailable"
         else:
             # e.g. multiple sources require selection — inventory was not attempted.
             activity_inventory_status = "unknown"
+            sleep_acquisition_state = "unknown"
 
         collection_policy = resolve_profile_collection_policy(self.settings)
         freshness_projection = read_consumer_freshness_projection(
@@ -147,6 +175,7 @@ class PeriodBriefService:
             activity_baselines=activity_baselines,
             import_queue=import_queue,
             freshness_projection=freshness_projection,
+            sleep_acquisition_state=sleep_acquisition_state,
         )
 
     def build_with_render(
@@ -277,6 +306,7 @@ class PeriodBriefService:
                         "acquisition_state": acquisition_coverage["state"],
                         "availability_counts": None,
                         "latest_value": None,
+                        "latest_usable_point": None,
                         "personal_baseline_deviation": None,
                         "trend_slope_per_day": None,
                         "result_hash": None,
@@ -293,6 +323,7 @@ class PeriodBriefService:
                 requested_window=requested_window,
                 acquisition_state=acquisition_coverage["state"],
             )
+            summary["latest_usable_point"] = _latest_usable_point(result)
             summary["acquisition_coverage"] = acquisition_coverage
             summaries.append(summary)
         return summaries

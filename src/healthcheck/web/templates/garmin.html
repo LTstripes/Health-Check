@@ -7,7 +7,7 @@
  'duration_seconds': 'Длительность сессии', 'distance_meters': 'Расстояние', 'speed_mps': 'Средняя скорость', 'heart_rate_bpm': 'Средний пульс',
  'power_watts': 'Средняя мощность', 'cadence_rpm': 'Средний каденс', 'training_effect': 'Эффект тренировки Garmin', 'acute_training_load': 'Нагрузка сессии Garmin'
 } %}
-{% set activity_names = {'cycling': 'Велотренировка', 'running': 'Бег', 'walking': 'Ходьба', 'swimming': 'Плавание', 'strength_training': 'Силовая тренировка'} %}
+{% set activity_names = {'cycling': 'Велотренировка', 'running': 'Бег', 'walking': 'Ходьба', 'swimming': 'Плавание', 'strength_training': 'Силовая тренировка', 'tennis': 'Теннис'} %}
 {% macro field_value(field, numeric=true) -%}
  {% if field and field.state in ['zero', 'value'] %}
   {% if numeric %}<span data-owner-state="present">{{ field.value }}</span>{% else %}<span>Передано Garmin; расшифровка в технических деталях</span>{% endif %}
