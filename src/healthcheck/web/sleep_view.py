@@ -1,14 +1,183 @@
-"""Owner sleep presentation over existing Garmin scalar results; no analytics."""
+"""Owner sleep presentation over existing Garmin scalar results; no analytics.
 
-from collections.abc import Mapping
+The Google daily-vitals block is a read-only presentation of the frozen R297
+source-explicit projection (``healthcheck.google.daily_vitals``).  It never
+pools Garmin and Google values, never picks a canonical source and never
+reinterprets persisted states.
+"""
+
+from collections.abc import Mapping, Sequence
 from datetime import date
 from math import isfinite
 from typing import Any
+
+from healthcheck.google.contracts import (
+    FAMILY_ALL_SOURCES,
+    FAMILY_GOOGLE_SOURCES,
+    FAMILY_GOOGLE_WEARABLES,
+)
+from healthcheck.google.daily_vitals import (
+    GOOGLE_DAILY_VITALS_CONTRACT_VERSION,
+    GoogleDailyVitalPoint,
+    GoogleDailyVitalSource,
+    GoogleDailyVitalsResult,
+)
 
 SLEEP_METRICS = {
     "sleep_duration_seconds": ("Длительность сна", "с"),
     "sleep_score": ("Оценка сна Garmin", "баллы"),
 }
+
+GOOGLE_VITALS_DEFAULT_WINDOW_DAYS = 30
+GOOGLE_VITALS_WINDOWS = (7, 30, 90)
+GOOGLE_VITAL_METRICS: tuple[tuple[str, str, str], ...] = (
+    ("daily_hrv_average_ms", "Вариабельность пульса (HRV)", "мс"),
+    ("daily_resting_heart_rate_bpm", "Пульс в покое", "уд/мин"),
+    ("daily_oxygen_saturation_average_percentage", "Кислород в крови", "%"),
+    ("daily_respiratory_rate_breaths_per_minute", "Частота дыхания", "вдохов/мин"),
+)
+
+# Mirrors healthcheck.google.sync.UNATTRIBUTED_SOURCE_INSTANCE without
+# importing the provider-sync layer into the read/presentation path.
+_UNATTRIBUTED_SOURCE_INSTANCE = "unattributed"
+
+_FAMILY_LABELS = {
+    FAMILY_GOOGLE_WEARABLES: "Google · семейство устройств (google-wearables)",
+    FAMILY_GOOGLE_SOURCES: "Google · источники Google (google-sources)",
+    FAMILY_ALL_SOURCES: "Google · все источники (all-sources)",
+}
+
+
+def google_vitals_window_days(value: str | None) -> int:
+    """Accept only the frozen 7/30/90-day Owner windows; default is 30."""
+
+    if value is None:
+        return GOOGLE_VITALS_DEFAULT_WINDOW_DAYS
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        return GOOGLE_VITALS_DEFAULT_WINDOW_DAYS
+    return days if days in GOOGLE_VITALS_WINDOWS else GOOGLE_VITALS_DEFAULT_WINDOW_DAYS
+
+
+def google_vital_source_label(source: GoogleDailyVitalSource) -> str:
+    """Owner-friendly source label; exact identity stays in disclosure."""
+
+    if source.source_kind == "family_aggregate":
+        return _FAMILY_LABELS.get(
+            source.source_instance_id,
+            f"Google · семейство {source.source_instance_id.rsplit('/', 1)[-1]}",
+        )
+    if source.device_attributed:
+        manufacturer = source.device_manufacturer or ""
+        model = source.device_model or ""
+        if manufacturer and model and not model.lower().startswith(manufacturer.lower()):
+            device = f"{manufacturer} {model}"
+        else:
+            device = model or source.device_code or manufacturer
+        return f"Google · {device or 'устройство'}"
+    if source.data_source_name:
+        return f"Google · {source.data_source_name.rsplit('/', 1)[-1]}"
+    if source.platform:
+        return f"Google · {source.platform}"
+    if source.source_instance_id == _UNATTRIBUTED_SOURCE_INSTANCE:
+        return "Google · источник без атрибуции"
+    return "Google · источник данных"
+
+
+def google_vital_owner_state(point: GoogleDailyVitalPoint | None) -> str:
+    """Map the frozen point state to the shared Owner state vocabulary."""
+
+    if point is None:
+        return "unknown"
+    if point.eligible:
+        return "present"
+    if point.state == "ambiguous":
+        return "unknown"
+    return "unavailable"
+
+
+def google_vital_value_text(point: GoogleDailyVitalPoint) -> str:
+    """Format one eligible number without rounding or inventing units."""
+
+    number = point.value
+    if number is None:
+        return "—"
+    if float(number).is_integer():
+        return str(int(number))
+    return str(number)
+
+
+_GOOGLE_VITAL_EXCLUSION_NOTES = {
+    "metric_row_missing": "За эту дату нет записи показателя.",
+    "metric_state_missing": "Источник не передал значение за эту дату.",
+    "metric_state_null": "Источник передал пустое значение за эту дату.",
+    "metric_state_invalid": "Запись показателя непригодна.",
+    "metric_value_invalid": "Запись содержит непригодное число.",
+    "metric_unit_mismatch": "Единица измерения записи не совпадает с ожидаемой.",
+}
+
+
+def google_vital_ineligible_note(point: GoogleDailyVitalPoint) -> str:
+    """Owner-facing explanation for one ineligible (non-ambiguous) point."""
+
+    return _GOOGLE_VITAL_EXCLUSION_NOTES.get(
+        point.exclusion_basis or "",
+        "Значение непригодно для показа; подробности в технических деталях.",
+    )
+
+
+def google_vitals_view(
+    results: Sequence[GoogleDailyVitalsResult],
+) -> dict[str, Any]:
+    """Merge per-metric results for presentation, keeping every source separate.
+
+    Metrics are merged only within one ``google_sources.id``; sources are never
+    collapsed into a single Google value.  Each cell keeps the newest point
+    (state honesty) and the latest eligible point (the displayed value).
+    """
+
+    by_source: dict[str, dict[str, Any]] = {}
+    for result in results:
+        for source in result.sources:
+            item = by_source.setdefault(
+                source.source_id, {"source": source, "metrics": {}}
+            )
+            newest = source.points[-1] if source.points else None
+            item["metrics"][result.metric_code] = {
+                "latest": source.latest,
+                "newest": newest,
+            }
+    sources = sorted(
+        by_source.values(),
+        key=lambda item: (
+            item["source"].source_kind,
+            item["source"].source_instance_id,
+            item["source"].source_id,
+        ),
+    )
+    return {
+        "contract_version": GOOGLE_DAILY_VITALS_CONTRACT_VERSION,
+        "start_date": results[0].start_date if results else None,
+        "end_date": results[0].end_date if results else None,
+        "window_state": "records_in_window" if sources else "no_current_record_in_window",
+        "sources": sources,
+    }
+
+
+def google_vital_cell_state(cell: Mapping[str, Any] | None) -> str:
+    """Owner state for one merged metric cell (value or newest stored state)."""
+
+    if not cell:
+        return "unknown"
+    latest = cell.get("latest")
+    if latest is not None and latest.eligible:
+        return "present"
+    newest = cell.get("newest")
+    if newest is None:
+        return "unknown"
+    return google_vital_owner_state(newest)
+
 
 
 def metric_value(code: str, number: int | float) -> str:

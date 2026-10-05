@@ -43,6 +43,59 @@
   <p class="uncertainty-note" role="note">Длительность, стадии и дневной сон имеют отдельную полноту данных. Оценка сна Garmin — показатель источника для одной сессии, а не общая оценка восстановления. Точность устройств здесь не оценивается.</p>
   <p><a class="button-link" href="/imports">Проверить источники в разделе «Данные»</a></p>
 </section>
+<section class="card brief-controls" data-google-vitals>
+  <h2>Google дневные показатели</h2>
+  <p>Значения Google Health по каждому источнику отдельно. Garmin и Google не объединяются; источник указан для каждого значения. Пропуски не заполняются.</p>
+  {% if google_vitals is none %}
+    {{ owner_ui.state_chip('unavailable') }}
+    <p>Локальное хранилище данных не готово.</p>
+  {% else %}
+    <form method="get" action="/sleep" class="upload">
+      <input type="hidden" name="wake_date" value="{{ wake_date }}">
+      {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
+      <label>Окно Google
+        <select name="vitals_window">
+          {% for days in google_vitals_windows %}<option value="{{ days }}"{% if days == google_vitals_window_days %} selected{% endif %}>{{ days }} дней</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">Показать</button>
+    </form>
+    <p class="muted">{{ google_vitals.start_date }} → {{ google_vitals.end_date }}. Показано последнее пригодное значение за окно с его фактической датой.</p>
+    {% if google_vitals.sources %}
+      {% for item in google_vitals.sources %}
+      <section class="brief-subsection" data-google-source="{{ loop.index }}">
+        <h3>{{ google_vital_source_label(item.source) }}</h3>
+        <div class="grid">
+          {% for metric_code, label, unit_label in google_vitals_metrics %}
+          {% set cell = item.metrics.get(metric_code) %}
+          {% set point = cell.latest if cell else none %}
+          {% set newest = cell.newest if cell else none %}
+          <section data-google-metric="{{ loop.index }}">
+            <h4>{{ label }}</h4>
+            {{ owner_ui.state_chip(google_vital_cell_state(cell)) }}
+            {% if point and point.eligible %}
+            <dl class="current"><dt>{{ point.source_local_date }}</dt><dd>{{ google_vital_value_text(point) }} {{ unit_label }}</dd></dl>
+            {% if point.is_zero %}<p class="muted">Источник вернул явный ноль. Ноль — это значение, а не пропуск.</p>{% endif %}
+            {% if newest and newest.source_local_date > point.source_local_date %}<p class="muted">Более свежая дата ({{ newest.source_local_date }}) не использована; причина — в технических деталях.</p>{% endif %}
+            {% elif newest and newest.state == 'ambiguous' %}
+            <p class="uncertainty-note">За {{ newest.source_local_date }} несколько текущих записей. Единое значение не выбрано; записи доступны в технических деталях.</p>
+            {% elif newest %}
+            <p>{{ google_vital_ineligible_note(newest) }} Более старое значение не подставляется.</p>
+            {% else %}
+            <p>Нет текущих записей в окне. Это не доказывает отсутствие данных за пределами окна.</p>
+            {% endif %}
+          </section>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+    {% else %}
+      {{ owner_ui.state_chip('unknown') }}
+      <p>Нет текущих записей Google в выбранном окне ({{ google_vitals.start_date }} → {{ google_vitals.end_date }}). Это не доказывает отсутствие данных за пределами окна.</p>
+    {% endif %}
+  {% endif %}
+  <p class="uncertainty-note" role="note">Google Health и Garmin — разные источники; значения не сравниваются и не объединяются. Точность устройств здесь не оценивается.</p>
+</section>
 {% if results %}
 <section class="card">
   <h2>История сна</h2>
@@ -66,5 +119,9 @@
 {% call owner_ui.technical_details() %}
   <h2>Происхождение и расчёты Garmin</h2>
   <pre class="provenance">{{ {'source_selection': selection, 'series': results} | tojson(indent=2) }}</pre>
+{% endcall %}
+{% call owner_ui.technical_details() %}
+  <h2>Происхождение Google дневных показателей</h2>
+  <pre class="provenance">{{ google_vitals_technical | tojson(indent=2) }}</pre>
 {% endcall %}
 {% endblock %}

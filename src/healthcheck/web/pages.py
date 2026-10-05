@@ -18,6 +18,10 @@ from healthcheck.analytics.sleep_agreement_report import (
 )
 from healthcheck.analytics.sleep_metrics import get_sleep_metric_definition
 from healthcheck.db.engine import session_scope
+from healthcheck.google.daily_vitals import (
+    GOOGLE_DAILY_VITALS,
+    read_google_daily_vitals,
+)
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
@@ -32,7 +36,20 @@ from healthcheck.web.query import (
     group_review_events,
 )
 from healthcheck.web.read_snapshot import ensure_read_snapshot
-from healthcheck.web.sleep_view import SLEEP_METRICS, metric_value, night_metric, point_state
+from healthcheck.web.sleep_view import (
+    GOOGLE_VITAL_METRICS,
+    GOOGLE_VITALS_WINDOWS,
+    SLEEP_METRICS,
+    google_vital_cell_state,
+    google_vital_ineligible_note,
+    google_vital_source_label,
+    google_vital_value_text,
+    google_vitals_view,
+    google_vitals_window_days,
+    metric_value,
+    night_metric,
+    point_state,
+)
 
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -750,7 +767,10 @@ def dashboard_page(request: Request) -> HTMLResponse:
 
 @router.get("/sleep", response_class=HTMLResponse)
 def sleep_page(
-    request: Request, wake_date: str | None = None, garmin_source_id: str | None = None
+    request: Request,
+    wake_date: str | None = None,
+    garmin_source_id: str | None = None,
+    vitals_window: str | None = None,
 ) -> HTMLResponse:
     try:
         end = date.fromisoformat(wake_date) if wake_date is not None else date.today()
@@ -765,8 +785,12 @@ def sleep_page(
             message="Дата не позволяет показать 30 дней истории.",
         )
     start = end - timedelta(days=29)
+    vitals_days = google_vitals_window_days(vitals_window)
+    vitals_start = end - timedelta(days=vitals_days - 1)
     results: dict[str, Any] = {}
     selection: dict[str, Any] = {"status": "no_data", "sources": []}
+    google_vitals: dict[str, Any] | None = google_vitals_view(())
+    google_vitals_technical: list[dict[str, Any]] | None = []
     try:
         with session_scope(request_engine(request)) as session:
             ensure_read_snapshot(session)
@@ -778,6 +802,17 @@ def sleep_page(
                         garmin_source_id=selection["selected_source_id"],
                         metric_code=code, start_date=start, end_date=end,
                     )
+            google_results = [
+                read_google_daily_vitals(
+                    session,
+                    metric_code=definition.metric_code,
+                    start_date=vitals_start,
+                    end_date=end,
+                )
+                for definition in GOOGLE_DAILY_VITALS
+            ]
+            google_vitals = google_vitals_view(google_results)
+            google_vitals_technical = [result.as_dict() for result in google_results]
     except GarminQueryError as exc:
         return render_error(
             request, code=exc.code, message="Не удалось показать данные сна для этого выбора.",
@@ -788,12 +823,23 @@ def sleep_page(
             return _persist_error(request, "sleep_page")
         results = {}
         selection = {"status": "no_data", "reason": "database_unavailable", "sources": []}
+        google_vitals = None
+        google_vitals_technical = None
     return render(request, "sleep.html", {
         "page": "sleep", "wake_date": end, "start_date": start,
         "selection": selection, "results": results, "sleep_metrics": SLEEP_METRICS,
         "night_metric": night_metric, "point_state": point_state,
         "metric_value": metric_value,
         "source_label": _brief_source_label,
+        "google_vitals": google_vitals,
+        "google_vitals_technical": google_vitals_technical,
+        "google_vitals_metrics": GOOGLE_VITAL_METRICS,
+        "google_vitals_windows": GOOGLE_VITALS_WINDOWS,
+        "google_vitals_window_days": vitals_days,
+        "google_vital_source_label": google_vital_source_label,
+        "google_vital_cell_state": google_vital_cell_state,
+        "google_vital_value_text": google_vital_value_text,
+        "google_vital_ineligible_note": google_vital_ineligible_note,
     })
 
 
