@@ -60,6 +60,15 @@ def google_vitals_window_days(value: str | None) -> int:
     return days if days in GOOGLE_VITALS_WINDOWS else GOOGLE_VITALS_DEFAULT_WINDOW_DAYS
 
 
+def _friendly_source_name(value: str) -> str | None:
+    """Return a human-readable dataSource tail or None for URI/id-shaped names."""
+
+    tail = value.rsplit("/", 1)[-1].strip()
+    if not tail or ":" in tail:
+        return None
+    return tail
+
+
 def google_vital_source_label(source: GoogleDailyVitalSource) -> str:
     """Owner-friendly source label; exact identity stays in disclosure."""
 
@@ -76,8 +85,11 @@ def google_vital_source_label(source: GoogleDailyVitalSource) -> str:
         else:
             device = model or source.device_code or manufacturer
         return f"Google · {device or 'устройство'}"
-    if source.data_source_name:
-        return f"Google · {source.data_source_name.rsplit('/', 1)[-1]}"
+    friendly_name = (
+        _friendly_source_name(source.data_source_name) if source.data_source_name else None
+    )
+    if friendly_name:
+        return f"Google · {friendly_name}"
     if source.platform:
         return f"Google · {source.platform}"
     if source.source_instance_id == _UNATTRIBUTED_SOURCE_INSTANCE:

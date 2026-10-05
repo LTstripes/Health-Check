@@ -9,7 +9,9 @@ from sqlalchemy import event
 
 from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.google.contracts import GoogleQueryMode
+from healthcheck.google.daily_vitals import GoogleDailyVitalSource
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+from healthcheck.web.sleep_view import google_vital_source_label, google_vitals_window_days
 from test_garmin_query_dashboard import _ui
 from test_google_daily_vitals import (
     HRV,
@@ -28,6 +30,69 @@ def client_for(app):
 
 def _split(page_text: str) -> tuple[str, str]:
     return page_text.split('<details class="card owner-details', 1)
+
+
+def _source(**overrides) -> GoogleDailyVitalSource:
+    values = {
+        "source_id": "src-1",
+        "provider_code": "google_health",
+        "source_kind": "data_source",
+        "source_instance_id": "unattributed",
+        "data_source_name": None,
+        "data_source_id": None,
+        "platform": None,
+        "recording_method": None,
+        "device_attributed": False,
+        "device_code": None,
+        "device_manufacturer": None,
+        "device_model": None,
+        "device_uid": None,
+        "points": (),
+        "latest": None,
+        "latest_reason": None,
+    }
+    values.update(overrides)
+    return GoogleDailyVitalSource(**values)
+
+
+def test_google_vital_source_labels_are_friendly_not_raw_uris():
+    uri_name = (
+        "users/me/dataSources/raw:com.google.heart_rate.bpm:com.fitbit.Fitbit:ABC123"
+    )
+    assert google_vital_source_label(
+        _source(
+            source_instance_id=uri_name,
+            data_source_name=uri_name,
+            platform="fitbit",
+        )
+    ) == "Google · fitbit"
+    assert google_vital_source_label(
+        _source(data_source_name="Fitbit Charge 6")
+    ) == "Google · Fitbit Charge 6"
+    assert google_vital_source_label(
+        _source(source_instance_id="unattributed")
+    ) == "Google · источник без атрибуции"
+    assert google_vital_source_label(
+        _source(
+            source_kind="family_aggregate",
+            source_instance_id="users/me/dataSourceFamilies/google-wearables",
+        )
+    ) == "Google · семейство устройств (google-wearables)"
+    assert google_vital_source_label(
+        _source(
+            device_attributed=True,
+            device_manufacturer="Fitbit",
+            device_model="Fitbit Air",
+        )
+    ) == "Google · Fitbit Air"
+
+
+def test_google_vitals_window_accepts_only_frozen_windows():
+    assert google_vitals_window_days(None) == 30
+    assert google_vitals_window_days("7") == 7
+    assert google_vitals_window_days("90") == 90
+    assert google_vitals_window_days("365") == 30
+    assert google_vitals_window_days("nope") == 30
 
 
 def test_sleep_google_vitals_block_is_source_explicit_and_unpaired(tmp_path):
