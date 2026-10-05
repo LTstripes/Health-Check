@@ -23,6 +23,16 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     page.on('console', msg => { if (msg.type() === 'error' && !(msg.location().url || '').endsWith('/favicon.ico')) errors.push(msg.text()); });
     await page.goto(base + '/');
     const original = await page.locator('#dashboard-data').textContent();
+    const weightStyles = await page.evaluate(() => ({
+      heroDisplay: getComputedStyle(document.querySelector('.weight-view .hero')).display,
+      secondaryFontSize: getComputedStyle(document.querySelector('.weight-view .current dd .muted')).fontSize,
+      secondaryFontWeight: getComputedStyle(document.querySelector('.weight-view .current dd .muted')).fontWeight,
+      chartMinWidth: getComputedStyle(document.querySelector('#weight-chart svg')).minWidth,
+    }));
+    assert.deepEqual(weightStyles, {
+      heroDisplay: 'block', secondaryFontSize: '14px', secondaryFontWeight: '400', chartMinWidth: '620px',
+    });
+    checks.push('Production dashboard.css applies distinctive scoped Weight computed styles (hero, typography, chart minimum width)');
     const payload = JSON.parse(original);
     const raw = payload.series.raw_points;
     const compositions = Object.values(payload.series.composition_by_group).flat();
@@ -129,7 +139,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     assert.match(await page.locator('#weight-chart').innerText(), /Это не означает ноль/);
     checks.push('Negative render fixtures: same-date unmatched evidence never borrows composition; explicit zero distinct from missing; single point axes; groups separate; empty state honest');
     assert.deepEqual(errors, []);
-    const result = { status: 'PASS', browser: browser.version(), checks, geometry, errors };
+    const result = { status: 'PASS', browser: browser.version(), checks, weightStyles, geometry, errors };
     fs.writeFileSync(path.join(evidence, 'weight-v2-browser.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result, null, 2));
   } finally { await browser.close(); }

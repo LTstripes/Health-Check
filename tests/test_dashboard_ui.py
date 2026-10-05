@@ -1647,6 +1647,21 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
         assert "font-weight: 700" not in css
 
 
+def test_weight_v2_styles_are_served_in_loaded_dashboard_bundle(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        html = client.get("/").text
+        assert '<link rel="stylesheet" href="/static/dashboard.css">' in html
+        assert "/static/weight.css" not in html
+        stylesheet = client.get("/static/dashboard.css")
+        assert stylesheet.status_code == 200
+        assert "text/css" in stylesheet.headers["content-type"]
+        assert ".weight-view .hero { display: block; }" in stylesheet.text
+        assert ".weight-view .chart svg" in stylesheet.text
+        assert "min-width: 620px" in stylesheet.text
+        assert client.get("/static/weight.css").status_code == 404
+
+
 def test_weight_v2_hierarchy_goal_and_pending_action(tmp_path):
     app, _settings, paths = _ui(tmp_path)
     with TestClient(
