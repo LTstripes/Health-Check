@@ -66,6 +66,7 @@
       "tests/test_metadata_origins_240.py",
       "tests/test_openscale_contract.py",
       "tests/test_openscale_webhook.py",
+      "tests/test_owner_data_v2.py",
       "tests/test_period_brief.py",
       "tests/test_period_brief_ui.py",
       "tests/test_photo_import.py",

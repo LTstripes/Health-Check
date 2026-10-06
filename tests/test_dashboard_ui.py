@@ -194,9 +194,9 @@ def test_review_edit_reject_confirm_and_dashboard_points(tmp_path):
         batch_id = uploaded.json()["id"]
         review = client.get(f"/imports/{batch_id}")
         assert review.status_code == 200
-        assert "Commit preview" in review.text
+        assert "Что будет сохранено" in review.text
         assert "81.2" in review.text
-        assert "Pending extraction is never treated as confirmed" in review.text
+        assert "До подтверждения кандидаты не попадают в измерения" in review.text
         candidates = uploaded.json()["candidates"]
         weight = next(item for item in candidates if item["metric_code"] == "weight")
         fat = next(item for item in candidates if item["metric_code"] == "body_fat_pct")

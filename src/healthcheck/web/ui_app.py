@@ -83,6 +83,12 @@ def create_ui_app(
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        if (
+            request.url.path == "/api/source-freshness"
+            and exc.status_code == 503
+            and exc.detail == "database_unavailable"
+        ):
+            return JSONResponse(status_code=503, content={"code": "database_unavailable"})
         html = html_http_error(request, exc.status_code, str(exc.detail))
         if html is not None:
             return html

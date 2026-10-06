@@ -1,30 +1,29 @@
 {% extends "base.html" %}
-{% block title %}Review batch — Health-Check{% endblock %}
+{% block title %}Проверка импорта — Health-Check{% endblock %}
 {% block content %}
 <section class="hero">
   <div>
-    <h2>Review batch</h2>
+    <h2>Проверка измерений со снимка</h2>
     <p class="muted">
-      Status <code>{{ batch.status }}</code>.
-      Extractor {{ batch.extractor_name }} {{ batch.extractor_version }}.
-      Pending extraction is never treated as confirmed or canonical data.
+      {{ {'pending-confirmation': 'Есть кандидаты для проверки.', 'committed': 'Измерения сохранены.', 'failed': 'Загрузка не завершена.', 'rejected': 'Кандидаты отклонены.', 'duplicate': 'Повторная загрузка.'}.get(batch.status, 'Состояние загрузки требует проверки.') }}
+      Проверь значения и дату, выбери строки и подтверди их. До подтверждения кандидаты не попадают в измерения. Ошибочные строки можно отклонить.
     </p>
   </div>
-  <p><a href="/imports">Back to queue</a></p>
+  <p><a href="/imports">Вернуться к данным и загрузкам</a></p>
 </section>
 
 <section class="card preview-card">
-  <h2>Commit preview</h2>
-  <p class="muted">Selected pending rows will be committed exactly as shown. Already confirmed rows replay without duplicating measurements.</p>
-  <div id="commit-preview" class="preview empty">Select candidates to preview committed values.</div>
+  <h2>Что будет сохранено</h2>
+  <p class="muted">Выбранные строки будут сохранены с показанными значениями. Повторное подтверждение уже сохранённых строк не создаёт новых измерений.</p>
+  <div id="commit-preview" class="preview empty">Выбери кандидатов, чтобы увидеть итоговые значения.</div>
   <form id="confirm-form" action="/imports/{{ batch.id }}/confirm" method="post">
     <div id="confirm-ids"></div>
-    <button type="submit" id="confirm-button" disabled>Confirm selected</button>
+    <button type="submit" id="confirm-button" disabled>Подтвердить выбранные</button>
   </form>
   <form id="reject-form" action="/imports/{{ batch.id }}/reject" method="post">
     <div id="reject-ids"></div>
-    <label>Reject reason <input type="text" name="reason" maxlength="200"></label>
-    <button type="submit" id="reject-button" disabled>Reject selected</button>
+    <label>Причина отклонения <input type="text" name="reason" maxlength="200"></label>
+    <button type="submit" id="reject-button" disabled>Отклонить выбранные</button>
   </form>
 </section>
 
@@ -32,11 +31,11 @@
 <article class="card event-card" data-event-id="{{ group.event.id }}">
   <header class="event-head">
     <div>
-      <h2>Image {{ loop.index }}</h2>
+      <h2>Снимок {{ loop.index }}</h2>
       <p class="muted">
-        Event <code>{{ group.event.status }}</code>
-        {% if group.event.diagnostic_code %} · {{ group.event.diagnostic_code }}{% endif %}
-        {% if group.event.duplicate_of_event_id %} · duplicate of existing artifact{% endif %}
+        {{ {'pending-confirmation': 'Кандидаты готовы к проверке', 'committed': 'Сохранено', 'failed': 'Не удалось распознать', 'rejected': 'Отклонено', 'duplicate': 'Повторная загрузка'}.get(group.event.status, 'Состояние требует проверки') }}
+        {% if group.event.diagnostic_code == 'extractor_not_configured' %} · Распознавание фото не настроено{% elif group.event.diagnostic_code %} · Ошибка распознавания; смотри технические сведения ниже{% endif %}
+        {% if group.event.duplicate_of_event_id %} · Снимок уже загружался{% endif %}
       </p>
     </div>
     {% if group.artifact %}
@@ -52,13 +51,13 @@
     <thead>
       <tr>
         <th></th>
-        <th>Metric</th>
-        <th>Effective value</th>
-        <th>Source time</th>
-        <th>Decision</th>
-        <th>Confidence</th>
-        <th>Review provenance</th>
-        <th>Edit</th>
+        <th>Измерение</th>
+        <th>Значение</th>
+        <th>Дата и время источника</th>
+        <th>Решение</th>
+        <th>Уверенность распознавания</th>
+        <th>Сведения об источнике</th>
+        <th>Исправить</th>
       </tr>
     </thead>
     <tbody>
@@ -107,7 +106,7 @@
             </div>
           </dl>
         </td>
-        <td><code>{{ candidate.user_decision }}</code></td>
+        <td>{{ {'pending': 'Ожидает проверки', 'confirmed': 'Подтверждено', 'rejected': 'Отклонено'}.get(candidate.user_decision, 'Решение неизвестно') }}</td>
         <td>
           {% if candidate.confidence is none %}
             <span class="muted">null (not confirmation)</span>
@@ -167,7 +166,7 @@
             <input type="number" step="any" name="edited_value" value="{{ candidate.effective_value }}" aria-label="Edited value">
             <input type="text" name="edited_unit" value="{{ candidate.effective_unit or '' }}" size="4" aria-label="Unit">
             <input type="date" name="edited_source_local_date" value="{{ candidate.effective_date or '' }}" aria-label="Date">
-            <button type="submit">Save edit</button>
+            <button type="submit">Сохранить исправление</button>
           </form>
           {% else %}
             <span class="muted">locked</span>
@@ -179,10 +178,14 @@
   </table>
   </div>
   {% else %}
-  <p class="unavailable">No candidates for this image.</p>
+  <p class="unavailable">Для этого снимка нет кандидатов. Подтверждать пока нечего; проверь состояние распознавания и сведения о загрузке выше.</p>
   {% endif %}
 </article>
 {% endfor %}
+{% call owner_ui.technical_details() %}
+<p>Состояние загрузки: <code>{{ batch.status }}</code>. Распознаватель: {{ batch.extractor_name }} {{ batch.extractor_version }}.</p>
+{% for group in groups %}<p>Снимок {{ loop.index }}: <code>{{ group.event.status }}</code>{% if group.event.diagnostic_code %} · <code>{{ group.event.diagnostic_code }}</code>{% endif %}</p>{% endfor %}
+{% endcall %}
 {% endblock %}
 {% block scripts %}
 <script src="/static/dashboard.js"></script>

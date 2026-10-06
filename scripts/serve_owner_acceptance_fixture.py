@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--photo-unconfigured", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--empty", action="store_true")
     mode.add_argument("--unavailable", action="store_true")
@@ -100,6 +101,11 @@ def main():
                 assert response.status_code == 200
                 if confirmed:
                     _confirm_all_pending(client, response.json()["id"])
+
+    if args.photo_unconfigured:
+        from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
+
+        app.state.photo_extractor = UnconfiguredImageMeasurementExtractor()
 
     (runtime / "synthetic-manifest.json").write_text(
         json.dumps(
