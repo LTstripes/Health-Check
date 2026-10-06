@@ -395,7 +395,11 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
         assert "openscale-brozek" in groups
         assert series["algorithm_boundary"]["present"] is True
         page = client.get("/")
-        assert "Ряды рассчитаны разными методами и показаны отдельно" in page.text
+        assert "Каждый ряд — отдельная группа совместимых методов расчёта" in page.text
+        assert "У групп свои даты измерений" in page.text
+        assert "Это не общий фильтр по времени" in page.text
+        assert "Несовместимые методы показаны отдельно" in page.text
+        assert "точки разных групп не соединяются линией" in page.text
         assert "xiaomi-home-unknown" in page.text
         assert "openscale-brozek" in page.text
     del settings
