@@ -72,7 +72,7 @@
   <ul class="brief-overview-list">
     {% for name, section, url in [('Вес', weight, '/'), ('Сон', sleep, '/sleep'), ('Активность', activity, '/garmin')] %}
     <li><h3><a href="{{ url }}">{{ name }}</a></h3>{{ owner_ui.state_chip(section.state, false) }}
-      {% for fact in brief_primary_facts(section) %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
+      {% for fact in brief_primary_facts(section) %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.observed_date %} <span class="muted">· {{ fact.observed_date | owner_date }}</span>{% endif %}{% if fact.reason and fact.availability != 'present' %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
       {% if name == 'Сон' %}<p class="muted">Ночи Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>{% endif %}
       {% if name == 'Вес' %}<details class="owner-details brief-records"><summary>Измерения веса</summary>      <div class="table-scroll" role="region" aria-label="Измерения веса, прокрутка таблицы" tabindex="0">
       <table><thead><tr><th>Дата</th><th>Вес, кг</th></tr></thead><tbody>

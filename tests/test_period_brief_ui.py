@@ -727,6 +727,8 @@ def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, 
             "value": 27000,
             "unit": "seconds",
             "availability": "present",
+            "observed_date": "2099-01-02",
+            "reason": "insufficient_baseline",
         },
         {
             "code": "sleep_primary_nights_with_duration",
@@ -765,3 +767,7 @@ def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, 
     assert 'class="card owner-details brief-sleep"' in primary
     assert 'class="card owner-details brief-sleep" open' not in primary
     assert "status-chip owner-state present" not in primary
+    overview = primary.split('class="brief-overview-list"', 1)[1]
+    sleep_card = overview.split('href="/sleep"', 1)[1].split("</li>", 1)[0]
+    assert "2 января 2099" in sleep_card
+    assert "Подробности доступны в технических данных" not in sleep_card
