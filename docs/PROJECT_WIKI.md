@@ -2,18 +2,18 @@
 
 This is the compact current-state entry point. Historical contracts and release evidence remain in release-specific documents and GitHub issues.
 
-## Current canonical state — 2026-10-04
+## Current canonical state — 2026-10-06
 
-- Canonical Git branch: `main`. Owner UI #189 stages 1–6 are integrated through Activity PR #287; Stage 7 final whole-product acceptance remains open. Exact SHA/CI and the next-session handoff live in [Current History](EXECUTION_HISTORY_CURRENT.md).
+- Canonical Git branch: `main @ e806d81fc38093931113ab0790cab120cacf8c10` at this closeout. #189 stages 1–7 are integrated/closed; #292 PR #304 and post-main CI `37512216796` are green. Owner-local deployment and real-data review of this exact main occurred on 2026-10-06 and generated #305–#309.
 - Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness/collection policy, screenshot workflow and reliability/correction work remain canonical.
 - Stable private data: `D:\HealthCheck\stable`; Owner/control checkout: `D:\HealthCheck\main`; local Ops: `D:\HealthCheck\ops`; disposable Owner UAT: `D:\HealthCheck\uat`; agent tasks: `D:\HealthCheck\workspaces\<client>\<issue-or-task>`.
 - #148 practical off-site recovery and #256 filesystem/workspace maintenance are complete; the fail-closed workspace janitor remains the accepted daily cleanup mechanism.
 - The CI/test-maintenance wave is complete: #251 lane balancing, #246 docs-only/exact-tree event dedup, #243 Windows transcript reliability and #242 dependency/security audit. #244 Host/Origin hardening is also complete. #274 retained a measured NO-GO profiling record, not optimization code.
 - Former follow-ups #240 metadata origins, #247 non-Windows AEAD and #248 Period Brief CLI formats are complete. #172 UX/performance is closed after #189 Stage 3 and #283 backend optimization.
-- Five open issues at closeout: #189 Stage 7, parked #228, Owner-deferred #167, Owner/admin decision #126 and NOT_ELIGIBLE #105. Dependabot PRs #270/#271 are separate unreviewed proposals.
+- Active product follow-ups: #305–#309, plus existing #294 Settings/Context, #295 performance and #298 Stress diagnosis. Parked/deferred/admin-gated items remain #228/#167/#126/#105. Dependabot PRs #270/#271 are separate unreviewed proposals.
 - Repository visibility remains public at this checkpoint. No settings/history rewrite, local deployment or private UAT is implied by engineering acceptance or this documentation closeout.
 
-See the [current backlog](ROADMAP.md#current-backlog--2026-10-04), [Owner UI](OWNER_UI_SHELL.md), [Owner machine layout](OWNER_MACHINE_LAYOUT.md) and [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
+See the [current backlog](ROADMAP.md#current-backlog--2026-10-06), [2026-10-06 Owner UAT closeout](OWNER_UAT_FOLLOWUP_2026-10-06.md), [Owner UI](OWNER_UI_SHELL.md), [Owner machine layout](OWNER_MACHINE_LAYOUT.md) and [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
 
 ## What the product can do today
 
@@ -21,7 +21,7 @@ See the [current backlog](ROADMAP.md#current-backlog--2026-10-04), [Owner UI](OW
 
 The primary sections are **Обзор / Вес / Сон / Активность / Данные** on one frozen Russian visual/state/disclosure system. Overview is `/brief`; Weight remains `/`; Sleep is `/sleep` with secondary `/agreement`; Activity is `/garmin` with Сессии and Тренировки и восстановление modes; Data is `/imports` with source freshness/actions and the existing import review workflow.
 
-Interpretation-changing limitations remain visible; detailed provenance/statistics/internal codes stay accessible behind disclosure. Narrow per-page Chromium checks are accepted. Stage 7 cross-browser/mobile/loading/error acceptance is still outstanding, and the Owner has already dispatched its task. Do not launch a duplicate Worker.
+Interpretation-changing limitations remain visible; detailed provenance/statistics/internal codes stay accessible behind disclosure. #189 Stage 7 and the subsequent #292 clarity pass are integrated. The 2026-10-06 Owner-local real-data review confirmed the redesigned shell is usable but identified the next product-detail wave: Data #305, Weight #306, Overview #307, Sleep #308 and Activity #309.
 
 ### Weight / body composition
 
@@ -101,9 +101,11 @@ Detailed rollout evidence and limitations are in [CI Optimization Closeout — 2
 
 ## Next work
 
-Receive and review the already-dispatched **#189 Stage 7** result in the next session. Read live main/issue/PR/candidate evidence first; do not restart completed stages 1–6 or infer an unpublished branch/SHA. Resolve concrete browser/loading/error/responsive findings, then reconcile required Owner-local deployment/UAT before claiming whole-product acceptance.
+#305 is the immediate functional follow-up because the real Owner profile still shows a failed persisted-source freshness request on Data. Its diagnosis must distinguish endpoint/runtime failure from client validation without changing freshness semantics or touching Stable directly.
 
-#228 remains parked, #167 Owner-deferred, #105 NOT_ELIGIBLE and #126 a repository-settings/Owner decision. Broad dependency/action updates #270/#271 require separate review and are not housekeeping merges. No automatic next CI/test optimization or new product-release track is authorized.
+#306 Weight timelines can proceed in parallel with #305 if ownership of shared CSS remains explicit; its core work is chart/date presentation and does not require Data/source-freshness changes. After those two, run #307 → #308 → #309 sequentially because Overview/Sleep/Activity may share Owner presentation/templates and because each later surface should consume the settled source presentation.
+
+Keep #294 Settings & Context, #295 real-route performance and #298 Garmin stress diagnosis as valid follow-ups after the current UI/data wave. #228 remains parked, #167 Owner-deferred, #105 NOT_ELIGIBLE and #126 an Owner/admin decision. Broad dependency/action updates #270/#271 require separate review and are not housekeeping merges.
 
 Before updating local code, verify idle relevant Owner processes and a clean accepted checkout. Do not switch/pull while refresh or dependent runtime processes use that checkout. GitHub publication and local deployment remain separate.
 

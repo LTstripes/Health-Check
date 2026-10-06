@@ -8,7 +8,7 @@ Future ideas not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md
 
 Released foundation in canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness/collection policy, Owner screenshot workflow and the completed reliability/correction slice.
 
-The Owner UI is no longer deferred: **#189 stages 1–6 are integrated**, ending with Activity PR #287. **Stage 7 remains open** for whole-product responsive/browser/loading/error acceptance. The latest exact implementation checkpoint and CI evidence live in [Current History](EXECUTION_HISTORY_CURRENT.md); publication is not Owner-local deployment or new private UAT.
+The Owner UI redesign **#189 stages 1–7 is integrated and closed**. The later real-data Owner UAT on `main @ e806d81fc38093931113ab0790cab120cacf8c10` confirmed local deployment and the combined Data/Overview/Weight/Sleep/Activity surfaces, while exposing the next product-detail wave #305–#309. Exact integration/CI and Owner-UAT evidence live in [Current History](EXECUTION_HISTORY_CURRENT.md) and the [2026-10-06 UAT closeout](OWNER_UAT_FOLLOWUP_2026-10-06.md).
 
 Latest completed work includes:
 - #240 / PR #273: per-candidate metadata-origin provenance, legacy-safe replay and strict date-only Owner attestation for screenshots.
@@ -19,23 +19,28 @@ Latest completed work includes:
 - #274 / PR #277: completed measured NO-GO for the tested sync-fixture optimization; no optimization code retained.
 - #148/#238/#256 and earlier durability/runtime maintenance remain complete.
 
-## Current backlog — 2026-10-04
+## Current backlog — 2026-10-06
 
-Five open issues at the session-closeout read-back, excluding pull requests:
+Open issues at the post-UAT read-back, excluding pull requests:
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
-| #189 | Stages 1–6 complete; Stage 7 pending | Review the already-dispatched acceptance task when its delivery arrives; do not duplicate the Worker |
+| #305 | Active / assigned | Diagnose Data freshness-check failure first; then simplify import history and prove the Xiaomi upload/review path honestly |
+| #306 | Ready; compatible with #305 if shared CSS ownership is explicit | Human-readable/intermediate time ticks and composition-series clarity; no formula/compatibility changes |
+| #307 | Ready after #305/#306 | Cross-source Overview values with explicit Garmin/Google identity and no pooling |
+| #308 | Ready after #307 | One-row nightly Sleep history, Garmin/Google source views and only semantically compatible comparisons |
+| #309 | Ready after #308 | Real tennis mapping from persisted Garmin evidence and a clear two-session comparison flow; no invented Google Activity |
+| #294 | Valid follow-up | Owner Settings & Context: weight goal + revisioned context through the UI |
+| #295 | Valid follow-up | Measure real Owner route latency before any cache/optimization |
+| #298 | Valid follow-up | Sanitized Garmin stress diagnosis on a disposable verified clone |
 | #228 | Research accepted / parked | No cross-image semantic auto-merge until trustworthy event identity exists |
 | #167 | Owner-deferred privacy/history operation | Requires explicit freeze/decision before any rewrite |
-| #126 | Owner/admin decision | Recheck required-check/protection capability before settings changes; not a test-code optimization task |
+| #126 | Owner/admin decision | Recheck required-check/protection capability before settings changes |
 | #105 | NOT_ELIGIBLE | No canonical sleep switch until the accepted device-pair evidence gate is met |
 
-#153 and #210 are closed as not planned: optional openScale compatibility and model-attribution bookkeeping are not unfinished readiness work. #240/#247/#248/#172/#283 are complete, not queued follow-ups.
+#189/#290/#291/#292/#293/#297/#302 are complete, not active queue items. #153 and #210 remain closed as not planned. Dependabot PRs #270/#271 remain separate unreviewed proposals and must not be merged as documentation cleanup.
 
-Dependabot PRs #270/#271 remain separate unreviewed proposals at this checkpoint. Do not merge broad dependency/action updates as documentation cleanup or confuse them with the completed #242 security fixes.
-
-This is a status map, not an automatic Worker queue. No additional test-suite reduction, pytest rewrite, lane split or CI trigger redesign is planned. Reopen CI optimization only for a new measured bottleneck, regression or security requirement.
+This is a status map, not an automatic Worker queue. The current presentation/data follow-up order is #305 first, #306 optionally in parallel, then #307 → #308 → #309. Performance, Stress and Settings/Context should use the resulting stable product surface rather than racing it.
 
 ### Operational disposition
 
@@ -121,7 +126,7 @@ One persistent private cross-domain profile, supported backup/restore into dispo
 
 Parent #160 closed after #175 bounded discovery, #180 typed persistence and live replay proof, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT.
 
-No custom Health-Check training/readiness score, medical/coaching claim, VO2 guessing or invented producer attribution. #189 Stage 6 now provides Russian Owner-first Activity presentation; full UI acceptance remains Stage 7.
+No custom Health-Check training/readiness score, medical/coaching claim, VO2 guessing or invented producer attribution. #189 completed the Russian Owner-first Activity foundation; post-UAT Activity refinements are now tracked in #309.
 
 ## Current owner-facing product work
 
@@ -133,11 +138,11 @@ No custom Health-Check training/readiness score, medical/coaching claim, VO2 gue
 
 #215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is closed as not planned; screenshot import remains the accepted Weight workflow.
 
-### Owner UI #189 — final acceptance pending
+### Owner UI #189 — integrated; post-UAT follow-up active
 
 Accepted IA and one frozen visual/language system govern all pages. Stages 1–6 are complete: shared shell, Данные, Обзор, Вес, Сон and Активность. Sleep is primary at `/sleep`; Agreement remains secondary at `/agreement`. No provider/analytics/schema semantics are changed by presentation redesign.
 
-Stage 7 owns the remaining whole-product responsive/browser/loading/error acceptance. Earlier per-page Chromium evidence is reusable but does not replace that gate. The Owner already dispatched the task and will bring the delivery to the next session. Do not mark #189 complete or start another implementation merely because the six page stages are merged. See [Owner UI](OWNER_UI_SHELL.md).
+#189 stages 1–7 are integrated and the umbrella is closed. The Owner later deployed `main @ e806d81fc38093931113ab0790cab120cacf8c10` against the real Stable profile and reviewed the combined product. That UAT does not reopen #189; its concrete product findings are split into #305–#309. See [Owner UI](OWNER_UI_SHELL.md) and the [2026-10-06 UAT closeout](OWNER_UAT_FOLLOWUP_2026-10-06.md).
 
 ## Engineering maintenance — CI feedback/reliability closeout
 
