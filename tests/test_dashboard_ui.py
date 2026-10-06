@@ -299,7 +299,7 @@ def test_six_month_history_dashboard_smoke(tmp_path):
         assert "Текущий подтверждённый вес" in html
         assert "Изменение за последнее время" in html
         assert "Покрытие и свежесть" in html
-        assert "Последний состав тела" in html
+        assert "Состав тела во времени" in html
         assert "Оценки жира и сухой массы" in html
         assert "Мышцы источника" in html
         assert "Потребительский биоимпеданс" in html
@@ -395,7 +395,7 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
         assert "openscale-brozek" in groups
         assert series["algorithm_boundary"]["present"] is True
         page = client.get("/")
-        assert "Несовместимые алгоритмы состава тела показаны отдельными рядами" in page.text
+        assert "Ряды рассчитаны разными методами и показаны отдельно" in page.text
         assert "xiaomi-home-unknown" in page.text
         assert "openscale-brozek" in page.text
     del settings
@@ -1555,10 +1555,10 @@ def test_weight_page_is_russian_owner_first_with_technical_disclosure(tmp_path):
             "Настроенная цель",
             "Изменение за последнее время",
             "Покрытие и свежесть",
-            "Последний состав тела",
-            "Изменения при похожем весе",
-            "Состав тела по группам алгоритмов",
-            "Происхождение точек",
+            "Состав тела во времени",
+            "Как изменился состав тела при похожем весе",
+            "Состав тела во времени",
+            "Происхождение выбранной точки",
             "Выбери точку на графике",
             "Проверить состояние источников",
             "Технические детали",
@@ -1578,7 +1578,7 @@ def test_weight_page_is_russian_owner_first_with_technical_disclosure(tmp_path):
         assert "canonical" in technical.lower() or "Канонический" in technical
         # Import needs link toward Data, not duplicated source-status UX.
         assert 'href="/imports' in primary
-        assert "на проверке" in primary or "Открыть данные" in primary
+        assert "Нет кандидатов на проверке" not in primary
         # Missing is never zero in primary (exact zero, not goal substring).
         assert " 0 кг" not in primary
         assert ">0 кг" not in primary
@@ -1600,7 +1600,10 @@ def test_weight_empty_states_use_frozen_chips_and_no_zero(tmp_path):
         assert "Это не означает ноль" in primary
         assert "Нет подтверждённых измерений" in primary
         assert "Не настроена" in primary
-        assert "Нет кандидатов на проверке" in primary
+        assert "Нет кандидатов на проверке" not in primary
+        assert "Проверка импорта" not in primary
+        assert "Настройки и контекст" in primary
+        assert "Как изменился состав тела при похожем весе" not in primary
         assert "0 кг" not in primary
         assert "<dd>0</dd>" not in primary
 
@@ -1642,3 +1645,79 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
         # No new visual tokens introduced by Stage 4.
         assert "border-radius: 999px" not in css
         assert "font-weight: 700" not in css
+
+
+def test_weight_v2_styles_are_served_in_loaded_dashboard_bundle(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        html = client.get("/").text
+        assert '<link rel="stylesheet" href="/static/dashboard.css">' in html
+        assert "/static/weight.css" not in html
+        stylesheet = client.get("/static/dashboard.css")
+        assert stylesheet.status_code == 200
+        assert "text/css" in stylesheet.headers["content-type"]
+        assert ".weight-view .hero { display: block; }" in stylesheet.text
+        assert ".weight-view .chart svg" in stylesheet.text
+        assert "min-width: 620px" in stylesheet.text
+        assert client.get("/static/weight.css").status_code == 404
+
+
+def test_weight_v2_hierarchy_goal_and_pending_action(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        empty = client.get("/").text
+        primary, technical = empty.split('<details class="card owner-details', 1)
+        assert "Настройки и контекст" in primary
+        assert "Проверка импорта" not in primary
+        assert 'class="bia-banner"' not in empty
+        assert 'class="algorithm-banner"' not in empty
+        assert "Покрытие и свежесть" not in primary
+        assert "Покрытие и свежесть" in technical
+        assert "Происхождение выбранной точки" in technical
+        assert "Как изменился состав тела при похожем весе" not in empty
+        assert primary.count('id="composition-groups"') == 1
+        assert 'id="composition-latest"' not in empty
+        uploaded = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
+        pending = client.get("/").text
+        assert "Проверка импорта" in pending
+        assert 'href="/imports"' in pending
+        assert "на проверке" in pending
+        _confirm_all_pending(client, uploaded)
+        before = _canonical_snapshot(paths)
+        series_before = client.get("/api/weight/series").json()
+        confirmed = client.get("/").text
+        assert "Проверка импорта" not in confirmed
+        assert client.get("/api/weight/series").json() == series_before
+        assert _canonical_snapshot(paths) == before
+
+
+@pytest.mark.parametrize("body_fat_pct", [0.0, 25.0])
+def test_weight_v2_exposes_exact_same_session_composition_evidence(tmp_path, body_fat_pct):
+    app, _settings, _paths = _ui(tmp_path, weight_goal_kg=76.0)
+    fixture = weigh_in_payload(
+        source_local_date=date(2020, 1, 1), weight_kg=80.0,
+        body_fat_pct=body_fat_pct, muscle_mass_kg=45.0,
+    )
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        batch = _upload_batch(client, [("composition.png", encode_synthetic_png(fixture), fixture)])
+        assert batch.status_code == 200, batch.text
+        _confirm_all_pending(client, batch.json()["id"])
+        series = client.get("/api/weight/series").json()
+        raw = series["raw_points"][0]
+        point = next(iter(series["composition_by_group"].values()))[0]
+        assert point["weight_measurement_id"] == raw["evidence_id"]
+        assert point["body_fat_pct"] == body_fat_pct
+        # Existing derivation rejects zero body-fat; source zero stays explicit.
+        assert point["estimated_fat_mass_kg"] == (20.0 if body_fat_pct else None)
+        assert point["estimated_lean_mass_kg"] == (60.0 if body_fat_pct else None)
+        assert point["source_muscle_mass_kg"] == 45.0
+        assert point["metric_origins"]["estimated_lean_mass_kg"] == "healthcheck-derived"
+        assert point["metric_origins"]["source_muscle_mass_kg"] == "source-provider"
+        html = client.get("/").text
+        assert "76.0 кг" in html
+        assert "Настройка цели появится" not in html
+        assert "Мышцы источника — отдельная оценка, а не остаток веса" in html

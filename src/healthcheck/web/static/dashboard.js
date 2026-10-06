@@ -47,7 +47,6 @@
     renderTrendStatus(series);
     renderRate(summary.rate || {});
     renderCoverage(summary.coverage);
-    renderLatestComposition(summary.latest_composition || {});
     renderSimilar(summary.similar_weight || {});
     renderCompositionGroups(series.composition_by_group || {});
   }
@@ -108,7 +107,9 @@
         " Отсутствующий темп не показан как 0.</p>";
       return;
     }
+    const slope = rate.slope_kg_per_week;
     node.innerHTML =
+      '<p>' + (slope > 0 ? 'Вес в среднем увеличивался' : slope < 0 ? 'Вес в среднем снижался' : 'Направленного изменения веса не обнаружено') + '.</p>' +
       "<p><strong>" +
       fmt(rate.slope_kg_per_week, 3) +
       " кг/нед.</strong></p>" +
@@ -167,31 +168,6 @@
       "</ul>";
   }
 
-  function renderLatestComposition(item) {
-    const node = document.getElementById("composition-latest");
-    if (!node) return;
-    if (!item.available) {
-      node.innerHTML =
-        "<p>" + chip(ownerState(false, item.reason)) + "</p><p class=\"muted\">" +
-        reasonText(item.reason) +
-        "</p>";
-      return;
-    }
-    node.innerHTML =
-      "<p>Жир " +
-      fmt(item.body_fat_pct, 1) +
-      "% (источник)</p>" +
-      "<p>Оценка жировой массы " +
-      fmt(item.estimated_fat_mass_kg, 1) +
-      " кг (расчёт Health-Check)</p>" +
-      "<p>Оценка сухой массы " +
-      fmt(item.estimated_lean_mass_kg, 1) +
-      " кг (расчёт Health-Check)</p>" +
-      "<p class=\"muted\">Группа " +
-      escapeHtml(item.compatibility_group || "неизвестна") +
-      ".</p>";
-  }
-
   function renderSimilar(item) {
     const node = document.getElementById("similar-panel");
     if (!node) return;
@@ -219,10 +195,8 @@
       fmt(item.earlier_body_fat_pct, 1) +
       " → " +
       fmt(item.later_body_fat_pct, 1) +
-      " п.п. (источник)</p>" +
-      "<p class=\"muted\">Та же группа " +
-      escapeHtml(item.compatibility_group || "") +
-      ". Не утверждение о реальном росте мышц или потере жира.</p>";
+      "% (источник)</p>" +
+      "<p class=\"muted\">Один метод расчёта. Не утверждение о реальном росте мышц или потере жира.</p>";
   }
 
   function renderCompositionGroups(groups) {
@@ -234,14 +208,42 @@
       return;
     }
     node.innerHTML = "";
-    names.forEach(function (group) {
+    names.forEach(function (group, index) {
       const wrap = document.createElement("div");
-      wrap.innerHTML = "<h3>Группа алгоритма <code>" + escapeHtml(group) + "</code></h3>";
+      wrap.innerHTML = '<h3>Ряд состава ' + (index + 1) + '</h3>';
+      const label = document.createElement('label');
+      label.textContent = 'Показатель ';
+      const select = document.createElement('select');
+      const metrics = [
+        ['body_fat_pct', 'Жир % (источник)', '%'],
+        ['estimated_fat_mass_kg', 'Оценка жира кг (Health-Check)', ' кг'],
+        ['estimated_lean_mass_kg', 'Оценка сухой массы кг (Health-Check)', ' кг'],
+        ['source_muscle_mass_kg', 'Мышцы кг (источник, отдельная оценка)', ' кг']
+      ];
+      metrics.forEach(function (metric) {
+        const option = document.createElement('option');
+        option.value = metric[0];
+        option.textContent = metric[1];
+        select.appendChild(option);
+      });
+      label.appendChild(select);
+      wrap.appendChild(label);
       const chart = document.createElement("div");
       chart.className = "chart";
       wrap.appendChild(chart);
+      const detail = document.createElement('div');
+      detail.id = 'composition-detail-' + index;
+      detail.setAttribute('role', 'status');
+      detail.setAttribute('aria-live', 'polite');
+      detail.setAttribute('aria-atomic', 'true');
+      wrap.appendChild(detail);
       node.appendChild(wrap);
-      drawCompositionChart(chart, groups[group], group);
+      function redraw() {
+        const metric = metrics[select.selectedIndex];
+        drawCompositionChart(chart, groups[group], metric, detail);
+      }
+      select.addEventListener('change', redraw);
+      redraw();
     });
   }
 
@@ -254,8 +256,11 @@
       host.innerHTML = "<p>" + chip("unavailable") + '</p><p class="muted">Нет подтверждённых измерений веса. Это не означает ноль.</p>';
       return;
     }
+    const composition = Object.values(series.composition_by_group || {}).flat();
     const points = raw.map(function (item) {
-      return { date: item.observed_date, value: item.value_kg, id: item.evidence_id, kind: "raw", provenance: item.provenance };
+      // Exact evidence identity only: a date or equal weight cannot prove a session.
+      const matches = composition.filter(function (entry) { return item.evidence_id && entry.weight_measurement_id === item.evidence_id; });
+      return { date: item.observed_date, value: item.value_kg, id: item.evidence_id, kind: "raw", provenance: item.provenance, composition: matches };
     });
     const trendPoints = trend.map(function (item) {
       return { date: item.observed_date, value: item.trend_kg, kind: "trend" };
@@ -265,22 +270,29 @@
     host.innerHTML = "";
     host.appendChild(
       svgSeries(points, trendPoints, series.goal_kg, allValues, function (point) {
-        showProvenance(point.provenance || { evidence_id: point.id });
+        showObservation(point);
       })
     );
+    if (points.length) showObservation(points[points.length - 1]);
   }
 
-  function drawCompositionChart(host, points, group) {
+  function drawCompositionChart(host, points, metric, detailNode) {
+    host.innerHTML = '';
+    detailNode.innerHTML = '';
     const fat = (points || [])
-      .filter(function (item) { return item.body_fat_pct !== null && item.body_fat_pct !== undefined; })
+      .filter(function (item) { return item[metric[0]] !== null && item[metric[0]] !== undefined; })
       .map(function (item) {
-        return { date: item.observed_date, value: item.body_fat_pct, kind: "raw" };
+        return { date: item.observed_date, value: item[metric[0]], id: item.weight_measurement_id, kind: "raw", composition: [item], weight: item.weight_kg };
       });
     if (!fat.length) {
-      host.innerHTML = '<p class="muted">Нет точек жира в ' + escapeHtml(group) + ".</p>";
-      return;
+      host.innerHTML = '<p class="muted">Нет подтверждённых значений этого показателя. Это не означает ноль.</p>';
+    } else {
+      host.appendChild(svgSeries(fat, [], null, fat.map(function (item) { return item.value; }), function (point) {
+        showObservation({ date: point.date, value: point.weight, id: point.id, composition: point.composition }, detailNode);
+      }, metric[2], detailNode.id));
     }
-    host.appendChild(svgSeries(fat, [], null, fat.map(function (item) { return item.value; }), null, "%"));
+    const detail = document.createElement('details');
+    detail.innerHTML = '<summary>Все значения ряда</summary>';
     const scroller = document.createElement("div");
     scroller.className = "table-scroll";
     scroller.setAttribute("tabindex", "0");
@@ -310,18 +322,46 @@
     });
     table.appendChild(body);
     scroller.appendChild(table);
-    host.appendChild(scroller);
+    detail.appendChild(scroller);
+    host.appendChild(detail);
   }
 
-  function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit) {
-    const width = 1000;
+  function showObservation(point, detailNode) {
+    const node = detailNode || document.getElementById('observation-detail');
+    if (!node) return;
+    let html = '<h3>Наблюдение · ' + escapeHtml(point.date) + '</h3><p>Вес ' + fmt(point.value, 1) + ' кг (источник)</p>';
+    const items = point.composition || [];
+    if (!items.length) html += '<p class="muted">Состав тела для этого наблюдения недоступен. Это не означает ноль.</p>';
+    items.forEach(function (item, index) {
+      if (items.length > 1) html += '<h4>Ряд состава ' + (index + 1) + '</h4>';
+      html += '<dl class="weight-composition-values">';
+      [
+        ['Жир (источник)', item.body_fat_pct, '%'],
+        ['Оценка жировой массы (Health-Check)', item.estimated_fat_mass_kg, ' кг'],
+        ['Оценка сухой массы (Health-Check)', item.estimated_lean_mass_kg, ' кг'],
+        ['Мышцы (источник, отдельная оценка)', item.source_muscle_mass_kg, ' кг']
+      ].forEach(function (metric) {
+        html += '<div><dt>' + metric[0] + '</dt><dd>' + (metric[1] === null || metric[1] === undefined ? 'недоступно' : fmt(metric[1], 1) + metric[2]) + '</dd></div>';
+      });
+      html += '</dl>';
+    });
+    node.innerHTML = html;
+    node.classList.add('weight-observation');
+    showProvenance(Object.assign({}, point.provenance || { evidence_id: point.id }, { composition: items }));
+  }
+
+  function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit, detailId) {
+    const width = 760;
     const height = 280;
     const pad = { l: 48, r: 16, t: 16, b: 36 };
     const dates = rawPoints.concat(trendPoints).map(function (item) { return Date.parse(item.date); });
     const minX = Math.min.apply(null, dates);
     const maxX = Math.max.apply(null, dates);
-    const minY = Math.min.apply(null, values);
-    const maxY = Math.max.apply(null, values);
+    const low = Math.min.apply(null, values);
+    const high = Math.max.apply(null, values);
+    const margin = Math.max((high - low) * 0.1, 0.5);
+    const minY = low - margin;
+    const maxY = high + margin;
     const spanY = maxY === minY ? 1 : maxY - minY;
     const spanX = maxX === minX ? 1 : maxX - minX;
     const xOf = function (date) {
@@ -332,7 +372,8 @@
     };
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 " + width + " " + height);
-    svg.setAttribute("role", "img");
+    svg.setAttribute("role", "group");
+    svg.setAttribute('aria-label', unit ? 'Состав тела, ' + unit.trim() : 'Вес, кг');
     svg.innerHTML =
       '<line x1="' +
       pad.l +
@@ -352,6 +393,25 @@
       '" y2="' +
       (height - pad.b) +
       '" stroke="#d9d0c3"/>';
+    function textLabel(x, y, text, anchor, axis) {
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', x);
+      label.setAttribute('y', y);
+      label.setAttribute('text-anchor', anchor);
+      label.setAttribute('class', 'weight-axis');
+      label.setAttribute('data-axis', axis);
+      label.textContent = text;
+      svg.appendChild(label);
+    }
+    for (let index = 0; index <= 4; index++) {
+      const value = minY + spanY * index / 4;
+      textLabel(pad.l - 8, yOf(value) + 4, fmt(value, 1), 'end', 'y');
+    }
+    textLabel(pad.l, 12, unit ? unit.trim() : 'кг', 'start', 'unit');
+    textLabel(pad.l, height - 10, new Date(minX).toISOString().slice(0, 10), 'start', 'x');
+    if (minX !== maxX) {
+      textLabel(width - pad.r, height - 10, new Date(maxX).toISOString().slice(0, 10), 'end', 'x');
+    }
     if (goal !== null && goal !== undefined) {
       const gy = yOf(goal);
       const goalLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -378,25 +438,57 @@
       path.setAttribute("data-series", "trend");
       svg.appendChild(path);
     }
-    rawPoints.forEach(function (item) {
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", xOf(item.date));
-      circle.setAttribute("cy", yOf(item.value));
-      circle.setAttribute("r", 4.5);
-      circle.setAttribute("fill", "#1d4e89");
+    const circles = [];
+    function nearestPointer(event) {
+      const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+      let nearest = null;
+      let distance = Infinity;
+      rawPoints.forEach(function (point) {
+        const next = Math.hypot(xOf(point.date) - cursor.x, yOf(point.value) - cursor.y);
+        if (next < distance) { distance = next; nearest = point; }
+      });
+      if (nearest && distance <= 27) onClick(nearest);
+    }
+    if (onClick) svg.addEventListener('pointermove', nearestPointer);
+    rawPoints.forEach(function (item, index) {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      circle.setAttribute('class', 'weight-point');
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      hit.setAttribute('cx', xOf(item.date));
+      hit.setAttribute('cy', yOf(item.value));
+      hit.setAttribute('r', 27);
+      hit.setAttribute('fill', 'transparent');
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', xOf(item.date));
+      dot.setAttribute('cy', yOf(item.value));
+      dot.setAttribute('r', 4.5);
+      dot.setAttribute('fill', '#1d4e89');
+      dot.setAttribute('class', 'weight-dot');
+      circle.appendChild(hit);
+      circle.appendChild(dot);
       circle.setAttribute("data-series", "raw");
       circle.setAttribute("data-evidence-id", item.id || "");
       circle.setAttribute("tabindex", "0");
+      circle.setAttribute('role', 'button');
+      circle.setAttribute('aria-label', item.date + ' · ' + fmt(item.value, 1) + (unit || ' кг') + ' · показать наблюдение');
+      circle.setAttribute('aria-controls', detailId || 'observation-detail');
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
       title.textContent = item.date + " · " + fmt(item.value, 1) + (unit || " кг");
       circle.appendChild(title);
       if (onClick) {
-        circle.addEventListener("click", function () { onClick(item); });
+        circle.addEventListener('focus', function () { onClick(item); });
+        circle.addEventListener("click", nearestPointer);
         circle.addEventListener("keydown", function (event) {
-          if (event.key === "Enter" || event.key === " ") onClick(item);
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(item); }
+          if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+            event.preventDefault();
+            const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + circles.length) % circles.length;
+            circles[next].focus();
+          }
         });
       }
       svg.appendChild(circle);
+      circles.push(circle);
     });
     return svg;
   }
@@ -418,6 +510,9 @@
       "source_timestamp_utc: " + (info.source_timestamp_utc || "null (date-only, no invented midnight)"),
       "artifact_content_hash: " + (info.artifact_content_hash || missing)
     ];
+    (info.composition || []).forEach(function (item, index) {
+      lines.push('composition ' + (index + 1) + ': ' + (item.algorithm_code || missing) + ' @ ' + (item.algorithm_version || missing) + ' · ' + (item.compatibility_group || missing));
+    });
     node.classList.remove("empty");
     node.textContent = lines.join("\n");
   }
