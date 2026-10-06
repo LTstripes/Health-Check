@@ -1,6 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Данные — Health-Check{% endblock %}
 {% block content %}
+{% macro import_table(rows, label) %}
+<div class="table-scroll" tabindex="0" role="region" aria-label="{{ label }}, прокрутка таблицы">
+  <table class="data-import-table">
+    <thead><tr><th>Начало</th><th>Состояние</th><th>Получено</th><th>Распознано</th><th>Сохранено</th><th>Ошибки</th><th>Действие</th></tr></thead>
+    <tbody>
+      {% for row in rows %}{% set batch = row.batch %}
+      <tr>
+        <td><time class="import-started" {% if row.started_at %}datetime="{{ row.started_at.isoformat() }}"{% endif %}>{{ row.started_at|owner_date }}</time></td>
+        <td>{% if row.pending %}Ожидают проверки: {{ row.pending }}{% else %}{{ {'pending-confirmation': 'Проверка загрузки', 'received': 'Получена', 'parsed': 'Распознана', 'committed': 'Сохранена', 'rejected': 'Отклонена', 'duplicate': 'Повторная загрузка', 'failed': 'Не завершена'}.get(batch.status, 'Состояние не определено') }}{% endif %}</td>
+        {% for count in [batch.received_count, batch.parsed_count, batch.committed_count, batch.failed_count] %}<td>{{ count if count is not none else 'Неизвестно' }}</td>{% endfor %}
+        <td><a class="button-link" href="/imports/{{ batch.id }}">{{ 'Проверить измерения' if row.pending else 'Открыть детали' }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
 <section class="card" aria-labelledby="sources-heading" id="data-status">
   <div class="section-heading">
     <h2 id="sources-heading">Источники и свежесть данных</h2>
@@ -33,33 +50,39 @@
   <p class="uncertainty-note">{{ owner_ui.state_chip('unavailable') }} Очередь импорта недоступна: локальное хранилище не готово. Число кандидатов неизвестно.</p>
   {% endif %}
   <h3>Загрузить снимки Xiaomi S400</h3>
+  <ol>
+    <li>Загрузи снимок или фотографию измерений.</li>
+    <li>Проверь распознанные значения и дату на открывшейся странице; при необходимости исправь их.</li>
+    <li>Выбери строки и нажми «Подтвердить выбранные». Ошибочные строки можно отклонить. До подтверждения они не попадают в измерения.</li>
+  </ol>
+  {% if photo_extraction_configured %}
+  <p id="photo-extraction-status" data-configured="true">Распознавание фото настроено. Результат зависит от снимка и доступности сервиса; каждую строку нужно проверить. Работа на твоих снимках здесь не подтверждена.</p>
+  {% else %}
+  <p id="photo-extraction-status" class="uncertainty-note" data-configured="false">Распознавание фото не настроено. Загрузка через браузер пока не сможет извлечь измерения. Для настройки используй существующий локальный процесс; ранее созданные кандидаты можно проверить ниже.</p>
+  {% endif %}
   <form class="upload" action="/imports/photos" method="post" enctype="multipart/form-data">
     <label for="import-files">Снимки или фотографии</label>
-    <input id="import-files" type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required>
-    <button type="submit">Загрузить для проверки</button>
+    <input id="import-files" type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required {% if not photo_extraction_configured or not queue_available %}disabled{% endif %}>
+    <button type="submit" {% if not photo_extraction_configured or not queue_available %}disabled{% endif %}>Загрузить и открыть проверку</button>
   </form>
 </section>
 
 <section class="card" aria-labelledby="history-heading">
   <h2 id="history-heading">История загрузок</h2>
+  <p class="muted">Показаны последние 100 загрузок. Сначала — кандидаты для проверки и загрузки, требующие внимания. Даты показаны с часовым поясом; без JavaScript используется UTC.</p>
   {% if not queue_available %}
   <p class="unavailable">История загрузок недоступна.</p>
   {% elif batches %}
-  <div class="table-scroll" tabindex="0" role="region" aria-label="История загрузок, прокрутка таблицы">
-  <table>
-    <thead><tr><th>Начало</th><th>Состояние</th><th>Получено</th><th>Распознано</th><th>Сохранено</th><th>Ошибки</th><th>Действие</th></tr></thead>
-    <tbody>
-      {% for batch in batches %}
-      <tr>
-        <td>{{ batch.started_at }}</td>
-        <td>{{ {'pending-confirmation': 'Ожидает проверки', 'received': 'Получена', 'parsed': 'Распознана', 'committed': 'Сохранена', 'rejected': 'Отклонена', 'duplicate': 'Повторная загрузка', 'failed': 'Не завершена'}.get(batch.status, 'Состояние не определено') }}</td>
-        <td>{{ batch.received_count }}</td><td>{{ batch.parsed_count }}</td><td>{{ batch.committed_count }}</td><td>{{ batch.failed_count }}</td>
-        <td><a class="button-link" href="/imports/{{ batch.id }}">Проверить</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
+  {% if action_imports %}
+  <h3>Требуют внимания</h3>
+  {{ import_table(action_imports, 'История загрузок') }}
+  {% else %}<p>В показанной истории нет загрузок, требующих внимания.</p>{% endif %}
+  {% if completed_imports %}
+  <details class="owner-details" id="completed-imports">
+    <summary>Завершённые загрузки: {{ completed_imports|length }}</summary>
+    {{ import_table(completed_imports, 'Завершённые загрузки') }}
+  </details>
+  {% endif %}
   {% else %}
   <p>Загрузок пока нет.</p>
   {% endif %}
@@ -67,7 +90,7 @@
 {% if batches %}
 {% call owner_ui.technical_details() %}
 <h2>Состояния загрузок</h2>
-<ul>{% for batch in batches %}<li>{{ batch.started_at }}: <code>{{ batch.status }}</code></li>{% endfor %}</ul>
+<ul>{% for batch in batches %}<li>{{ batch.started_at|owner_date }}: <code>{{ batch.status }}</code></li>{% endfor %}</ul>
 {% endcall %}
 {% endif %}
 {% endblock %}

@@ -257,6 +257,8 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 .data-chronology dt { color: var(--muted); font-size: .75rem; font-weight: 600; }
 .data-chronology dd { margin: 0 0 8px; }
 .data-queue-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 16px 0; }
+.data-import-table { min-width: 720px; }
+.data-import-table td:first-child { min-width: 180px; }
 #data-status button, #import-queue button, #import-queue input, .data-source-card summary { min-height: 44px; }
 
 /* Activity reuses frozen tokens, metric type and real scrollable tables. */

@@ -1,6 +1,12 @@
 /* Owner presentation of source-freshness-v1. No thresholds or provider calls here. */
 (function () {
   "use strict";
+  document.querySelectorAll("time.import-started[datetime]").forEach(element => {
+    const date = new Date(element.dateTime);
+    if (!Number.isNaN(date.getTime())) element.textContent = new Intl.DateTimeFormat("ru-RU", {
+      year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short"
+    }).format(date);
+  });
   const host = document.getElementById("data-results");
   if (!host) return;
   const button = document.getElementById("data-refresh");
@@ -111,12 +117,22 @@
       if (!item || !Object.hasOwn(scopeLabels, item.scope_key) || found.has(item.scope_key) ||
           !states.includes(item.state) || !["required", "optional"].includes(item.role) ||
           typeof item.actionable !== "boolean" || typeof item.reason_code !== "string" ||
+          item.provider !== (item.scope_key === "weight" ? "weight" : item.scope_key.split(":")[0]) ||
           !item.facts || typeof item.facts !== "object") throw new Error("invalid_response");
       found.add(item.scope_key);
     }
     if (found.size !== Object.keys(scopeLabels).length) throw new Error("invalid_response");
     return payload;
   }
+  const failures = {
+    timeout: "Проверка не завершилась за 15 секунд. Повтори её; если это повторяется, передай этот код для диагностики локального чтения.",
+    network_error: "Браузер не получил ответ локального приложения. Проверь, что оно запущено, и повтори проверку.",
+    database_unavailable: "Не удалось прочитать локальное хранилище. Проверь готовность профиля и базы данных через существующий локальный процесс.",
+    invalid_request: "Локальное приложение отклонило параметры проверки. Перезагрузи страницу и проверь дату и время устройства.",
+    invalid_response: "Ответ локального приложения не соответствует ожидаемому формату. Перезагрузи страницу; если ошибка повторяется, передай этот код для проверки совместимости UI и API.",
+    endpoint_error: "Локальное приложение вернуло ошибку. Повтори проверку; если это повторяется, передай HTTP-статус и код ниже для диагностики.",
+    check_failed: "Не удалось показать результат проверки. Перезагрузи страницу и передай этот код, если ошибка повторяется."
+  };
   function render(payload) {
     const policy = payload.collection_policy;
     if (!["valid", "absent"].includes(policy.status)) {
@@ -173,9 +189,12 @@
     clock.textContent = "";
     host.setAttribute("aria-busy", "true");
     feedback.setAttribute("role", "status");
+    delete feedback.dataset.failureCode;
     feedback.replaceChildren(chip("loading"));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
+    let failure = "network_error";
+    let httpStatus;
     try {
       const now = new Date();
       const localDate = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
@@ -183,16 +202,31 @@
       const response = await fetch("/api/source-freshness?" + params, {
         signal: controller.signal, cache: "no-store", headers: {Accept: "application/json"}
       });
-      if (!response.ok) throw new Error("request_failed");
+      httpStatus = response.status;
+      if (!response.ok) {
+        failure = response.status === 422 ? "invalid_request" : "endpoint_error";
+        // Only a documented, fixed code is accepted. Never display server text.
+        try {
+          const error = await response.json();
+          if (response.status === 503 && error.code === "database_unavailable") failure = error.code;
+        } catch (_) { /* Non-JSON HTTP failures still retain their HTTP status. */ }
+        throw new Error("endpoint_error");
+      }
+      failure = "invalid_response";
       const payload = validate(await response.json());
+      failure = "check_failed";
       render(payload);
       clock.textContent = "Проверено (UTC): " + payload.evaluated_at_utc + ". Локальная дата оценки: " + payload.evaluation_local_date + ".";
       feedback.replaceChildren(chip(ownerState(payload.owner)));
     } catch (_) {
+      if (controller.signal.aborted) failure = "timeout";
       host.replaceChildren();
       clock.textContent = "";
       feedback.setAttribute("role", "alert");
-      feedback.replaceChildren(chip("error"), node("p", "Не удалось проверить свежесть источников. Их состояние неизвестно. Повтори проверку; очередь импорта показана отдельно."));
+      feedback.dataset.failureCode = failure;
+      feedback.replaceChildren(chip("error"), node("p", failures[failure]),
+        node("p", "Состояние источников неизвестно. Очередь импорта показана отдельно."),
+        node("p", "Код: " + failure + (httpStatus ? " · HTTP " + httpStatus : ""), "muted"));
     } finally {
       clearTimeout(timeout);
       host.setAttribute("aria-busy", "false");

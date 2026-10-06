@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.analytics.sleep_agreement_report import (
@@ -18,6 +19,8 @@ from healthcheck.analytics.sleep_agreement_report import (
 )
 from healthcheck.analytics.sleep_metrics import get_sleep_metric_definition
 from healthcheck.db.engine import session_scope
+from healthcheck.db.models import ImportCandidate, IngestEvent
+from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.google.daily_vitals import (
     GOOGLE_DAILY_VITALS,
     read_google_daily_vitals,
@@ -999,18 +1002,41 @@ def garmin_dashboard_page(
 @router.get("/imports", response_class=HTMLResponse)
 def imports_page(request: Request) -> HTMLResponse:
     queue_available = True
+    history = []
     try:
         with session_scope(request_engine(request)) as session:
             service = PhotoImportService(
                 session, request.app.state.runtime_paths, _extractor(request)
             )
-            queue = WeightQueryService(
-                session, request.app.state.settings
-            ).import_queue_summary()
+            queue = WeightQueryService(session, request.app.state.settings).import_queue_summary()
             # The queue expires cached ORM state and reloads only 50 batches.
             # Load the 100-row history afterwards in the same read snapshot so
             # every batch remains available when rendered outside the session.
             batches = service.list_batches()
+            pending_counts = dict(
+                session.execute(
+                    select(IngestEvent.ingest_batch_id, func.count(ImportCandidate.id))
+                    .join(ImportCandidate, ImportCandidate.ingest_event_id == IngestEvent.id)
+                    .where(
+                        IngestEvent.ingest_batch_id.in_([batch.id for batch in batches]),
+                        ImportCandidate.user_decision == "pending",
+                    )
+                    .group_by(IngestEvent.ingest_batch_id)
+                ).all()
+            )
+            for batch in batches:
+                pending = pending_counts.get(batch.id, 0)
+                history.append(
+                    {
+                        "batch": batch,
+                        "pending": pending,
+                        "started_at": restore_stored_utc(batch.started_at),
+                        "action_required": pending > 0
+                        or batch.failed_count is None
+                        or batch.failed_count > 0
+                        or batch.status not in {"committed", "rejected", "duplicate"},
+                    }
+                )
     except SQLAlchemyError as exc:
         if not database_unavailable(exc):
             return _persist_error(request, "imports")
@@ -1020,8 +1046,20 @@ def imports_page(request: Request) -> HTMLResponse:
     return render(
         request,
         "imports.html",
-        {"batches": batches, "queue": queue, "queue_available": queue_available,
-         "page": "imports"},
+        {
+            "batches": batches,
+            "queue": queue,
+            "queue_available": queue_available,
+            "action_imports": sorted(
+                (row for row in history if row["action_required"]),
+                key=lambda row: not bool(row["pending"]),
+            ),
+            "completed_imports": [row for row in history if not row["action_required"]],
+            "photo_extraction_configured": not isinstance(
+                _extractor(request), UnconfiguredImageMeasurementExtractor
+            ),
+            "page": "imports",
+        },
     )
 
 
