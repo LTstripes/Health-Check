@@ -210,7 +210,15 @@
     node.innerHTML = "";
     names.forEach(function (group, index) {
       const wrap = document.createElement("div");
-      wrap.innerHTML = '<h3>Ряд состава ' + (index + 1) + '</h3>';
+      wrap.className = 'weight-composition-group';
+      wrap.innerHTML = '<h3>Ряд состава ' + (index + 1) + ' · отдельная группа метода</h3>';
+      const dates = groups[group].map(function (item) { return item.observed_date; }).sort();
+      const span = document.createElement('p');
+      span.className = 'muted';
+      span.textContent = dates.length ? 'Измерения этой группы: ' + readableDate(dates[0]) +
+        (dates[0] === dates[dates.length - 1] ? '' : ' — ' + readableDate(dates[dates.length - 1])) +
+        '. Показаны только значения выбранного показателя; точные даты — в таблице.' : 'В этой группе нет измерений.';
+      wrap.appendChild(span);
       const label = document.createElement('label');
       label.textContent = 'Показатель ';
       const select = document.createElement('select');
@@ -271,7 +279,7 @@
     host.appendChild(
       svgSeries(points, trendPoints, series.goal_kg, allValues, function (point) {
         showObservation(point);
-      })
+      }, null, null, host)
     );
     if (points.length) showObservation(points[points.length - 1]);
   }
@@ -289,7 +297,7 @@
     } else {
       host.appendChild(svgSeries(fat, [], null, fat.map(function (item) { return item.value; }), function (point) {
         showObservation({ date: point.date, value: point.weight, id: point.id, composition: point.composition }, detailNode);
-      }, metric[2], detailNode.id));
+      }, metric[2], detailNode.id, host));
     }
     const detail = document.createElement('details');
     detail.innerHTML = '<summary>Все значения ряда</summary>';
@@ -350,10 +358,14 @@
     showProvenance(Object.assign({}, point.provenance || { evidence_id: point.id }, { composition: items }));
   }
 
-  function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit, detailId) {
-    const width = 760;
+  function readableDate(date) {
+    return new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit, detailId, host) {
+    let width = Math.max(260, host.clientWidth);
     const height = 280;
-    const pad = { l: 48, r: 16, t: 16, b: 36 };
+    const pad = { l: 48, r: 16, t: 16, b: 52 };
     const dates = rawPoints.concat(trendPoints).map(function (item) { return Date.parse(item.date); });
     const minX = Math.min.apply(null, dates);
     const maxX = Math.max.apply(null, dates);
@@ -408,9 +420,48 @@
       textLabel(pad.l - 8, yOf(value) + 4, fmt(value, 1), 'end', 'y');
     }
     textLabel(pad.l, 12, unit ? unit.trim() : 'кг', 'start', 'unit');
-    textLabel(pad.l, height - 10, new Date(minX).toISOString().slice(0, 10), 'start', 'x');
-    if (minX !== maxX) {
-      textLabel(width - pad.r, height - 10, new Date(maxX).toISOString().slice(0, 10), 'end', 'x');
+    const dayMs = 86400000;
+    function drawTimeAxis() {
+      svg.querySelectorAll('[data-axis="x"], .weight-time-tick').forEach(function (node) { node.remove(); });
+      const days = Math.round((maxX - minX) / dayMs);
+      // Date-only points: never invent times or duplicate a day to fill the axis.
+      let count = days ? Math.min(7, days + 1, Math.max(2, Math.floor((width - pad.l - pad.r) / 80) + 1)) : 1;
+      while (count >= 1) {
+        const labels = [];
+        for (let index = 0; index < count; index++) {
+          const timestamp = count === 1 ? minX : minX + Math.round(days * index / (count - 1)) * dayMs;
+          const x = pad.l + ((timestamp - minX) / spanX) * (width - pad.l - pad.r);
+          textLabel(x, height - pad.b + 22, '', index === 0 ? 'start' : index === count - 1 ? 'end' : 'middle', 'x');
+          const label = svg.lastChild;
+          label.setAttribute('data-date', new Date(timestamp).toISOString().slice(0, 10));
+          const date = new Date(timestamp);
+          [date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' }), String(date.getUTCFullYear())].forEach(function (part, row) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+            line.setAttribute('x', x);
+            line.setAttribute('dy', row ? '16' : '0');
+            line.textContent = part;
+            label.appendChild(line);
+          });
+          labels.push(label);
+          const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          tick.setAttribute('class', 'weight-time-tick');
+          tick.setAttribute('x1', x);
+          tick.setAttribute('x2', x);
+          tick.setAttribute('y1', height - pad.b);
+          tick.setAttribute('y2', height - pad.b + 5);
+          tick.setAttribute('stroke', '#d9d0c3');
+          svg.appendChild(tick);
+        }
+        // Measure the actual font, including endpoint anchors and year labels.
+        const overlaps = labels.some(function (label, index) {
+          if (!index) return false;
+          const previous = labels[index - 1].getBBox();
+          return previous.x + previous.width + 12 > label.getBBox().x;
+        });
+        if (!overlaps || count <= 2) break;
+        svg.querySelectorAll('[data-axis="x"], .weight-time-tick').forEach(function (node) { node.remove(); });
+        count--;
+      }
     }
     if (goal !== null && goal !== undefined) {
       const gy = yOf(goal);
@@ -490,6 +541,24 @@
       svg.appendChild(circle);
       circles.push(circle);
     });
+    function resizeChart() {
+      width = Math.max(260, host.clientWidth);
+      svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+      svg.firstChild.setAttribute('x2', width - pad.r);
+      const goalLine = svg.querySelector('[data-series="goal"]');
+      if (goalLine) goalLine.setAttribute('x2', width - pad.r);
+      const trendPath = svg.querySelector('[data-series="trend"]');
+      if (trendPath) trendPath.setAttribute('d', trendPoints.map(function (point, index) {
+        return (index ? 'L' : 'M') + xOf(point.date) + ' ' + yOf(point.value);
+      }).join(' '));
+      circles.forEach(function (circle, index) {
+        circle.querySelectorAll('circle').forEach(function (dot) { dot.setAttribute('cx', xOf(rawPoints[index].date)); });
+      });
+      drawTimeAxis();
+    }
+    if (host.weightResizeObserver) host.weightResizeObserver.disconnect();
+    host.weightResizeObserver = new ResizeObserver(resizeChart);
+    host.weightResizeObserver.observe(host);
     return svg;
   }
 

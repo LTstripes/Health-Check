@@ -1,4 +1,4 @@
-/* #293: real Chromium interaction against an explicit synthetic loopback UI.
+/* #306: real Chromium interaction against an explicit synthetic loopback UI.
  * NODE_PATH exposes Playwright. Set HEALTHCHECK_BROWSER_BASE_URL and
  * HEALTHCHECK_BROWSER_EVIDENCE_DIR. The server fixture has confirmed weight
  * plus same-session composition; negative render cases replace only page JSON.
@@ -18,7 +18,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
   const checks = [];
   const errors = [];
   try {
-    const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, timezoneId: 'America/Los_Angeles' });
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', msg => { if (msg.type() === 'error' && !(msg.location().url || '').endsWith('/favicon.ico')) errors.push(msg.text()); });
     await page.goto(base + '/');
@@ -30,7 +30,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       chartMinWidth: getComputedStyle(document.querySelector('#weight-chart svg')).minWidth,
     }));
     assert.deepEqual(weightStyles, {
-      heroDisplay: 'block', secondaryFontSize: '14px', secondaryFontWeight: '400', chartMinWidth: '620px',
+      heroDisplay: 'block', secondaryFontSize: '14px', secondaryFontWeight: '400', chartMinWidth: '260px',
     });
     checks.push('Production dashboard.css applies distinctive scoped Weight computed styles (hero, typography, chart minimum width)');
     const payload = JSON.parse(original);
@@ -40,7 +40,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     const chartPoints = page.locator('#weight-chart [data-series="raw"]');
     assert.equal(await chartPoints.count(), raw.length);
     assert.equal(await page.locator('#weight-chart [data-axis="y"]').count(), 5);
-    assert.equal(await page.locator('#weight-chart [data-axis="x"]').count(), 2);
+    assert.ok(await page.locator('#weight-chart [data-axis="x"]').count() > 2);
     assert.equal(await page.locator('.bia-banner,.algorithm-banner,#composition-latest').count(), 0);
     assert.doesNotMatch(await page.locator('.hero').innerText(), /Нет кандидатов|Проверка импорта/);
     assert.equal(await page.locator('.owner-details').getAttribute('open'), null);
@@ -92,17 +92,13 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.ok(dimensions.document <= width + 1, JSON.stringify(dimensions));
       assert.equal(dimensions.overflow, 'auto');
       assert.ok(dimensions.summaryHeight >= 44);
-      if (width === 390) {
-        assert.ok(dimensions.chartScrollWidth > dimensions.chartWidth);
-        await page.locator('#weight-chart').evaluate(el => { el.scrollLeft = el.scrollWidth; });
-        assert.ok(await page.locator('#weight-chart').evaluate(el => el.scrollLeft > 0));
-      }
+      assert.ok(dimensions.chartScrollWidth <= dimensions.chartWidth + 1);
       geometry.push(dimensions);
       await page.locator('#weight-chart').evaluate(el => { el.scrollLeft = 0; });
       await page.evaluate(() => window.scrollTo(0, 0));
-      await page.screenshot({ path: path.join(evidence, 'weight-v2-' + width + '.png'), fullPage: true });
+      await page.screenshot({ path: path.join(evidence, 'weight-v3-' + width + '.png'), fullPage: true });
     }
-    checks.push('1100/800/390px: no page overflow; chart scroll works; keyboard detail and 44px disclosure usable');
+    checks.push('1100/800/390px: no page/chart overflow; keyboard detail and 44px disclosure usable');
     // Synthetic negative cases execute the same production renderer in Chromium.
     async function renderCase(series) {
       await page.route(base + '/', async route => {
@@ -114,6 +110,112 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       await page.goto(base + '/');
       await page.unroute(base + '/');
     }
+    const axisGeometry = [];
+    async function checkAxes(expectedSpans) {
+      await page.waitForFunction(() => [...document.querySelectorAll('.weight-view .chart svg')].every(svg =>
+        Math.abs(svg.viewBox.baseVal.width - Math.max(260, svg.parentElement.clientWidth)) < 1 &&
+        svg.querySelector('[data-axis="x"]')));
+      const axes = await page.locator('.weight-view .chart svg').evaluateAll(svgs => svgs.map(svg => ({
+        labels: [...svg.querySelectorAll('[data-axis="x"]')].map(label => {
+          const rect = label.getBoundingClientRect();
+          return { date: label.dataset.date, text: label.textContent, left: rect.left, right: rect.right };
+        }),
+        paths: svg.querySelectorAll('path').length,
+        left: svg.getBoundingClientRect().left,
+        right: svg.getBoundingClientRect().right,
+      })));
+      assert.equal(axes.length, expectedSpans.length);
+      axes.forEach((axis, index) => {
+        const [start, end] = expectedSpans[index];
+        assert.equal(axis.labels[0].date, start);
+        assert.equal(axis.labels.at(-1).date, end);
+        assert.ok(axis.labels.length <= 7);
+        if (start === end) assert.equal(axis.labels.length, 1);
+        else assert.ok(axis.labels.length >= 3, JSON.stringify(axis));
+        axis.labels.forEach((label, labelIndex) => {
+          assert.doesNotMatch(label.text, /\d{4}-\d{2}-\d{2}/);
+          assert.match(label.text, /[а-я]/);
+          assert.ok(label.left >= axis.left && label.right <= axis.right + 1);
+          if (labelIndex) {
+            assert.ok(axis.labels[labelIndex - 1].right + 10 <= label.left, JSON.stringify(axis));
+            assert.ok(axis.labels[labelIndex - 1].date < label.date);
+          }
+        });
+        if (index) assert.equal(axis.paths, 0, 'composition groups never joined by a path');
+      });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      return axes;
+    }
+    const compositionPoint = compositions[0];
+    const longDates = ['2024-12-25', '2025-07-01', '2026-09-30'];
+    const shortDates = ['2026-03-04', '2026-03-07', '2026-03-11'];
+    function groupPoints(dates, group) {
+      return dates.map((observed_date, index) => ({ ...compositionPoint, observed_date,
+        weight_measurement_id: 'synthetic-' + group + '-' + index, compatibility_group: group }));
+    }
+    const longGroup = groupPoints(longDates, 'long');
+    const shortGroup = groupPoints(shortDates, 'short');
+    await renderCase({ ...payload.series,
+      raw_points: longDates.map((observed_date, index) => ({ ...first, observed_date, evidence_id: 'synthetic-long-' + index })),
+      trend_points: [], composition_by_group: { long: longGroup, short: shortGroup } });
+    assert.match(await page.locator('.weight-view').innerText(), /короткий ряд.*неделю.*длинный.*несколько месяцев/);
+    assert.match(await page.locator('.weight-view').innerText(), /Это не общий фильтр/);
+    assert.match(await page.locator('.weight-composition-group').first().innerText(), /25 дек.*2024.*30 сент.*2026/s);
+    const expectedSpans = [[longDates[0], longDates.at(-1)], [longDates[0], longDates.at(-1)], [shortDates[0], shortDates.at(-1)]];
+    for (const width of [1100, 800, 390, 320]) {
+      await page.locator('#weight-chart [data-series="raw"]').first().focus();
+      const detail = await page.locator('#observation-detail').innerText();
+      await page.setViewportSize({ width, height: 900 });
+      const axes = await checkAxes(expectedSpans);
+      assert.equal(await page.locator('#weight-chart [data-series="raw"]').first().evaluate(el => el === document.activeElement), true);
+      assert.equal(await page.locator('#observation-detail').innerText(), detail);
+      axisGeometry.push({ width, axes });
+      for (const metric of ['estimated_fat_mass_kg', 'estimated_lean_mass_kg', 'source_muscle_mass_kg', 'body_fat_pct']) {
+        for (const select of await page.locator('#composition-groups select').all()) await select.selectOption(metric);
+        await checkAxes(expectedSpans);
+      }
+      for (const group of await page.locator('.weight-composition-group').all()) {
+        const point = group.locator('[data-series="raw"]').first();
+        await point.hover();
+        const pointerText = await group.locator('[role="status"]').innerText();
+        await point.focus();
+        await page.keyboard.press('Enter');
+        assert.equal(await group.locator('[role="status"]').innerText(), pointerText);
+        await group.locator('details summary').click();
+        assert.ok(await group.locator('table').isVisible());
+        const table = group.locator('.table-scroll');
+        if (width <= 390) {
+          await table.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+          assert.ok(await table.evaluate(el => el.scrollLeft > 0));
+        }
+        await group.locator('details summary').click();
+      }
+      await page.screenshot({ path: path.join(evidence, 'weight-v3-groups-' + width + '.png'), fullPage: true });
+    }
+    assert.ok(axisGeometry[0].axes[0].labels.length > axisGeometry.at(-1).axes[0].labels.length);
+    // Singleton and two adjacent dates still keep exact endpoints without duplicate ticks.
+    for (const dates of [['2024-02-29'], ['2025-12-31', '2026-01-01']]) {
+      const points = groupPoints(dates, 'short');
+      await renderCase({ ...payload.series, raw_points: dates.map(observed_date => ({ ...first, observed_date })),
+        trend_points: [], composition_by_group: { short: points } });
+      await page.waitForFunction(() => document.querySelector('#weight-chart [data-axis="x"]'));
+      for (const svg of await page.locator('.weight-view .chart svg').all()) {
+        const labels = await svg.locator('[data-axis="x"]').evaluateAll(nodes => nodes.map(node => node.dataset.date));
+        assert.deepEqual(labels, dates);
+      }
+    }
+    await renderCase({ ...payload.series, raw_points: longDates.map(observed_date => ({ ...first, observed_date })),
+      trend_points: [], composition_by_group: { long: longGroup.map((point, index) => ({ ...point,
+        source_muscle_mass_kg: index === 1 ? point.source_muscle_mass_kg : null })), short: shortGroup } });
+    await page.locator('#composition-groups select').first().selectOption('source_muscle_mass_kg');
+    await page.waitForFunction(() => document.querySelector('.weight-composition-group [data-axis="x"]'));
+    assert.deepEqual(await page.locator('.weight-composition-group').first().locator('[data-axis="x"]').evaluateAll(nodes =>
+      nodes.map(node => node.dataset.date)), [longDates[1]]);
+    await page.locator('.weight-composition-group').first().locator('details summary').click();
+    const tableText = await page.locator('.weight-composition-group').first().locator('table').innerText();
+    for (const date of longDates) assert.ok(tableText.includes(date));
+    assert.match(tableText, /недоступно/);
+    checks.push('Long/multi-year, short/week, leap-day singleton, adjacent year-boundary dates: UTC Russian axes, exact endpoints, bounded responsive ticks, measured collision-free labels at 1100/800/390/320px; all composition metrics, separate groups, resize focus, pointer/keyboard and exact-date tables');
     const sameDate = { ...first, evidence_id: 'synthetic-unmatched', value_kg: 83.7 };
     await renderCase({ ...payload.series, raw_points: [sameDate], trend_points: [], goal_kg: null });
     await page.locator('#weight-chart [data-series="raw"]').focus();
@@ -139,8 +241,8 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     assert.match(await page.locator('#weight-chart').innerText(), /Это не означает ноль/);
     checks.push('Negative render fixtures: same-date unmatched evidence never borrows composition; explicit zero distinct from missing; single point axes; groups separate; empty state honest');
     assert.deepEqual(errors, []);
-    const result = { status: 'PASS', browser: browser.version(), checks, weightStyles, geometry, errors };
-    fs.writeFileSync(path.join(evidence, 'weight-v2-browser.json'), JSON.stringify(result, null, 2));
+    const result = { status: 'PASS', browser: browser.version(), checks, weightStyles, geometry, axisGeometry, errors };
+    fs.writeFileSync(path.join(evidence, 'weight-v3-browser.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result, null, 2));
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

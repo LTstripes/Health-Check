@@ -1661,7 +1661,10 @@ def test_weight_v2_styles_are_served_in_loaded_dashboard_bundle(tmp_path):
         assert "text/css" in stylesheet.headers["content-type"]
         assert ".weight-view .hero { display: block; }" in stylesheet.text
         assert ".weight-view .chart svg" in stylesheet.text
-        assert "min-width: 620px" in stylesheet.text
+        assert (
+            ".weight-view .chart svg { display: block; width: 100%; min-width: 260px"
+            in stylesheet.text
+        )
         assert client.get("/static/weight.css").status_code == 404
 
 

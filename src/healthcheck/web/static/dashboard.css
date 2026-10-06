@@ -320,7 +320,7 @@ main, .legal { max-width: var(--owner-content-width); }
 .weight-view .current { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
 .weight-view .current dd .muted { display: block; font-size: 0.875rem; font-weight: 400; }
 .weight-view .chart { min-height: 0; }
-.weight-view .chart svg { display: block; width: 100%; min-width: 620px; height: auto; }
+.weight-view .chart svg { display: block; width: 100%; min-width: 260px; height: auto; }
 .weight-view .weight-axis { fill: var(--muted); font: 13px "Segoe UI", sans-serif; }
 .weight-view .weight-point { cursor: pointer; outline: none; }
 .weight-view .weight-dot { stroke: var(--card); stroke-width: 2px; }
