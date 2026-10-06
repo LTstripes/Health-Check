@@ -1,5 +1,48 @@
 # Current Execution History
 
+## 2026-10-06 — post-redesign integration and real Owner UAT
+
+**Canonical checkpoint:** `main @ e806d81fc38093931113ab0790cab120cacf8c10`, tree `4acd1c984eb8f5d08358e23ee74ff3f467279da2`.
+
+Repository integration sequence after the 2026-10-04 UI checkpoint:
+
+| Issue | Outcome | Integration / exact evidence |
+| --- | --- | --- |
+| #290 | Fixed Data-page `persistence_error` caused by detached import-history ORM objects | PR #296; post-main `37351509349` SUCCESS |
+| #291 | Reconciled Overview/Sleep evidence semantics, Weight presence and tennis-friendly owner labeling | PR #299; main `d4a068da510cf5d6583ca73e21f25fbddf148d67`; post-main `37361626010` SUCCESS |
+| #293 | Weight Owner view v2: readable value scale, keyboard/pointer detail and honest body-composition presentation | PR #300; main `9d44cb1c2ce5c1229b048be798393a92e78f3029`; post-main `37419080119` SUCCESS |
+| #297 | Source-explicit Google daily HRV/resting-HR/SpO₂/respiration on Sleep | PR #301; main `357ad6397c33cda51c83ee1655db54d93fbf253d`; PR `37464125673` and post-main `37464888631` SUCCESS |
+| #302 | Removed hosted-runner Python patch nondeterminism without weakening exact environment equality | PR #303; main `79eeb34325544adcfb956d23d5dc78d6987bd087`; PR `37507730417` and post-main `37508435252` SUCCESS |
+| #292 | Owner clarity cleanup for Overview, Sleep, Activity and Google vitals | PR #304; final main `e806d81fc38093931113ab0790cab120cacf8c10`; PR `37511547552` and post-main `37512216796` SUCCESS |
+
+#189 is closed. #293 was also closed after its integrated v2 outcome; remaining Weight timeline polish is a separate #306 follow-up rather than a reopen.
+
+### Owner-local deployment / real-data review
+
+On 2026-10-06 the Owner updated `D:\HealthCheck\main` to the exact canonical checkpoint above and started:
+
+```powershell
+.\scripts\start.ps1 -DataDir 'D:\HealthCheck\stable'
+```
+
+The runtime reported successful migration readiness and UI startup. The Owner then reviewed the real Stable profile. This is genuine local deployment/UAT evidence, but **not blanket acceptance** of every screen.
+
+Confirmed improvements:
+- Data page opens; the prior persistence blocker is gone.
+- Weight v2 is materially clearer and more useful.
+- Overall Owner presentation is calmer than the pre-remediation UI.
+
+Concrete follow-ups from the real-data review:
+- **#305 Data v2:** source-freshness request still fails; explain/verify the direct Xiaomi upload/review path; simplify noisy batch history and raw timestamps.
+- **#306 Weight v3:** human/intermediate time ticks for Weight and composition; explain short vs long composition-series spans without merging incompatible methods.
+- **#307 Overview v2:** surface useful Google values alongside Garmin/Weight with explicit source identity and no silent pooling; reduce remaining hint noise/precision clutter.
+- **#308 Sleep v2:** one row per night, fold routine banners, unify Garmin/Google/Compare source views, Russianize Agreement presentation and compare only semantically compatible metrics.
+- **#309 Activity v2:** current product is honestly Garmin-only; determine actual persisted tennis type/subtype from sanitized evidence; simplify source UI and make two-session comparison self-explanatory.
+
+Existing #294 Settings & Context, #295 performance measurement and #298 Stress diagnosis remain valid after this wave. The Owner explicitly prefers another consolidated UAT after the next set of compatible changes rather than repeated micro-UAT passes.
+
+Full notes and routing: [Owner UAT follow-up — 2026-10-06](OWNER_UAT_FOLLOWUP_2026-10-06.md).
+
 ## 2026-10-04 — Owner UI stages 1–6 and technical follow-ups integrated
 
 **Implementation checkpoint before this docs-only session closeout:** `main @ 50b6638101e2327eb105e5d38921d6ce6ed2de42`, tree `b75ad7265af053d1e3ce95548fea80b1c3e5ea4e`. Stage 6 PR #287 merged; exact post-main CI `37229192825`, attempt 1 — SUCCESS. Stage-6 completion is recorded in [#189 comment 5983724709](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5983724709).
