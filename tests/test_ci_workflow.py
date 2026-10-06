@@ -43,6 +43,29 @@ def test_ci_keeps_push_pull_request_and_lane_scoped_cancellation():
     ) in WORKFLOW
 
 
+def test_linux_python_patch_is_declared_once_at_workflow_scope():
+    workflow_scope = WORKFLOW.split("\njobs:\n", 1)[0]
+    assert "\nenv:\n" in workflow_scope
+    version = re.search(r'^  LINUX_PYTHON_VERSION: "([^"]+)"$', workflow_scope, re.MULTILINE)
+    assert version is not None
+    assert re.fullmatch(r"3\.12\.\d+", version.group(1))
+    assert WORKFLOW.count("LINUX_PYTHON_VERSION:") == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "next_name"),
+    (("quality", "test"), ("test", "windows-smoke"), ("checks", None)),
+)
+def test_linux_evidence_jobs_use_the_shared_exact_python_patch(name, next_name):
+    job = _job(name, next_name)
+    assert "runs-on: ubuntu-latest" in job
+    assert job.count("uses: actions/setup-python@") == 1
+    versions = re.findall(r"^\s+python-version: (.+)$", job, re.MULTILINE)
+    assert versions == ["${{ env.LINUX_PYTHON_VERSION }}"]
+    assert "python-version-file:" not in job
+    assert "freethreaded:" not in job
+
+
 def test_quality_and_three_serial_lanes_are_independent_and_locked():
     quality = _job("quality", "test")
     test = _job("test", "checks")
