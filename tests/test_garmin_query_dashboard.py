@@ -191,7 +191,7 @@ def test_empty_garmin_dashboard_honest_no_data(tmp_path):
         assert "Тренировки и восстановление" in page.text
         assert "Источник Garmin пока не найден" in page.text
         assert "Recovery Score" not in page.text
-        assert "Показатели рассчитаны Garmin" in page.text
+        assert "Готовность и эффект сессии — разные показатели Garmin" in page.text
         sources = client.get("/api/garmin/sources").json()
         assert sources["sources"] == []
         dashboard = client.get("/api/garmin/dashboard").json()

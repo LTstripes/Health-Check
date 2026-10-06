@@ -233,7 +233,7 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 .brief-statistics dd { margin: 0 0 8px; font-size: 1.5rem; font-weight: 600; }
 .brief-packet { max-width: 100%; }
 .brief-overview-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
-.brief-overview-list li { padding: 12px; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; }
+.brief-overview-list > li { padding: 12px; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .section-heading h2 { margin-top: 0; }
 .brief-subsection { border-top: 1px solid var(--line); padding-top: 8px; }
@@ -287,6 +287,14 @@ main, .legal { max-width: var(--owner-content-width); }
 .owner-details-content { padding-top: 8px; }
 .owner-details-content pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .owner-state-list { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; }
+
+/* Bounded #292 Owner controls and folded rows; existing Weight forms are unchanged. */
+.owner-controls { gap: 16px; align-items: end; }
+.owner-controls label { display: grid; gap: 8px; min-width: 0; }
+.brief-overview-list > li { min-width: 0; }
+.brief-records table { min-width: 320px; }
+.brief-records, .sleep-records { margin-top: 12px; }
+.brief-custom-period form { margin-bottom: 12px; }
 
 /* Responsive: overrides stay last. One content column at <=800px; horizontal scroll only in chart/table regions. */
 @media (max-width: 800px) {

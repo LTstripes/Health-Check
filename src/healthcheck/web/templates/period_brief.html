@@ -18,18 +18,21 @@
 
 <section class="card brief-controls" aria-labelledby="brief-period-heading">
   <h2 id="brief-period-heading">Выбранный период</h2>
-  <p class="brief-period">{{ brief.period.start_date }} → {{ brief.period.end_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span></p>
+  <p class="brief-period">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span></p>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
     <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
     {% endfor %}
   </div>
-  <form class="inline-edit" method="get" action="/brief">
+  <details class="owner-details brief-custom-period"><summary>Другой период</summary>
+  <form class="inline-edit owner-controls" method="get" action="/brief">
     <label>Начало <input type="date" name="start_date" value="{{ brief.period.start_date }}" required></label>
     <label>Конец <input type="date" name="end_date" value="{{ brief.period.end_date }}" required></label>
     <input type="hidden" name="garmin_source_id" value="{{ source_selection.selected_source_id or '' }}">
     <button type="submit">Применить период</button>
   </form>
+  </details>
+  {% if source_selection.sources | length > 1 %}
   <details class="owner-details brief-source"{% if source_selection.status == "require_selection" %} open{% endif %}>
     <summary>Источник Garmin{% if source_selection.status == "selected" %}: {{ brief_source_label(source_selection.selected_source) }}{% endif %}</summary>
     {% if source_selection.status == "require_selection" %}
@@ -53,6 +56,8 @@
       <button type="submit">Выбрать источник</button>
     </form>
   </details>
+  {% elif source_selection.status == "selected" %}<p class="muted">{{ brief_source_label(source_selection.selected_source) }}</p>
+  {% else %}<p class="muted">Источник Garmin не сохранён. <a href="/imports">Проверить источники</a></p>{% endif %}
 </section>
 
 {% if not brief_has_usable_evidence %}
@@ -63,30 +68,40 @@
 {% endif %}
 
 <section class="card brief-overview" aria-labelledby="brief-overview-heading">
-  <h2 id="brief-overview-heading">За период</h2>
+  <h2 id="brief-overview-heading">Главное</h2>
   <ul class="brief-overview-list">
     {% for name, section, url in [('Вес', weight, '/'), ('Сон', sleep, '/sleep'), ('Активность', activity, '/garmin')] %}
-    <li><h3><a href="{{ url }}">{{ name }}</a></h3>{{ owner_ui.state_chip(section.state) }}
+    <li><h3><a href="{{ url }}">{{ name }}</a></h3>{{ owner_ui.state_chip(section.state, false) }}
       {% for fact in brief_primary_facts(section) %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.reason %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
-      {% if name == 'Сон' %}<p class="muted">Показаны сохранённые ночи Garmin. Исследовательское сравнение с Google — ниже; оно не определяет наличие сна.</p>{% endif %}
+      {% if name == 'Сон' %}<p class="muted">Ночи Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>{% endif %}
+      {% if name == 'Вес' %}<details class="owner-details brief-records"><summary>Измерения веса</summary>      <div class="table-scroll" role="region" aria-label="Измерения веса, прокрутка таблицы" tabindex="0">
+      <table><thead><tr><th>Дата</th><th>Вес, кг</th></tr></thead><tbody>
+        {% for point in weight.display_points %}<tr><td>{{ point.observed_date | owner_date }}</td><td>{{ point.median_kg if point.median_kg is not none else '—' }}</td></tr>{% else %}<tr><td colspan="2">Нет отображаемых измерений.</td></tr>{% endfor %}
+      </tbody></table></div>
+      {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_points | length }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
+</details>
+      {% elif name == 'Активность' %}<details class="owner-details brief-records"><summary>Записи активностей</summary>      <div class="table-scroll" role="region" aria-label="Активности, прокрутка таблицы" tabindex="0">
+      <table><thead><tr><th>Дата</th><th>Тип</th></tr></thead><tbody>
+        {% for session in activity.sessions %}<tr><td>{{ session.source_local_date | owner_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td></tr>{% else %}<tr><td colspan="2">Нет отображаемых активностей.</td></tr>{% endfor %}
+      </tbody></table></div>
+      {% if activity.display_thinning %}<p class="muted">Показаны последние {{ activity.sessions | length }} из {{ activity.display_thinning.original_session_count }} активностей.</p>{% endif %}
+</details>{% endif %}
     </li>
     {% endfor %}
   </ul>
 </section>
 
 <div class="brief-grid">
-  <section class="card brief-priority" aria-labelledby="brief-notable-heading">
+  {% if notable_changes %}<section class="card brief-priority" aria-labelledby="brief-notable-heading">
     <h2 id="brief-notable-heading">Что заметно</h2>
-    {% if notable_changes %}
     <ul>{% for note in notable_changes %}<li>{{ brief_owner_note(note) }}{% if note.value is defined and note.value is not none %} {{ brief_note_value(note, brief) }}{% endif %}</li>{% endfor %}</ul>
-    {% else %}<p class="muted">По доступным данным отдельных изменений не отмечено. Если данных недостаточно, это не подтверждает отсутствие изменений.</p>{% endif %}
-  </section>
-  <section class="card brief-priority" aria-labelledby="brief-actions-heading">
+
+  </section>{% endif %}
+  {% if actions %}<section class="card brief-priority" aria-labelledby="brief-actions-heading">
     <h2 id="brief-actions-heading">Что нужно сделать</h2>
-    {% if actions %}
     <ul>{% for action in actions %}<li>{{ action.text }}{% if action.contexts %} <span class="muted">{{ action.contexts | join(' · ') }}.</span>{% endif %} <a href="{{ action.link }}">{{ action.link_label }}</a></li>{% endfor %}</ul>
-    {% else %}<p class="muted">Дополнительных действий по этой сводке нет. Это не подтверждает полноту всех источников.</p>{% endif %}
-  </section>
+
+  </section>{% endif %}
 </div>
 
 {% if coverage_warning or source_status %}
@@ -97,8 +112,9 @@
 </aside>
 {% endif %}
 
-<section class="card brief-sleep" aria-labelledby="brief-sleep-heading">
-  <header class="section-heading"><h2 id="brief-sleep-heading">Сравнение сна</h2>{{ owner_ui.state_chip(sleep.state) }}</header>
+<details class="card owner-details brief-sleep">
+  <summary>Сравнение сна · исследовательские детали</summary>
+  <p><a href="/agreement">Открыть Sleep Agreement</a></p>
   <p>Показаны различия между сохранёнными наблюдениями, а не оценка качества сна. Средняя разность учитывает знак (Google минус Garmin); среднее абсолютное различие показывает величину расхождения без знака.</p>
   {% if sleep_uncertainty %}<p class="uncertainty-note">{{ sleep_uncertainty }}</p>{% endif %}
   {% if sleep.groups %}<p class="muted">Несколько сравнений возникают из разных показателей, вариантов записи и наборов источников. Каждый расчёт показан отдельно: числа наблюдений не складываются.</p>{% endif %}
@@ -125,26 +141,6 @@
     </div>
   </section>
   {% else %}<p class="muted">За этот период нет доступного сравнения сна.</p>{% endfor %}
-</section>
-
-<details class="card owner-details brief-records">
-  <summary>Измерения веса и записи активностей</summary>
-  <div class="brief-grid">
-    <section><h3>Вес</h3>
-      <div class="table-scroll" role="region" aria-label="Измерения веса, прокрутка таблицы" tabindex="0">
-      <table><thead><tr><th>Дата</th><th>Вес, кг</th></tr></thead><tbody>
-        {% for point in weight.display_points %}<tr><td>{{ point.observed_date }}</td><td>{{ point.median_kg if point.median_kg is not none else '—' }}</td></tr>{% else %}<tr><td colspan="2">Нет отображаемых измерений.</td></tr>{% endfor %}
-      </tbody></table></div>
-      {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_points | length }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
-    </section>
-    <section><h3>Активности</h3>
-      <div class="table-scroll" role="region" aria-label="Активности, прокрутка таблицы" tabindex="0">
-      <table><thead><tr><th>Дата</th><th>Тип</th></tr></thead><tbody>
-        {% for session in activity.sessions %}<tr><td>{{ session.source_local_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td></tr>{% else %}<tr><td colspan="2">Нет отображаемых активностей.</td></tr>{% endfor %}
-      </tbody></table></div>
-      {% if activity.display_thinning %}<p class="muted">Показаны последние {{ activity.sessions | length }} из {{ activity.display_thinning.original_session_count }} активностей.</p>{% endif %}
-    </section>
-  </div>
 </details>
 
 {% call owner_ui.technical_details('brief-provenance') %}

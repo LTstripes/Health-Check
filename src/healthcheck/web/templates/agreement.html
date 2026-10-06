@@ -14,7 +14,7 @@
     {{ owner_ui.state_chip('unknown' if payload.reason == 'unknown' else 'unavailable') }}
     <p>{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения. Отсутствие сравнения не означает отсутствие сна.{% endif %}</p>
   {% elif payload.mode == 'exploratory' %}
-    {{ owner_ui.state_chip('present') }}<p>Исследовательское сравнение доступно для отдельных групп. Ограничения каждой группы указаны ниже.</p>
+    <p>Исследовательское сравнение доступно для отдельных групп. Ограничения каждой группы указаны ниже.</p>
   {% else %}
     {{ owner_ui.state_chip('insufficient') }}<p>Идёт накопление данных. Принятых данных пока недостаточно для исследовательской статистики.</p>
   {% endif %}
@@ -39,13 +39,13 @@
       <header><h2>{{ row.label }}</h2><span>{{ owner_cohort(group.source_attribution.cohort_label) }}</span></header>
       <p>{{ row.variant }}</p>
       {% for run in payload.runs if run.run_id == group.run_id %}
-      <p>Сохранённый период: {{ run.requested_start_date or 'Начало неизвестно' }} → {{ run.requested_end_date or 'Окончание неизвестно' }}.</p>
+      <p>Сохранённый период: {{ run.requested_start_date | owner_date if run.requested_start_date else 'Начало неизвестно' }} → {{ run.requested_end_date | owner_date if run.requested_end_date else 'Окончание неизвестно' }}.</p>
       {% endfor %}
       {% if group.uncertainty_notice or group.exploratory_label_required %}
       <p class="uncertainty-note" role="note">Принадлежность устройству и роль записи сна могут быть неизвестны. Это не сравнение Garmin и Fitbit/устройств, не оценка точности и не основание для выбора основного источника.</p>
       {% endif %}
       {% if group.cohort == 'family_pair' %}<p class="uncertainty-note">Данные относятся к семейству устройств Google; конкретное устройство может быть неизвестно. Сравнение остаётся исследовательским.</p>{% endif %}
-      {{ owner_ui.state_chip('present' if group.progress.exploratory_available else 'insufficient') }}
+      {{ owner_ui.state_chip('present' if group.progress.exploratory_available else 'insufficient', false) }}
       <dl class="agreement-metrics">
         <div><dt>Пригодных пар</dt><dd>{{ group.n if group.n is not none else 'Неизвестно' }}</dd></div>
         <div><dt>Сопоставленных ночей</dt><dd>{{ group.paired_nights if group.paired_nights is not none else 'Неизвестно' }}</dd></div>

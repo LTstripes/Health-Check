@@ -1060,7 +1060,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         ("/imports", "Данные"),
     ]
     expected_modes = {
-        "Обзор": "За период",
+        "Обзор": None,
         "Вес": "Вес и состав тела",
         "Сон": "Сравнение сна",
         "Активность": "Тренировки и восстановление",
@@ -1083,7 +1083,10 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             assert '<html lang="ru"' in response.text
             assert "К содержимому" in response.text
             assert 'aria-label="Основные разделы"' in response.text
-            assert expected_modes[section] in response.text
+            if expected_modes[section]:
+                assert expected_modes[section] in response.text
+            else:
+                assert 'class="owner-page-mode"' not in response.text
             # The thematic pages are Russian; legacy import detail stays English.
             if section in ("Обзор", "Вес", "Сон", "Активность") or path == "/imports":
                 assert 'class="owner-page-content" lang="en"' not in response.text
@@ -1091,7 +1094,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
                 assert 'class="owner-page-content" lang="en"' in response.text
         period = client.get("/brief?start_date=2099-02-03&end_date=2099-02-17")
         assert "За период" in period.text
-        assert "2099-02-03 → 2099-02-17" in period.text
+        assert "3 февраля 2099 → 17 февраля 2099" in period.text
         assert 'name="start_date" value="2099-02-03"' in period.text
         assert 'href="/brief">Health-Check</a>' in period.text
         # Frozen shell: paper sticky nav, table-scroll wrappers, no block tables.

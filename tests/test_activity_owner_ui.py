@@ -79,16 +79,19 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         )
         page = client.get("/garmin", params=params)
         assert page.status_code == 200
-        primary, technical = page.text.split('<details class="card owner-details', 1)
+        primary, technical = page.text.split(
+            '<details class="card owner-details activity-technical', 1
+        )
         assert 'lang="en"' not in page.text
         assert "Последние сессии" in primary and "Сравнить сессии" in primary
         assert "Тренировки и восстановление" in primary and "Острая нагрузка Garmin" in primary
-        assert "2099-01-03" in primary and "2099-01-02T12:00:00+00:00" in primary
+        assert "3 января 2099" in primary and "2 января 2099, 12:00 UTC" in primary
+        assert "2099-01-02T12:00:00+00:00" in technical
         assert "Единица времени восстановления не предоставлена" in primary
         assert "Дата запроса не подставляется" in primary
         assert "Производитель каждой метрики не подтверждён" in primary
         assert 'href="/imports"' in primary
-        assert 'data-owner-state="present">0</span>' in primary
+        assert 'data-owner-state="present">0.0</span>' in primary
         assert 'data-owner-state="unavailable">Не предоставлено' in primary
         for internal in (
             "result_hash",
@@ -155,7 +158,9 @@ def test_activity_field_does_not_invent_zero_or_units(tmp_path, monkeypatch, fie
             field.update(state=field_state, value=None)
     monkeypatch.setattr(GarminQueryService, "dashboard", lambda *a, **kw: payload)
     with client_for(app) as client:
-        primary = client.get("/garmin").text.split('<details class="card owner-details', 1)[0]
+        primary = client.get("/garmin").text.split(
+            '<details class="card owner-details activity-technical', 1
+        )[0]
     recovery = primary.split("<h3>Готовность и восстановление</h3>", 1)[1].split("</section>", 1)[0]
     assert ">0</span>" not in recovery
     state = "unknown" if field_state == "invalid" else "unavailable"
@@ -166,9 +171,48 @@ def test_activity_field_does_not_invent_zero_or_units(tmp_path, monkeypatch, fie
 def test_activity_empty_is_unavailable_and_no_fabricated_sessions(tmp_path):
     app, _, _ = _ui(tmp_path)
     with client_for(app) as client:
-        primary = client.get("/garmin").text.split('<details class="card owner-details', 1)[0]
+        primary = client.get("/garmin").text.split(
+            '<details class="card owner-details activity-technical', 1
+        )[0]
     assert "Источник Garmin пока не найден" in primary
     assert "Это не означает отсутствие тренировок" in primary
     assert "Нагрузка не считается нулевой" in primary
     assert 'data-owner-state="confirmed_empty"' not in primary
     assert ">0</span>" not in primary
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2099-01-02", "2 января 2099"),
+        ("2099-01-02T12:34:56Z", "2 января 2099, 12:34 UTC"),
+        ("2099-01-02T00:30:00+03:00", "2 января 2099, 00:30 UTC+0300"),
+        ("2099-01-02T12:34:56", "2 января 2099, 12:34"),
+        (None, "Дата не указана"),
+        ("bad-date", "Дата не указана"),
+    ],
+)
+def test_owner_dates_preserve_source_day_precision_and_zone(value, expected):
+    from healthcheck.web.owner_presentation import owner_date
+
+    assert owner_date(value) == expected
+
+
+def test_activity_rounds_display_only_and_preserves_raw_precision(tmp_path, monkeypatch):
+    app, settings, paths = _ui(tmp_path)
+    source = seed_activity(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            payload = GarminQueryService(session, settings).dashboard(garmin_source_id=source)
+    finally:
+        engine.dispose()
+    field = payload["training_overview"]["training_status"]["fields"]["dailyTrainingLoadAcute"]
+    field.update(state="value", value=123.456789)
+    monkeypatch.setattr(GarminQueryService, "dashboard", lambda *a, **kw: payload)
+    with client_for(app) as client:
+        page = client.get("/garmin")
+    primary, technical = page.text.split('<details class="card owner-details activity-technical', 1)
+    assert ">123.5</span>" in primary and "123.456789" not in primary
+    assert "123.456789" in technical
+    assert field["value"] == 123.456789

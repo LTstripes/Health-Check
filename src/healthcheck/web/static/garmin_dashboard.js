@@ -90,7 +90,7 @@
     let sourceId;
     try { sourceId = requireSourceId(); } catch (err) { renderNoSeries(err.message); return; }
     const params = new URLSearchParams({ garmin_source_id: sourceId, metric_code: value("metric-code"), start_date: value("series-start"), end_date: value("series-end") });
-    const context = metricName(value("metric-code")) + " · " + value("series-start") + " — " + value("series-end");
+    const context = metricName(value("metric-code")) + " · " + ownerDate(value("series-start")) + " — " + ownerDate(value("series-end"));
     request("series", "/api/garmin/series", params, context, renderSeries);
   }
   function loadActivityComparison() {
@@ -108,7 +108,7 @@
     let sourceId;
     try { sourceId = requireSourceId(); } catch (err) { setHtml("lag-result", unavailable(err.message)); return; }
     const params = new URLSearchParams({ garmin_source_id: sourceId, x_metric_code: value("x-metric-code"), y_metric_code: value("y-metric-code"), start_date: value("lag-start"), end_date: value("lag-end"), lag_days: value("lag-days") });
-    const context = metricName(value("x-metric-code")) + " / " + metricName(value("y-metric-code")) + " · " + value("lag-start") + " — " + value("lag-end") + " · сдвиги: " + value("lag-days");
+    const context = metricName(value("x-metric-code")) + " / " + metricName(value("y-metric-code")) + " · " + ownerDate(value("lag-start")) + " — " + ownerDate(value("lag-end")) + " · сдвиги: " + value("lag-days");
     request("lag", "/api/garmin/lagged-association", params, context, renderLagResult);
   }
   function fetchJson(url) {
@@ -124,7 +124,7 @@
     if (panel === "series") { setHtml("series-summary", ""); setHtml("series-coverage", ""); }
   }
   function activityLabel(activity, index) {
-    return "Сессия " + (index + 1) + " · " + (activityNames[activity.activity_type] || "Другой вид активности") + " · " + (activity.source_local_date || activity.local_wall_time || activity.measured_at_utc || "Дата не указана");
+    return "Сессия " + (index + 1) + " · " + (activityNames[activity.activity_type] || "Другой вид активности") + " · " + ownerDate(activity.source_local_date || activity.local_wall_time || activity.measured_at_utc);
   }
   function sessionLabel(id) {
     const index = state.activities.findIndex(a => a.record_id === id);
@@ -149,7 +149,7 @@
   function renderMetricWording() {
     const code = value("metric-code");
     setText("metric-wording", code === "sleep_score" ? "Оценка сна Garmin не доказывает полноту длительности, стадий или дневного сна и не является оценкой восстановления." :
-      ["training_effect", "acute_training_load"].includes(code) ? "Показатель Garmin относится к отдельной сессии, а не к дневной готовности или восстановлению." : "Показаны сохранённые значения и готовые результаты аналитики. Пропуски не заменяются нулём; отдельные измерения и дневные показатели различаются.");
+      ["training_effect", "acute_training_load"].includes(code) ? "Показатель Garmin относится к отдельной сессии, а не к дневной готовности или восстановлению." : "Пропуски не заменяются нулём; отдельные измерения и дневные показатели различаются.");
   }
   function renderNoSeries(reason) {
     setHtml("series-chart", unavailable("Нет пригодного ряда. Пропущенные значения не показаны как 0."));
@@ -172,20 +172,20 @@
         const y = height - pad - (Number(point.value) - minY) / spanY * (height - pad * 2);
         const consecutive = previous && Date.parse(point.analytic_date) - Date.parse(previous.analytic_date) === 86400000;
         path += (consecutive ? " L" : " M") + x.toFixed(1) + "," + y.toFixed(1);
-        circles += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4" fill="var(--series-1)"><title>' + escapeHtml((point.analytic_date || "Дата не указана") + " · " + point.value) + "</title></circle>";
+        circles += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4" fill="var(--series-1)"><title>' + escapeHtml(ownerDate(point.analytic_date) + " · " + fmt(point.value, 1)) + "</title></circle>";
         previous = point;
       });
       chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" role="img" aria-label="Значения Garmin; пропуски разрывают линию"><path d="' + path + '" fill="none" stroke="var(--series-1)" stroke-width="2"/>' + circles + '</svg>';
     }
     const code = (series.metric_definition || {}).metric_code;
-    setText("series-context", metricName(code) + " · " + ((series.query || {}).start_date || "") + " — " + ((series.query || {}).end_date || ""));
+    setText("series-context", metricName(code) + " · " + ownerDate((series.query || {}).start_date) + " — " + ownerDate((series.query || {}).end_date));
     const a = series.availability || {}, b = series.baseline || {}, t = series.trend || {}, p = series.personal_percentile || {}, d = series.deviation || {};
     const missing = [a.missing_count, a.null_count, a.invalid_count, a.partial_count, a.not_computable_count, a.excluded_count].some(n => n > 0);
     let html = chip(!plottable.length ? "unavailable" : missing ? "partial" : "present");
     html += "<p>" + escapeHtml(metricName(code)) + " · единица: " + escapeHtml(units[(series.metric_definition || {}).unit] || "не предоставлена") + "</p>";
     html += "<p>Пригодных значений: " + fmt(a.usable_count, 0) + "; явных нулей: " + fmt(a.zero_count, 0) + "; исключено: " + fmt(a.excluded_count, 0) + ".</p>";
     if (missing) html += '<p class="uncertainty-note">Есть пропуски, исключения или неполные значения. Ряд не описывает весь период; неоднозначные дневные значения не объединяются.</p>';
-    html += "<ul><li>Среднее в личном окне: " + available(b, () => fmt(b.mean)) + "</li><li>Медиана: " + available(b, () => fmt(b.median)) + "</li><li>Изменение в день: " + available(t, () => fmt(t.slope_per_day)) + "</li><li>Процентиль в личном окне: " + available(p, () => fmt(p.value)) + "</li></ul>";
+    html += "<ul><li>Среднее в личном окне: " + available(b, () => fmt(b.mean)) + "</li><li>Медиана: " + available(b, () => fmt(b.median)) + "</li><li>Изменение в день: " + available(t, () => fmt(t.slope_per_day, 3)) + "</li><li>Процентиль в личном окне: " + available(p, () => fmt(p.value)) + "</li></ul>";
     html += "<p>Отклонение от личного окна: " + available(d, () => d.personal_baseline_deviation === true ? "выделено алгоритмом" : d.personal_baseline_deviation === false ? "не выделено алгоритмом" : "не определено") + ". Это не медицинский порог.</p>";
     setHtml("series-summary", html);
     // Exact availability.exclusions, excluded_count, ambiguous_daily_aggregate,
@@ -195,10 +195,10 @@
     identity(series);
   }
   function renderActivityResult(body) {
-    let html = "<p>Показатели и разницы рассчитаны существующей аналитикой. Эффект и нагрузка Garmin относятся к сессии.</p>";
+    let html = "<p>Эффект и нагрузка Garmin относятся к сессии.</p>";
     html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Опорная</th><th>Показатели Garmin</th></tr></thead><tbody>';
     (body.sessions || []).forEach(session => {
-      const scores = (session.metric_coverage || []).filter(m => ["training_effect", "acute_training_load"].includes(m.metric_code)).map(m => escapeHtml(metricName(m.metric_code)) + ": " + statusValue(m.status, m.value)).join("; ");
+      const scores = (session.metric_coverage || []).filter(m => ["training_effect", "acute_training_load"].includes(m.metric_code)).map(m => escapeHtml(metricName(m.metric_code)) + ": " + statusValue(m.status, m.value, 1)).join("; ");
       html += "<tr><td>" + escapeHtml(sessionLabel(session.record_id)) + "</td><td>" + (session.is_reference ? "Да" : "Нет") + "</td><td>" + (scores || "Не предоставлены") + "</td></tr>";
     });
     html += "</tbody></table></div><h3>Разница с опорной сессией</h3>";
@@ -207,7 +207,7 @@
       if (!block.same_activity_type) html += '<p class="uncertainty-note">Разные виды активности: часть показателей может быть несопоставима.</p>';
       html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Показатель</th><th>Сопоставимость</th><th>Разница</th><th>Разница, %</th><th>Ограничение</th></tr></thead><tbody>';
       (block.metrics || []).forEach(m => {
-        html += "<tr><td>" + escapeHtml(metricName(m.metric_code)) + " · " + escapeHtml(units[m.unit] || "единица не предоставлена") + "</td><td>" + statusLabel(m.status) + "</td><td>" + fmt(m.absolute_delta) + "</td><td>" + fmt(m.percent_delta) + "</td><td>" + (m.reason || m.percent_reason ? reasonText(m.reason || m.percent_reason) : "—") + "</td></tr>";
+        html += "<tr><td>" + escapeHtml(metricName(m.metric_code)) + " · " + escapeHtml(units[m.unit] || "единица не предоставлена") + "</td><td>" + statusLabel(m.status) + "</td><td>" + fmt(m.absolute_delta, 1) + "</td><td>" + fmt(m.percent_delta, 1) + "</td><td>" + (m.reason || m.percent_reason ? reasonText(m.reason || m.percent_reason) : "—") + "</td></tr>";
       });
       html += "</tbody></table></div>";
     });
@@ -233,13 +233,24 @@
     return escapeHtml(text[status] || labels[status] || labels.unknown);
   }
   function available(block, render) { return block.available ? render() : chip(block.reason && block.reason.includes("insufficient") ? "insufficient" : "unavailable") + " " + escapeHtml(reasonText(block.reason)); }
-  function statusValue(status, val) {
+  function statusValue(status, val, digits) {
     if (status === "zero") return "0";
-    return status === "usable" ? fmt(val) : statusLabel(status);
+    return status === "usable" ? fmt(val, digits) : statusLabel(status);
   }
-  function chip(key) { return '<span class="status-chip owner-state ' + key + '" data-owner-state="' + key + '">' + labels[key] + "</span>"; }
+  function chip(key) { if (key === "present") return ""; return '<span class="status-chip owner-state ' + key + '" data-owner-state="' + key + '">' + labels[key] + "</span>"; }
   function unavailable(reason) { return chip("unavailable") + "<p>" + escapeHtml(reason) + "</p>"; }
-  function fmt(val, digits = 3) { return val === null || val === undefined || !Number.isFinite(Number(val)) ? "Не предоставлено" : Number(val).toFixed(digits); }
+  function ownerDate(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/.exec(String(value || ""));
+    if (!match) return "Дата не указана";
+    const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    const month = months[Number(match[2]) - 1];
+    if (!month) return "Дата не указана";
+    let text = Number(match[3]) + " " + month + " " + match[1];
+    if (match[4]) text += ", " + match[4] + ":" + match[5];
+    if (match[6]) text += ["Z", "+00:00"].includes(match[6]) ? " UTC" : " UTC" + match[6];
+    return text;
+  }
+  function fmt(val, digits = 1) { return val === null || val === undefined || !Number.isFinite(Number(val)) ? "Не предоставлено" : Number(val).toFixed(digits); }
   function setHtml(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
   function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
   function escapeHtml(val) { return String(val).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }

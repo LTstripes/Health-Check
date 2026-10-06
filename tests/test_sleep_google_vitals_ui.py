@@ -29,7 +29,7 @@ def client_for(app):
 
 
 def _split(page_text: str) -> tuple[str, str]:
-    return page_text.split('<details class="card owner-details', 1)
+    return page_text.split('<details class="card owner-details sleep-technical"', 1)
 
 
 def _source(**overrides) -> GoogleDailyVitalSource:
@@ -56,35 +56,44 @@ def _source(**overrides) -> GoogleDailyVitalSource:
 
 
 def test_google_vital_source_labels_are_friendly_not_raw_uris():
-    uri_name = (
-        "users/me/dataSources/raw:com.google.heart_rate.bpm:com.fitbit.Fitbit:ABC123"
+    uri_name = "users/me/dataSources/raw:com.google.heart_rate.bpm:com.fitbit.Fitbit:ABC123"
+    assert (
+        google_vital_source_label(
+            _source(
+                source_instance_id=uri_name,
+                data_source_name=uri_name,
+                platform="fitbit",
+            )
+        )
+        == "Google · fitbit"
     )
-    assert google_vital_source_label(
-        _source(
-            source_instance_id=uri_name,
-            data_source_name=uri_name,
-            platform="fitbit",
+    assert (
+        google_vital_source_label(_source(data_source_name="Fitbit Charge 6"))
+        == "Google · Fitbit Charge 6"
+    )
+    assert (
+        google_vital_source_label(_source(source_instance_id="unattributed"))
+        == "Google · источник без атрибуции"
+    )
+    assert (
+        google_vital_source_label(
+            _source(
+                source_kind="family_aggregate",
+                source_instance_id="users/me/dataSourceFamilies/google-wearables",
+            )
         )
-    ) == "Google · fitbit"
-    assert google_vital_source_label(
-        _source(data_source_name="Fitbit Charge 6")
-    ) == "Google · Fitbit Charge 6"
-    assert google_vital_source_label(
-        _source(source_instance_id="unattributed")
-    ) == "Google · источник без атрибуции"
-    assert google_vital_source_label(
-        _source(
-            source_kind="family_aggregate",
-            source_instance_id="users/me/dataSourceFamilies/google-wearables",
+        == "Google · семейство устройств"
+    )
+    assert (
+        google_vital_source_label(
+            _source(
+                device_attributed=True,
+                device_manufacturer="Fitbit",
+                device_model="Fitbit Air",
+            )
         )
-    ) == "Google · семейство устройств (google-wearables)"
-    assert google_vital_source_label(
-        _source(
-            device_attributed=True,
-            device_manufacturer="Fitbit",
-            device_model="Fitbit Air",
-        )
-    ) == "Google · Fitbit Air"
+        == "Google · Fitbit Air"
+    )
 
 
 def test_google_vitals_window_accepts_only_frozen_windows():
@@ -104,9 +113,13 @@ def test_sleep_google_vitals_block_is_source_explicit_and_unpaired(tmp_path):
     assert page.status_code == 200
     primary, technical = _split(page.text)
     assert "Google дневные показатели" in primary
+    assert "status-chip owner-state present" not in primary
+    assert "2 января 2099" in primary
+    assert "суточные показатели, а не измерения внутри сна" in primary
     assert primary.count('data-google-source="') == 2
     assert "Google · Fitbit Air" in primary
-    assert "Google · семейство устройств (google-wearables)" in primary
+    assert "Google · семейство устройств" in primary
+    assert "google-wearables" not in primary and "google-wearables" in technical
     assert "42.5 мс" in primary
     assert "55 уд/мин" in primary
     assert "97 %" in primary and "96 %" in primary
@@ -133,23 +146,23 @@ def test_sleep_google_vitals_windows_are_bounded_and_defaulted(tmp_path):
         week = client.get("/sleep?wake_date=2099-01-02&vitals_window=7")
         assert week.status_code == 200
         primary, _technical = _split(week.text)
-        assert "2098-12-27 → 2099-01-02" in primary
+        assert "27 декабря 2098 → 2 января 2099" in primary
         assert 'value="7" selected' in primary
 
         quarter = client.get("/sleep?wake_date=2099-01-02&vitals_window=90")
         primary, _technical = _split(quarter.text)
-        assert "2098-10-05 → 2099-01-02" in primary
+        assert "5 октября 2098 → 2 января 2099" in primary
         assert 'value="90" selected' in primary
 
         out_of_set = client.get("/sleep?wake_date=2099-01-02&vitals_window=365")
         primary, _technical = _split(out_of_set.text)
-        assert "2098-12-04 → 2099-01-02" in primary
+        assert "4 декабря 2098 → 2 января 2099" in primary
         assert 'value="30" selected' in primary
 
         invalid = client.get("/sleep?wake_date=2099-01-02&vitals_window=nope")
         assert invalid.status_code == 200
         primary, _technical = _split(invalid.text)
-        assert "2098-12-04 → 2099-01-02" in primary
+        assert "4 декабря 2098 → 2 января 2099" in primary
 
 
 def test_sleep_google_vitals_ambiguous_and_unit_mismatch_are_honest(tmp_path):
@@ -236,6 +249,6 @@ def test_sleep_google_vitals_window_ends_at_selected_date(tmp_path):
     assert page.status_code == 200
     primary, _technical = _split(page.text)
     assert "57 уд/мин" in primary
-    assert "2099-01-01" in primary
+    assert "1 января 2099" in primary
     assert "42.5" not in primary
     assert primary.count('data-google-source="') == 1

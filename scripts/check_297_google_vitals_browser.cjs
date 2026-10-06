@@ -38,8 +38,11 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.equal(await page.locator('[data-google-source]').count(), 2);
       assert.equal(await page.locator('[data-google-metric]').count(), 8);
       assert.match(text, /Google · Fitbit Air/);
-      assert.match(text, /google-wearables/);
+      assert.match(text, /Google · семейство устройств/);
+      assert.doesNotMatch(text, /google-wearables/);
       assert.match(text, /42\.5 мс/);
+      assert.match(text, /2 января 2099/);
+      assert.equal(await block.locator('.status-chip[data-owner-state="present"]').count(), 0);
       assert.match(text, /55 уд\/мин/);
       assert.match(text, /97 %/);
       assert.match(text, /13\.5 вдохов\/мин/);
@@ -62,7 +65,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
         page.waitForURL(/vitals_window=7/),
         block.locator('button[type="submit"]').click(),
       ]);
-      assert.match(await page.locator('[data-google-vitals]').innerText(), /2098-12-27 → 2099-01-02/);
+      assert.match(await page.locator('[data-google-vitals]').innerText(), /27 декабря 2098 → 2 января 2099/);
       await page.goto(base + '/sleep?wake_date=2099-01-02');
       await page.screenshot({
         path: path.join(evidence, 'google-vitals-' + width + '.png'), fullPage: true,
@@ -74,7 +77,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     const missingNight = page.locator('[data-google-vitals]');
     assert.match(await missingNight.innerText(), /42\.5 мс/);
     assert.match(await page.locator('main').innerText(), /нет пригодного значения/);
-    const googleDetails = page.locator('main details.owner-details').nth(1);
+    const googleDetails = page.locator('main details.sleep-technical').nth(1);
     assert.equal(await googleDetails.getAttribute('open'), null);
     await googleDetails.locator('summary').focus();
     await page.keyboard.press('Enter');

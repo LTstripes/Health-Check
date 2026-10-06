@@ -35,7 +35,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
         assert.equal(await page.locator('main [lang="en"]').count(), 0);
         const content = await page.locator('main').innerText();
         assert.match(content, /Точность/);
-        const tech = page.locator('main details.owner-details').first();
+        const tech = page.locator('main details.owner-details:not(.sleep-records)').first();
         assert.equal(await tech.getAttribute('open'), null);
         const summary = tech.locator('summary');
         await summary.focus();
@@ -51,7 +51,13 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
           assert.match(content, /8 ч 0 мин/);
           assert.match(content, /82/);
           assert.match(content, /История сна/);
-          assert.equal(await page.locator('[data-sleep-metric] [data-owner-state="present"]').count(), 2);
+          assert.equal(await page.locator('[data-sleep-metric] .status-chip[data-owner-state="present"]').count(), 0);
+          assert.match(content, /2 января 2099/);
+          const history = page.locator(".sleep-records");
+          assert.equal(await history.getAttribute("open"), null);
+          await history.locator("summary").click();
+          assert.equal(await history.locator("table").isVisible(), true);
+          assert.doesNotMatch(await history.locator("thead").innerText(), /Состояние/);
         }
         // Check geometry with disclosure open as well as closed.
         async function geometry() {
@@ -66,6 +72,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
           assert.ok(g.target >= 44);
         }
         await geometry();
+        await summary.focus();
         await page.keyboard.press('Enter');
         assert.equal(await tech.getAttribute('open'), null);
         assert.equal(await summary.evaluate(el => el === document.activeElement), true);

@@ -29,6 +29,7 @@ from healthcheck.logging import log_event
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
+from healthcheck.web.owner_presentation import owner_date, owner_number
 from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.query import (
     WeightQueryService,
@@ -53,6 +54,7 @@ from healthcheck.web.sleep_view import (
 
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+templates.env.filters.update(owner_date=owner_date, owner_number=owner_number)
 router = APIRouter()
 
 
@@ -348,7 +350,7 @@ def _brief_source_status(brief: object) -> str | None:
 
 
 def _brief_notable_changes(notes: object) -> list[dict[str, Any]]:
-    """Deduplicate and order packet notices for the owner-facing summary only."""
+    """Select measured observations, then deduplicate the Owner summary only."""
 
     if not isinstance(notes, (list, tuple)):
         return []
@@ -359,18 +361,19 @@ def _brief_notable_changes(notes: object) -> list[dict[str, Any]]:
         code = str(note.get("code") or "")
         if not code:
             continue
-        # Account-level uncertainty is one period warning, not one notice per
-        # metric/group. Other metric-specific deviations retain their detail.
-        if code == "uncertain_account_cohort":
-            key = (code,)
-        else:
-            key = (
-                str(note.get("section") or ""),
-                code,
-                str(note.get("metric_code") or ""),
-                str(note.get("fact_code") or ""),
-                str(note.get("cohort") or ""),
-            )
+        # Availability and Agreement uncertainty already live in their own
+        # sections. Only measured observations belong in "Что заметно".
+        if code != "personal_baseline_deviation" and not (
+            code == "weight_rate" and note.get("value") is not None
+        ):
+            continue
+        key = (
+            str(note.get("section") or ""),
+            code,
+            str(note.get("metric_code") or ""),
+            str(note.get("fact_code") or ""),
+            str(note.get("cohort") or ""),
+        )
         unique.setdefault(key, dict(note))
     return sorted(
         unique.values(),
@@ -424,7 +427,7 @@ def _brief_owner_value(
 def _brief_owner_note(note: object) -> str:
     code = str((note or {}).get("code") or "") if isinstance(note, dict) else ""
     text = {
-        "weight_rate": "Темп изменения веса доступен.",
+        "weight_rate": "Изменение веса в неделю:",
         "weight_trend": "Тренд веса доступен.",
         "sleep_exploratory_agreement": "Доступна исследовательская оценка согласованности сна.",
         "uncertain_account_cohort": (
