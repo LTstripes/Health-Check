@@ -3,7 +3,7 @@
 The shared interface follows the [accepted IA](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5854312903)
 and the [frozen visual system](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5979374375).
 Stages 1–6 are integrated: shell, Data, Overview, Weight, Sleep and Activity.
-Stage 7 whole-product browser/responsive/loading/error acceptance remains pending.
+Stage 7 is integrated and #189 is closed. The later 2026-10-06 Owner-local real-data review of `main @ e806d81fc38093931113ab0790cab120cacf8c10` confirmed deployment and created post-redesign follow-ups #305–#309; those issues do not reopen the frozen shell/IA contract.
 Exact implementation/CI checkpoints live in [Current History](EXECUTION_HISTORY_CURRENT.md).
 
 ## Navigation and current routes
@@ -80,23 +80,22 @@ rules; narrow comparison tables remain locally scrollable rather than expanding 
 
 Data reuses persisted source-freshness evaluation and separates source status from provider
 calls. Activity panel submissions clear prior results/evidence, expose loading/error
-states and reject late completions from older requests. These implemented paths still need
-the Stage 7 whole-product acceptance matrix; a per-page pass is not a claim about every
-browser, error mode or navigation sequence.
+states and reject late completions from older requests. Stage 7 repository acceptance is complete. The later Owner-local UAT is the stronger product-use signal for current follow-up work: concrete Data/Weight/Overview/Sleep/Activity findings live in #305–#309 rather than in another generic acceptance stage.
 
-## Verification and remaining gate
+## Verification and post-UAT follow-up
 
 Narrow Chromium checks are retained as `scripts/check_owner_{data,brief,weight,sleep,activity}_browser.cjs`.
 The Weight check caught an initial-render temporal-dead-zone error before Stage 4 acceptance;
 the render call now follows its state-map declarations. Per-stage focused tests and exact
 candidate/PR/main CI are recorded in #189.
 
-Stage 7 remains the final cross-browser/mobile/responsive/loading/error acceptance over the
-combined product. Reuse existing checks and add concrete missing cases rather than blindly
-rerunning all suites. Record tested browsers/viewports, findings and untested limitations
-honestly. The Owner already dispatched this task; this documentation update does not launch
-another Worker, change its pinned baseline or waive its gates.
+Stage 7 and #292 are integrated. The accepted repository checkpoint for this document is
+`main @ e806d81fc38093931113ab0790cab120cacf8c10`; PR #304 and post-main CI
+`37512216796` are green. Repository gates still do not substitute for Owner-local use.
 
-Owner-local deployment and any genuinely required private UAT are separate from repository
-integration. No local runtime update, new private-data test or whole-product completion is
-implied by this document.
+The Owner subsequently deployed that exact main against `D:\HealthCheck\stable` and performed
+a real-data review. The frozen shell/IA remains accepted; concrete product refinements are now
+tracked in #305 Data, #306 Weight, #307 Overview, #308 Sleep and #309 Activity. Reuse existing
+browser checks and add focused cases for those findings rather than recreating a generic Stage 7.
+
+See [Owner UAT follow-up — 2026-10-06](OWNER_UAT_FOLLOWUP_2026-10-06.md).
