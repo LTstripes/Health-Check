@@ -43,7 +43,11 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.equal(await page.locator('.owner-nav [aria-current]').innerText(), 'Активность');
       assert.equal(await page.locator('main [lang="en"]').count(), 0);
       assert.match(await page.locator('#activity-journal').innerText(), /Велотренировка/);
+      assert.match(await page.locator('#activity-journal').innerText(), /1 января 2099/);
+      assert.doesNotMatch(await page.locator('#activity-journal').innerText(), /2099-01-01/);
       assert.equal(await page.locator('#activity-ids option').count(), 2);
+      assert.equal(await page.locator('.activity-comparison').getAttribute('open'), null);
+      await page.locator('.activity-comparison > summary').click();
       await page.locator('#activity-form button').click();
       await page.waitForFunction(() => document.querySelector('#activity-result').getAttribute('aria-busy') === 'false');
       const comparison = await page.locator('#activity-result').innerText();
@@ -72,6 +76,8 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.match(await page.locator('#series-summary').innerText(), /Данные доступны частично/);
       assert.match(await page.locator('#series-summary').innerText(), /явных нулей: 1/);
       assert.doesNotMatch(await page.locator('#series-summary').innerText(), /robust_z|result_hash/);
+      assert.equal(await page.locator('.activity-lags').getAttribute('open'), null);
+      await page.locator('.activity-lags > summary').click();
       await page.locator('#lag-form button').click();
       await page.waitForFunction(() => document.querySelector('#lag-result').getAttribute('aria-busy') === 'false');
       assert.match(await page.locator('#lag-result').innerText(), /Спирмен/);
@@ -114,7 +120,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     // Let the fetch response handlers and rendering settle without fixed sleeps.
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.doesNotMatch(await page.locator('#series-evidence').innerText(), /old-synthetic-result/);
-    assert.match(await page.locator('#series-context').innerText(), /2099-01-02/);
+    assert.match(await page.locator('#series-context').innerText(), /2 января 2099/);
     await page.unroute('**/api/garmin/series?**');
     checks.push('Loading clears old result; latest submitted filter wins delayed-response race');
     await page.route('**/api/garmin/series?**', route => route.fulfill({ status: 503, json: {code:'synthetic_unavailable'} }));

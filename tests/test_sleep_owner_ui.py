@@ -101,7 +101,13 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
         )
         page = client.get("/sleep?wake_date=2099-01-02")
         assert page.status_code == 200
-        primary, technical = page.text.split('<details class="card owner-details', 1)
+        primary, technical = page.text.split(
+            '<details class="card owner-details sleep-technical"', 1
+        )
+        assert "<th>Состояние</th>" not in primary
+        assert "status-chip owner-state present" not in primary
+        assert '<select name="garmin_source_id"' not in primary
+        assert "2 января 2099" in primary
         assert "8 ч 0 мин" in primary
         assert "82.0 баллы" in primary or "82 баллы" in primary
         assert "История сна" in primary and "Точность устройств" in primary
@@ -122,7 +128,7 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
             ).json()
             assert result == body
         missing = client.get("/sleep?wake_date=2099-01-03")
-        hero = missing.text.split("<h2>История сна</h2>", 1)[0]
+        hero = missing.text.split("<summary>История сна</summary>", 1)[0]
         assert "нет пригодного значения" in hero
         assert "28800" not in hero and "82.0" not in hero
     assert "BEGIN" in statements
@@ -200,7 +206,7 @@ def test_agreement_secondary_keeps_frozen_packet_and_discloses_statistics(tmp_pa
         assert "bias" in technical and "rmse" in technical
         assert "synthetic-exclusion" in technical
         assert 'href="/sleep"' in primary and 'lang="en"' not in page.text
-        assert "Сохранённый период: 2099-01-01 → 2099-01-14" in primary
+        assert "Сохранённый период: 1 января 2099 → 14 января 2099" in primary
         assert " open>" not in page.text
         assert client.get("/api/agreement/report").json() == packet
     assert packet == before

@@ -13,9 +13,11 @@
   'no_change': 'Изменений не обнаружено'
 } %}
 
-{% macro state_chip(state) -%}
+{% macro state_chip(state, show_present=true) -%}
   {% set known_state = state if state in state_labels else 'unknown' %}
+  {% if show_present or known_state != 'present' %}
   <span class="status-chip owner-state {{ known_state }}" data-owner-state="{{ known_state }}">{{ state_labels[known_state] }}</span>
+  {% endif %}
 {%- endmacro %}
 
 {% macro technical_details(extra_class='') -%}

@@ -27,6 +27,11 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
     assert.equal(await page.locator('.owner-nav [aria-current="page"]').textContent(), 'Обзор');
     assert.equal(await page.locator('.brief-comparison').count(), 7);
     assert.equal(await page.locator('.brief-statistics').count(), 5);
+    assert.equal(await page.locator('.brief-sleep').getAttribute('open'), null);
+    assert.equal(await page.locator('.brief-comparison').first().isVisible(), false);
+    assert.equal(await page.locator('.brief-overview .brief-records').count(), 2);
+    assert.equal(await page.locator('main .status-chip[data-owner-state="present"]').count(), 0);
+    await page.locator('.brief-sleep > summary').click();
     assert.match(await page.locator('.brief-sleep').innerText(), /-120 с/);
     assert.match(await page.locator('.brief-sleep').innerText(), /0\.5 п\.п\./);
     assert.match(await page.locator('.brief-sleep').innerText(), /не оценка точности/);
@@ -74,7 +79,7 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
       await page.setViewportSize({ width, height: 900 });
       await techSummary.click();
       const records = page.locator('.brief-records');
-      await records.locator('summary').click();
+      for (const record of await records.all()) await record.locator('summary').click();
       assert.equal(await records.locator('table').first().isVisible(), true);
       const geometry = await page.evaluate(() => ({
         doc: document.documentElement.scrollWidth, view: innerWidth,
@@ -96,7 +101,7 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
       }
       await page.screenshot({ path: path.join(evidence, `brief-stage3-${width}.png`), fullPage: true });
       await techSummary.click();
-      await records.locator('summary').click();
+      for (const record of await records.all()) await record.locator('summary').click();
     }
     checks.push('1100/800/390px: opened evidence and records fit; real tables scroll; 44px controls and frozen palette');
 
@@ -117,7 +122,7 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
     const navigation = page.waitForURL('**/brief?preset=7*');
     const click = page.getByRole('link', { name: '7 дней', exact: true }).click({ noWaitAfter: true });
     await requestSeen;
-    assert.match(appliedPeriodSnapshot, /2099-01-01 → 2099-01-07/);
+    assert.match(appliedPeriodSnapshot, /1 января 2099 → 7 января 2099/);
     assert.match(page.url(), /start_date=2099-01-01/);
     release();
     await Promise.all([click, navigation]);

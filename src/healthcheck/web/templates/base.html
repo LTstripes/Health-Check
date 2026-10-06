@@ -36,7 +36,7 @@
         <a class="button-link{% if page == 'sleep' %} selected{% endif %}" href="/sleep"{% if page == 'sleep' %} aria-current="page"{% endif %}>Ночь и история</a>
         <a class="button-link{% if page == 'agreement' %} selected{% endif %}" href="/agreement"{% if page == 'agreement' %} aria-current="page"{% endif %}>Сравнение сна</a>
       </nav>
-      {% elif section %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
+      {% elif section and section != 'overview' %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
     </header>
     {# Existing English page bodies stay explicitly English until their stage translates them. #}
     {% if section == 'data' and request.url.path != '/imports' %}

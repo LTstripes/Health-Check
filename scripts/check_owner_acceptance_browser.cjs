@@ -194,6 +194,7 @@ const sections = [
             await page.waitForFunction(() => document.querySelector('#activity-journal').hidden);
             assert.equal(await page.locator('#activity-journal').isVisible(), false);
             assert.ok(await page.locator('#series-chart svg circle').count());
+            await page.locator('.activity-lags > summary').click();
             await page.locator('#lag-form button').click();
             await page.waitForFunction(() => document.querySelector('#lag-result').getAttribute('aria-busy') === 'false');
             await geometry(label + ' training'); await localScrolling(label + ' training');

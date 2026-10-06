@@ -20,6 +20,7 @@ from healthcheck.garmin.normalization import normalize_garmin_payload
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.runtime import prepare_runtime
+from healthcheck.web.owner_presentation import owner_date
 from healthcheck.web.ui_app import create_ui_app
 from test_garmin_query_dashboard import _activity_payload
 
@@ -89,9 +90,12 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_
 
     assert page.status_code == 200
     assert "Обзор за период" in page.text
-    assert f"{start.isoformat()} → {end.isoformat()}" in page.text
+    assert f"{owner_date(start)} → {owner_date(end)}" in page.text
     assert 'href="/brief"' in home.text
-    assert "Источник Garmin" in page.text
+    assert "Источник Garmin не сохранён" in page.text
+    assert '<select name="garmin_source_id">' not in page.text
+    assert 'id="brief-notable-heading"' not in page.text
+    assert 'class="owner-page-mode"' not in page.text
     assert "За выбранный период нет доступных данных" in page.text
     assert "Данных за период для сводки пока нет" in page.text
     assert 'name="garmin_source_id" value=""' in page.text
@@ -152,6 +156,7 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
         )
 
     assert page.status_code == 200
+    assert '<select name="garmin_source_id">' not in page.text
     primary = _visible_text(page.text.split("Технические детали", 1)[0])
     technical = _visible_text(page.text.split("Технические детали", 1)[1])
     assert "Garmin Connect · Vivoactive 5" in primary
@@ -180,14 +185,15 @@ def test_period_brief_notable_changes_are_deduplicated_and_prioritized():
     notes = [
         {"section": "sleep", "code": "uncertain_account_cohort", "cohort": "account"},
         {"section": "sleep", "code": "uncertain_account_cohort", "cohort": "account"},
-        {"section": "weight", "code": "weight_rate"},
+        {"section": "weight", "code": "weight_rate", "value": 0},
+        {"section": "weight", "code": "weight_trend"},
+        {"section": "activity", "code": "activity_comparison"},
         {"section": "baselines", "code": "personal_baseline_deviation", "fact_code": "sleep"},
     ]
     result = _brief_notable_changes(notes)
     assert [item["code"] for item in result] == [
         "personal_baseline_deviation",
         "weight_rate",
-        "uncertain_account_cohort",
     ]
 
 
@@ -278,10 +284,7 @@ def test_period_brief_rendered_summary_deduplicates_warning_and_notables(tmp_pat
     assert page.status_code == 200
     assert page.text.count("Принадлежность устройству и роль записи сна могут быть неизвестны") == 1
     assert page.text.count("Обнаружено отклонение от личной базовой линии Garmin.") == 1
-    assert page.text.count("Есть исследовательские данные сна с неопределённой атрибуцией.") == 1
-    assert page.text.index("Обнаружено отклонение") < page.text.index(
-        "Есть исследовательские данные"
-    )
+    assert "Есть исследовательские данные сна с неопределённой атрибуцией." not in page.text
     assert "Источник: Источник данных недоступен" in page.text
 
 
@@ -312,7 +315,7 @@ def test_period_brief_page_supports_presets_and_custom_period(tmp_path):
             start = end - timedelta(days=days - 1)
             response = client.get("/brief", params={"preset": str(days)})
             assert response.status_code == 200
-            assert f"{start.isoformat()} → {end.isoformat()}" in response.text
+            assert f"{owner_date(start)} → {owner_date(end)}" in response.text
             assert f'name="start_date" value="{start.isoformat()}"' in response.text
             assert f'name="end_date" value="{end.isoformat()}"' in response.text
 
@@ -322,7 +325,7 @@ def test_period_brief_page_supports_presets_and_custom_period(tmp_path):
         )
 
     assert custom.status_code == 200
-    assert "2099-02-03 → 2099-02-17" in custom.text
+    assert "3 февраля 2099 → 17 февраля 2099" in custom.text
     assert "15 дней" in custom.text
 
 
@@ -724,6 +727,8 @@ def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, 
             "value": 27000,
             "unit": "seconds",
             "availability": "present",
+            "observed_date": "2099-01-02",
+            "reason": "insufficient_baseline",
         },
         {
             "code": "sleep_primary_nights_with_duration",
@@ -759,4 +764,10 @@ def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, 
     assert "Последняя оценка сна Garmin" in primary
     assert "Источники: Garmin: Данные доступны · Google: Данные доступны частично" in primary
     assert "За выбранный период нет доступных данных" not in primary
-    assert "оно не определяет наличие сна" in primary
+    assert 'class="card owner-details brief-sleep"' in primary
+    assert 'class="card owner-details brief-sleep" open' not in primary
+    assert "status-chip owner-state present" not in primary
+    overview = primary.split('class="brief-overview-list"', 1)[1]
+    sleep_card = overview.split('href="/sleep"', 1)[1].split("</li>", 1)[0]
+    assert "2 января 2099" in sleep_card
+    assert "Подробности доступны в технических данных" not in sleep_card

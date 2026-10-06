@@ -42,9 +42,9 @@ GOOGLE_VITAL_METRICS: tuple[tuple[str, str, str], ...] = (
 _UNATTRIBUTED_SOURCE_INSTANCE = "unattributed"
 
 _FAMILY_LABELS = {
-    FAMILY_GOOGLE_WEARABLES: "Google · семейство устройств (google-wearables)",
-    FAMILY_GOOGLE_SOURCES: "Google · источники Google (google-sources)",
-    FAMILY_ALL_SOURCES: "Google · все источники (all-sources)",
+    FAMILY_GOOGLE_WEARABLES: "Google · семейство устройств",
+    FAMILY_GOOGLE_SOURCES: "Google · источники Google",
+    FAMILY_ALL_SOURCES: "Google · все источники",
 }
 
 
@@ -75,7 +75,7 @@ def google_vital_source_label(source: GoogleDailyVitalSource) -> str:
     if source.source_kind == "family_aggregate":
         return _FAMILY_LABELS.get(
             source.source_instance_id,
-            f"Google · семейство {source.source_instance_id.rsplit('/', 1)[-1]}",
+            "Google · семейство источников",
         )
     if source.device_attributed:
         manufacturer = source.device_manufacturer or ""
