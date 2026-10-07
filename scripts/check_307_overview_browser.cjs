@@ -76,6 +76,22 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       await page.keyboard.press('Enter');
       await page.screenshot({ path: path.join(evidence, 'overview-' + width + '.png'), fullPage: true });
       checks.push(width + 'px: independent source values, dates, missing/null/zero, disclosure, no page overflow');
+      const boundary = await page.goto(base + '/brief?start_date=2099-01-01&end_date=2100-02-05');
+      assert.equal(boundary.status(), 200); // 401 inclusive days; Google begins on Jan 2.
+      assert.match(await sources.innerText(), /Окно Google: 2 января 2099.*5 февраля 2100/s);
+      assert.match(await page.locator('[data-overview-google-window]').innerText(), /последние 400 дней/);
+      assert.match(await block.innerText(), /42\.5 мс/);
+      assert.match(await block.innerText(), /Пульс в покое: нет текущих записей в окне Google/);
+      const longPeriod = await page.goto(base + '/brief?start_date=2099-01-01&end_date=2101-01-01');
+      assert.equal(longPeriod.status(), 200);
+      assert.match(await sources.innerText(), /Google: нет текущих записей в окне Google/);
+      assert.match(await sources.innerText(), /Окно Google: 28 ноября 2099.*1 января 2101/s);
+      assert.match(await block.innerText(), /52 уд\/мин/); // Garmin keeps the full selected period.
+      assert.doesNotMatch(await block.innerText(), /42\.5 мс|55 уд\/мин/);
+      assert.match(await block.innerText(), /Google · HRV: нет текущих записей в окне Google/);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+      await page.screenshot({ path: path.join(evidence, 'overview-long-period-' + width + '.png'), fullPage: true });
+      checks.push(width + 'px: >400-day custom period stays 200, explicit bounded Google dates, Garmin full-period values');
     }
     await page.goto(base + '/brief?start_date=2099-01-04&end_date=2099-01-05');
     const missing = page.locator('[data-overview-vitals]');

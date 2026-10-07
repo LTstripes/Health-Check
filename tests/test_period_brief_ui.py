@@ -865,6 +865,62 @@ def test_overview_v2_google_only_does_not_look_globally_empty(tmp_path):
     assert "За выбранный период нет доступных данных" not in primary
 
 
+@pytest.mark.parametrize("days", [400, 401, 800])
+def test_overview_v2_custom_period_bounds_only_google_display(tmp_path, days):
+    from healthcheck.db.engine import session_scope
+    from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+    from test_garmin_query_dashboard import _ui as create_fixture
+    from test_google_daily_vitals import HRV, RHR, _daily_record, _persist
+
+    app, _settings, paths = create_fixture(tmp_path)
+    start = date(2099, 1, 1)
+    end = start + timedelta(days=days - 1)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            store = ContentAddressedGooglePayloadStore(paths.root / "artifacts")
+            for code, day, value in [(RHR, start, 57), (HRV, start + timedelta(days=1), 42.5)]:
+                _persist(session, store, _daily_record(
+                    metric_code=code, local_date=day, value=value,
+                ))
+    finally:
+        engine.dispose()
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get(f"/brief?start_date={start}&end_date={end}")
+
+    assert page.status_code == 200
+    assert page.context["brief"]["period"]["calendar_days"] == days
+    primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
+    assert ("57 уд/мин" in primary) == (days == 400)
+    assert ("42.5 мс" in primary) == (days <= 401)
+    assert ('data-overview-google-window' in primary) == (days > 400)
+    google_start = start if days == 400 else end - timedelta(days=399)
+    for result in page.context["overview"]["technical"]["google"]:
+        assert result["start_date"] == google_start.isoformat()
+        assert result["end_date"] == end.isoformat()
+    if days > 400:
+        assert "последние 400 дней выбранного периода" in primary
+        assert "Google · Пульс в покое: нет текущих записей в окне Google" in primary
+        assert "нет текущих записей в выбранном периоде" not in primary
+    if days == 800:
+        assert not page.context["overview"]["google"]["sources"]
+
+
+def test_overview_v2_long_period_keeps_garmin_outside_google_window(tmp_path):
+    from test_garmin_query_dashboard import _ui as create_fixture
+
+    app, _settings, paths = create_fixture(tmp_path)
+    seed_overview_v2(paths)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief?start_date=2099-01-01&end_date=2101-01-01")
+    assert page.status_code == 200
+    primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
+    assert "52 уд/мин" in primary and "60.12 мс" in primary
+    assert "42.5 мс" not in primary and "55 уд/мин" not in primary
+    assert "Google: нет текущих записей в окне Google" in primary
+    assert "За выбранный период нет доступных данных" not in primary
+
+
 def test_overview_v2_garmin_collisions_null_units_and_retirement_stay_honest(tmp_path):
     from sqlalchemy import select
 

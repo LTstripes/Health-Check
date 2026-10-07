@@ -26,12 +26,15 @@
       <p>Google · {{ label }}: несколько текущих записей за {{ newest.source_local_date | owner_date }}; единое значение не выбрано.</p>
     {% elif newest %}
       <p>Google · {{ label }}: {{ google_vital_ineligible_note(newest) }} {{ newest.source_local_date | owner_date }}.</p>
-    {% else %}<p>Google · {{ label }}: нет текущих записей в выбранном периоде.</p>{% endif %}
+    {% else %}<p>Google · {{ label }}: нет текущих записей {{ google_scope }}.</p>{% endif %}
   </div>
 {% endmacro %}
 
 <section class="card overview-vitals" data-overview-vitals>
   <h2>Показатели Garmin и Google</h2>
+  {% if overview.google.window_limited %}
+  <p class="muted" data-overview-google-window>Google: последние 400 дней выбранного периода · {{ overview.google.start_date | owner_date }} → {{ overview.google.end_date | owner_date }}. Данные за более ранние даты здесь не показаны.</p>
+  {% endif %}
   <p class="muted">Значения каждого источника со своей датой. HRV Garmin — среднее за неделю; Google — за день. Дыхание Garmin — снимок или среднее во сне; Google — дневной показатель.</p>
   <div class="table-scroll" role="region" aria-label="Показатели по источникам, прокрутка таблицы" tabindex="0">
     <table class="overview-source-table">
@@ -47,7 +50,7 @@
         <tr data-overview-metric="{{ loop.index }}"><th scope="row">{{ label }}</th>
         <td data-overview-garmin>{{ garmin_cell(garmin_code, unit) }}</td>
         {% for item in overview.google.sources %}<td data-overview-google>{{ google_cell(item, google_code, label, unit) }}</td>
-        {% else %}<td data-overview-google>Google · {{ label }}: нет текущих записей в выбранном периоде.</td>{% endfor %}</tr>
+        {% else %}<td data-overview-google>Google · {{ label }}: нет текущих записей {{ google_scope }}.</td>{% endfor %}</tr>
       {% endfor %}
       </tbody>
     </table>

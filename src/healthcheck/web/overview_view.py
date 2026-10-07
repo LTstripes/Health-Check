@@ -4,7 +4,7 @@ No statistics, provider calls or canonical selection. Incompatible windows stay
 labelled; colliding Garmin snapshots never become one guessed value.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from math import isfinite
 from typing import Any
 
@@ -12,7 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
-from healthcheck.google.daily_vitals import GOOGLE_DAILY_VITALS, read_google_daily_vitals
+from healthcheck.google.daily_vitals import (
+    GOOGLE_DAILY_VITALS,
+    MAX_GOOGLE_DAILY_VITALS_CALENDAR_DAYS,
+    read_google_daily_vitals,
+)
 from healthcheck.web.garmin_training_overview import training_overview_for_selection
 from healthcheck.web.sleep_view import google_vitals_view
 
@@ -36,12 +40,18 @@ def overview_number(value: int | float) -> str:
 def read_overview_values(
     session: Session, *, start: date, end: date, selected_id: str | None,
 ) -> dict[str, Any]:
+    # Bound only this display read; /brief analytics retain the selected period.
+    google_start = start
+    if (end - start).days + 1 > MAX_GOOGLE_DAILY_VITALS_CALENDAR_DAYS:
+        google_start = end - timedelta(days=MAX_GOOGLE_DAILY_VITALS_CALENDAR_DAYS - 1)
     google_results = [
         read_google_daily_vitals(
-            session, metric_code=definition.metric_code, start_date=start, end_date=end,
+            session, metric_code=definition.metric_code, start_date=google_start, end_date=end,
         )
         for definition in GOOGLE_DAILY_VITALS
     ]
+    google_view = google_vitals_view(google_results)
+    google_view["window_limited"] = google_start != start
     garmin: dict[str, Any] = {}
     technical: list[dict[str, Any]] = []
     if selected_id:
@@ -111,7 +121,7 @@ def read_overview_values(
                 if r.source_timestamp_utc else None,
             } for r, m in candidates)
     return {
-        "google": google_vitals_view(google_results), "garmin": garmin,
+        "google": google_view, "garmin": garmin,
         "training": training_overview_for_selection(
             session, source_selection={"selected_source_id": selected_id}, activity_limit=5,
         ),

@@ -11,6 +11,7 @@
 {% set source_status = brief_source_status(brief) %}
 {% set notable_changes = brief_notable_changes(brief.notable_changes) %}
 {% set actions = brief_owner_actions(brief.owner_actions) %}
+{% set google_scope = 'в окне Google' if overview.google.window_limited else 'в выбранном периоде' %}
 
 {% macro value_text(fact) -%}
 {{ brief_owner_value(fact.value, fact.unit, fact.availability, fact.code) }}
@@ -21,7 +22,8 @@
   <p class="brief-period">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span></p>
   <p class="muted" data-overview-sources>Вес: {{ brief_owner_state(weight.state) }} ·
     Garmin: {% if source_selection.status == 'selected' %}{{ brief_source_label(source_selection.selected_source) }}{% elif source_selection.status == 'require_selection' %}нужен выбор источника{% else %}источник не сохранён{% endif %} ·
-    Google: {% if overview.google.sources %}источников с текущими записями в периоде — {{ overview.google.sources | length }}{% else %}нет текущих записей в выбранном периоде{% endif %}.
+    Google: {% if overview.google.sources %}источников с текущими записями {% if overview.google.window_limited %}в окне Google{% else %}в периоде{% endif %} — {{ overview.google.sources | length }}{% else %}нет текущих записей {{ google_scope }}{% endif %}.
+    {% if overview.google.window_limited %}Окно Google: {{ overview.google.start_date | owner_date }} → {{ overview.google.end_date | owner_date }}.{% endif %}
   </p>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
