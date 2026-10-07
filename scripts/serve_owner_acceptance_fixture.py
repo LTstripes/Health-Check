@@ -23,6 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--photo-unconfigured", action="store_true")
+    parser.add_argument("--overview-v2", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--empty", action="store_true")
     mode.add_argument("--unavailable", action="store_true")
@@ -53,6 +54,7 @@ def main():
     from test_activity_owner_ui import seed_activity
     from test_dashboard_ui import _confirm_all_pending
     from test_google_daily_vitals import seed_google_daily_vitals
+    from test_period_brief_ui import seed_overview_v2
     from test_sleep_owner_ui import agreement_fixture
 
     settings = Settings(data_dir=runtime, ui_port=args.port, weight_goal_kg=76.0)
@@ -61,8 +63,11 @@ def main():
         migrate_database(paths)
     app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
     if not args.empty and not args.unavailable:
-        seed_activity(paths)
-        seed_google_daily_vitals(paths)
+        if args.overview_v2:
+            seed_overview_v2(paths)
+        else:
+            seed_activity(paths)
+            seed_google_daily_vitals(paths)
         engine = create_sqlite_engine(paths)
         try:
             with session_scope(engine) as session:

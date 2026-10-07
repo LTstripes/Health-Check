@@ -771,3 +771,162 @@ def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, 
     sleep_card = overview.split('href="/sleep"', 1)[1].split("</li>", 1)[0]
     assert "2 января 2099" in sleep_card
     assert "Подробности доступны в технических данных" not in sleep_card
+
+
+def seed_overview_v2(paths):
+    """Source-explicit synthetic snapshots for route and browser checks."""
+    from healthcheck.db.engine import session_scope
+    from healthcheck.garmin.normalization import garmin_source_identity
+    from test_google_daily_vitals import seed_google_daily_vitals
+
+    seed_google_daily_vitals(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            repository = GarminPersistenceRepository(session, payload_store=store)
+            for stream, payload in [
+                ("daily_health", {
+                    "calendarDate": "2099-01-02", "restingHeartRate": 52,
+                    "hrvSummary": {"weeklyAvg": 60.123456},
+                }),
+                ("intraday", {
+                    "calendarDate": "2099-01-02", "averageSpO2": 98,
+                    "avgStressLevel": 0, "bodyBattery": 65, "respirationRate": 14.123456,
+                }),
+                ("activity", {
+                    "activityId": "overview-v2-activity", "calendarDate": "2099-01-02",
+                    "activityType": {"typeKey": "cycling"}, "duration": 1200, "distance": 5000,
+                }),
+            ]:
+                normalized = normalize_garmin_payload(
+                    payload, stream=stream,
+                    source_identity=garmin_source_identity(source_kind="provider"),
+                )
+                repository.persist_result(
+                    normalized, payload=payload, received_at=datetime(2099, 1, 3, tzinfo=UTC),
+                )
+    finally:
+        engine.dispose()
+
+
+def test_overview_v2_real_read_is_source_explicit_bounded_and_read_only(tmp_path):
+    from sqlalchemy import event
+
+    from test_garmin_query_dashboard import _ui as create_fixture
+
+    app, _settings, paths = create_fixture(tmp_path)
+    seed_overview_v2(paths)
+    statements = []
+    app.state.engine = create_sqlite_engine(paths)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        event.listen(
+            app.state.engine, "before_cursor_execute",
+            lambda _c, _cur, sql, *_a: statements.append(sql),
+        )
+        response = client.get("/brief?start_date=2099-01-01&end_date=2099-01-02")
+        assert response.status_code == 200
+        primary, technical = response.text.split('class="card owner-details brief-provenance"', 1)
+        assert 'data-overview-vitals' in primary
+        assert "52 уд/мин" in primary and "55 уд/мин" in primary
+        assert "60.12 мс" in primary and "42.5 мс" in primary
+        assert "98 %" in primary and "97 %" in primary and "96 %" in primary
+        assert "14.12 вдохов/мин" in primary and "13.5 вдохов/мин" in primary
+        assert "Google: явный ноль" in primary and "0 баллы" in primary
+        assert "среднее за неделю" in primary and "за день" in primary
+        assert "Снимок; суточное среднее не подтверждено" in primary
+        assert "Google · Пульс в покое: нет текущих записей" in primary
+        assert "Источник передал пустое значение" in primary
+        assert "За выбранный период нет доступных данных" not in primary
+        assert "r297-google-daily-vitals-read-v1" in technical
+        assert "60.123456" in technical  # source precision retained
+        outside = client.get("/brief?start_date=2099-01-04&end_date=2099-01-05")
+        visible = outside.text.split('class="card owner-details brief-provenance"', 1)[0]
+        assert "52 уд/мин" not in visible and "42.5 мс" not in visible
+        assert "Garmin: нет записи этого показателя в выбранном периоде" in visible
+        assert "Google · HRV: нет текущих записей в выбранном периоде" in visible
+    assert "BEGIN" in statements
+    assert not any(sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
+                   for sql in statements)
+
+
+def test_overview_v2_google_only_does_not_look_globally_empty(tmp_path):
+    from test_garmin_query_dashboard import _ui as create_fixture
+    from test_google_daily_vitals import seed_google_daily_vitals
+
+    app, _settings, paths = create_fixture(tmp_path)
+    seed_google_daily_vitals(paths)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief?start_date=2099-01-01&end_date=2099-01-02")
+    assert page.status_code == 200
+    primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
+    assert "42.5 мс" in primary
+    assert "Garmin: источник не сохранён" in primary
+    assert "За выбранный период нет доступных данных" not in primary
+
+
+def test_overview_v2_garmin_collisions_null_units_and_retirement_stay_honest(tmp_path):
+    from sqlalchemy import select
+
+    from healthcheck.db.engine import session_scope
+    from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+    from healthcheck.web.overview_view import read_overview_values
+    from test_garmin_query_dashboard import _ui as create_fixture
+
+    _app, _settings, paths = create_fixture(tmp_path)
+    seed_overview_v2(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            source_id = session.scalar(select(GarminSource.id))
+            rhr = session.scalar(select(GarminRecordMetric).where(
+                GarminRecordMetric.metric_code == "resting_heart_rate_bpm"))
+            record = session.get(GarminSourceRecord, rhr.record_id)
+            rhr.state, rhr.value_number = "null", None
+            hrv = session.scalar(select(GarminRecordMetric).where(
+                GarminRecordMetric.metric_code == "hrv_weekly_average_ms"))
+            hrv.unit = "seconds"
+            result = read_overview_values(session, start=date(2099, 1, 1),
+                                          end=date(2099, 1, 2), selected_id=source_id)
+            assert result["garmin"]["resting_heart_rate_bpm"]["value"] is None
+            assert "пустое" in result["garmin"]["resting_heart_rate_bpm"]["note"]
+            assert result["garmin"]["hrv_weekly_average_ms"]["value"] is None
+            duplicate = GarminSourceRecord(**{
+                column.name: getattr(record, column.name)
+                for column in GarminSourceRecord.__table__.columns
+                if column.name not in {"id", "idempotency_key"}
+            }, idempotency_key=record.idempotency_key + "-collision")
+            session.add(duplicate)
+            session.flush()
+            session.add(GarminRecordMetric(**{
+                column.name: getattr(rhr, column.name)
+                for column in GarminRecordMetric.__table__.columns
+                if column.name not in {"id", "record_id", "state", "value_number"}
+            }, record_id=duplicate.id, state="value", value_number=99))
+            session.flush()
+            collision = read_overview_values(session, start=date(2099, 1, 1),
+                                             end=date(2099, 1, 2), selected_id=source_id)
+            assert collision["garmin"]["resting_heart_rate_bpm"]["value"] is None
+            assert "несколько снимков" in collision["garmin"]["resting_heart_rate_bpm"]["note"]
+            duplicate.projection_status = "retired"
+            duplicate.retired_at = datetime(2099, 1, 3, tzinfo=UTC)
+            duplicate.retire_reason = "synthetic"
+            record.projection_status = "retired"
+            record.retired_at = datetime(2099, 1, 3, tzinfo=UTC)
+            record.retire_reason = "synthetic"
+            session.flush()
+            result = read_overview_values(session, start=date(2099, 1, 1),
+                                          end=date(2099, 1, 2), selected_id=source_id)
+            assert result["garmin"]["resting_heart_rate_bpm"]["state"] == "unknown"
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("value, expected", [(0, "0"), (0.126789, "0.13"), (-0.126789, "-0.13")])
+def test_overview_v2_weight_rate_precision_only_changes_display(value, expected):
+    from healthcheck.web.pages import _brief_note_value, _brief_owner_value
+
+    assert _brief_owner_value(value, "kg/week", "present") == f"{expected} кг/нед."
+    note = {"code": "weight_rate", "value": value, "unit": "kg/week"}
+    assert _brief_note_value(note, {}) == f"{expected} кг/нед."
+    assert note["value"] == value

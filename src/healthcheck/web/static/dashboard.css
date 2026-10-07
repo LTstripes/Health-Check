@@ -234,6 +234,10 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 .brief-packet { max-width: 100%; }
 .brief-overview-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
 .brief-overview-list > li { padding: 12px; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; }
+.overview-source-table { min-width: 660px; }
+.overview-source-table th, .overview-source-table td { min-width: 160px; vertical-align: top; }
+.overview-source-table p { margin: 6px 0 0; }
+.overview-source-table strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .section-heading h2 { margin-top: 0; }
 .brief-subsection { border-top: 1px solid var(--line); padding-top: 8px; }

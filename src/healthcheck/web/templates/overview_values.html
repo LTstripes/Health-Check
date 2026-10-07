@@ -1,0 +1,83 @@
+{% macro garmin_cell(code, unit) %}
+  {% set cell = overview.garmin.get(code) %}
+  {% if cell %}
+    {{ owner_ui.state_chip(cell.state, false) }}
+    {% if cell.value is not none %}<strong>{{ overview_number(cell.value) }} {{ unit }}</strong>{% endif %}
+    {% if cell.date %}<p class="muted">{{ cell.date | owner_date }}</p>{% endif %}
+    {% if cell.note %}<p class="muted">{{ cell.note }}</p>{% endif %}
+  {% elif source_selection.status == 'require_selection' %}<p>Garmin: выбери источник выше.</p>
+  {% else %}<p>Garmin: источник не сохранён.</p>{% endif %}
+{% endmacro %}
+
+{% macro google_cell(item, code, label, unit) %}
+  {% set cell = item.metrics.get(code) %}
+  {% set point = cell.latest if cell else none %}
+  {% set newest = cell.newest if cell else none %}
+  <div data-overview-google-metric="{{ code }}">
+    {{ owner_ui.state_chip(google_vital_cell_state(cell), false) }}
+    {% if point and point.eligible %}
+      <strong>{{ overview_number(point.value) }} {{ unit }}</strong>
+      <p class="muted">{{ point.source_local_date | owner_date }}</p>
+      {% if point.is_zero %}<p class="muted">Google: явный ноль.</p>{% endif %}
+      {% if newest and newest.source_local_date > point.source_local_date %}
+      <p class="muted">Google: за {{ newest.source_local_date | owner_date }} более новая запись непригодна для показа. Показана последняя пригодная дата.</p>
+      {% endif %}
+    {% elif newest and newest.state == 'ambiguous' %}
+      <p>Google · {{ label }}: несколько текущих записей за {{ newest.source_local_date | owner_date }}; единое значение не выбрано.</p>
+    {% elif newest %}
+      <p>Google · {{ label }}: {{ google_vital_ineligible_note(newest) }} {{ newest.source_local_date | owner_date }}.</p>
+    {% else %}<p>Google · {{ label }}: нет текущих записей в выбранном периоде.</p>{% endif %}
+  </div>
+{% endmacro %}
+
+<section class="card overview-vitals" data-overview-vitals>
+  <h2>Показатели Garmin и Google</h2>
+  <p class="muted">Значения каждого источника со своей датой. HRV Garmin — среднее за неделю; Google — за день. Дыхание Garmin — снимок или среднее во сне; Google — дневной показатель.</p>
+  <div class="table-scroll" role="region" aria-label="Показатели по источникам, прокрутка таблицы" tabindex="0">
+    <table class="overview-source-table">
+      <thead><tr><th scope="col">Показатель</th><th scope="col">Garmin{% if source_selection.selected_source %}<br>{{ brief_source_label(source_selection.selected_source) }}{% endif %}</th>
+      {% for item in overview.google.sources %}<th scope="col">{{ google_vital_source_label(item.source) }}</th>{% else %}<th scope="col">Google</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for label, garmin_code, google_code, unit in [
+        ('Пульс в покое', 'resting_heart_rate_bpm', 'daily_resting_heart_rate_bpm', 'уд/мин'),
+        ('HRV', 'hrv_weekly_average_ms', 'daily_hrv_average_ms', 'мс'),
+        ('Кислород · среднее за день', 'spo2_daily_average', 'daily_oxygen_saturation_average_percentage', '%'),
+        ('Частота дыхания', 'respiration_bpm', 'daily_respiratory_rate_breaths_per_minute', 'вдохов/мин')
+      ] %}
+        <tr data-overview-metric="{{ loop.index }}"><th scope="row">{{ label }}</th>
+        <td data-overview-garmin>{{ garmin_cell(garmin_code, unit) }}</td>
+        {% for item in overview.google.sources %}<td data-overview-google>{{ google_cell(item, google_code, label, unit) }}</td>
+        {% else %}<td data-overview-google>Google · {{ label }}: нет текущих записей в выбранном периоде.</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" data-overview-garmin-only>
+  <h2>Стресс, Body Battery и тренировки Garmin</h2>
+  <div class="brief-grid">
+    {% for code, label in [('stress_daily_average', 'Стресс Garmin · среднее за день'), ('body_battery', 'Body Battery Garmin · последний снимок')] %}
+      <section><h3>{{ label }}</h3>{{ garmin_cell(code, 'баллы') }}</section>
+    {% endfor %}
+  </div>
+  {% set training = overview.training %}
+  {% if training.status == 'available' %}
+    <details class="owner-details"><summary>Тренировки и восстановление Garmin</summary>
+      <p class="muted">Последние сохранённые снимки; выбранный период к ним не применяется. Производитель каждой метрики не подтверждён.</p>
+      {% for block, label, code in [(training.training_status, 'Острая нагрузка Garmin', 'dailyTrainingLoadAcute'), (training.readiness, 'Готовность Garmin', 'score')] %}
+        {% if block %}<p>{{ label }}:
+          {% set field = block.fields.get(code) %}
+          {% if field and field.state in ['value', 'zero'] and field.value is number %}<strong>{{ overview_number(field.value) }}</strong>
+          {% else %}Garmin: показатель не предоставлен{% endif %}
+          · {{ block.source_date | owner_date }}</p>{% endif %}
+      {% endfor %}
+      {% for session in training.recent_activities %}<p>Нагрузка сессии Garmin:
+        {% set field = session.fields.get('activityTrainingLoad') %}
+        {% if field and field.state in ['value', 'zero'] and field.value is number %}{{ overview_number(field.value) }}{% else %}не предоставлена{% endif %}
+        · {{ session.source_date | owner_date }}</p>{% endfor %}
+      <a href="/garmin{% if source_selection.selected_source_id %}?garmin_source_id={{ source_selection.selected_source_id }}{% endif %}#training-recovery">Все показатели Garmin</a>
+    </details>
+  {% elif source_selection.status == 'require_selection' %}<p>Тренировки Garmin: выбери источник выше.</p>
+  {% else %}<p class="muted">Garmin: нет сохранённых показателей тренировок и восстановления.</p>{% endif %}
+</section>

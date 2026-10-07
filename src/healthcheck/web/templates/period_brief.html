@@ -70,19 +70,19 @@
 <section class="card brief-overview" aria-labelledby="brief-overview-heading">
   <h2 id="brief-overview-heading">Главное</h2>
   <ul class="brief-overview-list">
-    {% for name, section, url in [('Вес', weight, '/'), ('Сон', sleep, '/sleep'), ('Активность', activity, '/garmin')] %}
+    {% for name, section, url in [('Вес', weight, '/'), ('Сон', sleep, '/sleep'), ('Активность Garmin', activity, '/garmin')] %}
     <li><h3><a href="{{ url }}">{{ name }}</a></h3>{{ owner_ui.state_chip(section.state, false) }}
       {% for fact in brief_primary_facts(section) %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.observed_date %} <span class="muted">· {{ fact.observed_date | owner_date }}</span>{% endif %}{% if fact.reason and fact.availability != 'present' %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
       {% if name == 'Сон' %}<p class="muted">Ночи Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>{% endif %}
       {% if name == 'Вес' %}<details class="owner-details brief-records"><summary>Измерения веса</summary>      <div class="table-scroll" role="region" aria-label="Измерения веса, прокрутка таблицы" tabindex="0">
       <table><thead><tr><th>Дата</th><th>Вес, кг</th></tr></thead><tbody>
-        {% for point in weight.display_points %}<tr><td>{{ point.observed_date | owner_date }}</td><td>{{ point.median_kg if point.median_kg is not none else '—' }}</td></tr>{% else %}<tr><td colspan="2">Нет отображаемых измерений.</td></tr>{% endfor %}
+        {% for point in weight.display_points %}<tr><td>{{ point.observed_date | owner_date }}</td><td>{{ overview_number(point.median_kg) if point.median_kg is not none else '—' }}</td></tr>{% else %}<tr><td colspan="2">Weight: нет отображаемых измерений.</td></tr>{% endfor %}
       </tbody></table></div>
       {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_points | length }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
 </details>
-      {% elif name == 'Активность' %}<details class="owner-details brief-records"><summary>Записи активностей</summary>      <div class="table-scroll" role="region" aria-label="Активности, прокрутка таблицы" tabindex="0">
+      {% elif name == 'Активность Garmin' %}<details class="owner-details brief-records"><summary>Записи активностей</summary>      <div class="table-scroll" role="region" aria-label="Активности, прокрутка таблицы" tabindex="0">
       <table><thead><tr><th>Дата</th><th>Тип</th></tr></thead><tbody>
-        {% for session in activity.sessions %}<tr><td>{{ session.source_local_date | owner_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td></tr>{% else %}<tr><td colspan="2">Нет отображаемых активностей.</td></tr>{% endfor %}
+        {% for session in activity.sessions %}<tr><td>{{ session.source_local_date | owner_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td></tr>{% else %}<tr><td colspan="2">Garmin: нет отображаемых активностей.</td></tr>{% endfor %}
       </tbody></table></div>
       {% if activity.display_thinning %}<p class="muted">Показаны последние {{ activity.sessions | length }} из {{ activity.display_thinning.original_session_count }} активностей.</p>{% endif %}
 </details>{% endif %}
@@ -90,6 +90,8 @@
     {% endfor %}
   </ul>
 </section>
+
+{% include 'overview_values.html' %}
 
 <div class="brief-grid">
   {% if notable_changes %}<section class="card brief-priority" aria-labelledby="brief-notable-heading">
@@ -105,11 +107,12 @@
 </div>
 
 {% if coverage_warning or source_status %}
-<aside class="uncertainty-note brief-limitations" aria-label="Ограничения данных">
+<details class="owner-details brief-limitations">
+  <summary>Состояние источников и ограничения</summary>
   {% if coverage_warning %}<p>{{ coverage_warning }}</p>{% endif %}
   {% if source_status %}<p>Источники: {{ source_status }}</p>{% endif %}
   <a href="/imports#data-status">Проверить состояние источников</a>
-</aside>
+</details>
 {% endif %}
 
 <details class="card owner-details brief-sleep">
@@ -158,5 +161,8 @@
   </dl>
   <p>Полный исходный пакет сохраняет все показатели, варианты, группы, действия, coverage, причины и связанные контракты. Списки измерений на экране могут быть сокращены только для отображения.</p>
   <pre class="brief-packet">{{ packet | tojson(indent=2) }}</pre>
+  <h3>Исходные значения Garmin и Google</h3>
+  <pre>{{ overview.technical | tojson(indent=2) }}</pre>
+  <pre>{{ overview.training | tojson(indent=2) }}</pre>
 {% endcall %}
 {% endblock %}
