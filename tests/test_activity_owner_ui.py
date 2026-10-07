@@ -8,9 +8,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from healthcheck.db.engine import create_sqlite_engine, session_scope
+from healthcheck.db.models import GarminSourceRecord
 from healthcheck.garmin.normalization import garmin_source_identity, normalize_garmin_payload
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
@@ -197,6 +198,50 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
     assert not any(
         sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for sql in statements
     )
+    app.state.engine.dispose()
+
+
+def test_tennis_v2_labels_cover_journal_summary_and_comparison(tmp_path):
+    app, _, paths = _ui(tmp_path)
+    source = seed_activity(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            records = session.scalars(
+                select(GarminSourceRecord).where(GarminSourceRecord.stream_code == "activity")
+            ).all()
+            assert len(records) == 2
+            for record in records:
+                record.activity_type = "tennis_v2"
+            session.commit()
+    finally:
+        engine.dispose()
+
+    with client_for(app) as client:
+        page = client.get("/garmin", params={"garmin_source_id": source})
+        assert page.status_code == 200
+        primary = page.text.split(
+            '<details class="card owner-details activity-technical', 1
+        )[0]
+        embedded = re.search(
+            r'<script id="garmin-dashboard-data"[^>]*>(.*?)</script>', page.text, re.S
+        )
+        payload = json.loads(embedded.group(1))
+        assert {activity["activity_type"] for activity in payload["activities"]} == {"tennis_v2"}
+        summary_types = {
+            activity["activity_type"]
+            for activity in payload["training_overview"]["recent_activities"]
+        }
+        assert summary_types == {"tennis_v2"}
+        assert primary.count("Теннис") >= 2, (
+            f"labels missing; journal={len(payload['activities'])}, "
+            f"summary={len(payload['training_overview']['recent_activities'])}"
+        )
+        assert "Другой вид активности" not in primary
+        script = client.get("/static/garmin_dashboard.js")
+        assert script.status_code == 200
+        assert 'tennis_v2: "Теннис"' in script.text
+        assert 'activityNames[activity.activity_type]' in script.text
     app.state.engine.dispose()
 
 

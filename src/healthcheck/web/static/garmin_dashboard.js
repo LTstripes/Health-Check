@@ -11,7 +11,8 @@
     not_requested: "Не запрашивалось", loading: "Загрузка данных",
     error: "Не удалось выполнить запрос", no_change: "Изменений не обнаружено" };
   const activityNames = { cycling: "Велотренировка", running: "Бег", walking: "Ходьба",
-    swimming: "Плавание", strength_training: "Силовая тренировка", tennis: "Теннис" };
+    swimming: "Плавание", strength_training: "Силовая тренировка", tennis: "Теннис",
+    tennis_v2: "Теннис" };
   const units = { seconds: "с", meters: "м", "m/s": "м/с", bpm: "уд/мин",
     watts: "Вт", rpm: "об/мин", points: "баллы", percent: "%", "%": "%" };
 
