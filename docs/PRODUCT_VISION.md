@@ -14,6 +14,14 @@ Health-Check is not:
 
 Local-first means the owner controls the runtime, provenance and history. It does not prohibit explicitly selected compact evidence packets from being sent to an external model later.
 
+The Owner browser UI targets desktop/laptop CSS viewports **1024px and wider**
+([Owner decision #321, 2026-10-07](https://github.com/LTstripes/Health-Check/issues/321)).
+Phone, tablet and windows below 1024px are outside design, browser acceptance and
+Owner UAT scope. Earlier mobile/responsive acceptance in #189 and UI briefs is
+historical. Existing harmless CSS fallbacks remain; functional, accessibility,
+security/privacy and complete CI requirements still apply. The forthcoming
+Overview A+ static reference is also desktop-only.
+
 ## Priority and current outcome
 
 Product priorities remain:

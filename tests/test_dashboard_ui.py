@@ -1265,22 +1265,14 @@ def test_owner_shell_frozen_visual_system(tmp_path):
         assert "Как читать состояния данных" in overview
 
 
-def test_owner_shell_responsive_browser_contract(tmp_path):
-    """Browser-focused responsive contract: viewport, focus, targets, scrollers."""
+def test_owner_shell_desktop_browser_contract(tmp_path):
+    """Desktop shell contract: viewport metadata, focus, targets, scrollers."""
 
     app, _settings, _paths = _ui(tmp_path)
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
         css = client.get("/static/dashboard.css").text
-        # Responsive overrides stay after page rules (last media blocks win).
-        assert css.rfind("@media (max-width: 800px)") > css.find(".brief-grid")
-        assert css.rfind("@media (max-width: 480px)") > css.rfind("@media (max-width: 800px)")
-        # <=800px: one content column and one horizontal nav row, no hamburger.
-        assert "grid-template-columns: minmax(0, 1fr)" in css
-        assert ".owner-nav" in css and "overflow-x: auto" in css
-        assert "hamburger" not in css.lower()
-        assert "bottom-tab" not in css.lower()
         # 44px minimum targets and visible focus.
         assert "min-height: 44px" in css
         assert ":focus-visible" in css

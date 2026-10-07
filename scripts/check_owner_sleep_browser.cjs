@@ -30,7 +30,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.equal(g.navRows, 1);
       assert.ok(g.target >= 44);
     }
-    for (const width of [1100, 800, 390]) {
+    for (const width of [1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(base + '/sleep?wake_date=2099-01-02');
       assert.equal(await page.locator('.sleep-night [data-night-row]').count(), 1);

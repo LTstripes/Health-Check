@@ -44,7 +44,7 @@ if (!evidence || [base, emptyBase, multiBase].some(url => !url || !/^http:\/\/12
       assert.equal(g.navRows, 1);
       assert.ok(g.targets.every(h => h >= 44), JSON.stringify(g.targets));
     }
-    for (const width of [1100, 800, 390]) {
+    for (const width of [1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(base + query);
       assert.equal(await page.locator('html').getAttribute('lang'), 'ru');
@@ -85,14 +85,6 @@ if (!evidence || [base, emptyBase, multiBase].some(url => !url || !/^http:\/\/12
       assert.equal(load.percent_reason, 'zero_reference_percent');
       assert.match(comparison, /В сессии A указан ноль/);
       await geometry();
-      if (width === 390) {
-        const table = await page.locator('#activity-result .table-scroll').last().evaluate(el => ({
-          scrolls: el.scrollWidth > el.clientWidth,
-          maxRowHeight: Math.max(...[...el.querySelectorAll('tbody tr')].map(row => row.getBoundingClientRect().height))
-        }));
-        assert.equal(table.scrolls, true, 'comparison scrolls locally on narrow screens');
-        assert.ok(table.maxRowHeight < 200, JSON.stringify(table));
-      }
       await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: path.join(evidence, `sessions-${width}.png`), fullPage: true });
       await page.locator('[data-activity-mode="training-recovery"]').click();
@@ -247,7 +239,7 @@ if (!evidence || [base, emptyBase, multiBase].some(url => !url || !/^http:\/\/12
     assert.equal(body.query.garmin_source_id, sources[1]);
     page.off('request', countComparison);
     checks.push('Multiple sources require application; source switch resets pair and cannot query old IDs');
-    for (const width of [1100, 800, 390]) {
+    for (const width of [1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(emptyBase + '/garmin');
       assert.equal(await page.locator('#source-form').count(), 0);
@@ -264,7 +256,7 @@ if (!evidence || [base, emptyBase, multiBase].some(url => !url || !/^http:\/\/12
     assert.equal(await page.locator('#series-chart svg').count(), 0);
     assert.match(await page.locator('#series-chart').innerText(), /Нет пригодных значений/);
     await geometry();
-    checks.push('Narrow empty period is honest and usable');
+    checks.push('Desktop empty period is honest and usable');
     await page.locator('main a[href="/imports"]').first().click();
     await page.waitForURL('**/imports');
     assert.equal(await page.locator('h1').innerText(), 'Данные');
