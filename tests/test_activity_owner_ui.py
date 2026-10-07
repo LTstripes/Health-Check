@@ -52,6 +52,59 @@ def client_for(app):
     )
 
 
+def seed_second_activity_source(paths):
+    """Independent synthetic recorder for source-switch checks."""
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            payload = {
+                "activities": [
+                    {
+                        "activityId": f"second-{index}",
+                        "calendarDate": f"2099-01-0{index + 1}",
+                        "activityType": {"typeKey": "walking"},
+                        "duration": duration,
+                    }
+                    for index, duration in enumerate((600, None))
+                ]
+            }
+            result = normalize_garmin_payload(
+                payload,
+                stream="activity",
+                source_identity=garmin_source_identity(
+                    source_kind="provider",
+                    device_attributed=True,
+                    device_code="synthetic-second",
+                    device_model="Synthetic recorder",
+                ),
+            )
+            GarminPersistenceRepository(
+                session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            ).persist_result(result, payload=payload, received_at=datetime(2099, 1, 9, tzinfo=UTC))
+    finally:
+        engine.dispose()
+
+
+def test_activity_multiple_sources_require_explicit_selection(tmp_path):
+    app, _, paths = _ui(tmp_path)
+    source = seed_activity(paths)
+    seed_second_activity_source(paths)
+    with client_for(app) as client:
+        page = client.get("/garmin")
+        assert 'id="source-form"' in page.text
+        assert "Выбери источник Garmin. Данные разных источников не объединяются." in page.text
+        embedded = re.search(
+            r'<script id="garmin-dashboard-data"[^>]*>(.*?)</script>', page.text, re.S
+        )
+        payload = json.loads(embedded.group(1))
+        assert len(payload["source_selection"]["sources"]) == 2
+        assert payload["activities"] == []
+        selected = client.get("/garmin", params={"garmin_source_id": source})
+        assert 'id="source-form"' in selected.text
+        assert "Велотренировка" in selected.text
+        assert "Ходьба" not in selected.text
+
+
 def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
     app, settings, paths = _ui(tmp_path)
     source = seed_activity(paths)
@@ -84,6 +137,13 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         )
         assert 'lang="en"' not in page.text
         assert "Последние сессии" in primary and "Сравнить сессии" in primary
+        assert 'id="source-form"' not in primary
+        assert 'id="garmin-source-id"' not in primary
+        assert "Сессии Google пока не загружаются" in primary
+        assert 'id="activity-a"' in primary and 'id="activity-b"' in primary
+        assert 'id="activity-ids"' not in primary and " multiple " not in primary
+        assert "B минус A" in primary and "относительно A" in primary
+        assert page.text.count('activity-technical"') == 1
         assert "Тренировки и восстановление" in primary and "Острая нагрузка Garmin" in primary
         assert "3 января 2099" in primary and "2 января 2099, 12:00 UTC" in primary
         assert "2099-01-02T12:00:00+00:00" in technical
@@ -175,6 +235,7 @@ def test_activity_empty_is_unavailable_and_no_fabricated_sessions(tmp_path):
             '<details class="card owner-details activity-technical', 1
         )[0]
     assert "Источник Garmin пока не найден" in primary
+    assert 'id="source-form"' not in primary
     assert "Это не означает отсутствие тренировок" in primary
     assert "Нагрузка не считается нулевой" in primary
     assert 'data-owner-state="confirmed_empty"' not in primary

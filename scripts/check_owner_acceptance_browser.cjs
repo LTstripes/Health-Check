@@ -180,12 +180,15 @@ const sections = [
             assert.match(text, /нет|Нет|недоступ|не определ|неизвест|не готов|не найден/);
             if (name === 'Вес') assert.doesNotMatch(await page.locator('.hero').innerText(), /(^|\s)0(?:\.0)? кг/);
             if (name === 'Сон') assert.doesNotMatch(text, /(^|\s)0(?:\.0)? (?:баллы|с|ч)/);
-            if (name === 'Активность') assert.equal(await page.locator('#activity-ids option').count(), 0);
+            if (name === 'Активность') assert.equal(await page.locator('#activity-a option[value]:not([value=""])').count(), 0);
           }
           await page.evaluate(() => scrollTo(0, 0));
           await page.screenshot({path: path.join(evidence, `${store}-${index}-${width}.png`)});
           await disclosures(label);
           if (store === 'populated' && name === 'Активность') {
+            const ids = await page.locator('#activity-a option').evaluateAll(options => options.map(o => o.value).filter(Boolean));
+            await page.locator('#activity-a').selectOption(ids[0]);
+            await page.locator('#activity-b').selectOption(ids[1]);
             await page.locator('#activity-form button').click();
             await page.waitForFunction(() => document.querySelector('#activity-result').getAttribute('aria-busy') === 'false');
             assert.match(await page.locator('#activity-result').innerText(), /Сопоставлено/);

@@ -270,6 +270,10 @@ button:disabled { background: var(--line-strong); color: var(--muted); cursor: n
 [data-activity-panel] .garmin-table td:not(:first-child) { font-variant-numeric: tabular-nums; }
 [data-activity-panel] .garmin-table td:nth-child(n+3) { text-align: right; }
 #activity-result .garmin-table, #lag-result .garmin-table { min-width: 720px; }
+#activity-result .garmin-table { min-width: 1050px; }
+#activity-result th:first-child { min-width: 190px; text-align: left; }
+#activity-result td { min-width: 105px; }
+#activity-result td:last-child { min-width: 280px; text-align: left; }
 [data-activity-panel] .inline-edit label { display: grid; gap: 4px; min-width: 0; }
 [data-activity-panel] select, #source-form select { width: 100%; }
 [data-activity-panel] button, [data-activity-mode], #source-form button, #source-form select { min-height: 44px; }

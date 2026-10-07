@@ -20,10 +20,12 @@
 {% set sel = payload.source_selection %}{% set overview = payload.training_overview %}
 <section class="card">
  <h2>Сессии и нагрузка</h2>
- <p>Последние записи Garmin. Состояние источников — в разделе <a href="/imports">Данные</a>.</p>
+ <p>Активность — по сохранённым сессиям Garmin. Сессии Google пока не загружаются. Состояние источников — в разделе <a href="/imports">Данные</a>.</p>
+ {% if sel.sources | length > 1 %}
  <form id="source-form" class="inline-edit"><label>Источник Garmin<select id="garmin-source-id" name="garmin_source_id">
   <option value="">Выбери источник</option>{% for source in sel.sources %}<option value="{{ source.id }}" {% if sel.selected_source_id == source.id %}selected{% endif %}>Garmin · {{ source.device_model or 'Учётная запись' }} · {{ loop.index }}</option>{% endfor %}
  </select></label><button type="submit">Применить источник</button></form>
+ {% endif %}
  <div id="source-status">
  {% if payload.unavailable_reason == 'database_unavailable' %}{{ owner.state_chip('unavailable') }}<p>Хранилище недоступно. Наличие сессий неизвестно.</p>
  {% elif sel.status == 'no_data' %}{{ owner.state_chip('unavailable') }}<p>Источник Garmin пока не найден. Это не означает отсутствие тренировок.</p>
@@ -42,11 +44,13 @@
   {% for activity in payload.activities %}<tr><td>{{ loop.index }}</td><td>{{ activity_names.get(activity.activity_type, 'Другой вид активности') }}</td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
   </tbody></table></div>{% else %}<p data-owner-state="unavailable" class="unavailable">Список сессий недоступен или не содержит сохранённых записей. Нагрузка не считается нулевой.</p>{% endif %}
  </section>
- <details class="card owner-details activity-comparison"><summary>Сравнить сессии</summary>
-  <p>Выбери 2–20 записей и опорную сессию. Разные виды активности могут быть несопоставимы; пропущенные показатели не заменяются нулём.</p>
-  <form id="activity-form" class="inline-edit"><label class="block-label">Сессии (2–20)<select id="activity-ids" multiple size="6"></select></label><label>Опорная сессия<select id="reference-activity-id"></select></label><button type="submit">Сравнить сессии</button></form>
-  <div id="activity-result" aria-live="polite">{{ owner.state_chip('not_requested') }}</div>
- </details>
+ <section class="card activity-comparison"><h2>Сравнить сессии</h2>
+  <p>1. Выбери сессию A — основу сравнения. 2. Выбери другую сессию B. 3. Нажми «Сравнить A и B».</p>
+  <p class="muted">Разница — B минус A; процент — относительно A. Плюс означает больше, минус — меньше, а не лучше или хуже. Пропуски не заменяются нулём.</p>
+  <form id="activity-form" class="inline-edit"><label>Сессия A<select id="activity-a" aria-describedby="activity-selection-hint"></select></label><label>Сессия B<select id="activity-b" aria-describedby="activity-selection-hint"></select></label><button type="submit" disabled>Сравнить A и B</button></form>
+  <p id="activity-selection-hint" aria-live="polite">Выбери две разные сохранённые сессии Garmin.</p>
+  <div id="activity-result" aria-live="polite" aria-busy="false"></div>
+ </section>
 </div>
 <div id="training-recovery" data-activity-panel>
  <section class="card"><h2>Нагрузка и восстановление Garmin</h2>

@@ -33,12 +33,12 @@
     });
   }
   function bindForms() {
-    document.getElementById("garmin-source-id").addEventListener("change", () => {
+    document.getElementById("garmin-source-id")?.addEventListener("change", () => {
       setText("source-status", value("garmin-source-id") === state.sourceId ?
         "Показаны данные применённого источника Garmin." :
         "Источник ещё не применён. Показанные данные относятся к предыдущему источнику; нажми «Применить источник».");
     });
-    document.getElementById("source-form").addEventListener("submit", event => {
+    document.getElementById("source-form")?.addEventListener("submit", event => {
       event.preventDefault();
       const params = new URLSearchParams();
       const source = value("garmin-source-id"), metric = value("metric-code");
@@ -51,12 +51,18 @@
     document.getElementById("series-form").addEventListener("submit", event => { event.preventDefault(); loadSeries(); });
     document.getElementById("metric-code").addEventListener("change", renderMetricWording);
     document.getElementById("activity-form").addEventListener("submit", event => { event.preventDefault(); loadActivityComparison(); });
-    document.getElementById("activity-ids").addEventListener("change", syncReferenceOptions);
+    ["activity-a", "activity-b"].forEach(id => document.getElementById(id).addEventListener("change", () => {
+      resetRequest("activity");
+      setHtml("activity-result", "");
+      setText("result-identity", "Пара сессий изменена; сравнение ещё не выполнено");
+      updateActivitySelection();
+    }));
     document.getElementById("lag-form").addEventListener("submit", event => { event.preventDefault(); loadLaggedAssociation(); });
   }
   function value(id) { return document.getElementById(id).value; }
   function requireSourceId() {
-    if (!state.sourceId || value("garmin-source-id") !== state.sourceId) {
+    const selector = document.getElementById("garmin-source-id");
+    if (!state.sourceId || (selector && selector.value !== state.sourceId)) {
       throw new Error("Сначала примени источник Garmin выше. Сессии разных источников не объединяются.");
     }
     return state.sourceId;
@@ -97,11 +103,10 @@
     resetRequest("activity");
     let sourceId;
     try { sourceId = requireSourceId(); } catch (err) { setHtml("activity-result", unavailable(err.message)); return; }
-    const selected = Array.from(document.getElementById("activity-ids").selectedOptions).map(option => option.value);
-    const reference = value("reference-activity-id");
-    if (selected.length < 2) { setHtml("activity-result", unavailable("Выбери 2–20 сессий.")); return; }
-    const params = new URLSearchParams({ garmin_source_id: sourceId, activity_record_ids: selected.join(","), reference_activity_id: reference });
-    request("activity", "/api/garmin/activity-comparison", params, "Выбрано сессий: " + selected.length + "; опорная: " + sessionLabel(reference), renderActivityResult);
+    const a = value("activity-a"), b = value("activity-b");
+    if (!a || !b || a === b) { updateActivitySelection(); return; }
+    const params = new URLSearchParams({ garmin_source_id: sourceId, activity_record_ids: [a, b].join(","), reference_activity_id: a });
+    request("activity", "/api/garmin/activity-comparison", params, "A: " + sessionLabel(a) + " · B: " + sessionLabel(b), renderActivityResult);
   }
   function loadLaggedAssociation() {
     resetRequest("lag");
@@ -131,20 +136,22 @@
     return index < 0 ? "Сессия" : activityLabel(state.activities[index], index);
   }
   function populateActivities(activities) {
-    const multi = document.getElementById("activity-ids"), reference = document.getElementById("reference-activity-id");
-    activities.forEach((activity, index) => {
-      const option = document.createElement("option"); option.value = activity.record_id; option.textContent = activityLabel(activity, index); option.selected = index < 2; multi.appendChild(option);
-      const ref = option.cloneNode(true); ref.selected = index === 0; reference.appendChild(ref);
+    ["activity-a", "activity-b"].forEach(id => {
+      const select = document.getElementById(id);
+      select.add(new Option("Выбери сессию", ""));
+      activities.forEach((activity, index) => select.add(new Option(activityLabel(activity, index), activity.record_id)));
+      select.disabled = activities.length < 2;
     });
-    syncReferenceOptions();
+    updateActivitySelection();
   }
-  function syncReferenceOptions() {
-    const reference = document.getElementById("reference-activity-id");
-    const selected = new Set(Array.from(document.getElementById("activity-ids").selectedOptions).map(option => option.value));
-    Array.from(reference.options).forEach(option => { option.disabled = selected.size > 0 && !selected.has(option.value); });
-    if (reference.selectedOptions.length && reference.selectedOptions[0].disabled) {
-      const first = Array.from(reference.options).find(option => !option.disabled); if (first) reference.value = first.value;
-    }
+  function updateActivitySelection() {
+    const a = value("activity-a"), b = value("activity-b");
+    document.querySelector("#activity-form button").disabled = !a || !b || a === b;
+    setText("activity-selection-hint", state.activities.length < 2 ?
+      "Для сравнения нужны две сохранённые сессии одного источника Garmin. Пока их недостаточно; проверь раздел «Данные»." :
+      a && a === b ? "Выбрана одна и та же сессия. Выбери другую сессию B." :
+      !a ? "Выбери сессию A — основу сравнения." : !b ? "Теперь выбери другую сессию B." :
+      "A: " + sessionLabel(a) + " · B: " + sessionLabel(b) + ". Нажми «Сравнить A и B»; результат покажет B минус A.");
   }
   function renderMetricWording() {
     const code = value("metric-code");
@@ -195,19 +202,19 @@
     identity(series);
   }
   function renderActivityResult(body) {
-    let html = "<p>Эффект и нагрузка Garmin относятся к сессии.</p>";
-    html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Опорная</th><th>Показатели Garmin</th></tr></thead><tbody>';
-    (body.sessions || []).forEach(session => {
-      const scores = (session.metric_coverage || []).filter(m => ["training_effect", "acute_training_load"].includes(m.metric_code)).map(m => escapeHtml(metricName(m.metric_code)) + ": " + statusValue(m.status, m.value, 1)).join("; ");
-      html += "<tr><td>" + escapeHtml(sessionLabel(session.record_id)) + "</td><td>" + (session.is_reference ? "Да" : "Нет") + "</td><td>" + (scores || "Не предоставлены") + "</td></tr>";
-    });
-    html += "</tbody></table></div><h3>Разница с опорной сессией</h3>";
+    let html = "<h3>Результат: B минус A</h3><p>Эффект и нагрузка Garmin относятся к сессии. «Не предоставлено» означает отсутствие пригодного значения; «Не вычисляется» — разницу или процент получить нельзя.</p>";
     (body.comparisons || []).forEach(block => {
-      html += "<p>" + escapeHtml(sessionLabel(block.compared_record_id)) + "</p>";
       if (!block.same_activity_type) html += '<p class="uncertainty-note">Разные виды активности: часть показателей может быть несопоставима.</p>';
-      html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Показатель</th><th>Сопоставимость</th><th>Разница</th><th>Разница, %</th><th>Ограничение</th></tr></thead><tbody>';
+      html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th scope="col">Показатель</th><th scope="col">Сессия A</th><th scope="col">Сессия B</th><th scope="col">B − A</th><th scope="col">% к A</th><th scope="col">Сопоставимость / ограничение</th></tr></thead><tbody>';
       (block.metrics || []).forEach(m => {
-        html += "<tr><td>" + escapeHtml(metricName(m.metric_code)) + " · " + escapeHtml(units[m.unit] || "единица не предоставлена") + "</td><td>" + statusLabel(m.status) + "</td><td>" + fmt(m.absolute_delta, 1) + "</td><td>" + fmt(m.percent_delta, 1) + "</td><td>" + (m.reason || m.percent_reason ? reasonText(m.reason || m.percent_reason) : "—") + "</td></tr>";
+        const field = id => (body.sessions || []).find(s => s.record_id === id)?.metric_coverage.find(c => c.metric_code === m.metric_code);
+        const side = id => {
+          const coverage = field(id);
+          if (!coverage) return "Не предоставлено";
+          if (coverage.reason === "metric_absent_from_projection") return "Не предоставлено";
+          return statusValue(coverage.status, coverage.value, 1);
+        };
+        html += "<tr><th scope=\"row\">" + escapeHtml(metricName(m.metric_code)) + " · " + escapeHtml(units[m.unit] || "единица не предоставлена") + "</th><td>" + side(block.reference_record_id) + "</td><td>" + side(block.compared_record_id) + "</td><td>" + (m.status === "compared" ? fmt(m.absolute_delta, 1) : "Не вычисляется") + "</td><td>" + (m.percent_status === "computed" ? fmt(m.percent_delta, 1) : "Не вычисляется") + "</td><td>" + (m.reason || m.percent_reason ? escapeHtml(reasonText(m.reason || m.percent_reason)) : statusLabel(m.status)) + "</td></tr>";
       });
       html += "</tbody></table></div>";
     });
@@ -224,7 +231,14 @@
   function identity(body) { setText("result-identity", [body.algorithm, body.rule_version, body.result_hash].join(" / ")); }
   function metricName(code) { return names[code] || "Другой показатель (определение в технических деталях)"; }
   function reasonText(reason) {
-    if (reason === "zero_reference_percent") return "Опорное значение равно нулю: процент не вычисляется";
+    if (reason === "zero_reference_percent") return "В сессии A указан ноль: процент относительно A не вычисляется";
+    if (reason && reason.includes(";")) return reason.split(";").map(reasonText).join("; ");
+    if (reason && /^(reference|compared):/.test(reason)) {
+      const split = reason.indexOf(":");
+      return (reason.slice(0, split) === "reference" ? "Сессия A: " : "Сессия B: ") + reasonText(reason.slice(split + 1));
+    }
+    const comparisonReasons = { metric_absent_from_projection: "показатель не предоставлен в сохранённой записи", missing: "значение не предоставлено", null: "Garmin не передал значение", invalid_metric: "значение некорректно", partial: "значение неполное", aggregation_mismatch: "разные способы агрегации", window_mismatch: "разные окна измерения", unit_mismatch: "единицы измерения различаются", ambiguous_cadence_source_field: "единица каденса не подтверждена", unsupported_speed_source_field: "нет подтверждённой средней скорости Garmin", unreviewed_source_field: "поле Garmin не подтверждено для сравнения", sides_not_comparable: "значения A и B нельзя сопоставить" };
+    if (comparisonReasons[reason]) return comparisonReasons[reason];
     const reasons = { insufficient_paired_n: "Недостаточно пар значений", insufficient_usable_values: "Недостаточно пригодных значений", insufficient_temporal_sample: "Недостаточно дат для тренда", constant_or_degenerate_input: "Ряд постоянный или вырожденный: связь не вычисляется", mad_zero_or_non_finite: "Отклонение не вычисляется: разброс нулевой или некорректный", insufficient_samples: "Недостаточно значений", insufficient_pairs: "Недостаточно пар", constant_series: "Ряд не меняется: связь не вычисляется", different_activity_type: "Разные виды активности", reference_zero: "Опорное значение равно нулю: процент не вычисляется", zero_reference: "Опорное значение равно нулю: процент не вычисляется", ambiguous_daily_aggregate: "Неоднозначное дневное значение исключено", no_data: "Нет пригодных данных" };
     return reasons[reason] || "Есть ограничение сопоставимости или данных; точная причина — в технических деталях";
   }
