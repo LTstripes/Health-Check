@@ -55,7 +55,7 @@ def main():
     from test_dashboard_ui import _confirm_all_pending
     from test_google_daily_vitals import seed_google_daily_vitals
     from test_period_brief_ui import seed_overview_v2
-    from test_sleep_owner_ui import agreement_fixture
+    from test_sleep_owner_ui import agreement_detail_fixture, agreement_service_fixture
 
     settings = Settings(data_dir=runtime, ui_port=args.port, weight_goal_kg=76.0)
     paths = prepare_runtime(settings)
@@ -140,10 +140,17 @@ def main():
                     )
                 )
         elif not args.empty and not args.unavailable:
+            synthetic_report = agreement_service_fixture().report
             stack.enter_context(
                 patch(
                     "healthcheck.analytics.sleep_agreement_report.SleepAgreementReportService.report",
-                    return_value=agreement_fixture(),
+                    side_effect=lambda *a, **kw: synthetic_report(**{"run_id": "run-1", **kw}),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "healthcheck.analytics.sleep_agreement_report.SleepAgreementReportService.night_detail",
+                    return_value=agreement_detail_fixture(),
                 )
             )
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning", access_log=False)

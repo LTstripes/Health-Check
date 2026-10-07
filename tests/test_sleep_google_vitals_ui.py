@@ -109,7 +109,7 @@ def test_sleep_google_vitals_block_is_source_explicit_and_unpaired(tmp_path):
     seed_google_daily_vitals(paths)
     app.state.engine = create_sqlite_engine(paths)
     with client_for(app) as client:
-        page = client.get("/sleep?wake_date=2099-01-02")
+        page = client.get("/sleep?view=google&wake_date=2099-01-02")
     assert page.status_code == 200
     primary, technical = _split(page.text)
     assert "Google дневные показатели" in primary
@@ -121,15 +121,15 @@ def test_sleep_google_vitals_block_is_source_explicit_and_unpaired(tmp_path):
     assert "Google · семейство устройств" in primary
     assert "google-wearables" not in primary and "google-wearables" in technical
     assert "42.5 мс" in primary
-    assert "55 уд/мин" in primary
-    assert "97 %" in primary and "96 %" in primary
+    assert "55.0 уд/мин" in primary
+    assert "97.0 %" in primary and "96.0 %" in primary
     assert "13.5 вдохов/мин" in primary
-    assert "0 вдохов/мин" in primary
+    assert "0.0 вдохов/мин" in primary
     assert "явный ноль" in primary
     assert "Источник передал пустое значение за эту дату." in primary
     assert "Нет текущих записей в окне" in primary
     # Google values render even without any Garmin source/pairing.
-    assert "Нет доступного источника Garmin" in primary
+    assert "Нет доступного источника Garmin" not in primary
     # Primary Owner UI never exposes raw metric codes, contract versions or ids.
     assert "daily_hrv_average_ms" not in primary
     assert "r297-google-daily-vitals-read-v1" not in primary
@@ -143,23 +143,23 @@ def test_sleep_google_vitals_windows_are_bounded_and_defaulted(tmp_path):
     app, _settings, paths = _ui(tmp_path)
     seed_google_daily_vitals(paths)
     with client_for(app) as client:
-        week = client.get("/sleep?wake_date=2099-01-02&vitals_window=7")
+        week = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=7")
         assert week.status_code == 200
         primary, _technical = _split(week.text)
         assert "27 декабря 2098 → 2 января 2099" in primary
         assert 'value="7" selected' in primary
 
-        quarter = client.get("/sleep?wake_date=2099-01-02&vitals_window=90")
+        quarter = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=90")
         primary, _technical = _split(quarter.text)
         assert "5 октября 2098 → 2 января 2099" in primary
         assert 'value="90" selected' in primary
 
-        out_of_set = client.get("/sleep?wake_date=2099-01-02&vitals_window=365")
+        out_of_set = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=365")
         primary, _technical = _split(out_of_set.text)
         assert "4 декабря 2098 → 2 января 2099" in primary
         assert 'value="30" selected' in primary
 
-        invalid = client.get("/sleep?wake_date=2099-01-02&vitals_window=nope")
+        invalid = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=nope")
         assert invalid.status_code == 200
         primary, _technical = _split(invalid.text)
         assert "4 декабря 2098 → 2 января 2099" in primary
@@ -191,7 +191,7 @@ def test_sleep_google_vitals_ambiguous_and_unit_mismatch_are_honest(tmp_path):
     finally:
         engine.dispose()
     with client_for(app) as client:
-        page = client.get("/sleep?wake_date=2099-01-02")
+        page = client.get("/sleep?view=google&wake_date=2099-01-02")
     assert page.status_code == 200
     primary, _technical = _split(page.text)
     assert "несколько текущих записей" in primary
@@ -202,7 +202,7 @@ def test_sleep_google_vitals_ambiguous_and_unit_mismatch_are_honest(tmp_path):
 def test_sleep_google_vitals_empty_window_is_window_scoped(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
     with client_for(app) as client:
-        page = client.get("/sleep?wake_date=2099-01-02")
+        page = client.get("/sleep?view=google&wake_date=2099-01-02")
     assert page.status_code == 200
     primary, _technical = _split(page.text)
     assert "Нет текущих записей Google в выбранном окне" in primary
@@ -220,7 +220,7 @@ def test_sleep_google_vitals_page_reads_without_writes(tmp_path):
             "before_cursor_execute",
             lambda _c, _cur, sql, *_a: statements.append(sql),
         )
-        page = client.get("/sleep?wake_date=2099-01-02")
+        page = client.get("/sleep?view=google&wake_date=2099-01-02")
         assert page.status_code == 200
     assert "BEGIN" in statements
     assert not any(
@@ -231,13 +231,13 @@ def test_sleep_google_vitals_page_reads_without_writes(tmp_path):
 def test_sleep_google_vitals_database_unavailable_stays_honest(tmp_path):
     app, _settings, paths = _ui(tmp_path)
     with client_for(app) as client:
-        assert client.get("/sleep").status_code == 200
+        assert client.get("/sleep?view=google").status_code == 200
     app.state.engine.dispose()
     paths.database.unlink()
     with client_for(app) as client:
-        page = client.get("/sleep")
+        page = client.get("/sleep?view=google")
         assert page.status_code == 200
-        assert page.text.count("Локальное хранилище данных не готово") >= 2
+        assert "Локальное хранилище данных не готово" in page.text
         assert "data-google-vitals" in page.text
 
 
@@ -245,10 +245,10 @@ def test_sleep_google_vitals_window_ends_at_selected_date(tmp_path):
     app, _settings, paths = _ui(tmp_path)
     seed_google_daily_vitals(paths)
     with client_for(app) as client:
-        page = client.get("/sleep?wake_date=2099-01-01")
+        page = client.get("/sleep?view=google&wake_date=2099-01-01")
     assert page.status_code == 200
     primary, _technical = _split(page.text)
-    assert "57 уд/мин" in primary
+    assert "57.0 уд/мин" in primary
     assert "1 января 2099" in primary
     assert "42.5" not in primary
     assert primary.count('data-google-source="') == 1
