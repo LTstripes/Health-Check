@@ -891,6 +891,15 @@ def test_overview_v2_garmin_collisions_null_units_and_retirement_stay_honest(tmp
             assert result["garmin"]["resting_heart_rate_bpm"]["value"] is None
             assert "пустое" in result["garmin"]["resting_heart_rate_bpm"]["note"]
             assert result["garmin"]["hrv_weekly_average_ms"]["value"] is None
+            rhr.state, rhr.value_number = "value", 52
+            record.record_status = "invalid"
+            session.flush()
+            invalid = read_overview_values(session, start=date(2099, 1, 1),
+                                           end=date(2099, 1, 2), selected_id=source_id)
+            assert invalid["garmin"]["resting_heart_rate_bpm"]["state"] == "unavailable"
+            assert invalid["garmin"]["resting_heart_rate_bpm"]["value"] is None
+            assert "непригодна" in invalid["garmin"]["resting_heart_rate_bpm"]["note"]
+            record.record_status = "partial"
             duplicate = GarminSourceRecord(**{
                 column.name: getattr(record, column.name)
                 for column in GarminSourceRecord.__table__.columns

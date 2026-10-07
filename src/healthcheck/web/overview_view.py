@@ -61,7 +61,6 @@ def read_overview_values(
                 (record, metric) for record, metric in rows
                 if metric.metric_code == code
                 and record.surface_code in (None, capability)
-                and record.record_status in ("ok", "partial")
             ]
             cell: dict[str, Any] = {
                 "label": label, "state": "unknown", "value": None, "date": None,
@@ -84,6 +83,7 @@ def read_overview_values(
                     usable = (
                         metric.state == "value" and metric.unit == unit
                         and number is not None and isfinite(number)
+                        and record.record_status in ("ok", "partial")
                     )
                     cell.update(
                         state=("partial" if record.record_status == "partial" else "present")
@@ -95,6 +95,8 @@ def read_overview_values(
                             "invalid": "Garmin: значение непригодно.",
                         }.get(metric.state, "Garmin: число или единица измерения непригодны."),
                     )
+                    if record.record_status == "invalid":
+                        cell["note"] = "Garmin: запись показателя непригодна."
                     if usable and code == "respiration_bpm":
                         cell["note"] = (
                             "Среднее во сне" if "avgSleepRespirationValue" in metric.field_path
