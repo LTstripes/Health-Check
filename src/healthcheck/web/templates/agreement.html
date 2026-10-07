@@ -2,77 +2,86 @@
 {% import "owner_ui.html" as owner_ui %}
 {% block title %}Сравнение сна — Health-Check{% endblock %}
 {% block content %}
-<section class="card agreement-banner" role="note">
-  <h2>Исследовательское сравнение Garmin и Google</h2>
-  <p class="uncertainty-note">Точность не оценивается. Основной источник сна не меняется. Это сравнение оценок источников, а не диагноз, рекомендация или основание для выбора более точного устройства.</p>
-  <p>Каждая группа сохраняет свой показатель, вариант и принадлежность источнику. Данные разных групп не объединяются.</p>
-  <p><a class="button-link" href="/sleep">Ночь и история сна</a> <a class="button-link" href="/imports">Состояние источников в разделе «Данные»</a></p>
-</section>
-<section id="agreement-summary" class="card">
-  <h2>Состояние сравнения</h2>
+<section class="card brief-controls">
+  <h2>Сравнение сна</h2>
+  {% if wake_date %}
+  <form method="get" action="/sleep" class="inline-edit owner-controls">
+    <input type="hidden" name="view" value="compare">
+    {% if request.query_params.get('garmin_source_id') %}<input type="hidden" name="garmin_source_id" value="{{ request.query_params.get('garmin_source_id') }}">{% endif %}
+    <input type="hidden" name="vitals_window" value="{{ google_vitals_window_days }}">
+    <label>Дата пробуждения <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
+    <button type="submit">Показать</button>
+  </form>
+  <p class="muted">{{ start_date | owner_date }} → {{ wake_date | owner_date }} · сохранённые пары</p>
+  <a href="/agreement">Все сохранённые периоды</a>
+  {% else %}<p class="muted">Сохранённые пары · периоды указаны у показателей</p>{% endif %}
   {% if not payload.available %}
     {{ owner_ui.state_chip('unknown' if payload.reason == 'unknown' else 'unavailable') }}
-    <p>{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения. Отсутствие сравнения не означает отсутствие сна.{% endif %}</p>
-  {% elif payload.mode == 'exploratory' %}
-    <p>Исследовательское сравнение доступно для отдельных групп. Ограничения каждой группы указаны ниже.</p>
-  {% else %}
-    {{ owner_ui.state_chip('insufficient') }}<p>Идёт накопление данных. Принятых данных пока недостаточно для исследовательской статистики.</p>
+    <p>{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
   {% endif %}
-  {% if payload.pairing_exclusions %}<p class="uncertainty-note">Часть ночей не сопоставлена. Причины исключений доступны в технических деталях отчёта.</p>{% endif %}
-  {% if not payload.source_data_quality %}
-  <p class="uncertainty-note">Состояние качества данных источников не установлено. Это не подтверждение полноты сна.</p>
-  {% else %}
-    {% for fact in payload.source_data_quality if fact.state != 'usable' %}
-    <p class="uncertainty-note">{{ {'garmin_connect': 'Garmin', 'google_health': 'Google'}.get(fact.provider_code, 'Источник') }}:
-      {% if fact.state == 'failed' %}последний сбор завершился ошибкой.
-      {% else %}{{ owner_ui.state_chip(fact.state) }}{% endif %}
-      Сведения о сборе не доказывают полноту данных сна. Подробности и действия — в разделе «Данные».
-    </p>
-    {% endfor %}
-  {% endif %}
-</section>
-<section id="agreement-groups" class="agreement-groups">
-  {% for category in sleep_groups(payload.groups) %}
-    {% for row in category.rows %}
-    {% set group = row.group %}
-    <section class="card agreement-group">
-      <header><h2>{{ row.label }}</h2><span>{{ owner_cohort(group.source_attribution.cohort_label) }}</span></header>
-      <p>{{ row.variant }}</p>
-      {% for run in payload.runs if run.run_id == group.run_id %}
-      <p>Сохранённый период: {{ run.requested_start_date | owner_date if run.requested_start_date else 'Начало неизвестно' }} → {{ run.requested_end_date | owner_date if run.requested_end_date else 'Окончание неизвестно' }}.</p>
-      {% endfor %}
-      {% if group.uncertainty_notice or group.exploratory_label_required %}
-      <p class="uncertainty-note" role="note">Принадлежность устройству и роль записи сна могут быть неизвестны. Это не сравнение Garmin и Fitbit/устройств, не оценка точности и не основание для выбора основного источника.</p>
-      {% endif %}
-      {% if group.cohort == 'family_pair' %}<p class="uncertainty-note">Данные относятся к семейству устройств Google; конкретное устройство может быть неизвестно. Сравнение остаётся исследовательским.</p>{% endif %}
-      {{ owner_ui.state_chip('present' if group.progress.exploratory_available else 'insufficient', false) }}
-      <dl class="agreement-metrics">
-        <div><dt>Пригодных пар</dt><dd>{{ group.n if group.n is not none else 'Неизвестно' }}</dd></div>
-        <div><dt>Сопоставленных ночей</dt><dd>{{ group.paired_nights if group.paired_nights is not none else 'Неизвестно' }}</dd></div>
-        <div><dt>Покрытие периода</dt><dd>{% if group.coverage.requested_calendar_nights is not none and group.coverage.metric_valid_nights is not none %}{{ group.coverage.metric_valid_nights }}/{{ group.coverage.requested_calendar_nights }}{% else %}Неизвестно{% endif %}</dd></div>
-      </dl>
-      {% if group.progress.remaining_n is not none and group.progress.remaining_n > 0 %}<p>До доступности исследовательской статистики осталось пригодных пар: {{ group.progress.remaining_n }}.</p>{% endif %}
-      {% if not group.accepted_statistics %}<p class="uncertainty-note">Принятая статистика пока недоступна. Диагностика накопления остаётся в технических деталях.</p>{% endif %}
-      {% if group.exclusions %}<p class="uncertainty-note">Часть данных исключена из этого сравнения. Причины и количество доступны в технических деталях.</p>{% endif %}
-      {% if group.coverage.gaps %}<p class="uncertainty-note">В периоде есть пропуски сопоставимых данных; сравнение не представляет каждую ночь.</p>{% endif %}
-      {% call owner_ui.technical_details() %}
-        {% if group.accepted_statistics %}
-        <h3>Принятая исследовательская статистика</h3>
-        <p>Разность: Google − Garmin. Единицы: {{ owner_units.get(row.unit, 'Не определены') }}.</p>
-        <pre class="provenance">{{ group.accepted_statistics | tojson(indent=2) }}</pre>
-        {% endif %}
-        <div class="agreement-chart" aria-label="Разности оценок источников"><svg data-group-index="{{ group.chart.points | tojson | forceescape }}" viewBox="0 0 900 150" role="img" aria-label="Разности Google и Garmin"></svg></div>
-        <p><a class="button-link" href="{{ group.drilldown_url }}">Технические записи по ночам</a></p>
-        <pre class="provenance">{{ group | tojson(indent=2) }}</pre>
-      {% endcall %}
-    </section>
-    {% endfor %}
+  {% if payload.pairing_exclusions %}<p class="uncertainty-note">Часть ночей не сопоставлена; причины — в технических деталях.</p>{% endif %}
+  {% if payload.available and not payload.source_data_quality %}<p class="uncertainty-note">Качество данных источников не установлено.</p>{% endif %}
+  {% for fact in payload.source_data_quality if fact.state != 'usable' %}
+    <p class="uncertainty-note">{{ {'garmin_connect': 'Garmin', 'google_health': 'Google'}.get(fact.provider_code, 'Источник') }}: {% if fact.state == 'failed' %}последний сбор завершился ошибкой.{% else %}{{ owner_ui.state_chip(fact.state) }}{% endif %}</p>
   {% endfor %}
+  <p><a href="/imports">Проверить источники</a></p>
 </section>
-{% call owner_ui.technical_details() %}
-  <h2>Происхождение, качество данных и отчёт</h2>
-  <p>Последняя успешная синхронизация и дата фактических данных — разные сведения. Текущие действия по источникам доступны в разделе «Данные».</p>
+<section class="agreement-groups">
+{% for category in sleep_groups(payload.groups) %}
+  {% for row in category.rows %}
+  {% set group = row.group %}
+  {% set charts = comparison_charts(group, comparison_details.get(group.run_id, {})) %}
+  <section class="card agreement-group" data-comparison-group>
+    <header><h2>{{ row.label }}</h2><span>{{ owner_cohort(group.source_attribution.cohort_label) }}</span></header>
+    <p class="muted">{{ row.variant }} · {{ group.n }} пригодных пар</p>
+    {% for run in payload.runs if run.run_id == group.run_id %}
+    <p class="muted">Сохранённый период: {{ run.requested_start_date | owner_date if run.requested_start_date else 'Начало неизвестно' }} → {{ run.requested_end_date | owner_date if run.requested_end_date else 'Окончание неизвестно' }}.</p>
+    {% endfor %}
+    {% if group.uncertainty_notice or group.exploratory_label_required %}<p class="uncertainty-note" role="note">Принадлежность устройству и роль записи сна могут быть неизвестны. Это отдельные наблюдения, а не сравнение устройств; выбор основного источника недоступен.</p>{% endif %}
+    {% if group.cohort == 'family_pair' %}<p class="uncertainty-note">Google: семейство устройств; конкретное устройство может быть неизвестно.</p>{% endif %}
+    {% if group.exclusions %}<p class="uncertainty-note">Часть данных исключена из этого сравнения.</p>{% endif %}
+    {% if group.coverage.gaps %}<p class="uncertainty-note">Есть пропуски сопоставимых ночей.</p>{% endif %}
+    {% for chart in charts %}
+    <figure class="sleep-comparison-chart">
+      <figcaption>Пара источников {{ loop.index }} · {% if row.variant == 'За день' %}одна календарная дата{% else %}дата пробуждения{% endif %} · {{ chart.axis_unit }}</figcaption>
+      <p class="legend"><span><i class="swatch raw"></i>Garmin</span><span><i class="swatch trend"></i>Google{% if group.cohort == 'family_pair' %} · семейство устройств{% endif %}</span></p>
+      <div class="sleep-comparison-plot"><svg data-sleep-comparison="{{ chart | tojson | forceescape }}" viewBox="0 0 900 240" role="img" aria-label="{{ row.label }}: Garmin и Google"></svg></div>
+      <details class="owner-details sleep-chart-values"><summary>Значения по датам</summary>
+        <div class="table-scroll"><table><thead><tr><th>Дата</th><th>Garmin</th><th>Google</th></tr></thead><tbody>
+        {% for point in chart.points %}<tr><th>{{ point.wake_date | owner_date }}</th><td>{{ point.garmin_text }}</td><td>{{ point.google_text }}</td></tr>{% endfor %}
+        </tbody></table></div>
+      </details>
+    </figure>
+    {% else %}<p class="unavailable">Сравнение на одном графике недоступно: нет подтверждённых совместимых пар с известными источниками и вариантом сна.</p>{% endfor %}
+    {% if group.accepted_statistics %}
+    <dl class="agreement-metrics">
+      <div><dt>Средняя разность · Google − Garmin</dt><dd>{{ comparison_value(group.accepted_statistics.bias, row.unit, signed=true) }}</dd></div>
+      <div><dt>Среднее абсолютное расхождение</dt><dd>{{ comparison_value(group.accepted_statistics.mae, row.unit) }}</dd></div>
+      <div><dt>Покрытие периода</dt><dd>{% if group.coverage.requested_calendar_nights is not none and group.coverage.metric_valid_nights is not none %}{{ group.coverage.metric_valid_nights }}/{{ group.coverage.requested_calendar_nights }}{% else %}Неизвестно{% endif %}</dd></div>
+    </dl>
+    {% else %}{{ owner_ui.state_chip('insufficient') }}<p>Статистика пока недоступна; осталось пригодных пар: {{ group.progress.remaining_n }}.</p>{% endif %}
+  </section>
+  {% endfor %}
+{% endfor %}
+</section>
+<section class="card" data-incompatible-comparisons>
+  <h2>Отдельные показатели</h2>
+  <p>Оценка сна Garmin: совместимой оценки Google нет.</p>
+  <p>HRV и дыхание: дневные показатели и измерения внутри сна имеют разный смысл; общий график недоступен.</p>
+  <p>Пульс в покое и кислород: сравнение доступно только для сохранённых пар суточных значений за одну дату.</p>
+</section>
+{% call owner_ui.technical_details('sleep-technical') %}
+  <h2>Garmin</h2>
+  <p>Сохранённые значения и принадлежность источнику; текущая запись не заменяет сохранённую пару.</p>
+  {% for run_id, detail in comparison_details.items() %}{% for night in detail.nights %}{% for metric in night.metrics %}<pre class="provenance">{{ {'wake_date': night.wake_date, 'metric_code': metric.metric_code, 'garmin': metric.garmin} | tojson(indent=2) }}</pre>{% endfor %}{% endfor %}{% endfor %}
+  <h2>Google</h2>
+  <p>Семейство источников не означает конкретное устройство Fitbit.</p>
+  {% for run_id, detail in comparison_details.items() %}{% for night in detail.nights %}{% for metric in night.metrics %}<pre class="provenance">{{ {'wake_date': night.wake_date, 'metric_code': metric.metric_code, 'google': metric.google} | tojson(indent=2) }}</pre>{% endfor %}{% endfor %}{% endfor %}
+  <h2>Сравнение</h2>
+  <p>Исследовательское сравнение. Точность не оценивается. Основной источник сна не меняется. Группы, варианты, периоды и пары источников не объединяются. Числа округлены только для показа; точные значения ниже.</p>
+  <p>Разность: Google − Garmin. Статистика и пороги читаются из сохранённого отчёта без пересчёта правил.</p>
   <pre class="provenance">{{ payload | tojson(indent=2) }}</pre>
+  <pre class="provenance">{{ comparison_details | tojson(indent=2) }}</pre>
 {% endcall %}
 {% endblock %}
 {% block scripts %}<script src="/static/agreement.js"></script>{% endblock %}

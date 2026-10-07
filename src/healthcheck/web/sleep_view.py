@@ -22,6 +22,7 @@ from healthcheck.google.daily_vitals import (
     GoogleDailyVitalSource,
     GoogleDailyVitalsResult,
 )
+from healthcheck.web.owner_presentation import owner_number
 
 SLEEP_METRICS = {
     "sleep_duration_seconds": ("Длительность сна", "с"),
@@ -110,14 +111,12 @@ def google_vital_owner_state(point: GoogleDailyVitalPoint | None) -> str:
 
 
 def google_vital_value_text(point: GoogleDailyVitalPoint) -> str:
-    """Format one eligible number without rounding or inventing units."""
+    """Round only the Owner display; exact evidence remains in disclosure."""
 
     number = point.value
     if number is None:
         return "—"
-    if float(number).is_integer():
-        return str(int(number))
-    return str(number)
+    return owner_number(number)
 
 
 _GOOGLE_VITAL_EXCLUSION_NOTES = {
@@ -199,7 +198,8 @@ def metric_value(code: str, number: int | float) -> str:
         minutes, seconds = divmod(remainder, 60)
         text = f"{hours} ч {minutes} мин"
         return f"{text} {seconds} с" if seconds else text
-    return f"{number} {SLEEP_METRICS[code][1]}"
+    text = str(int(number)) if float(number).is_integer() else owner_number(number)
+    return f"{text} {SLEEP_METRICS[code][1]}"
 
 
 def point_state(point: Mapping[str, Any] | None) -> str:
@@ -232,3 +232,19 @@ def night_metric(result: Mapping[str, Any], wake_date: date) -> dict[str, Any]:
         "value": point["value"] if state in {"present", "partial"} else None,
         "ambiguous": False,
     }
+
+
+def nightly_rows(results: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """One wake-date row, with independently resolved fields; never pool sessions."""
+    dates = sorted({
+        point["analytic_date"]
+        for result in results.values()
+        for point in result.get("points", [])
+    }, reverse=True)
+    return [
+        {"wake_date": day, "metrics": {
+            code: night_metric(results.get(code, {}), date.fromisoformat(day))
+            for code in SLEEP_METRICS
+        }}
+        for day in dates
+    ]

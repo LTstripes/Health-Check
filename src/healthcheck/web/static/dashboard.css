@@ -344,3 +344,14 @@ main, .legal { max-width: var(--owner-content-width); }
 @media (max-width: 480px) {
   .weight-view .current, .weight-view .weight-composition-values { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Owner Sleep v2: compact nightly row and bounded source comparison figures. */
+.sleep-night-table table, .sleep-history table { min-width: 320px; }
+.sleep-night-table th, .sleep-night-table td, .sleep-history th, .sleep-history td { width: 33.33%; vertical-align: top; }
+.sleep-night-table td { font-size: 1.125rem; }
+.sleep-night-table td p, .sleep-history td p { font-size: .8125rem; margin: 8px 0 0; }
+.sleep-comparison-chart { margin: 16px 0; }
+.sleep-comparison-plot { overflow-x: auto; max-width: 100%; }
+.sleep-comparison-chart svg { display: block; width: 100%; min-width: 700px; height: auto; }
+.sleep-chart-axis { fill: var(--muted); font: 16px "Segoe UI", sans-serif; }
+.sleep-chart-values table { min-width: 320px; }

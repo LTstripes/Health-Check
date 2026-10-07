@@ -41,6 +41,7 @@ from healthcheck.web.query import (
     group_review_events,
 )
 from healthcheck.web.read_snapshot import ensure_read_snapshot
+from healthcheck.web.sleep_comparison import comparison_charts, comparison_value
 from healthcheck.web.sleep_view import (
     GOOGLE_VITAL_METRICS,
     GOOGLE_VITALS_WINDOWS,
@@ -53,6 +54,7 @@ from healthcheck.web.sleep_view import (
     google_vitals_window_days,
     metric_value,
     night_metric,
+    nightly_rows,
     point_state,
 )
 
@@ -780,6 +782,7 @@ def sleep_page(
     wake_date: str | None = None,
     garmin_source_id: str | None = None,
     vitals_window: str | None = None,
+    view: str = "garmin",
 ) -> HTMLResponse:
     try:
         end = date.fromisoformat(wake_date) if wake_date is not None else date.today()
@@ -788,13 +791,16 @@ def sleep_page(
             request, code="invalid_sleep_date",
             message="Укажите дату пробуждения в формате ГГГГ-ММ-ДД.",
         )
-    if end < date.min + timedelta(days=29):
+    vitals_days = google_vitals_window_days(vitals_window)
+    if end < date.min + timedelta(days=max(29, vitals_days - 1)):
         return render_error(
             request, code="invalid_sleep_date",
             message="Дата не позволяет показать 30 дней истории.",
         )
     start = end - timedelta(days=29)
-    vitals_days = google_vitals_window_days(vitals_window)
+    view = view if view in {"garmin", "google", "compare"} else "garmin"
+    if view == "compare":
+        return _render_comparison(request, start=start, end=end, vitals_days=vitals_days)
     vitals_start = end - timedelta(days=vitals_days - 1)
     results: dict[str, Any] = {}
     selection: dict[str, Any] = {"status": "no_data", "sources": []}
@@ -836,6 +842,7 @@ def sleep_page(
         google_vitals_technical = None
     return render(request, "sleep.html", {
         "page": "sleep", "wake_date": end, "start_date": start,
+        "sleep_view": view, "history_rows": nightly_rows(results),
         "selection": selection, "results": results, "sleep_metrics": SLEEP_METRICS,
         "night_metric": night_metric, "point_state": point_state,
         "metric_value": metric_value,
@@ -854,13 +861,26 @@ def sleep_page(
 
 @router.get("/agreement", response_class=HTMLResponse)
 def agreement_page(request: Request) -> HTMLResponse:
+    return _render_comparison(request)
+
+
+def _render_comparison(
+    request: Request, *, start: date | None = None, end: date | None = None,
+    vitals_days: int = 30,
+) -> HTMLResponse:
+    details: dict[str, Any] = {}
     try:
         with session_scope(request_engine(request)) as session:
-            payload = SleepAgreementReportService(session).report()
+            ensure_read_snapshot(session)
+            service = SleepAgreementReportService(session)
+            payload = service.report(start_date=start, end_date=end)
+            for run in payload["runs"]:
+                details[run["run_id"]] = service.night_detail(run["run_id"])
     except SQLAlchemyError as exc:
         if not database_unavailable(exc):
             return _persist_error(request, "agreement_report")
         payload = unavailable_report(reason="database_unavailable")
+        details = {}
     except ValueError:
         return render_error(
             request, code="invalid_report_request", message="Не удалось прочитать сравнение сна.",
@@ -869,6 +889,10 @@ def agreement_page(request: Request) -> HTMLResponse:
     return render(request, "agreement.html", {
         "payload": payload, "page": "agreement", "sleep_groups": _brief_sleep_groups,
         "owner_cohort": _brief_owner_cohort, "owner_units": _BRIEF_UNIT_LABELS,
+        "sleep_view": "compare", "wake_date": end, "start_date": start,
+        "google_vitals_window_days": vitals_days,
+        "comparison_charts": comparison_charts, "comparison_value": comparison_value,
+        "comparison_details": details,
     })
 
 

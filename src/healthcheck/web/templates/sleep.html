@@ -3,11 +3,12 @@
 {% block title %}Сон — Health-Check{% endblock %}
 {% block content %}
 <section class="card brief-controls">
-  <h2>Ночь по дате пробуждения</h2>
+  <h2>{{ "Период по дате" if sleep_view == "google" else "Ночь по дате пробуждения" }}</h2>
   <form method="get" action="/sleep" class="inline-edit owner-controls">
-    <label>Дата пробуждения <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
+    <label>{{ "Последний день периода" if sleep_view == "google" else "Дата пробуждения" }} <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
+    <input type="hidden" name="view" value="{{ sleep_view }}">
     <input type="hidden" name="vitals_window" value="{{ google_vitals_window_days }}">
-    {% if selection.sources | length > 1 %}
+    {% if sleep_view == "garmin" and selection.sources | length > 1 %}
     <label>Источник Garmin
       <select name="garmin_source_id" required>
         <option value="">Выберите источник</option>
@@ -20,38 +21,49 @@
     <button type="submit">Показать</button>
   </form>
 </section>
-<section class="card">
-  <h2>Сон за {{ wake_date | owner_date }}</h2>
-  <p class="muted">{{ source_label(selection.selected_source) if selection.selected_source else "Garmin" }} · по дате пробуждения</p>
+{% macro night_row(day, cells) %}
+<tr data-night-row><th>{{ day | owner_date }}</th>
+{% for code, labels in sleep_metrics.items() %}{% set cell = cells[code] %}
+<td data-sleep-metric="{{ loop.index }}">{{ metric_value(code, cell.value) if cell.value is not none else '—' }} {{ owner_ui.state_chip(cell.state, false) }}
+{% if cell.ambiguous %}<p class="uncertainty-note">Несколько записей; единое значение не выбрано.</p>{% elif cell.state == 'partial' %}<p class="uncertainty-note">Запись неполная.</p>{% elif cell.value is none %}<p class="muted">За эту дату нет пригодного значения.</p>{% endif %}</td>
+{% endfor %}</tr>
+{% endmacro %}
+{% if sleep_view == 'garmin' %}
+<section class="card sleep-night">
+  <h2>Выбранная ночь</h2>
+  <p class="muted">{{ source_label(selection.selected_source) if selection.selected_source else "Garmin" }} · дата пробуждения</p>
   {% if selection.status != 'selected' %}
     {{ owner_ui.state_chip('unknown' if selection.status == 'require_selection' else 'unavailable') }}
-    <p>{% if selection.status == 'require_selection' %}Найдено несколько источников Garmin. Выберите один; данные разных источников не объединяются.{% elif selection.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного источника Garmin. Отсутствие данных не означает отсутствие сна.{% endif %}</p>
+    <p>{% if selection.status == 'require_selection' %}Найдено несколько источников Garmin. Выберите один.{% elif selection.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного источника Garmin.{% endif %}</p>
   {% else %}
-  <div class="grid">
-    {% for code, labels in sleep_metrics.items() %}
-    {% set night = night_metric(results[code], wake_date) %}
-    <section data-sleep-metric="{{ loop.index }}">
-      <h3>{{ labels[0] }}</h3>
-      {{ owner_ui.state_chip(night.state, false) }}
-      {% if night.value is not none %}<dl class="current"><dt>За выбранную ночь</dt><dd>{{ metric_value(code, night.value) }}</dd></dl>{% endif %}
-      {% if night.ambiguous %}<p class="uncertainty-note">За эту дату есть несколько записей. Единое значение не выбрано; все записи доступны в истории.</p>
-      {% elif night.state == 'partial' %}<p class="uncertainty-note">Запись неполная. Доступное значение не доказывает полноту сведений о ночи.</p>
-      {% elif night.value is none %}<p>За выбранную дату нет пригодного значения. Это не ноль и не отсутствие сна.</p>{% endif %}
-    </section>
-    {% endfor %}
-  </div>
+  <div class="table-scroll sleep-night-table"><table>
+    <thead><tr><th>Пробуждение</th><th>Длительность сна</th><th>Оценка Garmin</th></tr></thead>
+    <tbody>{{ night_row(wake_date, {'sleep_duration_seconds': night_metric(results['sleep_duration_seconds'], wake_date), 'sleep_score': night_metric(results['sleep_score'], wake_date)}) }}</tbody>
+  </table></div>
   {% endif %}
-  <p class="uncertainty-note" role="note">Оценка сна Garmin относится к одной сессии, а не к восстановлению. Точность устройств здесь не оценивается.</p>
-  <p><a class="button-link" href="/imports">Проверить источники</a></p>
+  <p><a href="/imports">Проверить источники</a></p>
 </section>
+{% if results %}
+<details class="card owner-details sleep-records">
+  <summary>История сна</summary>
+  <p class="muted">{{ start_date | owner_date }} → {{ wake_date | owner_date }}</p>
+  <div class="table-scroll sleep-history"><table>
+    <thead><tr><th>Пробуждение</th><th>Длительность сна</th><th>Оценка Garmin</th></tr></thead>
+    <tbody>{% for row in history_rows if row.wake_date != wake_date.isoformat() %}{{ night_row(row.wake_date, row.metrics) }}{% else %}<tr><td colspan="3">Других записей за период нет.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+{% endif %}
+{% endif %}
+{% if sleep_view == 'google' %}
 <section class="card brief-controls" data-google-vitals>
   <h2>Google дневные показатели</h2>
-  <p>Последние пригодные значения за период, по каждому источнику отдельно. Это суточные показатели, а не измерения внутри сна.</p>
+  <p>По каждому источнику отдельно: суточные показатели, а не измерения внутри сна.</p>
   {% if google_vitals is none %}
     {{ owner_ui.state_chip('unavailable') }}
     <p>Локальное хранилище данных не готово.</p>
   {% else %}
     <form method="get" action="/sleep" class="inline-edit owner-controls">
+      <input type="hidden" name="view" value="google">
       <input type="hidden" name="wake_date" value="{{ wake_date }}">
       {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
       <label>Период Google
@@ -95,35 +107,17 @@
       <p>Нет текущих записей Google в выбранном окне ({{ google_vitals.start_date | owner_date }} → {{ google_vitals.end_date | owner_date }}). Это не доказывает отсутствие данных за пределами окна.</p>
     {% endif %}
   {% endif %}
-  <p class="uncertainty-note" role="note">Google Health и Garmin не сравниваются и не объединяются.</p>
+  <p><a href="/imports">Проверить источники</a></p>
 </section>
-{% if results %}
-<details class="card owner-details sleep-records">
-  <summary>История сна</summary>
-  <p>{{ start_date | owner_date }} → {{ wake_date | owner_date }} · {{ source_label(selection.selected_source) if selection.selected_source else "Garmin" }}</p>
-  <p class="muted">Пропуски не заполняются. Частичные и непригодные записи остаются видимыми.</p>
-  <div class="table-scroll sleep-history">
-    <table>
-      <thead><tr><th>Дата пробуждения</th><th>Показатель</th><th>Значение</th></tr></thead>
-      <tbody>
-      {% for code, labels in sleep_metrics.items() %}
-        {% for point in results[code].points %}
-        {% set state = point_state(point) %}
-        <tr><th>{{ point.analytic_date | owner_date }}</th><td>{{ labels[0] }}</td><td>{% if state in ('present', 'partial') %}{{ metric_value(code, point.value) }}{% else %}—{% endif %} {{ owner_ui.state_chip(state, false) }}</td></tr>
-        {% else %}<tr><td colspan="3">{{ labels[0] }}: нет пригодных записей в выбранном периоде.</td></tr>{% endfor %}
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</details>
 {% endif %}
 {% call owner_ui.technical_details('sleep-technical') %}
-  <h2>Происхождение и расчёты Garmin</h2>
-  <p>Длительность, стадии и дневной сон имеют отдельную полноту данных. Предыдущая ночь не заменяет выбранную дату.</p>
+  <h2>Garmin</h2>
+  <p>Оценка сна Garmin относится к одной сессии, а не к восстановлению. Точность устройств здесь не оценивается. Длительность и оценка разрешаются независимо; несколько записей за дату не объединяются. Пропуски не заполняются.</p>
   <pre class="provenance">{{ {'source_selection': selection, 'series': results} | tojson(indent=2) }}</pre>
-{% endcall %}
-{% call owner_ui.technical_details('sleep-technical') %}
-  <h2>Происхождение Google дневных показателей</h2>
+  <h2>Google</h2>
+  <p>Последнее пригодное значение сохраняет собственную дату. Дневные показатели не становятся измерениями внутри сна.</p>
   <pre class="provenance">{{ google_vitals_technical | tojson(indent=2) }}</pre>
+  <h2>Сравнение</h2>
+  <p>Сравнимые пары доступны в режиме «Сравнить». Разные источники, варианты сна и определения показателей не объединяются. Основной источник не меняется.</p>
 {% endcall %}
 {% endblock %}
