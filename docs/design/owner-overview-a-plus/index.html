@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>Health-Check — Обзор A+ · синтетический desktop-референс</title>
+  <style>
+    :root { color-scheme: light; --paper: #f6f2e9; --surface: #fdfbf6; --ink: #292d27; --muted: #686c61; --line: #dcdccc; --green: #31584b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 1024px; background: var(--paper); color: var(--ink); font: 15px/1.5 "Segoe UI", Arial, sans-serif; }
+    button, input { font: inherit; }
+    button, summary, .nav-item, .date-label { min-height: 44px; }
+    button { color: inherit; }
+    :focus-visible { outline: 3px solid var(--green); outline-offset: 4px; }
+    .skip { position: absolute; top: -100px; left: 20px; padding: 12px; background: var(--surface); z-index: 10; color: var(--green); }
+    .skip:focus { top: 12px; }
+    .prototype { padding: 9px 40px; border-bottom: 1px solid var(--line); text-align: center; color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+    .prototype strong { color: var(--ink); font-weight: 600; }
+    .shell { max-width: 1440px; margin: auto; padding: 0 48px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 83px; border-bottom: 1px solid var(--line); }
+    .brand { display: flex; gap: 12px; align-items: center; font-size: 19px; letter-spacing: -.035em; font-weight: 600; white-space: nowrap; }
+    .brand svg { width: 29px; height: 29px; }
+    nav { display: flex; gap: 25px; align-items: center; }
+    .nav-item { display: inline-flex; align-items: center; padding: 0 5px; border: 0; background: transparent; font-size: 14px; }
+    .nav-item[aria-current] { color: var(--green); border-bottom: 2px solid var(--green); font-weight: 600; }
+    [aria-disabled="true"] { cursor: default; }
+    .edition { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+    main { padding-top: 27px; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+    h1, h2, h3, p, figure { margin: 0; }
+    h1 { font: 42px/1.1 Georgia, "Times New Roman", serif; letter-spacing: -.04em; }
+    .date-range { color: var(--muted); margin-top: 8px; font-size: 13px; }
+    .period { display: flex; align-items: center; gap: 14px; }
+    .segmented { display: flex; border: 1px solid var(--line); padding: 3px; gap: 3px; }
+    .segmented button { border: 0; padding: 0 14px; background: transparent; font-size: 13px; }
+    .segmented .selected { color: var(--surface); background: var(--green); }
+    .date-label { display: inline-flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .static-note { text-align: right; margin: 7px 0 19px; font-size: 11px; color: var(--muted); }
+    .action { display: flex; align-items: flex-start; gap: 12px; padding: 13px 18px; background: var(--surface); border-left: 3px solid var(--green); font-size: 13px; }
+    .action .mark { color: var(--green); font-size: 18px; line-height: 1.3; }
+    .action strong { font-weight: 600; }
+    .action span { color: var(--muted); }
+    .section-label { margin: 25px 0 15px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+    .primary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+    .primary article { padding: 0 28px; min-width: 0; }
+    .primary article:first-child { padding-left: 0; }
+    .primary article:last-child { padding-right: 0; }
+    .primary article + article { border-left: 1px solid var(--line); }
+    .metric-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    h2 { font-size: 16px; font-weight: 600; }
+    .info { position: relative; }
+    .info summary { list-style: none; width: 44px; display: flex; justify-content: center; align-items: center; cursor: pointer; color: var(--muted); font-size: 18px; }
+    .info summary::-webkit-details-marker { display: none; }
+    .info[open] summary { color: var(--green); background: var(--surface); }
+    .info p { position: absolute; right: 0; top: 46px; z-index: 2; width: 240px; padding: 15px; border: 1px solid var(--green); background: var(--surface); font-size: 13px; }
+    .value { margin: 4px 0 5px; font: 44px/1.1 Georgia, "Times New Roman", serif; letter-spacing: -.035em; font-variant-numeric: lining-nums tabular-nums; }
+    .unit { font: 17px/1.3 "Segoe UI", Arial, sans-serif; letter-spacing: 0; color: var(--muted); }
+    .source { color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .qualifier { min-height: 40px; margin-top: 8px; font-size: 12px; }
+    .chart { display: block; width: 100%; height: 140px; margin-top: 13px; overflow: visible; }
+    svg text { font-family: "Segoe UI", Arial, sans-serif; fill: var(--muted); font-size: 11px; }
+    .gridline { stroke: var(--line); stroke-width: 1; }
+    .trend { stroke: var(--green); stroke-width: 2; fill: none; }
+    .observed { fill: var(--ink); stroke: var(--surface); stroke-width: 2; }
+    .legend { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; min-height: 29px; color: var(--muted); font-size: 11px; }
+    .legend span { display: inline-flex; gap: 6px; align-items: center; }
+    .dot { width: 6px; height: 6px; background: var(--ink); border-radius: 50%; }
+    .line-key { display: inline-block; width: 17px; height: 2px; background: var(--green); }
+    .chart-note { color: var(--muted); font-size: 11px; margin-top: 5px; }
+    .sleep-bar { fill: #7d9182; }
+    .gap { fill: none; stroke: var(--muted); stroke-dasharray: 3 3; }
+    .activity-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; margin-top: 31px; height: 122px; align-items: end; }
+    .day { text-align: center; font-size: 11px; color: var(--muted); }
+    .day b { display: flex; align-items: center; justify-content: center; height: 59px; background: #e5e9e0; color: var(--green); font: 20px Georgia, serif; margin-bottom: 10px; }
+    .day .empty { background: transparent; border-bottom: 1px solid var(--line); color: var(--muted); }
+    .day .missing { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
+    .activity-types { font-size: 12px; margin-top: 12px; }
+    .secondary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0 0 23px; border-bottom: 1px solid var(--line); }
+    .secondary article { padding: 0 24px; min-width: 0; }
+    .secondary article:first-child { padding-left: 0; }
+    .secondary article:last-child { padding-right: 0; }
+    .secondary article + article { border-left: 1px solid var(--line); }
+    h3 { font-size: 13px; font-weight: 600; }
+    .small-value { margin: 10px 0 7px; font: 29px/1.1 Georgia, serif; font-variant-numeric: lining-nums tabular-nums; }
+    .small-value .unit { font-size: 13px; }
+    .spark { width: 100%; height: 48px; display: block; margin-top: 9px; }
+    .micro-note { font-size: 11px; color: var(--muted); margin-top: 5px; }
+    .disclosures { margin-top: 14px; }
+    .disclosure { border-bottom: 1px solid var(--line); }
+    .disclosure > summary { display: flex; align-items: center; gap: 11px; padding: 13px 0; cursor: pointer; list-style: none; font-size: 14px; font-weight: 600; }
+    .disclosure > summary::-webkit-details-marker { display: none; }
+    .disclosure > summary::before { content: "+"; font-size: 21px; font-weight: 400; color: var(--green); width: 16px; }
+    .disclosure[open] > summary::before { content: "−"; }
+    .summary-note { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); }
+    .disclosure-content { padding: 6px 0 23px 27px; font-size: 13px; }
+    .disclosure-content p + p { margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    caption { text-align: left; padding-bottom: 13px; color: var(--muted); }
+    th, td { padding: 11px 12px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 600; }
+    td:first-child { width: 22%; }
+    td:nth-child(2) { width: 17%; }
+    .group td { font-weight: 600; padding-top: 20px; color: var(--green); }
+    footer { display: flex; justify-content: space-between; gap: 20px; color: var(--muted); font-size: 11px; padding: 23px 0 28px; }
+    @media (max-width: 1150px) {
+      .shell { padding: 0 32px; }
+      nav { gap: 13px; }
+      .edition { display: none; }
+      .primary article { padding: 0 19px; }
+      .secondary article { padding: 0 16px; }
+      .period { gap: 10px; }
+      .segmented button { padding: 0 11px; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#overview">К обзору</a>
+  <div class="prototype"><strong>СТАТИЧЕСКИЙ РЕФЕРЕНС A+</strong> · Все значения и даты вымышлены · Desktop ≥ 1024 px</div>
+  <div class="shell">
+    <header>
+      <div class="brand"><svg viewBox="0 0 30 30" aria-hidden="true"><rect x="1" y="1" width="28" height="28" rx="7" fill="none" stroke="#31584b"/><path d="M7 15h5l3-7v14l3-7h5" fill="none" stroke="#31584b" stroke-width="1.5"/></svg>Health-Check</div>
+      <nav aria-label="Макет навигации — переходы недоступны">
+        <span class="nav-item" aria-current="page">Обзор</span>
+        <button class="nav-item" type="button" aria-disabled="true">Вес</button>
+        <button class="nav-item" type="button" aria-disabled="true">Сон</button>
+        <button class="nav-item" type="button" aria-disabled="true">Активность</button>
+        <button class="nav-item" type="button" aria-disabled="true">Данные</button>
+      </nav>
+      <span class="edition">Личный дневник</span>
+    </header>
+    <main id="overview" tabindex="-1">
+      <div class="toolbar">
+        <div><h1>Обзор</h1><p class="date-range">1–7 июня 2099 · 7 календарных дней</p></div>
+        <div class="period" role="group" aria-label="Макет выбора периода — не меняет данные">
+          <div class="segmented">
+            <button type="button" class="selected" aria-pressed="true" aria-disabled="true">7 дней</button>
+            <button type="button" aria-pressed="false" aria-disabled="true">30 дней</button>
+            <button type="button" aria-pressed="false" aria-disabled="true">90 дней</button>
+          </div>
+          <span class="date-label">01.06.2099 — 07.06.2099 <span aria-hidden="true">⌄</span></span>
+        </div>
+      </div>
+      <p class="static-note">Навигация и выбор дат — макет. Раскрытия и ⓘ работают.</p>
+      <aside class="action" aria-label="Требуется внимание — синтетический сценарий">
+        <span class="mark" aria-hidden="true">↻</span>
+        <p><strong>Проверь обновление Garmin в разделе «Данные».</strong> <span>Проверка 07.06.2099 в 18:10 не удалась; сохранённые записи доступны.</span></p>
+      </aside>
+      <p class="section-label">Главное за период</p>
+      <section class="primary" aria-label="Вес, сон и активность">
+        <article>
+          <div class="metric-heading"><h2>Вес</h2><details class="info"><summary aria-label="Как читать вес">ⓘ</summary><p>Последнее подтверждённое измерение. Точки — отдельные наблюдения; линия — среднее последних трёх наблюдений, а не измерение в пропущенный день.</p></details></div>
+          <p class="value">74,2 <span class="unit">кг</span></p>
+          <p class="source">Ручная запись · 07.06.2099, 08:00</p>
+          <p class="qualifier">5 подтверждённых измерений за период.<br>03 и 06 июня — без измерений.</p>
+          <figure aria-label="История веса">
+            <svg class="chart" viewBox="0 0 350 140" role="img" aria-labelledby="weight-title weight-desc">
+              <title id="weight-title">Измерения веса и отдельный тренд, 1–7 июня 2099</title>
+              <desc id="weight-desc">01 июня 74,8 кг; 02 — 74,6; 03 — нет; 04 — 74,7; 05 — 74,4; 06 — нет; 07 — 74,2. Тренд по трём наблюдениям: 04 июня 74,70; 05 — 74,57; 07 — 74,43 кг. Пунктир показывает интервал без измерения 06 июня.</desc>
+              <path class="gridline" d="M35 20H336M35 63H336M35 105H336"/>
+              <text x="0" y="24">75,0</text><text x="0" y="67">74,5</text><text x="0" y="109">74,0</text>
+              <path class="trend" d="M185 45.5L235 56.6"/><path class="trend" stroke-dasharray="4 4" d="M235 56.6L335 68.5"/>
+              <g class="observed"><circle cx="35" cy="37" r="4.5"/><circle cx="85" cy="54" r="4.5"/><circle cx="185" cy="45.5" r="4.5"/><circle cx="235" cy="71" r="4.5"/><circle cx="335" cy="88" r="4.5"/></g>
+              <text x="35" y="130">01.06</text><text x="170" y="130">04.06</text><text x="308" y="130">07.06</text>
+            </svg>
+            <figcaption class="legend"><span><i class="dot"></i>Измерение</span><span><i class="line-key"></i>Тренд · 3 наблюдения</span></figcaption>
+          </figure>
+          <p class="chart-note">Пунктир — интервал с пропуском, не новые данные.</p>
+        </article>
+        <article>
+          <div class="metric-heading"><h2>Сон</h2><details class="info"><summary aria-label="Как читать сон">ⓘ</summary><p>Длительность последней сохранённой ночи Garmin отнесена к дате пробуждения. Балл Garmin — отдельная оценка провайдера, не длительность и не медицинское заключение.</p></details></div>
+          <p class="value">7 <span class="unit">ч</span> 24 <span class="unit">мин</span></p>
+          <p class="source">Garmin · пробуждение 07.06.2099</p>
+          <p class="qualifier">6 из 7 ночей сохранены · 04 июня — нет данных.<br>Балл Garmin: 82 / 100 · ночь к 07.06.</p>
+          <figure>
+            <svg class="chart" viewBox="0 0 350 140" role="img" aria-labelledby="sleep-title sleep-desc">
+              <title id="sleep-title">Длительность ночей по дате пробуждения, июнь 2099</title>
+              <desc id="sleep-desc">01 июня 7 ч 12 мин; 02 — 7 ч 36 мин; 03 — 6 ч 54 мин; 04 — нет данных; 05 — 7 ч 30 мин; 06 — 7 ч 48 мин; 07 — 7 ч 24 мин. Шкала от нуля до восьми часов.</desc>
+              <path class="gridline" d="M30 20H340M30 62H340M30 105H340"/><text x="0" y="24">8 ч</text><text x="0" y="66">4 ч</text><text x="0" y="109">0</text>
+              <g class="sleep-bar"><rect x="37" y="28.5" width="25" height="76.5"/><rect x="82" y="24.25" width="25" height="80.75"/><rect x="127" y="31.69" width="25" height="73.31"/><rect x="217" y="25.31" width="25" height="79.69"/><rect x="262" y="22.13" width="25" height="82.87"/><rect x="307" y="26.38" width="25" height="78.62"/></g>
+              <rect class="gap" x="172" y="90" width="25" height="15"/><text x="178" y="82">—</text>
+              <text x="35" y="130">01.06</text><text x="167" y="130">04.06</text><text x="306" y="130">07.06</text>
+            </svg>
+            <figcaption class="legend"><span>Часы сна · по дате пробуждения</span></figcaption>
+          </figure>
+          <p class="chart-note">Пустая ночь не означает 0 часов сна.</p>
+        </article>
+        <article>
+          <div class="metric-heading"><h2>Активность</h2><details class="info"><summary aria-label="Как читать активность">ⓘ</summary><p>Число сохранённых занятий Garmin, не вся физическая активность. 0 — в покрытом дне нет сохранённых занятий; «—» — покрытие неизвестно. Дни определены в условной зоне UTC+03:00.</p></details></div>
+          <p class="value">4 <span class="unit">занятия</span></p>
+          <p class="source">Garmin · 01–07.06.2099</p>
+          <p class="qualifier">Сохранено за период; покрытие неполное.<br>04 июня — покрытие неизвестно.</p>
+          <figure>
+            <div class="activity-days" role="img" aria-label="Сохранённые занятия по дням июня 2099: 01 — 1 ходьба; 02 — 0; 03 — 1 теннис; 04 — покрытие неизвестно; 05 — 1 ходьба; 06 — 0; 07 — 1 велозаезд.">
+              <div class="day"><b>1</b>01.06</div><div class="day"><b class="empty">0</b>02.06</div><div class="day"><b>1</b>03.06</div><div class="day"><b class="missing">—</b>04.06</div><div class="day"><b>1</b>05.06</div><div class="day"><b class="empty">0</b>06.06</div><div class="day"><b>1</b>07.06</div>
+            </div>
+            <figcaption class="activity-types">Ходьба × 2 · Теннис × 1 · Велозаезд × 1</figcaption>
+          </figure>
+          <p class="chart-note">0 — нет сохранённых занятий; «—» — нет покрытия.</p>
+        </article>
+      </section>
+      <p class="section-label">Дополнительные показатели <span style="letter-spacing:0;text-transform:none;font-weight:400">· отдельные окна измерения</span></p>
+      <section class="secondary" aria-label="Дополнительные показатели Garmin">
+        <article>
+          <h3>Пульс в покое</h3><p class="small-value">57 <span class="unit">уд/мин</span></p>
+          <p class="source">Garmin · дневное значение<br>07.06.2099 · не текущий пульс</p>
+          <svg class="spark" viewBox="0 0 240 48" role="img" aria-label="Пульс в покое Garmin 01–07 июня 2099: 60, 59, 60, пропуск, 58, 59, 57 уд/мин; шкала 55–62."><path class="gridline" d="M0 42H240"/><path class="trend" d="M5 18L43 24L81 18M157 30L195 24L233 36"/><text x="114" y="27">—</text></svg>
+          <p class="micro-note">01–07.06 · 04.06 нет значения</p>
+        </article>
+        <article>
+          <h3>HRV · за ночь</h3><p class="small-value">41 <span class="unit">мс</span></p>
+          <p class="source">Garmin · среднее за ночь<br>Пробуждение 06.06.2099</p>
+          <svg class="spark" viewBox="0 0 240 48" role="img" aria-label="Ночное среднее HRV Garmin 01–07 июня 2099: 38, 40, 39, пропуск, 42, 41, пропуск мс; шкала 35–45."><path class="gridline" d="M0 42H240"/><path class="trend" d="M5 30L43 22L81 26M157 14L195 18"/><text x="114" y="27">—</text><text x="228" y="27">—</text></svg>
+          <p class="micro-note">01–07.06 · 04 и 07.06 нет значения</p>
+        </article>
+        <article>
+          <h3>Стресс · балл Garmin</h3><p class="small-value">28 <span class="unit">/ 100</span></p>
+          <p class="source">Garmin · среднее за часть дня<br>07.06.2099 · 00:00–18:00</p>
+          <svg class="spark" viewBox="0 0 240 48" role="img" aria-label="Средний стресс Garmin 01–07 июня 2099: 32, 30, 35, пропуск, 29, 31, 28 из 100. Последний день неполный; шкала 0–100."><path class="gridline" d="M0 42H240"/><path class="trend" d="M5 29.2L43 30L81 28M157 30.4L195 29.6"/><path class="trend" stroke-dasharray="3 3" d="M195 29.6L233 30.8"/><circle cx="233" cy="30.8" r="3" fill="#fdfbf6" stroke="#31584b"/><text x="114" y="25">—</text></svg>
+          <p class="micro-note">01–07.06 · 04.06 нет; 07.06 неполный</p>
+        </article>
+        <article>
+          <h3>Body Battery</h3><p class="small-value">64 <span class="unit">/ 100</span></p>
+          <p class="source">Garmin · последнее наблюдение<br>07.06.2099, 18:00 · не среднее</p>
+          <svg class="spark" viewBox="0 0 240 48" role="img" aria-label="Body Battery Garmin 07 июня 2099: в 08:00 — 86, 10:00 — 80, 12:00 — 75, 14:00 — пропуск, 16:00 — 69, 18:00 — 64 из 100; шкала 0–100."><path class="gridline" d="M0 42H240"/><path class="trend" d="M5 7.6L51 10L97 12M189 14.4L235 16.4"/><text x="136" y="26">—</text></svg>
+          <p class="micro-note">07.06 · 08:00–18:00 · разрыв в 14:00</p>
+        </article>
+      </section>
+      <div class="disclosures">
+        <details class="disclosure" id="sources">
+          <summary>Все показатели по источникам <span class="summary-note">Ручная запись / Garmin / Google</span></summary>
+          <div class="disclosure-content">
+            <table>
+              <caption>Синтетические записи · 01–07.06.2099 · источники не объединены. «Нет записи» не равно нулю.</caption>
+              <thead><tr><th scope="col">Показатель / источник</th><th scope="col">Значение</th><th scope="col">Дата или окно</th><th scope="col">Доступность и смысл</th></tr></thead>
+              <tbody>
+                <tr class="group"><td colspan="4">Ручная запись</td></tr>
+                <tr><td>Вес</td><td>74,2 кг</td><td>07.06.2099, 08:00</td><td>Последнее подтверждённое; 5 измерений за период</td></tr>
+                <tr class="group"><td colspan="4">Garmin · сохранённые данные доступны; свежесть не подтверждена</td></tr>
+                <tr><td>Сон</td><td>7 ч 24 мин</td><td>Пробуждение 07.06.2099</td><td>6 / 7 ночей; 04.06 нет данных</td></tr>
+                <tr><td>Балл сна Garmin</td><td>82 / 100</td><td>Ночь к 07.06.2099</td><td>Оценка провайдера; отдельно от длительности</td></tr>
+                <tr><td>Занятия</td><td>4 сохранено</td><td>01–07.06.2099</td><td>04.06 покрытие неизвестно; полнота периода не подтверждена</td></tr>
+                <tr><td>Пульс в покое</td><td>57 уд/мин</td><td>07.06.2099 · дневное</td><td>6 / 7 дневных значений; не текущий пульс</td></tr>
+                <tr><td>HRV</td><td>41 мс</td><td>Ночь к 06.06.2099 · среднее</td><td>5 / 7 ночей; 04 и 07.06 нет значения</td></tr>
+                <tr><td>Стресс</td><td>28 / 100</td><td>07.06.2099 · 00:00–18:00</td><td>Среднее за неполный день; балл Garmin</td></tr>
+                <tr><td>Body Battery</td><td>64 / 100</td><td>07.06.2099, 18:00</td><td>Последнее наблюдение; балл Garmin</td></tr>
+                <tr class="group"><td colspan="4">Google · отдельный источник, отдельные окна</td></tr>
+                <tr><td>Шаги</td><td>0 шагов</td><td>04.06.2099 · календарный день</td><td>Явно сохранённый ноль; не заполняет пропуск Garmin</td></tr>
+                <tr><td>Пульс</td><td>Нет записи</td><td>01–07.06.2099</td><td>Нет сохранённых измерений; не заменяется пульсом в покое Garmin</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <details class="disclosure" id="technical">
+          <summary>О данных и обозначениях <span class="summary-note">Окна, пропуски, синтетический сценарий</span></summary>
+          <div class="disclosure-content">
+            <p><strong>Это предложение дизайна, не экран приложения.</strong> Все значения, даты и графики придуманы для референса. Они не подтверждают наличие таких записей или новых метрик в продукте. Навигация, кнопки периода и альтернативные даты не выполняют действий. Работают только нативные раскрытия, ⓘ и переход к содержимому.</p>
+            <p><strong>Даты и доступность.</strong> Условное время — 07.06.2099, 18:10, UTC+03:00. Период включает 1–7 июня; последний день ещё не завершён. Сон и HRV относятся к дате пробуждения, занятия — к дате начала. Неудачная проверка свежести Garmin не удаляет сохранённые значения. Пустые интервалы не заполняются нулями или данными другого источника.</p>
+            <p><strong>Графики.</strong> Чёрные точки веса — наблюдения; зелёная линия — вручную заданные средние последних трёх синтетических наблюдений: 74,70 → 74,57 → 74,43 кг. Пунктир пересекает пропуск, не создавая наблюдение. Мини-графики показывают исходные значения в пределах указанного окна и прерываются при пропусках. Пульс: шкала 55–62 уд/мин; HRV: 35–45 мс; стресс и Body Battery: 0–100. Полные числовые ряды доступны в текстовых описаниях SVG. Обведённая точка стресса — неполный день.</p>
+            <p><strong>Интерпретация.</strong> Цвет служит навигации и различению линий. Он не оценивает здоровье. Баллы Garmin не сопоставлены с метриками Google; здесь нет медицинских порогов, диагнозов или вывода о причинах изменений.</p>
+          </div>
+        </details>
+      </div>
+    </main>
+    <footer><span>Health-Check · Overview A+ · один desktop-референс</span><span>Синтетические данные · июнь 2099 · без подключения к сервисам</span></footer>
+  </div>
+</body>
+</html>
