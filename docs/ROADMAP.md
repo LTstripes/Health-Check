@@ -8,39 +8,47 @@ Future ideas not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md
 
 Released foundation in canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness/collection policy, Owner screenshot workflow and the completed reliability/correction slice.
 
-The Owner UI redesign **#189 stages 1–7 is integrated and closed**. The later real-data Owner UAT on `main @ e806d81fc38093931113ab0790cab120cacf8c10` confirmed local deployment and the combined Data/Overview/Weight/Sleep/Activity surfaces, while exposing the next product-detail wave #305–#309. Exact integration/CI and Owner-UAT evidence live in [Current History](EXECUTION_HISTORY_CURRENT.md) and the [2026-10-06 UAT closeout](OWNER_UAT_FOLLOWUP_2026-10-06.md).
+The Owner UI redesign **#189 stages 1–7 is integrated and closed**. The 2026-10-06 UAT created #305–#309; the following integration wave and consolidated Owner UAT reached product checkpoint `29cc9fcf53c508fa5f4994e3170e697726c0514c` on 2026-10-07. #306–#309 are complete; #305 retains one real functional timeout. Exact repository/CI evidence and recorded Owner UAT are separated in [Current History](EXECUTION_HISTORY_CURRENT.md). The [2026-10-06 UAT handoff](OWNER_UAT_FOLLOWUP_2026-10-06.md) is historical, not the current execution queue.
 
 Latest completed work includes:
+- #305 / PR #311: sanitized freshness failure classes, honest extractor configuration and calmer import history are integrated; this does not close the real Stable timeout.
+- #306 / PR #312: responsive human-readable Weight/composition timelines with separate compatibility-group spans.
+- #307 / PR #313: source-explicit Overview v2; the Google display window is bounded and disclosed without narrowing long custom Period Brief ranges.
+- #308 / PR #314: Sleep v2 Garmin / Google / Compare views, one-row Garmin nightly history and evidence-gated comparisons.
+- #309 / PRs #315/#316: Garmin-backed Activity v2, explicit A/B comparison and the real-evidence-backed `tennis_v2` presentation alias; no persisted-code rewrite.
 - #240 / PR #273: per-candidate metadata-origin provenance, legacy-safe replay and strict date-only Owner attestation for screenshots.
 - #247 / PR #278: non-Windows Google purpose-bound AEAD v2, authenticated legacy reads and write-time-only migration; Windows DPAPI unchanged.
 - #248 / PR #276: explicit Period Brief JSON/text stdout with unchanged default output and deterministic packet.
 - #172 / #283 / PR #284: Owner-first Period Brief UX plus measured backend reads. Full-size synthetic median 55.108 s -> 6.520 s with equal packets/hashes; no migration, new index or cache. These are synthetic proxy measurements, not exact Owner Stable timings.
-- #251/#246/#243/#242/#244: completed CI lane/dedup/docs-route, Windows transcript, dependency/security and loopback Host/Origin maintenance. Detailed rollout evidence remains in the [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
+- #251/#246/#243/#242/#244 and #302: completed CI lane/dedup/docs-route, Windows transcript, dependency/security, loopback Host/Origin and deterministic Linux-environment maintenance. Detailed rollout evidence remains in the [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md) and current history.
 - #274 / PR #277: completed measured NO-GO for the tested sync-fixture optimization; no optimization code retained.
 - #148/#238/#256 and earlier durability/runtime maintenance remain complete.
 
-## Current backlog — 2026-10-06
+<a id="current-backlog"></a>
+<a id="current-backlog--2026-10-03"></a>
+<a id="current-backlog--2026-10-06"></a>
 
-Open issues at the post-UAT read-back, excluding pull requests:
+## Current backlog — 2026-10-07
+
+Nine open issues at the live read-back, excluding pull requests: five product follow-ups and four parked/deferred/admin-gated items.
 
 | Issue | Current state | Next bounded action |
 | --- | --- | --- |
-| #305 | Active / assigned | Diagnose Data freshness-check failure first; then simplify import history and prove the Xiaomi upload/review path honestly |
-| #306 | Ready; compatible with #305 if shared CSS ownership is explicit | Human-readable/intermediate time ticks and composition-series clarity; no formula/compatibility changes |
-| #307 | Ready after #305/#306 | Cross-source Overview values with explicit Garmin/Google identity and no pooling |
-| #308 | Ready after #307 | One-row nightly Sleep history, Garmin/Google source views and only semantically compatible comparisons |
-| #309 | Ready after #308 | Real tennis mapping from persisted Garmin evidence and a clear two-session comparison flow; no invented Google Activity |
-| #294 | Valid follow-up | Owner Settings & Context: weight goal + revisioned context through the UI |
-| #295 | Valid follow-up | Measure real Owner route latency before any cache/optimization |
-| #298 | Valid follow-up | Sanitized Garmin stress diagnosis on a disposable verified clone |
+| #305 | OPEN; implementation slice integrated, real UAT timeout reproduced | Diagnose the 15-second persisted-source freshness timeout; no blind timeout increase, provider collection or freshness-policy change |
+| #317 | OPEN; Sleep Owner v3, design review before implementation | Fuller Garmin/Google source-specific nightly views from existing accepted evidence; keep daily vitals separate and comparison semantics unchanged |
+| #318 | OPEN; Activity Owner v3, design review before implementation | Quieter A/B comparison, human durations and useful fields without changing B−A, percent-to-A or missing/zero semantics |
+| #319 | OPEN; evidence inventory first | Sanitized read-only inventory for calories, max HR and separate aerobic/anaerobic effects; decide the smallest supported slice before code/schema/ingestion changes |
+| #294 | OPEN; separately scoped follow-up | Owner Settings & Context: durable weight goal and revisioned context through the UI |
 | #228 | Research accepted / parked | No cross-image semantic auto-merge until trustworthy event identity exists |
 | #167 | Owner-deferred privacy/history operation | Requires explicit freeze/decision before any rewrite |
 | #126 | Owner/admin decision | Recheck required-check/protection capability before settings changes |
 | #105 | NOT_ELIGIBLE | No canonical sleep switch until the accepted device-pair evidence gate is met |
 
-#189/#290/#291/#292/#293/#297/#302 are complete, not active queue items. #153 and #210 remain closed as not planned. Dependabot PRs #270/#271 remain separate unreviewed proposals and must not be merged as documentation cleanup.
+#189/#290/#291/#292/#293/#297/#302/#306/#307/#308/#309 are complete, not active queue items. #295 performance and #298 Stress diagnosis are closed as not planned after consolidated Owner UAT: no currently reported general-latency/Stress symptom justifies the old probes. This is neither measured optimization proof nor a diagnosed Stress fix. #153 and #210 remain closed as not planned.
 
-This is a status map, not an automatic Worker queue. The current presentation/data follow-up order is #305 first, #306 optionally in parallel, then #307 → #308 → #309. Performance, Stress and Settings/Context should use the resulting stable product surface rather than racing it.
+The only open PRs before this documentation closeout are Dependabot #270/#271. They remain separate review proposals and must not be merged as documentation cleanup.
+
+This is a status map, not an automatic Worker queue. Finish documentation reconciliation, then review the Owner's forthcoming Grok/Astra design answers before selecting the next UI direction. #305 remains the functional priority; #319 is an evidence prerequisite for new activity metrics, not an implied parallel assignment. The old #305 + #306 → #307 → #308 → #309 launch sequence is complete/superseded. Existing visual/IA and data contracts stay in force until explicitly changed.
 
 ### Operational disposition
 
@@ -52,7 +60,7 @@ The tested off-site recovery path is a verified ordinary ZIP in the Owner's mate
 
 Workspace cleanup runs daily at 12:00 with a seven-day minimum retention and fail-closed eligibility. Legacy roots such as `D:\Garmin` or old client roots are not in the janitor allowlist and require explicit/manual disposition. This session closeout does not delete local workspaces or change scheduled tasks.
 
-Weight remains operational through screenshots; #229 provides explicit correction/replay semantics and #240 records metadata origins without rewriting legacy history. #153 is closed as not planned; #228 remains parked.
+Weight remains operational through screenshots; #229 provides explicit correction/replay semantics and #240 records metadata origins without rewriting legacy history. #153 is closed as not planned; #228 remains parked. The unconfigured browser extractor observed in #305 is not a failure of the separately accepted screenshot-skill path.
 
 See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner UI](OWNER_UI_SHELL.md), [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md), [Owner Refresh](OWNER_REFRESH.md) and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
 
@@ -126,13 +134,13 @@ One persistent private cross-domain profile, supported backup/restore into dispo
 
 Parent #160 closed after #175 bounded discovery, #180 typed persistence and live replay proof, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT.
 
-No custom Health-Check training/readiness score, medical/coaching claim, VO2 guessing or invented producer attribution. #189 completed the Russian Owner-first Activity foundation; post-UAT Activity refinements are now tracked in #309.
+No custom Health-Check training/readiness score, medical/coaching claim, VO2 guessing or invented producer attribution. #189 completed the Russian Owner-first Activity foundation and #309 completed Activity v2. Further presentation is #318; possible additional metric evidence is separately investigated under #319.
 
 ## Current owner-facing product work
 
 ### Source freshness / data quality
 
-#147/#191/#193 delivered provider-call-free shared freshness from persisted facts. #238 completed explicit collection intent so intentionally disabled streams remain historically truthful/non-actionable without hiding enabled failures or rewriting history. #189 Stage 2 makes Данные the shared source/freshness/import entry point.
+#147/#191/#193 delivered provider-call-free shared freshness from persisted facts. #238 completed explicit collection intent so intentionally disabled streams remain historically truthful/non-actionable without hiding enabled failures or rewriting history. #189 Stage 2 makes Данные the shared source/freshness/import entry point. #305 adds safe failure classification and import-history UX, but the real 15-second freshness timeout still requires diagnosis and a verified fix.
 
 ### Hardware/private Owner gates
 
@@ -142,7 +150,7 @@ No custom Health-Check training/readiness score, medical/coaching claim, VO2 gue
 
 Accepted IA and one frozen visual/language system govern all pages. Stages 1–6 are complete: shared shell, Данные, Обзор, Вес, Сон and Активность. Sleep is primary at `/sleep`; Agreement remains secondary at `/agreement`. No provider/analytics/schema semantics are changed by presentation redesign.
 
-#189 stages 1–7 are integrated and the umbrella is closed. The Owner later deployed `main @ e806d81fc38093931113ab0790cab120cacf8c10` against the real Stable profile and reviewed the combined product. That UAT does not reopen #189; its concrete product findings are split into #305–#309. See [Owner UI](OWNER_UI_SHELL.md) and the [2026-10-06 UAT closeout](OWNER_UAT_FOLLOWUP_2026-10-06.md).
+#189 stages 1–7 and the subsequent #306–#309 wave are integrated. Consolidated Owner UAT on the 2026-10-07 product checkpoint produced the current bounded follow-ups in the backlog above. Neither #317/#318 nor forthcoming design proposals silently reopen the shell or redefine data contracts. See [Owner UI](OWNER_UI_SHELL.md) and [Current History](EXECUTION_HISTORY_CURRENT.md).
 
 ## Engineering maintenance — CI feedback/reliability closeout
 

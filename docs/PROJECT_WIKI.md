@@ -2,18 +2,20 @@
 
 This is the compact current-state entry point. Historical contracts and release evidence remain in release-specific documents and GitHub issues.
 
-## Current canonical state — 2026-10-06
+## Current canonical state — 2026-10-07
 
-- Canonical Git branch: `main @ e806d81fc38093931113ab0790cab120cacf8c10` at this closeout. #189 stages 1–7 are integrated/closed; #292 PR #304 and post-main CI `37512216796` are green. Owner-local deployment and real-data review of this exact main occurred on 2026-10-06 and generated #305–#309.
+- Audited product checkpoint before this documentation closeout: `main @ 29cc9fcf53c508fa5f4994e3170e697726c0514c`. Exact post-main CI `37658045395`, attempt 1, is SUCCESS with quality, all three Linux lanes, Windows smoke and final `checks`. Documentation publication has its own PR/CI record; always read live main before work.
+- #189 stages 1–7 remain integrated/closed. The subsequent wave completed Weight v3 (#306), Overview v2 (#307), Sleep v2 (#308) and Activity v2 (#309, including the evidence-backed `tennis_v2` alias). #305 diagnostics/import presentation is integrated, but its real Stable freshness request still times out after 15 seconds.
+- Consolidated Owner UAT on this product checkpoint is recorded in GitHub. It generated #317–#319 and confirmed the remaining #305 symptom; #295 performance and #298 Stress diagnosis were closed as not planned. This is prior Owner-reported evidence, not a new local test performed by this documentation session.
 - Latest numbered major release remains R05. Post-R05 Runtime, Period Brief, Context v0, Garmin Training/Recovery, source freshness/collection policy, screenshot workflow and reliability/correction work remain canonical.
 - Stable private data: `D:\HealthCheck\stable`; Owner/control checkout: `D:\HealthCheck\main`; local Ops: `D:\HealthCheck\ops`; disposable Owner UAT: `D:\HealthCheck\uat`; agent tasks: `D:\HealthCheck\workspaces\<client>\<issue-or-task>`.
 - #148 practical off-site recovery and #256 filesystem/workspace maintenance are complete; the fail-closed workspace janitor remains the accepted daily cleanup mechanism.
-- The CI/test-maintenance wave is complete: #251 lane balancing, #246 docs-only/exact-tree event dedup, #243 Windows transcript reliability and #242 dependency/security audit. #244 Host/Origin hardening is also complete. #274 retained a measured NO-GO profiling record, not optimization code.
+- The CI/test-maintenance wave is complete: #251 lane balancing, #246 docs-only/exact-tree event dedup, #243 Windows transcript reliability and #242 dependency/security audit. #244 Host/Origin hardening and #302 deterministic Linux environment pinning are also complete. #274 retained a measured NO-GO profiling record, not optimization code.
 - Former follow-ups #240 metadata origins, #247 non-Windows AEAD and #248 Period Brief CLI formats are complete. #172 UX/performance is closed after #189 Stage 3 and #283 backend optimization.
-- Active product follow-ups: #305–#309, plus existing #294 Settings/Context, #295 performance and #298 Stress diagnosis. Parked/deferred/admin-gated items remain #228/#167/#126/#105. Dependabot PRs #270/#271 are separate unreviewed proposals.
+- Nine open issues: five product follow-ups (#305/#317/#318/#319/#294) and four parked/deferred/admin-gated items (#228/#167/#126/#105). Dependabot PRs #270/#271 remain separate review proposals, not accepted changes.
 - Repository visibility remains public at this checkpoint. No settings/history rewrite, local deployment or private UAT is implied by engineering acceptance or this documentation closeout.
 
-See the [current backlog](ROADMAP.md#current-backlog--2026-10-06), [2026-10-06 Owner UAT closeout](OWNER_UAT_FOLLOWUP_2026-10-06.md), [Owner UI](OWNER_UI_SHELL.md), [Owner machine layout](OWNER_MACHINE_LAYOUT.md) and [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
+See the [current backlog](ROADMAP.md#current-backlog), [current integration and UAT history](EXECUTION_HISTORY_CURRENT.md), [historical 2026-10-06 UAT handoff](OWNER_UAT_FOLLOWUP_2026-10-06.md), [Owner UI](OWNER_UI_SHELL.md), [Owner machine layout](OWNER_MACHINE_LAYOUT.md) and [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md).
 
 ## What the product can do today
 
@@ -21,7 +23,7 @@ See the [current backlog](ROADMAP.md#current-backlog--2026-10-06), [2026-10-06 O
 
 The primary sections are **Обзор / Вес / Сон / Активность / Данные** on one frozen Russian visual/state/disclosure system. Overview is `/brief`; Weight remains `/`; Sleep is `/sleep` with secondary `/agreement`; Activity is `/garmin` with Сессии and Тренировки и восстановление modes; Data is `/imports` with source freshness/actions and the existing import review workflow.
 
-Interpretation-changing limitations remain visible; detailed provenance/statistics/internal codes stay accessible behind disclosure. #189 Stage 7 and the subsequent #292 clarity pass are integrated. The 2026-10-06 Owner-local real-data review confirmed the redesigned shell is usable but identified the next product-detail wave: Data #305, Weight #306, Overview #307, Sleep #308 and Activity #309.
+Interpretation-changing limitations remain visible; detailed provenance/statistics/internal codes stay accessible behind disclosure. Sleep v2 has explicit Garmin / Google / Compare views; fuller per-source nightly evidence is the separate #317 follow-up. Activity v2 is honestly Garmin-backed with explicit Session A / Session B selection and evidence-backed tennis labels; #318 owns further presentation refinement. Data history prioritizes pending/action-required imports and folds completed history. Its browser extractor is correctly reported unconfigured on the Owner profile, and the freshness timeout remains an open functional issue, not a successful status check.
 
 ### Weight / body composition
 
@@ -32,16 +34,16 @@ Interpretation-changing limitations remain visible; detailed provenance/statisti
 - Exact attachment replay is duplicate-safe; cross-image event dedup is not implemented (#228).
 - Stage changed-sidecar/provenance corrections for explicit review (#229/#240); reject is non-mutating and confirm preserves revision/supersession history.
 - The openScale/openScale-sync contract remains historical delivered functionality; optional real-device compatibility #153 is closed as not planned. Screenshots are the accepted operational Weight path.
-- Calculate deterministic trends and show the Russian Owner-first Weight page without changing its analytics/canonical policy.
+- Calculate deterministic trends and show the Russian Owner-first Weight page without changing its analytics/canonical policy. #306 adds responsive human-readable time axes and explicit observed spans for separate composition compatibility groups.
 
 ### Garmin
 
 - Protected Owner-assisted session reuse.
 - Incremental sync and historical backfill with coverage/checkpoints/reconciliation.
 - Deterministic scalar baselines/trends, activity/cycling comparison and bounded lagged associations.
-- Russian Owner-first Activity modes over unchanged service/API results, with explicit source/reference selections.
+- Russian Owner-first Activity modes over unchanged service/API results, with explicit A/B selection, stale-response protection and no redundant selector when only one source is usable. `tennis_v2` renders as `Теннис`; persisted codes and analytics equality remain unchanged.
 - Persist Garmin-native Training Status/load/ACWR, Load Focus and Readiness/Recovery with truthful chronology/provenance.
-- Keep Training current through normal Owner refresh and show recent activity Training Effect/load without inventing thresholds or recovery-time units.
+- Keep Training current through normal Owner refresh and show recent activity Training Effect/load without inventing thresholds or recovery-time units. Calories, max HR and separate aerobic/anaerobic effects require the #319 evidence inventory before any new metric contract or display claim.
 
 ### Google Health
 
@@ -57,7 +59,7 @@ The bare CLI default still includes sample HR. The local Scheduler/Ops wrapper a
 ### Cross-domain reporting
 
 - Deterministic Period Brief over Weight, sleep, activity and data quality, with stable result hash.
-- Russian Owner-first Overview with meaningful sleep labels/units/counts and action grouping, without pooling comparison statistics or changing the packet.
+- Overview v2 shows Garmin/Google values with explicit source identity, dates and missing states, without pooling or changing the packet. For custom periods over 400 days, only the Google daily-vitals display read is bounded to the trailing 400 inclusive days with visible exact scope; the Period Brief and Garmin retain the full selected period (#307).
 - Thin API/text/CLI rendering, limited-encoding stdout (#203) and explicit `period-brief --format json|text` (#248).
 - Coherent Weight/Period Brief compound SQLite reads and clean ORM cache alignment (#227).
 - Shared source-freshness projection from #147/#191/#193/#238, not duplicated UI thresholds.
@@ -101,11 +103,11 @@ Detailed rollout evidence and limitations are in [CI Optimization Closeout — 2
 
 ## Next work
 
-#305 is the immediate functional follow-up because the real Owner profile still shows a failed persisted-source freshness request on Data. Its diagnosis must distinguish endpoint/runtime failure from client validation without changing freshness semantics or touching Stable directly.
+#305 needs root-cause diagnosis of the observed 15-second freshness timeout, not another unqualified request to repeat the already-performed UAT. Keep the freshness policy unchanged; use a disposable verified clone or sanitized timing/query-count evidence. Do not increase the timeout blindly or call providers to mask a persisted-read problem.
 
-#306 Weight timelines can proceed in parallel with #305 if ownership of shared CSS remains explicit; its core work is chart/date presentation and does not require Data/source-freshness changes. After those two, run #307 → #308 → #309 sequentially because Overview/Sleep/Activity may share Owner presentation/templates and because each later surface should consume the settled source presentation.
+Before launching #317 Sleep v3 or #318 Activity v3, review the Owner's forthcoming Grok/Astra design feedback and settle the smallest compatible scope. The existing visual/IA contract remains in force until an explicit decision changes it. #319 is evidence-first research, not authorization to add fields, guess units or extend ingestion; #294 Settings & Context remains separately scoped.
 
-Keep #294 Settings & Context, #295 real-route performance and #298 Garmin stress diagnosis as valid follow-ups after the current UI/data wave. #228 remains parked, #167 Owner-deferred, #105 NOT_ELIGIBLE and #126 an Owner/admin decision. Broad dependency/action updates #270/#271 require separate review and are not housekeeping merges.
+#306–#309 are complete. #295 and #298 are closed as not planned after consolidated Owner UAT, not unfinished measurement/diagnostic gates. The [roadmap](ROADMAP.md#current-backlog) keeps parked/admin work and the two Dependabot proposals separate. This status map does not start any Worker automatically.
 
 Before updating local code, verify idle relevant Owner processes and a clean accepted checkout. Do not switch/pull while refresh or dependent runtime processes use that checkout. GitHub publication and local deployment remain separate.
 

@@ -19,7 +19,7 @@ Canonical source: `main`. Repository integration and Owner-local deployment are 
 - **Owner screenshot workflow:** Xiaomi screenshot -> repo skill `health-weight-screenshot-import` -> Owner-assisted structured extraction -> existing R01 photo pipeline -> Stable; OLD/NEW/exact-replay Owner gate PASS (#217/#219/#221). #240 adds durable visible/Owner-attested/workflow-profile/unknown metadata origins and date-only attestation without rewriting legacy provenance.
 - **Safety/reliability:** screenshot algorithm identity (#226), coherent compound reads (#227), privacy test oracle (#233), Windows cleanup/CI provenance (#181/#243), reviewable changed-sidecar corrections (#229), UI Host/Origin validation (#244) and non-Windows Google AEAD v2 with unchanged Windows DPAPI (#247).
 - **Automatic selected-stream collection:** #214 accepted an Owner-reported automatic/logon run with a complete successful report and Task Scheduler result 0; #238 subsequently completed explicit collection-policy/freshness semantics.
-- **Owner UI / post-redesign Owner flow:** #189 stages 1–7 are integrated and closed. Subsequent fixes delivered Data persistence (#290), Overview/Sleep evidence semantics (#291), Weight v2 (#293), source-explicit Google daily vitals (#297), Owner clarity cleanup (#292) and deterministic Linux CI environment pinning (#302). Owner-local deployment/UAT on `main @ e806d81fc38093931113ab0790cab120cacf8c10` confirmed the combined product on real Stable data and produced bounded follow-ups #305–#309 rather than reopening #189.
+- **Owner UI / post-redesign Owner flow:** #189 stages 1–7 are integrated and closed. The post-UAT wave delivered Data diagnostics/import-history presentation (#305, functional timeout still open), Weight v3 timelines (#306), source-explicit Overview v2 (#307), Sleep v2 Garmin / Google / Compare views (#308) and Garmin-backed Activity v2 with explicit A/B comparison and the evidence-proven `tennis_v2` label (#309). The 2026-10-07 consolidated Owner UAT produced bounded follow-ups rather than reopening the shell or treating every screen as unconditionally accepted.
 - **Period Brief output/performance:** explicit `period-brief --format json|text` preserves default behavior and packet identity (#248). Measured bounded backend reads improve the full-size synthetic build from 55.108 s to 6.520 s with equal packets/hashes, without a migration, new index or cache (#283); this is not an Owner Stable timing promise.
 
 R04 release lineage:
@@ -32,21 +32,13 @@ R04 release lineage:
 
 The final R04 owner gate proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations. This is historical R04 evidence, not the current migration-head claim.
 
-## Current focus — 2026-10-06
+## Current focus — 2026-10-07
 
-The main product track is the **post-redesign Owner iteration** created by the real-data UAT on `main @ e806d81fc38093931113ab0790cab120cacf8c10`:
+The completed UI/UAT wave is now the product baseline, not a queue to repeat. The immediate functional follow-up is #305: the real Stable freshness check now reports a precise `timeout` after 15 seconds, but its cause and fix are not yet established. Browser photo recognition is correctly shown as unconfigured; the accepted screenshot workflow remains separate.
 
-- #305 Data v2 — diagnose the failing persisted-source freshness check and simplify photo-import history/flow;
-- #306 Weight v3 — readable time axes and clearer composition-series spans;
-- #307 Overview v2 — useful Garmin/Google summary without silent pooling;
-- #308 Sleep v2 — one nightly row plus Garmin / Google / Compare views;
-- #309 Activity v2 — honest Garmin-only scope today, real tennis labels and usable two-session comparison.
+Next product decisions concern fuller Sleep source views (#317), quieter Activity comparison (#318), evidence-first activity metric inventory (#319) and Settings & Context (#294). Review the Owner's forthcoming design feedback before launching the next UI implementation. #295 performance and #298 Stress diagnosis are closed as not planned after the current symptoms were no longer reported; this is not a measured optimization or root-cause proof.
 
-#305 is the first functional blocker and is already assigned. #306 is structurally independent enough to work in parallel if shared CSS ownership stays explicit; #307/#308/#309 should follow sequentially because they can overlap common Owner presentation/templates.
-
-Existing #294 Settings & Context, #295 measured UI performance and #298 Garmin stress diagnosis remain valid follow-ups after the current presentation/data wave. #228 stays parked, #167 Owner-deferred, #126 an Owner/admin required-check decision and #105 NOT_ELIGIBLE. Dependabot PRs #270/#271 remain separate review proposals, never housekeeping merges.
-
-See the [2026-10-06 Owner UAT closeout](docs/OWNER_UAT_FOLLOWUP_2026-10-06.md), [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md), [roadmap](docs/ROADMAP.md), [Owner UI routes and visual contract](docs/OWNER_UI_SHELL.md), [CI optimization closeout](docs/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md) and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md). GitHub merges still do not update the local Owner checkout or restart its runtime.
+Use the [current backlog](docs/ROADMAP.md#current-backlog) for the complete queue, including parked/admin-gated work and the separate Dependabot proposals. Exact integration evidence and recorded Owner UAT are in [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md); the [2026-10-06 UAT handoff](docs/OWNER_UAT_FOLLOWUP_2026-10-06.md) is retained as a historical snapshot. See also [Owner UI routes and visual contract](docs/OWNER_UI_SHELL.md), [CI optimization closeout](docs/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md) and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md). GitHub merges still do not update the local Owner checkout or restart its runtime.
 
 ## Architecture in one minute
 

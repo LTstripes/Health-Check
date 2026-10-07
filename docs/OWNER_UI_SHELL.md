@@ -2,19 +2,18 @@
 
 The shared interface follows the [accepted IA](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5854312903)
 and the [frozen visual system](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5979374375).
-Stages 1–6 are integrated: shell, Data, Overview, Weight, Sleep and Activity.
-Stage 7 is integrated and #189 is closed. The later 2026-10-06 Owner-local real-data review of `main @ e806d81fc38093931113ab0790cab120cacf8c10` confirmed deployment and created post-redesign follow-ups #305–#309; those issues do not reopen the frozen shell/IA contract.
-Exact implementation/CI checkpoints live in [Current History](EXECUTION_HISTORY_CURRENT.md).
+Stages 1–7 are integrated and #189 is closed. The post-UAT Weight v3, Overview v2, Sleep v2 and Activity v2 wave (#306–#309) is also integrated. #305 diagnostics/import presentation is integrated, with the real freshness timeout still open. Consolidated Owner UAT on 2026-10-07 generated the next bounded follow-ups; it does not silently reopen the frozen shell/IA contract.
+Exact implementation/CI checkpoints and recorded Owner UAT live in [Current History](EXECUTION_HISTORY_CURRENT.md).
 
 ## Navigation and current routes
 
 | Primary section | Route | Current surface |
 | --- | --- | --- |
-| Обзор | `/brief` | За период: deterministic Period Brief summary, notable facts, actions and limitations |
-| Вес | `/` | Current confirmed weight, trend/change, configured goal, coverage and body composition |
-| Сон | `/sleep` | Selected wake-date night and 30-day history |
+| Обзор | `/brief` | За период: deterministic Period Brief plus source-explicit Garmin/Google values, facts, actions and limitations |
+| Вес | `/` | Current confirmed weight, trend/change, configured goal, readable timelines and separate composition-group spans |
+| Сон | `/sleep` | Garmin / Google / Compare views; selected wake-date Garmin night/history and separate source-explicit Google daily vitals |
 | Сон, secondary mode | `/agreement` | Exploratory Garmin/Google comparison and diagnostic evidence |
-| Активность | `/garmin#activity-journal` | Сессии: latest saved sessions and reference-session comparison |
+| Активность | `/garmin#activity-journal` | Сессии: saved Garmin sessions and explicit Session A / Session B comparison |
 | Активность, secondary mode | `/garmin#training-recovery` | Тренировки и восстановление: Garmin snapshots, period series and exploratory lagged associations |
 | Данные | `/imports` | Source freshness/actions plus the existing upload/review queue; batch details remain under `/imports/{id}` |
 
@@ -70,6 +69,11 @@ remains exploratory and cannot choose a canonical source. Activity uses existing
 results, with explicit source/reference selections; it does not add load/readiness
 thresholds, recovery-time units, causal claims or a best-lag ranking.
 
+The integrated post-UAT views preserve these boundaries:
+- #307 bounds only the Google daily-vitals display read to the trailing 400 inclusive days for longer custom periods and visibly discloses that scope; the full Period Brief/Garmin period is unchanged.
+- #308 Compare consumes only compatible accepted persisted Agreement evidence. Daily auxiliary values are not relabelled within-sleep measurements, and a source tab does not establish feature parity; fuller nightly source views belong to #317.
+- #309 keeps B−A and percent-to-A semantics, blocks comparing a session with itself and clears stale pair evidence. Only the evidenced `tennis_v2` alias becomes `Теннис`; no generic `_v2` normalization or persistence change is authorized.
+
 ## Responsive and request behavior
 
 The sticky paper top bar has a hairline and an active-item underline. At <=800px navigation
@@ -79,23 +83,33 @@ Tables retain real table layout and sticky muted headers. Responsive overrides f
 rules; narrow comparison tables remain locally scrollable rather than expanding the page.
 
 Data reuses persisted source-freshness evaluation and separates source status from provider
-calls. Activity panel submissions clear prior results/evidence, expose loading/error
-states and reject late completions from older requests. Stage 7 repository acceptance is complete. The later Owner-local UAT is the stronger product-use signal for current follow-up work: concrete Data/Weight/Overview/Sleep/Activity findings live in #305–#309 rather than in another generic acceptance stage.
+calls. #305 exposes sanitized request-failure classes and honest extractor configuration;
+its observed real Stable `timeout` after 15 seconds is not a healthy freshness result.
+Activity panel submissions clear prior results/evidence, expose loading/error states and
+reject late completions from older requests. A single usable Garmin source does not need
+a redundant selector; multiple sources still require explicit selection.
 
 ## Verification and post-UAT follow-up
 
 Narrow Chromium checks are retained as `scripts/check_owner_{data,brief,weight,sleep,activity}_browser.cjs`.
 The Weight check caught an initial-render temporal-dead-zone error before Stage 4 acceptance;
 the render call now follows its state-map declarations. Per-stage focused tests and exact
-candidate/PR/main CI are recorded in #189.
+candidate/PR/main CI are recorded in #189 and the subsequent #305–#309 issue/PR records.
 
-Stage 7 and #292 are integrated. The accepted repository checkpoint for this document is
-`main @ e806d81fc38093931113ab0790cab120cacf8c10`; PR #304 and post-main CI
-`37512216796` are green. Repository gates still do not substitute for Owner-local use.
+Audited product checkpoint before this documentation closeout:
+`main @ 29cc9fcf53c508fa5f4994e3170e697726c0514c`; exact post-main CI
+`37658045395`, attempt 1, is SUCCESS. The documentation change has separate gates.
+Repository gates still do not substitute for Owner-local use.
 
-The Owner subsequently deployed that exact main against `D:\HealthCheck\stable` and performed
-a real-data review. The frozen shell/IA remains accepted; concrete product refinements are now
-tracked in #305 Data, #306 Weight, #307 Overview, #308 Sleep and #309 Activity. Reuse existing
-browser checks and add focused cases for those findings rather than recreating a generic Stage 7.
+The consolidated Owner UAT on this product checkpoint is already recorded in GitHub:
+#305 remains a real timeout; #317/#318 capture further Sleep/Activity presentation needs;
+#319 gates new activity metrics on evidence. #295/#298 were closed as not planned rather
+than kept as mandatory private probes. No new browser or private-runtime UAT was performed
+by the documentation reconciliation itself.
 
-See [Owner UAT follow-up — 2026-10-06](OWNER_UAT_FOLLOWUP_2026-10-06.md).
+Review the Owner's forthcoming design answers before the next UI implementation. Until
+an explicit decision is recorded, the frozen tokens, IA and evidence contracts above remain
+unchanged. Reuse existing browser checks with focused new cases rather than recreating Stage 7.
+
+See [Current History](EXECUTION_HISTORY_CURRENT.md), the [current backlog](ROADMAP.md#current-backlog)
+and the [historical Owner UAT handoff — 2026-10-06](OWNER_UAT_FOLLOWUP_2026-10-06.md).
