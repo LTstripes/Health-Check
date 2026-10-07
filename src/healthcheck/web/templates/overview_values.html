@@ -30,6 +30,19 @@
   </div>
 {% endmacro %}
 
+<p class="overview-source overview-secondary-window">Дополнительные показатели · окно Garmin {{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }}</p>
+<section class="overview-secondary" aria-label="Дополнительные показатели Garmin">
+  {% for code, unit in [('resting_heart_rate_bpm', 'уд/мин'), ('hrv_weekly_average_ms', 'мс'), ('stress_daily_average', 'баллы'), ('body_battery', 'баллы')] %}
+  {% set cell = overview.garmin.get(code) %}
+  <article><h3>{{ cell.label if cell else {'resting_heart_rate_bpm': 'Пульс в покое', 'hrv_weekly_average_ms': 'HRV · среднее за неделю', 'stress_daily_average': 'Стресс Garmin · среднее за день', 'body_battery': 'Body Battery Garmin · последний снимок'}[code] }}</h3>
+    <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>
+    {{ garmin_cell(code, unit) }}
+    <p class="overview-source">{% if cell and cell.value is not none %}Одно последнее доступное наблюдение; история не показана.{% else %}Нет однозначного пригодного наблюдения.{% endif %}</p>
+  </article>
+  {% endfor %}
+</section>
+<details class="owner-details overview-all-sources"><summary>Все показатели по источникам</summary>
+<p class="muted">Окно Garmin: {{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }}. Дата каждого наблюдения показана отдельно; она не подтверждает ежедневное покрытие.</p>
 <section class="card overview-vitals" data-overview-vitals>
   <h2>Показатели Garmin и Google</h2>
   {% if overview.google.window_limited %}
@@ -84,3 +97,5 @@
   {% elif source_selection.status == 'require_selection' %}<p>Тренировки Garmin: выбери источник выше.</p>
   {% else %}<p class="muted">Garmin: нет сохранённых показателей тренировок и восстановления.</p>{% endif %}
 </section>
+
+</details>

@@ -32,6 +32,7 @@ from healthcheck.logging import log_event
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
+from healthcheck.web.overview_charts import read_overview_charts
 from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import owner_date, owner_number
 from healthcheck.web.period_brief_query import PeriodBriefService
@@ -953,6 +954,10 @@ def period_brief_page(
                 session, start=start, end=end,
                 selected_id=source_selection.get("selected_source_id"),
             )
+            charts = read_overview_charts(
+                session, request.app.state.settings, packet=result["packet"],
+                selected_id=source_selection.get("selected_source_id"),
+            )
     except GarminQueryError as exc:
         return render_error(
             request, code=exc.code, message=exc.message, status_code=exc.status_code
@@ -985,6 +990,8 @@ def period_brief_page(
                 for item in overview["google"]["sources"] for cell in item["metrics"].values()
             ) or overview["training"]["status"] == "available",
             "overview": overview,
+            "charts": charts,
+            "metric_value": metric_value,
             "overview_number": overview_number,
             "google_vital_source_label": google_vital_source_label,
             "google_vital_cell_state": google_vital_cell_state,

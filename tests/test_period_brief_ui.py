@@ -997,3 +997,181 @@ def test_overview_v2_weight_rate_precision_only_changes_display(value, expected)
     note = {"code": "weight_rate", "value": value, "unit": "kg/week"}
     assert _brief_note_value(note, {}) == f"{expected} кг/нед."
     assert note["value"] == value
+
+
+def seed_overview_a_plus(paths):
+    """Persisted, deliberately sparse A+ history; no account-backed calls."""
+    from healthcheck.db.engine import session_scope
+    from healthcheck.garmin.normalization import garmin_source_identity
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repository = GarminPersistenceRepository(
+                session, payload_store=ContentAddressedGarminPayloadStore(paths.root / 'artifacts')
+            )
+            payloads = [('activity', {'activities': [
+                {'activityId': f'a-plus-{day}', 'calendarDate': f'2099-01-{day:02d}',
+                 'startTimeGMT': f'2099-01-{day:02d}T08:00:00Z',
+                 'activityType': {'typeKey': 'cycling'}, 'duration': 1800}
+                for day in (1, 3, 7)
+            ]})]
+            for day, duration in ((1, 25200), (3, 27000), (5, 0), (7, 26400)):
+                payloads.append(('sleep', {'dailySleepDTO': {
+                    'calendarDate': f'2099-01-{day:02d}', 'sleepTimeSeconds': duration,
+                    'sleepScores': {'overall': {'value': 0 if day == 5 else 80}},
+                }}))
+            for stream, payload in payloads:
+                repository.persist_result(
+                    normalize_garmin_payload(payload, stream=stream,
+                        source_identity=garmin_source_identity(source_kind='provider')),
+                    payload=payload, received_at=datetime(2099, 1, 9, tzinfo=UTC),
+                )
+    finally:
+        engine.dispose()
+
+
+def seed_a_plus_weight(client):
+    from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
+    from test_dashboard_ui import _confirm_all_pending
+
+    for day, value in ((1, 74.8), (2, 74.6), (4, 74.7), (5, 74.4), (7, 74.2)):
+        png = encode_synthetic_png(weigh_in_payload(
+            source_local_date=date(2099, 1, day), weight_kg=value, body_fat_pct=24.4,
+        ))
+        response = client.post('/api/imports/photos',
+                               files=[('files', (f'a-plus-{day}.png', png, 'image/png'))])
+        assert response.status_code == 200
+        _confirm_all_pending(client, response.json()['id'])
+
+
+def test_a_plus_coordinates_use_calendar_gaps_and_unchanged_trend():
+    from healthcheck.web.overview_charts import dated_chart
+
+    chart = dated_chart([
+        {'date': '2099-01-01', 'value': 75, 'trend': 75, 'state': 'present'},
+        {'date': '2099-01-02', 'value': 74, 'trend': 74.9, 'state': 'present'},
+        {'date': '2099-01-05', 'value': 73, 'trend': 74.8, 'state': 'present'},
+    ], start=date(2099, 1, 1), end=date(2099, 1, 7))
+    points = chart['points']
+    assert points[2]['x'] - points[1]['x'] == pytest.approx(
+        3 * (points[1]['x'] - points[0]['x']), abs=.03)
+    assert len(chart['segments']) == 1  # No line across the missing Jan 3-4.
+    assert chart['gaps'][0]['start'] == '2099-01-03'
+    assert chart['gaps'][0]['end'] == '2099-01-04'
+    assert [p['trend'] for p in points] == [75, 74.9, 74.8]
+
+
+def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path):
+    from copy import deepcopy
+
+    from healthcheck.db.engine import session_scope
+    from healthcheck.web.overview_charts import read_overview_charts
+    from healthcheck.web.period_brief_query import PeriodBriefService
+    from healthcheck.web.query import WeightQueryService
+    from test_dashboard_ui import _ui as create_fixture
+
+    app, settings, paths = create_fixture(tmp_path)
+    seed_overview_a_plus(paths)
+    with TestClient(app, base_url='http://127.0.0.1:8120',
+                    headers={'Origin': 'http://127.0.0.1:8120'}) as client:
+        seed_a_plus_weight(client)
+        page = client.get('/brief?start_date=2099-01-01&end_date=2099-01-07')
+        assert page.status_code == 200
+        charts = page.context['charts']
+        assert charts['weight_current']['value_kg'] == 74.2
+        assert len(charts['weight']['points']) == 5
+        assert charts['sleep_latest']['sleep_duration_seconds']['date'] == '2099-01-07'
+        assert charts['sleep_latest']['sleep_duration_seconds']['value'] == 26400
+        assert next(p for p in charts['sleep']['points'] if p['date'] == '2099-01-05')['value'] == 0
+        assert charts['activity']['points'][1]['value'] is None
+        assert charts['activity']['points'][0]['value'] == 1
+        assert page.context['packet']['sections']['activity']['coverage']['sessions_in_period'] == 3
+        assert 'EWMA, 21 день' in page.text
+        assert 'Все показатели по источникам' in page.text
+        assert page.text.count('class="overview-info"') == 3
+        assert page.context['charts']['sleep_error'] is False
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            service = PeriodBriefService(session, settings)
+            result = service.build_with_render(start_date=date(2099, 1, 1),
+                                               end_date=date(2099, 1, 7), thin_display=True)
+            original = deepcopy(result)
+            source = service.garmin.resolve_source(None)['selected_source_id']
+            projection = read_overview_charts(session, settings, packet=result['packet'],
+                                             selected_id=source)
+            assert result == original  # Every value and both packet hashes stay untouched.
+            direct = WeightQueryService(session, settings).summary(
+                start_date=date(2099, 1, 1), end_date=date(2099, 1, 7))
+            assert projection['weight_trend'] == direct['trend']
+            assert [p['trend'] for p in projection['weight']['points']] == [
+                p['trend_kg'] for p in direct['trend']['points']]
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize('complete', [False, True])
+def test_a_plus_activity_strip_uses_full_packet_and_requires_coverage_for_zero(
+    tmp_path, complete,
+):
+    from healthcheck.db.engine import session_scope
+    from healthcheck.web.overview_charts import read_overview_charts
+    from healthcheck.web.period_brief_query import PeriodBriefService
+    from test_garmin_query_dashboard import _ui as create_fixture
+
+    _, settings, paths = create_fixture(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            result = PeriodBriefService(session, settings).build_with_render(
+                start_date=date(2099, 1, 1), end_date=date(2099, 1, 7), thin_display=True)
+            section = result['packet']['sections']['activity']
+            section['sessions'] = [{'source_local_date': '2099-01-01'} for _ in range(15)]
+            section['coverage']['acquisition']['complete'] = complete
+            charts = read_overview_charts(session, settings, packet=result['packet'],
+                                          selected_id=None)
+            assert charts['activity']['points'][0]['value'] == 15
+            assert charts['activity']['points'][1]['value'] == (0 if complete else None)
+    finally:
+        engine.dispose()
+
+
+def test_a_plus_sleep_reuses_ambiguity_guard_and_keeps_partial_and_score_dates(
+    tmp_path, monkeypatch,
+):
+    from healthcheck.db.engine import session_scope
+    from healthcheck.web.garmin_query import GarminQueryService
+    from healthcheck.web.overview_charts import read_overview_charts
+    from healthcheck.web.period_brief_query import PeriodBriefService
+    from test_garmin_query_dashboard import _ui as create_fixture
+
+    _, settings, paths = create_fixture(tmp_path)
+    seed_overview_a_plus(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            service = PeriodBriefService(session, settings)
+            packet = service.build(start_date=date(2099, 1, 1), end_date=date(2099, 1, 7))
+            selected = service.garmin.resolve_source(None)['selected_source_id']
+            points = [
+                {'analytic_date': '2099-01-02', 'value': 0, 'status': 'zero'},
+                {'analytic_date': '2099-01-03', 'value': 120, 'status': 'partial'},
+                {'analytic_date': '2099-01-04', 'value': 240, 'status': 'usable'},
+                {'analytic_date': '2099-01-04', 'value': 360, 'status': 'usable'},
+                {'analytic_date': '2099-01-05', 'value': 999, 'status': 'excluded'},
+            ]
+            monkeypatch.setattr(GarminQueryService, 'scalar_series', lambda self, **kw: {
+                'points': points if kw['metric_code'] == 'sleep_duration_seconds' else [
+                    {'analytic_date': '2099-01-01', 'value': 80, 'status': 'usable'}]})
+            charts = read_overview_charts(session, settings, packet=packet, selected_id=selected)
+            assert charts['sleep_latest']['sleep_duration_seconds'] == {
+                'date': '2099-01-03', 'state': 'partial', 'value': 120, 'ambiguous': False}
+            assert charts['sleep_latest']['sleep_score']['date'] == '2099-01-01'
+            assert charts['sleep_newer_unusable'] is True
+            by_day = {p['date']: p for p in charts['sleep']['points']}
+            assert by_day['2099-01-02']['value'] == 0
+            assert by_day['2099-01-04']['value'] is None and by_day['2099-01-04']['ambiguous']
+            assert by_day['2099-01-05']['value'] is None
+    finally:
+        engine.dispose()

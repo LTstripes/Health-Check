@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% import "owner_ui.html" as owner_ui %}
 {% block title %}Обзор за период — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/overview.css">{% endblock %}
 {% block content %}
+<div class="overview-a-plus">
 {% set weight = brief.sections.weight %}
 {% set sleep = brief.sections.sleep %}
 {% set activity = brief.sections.activity %}
@@ -11,20 +13,29 @@
 {% set source_status = brief_source_status(brief) %}
 {% set notable_changes = brief_notable_changes(brief.notable_changes) %}
 {% set actions = brief_owner_actions(brief.owner_actions) %}
+{% set action_row = namespace(items=[]) %}
+{% for action in brief.owner_actions %}
+  {% if action.code != 'source_freshness_attention' or action.reason_code in ['reauth_required', 'refresh_overdue', 'expected_evidence_absent', 'refresh_failed'] %}
+    {% set action_row.items = action_row.items + [action] %}
+  {% endif %}
+{% endfor %}
+{% set urgent_actions = brief_owner_actions(action_row.items) %}
 {% set google_scope = 'в окне Google' if overview.google.window_limited else 'в выбранном периоде' %}
 
 {% macro value_text(fact) -%}
 {{ brief_owner_value(fact.value, fact.unit, fact.availability, fact.code) }}
 {%- endmacro %}
 
-<section class="card brief-controls" aria-labelledby="brief-period-heading">
-  <h2 id="brief-period-heading">Выбранный период</h2>
+{% macro freshness_note(scope) %}
+  {% set freshness = quality.get('coverage', {}).get('freshness', {}) %}
+  {% for item in freshness.get('owner', {}).get('actionable_items', []) + freshness.get('optional_details', []) + freshness.get('not_requested_required', []) if item.scope_key == scope %}
+    {% if item.state in ['stale', 'unknown', 'unavailable', 'not_requested'] %}<p class="overview-warning">Свежесть: {{ {'stale': 'данные устарели', 'unknown': 'неизвестна', 'unavailable': 'данные недоступны', 'not_requested': 'данные не запрашивались'}[item.state] }}. Сохранённые значения не подтверждают обновление.</p>{% endif %}
+  {% endfor %}
+{% endmacro %}
+
+<section class="brief-controls" aria-labelledby="brief-period-heading">
+  <h2 id="brief-period-heading" class="visually-hidden">Выбранный период</h2>
   <p class="brief-period">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span></p>
-  <p class="muted" data-overview-sources>Вес: {{ brief_owner_state(weight.state) }} ·
-    Garmin: {% if source_selection.status == 'selected' %}{{ brief_source_label(source_selection.selected_source) }}{% elif source_selection.status == 'require_selection' %}нужен выбор источника{% else %}источник не сохранён{% endif %} ·
-    Google: {% if overview.google.sources %}источников с текущими записями {% if overview.google.window_limited %}в окне Google{% else %}в периоде{% endif %} — {{ overview.google.sources | length }}{% else %}нет текущих записей {{ google_scope }}{% endif %}.
-    {% if overview.google.window_limited %}Окно Google: {{ overview.google.start_date | owner_date }} → {{ overview.google.end_date | owner_date }}.{% endif %}
-  </p>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
     <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
@@ -38,6 +49,11 @@
     <button type="submit">Применить период</button>
   </form>
   </details>
+  <p class="muted" data-overview-sources>Вес: {{ brief_owner_state(weight.state) }} ·
+    Garmin: {% if source_selection.status == 'selected' %}{{ brief_source_label(source_selection.selected_source) }}{% elif source_selection.status == 'require_selection' %}нужен выбор источника{% else %}источник не сохранён{% endif %} ·
+    Google: {% if overview.google.sources %}источников с текущими записями {% if overview.google.window_limited %}в окне Google{% else %}в периоде{% endif %} — {{ overview.google.sources | length }}{% else %}нет текущих записей {{ google_scope }}{% endif %}.
+    {% if overview.google.window_limited %}Окно Google: {{ overview.google.start_date | owner_date }} → {{ overview.google.end_date | owner_date }}.{% endif %}
+  </p>
   {% if source_selection.sources | length > 1 %}
   <details class="owner-details brief-source"{% if source_selection.status == "require_selection" %} open{% endif %}>
     <summary>Источник Garmin{% if source_selection.status == "selected" %}: {{ brief_source_label(source_selection.selected_source) }}{% endif %}</summary>
@@ -66,6 +82,12 @@
   {% else %}<p class="muted">Источник Garmin не сохранён. <a href="/imports">Проверить источники</a></p>{% endif %}
 </section>
 
+  {% if urgent_actions %}<section class="card brief-priority" aria-labelledby="brief-actions-heading">
+    <h2 id="brief-actions-heading">Что нужно сделать</h2>
+    <ul>{% for action in urgent_actions %}<li>{{ action.text }}{% if action.contexts %} <span class="muted">{{ action.contexts | join(' · ') }}.</span>{% endif %}
+ <a href="{{ action.link }}">{{ action.link_label }}</a></li>{% endfor %}</ul>
+
+  </section>{% endif %}
 {% if not brief_has_usable_evidence %}
 <section class="card brief-empty-state" role="status">
   <h2>За выбранный период нет доступных данных</h2>
@@ -73,29 +95,7 @@
 </section>
 {% endif %}
 
-<section class="card brief-overview" aria-labelledby="brief-overview-heading">
-  <h2 id="brief-overview-heading">Главное</h2>
-  <ul class="brief-overview-list">
-    {% for name, section, url in [('Вес', weight, '/'), ('Сон', sleep, '/sleep'), ('Активность Garmin', activity, '/garmin')] %}
-    <li><h3><a href="{{ url }}">{{ name }}</a></h3>{{ owner_ui.state_chip(section.state, false) }}
-      {% for fact in brief_primary_facts(section) %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.observed_date %} <span class="muted">· {{ fact.observed_date | owner_date }}</span>{% endif %}{% if fact.reason and fact.availability != 'present' %} <span class="muted">{{ brief_owner_reason(fact.reason) }}</span>{% endif %}</p>{% endfor %}
-      {% if name == 'Сон' %}<p class="muted">Ночи Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>{% endif %}
-      {% if name == 'Вес' %}<details class="owner-details brief-records"><summary>Измерения веса</summary>      <div class="table-scroll" role="region" aria-label="Измерения веса, прокрутка таблицы" tabindex="0">
-      <table><thead><tr><th>Дата</th><th>Вес, кг</th></tr></thead><tbody>
-        {% for point in weight.display_points %}<tr><td>{{ point.observed_date | owner_date }}</td><td>{{ overview_number(point.median_kg) if point.median_kg is not none else '—' }}</td></tr>{% else %}<tr><td colspan="2">Weight: нет отображаемых измерений.</td></tr>{% endfor %}
-      </tbody></table></div>
-      {% if weight.display_thinning %}<p class="muted">Для удобства показаны {{ weight.display_points | length }} из {{ weight.display_thinning.original_point_count }} точек; расчёты не изменены.</p>{% endif %}
-</details>
-      {% elif name == 'Активность Garmin' %}<details class="owner-details brief-records"><summary>Записи активностей</summary>      <div class="table-scroll" role="region" aria-label="Активности, прокрутка таблицы" tabindex="0">
-      <table><thead><tr><th>Дата</th><th>Тип</th></tr></thead><tbody>
-        {% for session in activity.sessions %}<tr><td>{{ session.source_local_date | owner_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td></tr>{% else %}<tr><td colspan="2">Garmin: нет отображаемых активностей.</td></tr>{% endfor %}
-      </tbody></table></div>
-      {% if activity.display_thinning %}<p class="muted">Показаны последние {{ activity.sessions | length }} из {{ activity.display_thinning.original_session_count }} активностей.</p>{% endif %}
-</details>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-</section>
+{% include 'overview_primary.html' %}
 
 {% include 'overview_values.html' %}
 
@@ -105,18 +105,14 @@
     <ul>{% for note in notable_changes %}<li>{{ brief_owner_note(note) }}{% if note.value is defined and note.value is not none %} {{ brief_note_value(note, brief) }}{% endif %}</li>{% endfor %}</ul>
 
   </section>{% endif %}
-  {% if actions %}<section class="card brief-priority" aria-labelledby="brief-actions-heading">
-    <h2 id="brief-actions-heading">Что нужно сделать</h2>
-    <ul>{% for action in actions %}<li>{{ action.text }}{% if action.contexts %} <span class="muted">{{ action.contexts | join(' · ') }}.</span>{% endif %} <a href="{{ action.link }}">{{ action.link_label }}</a></li>{% endfor %}</ul>
-
-  </section>{% endif %}
 </div>
 
-{% if coverage_warning or source_status %}
+{% if coverage_warning or source_status or actions %}
 <details class="owner-details brief-limitations">
   <summary>Состояние источников и ограничения</summary>
   {% if coverage_warning %}<p>{{ coverage_warning }}</p>{% endif %}
   {% if source_status %}<p>Источники: {{ source_status }}</p>{% endif %}
+  {% for action in actions %}<p>{{ action.text }}{% if action.contexts %} {{ action.contexts | join(' · ') }}.{% endif %} <a href="{{ action.link }}">{{ action.link_label }}</a></p>{% endfor %}
   <a href="/imports#data-status">Проверить состояние источников</a>
 </details>
 {% endif %}
@@ -170,5 +166,7 @@
   <h3>Исходные значения Garmin и Google</h3>
   <pre>{{ overview.technical | tojson(indent=2) }}</pre>
   <pre>{{ overview.training | tojson(indent=2) }}</pre>
+  <h3>Ряды графиков</h3><pre>{{ charts.technical | tojson(indent=2) }}</pre>
 {% endcall %}
+</div>
 {% endblock %}
