@@ -32,6 +32,7 @@ from healthcheck.logging import log_event
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
+from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import owner_date, owner_number
 from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.query import (
@@ -424,6 +425,8 @@ def _brief_owner_value(
     ):
         return metric_value("sleep_duration_seconds", value)
     rendered_unit = _BRIEF_UNIT_LABELS.get(str(unit), str(unit or ""))
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        value = overview_number(value)
     return f"{value} {rendered_unit}".strip()
 
 
@@ -912,6 +915,7 @@ def period_brief_page(
             preset=preset, start_date=start_date, end_date=end_date
         )
         with session_scope(request_engine(request)) as session:
+            ensure_read_snapshot(session)
             service = PeriodBriefService(session, request.app.state.settings)
             source_selection = service.garmin.resolve_source(garmin_source_id)
             result = service.build_with_render(
@@ -919,6 +923,10 @@ def period_brief_page(
                 end_date=end,
                 garmin_source_id=garmin_source_id,
                 thin_display=True,
+            )
+            overview = read_overview_values(
+                session, start=start, end=end,
+                selected_id=source_selection.get("selected_source_id"),
             )
     except GarminQueryError as exc:
         return render_error(
@@ -945,7 +953,17 @@ def period_brief_page(
             "packet": result["packet"],
             "source_selection": source_selection,
             "selected_preset": selected_preset,
-            "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"]),
+            "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"])
+            or any(cell["value"] is not None for cell in overview["garmin"].values())
+            or any(
+                cell["latest"] is not None
+                for item in overview["google"]["sources"] for cell in item["metrics"].values()
+            ) or overview["training"]["status"] == "available",
+            "overview": overview,
+            "overview_number": overview_number,
+            "google_vital_source_label": google_vital_source_label,
+            "google_vital_cell_state": google_vital_cell_state,
+            "google_vital_ineligible_note": google_vital_ineligible_note,
             "brief_owner_action": _brief_owner_action,
             "brief_owner_actions": _brief_owner_actions,
             "brief_sleep_groups": _brief_sleep_groups,
