@@ -1066,7 +1066,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
     expected_modes = {
         "Обзор": None,
         "Вес": "Вес и состав тела",
-        "Сон": "Сравнение сна",
+        "Сон": None,
         "Активность": "Тренировки и восстановление",
         "Данные": "Проверка импорта",
     }
@@ -1091,6 +1091,16 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
                 assert expected_modes[section] in response.text
             else:
                 assert 'class="owner-page-mode"' not in response.text
+            if section == "Сон":
+                switch = response.text.split('aria-label="Источники сна">', 1)[1].split(
+                    "</nav>", 1
+                )[0]
+                for view, label in (("garmin", "Garmin"), ("google", "Google"),
+                                    ("compare", "Сравнить")):
+                    assert f'href="/sleep?view={view}' in switch
+                    assert f'>{label}</a>' in switch
+                selected = "Сравнить" if path == "/agreement" else "Garmin"
+                assert f'aria-current="page">{selected}</a>' in switch
             # The thematic pages are Russian; legacy import detail stays English.
             if section in ("Обзор", "Вес", "Сон", "Активность") or path == "/imports":
                 assert 'class="owner-page-content" lang="en"' not in response.text
