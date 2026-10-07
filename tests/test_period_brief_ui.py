@@ -711,6 +711,8 @@ def test_brief_activity_tennis_label_and_unknown_fallback():
     from healthcheck.web.pages import _brief_owner_activity
 
     assert _brief_owner_activity("tennis") == "Теннис"
+    assert _brief_owner_activity("tennis_v2") == "Теннис"
+    assert _brief_owner_activity("stand_up_paddleboarding_v2") == "Другая активность"
     assert _brief_owner_activity("future_provider_activity") == "Другая активность"
 
 

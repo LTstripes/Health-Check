@@ -129,6 +129,7 @@ _BRIEF_ACTIVITY_LABELS = {
     "swimming": "Плавание",
     "strength_training": "Силовая тренировка",
     "tennis": "Теннис",
+    "tennis_v2": "Теннис",
     "unknown": "Другая активность",
 }
 _BRIEF_COHORT_LABELS = {
