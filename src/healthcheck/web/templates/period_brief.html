@@ -19,6 +19,10 @@
 <section class="card brief-controls" aria-labelledby="brief-period-heading">
   <h2 id="brief-period-heading">Выбранный период</h2>
   <p class="brief-period">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span></p>
+  <p class="muted" data-overview-sources>Вес: {{ brief_owner_state(weight.state) }} ·
+    Garmin: {% if source_selection.status == 'selected' %}{{ brief_source_label(source_selection.selected_source) }}{% elif source_selection.status == 'require_selection' %}нужен выбор источника{% else %}источник не сохранён{% endif %} ·
+    Google: {% if overview.google.sources %}источников с текущими записями в периоде — {{ overview.google.sources | length }}{% else %}нет текущих записей в выбранном периоде{% endif %}.
+  </p>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
     <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
@@ -56,7 +60,7 @@
       <button type="submit">Выбрать источник</button>
     </form>
   </details>
-  {% elif source_selection.status == "selected" %}<p class="muted">{{ brief_source_label(source_selection.selected_source) }}</p>
+  {% elif source_selection.status == "selected" %}
   {% else %}<p class="muted">Источник Garmin не сохранён. <a href="/imports">Проверить источники</a></p>{% endif %}
 </section>
 

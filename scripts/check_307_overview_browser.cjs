@@ -25,6 +25,11 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     for (const width of [1100, 800, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(base + '/brief?start_date=2099-01-01&end_date=2099-01-02');
+      const sources = page.locator('[data-overview-sources]');
+      assert.match(await sources.innerText(), /Вес:.*Garmin:.*Google:/s);
+      assert.match(await sources.innerText(), /текущими записями в периоде — 2/);
+      const sourceBox = await sources.boundingBox();
+      assert.ok(sourceBox.y + sourceBox.height <= 900, 'All three sources are explicit in the first viewport');
       const block = page.locator('[data-overview-vitals]');
       assert.equal(await block.locator('thead th').count(), 4);
       assert.match(await block.locator('thead').innerText(), /Garmin/);
