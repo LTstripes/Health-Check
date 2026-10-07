@@ -1,8 +1,20 @@
-# Owner UI shell and thematic pages — #189
+# Owner UI — approved A+ desktop shell
 
-The shared interface follows the [accepted IA](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5854312903)
-and the [frozen visual system](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5979374375).
-Stages 1–7 are integrated and #189 is closed. The post-UAT Weight v3, Overview v2, Sleep v2 and Activity v2 wave (#306–#309) is also integrated. #305 diagnostics/import presentation is integrated, with the real freshness timeout still open. Consolidated Owner UAT on 2026-10-07 generated the next bounded follow-ups; it does not silently reopen the frozen shell/IA contract.
+On **2026-10-07 the Owner visually approved Overview A+** in [#322](https://github.com/LTstripes/Health-Check/issues/322).
+The canonical [text-only synthetic reference](design/owner-overview-a-plus/index.html)
+and its [explanation](design/owner-overview-a-plus/README.md) govern the shared desktop
+appearance under [Stage A #326](https://github.com/LTstripes/Health-Check/issues/326).
+This supersedes the conflicting #189 visual freeze: the previous canvas, surface,
+ink, muted, separator, sunken and interaction colors, sans-only prominent heading,
+1100px content limit and quieter selected navigation. The values below are the
+single current visual contract; old values in Git history are historical.
+
+The [accepted IA](https://github.com/LTstripes/Health-Check/issues/189#issuecomment-5854312903),
+routes, data/source/state, accessibility, privacy and progressive-disclosure contracts
+remain binding. Stages 1–7 of #189 and the post-UAT #306–#309 views are integrated;
+#305 diagnostics/import presentation is integrated, with the real freshness timeout open.
+Stage A changes the shared shell, not individual page content. Overview's three-column
+values/graphs and the other page redesigns require separately assigned stages.
 Exact implementation/CI checkpoints and recorded Owner UAT live in [Current History](EXECUTION_HISTORY_CURRENT.md).
 
 ## Navigation and current routes
@@ -22,22 +34,50 @@ route is the primary Sleep destination, while `/agreement` remains available. Ex
 API/query/import contracts are not redefined by navigation. The Data queue describes its
 bounded recent-batch inventory, not an exhaustive count of all history.
 
-## One frozen visual and language system
+## One A+ visual and language system
 
-Warm light paper, dark ink and one interaction accent; no dark theme, shadows, gradients,
-full pills or ordinary card accent stripes. Primary tokens are canvas `#f3f1ec`, card
-`#fffcf8`, sunken `#e8e4dc`, ink `#1c1916`, muted `#5e584e`, line `#ddd6cb`, stronger line
-`#c9c0b3`, accent `#1f5c57` and accent-soft `#e6f1ef`. Series colors retain their frozen
-roles: observed `#1d4e89`, derived trend `#9a4f1a`, reference `#5c4d86`, comparison source
-`#3f5f73`. Colors do not score health; genuine request errors, evidence limitations and
-unavailable evidence remain different treatments.
+Warm editorial paper, dark ink, dark green actions and thin section rules; no dark
+theme, shadows, gradients, full pills, ordinary card accent stripes or health grades.
+Use existing variables in `dashboard.css`:
 
-Use local Segoe UI / Helvetica Neue / sans-serif, tabular numerals, body line-height 1.5
-and ordinary hierarchy weight 600. Spacing follows 4/8/12/16/24/32px; content max-width is
-1100px. Card/button/chip radii are 8/6/4px. Page hierarchy is primary section (`h1`),
-current screen/sections (`h2`), subsection (`h3`). Legend samples are 8px squares with a
-dashed configured goal/reference sample. Later pages reuse these tokens rather than
-inventing page-local design systems.
+| Role | Variable | Accepted value |
+| --- | --- | --- |
+| Canvas | `--bg` | `#f6f2e9` |
+| Surface | `--card` | `#fdfbf6` |
+| Main text | `--ink` | `#292d27` |
+| Supporting text | `--muted` | `#686c61` |
+| Fine separators | `--line` | `#dcdccc` |
+| Actions, selected navigation and focus | `--accent`, `--owner-focus` | `#31584b` |
+
+The supporting sunken surface is `#efeee5`, light enough to keep A+ muted text
+above 4.5:1 contrast. Stronger line `#c9c0b3` and accent-soft `#e6f1ef` are retained.
+Hairlines organize sections; they are not the sole focus or
+selection cue. Text must retain accessible contrast on each shared surface.
+State fills remain attention `#f6efe2` / ink `#6b4510`, unavailable `#f3e4d4` /
+ink `#6b320c`, and request error `#f8eceb` / ink `#7a2424`.
+Series retain their roles: observed `#1d4e89`, derived trend `#9a4f1a`, reference
+`#5c4d86`, comparison source `#3f5f73`. Do not recolor every graph with the action
+green or confuse observations, trends and references. Colors do not score health.
+
+Use local Georgia / Times New Roman / serif for the prominent desktop page `h1`
+(42px, weight 400, line-height 1.1). The shared heading font token can support future
+hero values when their page stage is assigned; Stage A adds no hero/KPI content.
+Body, controls, tables, section headings and metadata use local Segoe UI /
+Helvetica Neue / Arial / sans-serif, body line-height 1.5 and ordinary hierarchy
+weight 600. Values/tables retain tabular numerals. Page hierarchy stays primary
+section (`h1`), current screen/sections (`h2`), subsection (`h3`). Uppercase small
+editorial kickers are optional; never uppercase all headings or ordinary copy.
+No external fonts/assets are loaded.
+
+The desktop shell has a 1440px maximum content width and 48px horizontal gutters;
+the top bar aligns with that content, is at least 83px tall, and stays sticky.
+Navigation uses one row with 24px gaps. Its selected link has green text, weight
+600 and a square 2px underline, plus `aria-current="page"`. Prominent titles and
+the footer have 1px section rules. Content layouts remain in their current page
+contracts. Existing 4/8/12/16/24/32px spacing and 8/6/4px card/button/chip radii
+remain available within those pages; top-navigation links have square corners.
+Legend samples stay 8px squares with a dashed configured goal/reference sample.
+Later page stages reuse these tokens rather than inventing local design systems.
 
 The shell and redesigned primary pages are Russian under `html lang="ru"`. Proper names
 and exact technical codes remain unchanged. Legacy batch-review bodies can retain an
@@ -80,12 +120,14 @@ The [Owner decision #321, 2026-10-07](https://github.com/LTstripes/Health-Check/
 sets desktop/laptop CSS viewports **1024px and wider** as the supported target.
 Phone, tablet and windows below 1024px have no design, browser-test or Owner UAT
 acceptance requirement. Earlier #189/390px responsive expectations and UI briefs
-are historical, superseded for current and future work. The forthcoming Overview
+are historical, superseded for current and future work. The approved Overview
 A+ static reference is desktop-only. Existing small-window CSS fallbacks remain
 without a new support obligation.
 
-The sticky paper top bar has a hairline and an active-item underline; controls
-keep 44px targets and visible keyboard focus. Wide tables/charts scroll locally
+Controls, navigation/brand links and information summaries keep at least 44px
+hit targets and visible 3px green keyboard focus. Preserve tab order, the first
+Tab skip link, its focus transfer to content, and native Enter/Space disclosures.
+Wide tables/charts scroll locally
 in `.table-scroll`/`.chart`, not at page level. Tables retain real table layout
 and sticky muted headers. Functional evidence, keyboard/accessibility and
 security/privacy contracts remain required at desktop widths.
@@ -129,20 +171,20 @@ The Weight check caught an initial-render temporal-dead-zone error before Stage 
 the render call now follows its state-map declarations. Per-stage focused tests and exact
 candidate/PR/main CI are recorded in #189 and the subsequent #305–#309 issue/PR records.
 
-Audited product checkpoint before this documentation closeout:
-`main @ 29cc9fcf53c508fa5f4994e3170e697726c0514c`; exact post-main CI
-`37658045395`, attempt 1, is SUCCESS. The documentation change has separate gates.
-Repository gates still do not substitute for Owner-local use.
-
-The consolidated Owner UAT on this product checkpoint is already recorded in GitHub:
+The consolidated Owner UAT before A+ is recorded in GitHub:
 #305 remains a real timeout; #317/#318 capture further Sleep/Activity presentation needs;
 #319 gates new activity metrics on evidence. #295/#298 were closed as not planned rather
 than kept as mandatory private probes. No new browser or private-runtime UAT was performed
-by the documentation reconciliation itself.
+by that documentation reconciliation. The static-reference approval is a design
+decision, not product A+ UAT or acceptance of a new implementation candidate.
 
-Review the Owner's forthcoming design answers before the next UI implementation. Until
-an explicit decision is recorded, the frozen tokens, IA and evidence contracts above remain
-unchanged. Reuse existing browser checks with focused new cases rather than recreating Stage 7.
+Stage A verifies all five primary routes synthetically at 1024px and 1440px:
+loaded palette/type, selected navigation, section rules, no clipping, unchanged
+source/copy/controls, keyboard focus/disclosure and no unexpected console or
+external network errors. Before/after screenshots remain outside the repository;
+even synthetic PNG binaries must not be committed. Reuse existing browser checks
+with focused A+ assertions. Complete CI, Integrator review and Owner desktop UAT
+remain distinct gates; unperformed Owner-local UAT is `UNVERIFIED`.
 
 See [Current History](EXECUTION_HISTORY_CURRENT.md), the [current backlog](ROADMAP.md#current-backlog)
 and the [historical Owner UAT handoff — 2026-10-06](OWNER_UAT_FOLLOWUP_2026-10-06.md).

@@ -94,8 +94,8 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
       assert.equal(geometry.columns, 3);
       assert.equal(geometry.tableDisplay, 'table');
       assert.equal(geometry.scroll, 'auto');
-      assert.equal(geometry.bg, 'rgb(243, 241, 236)');
-      assert.equal(geometry.linkColor, 'rgb(31, 92, 87)');
+      assert.equal(geometry.bg, 'rgb(246, 242, 233)');
+      assert.equal(geometry.linkColor, 'rgb(49, 88, 75)');
       for (const control of await page.locator('.brief-controls .button-link, .brief-controls > form button, .brief-controls > form input[type="date"], .owner-details > summary').all()) {
         const box = await control.boundingBox();
         if (box) assert.ok(box.height >= 44, `target height ${box.height} at ${width}`);

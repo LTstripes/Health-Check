@@ -1,12 +1,12 @@
 :root {
-  --bg: #f3f1ec;
-  --card: #fffcf8;
-  --sunken: #e8e4dc;
-  --ink: #1c1916;
-  --muted: #5e584e;
-  --line: #ddd6cb;
+  --bg: #f6f2e9;
+  --card: #fdfbf6;
+  --sunken: #efeee5;
+  --ink: #292d27;
+  --muted: #686c61;
+  --line: #dcdccc;
   --line-strong: #c9c0b3;
-  --accent: #1f5c57;
+  --accent: #31584b;
   --accent-soft: #e6f1ef;
   --series-1: #1d4e89;
   --series-2: #9a4f1a;
@@ -21,13 +21,15 @@
   --raw: #1d4e89;
   --trend: #9a4f1a;
   --goal: #5c4d86;
-  --owner-content-width: 1100px;
-  --owner-focus: #1f5c57;
+  --owner-content-width: 1440px;
+  --owner-focus: var(--accent);
+  --owner-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --owner-heading-font: Georgia, "Times New Roman", serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: var(--owner-sans);
   color: var(--ink);
   background: var(--bg);
   font-size: 1rem;
@@ -57,7 +59,7 @@ code, .provenance, .garmin-table td.code {
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
-.brand { color: var(--ink); font-weight: 600; text-decoration: none; }
+.brand { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); font-weight: 600; text-decoration: none; }
 .top nav { display: flex; gap: 4px; }
 .top nav a { color: var(--muted); text-decoration: none; }
 .top nav a:hover { color: var(--ink); }
@@ -67,13 +69,14 @@ code, .provenance, .garmin-table td.code {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
+  min-width: 44px;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 0;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
 }
-.owner-nav a.active {
-  color: var(--ink);
+.top .owner-nav a.active {
+  color: var(--accent);
   font-weight: 600;
   border-bottom-color: var(--accent);
   text-decoration: none;
@@ -136,6 +139,7 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 
 .upload, .inline-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 button, input, select { font: inherit; padding: 8px 12px; }
+button, .button-link, input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; min-width: 44px; }
 button {
   background: var(--accent);
   color: #fff;
@@ -297,6 +301,37 @@ main, .legal { max-width: var(--owner-content-width); }
 .owner-details-content { padding-top: 8px; }
 .owner-details-content pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .owner-state-list { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; }
+
+/* Approved A+ desktop shell (#326); page content/series keep their own contracts. */
+@media (min-width: 1024px) {
+  .top {
+    min-height: 83px;
+    padding: 12px max(48px, calc((100% - var(--owner-content-width)) / 2 + 48px));
+    gap: 24px;
+    background: var(--bg);
+    flex-wrap: nowrap;
+  }
+  .brand { font-size: 1.1875rem; letter-spacing: -.035em; }
+  .top .owner-nav { gap: 24px; flex-wrap: nowrap; }
+  .owner-nav a { padding: 8px 5px; }
+  main { padding: 27px 48px 16px; }
+  .owner-page-header {
+    padding-bottom: 20px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .owner-page-header h1 {
+    font-family: var(--owner-heading-font);
+    font-size: 2.625rem;
+    font-weight: 400;
+    line-height: 1.1;
+    letter-spacing: -.04em;
+    text-transform: none;
+  }
+  .owner-page-mode { margin-top: 8px; font-size: .8125rem; font-weight: 400; }
+  .legal { padding: 16px 48px 0; }
+  .legal > p { border-top: 1px solid var(--line); padding-top: 16px; }
+}
 
 /* Bounded #292 Owner controls and folded rows; existing Weight forms are unchanged. */
 .owner-controls { gap: 16px; align-items: end; }
