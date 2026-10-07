@@ -1141,7 +1141,8 @@ def test_a_plus_activity_strip_uses_full_packet_and_requires_coverage_for_zero(
             assert charts['activity']['points'][0]['value'] == 15
             assert charts['activity']['points'][0]['state'] == 'present'
             assert charts['activity']['points'][1]['value'] == (0 if complete else None)
-            assert charts['activity']['points'][1]['state'] == ('present' if complete else 'unknown')
+            expected_state = 'present' if complete else 'unknown'
+            assert charts['activity']['points'][1]['state'] == expected_state
     finally:
         engine.dispose()
 
