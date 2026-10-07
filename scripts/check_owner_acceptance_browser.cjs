@@ -28,6 +28,16 @@ function candidateIdentity() {
     trackedChanges: git(['diff', '--name-only', 'HEAD']), untracked: git(['ls-files', '--others', '--exclude-standard'])};
 }
 const candidate = candidateIdentity();
+function contrast(a, b) {
+  const luminance = rgb => {
+    const channels = rgb.match(/\d+/g).slice(0, 3).map(Number).map(v => {
+      v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4;
+    });
+    return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+  };
+  const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (lighter + .05) / (darker + .05);
+}
 const sections = [
   ['Обзор', '/brief?start_date=2099-01-01&end_date=2099-01-08'],
   ['Вес', '/'],
@@ -52,18 +62,39 @@ const sections = [
       rows: new Set([...document.querySelector('.owner-nav').children].map(el => el.offsetTop)).size,
       tables: [...document.querySelectorAll('table')].filter(el => el.getBoundingClientRect().height)
         .map(el => ({ display: getComputedStyle(el).display, wrapper: !!el.closest('.table-scroll') })),
-      targets: [...document.querySelectorAll('.owner-nav a, main button, summary')]
-        .filter(el => el.getBoundingClientRect().height).map(el => ({ text: el.textContent.trim().slice(0, 60), height: el.getBoundingClientRect().height })),
+      targets: [...document.querySelectorAll('.brand, .owner-nav a, main button, summary')]
+        .filter(el => el.getBoundingClientRect().height).map(el => ({ text: el.textContent.trim().slice(0, 60), height: el.getBoundingClientRect().height, width: el.getBoundingClientRect().width })),
       background: getComputedStyle(document.body).backgroundColor,
+      ink: getComputedStyle(document.body).color,
+      type: getComputedStyle(document.body).fontFamily,
+      heading: (() => {const s = getComputedStyle(document.querySelector('.owner-page-header h1')); return {font: s.fontFamily, size: s.fontSize, weight: s.fontWeight, transform: s.textTransform};})(),
+      active: (() => {const s = getComputedStyle(document.querySelector('.owner-nav [aria-current]')); return {color: s.color, border: s.borderBottomColor, width: s.borderBottomWidth, weight: s.fontWeight, radius: s.borderRadius};})(),
+      separator: getComputedStyle(document.querySelector('.owner-page-header')).borderBottomColor,
+      surface: (() => {const el = document.createElement('span'); el.style.backgroundColor = 'var(--card)'; el.style.color = 'var(--muted)'; document.body.append(el); const s = getComputedStyle(el); const colors = {background: s.backgroundColor, muted: s.color}; el.remove(); return colors;})(),
+      controls: [...document.querySelectorAll('button, input, select, table')].map(el => getComputedStyle(el).fontFamily),
       links: [...document.querySelectorAll('main a:not(.button-link)')]
         .filter(el => el.getBoundingClientRect().height).map(el => getComputedStyle(el).color),
     }));
     assert.ok(g.doc <= g.view + 1, label + ': ' + JSON.stringify(g));
     assert.equal(g.rows, 1, label);
-    assert.equal(g.background, 'rgb(243, 241, 236)', label);
-    assert.ok(g.links.every(color => color === 'rgb(31, 92, 87)'), label + ': ' + JSON.stringify(g.links));
+    assert.equal(g.background, 'rgb(246, 242, 233)', label);
+    assert.equal(g.ink, 'rgb(41, 45, 39)', label);
+    assert.deepEqual(g.surface, {background: 'rgb(253, 251, 246)', muted: 'rgb(104, 108, 97)'}, label);
+    assert.match(g.type, /Segoe UI.*sans-serif/, label);
+    assert.deepEqual(g.heading, {font: 'Georgia, "Times New Roman", serif', size: '42px', weight: '400', transform: 'none'}, label);
+    assert.deepEqual(g.active, {color: 'rgb(49, 88, 75)', border: 'rgb(49, 88, 75)', width: '2px', weight: '600', radius: '0px'}, label);
+    assert.equal(g.separator, 'rgb(220, 220, 204)', label);
+    assert.ok(g.controls.every(font => /Segoe UI.*sans-serif/.test(font)), label);
+    assert.ok(g.links.every(color => color === 'rgb(49, 88, 75)'), label + ': ' + JSON.stringify(g.links));
+    for (const text of [g.ink, g.surface.muted, g.active.color]) {
+      for (const bg of [g.background, g.surface.background, 'rgb(239, 238, 229)', 'rgb(230, 241, 239)']) {
+        assert.ok(contrast(text, bg) >= 4.5, `${label}: text contrast ${text} on ${bg}`);
+      }
+    }
+    assert.ok(contrast(g.active.color, g.background) >= 3, label + ': focus contrast');
+    assert.ok(contrast('rgb(255, 255, 255)', g.active.color) >= 4.5, label + ': action text contrast');
     assert.ok(g.tables.every(table => table.display === 'table' && table.wrapper), label + ': ' + JSON.stringify(g.tables));
-    assert.ok(g.targets.every(target => target.height >= 44), label + ': ' + JSON.stringify(g.targets));
+    assert.ok(g.targets.every(target => target.height >= 44 && target.width >= 44), label + ': ' + JSON.stringify(g.targets));
   }
   async function localScrolling(label) {
     const scrolls = await page.locator('.table-scroll, .chart, .agreement-chart').evaluateAll(elements => elements
@@ -89,7 +120,11 @@ const sections = [
       const summary = summaries.nth(i);
       if (!await summary.isVisible()) continue;
       const wasOpen = await summary.evaluate(el => el.parentElement.open);
+      // Establish keyboard modality even after pointer-operated page controls.
+      await page.keyboard.press('Tab');
       await summary.focus();
+      assert.equal(await summary.evaluate(el => getComputedStyle(el).outlineColor), 'rgb(49, 88, 75)', label + ': focus color');
+      assert.equal(await summary.evaluate(el => getComputedStyle(el).outlineWidth), '3px', label + ': visible focus');
       await page.keyboard.press('Enter');
       assert.equal(await summary.evaluate(el => el.parentElement.open), !wasOpen, label);
       await page.keyboard.press('Space');
@@ -105,6 +140,7 @@ const sections = [
   }
   try {
     const context = await browser.newContext();
+    await context.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
     await context.route('**/favicon.ico', route => route.fulfill({status: 204}));
     context.on('request', request => {
       const url = new URL(request.url());
@@ -156,6 +192,14 @@ const sections = [
         unverified.push({width, check: 'first Tab reaches skip link', reason: 'Windows WebKit also skips an unstyled native link; full link Tab navigation is unavailable in this engine configuration'});
         await page.locator('.skip-link').focus();
       } else assert.equal(skipFocused, true);
+      if (skipFocused) {
+        for (const name of ['Health-Check', 'Обзор', 'Вес', 'Сон', 'Активность', 'Данные']) {
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), name, `${width}: shell Tab order`);
+          assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineWidth), '3px', `${width}: shell visible focus`);
+        }
+        await page.locator('.skip-link').focus();
+      }
       await page.keyboard.press('Enter');
       assert.equal(await page.locator('main').evaluate(el => el === document.activeElement), true);
       checks.push(`${width}: five real nav links, brand and keyboard skip activation${skipFocused ? ', first Tab focus' : '; first Tab focus UNVERIFIED'}`);
@@ -179,7 +223,7 @@ const sections = [
             if (name === 'Активность') assert.equal(await page.locator('#activity-a option[value]:not([value=""])').count(), 0);
           }
           await page.evaluate(() => scrollTo(0, 0));
-          await page.screenshot({path: path.join(evidence, `${store}-${index}-${width}.png`)});
+          await page.screenshot({path: path.join(evidence, `${store}-${index}-${width}.png`), fullPage: true});
           await disclosures(label);
           if (store === 'populated' && name === 'Активность') {
             const ids = await page.locator('#activity-a option').evaluateAll(options => options.map(o => o.value).filter(Boolean));

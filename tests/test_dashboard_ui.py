@@ -1113,9 +1113,9 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         assert 'href="/brief">Health-Check</a>' in period.text
         # Frozen shell: paper sticky nav, table-scroll wrappers, no block tables.
         css = client.get("/static/dashboard.css").text
-        assert "--bg: #f3f1ec" in css
-        assert "--card: #fffcf8" in css
-        assert "--accent: #1f5c57" in css
+        assert "--bg: #f6f2e9" in css
+        assert "--card: #fdfbf6" in css
+        assert "--accent: #31584b" in css
         assert ".top" in css and "position: sticky" in css
         assert ".table-scroll" in css
         assert ".owner-page-content table { display: block" not in css
@@ -1171,24 +1171,24 @@ def test_owner_validation_error_is_russian_without_changing_api(tmp_path):
     assert api.json() == {"code": "invalid_request", "message": "request could not be parsed"}
 
 
-def test_owner_shell_frozen_visual_system(tmp_path):
-    """Frozen tokens, type, state treatments and Russian shell contract."""
+def test_owner_shell_a_plus_visual_system(tmp_path):
+    """Approved A+ shell tokens with preserved series, states and Russian copy."""
 
     app, _settings, _paths = _ui(tmp_path)
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
         css = client.get("/static/dashboard.css").text
-        # Core frozen tokens.
+        # A+ core tokens; source/series and state treatments remain distinct.
         for token in (
-            "--bg: #f3f1ec",
-            "--card: #fffcf8",
-            "--sunken: #e8e4dc",
-            "--ink: #1c1916",
-            "--muted: #5e584e",
-            "--line: #ddd6cb",
+            "--bg: #f6f2e9",
+            "--card: #fdfbf6",
+            "--sunken: #efeee5",
+            "--ink: #292d27",
+            "--muted: #686c61",
+            "--line: #dcdccc",
             "--line-strong: #c9c0b3",
-            "--accent: #1f5c57",
+            "--accent: #31584b",
             "--accent-soft: #e6f1ef",
             "--series-1: #1d4e89",
             "--series-2: #9a4f1a",
@@ -1243,7 +1243,14 @@ def test_owner_shell_frozen_visual_system(tmp_path):
         assert ".bia-banner, .algorithm-banner, .canonical-banner" in css
         assert "background: var(--attention-bg)" in css
         assert ".error-card" in css and "var(--error-bg)" in css
-        # Typography freeze: body 1.5, hierarchy stays 600 without 700 presentation.
+        # Local serif is scoped to the prominent desktop heading, not tables/controls.
+        assert '--owner-heading-font: Georgia, "Times New Roman", serif' in css
+        assert "--owner-content-width: 1440px" in css
+        assert "@media (min-width: 1024px)" in css
+        assert "font-family: var(--owner-sans)" in css
+        assert "font-family: var(--owner-heading-font)" in css
+        assert "--owner-focus: var(--accent)" in css
+        # Body keeps 1.5; ordinary hierarchy stays 600 without 700 presentation.
         assert "line-height: 1.5" in css
         assert "font-weight: 700" not in css
         # Shell is Russian; English bodies stay explicitly English.
