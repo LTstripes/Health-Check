@@ -109,8 +109,10 @@ def read_overview_charts(session, settings, *, packet, selected_id):
     for offset in range((end - start).days + 1):
         day = (start + timedelta(days=offset)).isoformat()
         count = counts.get(day)
+        # A saved session is present evidence even when whole-period coverage is unknown.
+        state = "present" if count is not None or complete else "unknown"
         activity_rows.append({"date": day, "value": count if count else (0 if complete else None),
-                              "state": "present" if complete else "unknown"})
+                              "state": state})
     return {
         "weight": dated_chart(weight_rows, start=start, end=end),
         "weight_current": weight.get("current"), "weight_trend": trend,

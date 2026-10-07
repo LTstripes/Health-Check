@@ -34,10 +34,10 @@
 .overview-figure text { fill: var(--muted); font: 11px var(--owner-sans); }
 .overview-gridline { fill: none; stroke: var(--line); }
 .overview-gap { fill: none; stroke: var(--muted); stroke-dasharray: 2 2; stroke-width: 2; }
-.overview-trend { stroke: var(--accent); stroke-width: 2; }
-.overview-trend-point { fill: var(--accent); }
-.overview-observed { fill: var(--ink); stroke: var(--bg); stroke-width: 1; }
-.overview-bar { stroke: var(--accent); stroke-width: 6; opacity: .65; }
+.overview-trend { stroke: var(--series-2); stroke-width: 2; }
+.overview-trend-point { fill: var(--series-2); }
+.overview-observed { fill: var(--series-1); stroke: var(--bg); stroke-width: 1; }
+.overview-bar { stroke: var(--series-1); stroke-width: 6; opacity: .65; }
 .overview-partial { stroke-dasharray: 3 2; }
 .overview-figure figcaption { font-size: .6875rem; color: var(--muted); min-height: 32px; }
 .overview-a-plus .brief-records { margin-top: 0; font-size: .75rem; }

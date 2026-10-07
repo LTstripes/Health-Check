@@ -1091,6 +1091,13 @@ def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path):
         assert 'Все показатели по источникам' in page.text
         assert page.text.count('class="overview-info"') == 3
         assert page.context['charts']['sleep_error'] is False
+        later = client.get('/brief?start_date=2099-01-01&end_date=2099-01-09')
+        assert later.status_code == 200
+        assert 'href="/sleep?wake_date=2099-01-07' in later.text
+        css = client.get('/static/overview.css').text
+        assert '.overview-trend { stroke: var(--series-2)' in css
+        assert '.overview-observed { fill: var(--series-1)' in css
+        assert '.overview-bar { stroke: var(--series-1)' in css
     engine = create_sqlite_engine(paths)
     try:
         with session_scope(engine) as session:
@@ -1132,7 +1139,9 @@ def test_a_plus_activity_strip_uses_full_packet_and_requires_coverage_for_zero(
             charts = read_overview_charts(session, settings, packet=result['packet'],
                                           selected_id=None)
             assert charts['activity']['points'][0]['value'] == 15
+            assert charts['activity']['points'][0]['state'] == 'present'
             assert charts['activity']['points'][1]['value'] == (0 if complete else None)
+            assert charts['activity']['points'][1]['state'] == ('present' if complete else 'unknown')
     finally:
         engine.dispose()
 

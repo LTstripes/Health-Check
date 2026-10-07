@@ -17,7 +17,7 @@
     {% endfor %}
     <text x="38" y="137">{{ figure.start }}</text><text x="322" y="137" text-anchor="end">{{ figure.end }}</text>
   </svg>
-  <figcaption>{% if kind == 'weight' %}Точки — дневные медианы · зелёный — EWMA, 21 день{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
+  <figcaption>{% if kind == 'weight' %}Точки — дневные медианы · линия — EWMA, 21 день{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
 </figure>
 <details class="owner-details brief-records overview-chart-values"><summary>{{ label }} · таблица</summary>
   <div class="table-scroll" role="region" tabindex="0" aria-label="{{ label }}: значения графика">
@@ -59,7 +59,7 @@
         {% if charts.sleep_newer_unusable %}<p class="overview-warning">Есть более новая дата без однозначного пригодного значения; показана последняя пригодная ночь.</p>{% endif %}
         {{ freshness_note('garmin:sleep') }}
         {{ chart(charts.sleep, kind, 'История сна', 'ч') }}
-        <a class="overview-detail-link" href="/sleep?wake_date={{ charts.sleep.end }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">Ночь и детали сна →</a>
+        <a class="overview-detail-link" href="/sleep?wake_date={{ last.date if last else charts.sleep.end }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">Ночь и детали сна →</a>
       {% else %}
         <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }} <span>сохранено</span></p>
         <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}<br>{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }}</p>
