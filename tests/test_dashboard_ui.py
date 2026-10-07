@@ -395,7 +395,11 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
         assert "openscale-brozek" in groups
         assert series["algorithm_boundary"]["present"] is True
         page = client.get("/")
-        assert "Ряды рассчитаны разными методами и показаны отдельно" in page.text
+        assert "Каждый ряд — отдельная группа совместимых методов расчёта" in page.text
+        assert "У групп свои даты измерений" in page.text
+        assert "Это не общий фильтр по времени" in page.text
+        assert "Несовместимые методы показаны отдельно" in page.text
+        assert "точки разных групп не соединяются линией" in page.text
         assert "xiaomi-home-unknown" in page.text
         assert "openscale-brozek" in page.text
     del settings
@@ -1661,7 +1665,10 @@ def test_weight_v2_styles_are_served_in_loaded_dashboard_bundle(tmp_path):
         assert "text/css" in stylesheet.headers["content-type"]
         assert ".weight-view .hero { display: block; }" in stylesheet.text
         assert ".weight-view .chart svg" in stylesheet.text
-        assert "min-width: 620px" in stylesheet.text
+        assert (
+            ".weight-view .chart svg { display: block; width: 100%; min-width: 260px"
+            in stylesheet.text
+        )
         assert client.get("/static/weight.css").status_code == 404
 
 
