@@ -1,5 +1,38 @@
 # Current Execution History
 
+## 2026-10-07 — Owner UI/UAT wave reconciled
+
+**Audited product checkpoint before this documentation closeout:** `main @ 29cc9fcf53c508fa5f4994e3170e697726c0514c`, tree `5827cd64a590ed04644c9b03fd4788a956d4122f`. Exact post-main CI [37658045395](https://github.com/LTstripes/Health-Check/actions/runs/37658045395), attempt 1, is SUCCESS: quality, three Linux lanes, Windows smoke and final `checks`; docs is an expected skip. Documentation publication has its own PR/CI record, not a guessed future main SHA.
+
+### Repository integration
+
+| Issue | Delivered outcome / remaining boundary | Integration |
+| --- | --- | --- |
+| #305 | Sanitized freshness failure classes, honest extractor configuration and folded/action-first import history; real Stable timeout is not fixed | PR #311; [accepted partial outcome](https://github.com/LTstripes/Health-Check/issues/305#issuecomment-6024703564) |
+| #306 | Weight v3 responsive time axes and explicit separate composition-group spans; no formula/compatibility changes | PR #312; [closeout](https://github.com/LTstripes/Health-Check/issues/306#issuecomment-6031723790); post-main `37572988906`, final attempt 3, SUCCESS |
+| #307 | Source-explicit Overview v2, including a disclosed trailing-400-day Google display window without narrowing the full Period Brief/Garmin period | PR #313; [closeout](https://github.com/LTstripes/Health-Check/issues/307#issuecomment-6032265852); post-main `37580634091`, attempt 1, SUCCESS |
+| #308 | Sleep v2 Garmin / Google / Compare views, one-row Garmin nightly history and compatible persisted-evidence comparisons | PR #314; [closeout](https://github.com/LTstripes/Health-Check/issues/308#issuecomment-6036305254); post-main `37609105762`, attempt 1, SUCCESS |
+| #309 | Garmin-only Activity v2, explicit A/B comparison and narrowly mapped `tennis_v2` → `Теннис` without changing persisted codes or analytics | PR #315 then #316; [Owner evidence](https://github.com/LTstripes/Health-Check/issues/309#issuecomment-6042394919), [final review](https://github.com/LTstripes/Health-Check/issues/309#issuecomment-6042885521); final post-main above |
+
+#189 and #306–#309 are closed COMPLETE. #305 intentionally remains OPEN. The first #307 candidate's >400-day regression required remediation despite green CI; the accepted outcome preserves the original custom-period contract. For the final #309 candidate, `37655022300` attempt 1 lacked final `checks` and attempt 2 started no jobs; only the complete successful attempt 3 was accepted. Prior incomplete/failed evidence is not relabelled successful.
+
+### Recorded Owner-local acceptance — separate from CI
+
+Consolidated Owner UAT on the product checkpoint above is already recorded in GitHub. This session reads that evidence; it does not claim a new private-runtime test or deployment.
+
+- [#305 retest](https://github.com/LTstripes/Health-Check/issues/305#issuecomment-6043668562): “Проверить состояние” still returns safe code `timeout` after 15 seconds. The Data page/history renders and browser photo recognition correctly reports unconfigured. The retest is done; root-cause diagnosis/fix is still required. Do not increase the timeout blindly, call providers or treat the separately accepted screenshot-skill workflow as broken.
+- [#295 disposition](https://github.com/LTstripes/Health-Check/issues/295#issuecomment-6043677844): Owner reports normal navigation is noticeably faster and does not want a performance project now. CLOSED / NOT_PLANNED; no controlled timing or cache/optimization proof is claimed. #305 remains separate.
+- [#298 disposition](https://github.com/LTstripes/Health-Check/issues/298#issuecomment-6043680007): the previous Stress symptom is no longer reported; Owner said unmentioned areas were OK. CLOSED / NOT_PLANNED, not a diagnosed semantic fix and not authorization for another private probe.
+- New bounded follow-ups: [#317 Sleep v3](https://github.com/LTstripes/Health-Check/issues/317), [#318 Activity v3](https://github.com/LTstripes/Health-Check/issues/318) and [#319 activity evidence inventory](https://github.com/LTstripes/Health-Check/issues/319). Their existence does not mean the v2 integration failed or that all v3 capabilities already exist.
+
+### Current status / handoff
+
+Live read-back found nine open issues: five product follow-ups and four parked/deferred/admin-gated items. The only open PRs before this docs closeout were Dependabot #270/#271; neither is a housekeeping merge. The complete current dispositions are in the [roadmap](ROADMAP.md#current-backlog), rather than copied into another Worker queue.
+
+The Owner requested documentation/status reconciliation first, then discussion of forthcoming Grok/Astra design answers. No UI Worker, provider call, private-data probe, settings/visibility/history change or local filesystem operation is authorized by this cleanup. Existing visual/IA and source/analytics contracts remain in force until an explicit decision changes them. #305 is the functional priority; #319 must establish supported field/units/coverage before new metric implementation; #294 remains separately scoped.
+
+README, Project Wiki, Roadmap, Owner UI and Decisions now distinguish current state from completed work. The 2026-10-06 UAT handoff is explicitly historical. Older execution sections below are retained as dated evidence, not instructions to restart those tasks. Keep worker prompts short, with complexity and recommended implementation model outside the prompt; do not restore model bookkeeping. New CI and any local acceptance must be reported separately.
+
 ## 2026-10-06 — post-redesign integration and real Owner UAT
 
 **Canonical checkpoint:** `main @ e806d81fc38093931113ab0790cab120cacf8c10`, tree `4acd1c984eb8f5d08358e23ee74ff3f467279da2`.
@@ -102,7 +135,7 @@ Closeout scope/authority: [#189 comment 5983851912](https://github.com/LTstripes
 Canonical checkpoint after the completed wave: `main @ 9f41985c47f758f38186efade974bb7ba1d9bf4d`. Exact-main ordinary CI `37184776672` SUCCESS and path-scoped Dependency audit `37184776636` SUCCESS.
 
 Completed work:
-- **#251 / PR #258:** rebalanced the unchanged complete Linux test union across the three serial lanes. Controlled candidate wall time moved from 5:13 to 4:21 (52 seconds / 16.6%). This is a critical-path observation; runner-minute or billing savings were not claimed.
+- **#251 / PR #258:** rebalanced the unchanged complete Linux test union across the three serial Linux lanes. Controlled candidate wall time moved from 5:13 to 4:21 (52 seconds / 16.6%). This is a critical-path observation; runner-minute or billing savings were not claimed.
 - **#246 Stage A / PR #262:** fail-closed docs-only PR route for five explicit existing prose files. Live proof PR #263 / run `37141354429` skipped quality, Linux pytest and Windows and ended with the explicit docs-only terminal verdict.
 - **#246 Stage B / PR #265:** exact-tree task-push delegation to an already-complete PR run. Live proof PR #266 used full PR run `37149653148`; matching task push `37149649729` delegated and skipped its own quality/Linux/Windows/checks. The first task push before a matching PR exists still remains full.
 - **#243 / PR #267:** recurrent Windows exit-255 transcript handling repaired with an exact narrow separator grammar, preserving PID-set, CreationTime, ownership, ports/runtime and same-attempt fail-closed invariants.

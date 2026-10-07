@@ -2,6 +2,8 @@
 
 This document is the compact product handoff from the first real Owner review after the October Owner-UI remediation wave. GitHub issues remain the task contracts; this file keeps the cross-screen reasoning and routing in one place.
 
+**Historical snapshot:** the contracts, observations and ordering below describe 2026-10-06, not the current queue. The 2026-10-07 integration/UAT outcome supersedes that routing: #306–#309 are complete; #305 diagnostics/history are integrated but real Stable retest reports a 15-second `timeout`; #295/#298 are closed as not planned; #317–#319 capture the new bounded follow-ups. See [Current Execution History](EXECUTION_HISTORY_CURRENT.md) and the [current backlog](ROADMAP.md#current-backlog). Retaining this handoff does not authorize repeating completed work or private probes.
+
 ## Accepted checkpoint
 
 - Canonical main: `e806d81fc38093931113ab0790cab120cacf8c10`.
@@ -76,6 +78,8 @@ First priority because it includes a real functional failure.
 
 ## Existing follow-ups that remain valid
 
+The following was the disposition on 2026-10-06; the superseding status is linked above.
+
 - #294 — Owner Settings & Context.
 - #295 — measure real route latency before caching/optimization.
 - #298 — sanitized Garmin stress persisted-vs-excluded diagnosis on a disposable verified clone.
@@ -84,7 +88,7 @@ First priority because it includes a real functional failure.
 
 ## Ordering / parallelism
 
-Recommended current order:
+Historical recommended order on 2026-10-06 (now superseded):
 
 `#305 first + #306 optionally in parallel → #307 → #308 → #309 → consolidated Owner UAT`
 

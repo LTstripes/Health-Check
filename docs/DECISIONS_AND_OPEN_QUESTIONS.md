@@ -2,7 +2,7 @@
 
 This file contains current architecture/product decisions plus only those `UNVERIFIED` items that still matter after released R01–R05 evidence. Historical decision archaeology remains in release issues, audits and Git history.
 
-Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc57c56a9b531e89a108a658d2b`, exact-main CI `36818997839` SUCCESS. Re-read live GitHub state before an assignment; see [current backlog](ROADMAP.md#current-backlog--2026-10-03).
+Status reconciled on 2026-10-07 against live GitHub. Exact product/CI checkpoints and recorded Owner UAT belong in [Current Execution History](EXECUTION_HISTORY_CURRENT.md); the [current backlog](ROADMAP.md#current-backlog) owns task disposition. This refresh corrects stale delivery/queue claims without changing architecture or data contracts. Re-read live GitHub before an assignment.
 
 ## Final decisions
 
@@ -15,7 +15,8 @@ Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc
 - R05 closed with exploratory sleep agreement; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - #119 deterministic Period Brief, its correctness/presentation/UAT closeout, durable Runtime foundation, Context v0, Garmin Training/Recovery and source freshness are completed and canonical.
 - Owner screenshot workflow #217/#219/#221, Windows CLI fix #203, screenshot algorithm guard #226, coherent reads #227, Garmin Training privacy-oracle fix #233, Windows cleanup/CI reliability #181 and changed-sidecar correction workflow #229 are also complete.
-- Near-term work is the non-UI technical maintenance track: #246 Stage A CI fast path, then separately selected #243/#242/#244 work according to overlap/priority. #247/#248/#240 remain bounded follow-ups; #228/#153 stay parked/optional; UI remains deferred under #172/#189.
+- The technical maintenance wave (#251/#246/#243/#242/#244), #240/#247/#248, #172/#283 and Owner UI #189 are complete. The post-UAT #306–#309 wave is also integrated. Current product follow-ups are #305/#317/#318/#319/#294; review forthcoming Owner design feedback before the next UI implementation. #228 remains parked; #153 is closed as not planned.
+- #295 general UI-performance measurement and #298 Stress diagnosis are closed as not planned after consolidated Owner UAT no longer reported those symptoms. No controlled timing, cache benefit or Stress root-cause repair is claimed; the real #305 freshness timeout is separate.
 - A custom Health-Check Recovery Score remains deferred until accumulated evidence demonstrates a concrete unmet decision need.
 
 ### Runtime
@@ -39,11 +40,11 @@ Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc
 
 - Accepted routine Owner Weight path: Xiaomi Home/S400 screenshot -> repo `health-weight-screenshot-import` skill -> Owner-assisted strict structured extraction -> existing R01 photo pipeline -> Stable.
 - #217/#219/#221 Owner-live proof covers OLD and NEW imports, exact NEW duplicate replay, two new sessions and unchanged historical evidence. It does not prove every possible cross-image/revision case.
-- openScale/openScale-sync remain external GPL applications and an optional alternative path. #153's observed numeric `userId` compatibility defect is not a prerequisite for screenshot Weight accumulation.
+- openScale/openScale-sync remain external GPL applications and an optional alternative path. #153 is closed as not planned; its observed numeric `userId` compatibility defect remains historical and is not a prerequisite for screenshot Weight accumulation.
 - Xiaomi-app and openScale composition remain distinct compatibility groups until paired evidence supports an accepted versioned calibration.
 - #226 pins the accepted Xiaomi screenshot algorithm identities before auto-confirm. Foreign explicit code, incompatible group or conflicting existing producer/metric-family metadata returns `NEEDS_REVIEW` before session/measurement/canonical writes. Omitted permitted versions stay unknown; no historical repair was performed.
 - Model confidence is not a substitute for accepted confirmation policy. Ambiguous evidence is never silently auto-confirmed.
-- #229's changed-sidecar correction staging is an unmerged candidate at this checkpoint. No claim that corrected sidecars are already reviewable in released main.
+- #229 changed-sidecar correction staging is integrated through PR #235: explicit review precedes confirmation, reject is non-mutating and revision/supersession history is preserved. #240 adds metadata-origin evidence without rewriting legacy provenance; neither change introduces cross-image event dedup.
 - #228 Phase 1 is accepted: artifact bytes and semantic source-event identity are distinct. Current photo extraction lacks a trustworthy cross-artifact event ID. No fuzzy/date/value/timestamp-based auto-dedup, no midnight inference and no automatic rewriting of history are authorized. Research acceptance does not retrofit review detection into existing code.
 
 ### Garmin / R02–R03
@@ -58,6 +59,7 @@ Current status refresh: 2026-10-01, accepted product checkpoint `ac1df6dd5bdcfdc
 - Accepted Training evidence includes Training Status, daily/chronic load, ACWR, Load Focus, Training Readiness/Recovery and activity Training Effect/load; requested acquisition date remains distinct from provider source date/timestamp.
 - Associated-device/activity-recorder evidence is not metric-producer proof. Recovery Time units remain unavailable until the persisted contract proves a unit.
 - Normal Owner refresh includes bounded Training sync using the same Garmin auth/client.
+- #309 maps only the real-evidence-proven `tennis_v2` Owner label to `Теннис`; persisted activity identity and comparison semantics are unchanged. #319 must inventory calories, max HR and separate aerobic/anaerobic Training Effects before proposing a new metric contract or implementation. No generic `_v2` alias, guessed unit or Google Activity parity follows from these tasks.
 
 Post-R04 maintenance #98 completed `python-garminconnect` 0.3.12 -> 0.3.15. It was maintenance, not an R04/R05 semantic dependency. #99 Google auth/sync test hardening is also complete.
 
@@ -124,8 +126,9 @@ Frozen design from #97:
 - Weight/sleep/activity/data-quality facts retain coverage/unavailable states and stable result identity.
 - UI/text/CLI are thin renderers; no formula/count/hash changes through display thinning.
 - Direct R05 sleep-report reuse is preferred to copying agreement semantics.
-- #146/#133/#129/#127 correctness/presentation/UAT closeout is complete. #172 and #189 own later UX work.
+- #146/#133/#129/#127 correctness/presentation/UAT closeout, #172 UX and #189 Owner UI are complete. #283 backend performance and #307 Overview v2 are integrated; later presentation follows the current bounded issue contracts.
 - #203 changes limited-encoding stdout only; UTF-8 packets and analytics remain unchanged.
+- #307 keeps the full custom Period Brief/Garmin range. For periods over 400 days, only the Google daily-vitals display read uses the trailing 400 inclusive days with exact visible scope; missing Google states refer to that window, not fabricated absence over the full period.
 
 #### Compound read consistency — #227 accepted
 
@@ -161,6 +164,7 @@ The accepted local helper preserves caller-owned commit/rollback/close, rejects 
 - Daily streams use versioned due/grace policy; activities use proven inventory; voluntary Weight is non-alert by default.
 - Unknown/insufficient chronology never becomes healthy; optional/unsupported metrics do not fail an otherwise healthy provider.
 - #238 completes the policy alignment: explicit disabled collection remains historically truthful and non-actionable without being relabelled fresh; enabled/unknown/unavailable failures remain visible.
+- #305 diagnostics/import-history presentation is integrated, but consolidated Owner UAT still observes `timeout` after 15 seconds. Diagnose the persisted-read path with bounded sanitized evidence; the cause is not yet established. No blind timeout increase, provider collection or policy weakening is authorized.
 
 ### Time, coverage and agreement
 
@@ -180,7 +184,7 @@ The accepted local helper preserves caller-owned commit/rollback/close, rejects 
 - no skipped platform proof or green subset is substituted for the final gate;
 - no full Windows matrix, xdist/cache or micro-tuning without a material measured need.
 
-#181 is complete for its accepted Windows ownership/lifecycle and same-attempt evidence contract. #251 later rebalanced the three serial Linux lanes without changing their exact complete union. #246 is the current staged CI-efficiency track (docs-only PR fast path first, event dedup separately); #243 remains the narrow post-#181 blank-transcript recurrence investigation. Green later runs never erase retained failed evidence.
+#181 is complete for its accepted Windows ownership/lifecycle and same-attempt evidence contract. #251 later rebalanced the three serial Linux lanes without changing their exact complete union. #246 docs-only PR routing/exact-tree event dedup and #243 transcript reliability are complete, as are #242 dependency security, #244 Host/Origin and #302 deterministic Linux-environment pinning. The CI/test-maintenance wave is closed; no further optimization stage is implied. Green later runs never erase retained failed evidence. See [Development Process](DEVELOPMENT_PROCESS.md) for the unchanged classifier and complete-gate rules.
 
 #### Repository protection / #126
 
@@ -211,14 +215,15 @@ The Owner discontinued model benchmarking and attribution tracking in [#210](htt
 
 ### Xiaomi / R01
 
-- #153 optional numeric-userId compatibility and real openScale measurement E2E remain open.
+- #153 is closed as not planned. Real openScale numeric-userId/device E2E compatibility is not newly proven and is not a remaining gate for the accepted screenshot workflow.
 - Historical algorithm/application version may remain unknown where evidence is insufficient; no cross-algorithm calibration without paired evidence.
-- #229 correction candidate awaits independent review/integration; #228 cross-image event identity remains parked, not implemented.
+- #229 corrections and #240 metadata origins are integrated; #228 cross-image event identity remains parked, not implemented.
 
 ### Garmin / R02–R03
 
 - MFA-specific future behavior, longer-term shape drift and retention beyond released proof.
 - Recovery Time unit/producer attribution and VO2/dedicated max-metrics outside accepted evidence stay unverified.
+- #319 owns a bounded read-only inventory before new calories/max-HR/dual-effect claims; no live field availability or unit is established by the task title.
 - #98 dependency upgrade is complete, not residual backlog.
 
 ### Google Health / R04
@@ -234,15 +239,17 @@ The Owner discontinued model benchmarking and attribution tracking in [#210](htt
 - Device-pair evidence remains insufficient for #105; Garmin stays default.
 - Strict legacy cohorts remain fail-closed; the uncertain account cohort is never canonical-eligible.
 - Future firmware/app/algorithm change points may require separate epochs.
+- #308 Sleep v2 is integrated. #317 fuller source-specific nightly presentation must reuse accepted evidence without treating daily vitals as within-sleep values or changing pairing/statistics/canonical selection.
 
 ### Operations / durability / CI
 
 - #214 automatic selected-stream collection proof is complete.
 - #215 first real private Context note/read-back is complete.
 - #148 practical off-site recovery is complete; the accepted Owner workflow is an ordinary verified ZIP in the materialized Google Drive folder plus supported clean restore. Optional protected age publication is not required.
-- #181 accepted Windows ownership/lifecycle and full-rerun-only evidence contract is complete; #243 separately tracks the narrow blank transcript recurrence.
-- #251 CI lane balancing is complete; #246 owns the next CI-efficiency stages.
+- #181/#243 accepted Windows ownership/lifecycle, transcript and full-rerun-only evidence contracts are complete.
+- #251/#246 CI lane balancing, docs routing and exact-tree event dedup are complete; new optimization needs a new measured bottleneck, regression or security need.
 - #256 Owner filesystem migration and automatic workspace cleanup are complete. Canonical roots are under `D:\HealthCheck`; janitor runs daily at 12:00 with seven-day minimum retention and does not touch legacy roots.
+- #305 real freshness timeout remains open despite the completed collection-policy and UI diagnostic work.
 - #126 server-side enforcement still requires an Owner/capability decision before settings changes.
 
 ## Deferred owner choices
@@ -252,7 +259,7 @@ The Owner discontinued model benchmarking and attribution tracking in [#210](htt
 3. External AI provider/deployment: choose when that release begins.
 4. Recovery Score: only for an evidenced unmet need.
 5. Remote access: local/loopback until an explicit need/threat model.
-6. #172/#189 UI: deferred while operational readiness/durability take priority; #153 is not a prerequisite.
+6. Next UI direction: review the forthcoming Owner design feedback before launching #317/#318; #294 remains separate. #172/#189 are completed, not deferred, and the existing visual/IA contract is not silently replaced.
 7. #167 privacy rewrite: deferred; requires a new Owner decision and coordinated freeze.
 8. #228 cross-image identity: no automatic semantic merge until a trustworthy event-proof contract is accepted.
 
