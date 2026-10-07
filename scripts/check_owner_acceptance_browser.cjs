@@ -50,9 +50,6 @@ const sections = [
     const g = await page.evaluate(() => ({
       doc: document.documentElement.scrollWidth, view: innerWidth,
       rows: new Set([...document.querySelector('.owner-nav').children].map(el => el.offsetTop)).size,
-      grids: [...document.querySelectorAll('.grid, .data-provider-grid, .brief-overview-list')]
-        .filter(el => el.getBoundingClientRect().height)
-        .map(el => ({ cls: el.className, columns: getComputedStyle(el).gridTemplateColumns.split(' ').length })),
       tables: [...document.querySelectorAll('table')].filter(el => el.getBoundingClientRect().height)
         .map(el => ({ display: getComputedStyle(el).display, wrapper: !!el.closest('.table-scroll') })),
       targets: [...document.querySelectorAll('.owner-nav a, main button, summary')]
@@ -65,7 +62,6 @@ const sections = [
     assert.equal(g.rows, 1, label);
     assert.equal(g.background, 'rgb(243, 241, 236)', label);
     assert.ok(g.links.every(color => color === 'rgb(31, 92, 87)'), label + ': ' + JSON.stringify(g.links));
-    if (g.view <= 800) assert.ok(g.grids.every(grid => grid.columns === 1), label + ': ' + JSON.stringify(g.grids));
     assert.ok(g.tables.every(table => table.display === 'table' && table.wrapper), label + ': ' + JSON.stringify(g.tables));
     assert.ok(g.targets.every(target => target.height >= 44), label + ': ' + JSON.stringify(g.targets));
   }
@@ -99,7 +95,7 @@ const sections = [
       await page.keyboard.press('Space');
       assert.equal(await summary.evaluate(el => el.parentElement.open), wasOpen, label);
       assert.equal(await summary.evaluate(el => el === document.activeElement), true, label);
-      // Leave all disclosures open together: exercise the worst responsive layout.
+      // Leave all disclosures open together: exercise the full desktop evidence layout.
       if (!wasOpen) await page.keyboard.press('Enter');
       tested++;
     }
@@ -137,7 +133,7 @@ const sections = [
       nativeLinksSkipped = !await page.locator('#native-first').evaluate(el => el === document.activeElement);
     }
 
-    for (const width of [1100, 800, 390]) {
+    for (const width of [1024, 1440]) {
       console.log(`Checking ${width}px navigation, populated/empty pages and request states`);
       await page.setViewportSize({width, height: 900});
       // Follow the actual primary links, including horizontal nav scrolling.
@@ -202,7 +198,7 @@ const sections = [
             await page.waitForFunction(() => document.querySelector('#lag-result').getAttribute('aria-busy') === 'false');
             await geometry(label + ' training'); await localScrolling(label + ' training');
           }
-          checks.push(label + ': rendering, states, responsive layout, open evidence');
+          checks.push(label + ': rendering, states, desktop layout, open evidence');
         }
       }
 
@@ -285,7 +281,7 @@ const sections = [
     assert.deepEqual(forbiddenRequests, [], 'Only local read requests permitted');
     assert.deepEqual(errors, [], 'No unexpected console or JavaScript errors');
     assert.deepEqual(candidateIdentity(), candidate, 'Candidate must remain unchanged during verification');
-    const result = {status: unverified.length ? 'PASS_WITH_LIMITATIONS' : 'PASS', candidate, engine, browser: browser.version(), widths: [1100, 800, 390], checks, errors, expectedHttpErrors, forbiddenRequests, unverified};
+    const result = {status: unverified.length ? 'PASS_WITH_LIMITATIONS' : 'PASS', candidate, engine, browser: browser.version(), widths: [1024, 1440], checks, errors, expectedHttpErrors, forbiddenRequests, unverified};
     fs.writeFileSync(path.join(evidence, 'owner-stage7-browser.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify({status: result.status, engine, browser: result.browser, checks: checks.length, errors, expectedHttpErrors: expectedHttpErrors.length, unverified}, null, 2));
   } catch (error) {

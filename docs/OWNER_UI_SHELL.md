@@ -74,13 +74,21 @@ The integrated post-UAT views preserve these boundaries:
 - #308 Compare consumes only compatible accepted persisted Agreement evidence. Daily auxiliary values are not relabelled within-sleep measurements, and a source tab does not establish feature parity; fuller nightly source views belong to #317.
 - #309 keeps B−A and percent-to-A semantics, blocks comparing a session with itself and clears stale pair evidence. Only the evidenced `tennis_v2` alias becomes `Теннис`; no generic `_v2` normalization or persistence change is authorized.
 
-## Responsive and request behavior
+## Desktop scope and request behavior
 
-The sticky paper top bar has a hairline and an active-item underline. At <=800px navigation
-stays one horizontal scrolling row and content becomes one column; controls keep 44px
-targets. Wide tables/charts scroll locally in `.table-scroll`/`.chart`, not at page level.
-Tables retain real table layout and sticky muted headers. Responsive overrides follow page
-rules; narrow comparison tables remain locally scrollable rather than expanding the page.
+The [Owner decision #321, 2026-10-07](https://github.com/LTstripes/Health-Check/issues/321)
+sets desktop/laptop CSS viewports **1024px and wider** as the supported target.
+Phone, tablet and windows below 1024px have no design, browser-test or Owner UAT
+acceptance requirement. Earlier #189/390px responsive expectations and UI briefs
+are historical, superseded for current and future work. The forthcoming Overview
+A+ static reference is desktop-only. Existing small-window CSS fallbacks remain
+without a new support obligation.
+
+The sticky paper top bar has a hairline and an active-item underline; controls
+keep 44px targets and visible keyboard focus. Wide tables/charts scroll locally
+in `.table-scroll`/`.chart`, not at page level. Tables retain real table layout
+and sticky muted headers. Functional evidence, keyboard/accessibility and
+security/privacy contracts remain required at desktop widths.
 
 Data reuses persisted source-freshness evaluation and separates source status from provider
 calls. #305 exposes sanitized request-failure classes and honest extractor configuration;
@@ -91,7 +99,32 @@ a redundant selector; multiple sources still require explicit selection.
 
 ## Verification and post-UAT follow-up
 
-Narrow Chromium checks are retained as `scripts/check_owner_{data,brief,weight,sleep,activity}_browser.cjs`.
+Focused Chromium checks are retained as `scripts/check_owner_{data,brief,weight,sleep,activity}_browser.cjs`.
+These, the shared multi-engine `check_owner_acceptance_browser.cjs`, and the
+Overview/Google-vitals checks use representative **1024/1440px** desktop widths.
+No test file, suite, CI job/lane, Windows smoke or guard is disabled, and no
+skip/xfail replaces functional coverage. Complete exact-candidate CI remains
+governed by [Development Process](DEVELOPMENT_PROCESS.md#13-ci-evidence-and-complete-suite-gates).
+
+Under #321, retired mobile-only checks are the 320–800px loops/screenshots,
+one-column/breakpoint ordering and phone-navigation CSS expectations, forced
+narrow-table overflow/row-height expectations and the phone tick-density
+comparison. Desktop checks retain source/availability honesty, chart points and
+exact date endpoints, collision-free axes, resize focus, pointer/keyboard
+interaction, import upload/preview/reject/confirm, unconfigured extraction,
+disclosures, comparisons, table data/local scroll containers and request
+loading/error/retry/race checks. The pytest shell contract keeps viewport
+metadata, skip links, visible focus, target sizes, scrollers and real table
+evidence without freezing obsolete responsive CSS.
+
+The older Brief and Google-vitals checks also follow the integrated markup:
+raw packet checks select `.brief-packet`; Google checks open the Google source
+view and its shared technical disclosure. The missing Garmin night assertion
+still runs in the Garmin view for the same date.
+
+Synthetic browser evidence and CI are separate; neither proves private desktop
+Owner UAT, which remains `UNVERIFIED` for a new candidate until the Owner runs it.
+
 The Weight check caught an initial-render temporal-dead-zone error before Stage 4 acceptance;
 the render call now follows its state-map declarations. Per-stage focused tests and exact
 candidate/PR/main CI are recorded in #189 and the subsequent #305–#309 issue/PR records.

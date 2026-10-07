@@ -45,8 +45,9 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
       assert.match(await link.getAttribute('href'), /^\/imports/);
     }
     const tech = page.locator('.brief-provenance');
+    const rawPacket = tech.locator('.brief-packet');
     assert.equal(await tech.getAttribute('open'), null);
-    assert.equal(await tech.locator('pre').isVisible(), false);
+    assert.equal(await rawPacket.isVisible(), false);
     assert.doesNotMatch(await page.locator('main').innerText(), /synthetic-result-hash|future_metric|refresh_overdue|Полнота данных и происхождение/);
     checks.push('Owner hierarchy, distinct evidence states, meaningful sleep units and source/action deduplication');
 
@@ -64,18 +65,18 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
     const techSummary = tech.locator('summary');
     await techSummary.focus();
     await page.keyboard.press('Enter');
-    assert.equal(await tech.locator('pre').isVisible(), true);
-    const packet = JSON.parse(await tech.locator('pre').textContent());
+    assert.equal(await rawPacket.isVisible(), true);
+    const packet = JSON.parse(await rawPacket.textContent());
     assert.equal(packet.result_hash, 'synthetic-result-hash');
     assert.equal(packet.sections.sleep.groups.length, 7);
     assert.equal(packet.owner_actions.length, 6);
     assert.equal(packet.sections.sleep.groups[0].bias, -120);
     await page.keyboard.press('Enter');
-    assert.equal(await tech.locator('pre').isVisible(), false);
+    assert.equal(await rawPacket.isVisible(), false);
     assert.equal(await techSummary.evaluate(el => el === document.activeElement), true);
     checks.push('Keyboard disclosure opens exact raw evidence and closes with focus retained');
 
-    for (const width of [1100, 800, 390]) {
+    for (const width of [1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await techSummary.click();
       const records = page.locator('.brief-records');
@@ -90,7 +91,7 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
         bg: getComputedStyle(document.body).backgroundColor
       }));
       assert.ok(geometry.doc <= geometry.view + 1, JSON.stringify(geometry));
-      assert.equal(geometry.columns, width <= 800 ? 1 : 3);
+      assert.equal(geometry.columns, 3);
       assert.equal(geometry.tableDisplay, 'table');
       assert.equal(geometry.scroll, 'auto');
       assert.equal(geometry.bg, 'rgb(243, 241, 236)');
@@ -103,7 +104,7 @@ const fixtureQuery = '?start_date=2099-01-01&end_date=2099-01-07';
       await techSummary.click();
       for (const record of await records.all()) await record.locator('summary').click();
     }
-    checks.push('1100/800/390px: opened evidence and records fit; real tables scroll; 44px controls and frozen palette');
+    checks.push('1024/1440px desktop: opened evidence and records fit; real tables scroll; 44px controls and frozen palette');
 
     // A delayed server-rendered navigation keeps one coherent applied period
     // until the new document commits; it never updates just a heading/card.

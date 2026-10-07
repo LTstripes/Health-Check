@@ -144,7 +144,7 @@ const checks = [];
     checks.push('keyboard disclosure retains exact technical evidence');
 
     fs.mkdirSync(evidence, {recursive: true});
-    for (const width of [1100, 800, 480, 390, 360]) {
+    for (const width of [1024, 1440]) {
       await page.setViewportSize({width, height: 900});
       const geometry = await page.evaluate(() => {
         const nav = document.querySelector('.owner-nav');
@@ -162,18 +162,18 @@ const checks = [];
         };
       });
       assert.equal(geometry.overflow, false);
-      assert.equal(geometry.columns, width <= 800 ? 1 : 2);
+      assert.equal(geometry.columns, 2);
       assert.equal(geometry.navRows, 1);
       assert.ok(geometry.height >= 44);
       assert.equal(geometry.active, 'Данные');
       assert.equal(geometry.background, 'rgb(243, 241, 236)');
       assert.equal(geometry.border, 'rgb(31, 92, 87)');
       assert.equal(geometry.radius, '8px');
-      if (width <= 480) assert.equal(await table.evaluate(element => element.scrollWidth > element.clientWidth), true);
+      assert.equal(await table.evaluate(element => getComputedStyle(element).overflowX), 'auto');
       await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({path: path.join(evidence, 'data-' + width + '.png')});
     }
-    checks.push('1100/800/480/390/360px: frozen tokens, one narrow column, nav row, 44px target, local history scrolling and no document overflow');
+    checks.push('1024/1440px desktop: frozen tokens, two columns, nav row, 44px target, local history scrolling and no document overflow');
     for (const [failure, code] of [
       ['error', 'database_unavailable'], ['http500', 'endpoint_error'], ['invalid-request', 'invalid_request'],
       ['network', 'network_error'], ['invalid-json', 'invalid_response'], ['wrong-provider', 'invalid_response'],
@@ -244,14 +244,14 @@ const checks = [];
       const completed = page.locator('#completed-imports').locator(`a[href="${new URL(batchUrl).pathname}"]`);
       assert.equal(await completed.textContent(), 'Открыть детали');
       assert.equal(await completed.isVisible(), true);
-      checks.push('synthetic photo upload opens review; preview, reject, confirm and folded completed details work at narrow width');
+      checks.push('synthetic photo upload opens review; preview, reject, confirm and folded completed details work at desktop width');
     }
     assert.deepEqual(external, [], 'No external requests or provider calls');
     assert.deepEqual(errors, []);
     if (process.env.HEALTHCHECK_BROWSER_UNCONFIGURED_BASE_URL) {
       const unconfiguredBase = process.env.HEALTHCHECK_BROWSER_UNCONFIGURED_BASE_URL;
       assert.match(unconfiguredBase, /^http:\/\/127\.0\.0\.1:\d+$/);
-      const context = await browser.newContext({viewport: {width: 390, height: 900}});
+      const context = await browser.newContext({viewport: {width: 1024, height: 900}});
       const unconfigured = await context.newPage();
       await unconfigured.goto(unconfiguredBase + '/imports');
       await unconfigured.locator('[data-provider="weight"]').waitFor();
@@ -260,9 +260,9 @@ const checks = [];
       assert.equal(await unconfigured.getByRole('button', {name: 'Загрузить и открыть проверку'}).isDisabled(), true);
       assert.equal(await unconfigured.getByRole('link', {name: 'Проверить измерения'}).first().isVisible(), true);
       assert.equal(await unconfigured.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-      await unconfigured.screenshot({path: path.join(evidence, 'photo-unconfigured-390.png'), fullPage: true});
+      await unconfigured.screenshot({path: path.join(evidence, 'photo-unconfigured-1024.png'), fullPage: true});
       await context.close();
-      checks.push('390px unconfigured extraction disables upload and keeps existing pending reviews usable');
+      checks.push('1024px desktop: unconfigured extraction disables upload and keeps existing pending reviews usable');
     }
     fs.writeFileSync(path.join(evidence, 'browser-result.json'), JSON.stringify({status: 'PASS', checks}, null, 2));
     console.log(JSON.stringify({status: 'PASS', checks}, null, 2));

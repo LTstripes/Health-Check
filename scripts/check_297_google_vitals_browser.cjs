@@ -1,4 +1,4 @@
-/* #297 narrow Chromium smoke for the source-explicit Google daily-vitals block.
+/* #297 focused desktop Chromium smoke for the source-explicit Google daily-vitals block.
  * Run against a disposable synthetic UI seeded with
  * tests/test_google_daily_vitals.py:seed_google_daily_vitals.
  * Explicit loopback URL and external evidence directory are required.
@@ -26,9 +26,9 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
         errors.push(m.text());
       }
     });
-    for (const width of [1100, 800, 390]) {
+    for (const width of [1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto(base + '/sleep?wake_date=2099-01-02');
+      await page.goto(base + '/sleep?wake_date=2099-01-02&view=google');
       assert.equal(await page.locator('html').getAttribute('lang'), 'ru');
       assert.equal(await page.locator('h1').innerText(), 'Сон');
       const block = page.locator('[data-google-vitals]');
@@ -43,10 +43,10 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.match(text, /42\.5 мс/);
       assert.match(text, /2 января 2099/);
       assert.equal(await block.locator('.status-chip[data-owner-state="present"]').count(), 0);
-      assert.match(text, /55 уд\/мин/);
-      assert.match(text, /97 %/);
+      assert.match(text, /55\.0 уд\/мин/);
+      assert.match(text, /97\.0 %/);
       assert.match(text, /13\.5 вдохов\/мин/);
-      assert.match(text, /0 вдохов\/мин/);
+      assert.match(text, /0\.0 вдохов\/мин/);
       assert.match(text, /явный ноль/);
       assert.match(text, /пустое значение/);
       assert.match(text, /Нет текущих записей в окне/);
@@ -55,18 +55,15 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.deepEqual(options.map(value => value.trim()), ['7 дней', '30 дней', '90 дней']);
       const geo = await page.evaluate(() => ({
         overflow: document.documentElement.scrollWidth > innerWidth + 1,
-        grids: [...document.querySelectorAll('[data-google-vitals] .grid')]
-          .map(el => getComputedStyle(el).gridTemplateColumns.split(' ').length),
       }));
       assert.equal(geo.overflow, false, JSON.stringify(geo));
-      if (width <= 800) assert.ok(geo.grids.every(columns => columns === 1), JSON.stringify(geo));
       await page.selectOption('[data-google-vitals] select[name="vitals_window"]', '7');
       await Promise.all([
         page.waitForURL(/vitals_window=7/),
         block.locator('button[type="submit"]').click(),
       ]);
       assert.match(await page.locator('[data-google-vitals]').innerText(), /27 декабря 2098 → 2 января 2099/);
-      await page.goto(base + '/sleep?wake_date=2099-01-02');
+      await page.goto(base + '/sleep?wake_date=2099-01-02&view=google');
       await page.screenshot({
         path: path.join(evidence, 'google-vitals-' + width + '.png'), fullPage: true,
       });
@@ -74,13 +71,15 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     }
     await page.setViewportSize({ width: 1100, height: 900 });
     await page.goto(base + '/sleep?wake_date=2099-01-03');
+    assert.match(await page.locator('.sleep-night').innerText(), /нет пригодного значения/);
+    await page.goto(base + '/sleep?wake_date=2099-01-03&view=google');
     const missingNight = page.locator('[data-google-vitals]');
     assert.match(await missingNight.innerText(), /42\.5 мс/);
-    assert.match(await page.locator('main').innerText(), /нет пригодного значения/);
-    const googleDetails = page.locator('main details.sleep-technical').nth(1);
+    const googleDetails = page.locator('main details.sleep-technical');
     assert.equal(await googleDetails.getAttribute('open'), null);
     await googleDetails.locator('summary').focus();
     await page.keyboard.press('Enter');
+    assert.equal(await googleDetails.getByRole('heading', {name: 'Google', exact: true}).count(), 1);
     assert.match(await googleDetails.innerText(), /r297-google-daily-vitals-read-v1/);
     assert.match(await googleDetails.innerText(), /candidates/);
     checks.push('Unpaired Google values on a missing Garmin night; exact provenance stays in disclosure');

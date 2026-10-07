@@ -22,7 +22,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
         errors.push(message.text());
       }
     });
-    for (const width of [1100, 800, 390]) {
+    for (const width of [1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(base + '/brief?start_date=2099-01-01&end_date=2099-01-02');
       const sources = page.locator('[data-overview-sources]');
@@ -66,7 +66,6 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       });
       assert.equal(geometry.pageOverflow, false, JSON.stringify(geometry));
       assert.equal(geometry.overflow, 'auto');
-      if (width === 390) assert.equal(geometry.localScroll, true);
       const technical = page.locator('.brief-provenance');
       await technical.locator('summary').focus();
       await page.keyboard.press('Enter');
