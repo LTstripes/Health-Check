@@ -37,6 +37,7 @@
       "tests/test_context_capture.py",
       "tests/test_fk_safe_migration_repair.py",
       "tests/test_google_daily_vitals.py",
+      "tests/test_google_freshness_read_equivalence.py",
       "tests/test_migration_guard.py",
       "tests/test_owner_refresh.py",
       "tests/test_owner_weight_screenshot_import.py",
