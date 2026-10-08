@@ -1,0 +1,40 @@
+/* Activity A/B only; shared shell and other Garmin tables keep their layout. */
+.activity-comparison #activity-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+.activity-comparison #activity-selection-hint:empty { display: none; }
+.activity-comparison #activity-result .garmin-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+.activity-comparison #activity-result th:first-child {
+  min-width: 0;
+  width: 36%;
+}
+.activity-comparison #activity-result th,
+.activity-comparison #activity-result td {
+  min-width: 0;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.activity-comparison #activity-result td,
+.activity-comparison #activity-result th:not(:first-child) { text-align: right; }
+.activity-comparison .comparison-note {
+  display: block;
+  margin-top: 4px;
+  font-size: .75rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.activity-comparison .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

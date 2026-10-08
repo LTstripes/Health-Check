@@ -71,10 +71,8 @@ if (!evidence || [base, emptyBase, multiBase].some(url => !url || !/^http:\/\/12
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.querySelector('#activity-result').getAttribute('aria-busy') === 'false');
       const comparison = await page.locator('#activity-result').innerText();
-      assert.match(comparison, /Сопоставлено/);
+      assert.deepEqual(await page.locator('#activity-result thead th').allTextContents(), ['Показатель', 'A', 'B', 'B − A', '% к A']);
       assert.match(comparison, /Не предоставлено|Не вычисляется/);
-      assert.match(comparison, /B минус A/);
-      assert.match(comparison, /Сессия A.*Сессия B/s);
       assert.match(comparison, /Сессия A: значение не предоставлено; Сессия B: значение не предоставлено/);
       assert.doesNotMatch(comparison, /r03-|result_hash|acute_training_load/);
       const initial = JSON.parse(await page.locator('#activity-evidence').textContent());

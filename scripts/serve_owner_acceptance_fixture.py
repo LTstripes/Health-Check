@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--overview-v2", action="store_true")
     parser.add_argument("--overview-a-plus", action="store_true")
     parser.add_argument("--activity-multiple-sources", action="store_true")
+    parser.add_argument("--activity-comparison", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--empty", action="store_true")
     mode.add_argument("--unavailable", action="store_true")
@@ -53,7 +54,11 @@ def main():
     from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
     from healthcheck.runtime import prepare_runtime
     from healthcheck.web.ui_app import create_ui_app
-    from test_activity_owner_ui import seed_activity, seed_second_activity_source
+    from test_activity_owner_ui import (
+        seed_activity,
+        seed_activity_comparison_tennis,
+        seed_second_activity_source,
+    )
     from test_dashboard_ui import _confirm_all_pending
     from test_google_daily_vitals import seed_google_daily_vitals
     from test_period_brief_ui import seed_a_plus_weight, seed_overview_a_plus, seed_overview_v2
@@ -72,7 +77,10 @@ def main():
                 if args.activity_multiple_sources:
                     seed_second_activity_source(paths)
         else:
-            seed_activity(paths)
+            if args.activity_comparison:
+                seed_activity_comparison_tennis(paths)
+            else:
+                seed_activity(paths)
             seed_google_daily_vitals(paths)
             if args.activity_multiple_sources:
                 seed_second_activity_source(paths)
@@ -129,6 +137,7 @@ def main():
                 "empty": args.empty,
                 "unavailable": args.unavailable,
                 "read_errors": args.read_errors,
+                "activity_comparison": args.activity_comparison,
                 "agreement": "explicit test report" if not args.empty else "real empty store",
             }
         )
