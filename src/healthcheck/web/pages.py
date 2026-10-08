@@ -568,6 +568,7 @@ def _brief_owner_actions(actions: object) -> list[dict[str, Any]]:
             continue
         code = str(action.get("code") or "")
         reason = str(action.get("reason_code") or "")
+        short_text = ""
         if code == "source_freshness_attention":
             scope = str(action.get("scope_key") or "")
             provider = (
@@ -597,6 +598,12 @@ def _brief_owner_actions(actions: object) -> list[dict[str, Any]]:
             }.get(reason, ("inspect", "Проверьте сведения об источнике в разделе «Данные»."))
             key = (code, provider, family)
             text = f"{provider}: {text}"
+            short_text = f"{provider}: " + {
+                "login": "нужен повторный вход",
+                "collection": "проверьте сбор данных",
+                "failure": "ошибка обновления",
+                "inspect": "проверьте состояние",
+            }[family]
             context = {
                 "stale": "Данные устарели",
                 "unknown": "Свежесть неизвестна",
@@ -612,12 +619,14 @@ def _brief_owner_actions(actions: object) -> list[dict[str, Any]]:
                 f"{provider}: проверьте последний отчёт локального сбора.",
                 "Данные недоступны",
             )
+            short_text = f"{provider}: проверьте отчёт сбора"
         else:
             key = (code,)
             text, context = _brief_owner_action(dict(action)), ""
         item = unique.setdefault(
             key,
             {
+                "short_text": short_text,
                 "text": text,
                 "contexts": [],
                 "link": "/imports" if code == "confirm_pending_imports" else "/imports#data-status",

@@ -1251,3 +1251,136 @@ def test_a_plus_sleep_reuses_ambiguity_guard_and_keeps_partial_and_score_dates(
             assert by_day['2099-01-05']['value'] is None
     finally:
         engine.dispose()
+
+
+NOTICE_CASES = [
+    ("reauth_required", "unavailable", "нужен повторный вход", "Данные недоступны"),
+    ("refresh_failed", "stale", "ошибка обновления", "Данные устарели"),
+    ("refresh_overdue", "stale", "проверьте сбор данных", "Данные устарели"),
+    ("expected_evidence_absent", "unknown", "проверьте сбор данных", "Свежесть неизвестна"),
+    ("optional_not_requested", "not_requested", None, "Данные не запрашивались"),
+    (None, "fresh", None, None),
+]
+
+
+@pytest.mark.parametrize("reason,state,short,context", NOTICE_CASES)
+def test_source_notice_visibility_and_disclosure_preserve_packet(
+    tmp_path, monkeypatch, reason, state, short, context,
+):
+    from copy import deepcopy
+
+    result = _stage3_result()
+    actions = [] if reason is None else [{
+        "code": "source_freshness_attention", "scope_key": "garmin:sleep",
+        "reason_code": reason, "state": state,
+    }]
+    for payload in (result["packet"], result["display"]):
+        payload["owner_actions"] = deepcopy(actions)
+    before = deepcopy(result)
+    _stub_brief_service(monkeypatch, result)
+    with TestClient(_ui(tmp_path), base_url="http://127.0.0.1:8120") as client:
+        response = client.get("/brief?start_date=2099-01-01&end_date=2099-01-07")
+        if short:
+            # The visible link reaches the existing Data source-status section.
+            data = client.get("/imports")
+            assert data.status_code == 200 and 'id="data-status"' in data.text
+    assert response.status_code == 200
+    assert result == before
+    assert response.context["packet"] == before["packet"]
+    assert response.context["brief"]["source_result_hash"] == "synthetic-result-hash"
+    assert ('class="brief-source-attention"' in response.text) == bool(short)
+    if short:
+        notice = response.text.split('class="brief-source-attention"', 1)[1]
+        notice = notice.split("</section>", 1)[0]
+        summary = notice.split("<summary>", 1)[1].split("</summary>", 1)[0]
+        assert f"Garmin: {short}" in summary and context in summary
+        assert 'class="owner-details brief-source-disclosure" open' not in notice
+        assert 'href="/imports#data-status">Данные →</a>' in notice
+        assert "Сохранённая история не подтверждает свежесть" in notice
+        assert notice.index("</summary>") < notice.index("сбора")
+        assert response.text.index('class="brief-source-attention"') < response.text.index(
+            'class="brief-overview"'
+        )
+    elif context:
+        limitations = response.text.split('class="owner-details brief-limitations"', 1)[1]
+        assert context in limitations
+
+
+def test_mixed_sources_keep_distinct_errors_and_pending_action_once(tmp_path, monkeypatch):
+    from copy import deepcopy
+
+    result = _stage3_result()
+    for payload in (result["packet"], result["display"]):
+        payload["owner_actions"].extend([
+            {"code": "source_freshness_attention", "scope_key": "google:sleep",
+             "reason_code": "refresh_failed", "state": "unavailable"},
+            {"code": "investigate_provider_sync", "provider_code": "google"},
+        ])
+    before = deepcopy(result)
+    _stub_brief_service(monkeypatch, result)
+    with TestClient(_ui(tmp_path), base_url="http://127.0.0.1:8120") as client:
+        response = client.get("/brief?start_date=2099-01-01&end_date=2099-01-07")
+    assert result == before
+    primary = response.text.split("Технические детали", 1)[0]
+    assert primary.count('class="brief-source-attention"') == 1
+    summary = primary.split("<summary>Garmin:", 1)[1].split("</summary>", 1)[0]
+    assert "Garmin: нужен повторный вход" in primary
+    assert "Google: ошибка обновления" in summary
+    assert "Google: проверьте отчёт сбора" in summary
+    assert primary.count("Повторите вход в источник") == 1
+    assert primary.count("Проверьте ошибку в последнем отчёте") == 1
+    pending = primary.split('id="brief-actions-heading"', 1)[1].split("</section>", 1)[0]
+    assert "Есть измерения, ожидающие подтверждения" in pending
+    assert 'href="/imports"' in pending
+    assert "Повторите вход" not in pending
+    assert primary.count("Есть измерения, ожидающие подтверждения") == 1
+
+
+@pytest.mark.parametrize("mode", ["absent", "incompatible", "outside_window"])
+def test_selected_garmin_missing_rhr_hrv_remains_source_and_date_specific(tmp_path, mode):
+    from sqlalchemy import select
+
+    from healthcheck.db.models import GarminRecordMetric
+    from test_garmin_query_dashboard import _ui as create_fixture
+
+    app, _settings, paths = create_fixture(tmp_path)
+    seed_overview_v2(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            source_id = session.scalar(select(GarminSource.id))
+            metrics = session.scalars(select(GarminRecordMetric).where(
+                GarminRecordMetric.metric_code.in_(
+                    ["resting_heart_rate_bpm", "hrv_weekly_average_ms"]
+                )
+            )).all()
+            for metric in metrics:
+                if mode == "absent":
+                    session.delete(metric)
+                elif mode == "incompatible":
+                    metric.unit = "incompatible"
+            session.commit()
+    finally:
+        engine.dispose()
+    start, end = ("2099-01-04", "2099-01-05") if mode == "outside_window" else (
+        "2099-01-01", "2099-01-02"
+    )
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        response = client.get("/brief", params={
+            "start_date": start, "end_date": end, "garmin_source_id": source_id,
+        })
+    assert response.status_code == 200
+    assert response.context["source_selection"]["selected_source_id"] == source_id
+    for code in ("resting_heart_rate_bpm", "hrv_weekly_average_ms"):
+        cell = response.context["overview"]["garmin"][code]
+        assert cell["value"] is None
+        assert cell["state"] == ("unavailable" if mode == "incompatible" else "unknown")
+        assert cell["date"] == ("2099-01-02" if mode == "incompatible" else None)
+        assert cell["note"] in response.text
+    secondary = response.text.split('class="overview-secondary"', 1)[1].split("</section>", 1)[0]
+    assert "52 уд/мин" not in secondary and "60.12 мс" not in secondary
+    assert "42.5 мс" not in secondary and "55 уд/мин" not in secondary
+    assert "HRV · среднее за неделю" in secondary
+    if mode != "outside_window":
+        # Google daily values remain separate, never fill Garmin's missing cell.
+        assert "42.5 мс" in response.text and "55 уд/мин" in response.text
