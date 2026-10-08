@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--photo-unconfigured", action="store_true")
     parser.add_argument("--overview-v2", action="store_true")
+    parser.add_argument("--overview-a-plus", action="store_true")
     parser.add_argument("--activity-multiple-sources", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--empty", action="store_true")
@@ -55,7 +56,7 @@ def main():
     from test_activity_owner_ui import seed_activity, seed_second_activity_source
     from test_dashboard_ui import _confirm_all_pending
     from test_google_daily_vitals import seed_google_daily_vitals
-    from test_period_brief_ui import seed_overview_v2
+    from test_period_brief_ui import seed_a_plus_weight, seed_overview_a_plus, seed_overview_v2
     from test_sleep_owner_ui import agreement_detail_fixture, agreement_service_fixture
 
     settings = Settings(data_dir=runtime, ui_port=args.port, weight_goal_kg=76.0)
@@ -64,8 +65,12 @@ def main():
         migrate_database(paths)
     app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
     if not args.empty and not args.unavailable:
-        if args.overview_v2:
+        if args.overview_v2 or args.overview_a_plus:
             seed_overview_v2(paths)
+            if args.overview_a_plus:
+                seed_overview_a_plus(paths)
+                if args.activity_multiple_sources:
+                    seed_second_activity_source(paths)
         else:
             seed_activity(paths)
             seed_google_daily_vitals(paths)
@@ -94,6 +99,8 @@ def main():
             base_url=f"http://127.0.0.1:{args.port}",
             headers={"Origin": f"http://127.0.0.1:{args.port}"},
         ) as client:
+            if args.overview_a_plus:
+                seed_a_plus_weight(client)
             for index, confirmed in enumerate((True, False)):
                 png = encode_synthetic_png(
                     weigh_in_payload(
