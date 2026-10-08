@@ -1,0 +1,30 @@
+/* Bounded Activity journal; the shared shell and analytics tables are unchanged. */
+.activity-source-card > p { margin: 0 0 8px; }
+.activity-source-card #source-status p { margin: 8px 0 0; }
+.activity-source-card #source-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.activity-source-card #source-form label { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.activity-source-card #source-form select { flex: 1; width: 100%; min-width: 0; }
+.activity-owner-summary h2 { margin: 0 0 8px; }
+.activity-owner-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 24px;
+}
+.activity-owner-grid > * { min-width: 0; }
+.activity-owner-grid h3, .activity-saved-summary p { margin-top: 0; }
+.activity-saved-summary p > strong { font-size: 1.5rem; }
+.activity-type-counts { list-style: none; padding: 0; margin: 12px 0; }
+.activity-type-counts li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.activity-type-counts strong { font-variant-numeric: tabular-nums; }
+.activity-owner-summary .garmin-table, .activity-history .garmin-table { min-width: 0; width: 100%; }
+.activity-owner-summary th, .activity-owner-summary td,
+.activity-history th, .activity-history td { white-space: normal; overflow-wrap: anywhere; }
+.activity-owner-summary .garmin-table th, .activity-owner-summary .garmin-table td { padding: 4px 8px; }
+.activity-owner-summary .garmin-table th:last-child { width: 45%; }
+.activity-journal-context { margin: 8px 0 0; font-size: .875rem; }
+#activity-comparison > .muted { margin: 8px 0; font-size: .875rem; }
+#activity-comparison { scroll-margin-top: 100px; }

@@ -32,6 +32,7 @@
       el.classList.toggle("selected", selected);
       if (selected) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current");
     });
+    if (location.hash === "#activity-comparison") document.getElementById("activity-comparison").scrollIntoView();
   }
   function bindForms() {
     document.getElementById("garmin-source-id")?.addEventListener("change", () => {

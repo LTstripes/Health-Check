@@ -83,6 +83,38 @@ def seed_activity_comparison_tennis(paths):
         engine.dispose()
 
 
+def seed_activity_journal(paths, count, *, device_model="Synthetic journal"):
+    """Persist real-shaped sessions (including an empty source), without providers."""
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            payload = {
+                "activities": [
+                    {
+                        "activityId": f"synthetic-journal-{index}",
+                        "activityType": {"typeKey": ("tennis_v2", "cycling", "walking")[index % 3]},
+                        "calendarDate": (date(2099, 1, 1) + timedelta(days=index)).isoformat(),
+                        "duration": 0 if index % 2 == 0 else 3901.25,
+                        "distance": None,
+                    }
+                    for index in range(count)
+                ]
+            }
+            source = garmin_source_identity(
+                source_kind="provider",
+                device_attributed=True,
+                device_code=f"synthetic-journal-{device_model}",
+                device_model=device_model,
+            )
+            result = normalize_garmin_payload(payload, stream="activity", source_identity=source)
+            outcome = GarminPersistenceRepository(
+                session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            ).persist_result(result, payload=payload, received_at=datetime(2099, 3, 1, tzinfo=UTC))
+            return outcome.source.id
+    finally:
+        engine.dispose()
+
+
 def client_for(app):
     return TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
@@ -358,6 +390,100 @@ def test_activity_empty_is_unavailable_and_no_fabricated_sessions(tmp_path):
     assert "Нагрузка не считается нулевой" in primary
     assert 'data-owner-state="confirmed_empty"' not in primary
     assert ">0</span>" not in primary
+
+
+@pytest.mark.parametrize("count", [0, 1, 5, 50, 55])
+def test_compact_journal_preserves_bounded_source_records_and_period_independence(tmp_path, count):
+    from healthcheck.web.owner_presentation import owner_date
+
+    app, _, paths = _ui(tmp_path)
+    source = seed_activity_journal(paths, count)
+    seed_second_activity_source(paths)
+    params = {"garmin_source_id": source, "start_date": "2098-01-01", "end_date": "2098-01-02"}
+    try:
+        with client_for(app) as client:
+            page = client.get("/garmin", params=params)
+            assert page.status_code == 200
+            embedded = re.search(
+                r'<script id="garmin-dashboard-data"[^>]*>(.*?)</script>', page.text, re.S
+            )
+            payload = json.loads(embedded.group(1))
+            assert payload == client.get("/api/garmin/dashboard", params=params).json()
+            records = payload["activities"]
+            assert len(records) == min(count, 50)
+            assert payload["source_selection"]["selected_source_id"] == source
+            assert len({item["record_id"] for item in records}) == len(records)
+            recent = page.text.split('<div class="activity-recent">', 1)[-1].split(
+                '<section id="activity-comparison"', 1
+            )[0]
+            history = re.search(
+                r'<details class="card owner-details activity-history">(.*?)</details>',
+                page.text,
+                re.S,
+            )
+            assert history is not None  # No open attribute: native keyboard disclosure.
+            assert recent.count("<tr><td>") == min(count, 5)
+            assert history.group(1).count("<tr><td>") == min(count, 50)
+            names = {"tennis_v2": "Теннис", "cycling": "Велотренировка", "walking": "Ходьба"}
+            for index, record in enumerate(records):
+                expected_row = (
+                    f"<tr><td>{index + 1}</td><td>{names[record['activity_type']]}</td>"
+                    f"<td>{owner_date(record['source_local_date'])}</td></tr>"
+                )
+                assert expected_row in history.group(1)
+                assert (expected_row in recent) == (index < 5)
+            if count:
+                summary = page.text.split('<div class="activity-saved-summary">', 1)[1].split(
+                    '<div class="activity-recent">', 1
+                )[0]
+                assert (
+                    f"<strong>{min(count, 50)}</strong> в журнале выбранного источника" in summary
+                )
+                for code, name in names.items():
+                    expected_count = sum(record["activity_type"] == code for record in records)
+                    if expected_count:
+                        assert f"{name} <strong>{expected_count}</strong>" in summary
+            else:
+                assert "Нагрузка не считается нулевой" in recent
+                assert 'class="activity-saved-summary"' not in page.text
+            assert "Полнота тренировок по дням неизвестна" in page.text
+            assert "Журнал: до 50 записей, вне периода аналитики" in page.text
+    finally:
+        app.state.engine.dispose()
+
+
+def test_journal_type_summary_is_bounded_and_unknown_types_keep_exact_evidence(tmp_path):
+    app, _, paths = _ui(tmp_path)
+    source = seed_activity_journal(paths, 5)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            records = session.scalars(
+                select(GarminSourceRecord).where(GarminSourceRecord.garmin_source_id == source)
+            ).all()
+            for record, code in zip(
+                records,
+                ["tennis", "tennis_v2", "cycling", "walking", "<unknown-type>"],
+                strict=True,
+            ):
+                record.activity_type = code
+            session.commit()
+        with client_for(app) as client:
+            page = client.get("/garmin")
+            summary = page.text.split('<ul class="activity-type-counts"', 1)[1].split("</ul>", 1)[0]
+            assert summary.count("<li>") == 4
+            assert "Теннис <strong>2</strong>" in summary
+            assert "Другие виды <strong>1</strong>" in summary
+            assert "Другой вид активности" in page.text
+            embedded = re.search(
+                r'<script id="garmin-dashboard-data"[^>]*>(.*?)</script>', page.text, re.S
+            )
+            assert {
+                item["activity_type"] for item in json.loads(embedded.group(1))["activities"]
+            } == {"tennis", "tennis_v2", "cycling", "walking", "<unknown-type>"}
+    finally:
+        engine.dispose()
+        app.state.engine.dispose()
 
 
 @pytest.mark.parametrize(
