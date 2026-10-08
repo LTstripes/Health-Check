@@ -1,4 +1,4 @@
-"""Owner sleep presentation over existing Garmin scalar results; no analytics.
+"""Owner sleep presentation over persisted source views; no new analytics.
 
 The Google daily-vitals block is a read-only presentation of the frozen R297
 source-explicit projection (``healthcheck.google.daily_vitals``).  It never
@@ -248,3 +248,84 @@ def nightly_rows(results: Mapping[str, Any]) -> list[dict[str, Any]]:
         }}
         for day in dates
     ]
+
+
+SOURCE_SLEEP_PRIMARY = (
+    ("sleep_duration_asleep_seconds", "Длительность сна"),
+    ("sleep_start_at", "Начало сна · UTC"),
+    ("sleep_end_at", "Окончание сна · UTC"),
+)
+SOURCE_SLEEP_DETAILS = (
+    ("sleep_time_in_bed_seconds", "Время в постели"),
+    ("sleep_stage_light_seconds", "Лёгкий сон"),
+    ("sleep_stage_deep_seconds", "Глубокий сон"),
+    ("sleep_stage_rem_seconds", "Быстрый сон (REM)"),
+    ("sleep_awake_waso_seconds", "Бодрствование внутри сессии"),
+)
+
+_SOURCE_SLEEP_NOTES = {
+    "classic_sleep_excludes_stage_metric": "Для этого типа сна совместимые стадии недоступны.",
+    "typed_stage_collection_required": "Сохранённой сводки недостаточно для подтверждения стадий.",
+    "stages_status_not_succeeded": "Источник не подтвердил успешную обработку стадий.",
+    "stage_collection_partial": "Запись стадий неполная.",
+    "stage_interval_overlap": "Интервалы стадий пересекаются.",
+    "stage_type_unmapped": "Сохранённые обозначения стадий не поддерживаются.",
+    "timing_precision_unavailable": "Точного времени в сохранённой записи нет.",
+    "stage_interval_temporal_precision_unavailable": "Точность времени стадий недостаточна.",
+    "tib_boundary_insufficient": "Недостаточно данных о границах сессии.",
+    "google_nap_only": "Запись дневного сна; основной ночной сон не подтверждён.",
+    "google_non_main": "Источник не обозначил запись как основной сон.",
+    "google_nap_state_unknown": "Источник не уточнил, относится ли запись к дневному сну.",
+}
+
+
+def source_sleep_note(cell: Mapping[str, Any]) -> str:
+    if cell["eligible"]:
+        return "Источник передал явный ноль; это значение, а не пропуск." if cell["is_zero"] else ""
+    reason = cell.get("reason") or ""
+    if reason in _SOURCE_SLEEP_NOTES:
+        return _SOURCE_SLEEP_NOTES[reason]
+    if cell["state"] == "null":
+        return "Источник передал пустое значение."
+    if cell["state"] == "missing":
+        return "За эту дату нет пригодного значения."
+    return "Сохранённых данных недостаточно для этого показателя; причина в технических деталях."
+
+
+def source_sleep_value(cell: Mapping[str, Any]) -> str:
+    if not cell["eligible"]:
+        return "—"
+    if cell["unit"] == "seconds":
+        return metric_value("sleep_duration_seconds", cell["value"])
+    if cell["unit"] == "points":
+        return metric_value("sleep_score", cell["value"])
+    # Exact persisted UTC instant. No conversion using today's zone/offset.
+    return str(cell["value"])
+
+
+def source_night_metric(view: Mapping[str, Any] | None, code: str) -> dict[str, Any]:
+    """Use the selected source's eligibility for the Garmin primary table too."""
+    sources = view["sources"] if view else []
+    ambiguous = bool(view and view["state"] == "read_limit_exceeded") or (
+        len(sources) > 1 or any(item["ambiguous"] for item in sources)
+    )
+    if ambiguous or not sources:
+        return {"state": "unknown" if ambiguous else "unavailable",
+                "value": None, "ambiguous": ambiguous}
+    canonical = "sleep_duration_asleep_seconds" if code == "sleep_duration_seconds" else code
+    cell = sources[0]["summary"]["metrics"][canonical]
+    return {"state": "present" if cell["eligible"] else "unavailable",
+            "value": cell["value"] if cell["eligible"] else None, "ambiguous": False}
+
+
+def source_sleep_label(source: Mapping[str, Any], provider: str) -> str:
+    if provider == "garmin":
+        return f"Garmin · {source['device_model'] or 'источник данных'}"
+    if source["source_kind"] == "family_aggregate":
+        return _FAMILY_LABELS.get(source["source_instance_id"], "Google · семейство источников")
+    if source["device_attributed"]:
+        return f"Google · {source['device_model'] or source['device_code'] or 'устройство'}"
+    if source["source_instance_id"] == _UNATTRIBUTED_SOURCE_INSTANCE:
+        return "Google · источник без атрибуции"
+    friendly = _friendly_source_name(source["data_source_name"] or "")
+    return f"Google · {friendly or source['platform'] or 'источник данных'}"
