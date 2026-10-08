@@ -84,7 +84,7 @@
       if (state.tickets[panel] !== ticket) return;
       render(body);
       if (panel === "series") setText("series-context", context);
-      else document.getElementById(target).insertAdjacentHTML("afterbegin", "<p class=\"muted\">" + escapeHtml(context) + "</p>");
+      else if (panel !== "activity") document.getElementById(target).insertAdjacentHTML("afterbegin", "<p class=\"muted\">" + escapeHtml(context) + "</p>");
     }).catch(err => {
       if (state.tickets[panel] !== ticket) return;
       setHtml(target, '<div role="alert">' + chip("error") + "<p>Попробуй повторить запрос. Предыдущий результат не показан.</p></div>");
@@ -107,7 +107,8 @@
     const a = value("activity-a"), b = value("activity-b");
     if (!a || !b || a === b) { updateActivitySelection(); return; }
     const params = new URLSearchParams({ garmin_source_id: sourceId, activity_record_ids: [a, b].join(","), reference_activity_id: a });
-    request("activity", "/api/garmin/activity-comparison", params, "A: " + sessionLabel(a) + " · B: " + sessionLabel(b), renderActivityResult);
+    setText("activity-selection-hint", "");
+    request("activity", "/api/garmin/activity-comparison", params, "Сравнение выбранных сессий", renderActivityResult);
   }
   function loadLaggedAssociation() {
     resetRequest("lag");
@@ -132,10 +133,6 @@
   function activityLabel(activity, index) {
     return "Сессия " + (index + 1) + " · " + (activityNames[activity.activity_type] || "Другой вид активности") + " · " + ownerDate(activity.source_local_date || activity.local_wall_time || activity.measured_at_utc);
   }
-  function sessionLabel(id) {
-    const index = state.activities.findIndex(a => a.record_id === id);
-    return index < 0 ? "Сессия" : activityLabel(state.activities[index], index);
-  }
   function populateActivities(activities) {
     ["activity-a", "activity-b"].forEach(id => {
       const select = document.getElementById(id);
@@ -152,7 +149,7 @@
       "Для сравнения нужны две сохранённые сессии одного источника Garmin. Пока их недостаточно; проверь раздел «Данные»." :
       a && a === b ? "Выбрана одна и та же сессия. Выбери другую сессию B." :
       !a ? "Выбери сессию A — основу сравнения." : !b ? "Теперь выбери другую сессию B." :
-      "A: " + sessionLabel(a) + " · B: " + sessionLabel(b) + ". Нажми «Сравнить A и B»; результат покажет B минус A.");
+      "Нажми «Сравнить A и B».");
   }
   function renderMetricWording() {
     const code = value("metric-code");
@@ -203,23 +200,48 @@
     identity(series);
   }
   function renderActivityResult(body) {
-    let html = "<h3>Результат: B минус A</h3><p>Эффект и нагрузка Garmin относятся к сессии. «Не предоставлено» означает отсутствие пригодного значения; «Не вычисляется» — разницу или процент получить нельзя.</p>";
+    let html = "";
     (body.comparisons || []).forEach(block => {
       if (!block.same_activity_type) html += '<p class="uncertainty-note">Разные виды активности: часть показателей может быть несопоставима.</p>';
-      html += '<div class="table-scroll"><table class="garmin-table"><thead><tr><th scope="col">Показатель</th><th scope="col">Сессия A</th><th scope="col">Сессия B</th><th scope="col">B − A</th><th scope="col">% к A</th><th scope="col">Сопоставимость / ограничение</th></tr></thead><tbody>';
+      html += '<div class="table-scroll"><table class="garmin-table"><caption class="visually-hidden">Сравнение сессий: B минус A, процент относительно A</caption><thead><tr><th scope="col">Показатель</th><th scope="col">A</th><th scope="col">B</th><th scope="col">B − A</th><th scope="col">% к A</th></tr></thead><tbody>';
       (block.metrics || []).forEach(m => {
-        const field = id => (body.sessions || []).find(s => s.record_id === id)?.metric_coverage.find(c => c.metric_code === m.metric_code);
+        const field = id => (body.sessions || []).find(s => s.record_id === id)?.metric_coverage?.find(c => c.metric_code === m.metric_code);
+        const usable = id => ["usable", "zero"].includes(field(id)?.status);
+        // Presentation only: unusable optional metrics remain in exact evidence.
+        if (["power_watts", "cadence_rpm"].includes(m.metric_code) &&
+            !usable(block.reference_record_id) && !usable(block.compared_record_id)) return;
+        const duration = m.metric_code === "duration_seconds" && m.unit === "seconds";
         const side = id => {
           const coverage = field(id);
           if (!coverage) return "Не предоставлено";
           if (coverage.reason === "metric_absent_from_projection") return "Не предоставлено";
+          if (duration && usable(id)) return escapeHtml(humanDuration(coverage.value));
           return statusValue(coverage.status, coverage.value, 1);
         };
-        html += "<tr><th scope=\"row\">" + escapeHtml(metricName(m.metric_code)) + " · " + escapeHtml(units[m.unit] || "единица не предоставлена") + "</th><td>" + side(block.reference_record_id) + "</td><td>" + side(block.compared_record_id) + "</td><td>" + (m.status === "compared" ? fmt(m.absolute_delta, 1) : "Не вычисляется") + "</td><td>" + (m.percent_status === "computed" ? fmt(m.percent_delta, 1) : "Не вычисляется") + "</td><td>" + (m.reason || m.percent_reason ? escapeHtml(reasonText(m.reason || m.percent_reason)) : statusLabel(m.status)) + "</td></tr>";
+        const note = m.reason || m.percent_reason;
+        const unit = duration ? "" : " · " + (units[m.unit] || "единица не предоставлена");
+        const delta = m.status === "compared" ? (duration ? escapeHtml(humanDuration(m.absolute_delta, true)) : fmt(m.absolute_delta, 1)) : "Не вычисляется";
+        html += '<tr data-metric-code="' + escapeHtml(m.metric_code) + '"><th scope="row">' + escapeHtml(metricName(m.metric_code) + unit) +
+          (note ? '<span class="comparison-note">' + escapeHtml(reasonText(note)) + '</span>' : "") +
+          "</th><td>" + side(block.reference_record_id) + "</td><td>" + side(block.compared_record_id) + "</td><td>" + delta + "</td><td>" + (m.percent_status === "computed" ? fmt(m.percent_delta, 1) : "Не вычисляется") + "</td></tr>";
       });
       html += "</tbody></table></div>";
     });
     setHtml("activity-result", html); setText("activity-evidence", JSON.stringify(body, null, 2)); identity(body);
+  }
+  function humanDuration(value, signed = false) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "Не предоставлено";
+    const seconds = Math.abs(Number(value));
+    const sign = Number(value) < 0 ? "−" : signed && seconds > 0 ? "+" : "";
+    if (seconds > 0 && seconds < 0.1) return sign + "< 0.1 с";
+    const rounded = Math.round(seconds * 10) / 10;
+    const hours = Math.floor(rounded / 3600), minutes = Math.floor(rounded % 3600 / 60);
+    const remainder = Number((rounded % 60).toFixed(1));
+    const parts = [];
+    if (hours) parts.push(hours + " ч");
+    if (minutes) parts.push(minutes + " мин");
+    if (remainder || !parts.length) parts.push(remainder + " с");
+    return sign + parts.join(" ");
   }
   function renderLagResult(body) {
     let html = '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сдвиг, дней</th><th>Состояние</th><th>Связь (Спирмен)</th><th>Пар значений</th><th>Ограничение</th></tr></thead><tbody>';

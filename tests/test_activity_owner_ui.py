@@ -47,6 +47,42 @@ def seed_activity(paths):
         engine.dispose()
 
 
+def seed_activity_comparison_tennis(paths):
+    """Two synthetic tennis sessions with exact seconds and zero/missing coverage."""
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            payload = {
+                "activities": [
+                    {
+                        "activityId": f"synthetic-tennis-{index}",
+                        "activityType": {"typeKey": "tennis_v2"},
+                        "calendarDate": f"2099-01-0{index + 1}",
+                        "duration": duration,
+                        "distance": distance,
+                        "averageHR": heart_rate,
+                        "averageSpeed": 3.5,
+                        "averageBikeCadence": None,
+                        "activityTrainingLoad": load,
+                        "aerobicTrainingEffect": 2.5,
+                    }
+                    for index, (duration, distance, heart_rate, load) in enumerate(
+                        ((3901.25, None, 110, 10), (3600, 0, 100, 0))
+                    )
+                ]
+            }
+            result = normalize_garmin_payload(
+                payload,
+                stream="activity",
+                source_identity=garmin_source_identity(source_kind="provider"),
+            )
+            GarminPersistenceRepository(
+                session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            ).persist_result(result, payload=payload, received_at=datetime(2099, 1, 9, tzinfo=UTC))
+    finally:
+        engine.dispose()
+
+
 def client_for(app):
     return TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
@@ -220,9 +256,7 @@ def test_tennis_v2_labels_cover_journal_summary_and_comparison(tmp_path):
     with client_for(app) as client:
         page = client.get("/garmin", params={"garmin_source_id": source})
         assert page.status_code == 200
-        primary = page.text.split(
-            '<details class="card owner-details activity-technical', 1
-        )[0]
+        primary = page.text.split('<details class="card owner-details activity-technical', 1)[0]
         embedded = re.search(
             r'<script id="garmin-dashboard-data"[^>]*>(.*?)</script>', page.text, re.S
         )
@@ -241,7 +275,46 @@ def test_tennis_v2_labels_cover_journal_summary_and_comparison(tmp_path):
         script = client.get("/static/garmin_dashboard.js")
         assert script.status_code == 200
         assert 'tennis_v2: "Теннис"' in script.text
-        assert 'activityNames[activity.activity_type]' in script.text
+        assert "activityNames[activity.activity_type]" in script.text
+    app.state.engine.dispose()
+
+
+def test_tennis_comparison_keeps_exact_seconds_and_coverage(tmp_path):
+    app, _, paths = _ui(tmp_path)
+    seed_activity_comparison_tennis(paths)
+    with client_for(app) as client:
+        page = client.get("/garmin")
+        assert "/static/activity_comparison.css" in page.text
+        embedded = re.search(
+            r'<script id="garmin-dashboard-data"[^>]*>(.*?)</script>', page.text, re.S
+        )
+        activities = json.loads(embedded.group(1))["activities"]
+        assert [item["activity_type"] for item in activities] == ["tennis_v2", "tennis_v2"]
+        ids = [item["record_id"] for item in activities]
+        source = json.loads(embedded.group(1))["source_selection"]["selected_source_id"]
+        response = client.get(
+            "/api/garmin/activity-comparison",
+            params={
+                "garmin_source_id": source,
+                "activity_record_ids": ",".join(ids),
+                "reference_activity_id": ids[0],
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        metrics = {m["metric_code"]: m for m in body["comparisons"][0]["metrics"]}
+        duration = metrics["duration_seconds"]
+        assert duration["reference_value"] == 3600
+        assert duration["compared_value"] == 3901.25
+        assert duration["absolute_delta"] == 301.25
+        assert duration["percent_delta"] == pytest.approx(301.25 / 3600 * 100)
+        assert metrics["acute_training_load"]["percent_reason"] == "zero_reference_percent"
+        coverage = {s["record_id"]: s["metric_coverage"] for s in body["sessions"]}
+        a_distance = next(m for m in coverage[ids[0]] if m["metric_code"] == "distance_meters")
+        b_distance = next(m for m in coverage[ids[1]] if m["metric_code"] == "distance_meters")
+        assert a_distance["status"] == "zero" and a_distance["value"] == 0
+        assert b_distance["status"] == "null" and b_distance["value"] is None
+        assert {"power_watts", "cadence_rpm"}.issubset(metrics)
     app.state.engine.dispose()
 
 

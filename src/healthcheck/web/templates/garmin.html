@@ -16,6 +16,7 @@
 {%- endmacro %}
 {% macro dated(block) -%}<p class="muted">Дата данных: {{ (block.source_timestamp_utc or block.source_date) | owner_date }}.</p>{%- endmacro %}
 {% block title %}Активность — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/activity_comparison.css">{% endblock %}
 {% block content %}
 {% set sel = payload.source_selection %}{% set overview = payload.training_overview %}
 <section class="card">
@@ -45,11 +46,11 @@
   </tbody></table></div>{% else %}<p data-owner-state="unavailable" class="unavailable">Список сессий недоступен или не содержит сохранённых записей. Нагрузка не считается нулевой.</p>{% endif %}
  </section>
  <section class="card activity-comparison"><h2>Сравнить сессии</h2>
-  <p>1. Выбери сессию A — основу сравнения. 2. Выбери другую сессию B. 3. Нажми «Сравнить A и B».</p>
   <p class="muted">Разница — B минус A; процент — относительно A. Плюс означает больше, минус — меньше, а не лучше или хуже. Пропуски не заменяются нулём.</p>
   <form id="activity-form" class="inline-edit"><label>Сессия A<select id="activity-a" aria-describedby="activity-selection-hint"></select></label><label>Сессия B<select id="activity-b" aria-describedby="activity-selection-hint"></select></label><button type="submit" disabled>Сравнить A и B</button></form>
   <p id="activity-selection-hint" aria-live="polite">Выбери две разные сохранённые сессии Garmin.</p>
   <div id="activity-result" aria-live="polite" aria-busy="false"></div>
+  <details class="owner-details"><summary>Как читать сравнение</summary><p>Эффект и нагрузка Garmin относятся к сессии. «Не предоставлено» означает отсутствие пригодного значения; «Не вычисляется» — разницу или процент получить нельзя. Мощность и каденс показаны, если хотя бы в одной сессии есть пригодное значение. Все показатели, состояния и точные секунды доступны в технических деталях.</p></details>
  </section>
 </div>
 <div id="training-recovery" data-activity-panel>
