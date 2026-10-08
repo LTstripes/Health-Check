@@ -150,6 +150,75 @@ def _garmin_series_evidence_query(
     )
 
 
+def _google_evidence_query(
+    session: Session, provider_id: str, stream: str, mode: str, family: str | None,
+) -> tuple[datetime | None, date | None, str | None, bool, bool]:
+    """Seek each source's latest day, retaining Google's exact latest-slice facts."""
+    model = GoogleSourceRecord
+    conditions = (
+        model.stream_code == stream,
+        model.query_mode == mode,
+        model.data_source_family == family,
+        model.projection_status == "current",
+        model.record_status == "ok",
+    )
+
+    def latest(column):
+        return select(column).where(
+            *conditions, model.google_source_id == GoogleSource.id,
+        ).order_by(model.source_local_date.desc()).limit(1).correlate(
+            GoogleSource,
+        ).scalar_subquery()
+
+    # NULL sorts behind dated evidence, but a NULL date still proves observation.
+    # Bind the leading source key of the existing indexes for every record read.
+    latest_day, observed_sources = session.execute(select(
+        func.max(latest(model.source_local_date)), func.count(latest(model.id)),
+    ).select_from(GoogleSource).where(GoogleSource.provider_id == provider_id)).one()
+    if not observed_sources:
+        return None, None, None, True, False
+
+    source_ids = select(GoogleSource.id).where(GoogleSource.provider_id == provider_id)
+
+    def query(*columns, selected: tuple = ()):
+        return select(*columns).where(
+            *conditions, model.google_source_id.in_(source_ids), *selected,
+        )
+
+    timestamp_kind = model.temporal_precision.in_(("instant", "minute"))
+    date_kind = model.temporal_precision == "date"
+    invalid = (
+        model.temporal_precision.in_(("local", "unknown"))
+        | (timestamp_kind & model.source_timestamp_utc.is_(None))
+        | (date_kind & model.source_local_date.is_(None))
+    )
+    undated_invalid = False
+    if latest_day is not None:
+        selected = (model.source_local_date == latest_day,)
+    else:
+        # Unlike Garmin series, Google accepts undated instant evidence. Preserve
+        # the full eligible undated set's invalidity before selecting MAX(stamp).
+        latest_stamp, undated_invalid = session.execute(query(
+            func.max(case((timestamp_kind, model.source_timestamp_utc))),
+            func.sum(case((invalid, 1), else_=0)),
+        )).one()
+        if latest_stamp is None:
+            return None, None, "invalid_chronology", True, True
+        selected = (model.source_timestamp_utc == latest_stamp,)
+    stamp, local_day, invalid_count, source_count = session.execute(query(
+        func.max(case((timestamp_kind, model.source_timestamp_utc))),
+        func.max(case((date_kind, model.source_local_date))),
+        func.sum(case((invalid, 1), else_=0)),
+        func.count(func.distinct(model.google_source_id)),
+        selected=selected,
+    )).one()
+    chronology_issue = (
+        "invalid_chronology" if invalid_count or undated_invalid else
+        "chronology_unresolved" if stamp is not None and local_day is not None else None
+    )
+    return restore_stored_utc(stamp), local_day, chronology_issue, source_count <= 1, True
+
+
 def _checkpoint(session: Session, provider_id: str, code: str) -> tuple[
     datetime | None, datetime | None, str | None
 ]:
@@ -444,16 +513,8 @@ def _read_persisted_facts(
         attempt, success, terminal = _apply_provider_terminal(
             attempt, success, terminal, provider_terminal,
         )
-        stamp, local_day, chronology_issue, source_resolved, observed = _evidence_query(
-            session, GoogleSourceRecord,
-            joins=((GoogleSource, GoogleSource.id == GoogleSourceRecord.google_source_id),),
-            conditions=(GoogleSource.provider_id == provider_id,
-                        GoogleSourceRecord.stream_code == stream,
-                        GoogleSourceRecord.query_mode == mode,
-                        GoogleSourceRecord.data_source_family == family,
-                        GoogleSourceRecord.projection_status == "current",
-                        GoogleSourceRecord.record_status == "ok"),
-            source_identity=GoogleSourceRecord.google_source_id,
+        stamp, local_day, chronology_issue, source_resolved, observed = _google_evidence_query(
+            session, provider_id, stream, mode, family,
         )
     return Facts(last_attempt_at_utc=attempt, last_success_at_utc=success,
                  terminal_status=terminal, evidence_at_utc=stamp,
