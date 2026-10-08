@@ -3,9 +3,9 @@
 {% block title %}Сон — Health-Check{% endblock %}
 {% block content %}
 <section class="card brief-controls">
-  <h2>{{ "Период по дате" if sleep_view == "google" else "Ночь по дате пробуждения" }}</h2>
+  <h2>Ночь по дате пробуждения</h2>
   <form method="get" action="/sleep" class="inline-edit owner-controls">
-    <label>{{ "Последний день периода" if sleep_view == "google" else "Дата пробуждения" }} <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
+    <label>Дата пробуждения <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
     <input type="hidden" name="view" value="{{ sleep_view }}">
     <input type="hidden" name="vitals_window" value="{{ google_vitals_window_days }}">
     {% if sleep_view == "garmin" and selection.sources | length > 1 %}
@@ -40,6 +40,7 @@
     <thead><tr><th>Пробуждение</th><th>Длительность сна</th><th>Оценка Garmin</th></tr></thead>
     <tbody>{{ night_row(wake_date, {'sleep_duration_seconds': night_metric(results['sleep_duration_seconds'], wake_date), 'sleep_score': night_metric(results['sleep_score'], wake_date)}) }}</tbody>
   </table></div>
+  {% include "sleep_source_night.html" %}
   {% endif %}
   <p><a href="/imports">Проверить источники</a></p>
 </section>
@@ -55,6 +56,11 @@
 {% endif %}
 {% endif %}
 {% if sleep_view == 'google' %}
+<section class="card google-sleep-night">
+  <h2>Google · выбранная ночь</h2>
+  <p>Сохранённые сессии сна по каждому источнику отдельно. Совместимой оценки сна Google нет.</p>
+  {% include "sleep_source_night.html" %}
+</section>
 <section class="card brief-controls" data-google-vitals>
   <h2>Google дневные показатели</h2>
   <p>По каждому источнику отдельно: суточные показатели, а не измерения внутри сна.</p>
@@ -111,6 +117,8 @@
 </section>
 {% endif %}
 {% call owner_ui.technical_details('sleep-technical') %}
+  <h2>Сессии выбранной даты</h2>
+  <pre class="provenance">{{ source_sleep | tojson(indent=2) }}</pre>
   <h2>Garmin</h2>
   <p>Оценка сна Garmin относится к одной сессии, а не к восстановлению. Точность устройств здесь не оценивается. Длительность и оценка разрешаются независимо; несколько записей за дату не объединяются. Пропуски не заполняются.</p>
   <pre class="provenance">{{ {'source_selection': selection, 'series': results} | tojson(indent=2) }}</pre>

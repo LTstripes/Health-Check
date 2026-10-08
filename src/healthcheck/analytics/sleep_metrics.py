@@ -930,7 +930,14 @@ def _record_evidence(
 def _load_garmin_sleep_side(
     session: Session, pair: SleepPair
 ) -> _StoredSleepSide | None:
-    record = session.get(GarminSourceRecord, pair.garmin_record_id)
+    return _load_garmin_sleep_record_side(session, pair.garmin_record_id, cohort=pair.cohort)
+
+
+def _load_garmin_sleep_record_side(
+    session: Session, record_id: str, *, cohort: str
+) -> _StoredSleepSide | None:
+    """Load one persisted side without requiring or manufacturing a pair."""
+    record = session.get(GarminSourceRecord, record_id)
     if record is None:
         return None
     source = session.get(GarminSource, record.garmin_source_id)
@@ -953,7 +960,7 @@ def _load_garmin_sleep_side(
                 .order_by(GarminSleepStageInterval.ordinal, GarminSleepStageInterval.id)
             )
         )
-    eligibility = _garmin_source_eligibility(record, source, cohort=pair.cohort)
+    eligibility = _garmin_source_eligibility(record, source, cohort=cohort)
     return _StoredSleepSide(
         provider="garmin",
         source=source,
@@ -974,7 +981,14 @@ def _load_garmin_sleep_side(
 def _load_google_sleep_side(
     session: Session, pair: SleepPair
 ) -> _StoredSleepSide | None:
-    record = session.get(GoogleSourceRecord, pair.google_record_id)
+    return _load_google_sleep_record_side(session, pair.google_record_id, cohort=pair.cohort)
+
+
+def _load_google_sleep_record_side(
+    session: Session, record_id: str, *, cohort: str
+) -> _StoredSleepSide | None:
+    """Load one persisted side using the same R05 evidence/eligibility rules."""
+    record = session.get(GoogleSourceRecord, record_id)
     if record is None:
         return None
     source = session.get(GoogleSource, record.google_source_id)
@@ -1000,7 +1014,7 @@ def _load_google_sleep_side(
         )
     evidence_row = session.get(GoogleRecordSourceEvidence, record.id)
     eligibility = _google_source_eligibility(record, source, evidence_row)
-    if pair.cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
+    if cohort == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS:
         eligibility = _google_account_eligibility(eligibility, source, evidence_row)
     return _StoredSleepSide(
         provider="google",

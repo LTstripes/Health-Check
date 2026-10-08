@@ -1,0 +1,56 @@
+{% macro sleep_cell(code, label, session) %}
+{% set cell = session.metrics[code] %}
+<section data-source-sleep-metric="{{ code }}">
+  <h4>{{ label }}</h4>
+  <p class="source-sleep-value">{{ source_sleep_value(cell) }} {{ owner_ui.state_chip('present' if cell.eligible else 'partial' if cell.reason == 'stage_collection_partial' else 'unavailable', false) }}</p>
+  {% set note = source_sleep_note(cell) %}{% if note %}<p class="muted">{{ note }}</p>{% endif %}
+</section>
+{% endmacro %}
+{% macro sleep_session(session, include_duration) %}
+{% if session.role %}
+  {% if session.role.selection == 'explicit_main' %}<p class="muted">Источник обозначил сессию как основной сон.</p>
+  {% elif session.role.nap_value is sameas true %}<p class="uncertainty-note">Запись дневного сна; основной ночной сон не подтверждён.</p>
+  {% else %}<p class="uncertainty-note">Роль основного сна не подтверждена; запись не становится основной ночью.</p>{% endif %}
+{% endif %}
+<div class="grid source-sleep-summary">
+  {% for code, label in source_sleep_primary if include_duration or code != 'sleep_duration_asleep_seconds' %}{{ sleep_cell(code, label, session) }}{% endfor %}
+  {% if include_duration and sleep_view == 'garmin' %}{{ sleep_cell('sleep_score', 'Оценка сна Garmin', session) }}{% endif %}
+</div>
+<details class="owner-details source-sleep-details">
+  <summary>Стадии и подробности сна</summary>
+  <div class="grid">
+    {% for code, label in source_sleep_details %}{{ sleep_cell(code, label, session) }}{% endfor %}
+    {% if sleep_view == 'garmin' %}{{ sleep_cell('nap_duration_seconds', 'Дневной сон · календарный день', session) }}{% endif %}
+  </div>
+  {% if sleep_view == 'garmin' %}<p class="muted">Дневной сон относится к календарному дню {{ wake_date | owner_date }}, отдельно от ночного сна. Время отдельных эпизодов и их число не подтверждены.</p>{% endif %}
+  <p class="muted">Стадии показаны только при достаточных сохранённых интервалах. Бодрствование внутри сессии не означает время вне постели.</p>
+</details>
+{% endmacro %}
+<div data-source-sleep="{{ sleep_view }}">
+{% if source_sleep is none %}
+  {{ owner_ui.state_chip('unavailable') }}<p>Локальное хранилище данных не готово.</p>
+{% elif source_sleep.state == 'read_limit_exceeded' %}
+  {{ owner_ui.state_chip('unknown') }}<p>Слишком много записей за дату; единая сессия не выбрана.</p>
+{% elif source_sleep.sources %}
+  {% for item in source_sleep.sources %}
+  <section class="brief-subsection" data-sleep-source="{{ loop.index }}">
+    <h3>{{ source_sleep_label(item.source, sleep_view) }} · источник {{ loop.index }}</h3>
+    <p class="muted">Дата пробуждения: {{ wake_date | owner_date }}. Время указано в UTC; исходное местное время и смещение — в технических деталях.</p>
+    {% if item.ambiguous %}
+      {{ owner_ui.state_chip('unknown') }}
+      <p class="uncertainty-note">Несколько сессий за дату; единая ночь не выбрана. Значения не объединяются.</p>
+      <details class="owner-details source-sleep-sessions">
+        <summary>Отдельные сохранённые сессии</summary>
+        {% for session in item.sessions %}
+        <section data-sleep-session="{{ loop.index }}"><h4>Сессия {{ loop.index }}</h4>{{ sleep_session(session, true) }}</section>
+        {% endfor %}
+      </details>
+    {% else %}
+      {{ sleep_session(item.summary, sleep_view == 'google') }}
+    {% endif %}
+  </section>
+  {% endfor %}
+{% else %}
+  <p class="muted">За эту дату нет сохранённых сессий {{ 'Google' if sleep_view == 'google' else 'Garmin' }}. Другая ночь не подставляется.</p>
+{% endif %}
+</div>

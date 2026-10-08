@@ -18,6 +18,7 @@ from healthcheck.analytics.sleep_agreement_report import (
     unavailable_report,
 )
 from healthcheck.analytics.sleep_metrics import get_sleep_metric_definition
+from healthcheck.analytics.sleep_source_view import read_source_sleep_night
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import ImportCandidate, IngestEvent
 from healthcheck.db.repositories import restore_stored_utc
@@ -47,6 +48,8 @@ from healthcheck.web.sleep_view import (
     GOOGLE_VITAL_METRICS,
     GOOGLE_VITALS_WINDOWS,
     SLEEP_METRICS,
+    SOURCE_SLEEP_DETAILS,
+    SOURCE_SLEEP_PRIMARY,
     google_vital_cell_state,
     google_vital_ineligible_note,
     google_vital_source_label,
@@ -57,6 +60,9 @@ from healthcheck.web.sleep_view import (
     night_metric,
     nightly_rows,
     point_state,
+    source_sleep_label,
+    source_sleep_note,
+    source_sleep_value,
 )
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -808,6 +814,7 @@ def sleep_page(
     selection: dict[str, Any] = {"status": "no_data", "sources": []}
     google_vitals: dict[str, Any] | None = google_vitals_view(())
     google_vitals_technical: list[dict[str, Any]] | None = []
+    source_sleep: dict[str, Any] | None = {"state": "no_records", "sources": []}
     try:
         with session_scope(request_engine(request)) as session:
             ensure_read_snapshot(session)
@@ -819,6 +826,11 @@ def sleep_page(
                         garmin_source_id=selection["selected_source_id"],
                         metric_code=code, start_date=start, end_date=end,
                     )
+            if view == "google" or selection["status"] == "selected":
+                source_sleep = read_source_sleep_night(
+                    session, provider=view, wake_date=end,
+                    source_id=selection["selected_source_id"] if view == "garmin" else None,
+                )
             google_results = [
                 read_google_daily_vitals(
                     session,
@@ -842,6 +854,7 @@ def sleep_page(
         selection = {"status": "no_data", "reason": "database_unavailable", "sources": []}
         google_vitals = None
         google_vitals_technical = None
+        source_sleep = None
     return render(request, "sleep.html", {
         "page": "sleep", "wake_date": end, "start_date": start,
         "sleep_view": view, "history_rows": nightly_rows(results),
@@ -849,6 +862,12 @@ def sleep_page(
         "night_metric": night_metric, "point_state": point_state,
         "metric_value": metric_value,
         "source_label": _brief_source_label,
+        "source_sleep": source_sleep,
+        "source_sleep_primary": SOURCE_SLEEP_PRIMARY,
+        "source_sleep_details": SOURCE_SLEEP_DETAILS,
+        "source_sleep_value": source_sleep_value,
+        "source_sleep_note": source_sleep_note,
+        "source_sleep_label": source_sleep_label,
         "google_vitals": google_vitals,
         "google_vitals_technical": google_vitals_technical,
         "google_vitals_metrics": GOOGLE_VITAL_METRICS,
