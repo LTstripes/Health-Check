@@ -9,7 +9,7 @@ from healthcheck.web.query import WeightQueryService
 from healthcheck.web.sleep_view import nightly_rows
 
 
-def dated_chart(rows, *, start: date, end: date, zero_axis=False):
+def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=False):
     """Only coordinates: preserve dates, values, missing days and partial states.
 
     A gap is an interval without a supplied observation, never a zero. Lines
@@ -22,13 +22,18 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False):
     high = max(values, default=1)
     if low == high:
         high = low + 1
+    if weight_layout and values:
+        padding = max(.2, (max(values) - min(values)) * .15)
+        low, high = min(values) - padding, max(values) + padding
     span = max(1, (end - start).days)
 
     def x(day):
-        return round(38 + 284 * (day - start).days / span, 2)
+        return round((62 if weight_layout else 38)
+                     + (264 if weight_layout else 284) * (day - start).days / span, 2)
 
     def y(value):
-        return round(104 - 80 * (value - low) / (high - low), 2)
+        return round((134 if weight_layout else 104)
+                     - (100 if weight_layout else 80) * (value - low) / (high - low), 2)
 
     points, gaps, segments = [], [], []
     cursor = start
@@ -50,8 +55,19 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False):
     if cursor <= end:
         gaps.append({"start": cursor.isoformat(), "end": end.isoformat(),
                      "x": x(cursor), "width": max(2, x(end) - x(cursor))})
-    return {"points": points, "gaps": gaps, "segments": segments, "low": low, "high": high,
-            "start": start.isoformat(), "end": end.isoformat()}
+    figure = {"points": points, "gaps": gaps, "segments": segments, "low": low, "high": high,
+              "start": start.isoformat(), "end": end.isoformat()}
+    if weight_layout:
+        months = ("янв", "фев", "мар", "апр", "май", "июн",
+                  "июл", "авг", "сен", "окт", "ноя", "дек")
+        days = sorted({start, start + timedelta(days=(end - start).days // 2), end})
+        figure["date_ticks"] = [{"x": x(day), "label": f"{day.day} {months[day.month - 1]}",
+                                 "date": day.isoformat()} for day in days]
+        figure["value_ticks"] = [{"y": y(value), "value": value}
+                                  for value in (high, (low + high) / 2, low)] if values else []
+        figure["years"] = (str(start.year) if start.year == end.year
+                           else f"{start.year} — {end.year}")
+    return figure
 
 
 def read_overview_charts(session, settings, *, packet, selected_id):
@@ -114,7 +130,7 @@ def read_overview_charts(session, settings, *, packet, selected_id):
         activity_rows.append({"date": day, "value": count if count else (0 if complete else None),
                               "state": state})
     return {
-        "weight": dated_chart(weight_rows, start=start, end=end),
+        "weight": dated_chart(weight_rows, start=start, end=end, weight_layout=True),
         "weight_current": weight.get("current"), "weight_trend": trend,
         "sleep": dated_chart(sleep_rows, start=sleep_start, end=sleep_end, zero_axis=True),
         "sleep_nights": nights, "sleep_latest": latest, "sleep_error": sleep_error,
