@@ -1,23 +1,28 @@
 {% macro chart(figure, kind, label, unit) %}
 <figure class="overview-figure" data-overview-chart="{{ kind }}">
-  <svg viewBox="0 0 350 142" role="img" aria-labelledby="{{ kind }}-title {{ kind }}-desc">
+  <svg viewBox="0 0 350 {{ 200 if kind == 'weight' else 142 }}" role="img" aria-labelledby="{{ kind }}-title {{ kind }}-desc">
     <title id="{{ kind }}-title">{{ label }}</title>
     <desc id="{{ kind }}-desc">{{ figure.start | owner_date }} — {{ figure.end | owner_date }}. Даты расположены по времени. Пропуски отмечены штрихом, это не ноль. Точные значения и состояния — в таблице под графиком.</desc>
-    <path class="overview-gridline" d="M38 24H322 M38 64H322 M38 104H322"/>
+    {% if kind == 'weight' %}
+    <text x="52" y="18" text-anchor="end">кг</text>
+    {% for tick in figure.value_ticks %}<path class="overview-gridline" d="M62 {{ tick.y }}H326"/><text x="52" y="{{ tick.y + 5 }}" text-anchor="end">{{ overview_number(tick.value) }}</text>{% else %}<text x="62" y="84">Нет измерений</text>{% endfor %}
+    {% else %}<path class="overview-gridline" d="M38 24H322 M38 64H322 M38 104H322"/>
     {% if figure.points | selectattr("value", "ne", none) | list %}<text x="0" y="20">{{ overview_number(figure.high / 3600 if kind == 'sleep' else figure.high) }} {{ unit }}</text>
     <text x="0" y="104">{{ overview_number(figure.low / 3600 if kind == 'sleep' else figure.low) }}</text>{% else %}<text x="38" y="64">Нет пригодных значений</text>{% endif %}
-    {% for gap in figure.gaps %}<path class="overview-gap" d="M{{ gap.x }} 111h{{ gap.width }}"><title>Нет наблюдений: {{ gap.start }} — {{ gap.end }}</title></path>{% endfor %}
+    {% endif %}
+    {% for gap in figure.gaps %}<path class="overview-gap" d="M{{ gap.x }} {{ 144 if kind == 'weight' else 111 }}h{{ gap.width }}"><title>Нет наблюдений: {{ gap.start }} — {{ gap.end }}</title></path>{% endfor %}
     {% for line in figure.segments %}<line class="overview-trend" x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"/>{% endfor %}
     {% for point in figure.points %}
       {% if point.y is not none %}
         {% if kind != 'weight' %}<line class="overview-bar{% if point.state != 'present' %} overview-partial{% endif %}" x1="{{ point.x }}" y1="104" x2="{{ point.x }}" y2="{{ point.y }}"/>{% endif %}
-        <circle class="overview-observed" cx="{{ point.x }}" cy="{{ point.y }}" r="3"><title>{{ point.date }}: {{ point.value }} · {{ brief_owner_state(point.state) }}</title></circle>
-      {% else %}<path class="overview-gap" d="M{{ point.x - 2 }} 111h4"><title>{{ point.date }}: нет пригодного значения</title></path>{% endif %}
-      {% if point.trend_y is not none %}<circle class="overview-trend-point" cx="{{ point.x }}" cy="{{ point.trend_y }}" r="2"/>{% endif %}
+        {% if kind == 'weight' and loop.last %}<circle class="overview-weight-latest" cx="{{ point.x }}" cy="{{ point.y }}" r="7"><title>Последний день с измерениями: {{ point.date | owner_date }} · дневная медиана {{ overview_number(point.value) }} кг</title></circle>{% endif %}
+        <circle class="overview-observed" cx="{{ point.x }}" cy="{{ point.y }}" r="{{ 4.5 if kind == 'weight' else 3 }}"><title>{{ point.date }}: {{ point.value }} · {{ brief_owner_state(point.state) }}</title></circle>
+      {% else %}<path class="overview-gap" d="M{{ point.x - 2 }} {{ 144 if kind == 'weight' else 111 }}h4"><title>{{ point.date }}: нет пригодного значения</title></path>{% endif %}
+      {% if point.trend_y is not none %}{% if kind == 'weight' %}<path class="overview-weight-ewma" d="M{{ point.x }} {{ point.trend_y - 3 }}l3 3 -3 3 -3 -3Z"><title>{{ point.date | owner_date }} · EWMA, 21 день: {{ overview_number(point.trend) }} кг</title></path>{% else %}<circle class="overview-trend-point" cx="{{ point.x }}" cy="{{ point.trend_y }}" r="2"/>{% endif %}{% endif %}
     {% endfor %}
-    <text x="38" y="137">{{ figure.start }}</text><text x="322" y="137" text-anchor="end">{{ figure.end }}</text>
+    {% if kind == 'weight' %}{% for tick in figure.date_ticks %}<path class="overview-gridline" d="M{{ tick.x }} 150v4"/><text x="{{ tick.x }}" y="174" text-anchor="{{ 'start' if loop.first else ('end' if loop.last else 'middle') }}">{{ tick.label }}</text>{% endfor %}<text x="194" y="195" text-anchor="middle">{{ figure.years }}</text>{% else %}<text x="38" y="137">{{ figure.start }}</text><text x="322" y="137" text-anchor="end">{{ figure.end }}</text>{% endif %}
   </svg>
-  <figcaption>{% if kind == 'weight' %}Точки — дневные медианы · линия — EWMA, 21 день{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
+  <figcaption>{% if kind == 'weight' %}<span class="overview-weight-key"><i class="overview-weight-dot" aria-hidden="true"></i> Измерения · дневные медианы</span><span class="overview-weight-key"><i class="overview-weight-diamond" aria-hidden="true"></i> EWMA, 21 день · тренд</span><span>Обводка — последний день с измерениями.</span><span>Штрих — нет наблюдений, это не ноль. Линия тренда только между соседними днями.</span>{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
 </figure>
 <details class="owner-details brief-records overview-chart-values"><summary>{{ label }} · таблица</summary>
   <div class="table-scroll" role="region" tabindex="0" aria-label="{{ label }}: значения графика">

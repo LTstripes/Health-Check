@@ -1045,6 +1045,72 @@ def seed_a_plus_weight(client):
         _confirm_all_pending(client, response.json()['id'])
 
 
+def seed_334_weight(client, month, days):
+    from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
+    from test_dashboard_ui import _confirm_all_pending
+
+    for day in days:
+        png = encode_synthetic_png(weigh_in_payload(
+            source_local_date=date(2099, month, day), weight_kg=75 - day / 10,
+            body_fat_pct=24.4,
+        ))
+        response = client.post('/api/imports/photos',
+                               files=[('files', (f'weight-{month}-{day}.png', png, 'image/png'))])
+        assert response.status_code == 200
+        _confirm_all_pending(client, response.json()['id'])
+
+
+@pytest.mark.parametrize('days', [(), (12,), (1, 2, 3), (1, 12, 31), tuple(range(1, 32))])
+def test_334_weight_figure_preserves_source_values_and_sparse_days(tmp_path, days):
+    from healthcheck.db.engine import session_scope
+    from healthcheck.web.query import WeightQueryService
+    from test_dashboard_ui import _ui as create_fixture
+
+    app, settings, paths = create_fixture(tmp_path)
+    with TestClient(app, base_url='http://127.0.0.1:8120',
+                    headers={'Origin': 'http://127.0.0.1:8120'}) as client:
+        seed_334_weight(client, 1, days)
+        page = client.get('/brief?start_date=2099-01-01&end_date=2099-01-31')
+        assert page.status_code == 200
+        chart = page.context['charts']['weight']
+        assert [p['date'] for p in chart['points']] == [f'2099-01-{day:02d}' for day in days]
+        assert [p['value'] for p in chart['points']] == [75 - day / 10 for day in days]
+        assert len(chart['segments']) == sum(b - a == 1 for a, b in zip(days, days[1:]))
+        assert len(chart['value_ticks']) == (3 if days else 0)
+        assert [tick['label'] for tick in chart['date_ticks']] == ['1 янв', '16 янв', '31 янв']
+        weight_html = page.text.split('data-overview-chart="weight"', 1)[1].split('</figure>', 1)[0]
+        assert 'дневные медианы' in weight_html
+        assert 'EWMA, 21 день' in weight_html
+        assert 'это не ноль' in weight_html
+        assert weight_html.count('class="overview-weight-latest"') == bool(days)
+        assert ('Нет измерений' in weight_html) == (not days)
+        if days:
+            assert chart['low'] < min(p['value'] for p in chart['points'])
+            assert chart['high'] > max(p['value'] for p in chart['points'])
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            direct = WeightQueryService(session, settings).summary(
+                start_date=date(2099, 1, 1), end_date=date(2099, 1, 31))
+            assert page.context['charts']['weight_trend'] == direct['trend']
+            expected = {p['observed_date']: p['trend_kg'] for p in direct['trend']['points']}
+            assert [p['trend'] for p in chart['points']] == [
+                expected.get(p['date']) if direct['trend']['available'] else None
+                for p in chart['points']]
+    finally:
+        engine.dispose()
+
+
+def test_334_weight_dates_disambiguate_years_and_deduplicate_short_windows():
+    from healthcheck.web.overview_charts import dated_chart
+
+    chart = dated_chart([], start=date(2099, 12, 31), end=date(2100, 1, 1), weight_layout=True)
+    assert chart['years'] == '2099 — 2100'
+    assert [t['label'] for t in chart['date_ticks']] == ['31 дек', '1 янв']
+    chart = dated_chart([], start=date(2099, 1, 1), end=date(2099, 1, 1), weight_layout=True)
+    assert len(chart['date_ticks']) == 1
+
+
 def test_a_plus_coordinates_use_calendar_gaps_and_unchanged_trend():
     from healthcheck.web.overview_charts import dated_chart
 

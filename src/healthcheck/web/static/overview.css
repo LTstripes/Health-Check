@@ -39,6 +39,15 @@
 .overview-observed { fill: var(--series-1); stroke: var(--bg); stroke-width: 1; }
 .overview-bar { stroke: var(--series-1); stroke-width: 6; opacity: .65; }
 .overview-partial { stroke-dasharray: 3 2; }
+/* #334: only the Overview Weight figure. */
+[data-overview-chart="weight"] text { font-size: 15px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+[data-overview-chart="weight"] .overview-trend { stroke-width: 2; stroke-dasharray: 5 3; }
+.overview-weight-ewma { fill: var(--bg); stroke: var(--series-2); stroke-width: 1.5; }
+.overview-weight-latest { fill: none; stroke: var(--series-1); stroke-width: 1.5; }
+.overview-weight-key { display: flex; align-items: center; gap: 8px; }
+.overview-weight-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series-1); flex: none; }
+.overview-weight-diamond { width: 7px; height: 7px; border: 1.5px solid var(--series-2); transform: rotate(45deg); flex: none; }
+[data-overview-chart="weight"] figcaption { display: grid; gap: 5px; font-size: .75rem; }
 .overview-figure figcaption { font-size: .6875rem; color: var(--muted); min-height: 32px; }
 .overview-a-plus .brief-records { margin-top: 0; font-size: .75rem; }
 .overview-a-plus .brief-records table { min-width: 340px; }
