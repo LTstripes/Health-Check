@@ -303,6 +303,21 @@ def source_sleep_value(cell: Mapping[str, Any]) -> str:
     return str(cell["value"])
 
 
+def source_night_metric(view: Mapping[str, Any] | None, code: str) -> dict[str, Any]:
+    """Use the selected source's eligibility for the Garmin primary table too."""
+    sources = view["sources"] if view else []
+    ambiguous = bool(view and view["state"] == "read_limit_exceeded") or (
+        len(sources) > 1 or any(item["ambiguous"] for item in sources)
+    )
+    if ambiguous or not sources:
+        return {"state": "unknown" if ambiguous else "unavailable",
+                "value": None, "ambiguous": ambiguous}
+    canonical = "sleep_duration_asleep_seconds" if code == "sleep_duration_seconds" else code
+    cell = sources[0]["summary"]["metrics"][canonical]
+    return {"state": "present" if cell["eligible"] else "unavailable",
+            "value": cell["value"] if cell["eligible"] else None, "ambiguous": False}
+
+
 def source_sleep_label(source: Mapping[str, Any], provider: str) -> str:
     if provider == "garmin":
         return f"Garmin · {source['device_model'] or 'источник данных'}"

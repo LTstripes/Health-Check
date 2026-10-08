@@ -1,9 +1,11 @@
 """Bounded #317 source-only view of one persisted local wake date.
 
 This adapter does not pair nights, select a main/canonical source, or write a
-projection. R05 single-side validators decide each canonical sleep field;
-R05 source and main/nap exclusions remain explicit. Garmin native score and
-calendar-day nap duration keep their separate persisted scalar identities.
+projection. R05 account-observation eligibility and single-side validators
+decide each field; uncertain roles and explicit nap exclusions remain visible.
+This view establishes neither device agreement nor canonical eligibility.
+Garmin native score and calendar-day nap duration keep their separate persisted
+scalar identities.
 Raw payload bodies are never opened. Original timing evidence is retained;
 UTC display never applies the host's current offset.
 """
@@ -33,7 +35,10 @@ from healthcheck.analytics.sleep_metrics import (
     _tib_outcome,
     _with_variant_gate,
 )
-from healthcheck.analytics.sleep_pairing import DEVICE_PAIR, _google_main_role
+from healthcheck.analytics.sleep_pairing import (
+    ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+    _google_observation_role,
+)
 from healthcheck.db.models import (
     GarminSleepRecord,
     GarminSourceRecord,
@@ -80,7 +85,7 @@ def _session_view(side: _StoredSleepSide, wake_date: date) -> dict[str, Any]:
         reason = reason or f"{side.provider}_record_invalid"
     role: dict[str, Any] | None = None
     if side.provider == "google":
-        decision = _google_main_role(side.metrics)
+        decision = _google_observation_role(side.metrics)
         role = {
             "main_state": decision[2], "nap_state": decision[3],
             "main_value": decision[4], "nap_value": decision[5],
@@ -106,8 +111,10 @@ def _session_view(side: _StoredSleepSide, wake_date: date) -> dict[str, Any]:
     if side.provider == "garmin":
         for code, unit in (("sleep_score", "points"), ("nap_duration_seconds", "seconds")):
             outcome = _outcome_from_scalar(side, metric_code=code, expected_unit=unit, variant=None)
-            if side.record.record_status == "invalid" and outcome.eligible:
-                outcome = replace(outcome, eligible=False, reason="garmin_record_invalid")
+            if reason and outcome.eligible:
+                outcome = replace(
+                    outcome, eligible=False, reason=str(reason), exclusion_basis=str(reason)
+                )
             metrics[code] = _metric_input(
                 provider="garmin", record_id=side.record.id, outcome=outcome
             ).as_dict()
@@ -176,7 +183,7 @@ def read_source_sleep_night(
         return result
     sources: dict[str, dict[str, Any]] = {}
     for record_id in record_ids:
-        side = loader(session, record_id, cohort=DEVICE_PAIR)
+        side = loader(session, record_id, cohort=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS)
         if side is None:
             continue
         source = side.source

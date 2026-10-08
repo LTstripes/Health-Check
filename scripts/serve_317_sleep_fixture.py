@@ -27,10 +27,12 @@ def main():
 
     from healthcheck.config import Settings
     from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+    from healthcheck.google.contracts import GoogleSourceIdentity, GoogleSourceKind
     from healthcheck.runtime import prepare_runtime
     from healthcheck.web.ui_app import create_ui_app
     from test_google_daily_vitals import seed_google_daily_vitals
-    from test_sleep_metrics import _google_sleep_payload, _persist_garmin, _persist_google, _stage
+    from test_sleep_metrics import _google_sleep_payload, _persist_google, _stage
+    from test_sleep_source_view import _persist_account_garmin, _persist_identity
 
     settings = Settings(data_dir=runtime, ui_port=args.port)
     paths = prepare_runtime(settings)
@@ -41,10 +43,11 @@ def main():
         engine = create_sqlite_engine(paths)
         try:
             with session_scope(engine) as session:
-                _persist_garmin(session, paths)
+                _persist_account_garmin(session, paths)
 
                 def persist_day(day, *, name="night", sleep_type="STAGES", status="SUCCEEDED",
-                                main=True, nap=False, zero=False, summary_only=False):
+                                main=True, nap=False, zero=False, summary_only=False,
+                                account_source=None):
                     wake = date(2099, 1, day)
                     previous = wake - timedelta(days=1)
                     payload = _google_sleep_payload(
@@ -65,9 +68,23 @@ def main():
                     sleep["metadata"].update(main=main, nap=nap)
                     if main is None:
                         sleep["metadata"].pop("main")
+                    if nap is None:
+                        sleep["metadata"].pop("nap")
                     if zero:
                         sleep["summary"]["minutesAsleep"] = "0"
-                    _persist_google(session, paths, payload=payload)
+                    if account_source:
+                        source = payload["dataPoints"][0]["dataSource"]
+                        source["platform"] = "health_connect"
+                        source["device"].update(
+                            manufacturer="Synthetic", displayName="Synthetic Account Watch"
+                        )
+                        _persist_identity(session, paths, payload, GoogleSourceIdentity(
+                            source_kind=GoogleSourceKind.DATA_SOURCE,
+                            source_instance_id=f"users/me/dataSources/{account_source}",
+                            platform="health_connect",
+                        ))
+                    else:
+                        _persist_google(session, paths, payload=payload)
 
                 persist_day(2)
                 persist_day(4, name="first")
@@ -77,6 +94,10 @@ def main():
                 persist_day(7, zero=True)
                 persist_day(8, main=None)
                 persist_day(9, nap=True)
+                persist_day(10, main=False, nap=None, account_source="synthetic-account")
+                persist_day(11, main="unknown", nap="unknown")
+                persist_day(12, name="first", account_source="synthetic-source-a")
+                persist_day(12, name="second", account_source="synthetic-source-b")
         finally:
             engine.dispose()
     app, _ = create_ui_app(settings)

@@ -9,18 +9,30 @@ import pytest
 from sqlalchemy import event, select
 
 from healthcheck.analytics.sleep_metrics import read_persisted_sleep_metric_projection
-from healthcheck.analytics.sleep_pairing import read_persisted_sleep_pairing
+from healthcheck.analytics.sleep_pairing import (
+    ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+    SleepPairingQuery,
+    read_persisted_sleep_pairing,
+)
 from healthcheck.analytics.sleep_source_view import read_source_sleep_night
 from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import (
+    GarminPayloadObservation,
     GarminRecordMetric,
+    GarminSource,
     GarminSourceRecord,
     GoogleRecordMetric,
+    GoogleRecordSourceEvidence,
     GoogleSleepFieldState,
     GoogleSleepInterval,
     GoogleSourceRecord,
 )
+from healthcheck.garmin.normalization import normalize_garmin_payload
+from healthcheck.garmin.persistence import GarminPersistenceRepository
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.google.contracts import (
+    FAMILY_ALL_SOURCES,
+    FAMILY_GOOGLE_SOURCES,
     FAMILY_GOOGLE_WEARABLES,
     GoogleQueryContext,
     GoogleQueryMode,
@@ -34,6 +46,7 @@ from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from test_garmin_query_dashboard import _ui
 from test_google_daily_vitals import seed_google_daily_vitals
 from test_sleep_metrics import (
+    GARMIN_SLEEP_FIXTURE,
     _google_sleep_payload,
     _persist_garmin,
     _persist_google,
@@ -64,6 +77,221 @@ def _persist_identity(session, paths, payload, identity, family=None):
     return GooglePersistenceRepository(
         session, payload_store=ContentAddressedGooglePayloadStore(paths.root / "google-artifacts")
     ).persist_result(normalized, payload=payload, received_at=datetime(2099, 1, 2, tzinfo=UTC))
+
+
+def _persist_account_garmin(session, paths):
+    payload = json.loads(GARMIN_SLEEP_FIXTURE.read_text(encoding="utf-8"))
+    payload["device"] = {"attributed": False}
+    return GarminPersistenceRepository(
+        session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "garmin-artifacts")
+    ).persist_result(normalize_garmin_payload(payload), payload=json.dumps(payload).encode())
+
+
+def test_garmin_account_without_device_keeps_own_fields_and_legacy_exclusion(projection_database):
+    session, paths = projection_database
+    _persist_account_garmin(session, paths)
+    session.commit()
+    result = _read(session, "garmin")
+    source = result["sources"][0]["source"]
+    assert source["device_attributed"] is False
+    assert source["device_code"] is source["device_model"] is None
+    night = result["sources"][0]["summary"]
+    assert night["source_eligibility"]["cohort"] == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+    assert night["source_eligibility"]["source_class"] == "garmin_account"
+    for code, value in (
+        ("sleep_duration_asleep_seconds", 28800), ("sleep_score", 82),
+        ("nap_duration_seconds", 900), ("sleep_stage_deep_seconds", 5400),
+        ("sleep_end_at", "2099-01-02T06:45:00Z"),
+    ):
+        assert night["metrics"][code]["eligible"] is True
+        assert night["metrics"][code]["value"] == value
+    legacy = read_persisted_sleep_pairing(session)
+    assert legacy.pairs == ()
+    assert "garmin_not_target_device" in {e.reason for e in legacy.exclusions}
+
+
+def test_identified_non_fitbit_account_does_not_create_device_agreement(projection_database):
+    session, paths = projection_database
+    _persist_account_garmin(session, paths)
+    payload = _google_sleep_payload(stages_status="SUCCEEDED", stages=[
+        _stage("2099-01-01T22:00:00Z", "2099-01-01T23:00:00Z", "LIGHT"),
+    ])
+    payload["dataPoints"][0]["dataSource"]["platform"] = "health_connect"
+    payload["dataPoints"][0]["dataSource"]["device"]["manufacturer"] = "Synthetic"
+    payload["dataPoints"][0]["dataSource"]["device"]["displayName"] = "Synthetic Watch"
+    identity = GoogleSourceIdentity(
+        source_kind=GoogleSourceKind.DATA_SOURCE,
+        source_instance_id="users/me/dataSources/synthetic-account-watch",
+        platform="health_connect",
+    )
+    _persist_identity(session, paths, payload, identity)
+    session.commit()
+    # Reading source views must not change any accepted comparison/cohort packet.
+    before = {
+        cohort: read_persisted_sleep_metric_projection(
+            session, SleepPairingQuery(cohort=cohort)
+        ).as_dict()
+        for cohort in ("all", "device_pair", "family_pair", ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS)
+    }
+    night = _single(session)
+    source = _read(session)["sources"][0]["source"]
+    assert source["source_instance_id"] == identity.source_instance_id
+    assert source["platform"] == "health_connect"
+    decision = night["source_eligibility"]
+    assert decision["eligible"] is True
+    assert decision["cohort"] == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
+    assert decision["basis"]["device_agreement_eligibility"]["eligible"] is False
+    for code in ("sleep_duration_asleep_seconds", "sleep_start_at", "sleep_stage_light_seconds"):
+        assert night["metrics"][code]["eligible"] is True
+    assert "sleep_score" not in night["metrics"]
+    assert read_persisted_sleep_pairing(session).pairs == ()
+    assert len(read_persisted_sleep_pairing(
+        session, SleepPairingQuery(cohort=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS)
+    ).pairs) == 1
+    for cohort, packet in before.items():
+        assert read_persisted_sleep_metric_projection(
+            session, SleepPairingQuery(cohort=cohort)
+        ).as_dict() == packet
+
+
+@pytest.mark.parametrize("case,reason", [
+    ("all_family", "google_all_sources_excluded"),
+    ("google_family", "google_sources_excluded"),
+    ("unattributed", "google_source_unattributed"),
+    ("conflict", "google_source_device_conflict"),
+    ("invalid_evidence", "google_record_source_evidence_invalid"),
+    ("invalid_record", "google_record_invalid"),
+])
+def test_account_google_exclusions_do_not_disappear(projection_database, case, reason):
+    session, paths = projection_database
+    payload = _google_sleep_payload()
+    family = {"all_family": FAMILY_ALL_SOURCES, "google_family": FAMILY_GOOGLE_SOURCES}.get(case)
+    if family or case == "unattributed":
+        payload["dataPoints"][0].pop("dataSource")
+        _persist_identity(session, paths, payload, GoogleSourceIdentity(
+            source_kind=(
+                GoogleSourceKind.FAMILY_AGGREGATE if family else GoogleSourceKind.DATA_SOURCE
+            ),
+            source_instance_id=family or "unattributed",
+        ), family)
+    else:
+        if case == "conflict":
+            payload["dataPoints"][0]["dataSource"]["device"]["manufacturer"] = "Synthetic Other"
+        _persist_google(session, paths, payload=payload)
+        if case == "invalid_evidence":
+            row = session.scalar(select(GoogleRecordSourceEvidence))
+            row.evidence_json = '{"state":"invalid"}'
+        elif case == "invalid_record":
+            session.scalar(select(GoogleSourceRecord)).record_status = "invalid"
+    session.commit()
+    night = _single(session)
+    assert night["reason"] == reason
+    assert all(not c["eligible"] for c in night["metrics"].values())
+    assert night["metrics"]["sleep_duration_asleep_seconds"]["value"] == 24600
+
+
+@pytest.mark.parametrize("rejection", ["provider", "source_kind", "invalid_record"])
+def test_native_garmin_fields_share_account_record_gate(projection_database, rejection):
+    session, paths = projection_database
+    _persist_account_garmin(session, paths)
+    session.commit()
+    source = session.scalar(select(GarminSource))
+    if rejection == "provider":
+        source.provider_code = "synthetic_other_provider"
+    elif rejection == "source_kind":
+        source.source_kind = "unattributed"
+    else:
+        session.scalar(select(GarminSourceRecord)).record_status = "invalid"
+    # Source identities are append-only. Model rejected loaded evidence without
+    # weakening persistence guards or writing a mutated source identity.
+    with session.no_autoflush:
+        night = _single(session, "garmin")
+    expected = "garmin_record_invalid" if rejection == "invalid_record" else (
+        "garmin_account_source_ineligible"
+    )
+    for code, value in (("sleep_score", 82), ("nap_duration_seconds", 900),
+                        ("sleep_duration_asleep_seconds", 28800)):
+        cell = night["metrics"][code]
+        assert cell["eligible"] is False
+        assert cell["reason"] == expected
+        assert cell["value"] == value
+
+
+@pytest.mark.parametrize("code", ["sleep_score", "nap_duration_seconds"])
+@pytest.mark.parametrize("state", ["value", "missing", "null", "invalid"])
+def test_native_garmin_zero_and_absence_are_independent(projection_database, code, state):
+    session, paths = projection_database
+    _persist_account_garmin(session, paths)
+    row = session.scalar(select(GarminRecordMetric).where(GarminRecordMetric.metric_code == code))
+    row.state, row.value_number = state, 0 if state == "value" else None
+    session.commit()
+    cells = _single(session, "garmin")["metrics"]
+    assert cells[code]["state"] == state
+    assert cells[code]["eligible"] is (state == "value")
+    assert cells[code]["is_zero"] is (state == "value")
+    assert cells[code]["value"] == (0 if state == "value" else None)
+    other = "nap_duration_seconds" if code == "sleep_score" else "sleep_score"
+    assert cells[other]["eligible"] is True
+
+
+@pytest.mark.parametrize("failure,reason", [
+    ("missing", "raw_payload_missing"), ("mismatch", "observation_provenance_mismatch"),
+])
+def test_native_garmin_provenance_failure_is_not_promoted(projection_database, failure, reason):
+    session, paths = projection_database
+    _persist_account_garmin(session, paths)
+    session.commit()
+    if failure == "missing":
+        session.scalar(select(GarminSourceRecord)).raw_payload_id = "missing-synthetic-payload"
+    else:
+        session.scalar(select(GarminPayloadObservation)).garmin_source_id = "other-synthetic-source"
+    # Model unavailable/mismatched loaded evidence without writing invalid foreign keys.
+    with session.no_autoflush:
+        cells = _single(session, "garmin")["metrics"]
+    for code, value in (("sleep_score", 82), ("nap_duration_seconds", 900)):
+        assert cells[code]["eligible"] is False
+        assert cells[code]["reason"] == reason
+        assert cells[code]["value"] == value
+
+
+@pytest.mark.parametrize("failure", ["source", "record", "provenance"])
+def test_garmin_primary_table_respects_source_view_gate(tmp_path, monkeypatch, failure):
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            _persist_account_garmin(session, paths)
+    finally:
+        engine.dispose()
+
+    def read_rejected_evidence(session, **kwargs):
+        # The legacy scalar read has valid values. Only the subsequent source
+        # adapter observes this modeled eligibility/provenance failure.
+        if failure == "source":
+            row, attr, value = session.scalar(select(GarminSource)), "source_kind", "unattributed"
+        else:
+            row = session.scalar(select(GarminSourceRecord))
+            attr, value = ("record_status", "invalid") if failure == "record" else (
+                "raw_payload_id", "missing-synthetic-payload"
+            )
+        original = getattr(row, attr)
+        try:
+            setattr(row, attr, value)
+            with session.no_autoflush:
+                return read_source_sleep_night(session, **kwargs)
+        finally:
+            setattr(row, attr, original)
+
+    monkeypatch.setattr("healthcheck.web.pages.read_source_sleep_night", read_rejected_evidence)
+    with client_for(app) as client:
+        response = client.get("/sleep?wake_date=2099-01-02")
+    assert response.status_code == 200
+    primary = response.text.split('<details class="card owner-details sleep-technical"')[0]
+    assert "data-night-row" in primary
+    assert "8 ч 0 мин" not in primary
+    assert "82 баллы" not in primary
+    assert "0 ч 15 мин" not in primary
+    assert primary.count('data-owner-state="unavailable"') >= 3
 
 
 def test_unpaired_garmin_has_native_naps_and_independent_timing_and_stages(projection_database):
@@ -177,44 +405,63 @@ def test_partial_or_invalid_stage_evidence_does_not_erase_duration(projection_da
     assert cells["sleep_duration_asleep_seconds"]["eligible"] is True
 
 
-@pytest.mark.parametrize("main,nap,reason,selection", [
-    (True, True, "google_nap_only", None),
-    (False, False, "google_non_main", ""),
-    (True, None, "google_nap_state_unknown", None),
-    (None, False, None, "fallback_main"),
-])
+@pytest.mark.parametrize("main", ["missing", "null", "invalid", "false", "true"])
+@pytest.mark.parametrize("nap", ["missing", "null", "invalid", "false", "true"])
 def test_role_uncertainty_is_not_promoted_to_confirmed_main(
-    projection_database, main, nap, reason, selection,
+    projection_database, main, nap,
 ):
     session, paths = projection_database
     payload = _google_sleep_payload()
     metadata = payload["dataPoints"][0]["sleep"]["metadata"]
-    for key, value in (("main", main), ("nap", nap)):
-        if value is None:
+    values = {"null": None, "invalid": "unknown", "false": False, "true": True}
+    for key, state in (("main", main), ("nap", nap)):
+        if state == "missing":
             metadata.pop(key)
         else:
-            metadata[key] = value
+            metadata[key] = values[state]
     _persist_google(session, paths, payload=payload)
     session.commit()
     night = _single(session)
-    assert night["role"]["reason"] == reason
-    assert night["role"]["selection"] == selection
-    assert night["metrics"]["sleep_duration_asleep_seconds"]["eligible"] is (reason is None)
-    assert night["role"]["main_value"] is main
+    explicit_nap = nap == "true"
+    explicit_main = main == "true" and nap == "false"
+    assert night["role"]["reason"] == ("google_nap_only" if explicit_nap else None)
+    assert night["role"]["selection"] == (
+        "" if explicit_nap else "explicit_main" if explicit_main else "single_uncertain_session"
+    )
+    for key, state in (("main", main), ("nap", nap)):
+        assert night["role"][key + "_state"] == (
+            "value" if state in {"true", "false"} else state
+        )
+        assert night["role"][key + "_value"] is (
+            values[state] if state in {"true", "false"} else None
+        )
+    for code in ("sleep_duration_asleep_seconds", "sleep_start_at", "sleep_end_at"):
+        assert night["metrics"][code]["eligible"] is not explicit_nap
 
 
 def test_competing_google_sessions_have_no_night_winner_or_pool(projection_database):
     session, paths = projection_database
-    for name in ("first", "second"):
-        _persist_google(session, paths, payload=_google_sleep_payload(name=name))
+    for name in ("first", "second", "nap"):
+        payload = _google_sleep_payload(name=name)
+        if name == "first":
+            payload["dataPoints"][0]["sleep"]["metadata"]["main"] = False
+            payload["dataPoints"][0]["sleep"]["metadata"].pop("nap")
+        elif name == "nap":
+            payload["dataPoints"][0]["sleep"]["metadata"]["nap"] = True
+        _persist_google(session, paths, payload=payload)
     session.commit()
     source = _read(session)["sources"][0]
     assert source["ambiguous"] is True
     assert source["summary"] is None
-    assert len(source["sessions"]) == 2
-    assert len({s["record_id"] for s in source["sessions"]}) == 2
+    assert len(source["sessions"]) == 3
+    assert len({s["record_id"] for s in source["sessions"]}) == 3
     assert all(s["metrics"]["sleep_duration_asleep_seconds"]["value"] == 24600
                for s in source["sessions"])
+    assert {s["role"]["selection"] for s in source["sessions"]} == {
+        "explicit_main", "single_uncertain_session", "",
+    }
+    assert sum(s["metrics"]["sleep_duration_asleep_seconds"]["eligible"]
+               for s in source["sessions"]) == 2
 
 
 def test_device_family_and_unattributed_sources_stay_separate(projection_database):
@@ -223,6 +470,7 @@ def test_device_family_and_unattributed_sources_stay_separate(projection_databas
     for instance, kind, family in (
         (FAMILY_GOOGLE_WEARABLES, GoogleSourceKind.FAMILY_AGGREGATE, FAMILY_GOOGLE_WEARABLES),
         ("unattributed", GoogleSourceKind.DATA_SOURCE, None),
+        ("users/me/dataSources/synthetic-account", GoogleSourceKind.DATA_SOURCE, None),
     ):
         payload = _google_sleep_payload(name=instance)
         payload["dataPoints"][0].pop("dataSource")
@@ -231,13 +479,17 @@ def test_device_family_and_unattributed_sources_stay_separate(projection_databas
         ), family)
     session.commit()
     sources = _read(session)["sources"]
-    assert len(sources) == 3
-    assert len({s["source"]["source_id"] for s in sources}) == 3
+    assert len(sources) == 4
+    assert len({s["source"]["source_id"] for s in sources}) == 4
     by_instance = {s["source"]["source_instance_id"]: s for s in sources}
     unattributed = by_instance["unattributed"]["summary"]
     assert unattributed["source_eligibility"]["eligible"] is False
     assert unattributed["metrics"]["sleep_duration_asleep_seconds"]["eligible"] is False
     assert by_instance[FAMILY_GOOGLE_WEARABLES]["summary"]["source_eligibility"]["eligible"]
+    account = by_instance["users/me/dataSources/synthetic-account"]["summary"]
+    assert account["source_eligibility"]["eligible"] is True
+    assert account["metrics"]["sleep_duration_asleep_seconds"]["eligible"] is True
+    assert all(not s["ambiguous"] for s in sources)  # separate source summaries, no pooling
 
 
 def test_local_precision_and_dst_offsets_are_not_replaced_by_host_offset(projection_database):

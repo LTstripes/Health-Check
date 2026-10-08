@@ -38,7 +38,7 @@
   {% else %}
   <div class="table-scroll sleep-night-table"><table>
     <thead><tr><th>Пробуждение</th><th>Длительность сна</th><th>Оценка Garmin</th></tr></thead>
-    <tbody>{{ night_row(wake_date, {'sleep_duration_seconds': night_metric(results['sleep_duration_seconds'], wake_date), 'sleep_score': night_metric(results['sleep_score'], wake_date)}) }}</tbody>
+    <tbody>{{ night_row(wake_date, {'sleep_duration_seconds': source_night_metric(source_sleep, 'sleep_duration_seconds'), 'sleep_score': source_night_metric(source_sleep, 'sleep_score')}) }}</tbody>
   </table></div>
   {% include "sleep_source_night.html" %}
   {% endif %}

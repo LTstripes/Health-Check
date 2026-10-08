@@ -40,6 +40,11 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       const garmin = page.locator('.sleep-night');
       assert.match(await garmin.innerText(), /8 ч 0 мин.*82/s);
       assert.match(await garmin.innerText(), /2099-01-02T06:45:00Z/);
+      await page.locator('.sleep-technical > summary').click();
+      const garminTechnical = await page.locator('.sleep-technical').innerText();
+      assert.match(garminTechnical, /account_wearables_sleep_observations_v1/);
+      assert.match(garminTechnical, /"device_attributed": false/);
+      await page.locator('.sleep-technical > summary').click();
       const details = garmin.locator('.source-sleep-details');
       assert.equal(await details.getAttribute('open'), null);
       await details.locator('summary').focus();
@@ -82,6 +87,9 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
         [7, /0 ч 0 мин/],
         [8, /Роль основного сна не подтверждена/],
         [9, /Запись дневного сна/],
+        [10, /Роль основного сна не подтверждена/],
+        [11, /Роль основного сна не подтверждена/],
+        [12, /Google · health_connect/],
       ]) {
         await page.goto(base + `/sleep?view=google&wake_date=2099-01-${String(day).padStart(2, '0')}`);
         if ([5, 6].includes(day)) await page.locator('.source-sleep-details > summary').click();
@@ -95,6 +103,23 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
           assert.match(await page.locator('.source-sleep-sessions').innerText(), /6 ч 50 мин/);
         }
         if (day === 3) assert.match(await page.locator('[data-google-vitals]').innerText(), /2 января 2099/);
+        if ([8, 10, 11].includes(day)) {
+          assert.match(visible, /6 ч 50 мин/);
+          assert.doesNotMatch(visible, /Источник обозначил сессию как основной сон/);
+        }
+        if (day === 10) {
+          await page.locator('.sleep-technical > summary').click();
+          const roleEvidence = await page.locator('.sleep-technical').innerText();
+          assert.match(roleEvidence, /"main_value": false/);
+          assert.match(roleEvidence, /"nap_state": "missing"/);
+          assert.match(roleEvidence, /single_uncertain_session/);
+          await page.locator('.sleep-technical > summary').click();
+        }
+        if (day === 12) {
+          assert.equal(await page.locator('[data-sleep-source]').count(), 2);
+          assert.equal(await page.locator('[data-sleep-session]').count(), 0);
+          assert.equal((visible.match(/6 ч 50 мин/g) || []).length, 2);
+        }
         await geometry();
         await page.screenshot({ path: path.join(evidence, `317-google-day${day}-${width}.png`), fullPage: true });
       }
@@ -103,7 +128,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.equal(await page.locator('[data-source-sleep]').count(), 0);
       assert.equal(await page.locator('[data-source-series]').count(), 0);
       await geometry();
-      checks.push(`${width}px: Garmin/Google source sleep, separate dated vitals, missing/ambiguous/CLASSIC/summary-only/zero/uncertain-role/nap, keyboard disclosure, unchanged empty Compare, no overflow`);
+      checks.push(`${width}px: Garmin account without device, non-Fitbit Google account, missing/invalid/false roles, separate sources, dated vitals, missing/ambiguous/CLASSIC/summary-only/zero/nap, keyboard disclosure, unchanged empty Compare, no overflow`);
     }
     assert.deepEqual(errors, []);
     const result = { status: 'PASS', browser: browser.version(), checks, errors };
