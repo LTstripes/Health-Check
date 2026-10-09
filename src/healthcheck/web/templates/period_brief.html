@@ -12,14 +12,19 @@
 {% set coverage_warning = brief_coverage_warning(brief) %}
 {% set source_status = brief_source_status(brief) %}
 {% set notable_changes = brief_notable_changes(brief.notable_changes) %}
-{% set actions = brief_owner_actions(brief.owner_actions) %}
-{% set action_row = namespace(items=[]) %}
+{% set action_row = namespace(sources=[], other=[], quiet=[]) %}
 {% for action in brief.owner_actions %}
-  {% if action.code != 'source_freshness_attention' or action.reason_code in ['reauth_required', 'refresh_overdue', 'expected_evidence_absent', 'refresh_failed'] %}
-    {% set action_row.items = action_row.items + [action] %}
+  {% if action.code == 'investigate_provider_sync' or (action.code == 'source_freshness_attention' and action.reason_code in ['reauth_required', 'refresh_overdue', 'expected_evidence_absent', 'refresh_failed']) %}
+    {% set action_row.sources = action_row.sources + [action] %}
+  {% elif action.code != 'source_freshness_attention' %}
+    {% set action_row.other = action_row.other + [action] %}
+  {% else %}
+    {% set action_row.quiet = action_row.quiet + [action] %}
   {% endif %}
 {% endfor %}
-{% set urgent_actions = brief_owner_actions(action_row.items) %}
+{% set source_actions = brief_owner_actions(action_row.sources) %}
+{% set urgent_actions = brief_owner_actions(action_row.other) %}
+{% set quiet_actions = brief_owner_actions(action_row.quiet) %}
 {% set google_scope = 'в окне Google' if overview.google.window_limited else 'в выбранном периоде' %}
 
 {% macro value_text(fact) -%}
@@ -82,6 +87,18 @@
   {% else %}<p class="muted">Источник Garmin не сохранён. <a href="/imports">Проверить источники</a></p>{% endif %}
 </section>
 
+{% if source_actions %}
+<section class="brief-source-attention" aria-label="Источники требуют внимания">
+  <details class="owner-details brief-source-disclosure">
+    <summary>{% for action in source_actions %}{{ action.short_text }}{% if action.contexts %} ({{ action.contexts | join('; ') }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}<span class="brief-source-more"> · Подробности</span></summary>
+    <div class="brief-source-instructions">
+      <p class="muted">Сохранённая история не подтверждает свежесть или успешное обновление источника.</p>
+      <ul>{% for action in source_actions %}<li>{{ action.text }}{% if action.contexts %} {{ action.contexts | join(' · ') }}.{% endif %} <a href="{{ action.link }}">{{ action.link_label }}</a></li>{% endfor %}</ul>
+    </div>
+  </details>
+  <a class="brief-source-data" href="/imports#data-status">Данные →</a>
+</section>
+{% endif %}
   {% if urgent_actions %}<section class="card brief-priority" aria-labelledby="brief-actions-heading">
     <h2 id="brief-actions-heading">Что нужно сделать</h2>
     <ul>{% for action in urgent_actions %}<li>{{ action.text }}{% if action.contexts %} <span class="muted">{{ action.contexts | join(' · ') }}.</span>{% endif %}
@@ -107,12 +124,12 @@
   </section>{% endif %}
 </div>
 
-{% if coverage_warning or source_status or actions %}
+{% if coverage_warning or source_status or quiet_actions %}
 <details class="owner-details brief-limitations">
   <summary>Состояние источников и ограничения</summary>
   {% if coverage_warning %}<p>{{ coverage_warning }}</p>{% endif %}
   {% if source_status %}<p>Источники: {{ source_status }}</p>{% endif %}
-  {% for action in actions %}<p>{{ action.text }}{% if action.contexts %} {{ action.contexts | join(' · ') }}.{% endif %} <a href="{{ action.link }}">{{ action.link_label }}</a></p>{% endfor %}
+  {% for action in quiet_actions %}<p>{{ action.text }}{% if action.contexts %} {{ action.contexts | join(' · ') }}.{% endif %} <a href="{{ action.link }}">{{ action.link_label }}</a></p>{% endfor %}
   <a href="/imports#data-status">Проверить состояние источников</a>
 </details>
 {% endif %}
