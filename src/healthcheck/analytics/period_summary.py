@@ -358,15 +358,17 @@ class PeriodSummaryService:
                 if code == "cycling_distance_meters"
                 else ({"tennis", "tennis_v2"} if code.startswith("tennis_") else None)
             )
-            candidates = [
+            scoped_records = [
                 r
-                for r in current
+                for r in records
                 if types is None or r.activity_type in types or not (r.activity_type or "").strip()
             ]
+            scoped_ids = {r.id for r in scoped_records}
+            candidates = [r for r in current if r.id in scoped_ids]
             history = Counter(
                 r.retire_reason or "unspecified"
-                for r in records
-                if r.projection_status == "retired" and (types is None or r.activity_type in types)
+                for r in scoped_records
+                if r.projection_status == "retired"
             )
             values, dates = [], []
             exclusions, type_counts = Counter(), Counter()
@@ -425,9 +427,7 @@ class PeriodSummaryService:
                 and METRICS[code][0] in {"count", "counts_by_type"},
             )
             cell["coverage"] = coverage
-            cell["snapshot_evidence"] = self._snapshot_evidence(
-                [r for r in records if types is None or r.activity_type in types], google=False
-            )
+            cell["snapshot_evidence"] = self._snapshot_evidence(scoped_records, google=False)
             cell["state"] = (
                 "observed"
                 if values

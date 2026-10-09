@@ -44,6 +44,7 @@ def _activity(
     duration=3600,
     suffix="",
     attributed=True,
+    source_filename=None,
 ):
     payload = json.loads(ACTIVITY.read_text(encoding="utf-8"))
     if not attributed:
@@ -62,7 +63,11 @@ def _activity(
     ]
     return GarminPersistenceRepository(
         session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "garmin-artifacts")
-    ).persist_result(normalize_garmin_payload(payload), payload=json.dumps(payload).encode())
+    ).persist_result(
+        normalize_garmin_payload(payload),
+        payload=json.dumps(payload).encode(),
+        source_filename=source_filename,
+    )
 
 
 def _packet(session, **kwargs):
@@ -448,6 +453,47 @@ def test_unknown_activity_type_never_proves_empty_tennis(projection_database, ki
         assert cell["aggregation"]["value"] is None
         assert cell["observed_count"] == 1
         assert _reasons(cell)["activity_type_missing"] == 1
+
+
+@pytest.mark.parametrize("kind", [None, "", " ", "\t\r\n"])
+@pytest.mark.parametrize("retired", [False, True])
+def test_unclassified_activity_provenance_and_history_match_metric_scope(
+    projection_database, kind, retired
+):
+    session, paths = projection_database
+    for filename in ("synthetic-acquisition.json", "synthetic-replay.json"):
+        _activity(session, paths, kind=kind, source_filename=filename)
+        # A known unrelated type must not enter cycling/tennis evidence.
+        _activity(session, paths, kind="running", source_filename=filename)
+    records = list(session.scalars(select(GarminSourceRecord)))
+    assert len(records) == 2
+    unknown = next(r for r in records if not (r.activity_type or "").strip())
+    if retired:
+        unknown.projection_status = "retired"
+        unknown.retired_at = datetime(2099, 1, 9, tzinfo=UTC)
+        unknown.retire_reason = "superseded_unknown_type_snapshot"
+    _coverage(session, session.scalar(select(GarminSource)))
+    session.commit()
+    packet = _packet(session)
+    for code in ("tennis_session_count", "tennis_duration_seconds", "cycling_distance_meters"):
+        cell = _metric(packet, code)
+        assert cell["observed_count"] == int(not retired)
+        assert cell["aggregation"]["eligible_count"] == 0
+        assert cell["aggregation"]["excluded_count"] == 1
+        assert cell["aggregation"]["value"] == (
+            0 if retired and code == "tennis_session_count" else None
+        )
+        assert cell["availability_counts"]["retired"] == int(retired)
+        assert cell["snapshot_evidence"] == {
+            "normalization_versions": [unknown.normalization_contract_version],
+            "duplicate_payload_observation_count": 1,
+            "retirement_reason_counts": (
+                {"superseded_unknown_type_snapshot": 1} if retired else {}
+            ),
+        }
+        assert _reasons(cell) == {
+            "retired:superseded_unknown_type_snapshot" if retired else "activity_type_missing": 1
+        }
 
 
 @pytest.mark.parametrize("provider", ["garmin", "google"])
