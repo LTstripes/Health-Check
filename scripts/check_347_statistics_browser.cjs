@@ -107,7 +107,8 @@ const base = 'http://127.0.0.1:8120';
         assert.match(await sleep.locator('article').nth(1).innerText(), /min → seconds · minutes_times_60_v1/);
         if (!['missing', 'ambiguous'].includes(scenario)) {
           const rawSleep = scenario === 'fractional' ? '28830.5' : scenario === 'zero' ? '0.0' : '28800.0';
-          assert.ok((await sleep.locator('details').first().innerText()).includes(`${rawSleep} / ${rawSleep} · seconds`));
+          const rawNumerator = scenario === 'full' ? '201600.0' : rawSleep;
+          assert.ok((await sleep.locator('details').first().innerText()).includes(`${rawSleep} / ${rawNumerator} · seconds`));
           const distanceDetails = page.locator('[data-statistics-metric="cycling_distance_meters"] details').first();
           assert.match(await distanceDetails.innerText(), /meters → meters · identity_v1/);
           if (scenario === 'fractional') assert.match(await distanceDetails.innerText(), /12345\.6 \/ 12345\.6 · meters/);
