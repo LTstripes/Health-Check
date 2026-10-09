@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Статистика — Health-Check{% endblock %}
+{% macro identity(source) -%}
+{{ source.device_model or source.device_code or source.source_kind }} · {{ source.source_id }}
+{%- endmacro %}
+{% block content %}
+<section class="statistics-page" aria-label="Статистика по источникам">
+  <form class="statistics-controls" method="get" action="/statistics">
+    <label>Период
+      <select name="days" aria-label="Период">
+        {% for days in [7, 30] %}<option value="{{ days }}"{% if packet.requested_window.inclusive_days == days %} selected{% endif %}>{{ days }} дней</option>{% endfor %}
+      </select>
+    </label>
+    <label>По дату включительно <input type="date" name="end_date" value="{{ packet.requested_window.end_date }}" required></label>
+    {% for side in packet.sides %}
+    {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
+    <label>{{ provider }}: источник
+      <select name="{{ 'garmin' if side.position == 'left' else 'google' }}_source_id" aria-label="{{ provider }}: источник">
+        <option value=""{% if not side.source_identity %} selected{% endif %}>{{ 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
+        {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if side.source_identity and side.source_identity.source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endfor %}
+    <button type="submit">Показать</button>
+  </form>
+  <p class="statistics-window">{{ packet.requested_window.start_date }} — {{ packet.requested_window.end_date }} · {{ packet.requested_window.inclusive_days }} дней включительно, по локальным датам источника.</p>
+  <p class="muted">Два независимых источника. Значения относятся к сохранённым записям; пропуски не означают ноль. Актуальность сейчас неизвестна.</p>
+  <div class="statistics-pair statistics-source-headings">
+    {% for side in packet.sides %}
+    <header data-statistics-side="{{ side.position }}">
+      <h2>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h2>
+      <p>{{ identity(side.source_identity) if side.source_identity else state_labels[side.state] }}</p>
+      <small>{{ side.requested_dates.start_date }} — {{ side.requested_dates.end_date }}</small>
+      {% if side.source_identity %}<p class="muted">{{ side.source_identity.source_kind }} · {{ 'Устройство атрибутировано' if side.source_identity.device_attributed else 'Без атрибуции устройства' }}</p>{% endif %}
+    </header>
+    {% endfor %}
+  </div>
+  {% for code, label in metric_labels.items() %}
+  <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">
+    <h2 id="metric-{{ code }}">{{ label }}</h2>
+    <div class="statistics-pair">
+      {% for side in packet.sides %}
+      {% set cell = side.metrics[code] %}
+      {% set value = cell.aggregation.value %}
+      <article data-statistics-side="{{ side.position }}">
+        <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
+        <div class="statistics-value">
+          {% if value is none %}<span>Недоступно</span>
+          {% elif value is mapping %}
+            {% if value %}<ul>{% for type, count in value.items() %}<li>{{ type }}: {{ count }} {{ unit_labels[cell.unit] }}</li>{% endfor %}</ul>{% else %}0 {{ unit_labels[cell.unit] }}{% endif %}
+          {% else %}{{ value }} <small>{{ unit_labels[cell.unit] }}</small>{% endif %}
+        </div>
+        <p>{{ state_labels[cell.state] }}</p>
+        <p class="statistics-denominator">Допустимо: {{ cell.aggregation.eligible_count }} {{ 'ночей' if cell.aggregation.denominator == 'eligible_saved_nights' else 'сессий' }} · наблюдалось {{ cell.observed_count }} записей / {{ cell.observed_day_count }} {{ 'ночей' if code == 'sleep_duration_asleep_seconds' else 'дней' }}.</p>
+        <p class="muted">Покрытие сбора: {{ 'полное' if cell.coverage.complete else 'неполное / не установлено' }} · без наблюдений {{ cell.missing_day_count }} дней.</p>
+        <details class="statistics-details">
+          <summary>Покрытие и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+          <dl>
+            <dt>Источник / поле</dt><dd>{{ side.source_identity.source_id if side.source_identity else state_labels[side.state] }} / {{ cell.source_metric_code }}</dd>
+            <dt>Единицы и преобразование</dt><dd>{{ cell.source_unit }} → {{ cell.unit }} · {{ cell.conversion }}</dd>
+            <dt>Агрегация / знаменатель</dt><dd>{{ cell.aggregation.kind }} / {{ cell.aggregation.denominator }}: {{ cell.aggregation.eligible_count }}</dd>
+            <dt>Даты допустимых значений</dt><dd>{{ cell.effective_dates.min_observed or 'нет' }} — {{ cell.effective_dates.max_observed or 'нет' }}</dd>
+            <dt>Состояние покрытия</dt><dd>{{ cell.coverage.state }} · {% for state, count in cell.coverage.status_counts.items() %}{{ state }}: {{ count }}{% if not loop.last %}; {% endif %}{% endfor %}</dd>
+            <dt>Состояния записей</dt><dd>Частичные: {{ cell.availability_counts.partial }}; неопределённые: {{ cell.availability_counts.uncertain }}; отсутствующее поле: {{ cell.availability_counts.missing }}; null: {{ cell.availability_counts.null }}; недопустимые: {{ cell.availability_counts.invalid }}; явный ноль: {{ cell.availability_counts.zero }}; выведенные из актуальных: {{ cell.availability_counts.retired }}.</dd>
+            <dt>Исключения ({{ cell.aggregation.excluded_count }})</dt><dd>{% for reason in cell.exclusions %}{{ reason.reason_code }}: {{ reason.count }}{% if not loop.last %}; {% endif %}{% else %}Нет{% endfor %}</dd>
+            <dt>Даты без наблюдений</dt><dd>{{ cell.missing_dates|join(', ') or 'Нет' }}. Отсутствие наблюдения не доказывает отсутствие событий.</dd>
+            <dt>Повторы сохранённых снимков</dt><dd>{{ cell.snapshot_evidence.duplicate_payload_observation_count }}; версии нормализации: {{ cell.snapshot_evidence.normalization_versions|join(', ') or 'нет' }}</dd>
+          </dl>
+        </details>
+      </article>
+      {% endfor %}
+    </div>
+    <p class="statistics-comparison">{% if packet.deltas[code].value is not none %}Google − Garmin: {{ packet.deltas[code].value }} {{ unit_labels[packet.sides[0].metrics[code].unit] }}{% else %}Числовая разница недоступна: совместимость не подтверждена. <small>{{ packet.deltas[code].reason }}</small>{% endif %}</p>
+  </section>
+  {% endfor %}
+  <section class="statistics-unavailable" aria-label="Недоступные показатели">
+    <h2>Шаги и калории</h2>
+    <div class="statistics-pair">
+      <p><strong>Garmin</strong> · Недоступно: типизированные данные шагов и калорий отсутствуют.</p>
+      <p><strong>Google</strong> · Не собирается: шаги и калории.</p>
+    </div>
+  </section>
+</section>
+{% endblock %}
