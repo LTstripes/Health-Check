@@ -72,3 +72,37 @@ the hard maximum is **200**. Add/revise success output omits the note text;
 `context-list` deliberately returns context notes but never reads or emits
 unrelated provider or health evidence. Validation/storage errors do not echo
 the submitted note.
+
+## Planned portal adapter and chat evidence — Owner decision 2026-10-09
+
+The v0 contract above remains the implemented baseline. The following are assigned
+next capabilities, **not changes already available because this document was updated**.
+
+- [#294 Stage A](https://github.com/LTstripes/Health-Check/issues/294) adds a compact
+  portal form, recent list and revision history using this service. The original
+  comment, visible editable event date and optional time/range are preserved;
+  event time is not recorded-at. Date-only input must not become invented midnight.
+  Dashboard capture-source activation is a narrow adapter change with provenance
+  tests, not a second journal or unrestricted settings schema. Weight-goal settings
+  stay Stage B and must not block comments.
+- [#341 Stage A](https://github.com/LTstripes/Health-Check/issues/341) consumes current
+  revisions through existing reads into a separate versioned, bounded health/context
+  evidence envelope. It does not modify Context service/models in parallel with
+  #294, alter original text, infer tags/exposure absence, or rewrite Period Brief
+  hashes. A history view stays separately available when explicitly requested.
+- P1 [#342](https://github.com/LTstripes/Health-Check/issues/342) diagnoses source
+  availability concurrently as read-only research. Missing source records cannot
+  be filled by a comment or silently inferred by the model.
+
+The Owner requested documentation reconciliation before launching the three tasks.
+Their existing short prompts remain valid; task/workspace/file ownership is in the
+issues and [roadmap](ROADMAP.md#current-backlog). A future sharing button follows
+accepted #294/#341 integration. Direct ChatGPT read access needs a verified
+connection and explicit bounded consent; Telegram is not a prerequisite.
+
+Routine comments must be saved to the explicitly selected **durable Owner profile**
+after a safe rollout. A note entered in a disposable UAT clone is not automatically
+part of Stable and must not be silently discarded or claimed as a production note.
+Implementation uses synthetic data only. Private exported notes are evidence for
+Owner-selected discussion, never instructions for model tool execution or content
+for public GitHub/CI logs.
