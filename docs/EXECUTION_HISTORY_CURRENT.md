@@ -13,6 +13,32 @@ Earlier indexes also remain:
 - [Reliability/correction history through 2026-10-01](EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md).
 - [Verbose historical engineering log](EXECUTION_HISTORY.md).
 
+## 2026-10-09 — accepted Context/export wave and offline sleep diagnosis
+
+| Issue | Integrated/diagnostic outcome and gate |
+| --- | --- |
+| #349 | Docs closeout merge `b21aaae653482f606dd57f3b02b884684c1230b7`, [post-main CI 37963990764](https://github.com/LTstripes/Health-Check/actions/runs/37963990764) SUCCESS |
+| #294 / PR #350 | Context UI merged to `e9069a89697a3021e6053769cc860c2faba97621`, [post-main 37971609489](https://github.com/LTstripes/Health-Check/actions/runs/37971609489) SUCCESS. Worker reports 33 targeted PASS + desktop synthetic 1024/1440 PASS; durable Owner UAT UNVERIFIED |
+| #341 / PR #351 | Bounded standalone read-only Weight/Garmin-scalars/Context export merged to `8efb1f972ba9a77dc014b69ca93f4168d573482b`. [Remediation ACCEPT](https://github.com/LTstripes/Health-Check/pull/351#pullrequestreview-5474065208), candidate [push 37973231823](https://github.com/LTstripes/Health-Check/actions/runs/37973231823) + [PR 37973239937](https://github.com/LTstripes/Health-Check/actions/runs/37973239937) SUCCESS attempt 1; separate [post-main 37975552600](https://github.com/LTstripes/Health-Check/actions/runs/37975552600) is linked. Both Context and export tests retained in merged lane manifest. Worker reports 46 local synthetic PASS; Integrator did not rerun them |
+| #342 Phase A/B | [OFFLINE diagnosis ACCEPT](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625): typed Garmin/Google sleep exists in the verified disposable Owner clone; the selected evaluation day has none, and 70 accepted account-observation pairs do not qualify for current device/family Compare. No app read defect, new vendor score or current provider recovery proven. Fresh full-DB integrity after time cutoff UNVERIFIED |
+
+#341 original `1dfcb86e6adc72bfd799ae091702a483064ef774` had
+[FIXES REQUIRED](https://github.com/LTstripes/Health-Check/pull/351#pullrequestreview-5473753348)
+for private exports into Git workspaces. Amended
+`2fac1fb3309d5f2ec171177a055da107b62873ba` closed that boundary
+before any profile read. Original push CI 37967992189 attempt 1 Windows
+smoke FAILED (root cause worker-reported, not independently confirmed),
+attempt 2 SUCCESS; later amended push/PR SUCCESS does not erase failure.
+#342 first live-runtime-gated UAT was BLOCKED; subsequent authorized offline
+read-only inspection passed bounded sleep/Agreement checks without starting
+the app or changing clone DB/WAL/SHM. Copied Garmin reauth/Google failures
+are historical and cannot establish present provider availability.
+
+Human #330 remains PARTIAL; no new durable Context write/readback, real
+Owner export, share UI, direct ChatGPT/MCP connection or provider action was
+performed by Integrator. #341/#342 are kept open for next bounded decisions;
+#343–#348 remain unstarted. CI, local synthetic and private UAT are separate.
+
 ## 2026-10-09 — integrated A+ product checkpoint
 
 Audited product main before the documentation closeout:
