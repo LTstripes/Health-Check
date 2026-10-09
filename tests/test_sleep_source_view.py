@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from copy import deepcopy
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import event, select
@@ -14,17 +15,23 @@ from healthcheck.analytics.sleep_pairing import (
     SleepPairingQuery,
     read_persisted_sleep_pairing,
 )
-from healthcheck.analytics.sleep_source_view import read_source_sleep_night
+from healthcheck.analytics.sleep_source_view import (
+    read_source_sleep_night,
+    read_source_sleep_range,
+    resolve_source_sleep_point,
+)
 from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import (
     GarminPayloadObservation,
     GarminRecordMetric,
+    GarminSleepRecord,
     GarminSource,
     GarminSourceRecord,
     GoogleRecordMetric,
     GoogleRecordSourceEvidence,
     GoogleSleepFieldState,
     GoogleSleepInterval,
+    GoogleSleepRecord,
     GoogleSourceRecord,
 )
 from healthcheck.garmin.normalization import normalize_garmin_payload
@@ -600,3 +607,373 @@ def test_google_source_page_has_unpaired_sleep_and_separate_dated_vitals(tmp_pat
     assert "Совместимой оценки сна Google нет" in sleep
     assert "За эту дату нет сохранённых сессий Google" in missing.text
     assert "6 ч 50 мин" not in missing.text.split('data-google-vitals>')[0]
+
+
+def _range(session, provider="google", wake_date=WAKE_DATE, days=7, **kwargs):
+    return read_source_sleep_range(
+        session, provider=provider, wake_date=wake_date, days=days, **kwargs
+    )
+
+
+def _point(packet, index=-1):
+    assert len(packet["series"]) == 1
+    return packet["series"][0]["points"][index]
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+@pytest.mark.parametrize("days", [7, 30])
+def test_range_preserves_every_night_packet_and_empty_dates(projection_database, provider, days):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    before = read_persisted_sleep_metric_projection(session).as_dict()
+    packet = _range(session, provider, days=days)
+    assert packet["start_date"] == (WAKE_DATE - timedelta(days=days - 1)).isoformat()
+    assert packet["end_date"] == WAKE_DATE.isoformat()
+    assert len(packet["days"]) == days
+    for night in packet["days"]:
+        assert night == _read(session, provider, date.fromisoformat(night["wake_date"]))
+    assert packet["observed_dates"] == [WAKE_DATE.isoformat()]
+    assert packet["missing_dates"] == [n["wake_date"] for n in packet["days"][:-1]]
+    assert _point(packet)["value"] == (28800 if provider == "garmin" else 24600)
+    assert all(p["state"] == "no_records" and p["value"] is None
+               for p in packet["series"][0]["points"][:-1])
+    assert read_persisted_sleep_metric_projection(session).as_dict() == before
+    missing = _range(session, provider, WAKE_DATE + timedelta(days=days), days=days)
+    assert missing["state"] == "no_records" and missing["series"] == []
+    assert missing["observed_dates"] == []
+    assert len(missing["missing_dates"]) == days
+    unknown = _range(session, provider, source_id="unknown-source")
+    assert unknown["state"] == "no_records" and unknown["series"] == []
+
+
+@pytest.mark.parametrize("roles,state,uncertain", [
+    (["main", "fallback", "nap"], "value", False),
+    (["main", "main", "nap"], "ambiguous", False),
+    (["fallback", "fallback", "nap"], "ambiguous", False),
+    (["fallback", "nap"], "value", True),
+    (["nap"], "unavailable", False),
+])
+def test_range_google_role_selection_before_values(projection_database, roles, state, uncertain):
+    session, paths = projection_database
+    for i, role in enumerate(roles):
+        payload = _google_sleep_payload(name=f"session-{i}")
+        metadata = payload["dataPoints"][0]["sleep"]["metadata"]
+        if role == "fallback":
+            metadata.pop("main")
+            # An attractive value cannot override an explicit-main missing cell.
+            payload["dataPoints"][0]["sleep"]["summary"]["minutesAsleep"] = "600"
+        elif role == "nap":
+            metadata["nap"] = True
+        _persist_google(session, paths, payload=payload)
+    session.commit()
+    packet = _range(session)
+    source = packet["days"][-1]["sources"][0]
+    saved = deepcopy(source)
+    point = resolve_source_sleep_point(source, provider="google")
+    assert point == {k: v for k, v in _point(packet).items() if k != "wake_date"}
+    assert source == saved  # The pure resolver never edits disclosure/eligibility.
+    assert point["state"] == state and point["role_uncertain"] is uncertain
+    if state == "ambiguous":
+        assert point["value"] is None and point["record_id"] is None
+        assert point["reason"] == "ambiguous_google_main"
+    if roles == ["main", "fallback", "nap"]:
+        assert point["value"] == 24600
+        assert {e["reason"] for e in point["exclusions"]} == {
+            "google_explicit_main_preferred", "google_nap_only"
+        }
+    if roles == ["nap"]:
+        assert point["reason"] == "google_nap_only"
+        assert packet["observed_dates"] == [WAKE_DATE.isoformat()]
+
+
+@pytest.mark.parametrize("state,value,unit,expected", [
+    ("value", 0, "min", "value"),
+    ("missing", None, "min", "missing"),
+    ("null", None, "min", "null"),
+    ("invalid", None, "min", "invalid"),
+    ("value", 12, "seconds", "unavailable"),
+])
+def test_range_duration_state_and_partial_disclosure(
+    projection_database, state, value, unit, expected,
+):
+    session, paths = projection_database
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    row = session.scalar(select(GoogleRecordMetric).where(
+        GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep"
+    ))
+    row.state, row.value_number, row.unit, row.value_text = state, value, unit, None
+    session.scalar(select(GoogleSourceRecord)).record_status = "partial"
+    session.commit()
+    packet = _range(session)
+    point = _point(packet)
+    assert point["state"] == expected and point["partial"] is True
+    assert point["is_zero"] is (expected == "value")
+    assert point["value"] == (0 if expected == "value" else None)
+    assert packet["days"][-1] == _read(session)
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+def test_range_invalid_record_retains_scalar_without_plotting(projection_database, provider):
+    session, paths = projection_database
+    if provider == "google":
+        _persist_google(session, paths, payload=_google_sleep_payload())
+        model = GoogleSourceRecord
+    else:
+        _persist_garmin(session, paths)
+        model = GarminSourceRecord
+    session.scalar(select(model)).record_status = "invalid"
+    session.commit()
+    packet = _range(session, provider)
+    assert _point(packet)["value"] is None
+    assert _point(packet)["reason"] == f"{provider}_record_invalid"
+    assert packet["days"][-1]["sources"][0]["summary"]["metrics"][
+        "sleep_duration_asleep_seconds"
+    ]["value"] > 0
+
+
+def test_range_keeps_actual_google_identities_and_excluded_sources(projection_database):
+    session, paths = projection_database
+    for identity in ("users/me/dataSources/first", "users/me/dataSources/second", "unattributed"):
+        payload = _google_sleep_payload(name=identity)
+        payload["dataPoints"][0].pop("dataSource")
+        _persist_identity(session, paths, payload, GoogleSourceIdentity(
+            source_kind=GoogleSourceKind.DATA_SOURCE, source_instance_id=identity
+        ))
+    session.commit()
+    packet = _range(session)
+    assert len(packet["series"]) == 3
+    assert len({s["source"]["source_id"] for s in packet["series"]}) == 3
+    for series in packet["series"]:
+        point = series["points"][-1]
+        excluded = series["source"]["source_instance_id"] == "unattributed"
+        assert point["value"] == (None if excluded else 24600)
+        assert point["state"] == ("unavailable" if excluded else "value")
+        selected = _range(session, source_id=series["source"]["source_id"])
+        assert selected["series"] == [series]
+    assert _range(session, "garmin")["state"] == "no_records"
+
+
+def test_range_garmin_collisions_never_choose_a_duration(projection_database):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    payload = json.loads(GARMIN_SLEEP_FIXTURE.read_text(encoding="utf-8"))
+    payload["payload"]["dailySleepDTO"]["calendarDate"] = "2099-01-03"
+    payload["payload"]["dailySleepDTO"]["sleepTimeSeconds"] = 36000
+    GarminPersistenceRepository(
+        session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "garmin-artifacts")
+    ).persist_result(normalize_garmin_payload(payload), payload=payload)
+    session.flush()
+    for row in session.scalars(select(GarminSleepRecord)):
+        row.wake_date = WAKE_DATE
+    session.commit()
+    packet = _range(session, "garmin")
+    assert len(packet["days"][-1]["sources"][0]["sessions"]) == 2
+    point = _point(packet)
+    assert point["state"] == "ambiguous" and point["value"] is None
+    assert point["reason"] == "ambiguous_garmin_main"
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+@pytest.mark.parametrize("offset,expected", [(0, 1), (-6, 1), (-7, 0), (1, 0), (None, 0)])
+def test_range_null_wake_date_uses_only_bounded_source_local_date(
+    projection_database, provider, offset, expected
+):
+    session, paths = projection_database
+    if provider == "garmin":
+        _persist_garmin(session, paths)
+        model, typed = GarminSourceRecord, GarminSleepRecord
+    else:
+        _persist_google(session, paths, payload=_google_sleep_payload())
+        model, typed = GoogleSourceRecord, GoogleSleepRecord
+    record = session.scalar(select(model))
+    identity = record.garmin_source_id if provider == "garmin" else record.google_source_id
+    record.source_local_date = WAKE_DATE + timedelta(days=offset) if offset is not None else None
+    session.scalar(select(typed)).wake_date = None
+    session.commit()
+    packet = _range(session, provider)
+    assert packet["wake_date_missing_count"] == expected
+    assert packet["wake_date_missing_by_source"] == ({identity: 1} if expected else {})
+    assert packet["observed_dates"] == [] and len(packet["missing_dates"]) == 7
+    assert all(n["sources"] == [] for n in packet["days"])
+    assert all(p["value"] is None for s in packet["series"] for p in s["points"])
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+def test_range_cap_fail_closed_before_load_and_preserves_night_cap(
+    projection_database, monkeypatch, provider
+):
+    session, paths = projection_database
+    if provider == "garmin":
+        _persist_garmin(session, paths)
+    else:
+        _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    module = "healthcheck.analytics.sleep_source_view"
+    monkeypatch.setattr(f"{module}.MAX_SOURCE_SLEEP_RANGE_RECORDS", 1)
+    assert _range(session, provider)["state"] == "records"  # inclusive cap
+    monkeypatch.setattr(f"{module}.MAX_SOURCE_SLEEP_RANGE_RECORDS", 0)
+    def forbidden(*args, **kwargs):
+        pytest.fail("overflow must fail before any typed loader")
+    monkeypatch.setattr(f"{module}._load_{provider}_sleep_record_side", forbidden)
+    packet = _range(session, provider)
+    assert packet["state"] == "read_limit_exceeded"
+    assert packet["days"] == packet["series"] == []
+    assert packet["observed_dates"] is packet["missing_dates"] is None
+    assert packet["wake_date_missing_count"] is None
+    monkeypatch.setattr(f"{module}.MAX_SOURCE_SLEEP_RANGE_RECORDS", 400)
+    monkeypatch.setattr(f"{module}.MAX_SOURCE_SLEEP_RECORDS", 0)
+    assert _range(session, provider)["state"] == "read_limit_exceeded"
+
+
+def test_range_null_dates_count_toward_cap_and_retired_rows_do_not(
+    projection_database, monkeypatch,
+):
+    session, paths = projection_database
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.scalar(select(GoogleSleepRecord)).wake_date = None
+    session.commit()
+    monkeypatch.setattr("healthcheck.analytics.sleep_source_view.MAX_SOURCE_SLEEP_RANGE_RECORDS", 0)
+    assert _range(session)["state"] == "read_limit_exceeded"
+    session.rollback()
+    row = session.scalar(select(GoogleSourceRecord))
+    row.projection_status, row.retired_at = "retired", datetime(2099, 1, 3, tzinfo=UTC)
+    session.commit()
+    assert _range(session)["state"] == "no_records"
+
+
+def test_range_presence_uses_wake_date_not_parent_or_utc_date(projection_database):
+    session, paths = projection_database
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.scalar(select(GoogleSourceRecord)).source_local_date = date(2000, 1, 1)
+    session.commit()
+    assert _range(session)["observed_dates"] == [WAKE_DATE.isoformat()]
+    session.rollback()
+    session.scalar(select(GoogleSleepRecord)).wake_date = WAKE_DATE + timedelta(days=1)
+    session.scalar(select(GoogleSourceRecord)).source_local_date = WAKE_DATE
+    session.commit()
+    assert _range(session)["state"] == "no_records"
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"days": 1}, {"days": 31}, {"days": 7.0}, {"days": True},
+    {"provider": "other"}, {"wake_date": "2099-01-02"},
+    {"wake_date": datetime(2099, 1, 2, tzinfo=UTC)},
+])
+def test_range_rejects_unsupported_window_before_queries(projection_database, kwargs):
+    session, _paths = projection_database
+    with pytest.raises(ValueError):
+        _range(session, **kwargs)
+
+
+def test_range_snapshot_is_coherent_across_separate_writer(projection_database, monkeypatch):
+    import healthcheck.analytics.sleep_source_view as module
+    session, paths = projection_database
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    # Cache old evidence; new snapshot must expire it before the presence scan.
+    cached = session.scalar(select(GoogleRecordMetric).where(
+        GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep"
+    ))
+    session.rollback()
+    engine = session.get_bind()
+    original = module._load_google_sleep_record_side
+    commits = []
+    def load_after_writer(reader, record_id, **kwargs):
+        if not commits:
+            with session_scope(engine) as writer:
+                metric = writer.get(GoogleRecordMetric, cached.id)
+                metric.value_number = 500
+            commits.append(True)
+        return original(reader, record_id, **kwargs)
+    monkeypatch.setattr(module, "_load_google_sleep_record_side", load_after_writer)
+    assert _point(_range(session))["value"] == 24600
+    assert commits == [True]
+    assert session.connection().connection.driver_connection.in_transaction
+    session.rollback()
+    assert _point(_range(session))["value"] == 30000
+
+
+def test_range_is_bounded_read_only_and_never_opens_payloads(projection_database, monkeypatch):
+    from sqlalchemy.exc import InvalidRequestError
+    session, paths = projection_database
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    def forbidden(*args, **kwargs):
+        pytest.fail("range must not open raw payload bodies")
+    monkeypatch.setattr(ContentAddressedGooglePayloadStore, "read", forbidden)
+    monkeypatch.setattr(ContentAddressedGarminPayloadStore, "read", forbidden)
+    statements = []
+    event.listen(session.get_bind(), "before_cursor_execute",
+                 lambda _c, _cur, sql, params, *_a: statements.append((sql, params)))
+    packet = _range(session)
+    scans = [(sql, params) for sql, params in statements
+             if "google_sleep_records.wake_date BETWEEN" in sql]
+    assert len(scans) == 1 and "LIMIT" in scans[0][0] and 401 in scans[0][1]
+    assert not any(sql.lstrip().upper().startswith(("UPDATE", "DELETE", "INSERT", "CREATE"))
+                   for sql, _params in statements)
+    assert '"dataPoints":' not in json.dumps(packet)
+    record = session.scalar(select(GoogleSourceRecord))
+    record.record_status = "invalid"
+    with pytest.raises(InvalidRequestError):
+        _range(session)
+    assert record.record_status == "invalid"  # No implicit flush/discard of caller writes.
+
+
+def test_range_explicit_main_missing_scalar_never_falls_back_to_better_value(projection_database):
+    session, paths = projection_database
+    for name in ("main", "fallback"):
+        payload = _google_sleep_payload(name=name)
+        if name == "main":
+            payload["dataPoints"][0]["sleep"]["summary"].pop("minutesAsleep")
+        else:
+            payload["dataPoints"][0]["sleep"]["metadata"].pop("main")
+        _persist_google(session, paths, payload=payload)
+    session.commit()
+    point = _point(_range(session))
+    assert point["state"] == "missing" and point["value"] is None
+    assert len(point["candidate_record_ids"]) == 1
+    assert point["exclusions"][0]["reason"] == "google_explicit_main_preferred"
+
+
+def test_range_cap_counts_all_sources_and_each_provider_independently(
+    projection_database, monkeypatch,
+):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    for name in ("one", "two"):
+        payload = _google_sleep_payload(name=name)
+        payload["dataPoints"][0].pop("dataSource")
+        _persist_identity(session, paths, payload, GoogleSourceIdentity(
+            source_kind=GoogleSourceKind.DATA_SOURCE,
+            source_instance_id=f"users/me/dataSources/{name}",
+        ))
+    session.commit()
+    monkeypatch.setattr("healthcheck.analytics.sleep_source_view.MAX_SOURCE_SLEEP_RANGE_RECORDS", 1)
+    assert _range(session, "google")["state"] == "read_limit_exceeded"
+    assert _range(session, "garmin")["state"] == "records"
+    source_id = session.scalar(select(GoogleSourceRecord)).google_source_id
+    assert _range(session, source_id=source_id)["state"] == "records"
+
+
+def test_range_multiple_dates_are_inclusive_and_never_bridge_gaps(projection_database):
+    session, paths = projection_database
+    start = WAKE_DATE - timedelta(days=6)
+    dates = [start - timedelta(days=1), start, start + timedelta(days=2), WAKE_DATE]
+    for local_date in dates:
+        payload = _google_sleep_payload(name=local_date.isoformat())
+        interval = payload["dataPoints"][0]["sleep"]["interval"]
+        interval["civilStartTime"]["date"] = local_date.isoformat()
+        interval["civilEndTime"]["date"] = local_date.isoformat()
+        interval["startTime"] = f"{local_date.isoformat()}T01:00:00Z"
+        interval["endTime"] = f"{local_date.isoformat()}T08:00:00Z"
+        _persist_google(session, paths, payload=payload)
+    session.commit()
+    packet = _range(session)
+    assert packet["observed_dates"] == [d.isoformat() for d in dates[1:]]
+    assert [p["state"] for p in packet["series"][0]["points"]] == [
+        "value", "no_records", "value", "no_records", "no_records", "no_records", "value"
+    ]
+    for night in packet["days"]:
+        assert night == _read(session, wake_date=date.fromisoformat(night["wake_date"]))

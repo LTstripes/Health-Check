@@ -13,10 +13,10 @@ UTC display never applies the host's current offset.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from healthcheck.analytics.sleep_metrics import (
@@ -45,9 +45,12 @@ from healthcheck.db.models import (
     GoogleSleepRecord,
     GoogleSourceRecord,
 )
+from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 # A pathological date fails closed instead of displaying a winning prefix.
 MAX_SOURCE_SLEEP_RECORDS = 200
+MAX_SOURCE_SLEEP_RANGE_RECORDS = 400
+SOURCE_SLEEP_RANGE_VERSION = "source-sleep-range-v1"
 
 
 def _canonical_outcome(side: _StoredSleepSide, code: str, variant: str | None):
@@ -181,6 +184,13 @@ def read_source_sleep_night(
     if len(record_ids) > MAX_SOURCE_SLEEP_RECORDS:
         result["state"] = "read_limit_exceeded"
         return result
+    result["sources"] = _night_sources(session, record_ids, loader, wake_date)
+    result["state"] = "records" if result["sources"] else "no_records"
+    return result
+
+
+def _night_sources(session, record_ids, loader, wake_date: date) -> list[dict[str, Any]]:
+    """Shared typed disclosure; keep the one-night packet unchanged."""
     sources: dict[str, dict[str, Any]] = {}
     for record_id in record_ids:
         side = loader(session, record_id, cohort=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS)
@@ -203,6 +213,141 @@ def read_source_sleep_night(
     for item in sources.values():
         item["ambiguous"] = len(item["sessions"]) > 1
         item["summary"] = item["sessions"][0] if not item["ambiguous"] else None
-    result["sources"] = list(sources.values())
-    result["state"] = "records" if sources else "no_records"
+    return list(sources.values())
+
+
+def resolve_source_sleep_point(source: dict[str, Any], *, provider: str) -> dict[str, Any]:
+    """Resolve one exact source/date from typed night disclosure, without mutation.
+
+    Source/record/role gates precede uniqueness; duration values never choose a
+    session. Google explicit-main preference precedes its uncertain singleton
+    fallback. Excluded sessions stay disclosed in the original night packet.
+    """
+    if provider not in {"garmin", "google"}:
+        raise ValueError("source sleep provider must be garmin or google")
+    exclusions = []
+    candidates = []
+    for item in source["sessions"]:
+        if item["reason"]:
+            exclusions.append({"record_id": item["record_id"], "reason": item["reason"]})
+        else:
+            candidates.append(item)
+    if provider == "google":
+        preferred = [i for i in candidates if i["role"]["selection"] == "explicit_main"]
+        if preferred:
+            exclusions.extend({"record_id": i["record_id"],
+                               "reason": "google_explicit_main_preferred"}
+                              for i in candidates if i not in preferred)
+            candidates = preferred
+    point = {
+        "state": "no_records" if not source["sessions"] else "unavailable",
+        "value": None, "unit": "seconds", "record_id": None,
+        "reason": None, "is_zero": False, "partial": False,
+        "role_uncertain": False, "candidate_record_ids": [i["record_id"] for i in candidates],
+        "exclusions": exclusions,
+    }
+    if len(candidates) > 1:
+        point.update(state="ambiguous", reason=f"ambiguous_{provider}_main")
+    elif candidates:
+        item = candidates[0]
+        cell = item["metrics"]["sleep_duration_asleep_seconds"]
+        point.update(record_id=item["record_id"], partial=item["record_status"] == "partial",
+                     role_uncertain=provider == "google" and
+                     item["role"]["selection"] != "explicit_main")
+        if cell["eligible"]:
+            point.update(state="value", value=cell["value"], is_zero=cell["is_zero"])
+        else:
+            point.update(state=cell["state"] if cell["state"] != "value" else "unavailable",
+                         reason=cell["reason"])
+    elif exclusions:
+        point["reason"] = exclusions[0]["reason"]
+    return point
+
+
+def read_source_sleep_range(
+    session: Session, *, provider: str, wake_date: date, days: int = 30,
+    source_id: str | None = None,
+) -> dict[str, Any]:
+    """V1 independent 7/30 inclusive persisted source-local wake dates.
+
+    One bounded presence scan and typed loaders share a physical read snapshot.
+    Null wake dates count only when the parent has a persisted source_local_date
+    within this window; UTC, acquisition time and host offsets are never fallback
+    dates. Those rows count toward the 400/provider cap, separately per source,
+    and never become plotted nights. Unlocatable null dates are outside this
+    bounded read. The existing 200-record one-night cap also fails the range
+    closed. Overflow returns no days/series or misleading completeness counts.
+
+    `days` preserves exact one-night packets. `series` resolves one point per
+    requested date per exact source, including explicit gaps. Observed/missing
+    dates describe stored row presence, not sleep or acquisition coverage.
+    No pairing, canonical selection, raw bodies, writes or provider calls.
+    Caller owns the transaction, including when embedding in an SSR snapshot.
+    """
+    if provider not in {"garmin", "google"}:
+        raise ValueError("source sleep provider must be garmin or google")
+    if type(wake_date) is not date:
+        raise ValueError("source sleep wake_date must be a date")
+    if type(days) is not int or days not in {7, 30}:
+        raise ValueError("source sleep range days must be 7 or 30")
+    start = wake_date - timedelta(days=days - 1)
+    dates = [start + timedelta(days=i) for i in range(days)]
+    model, typed, column, loader = (
+        (GarminSourceRecord, GarminSleepRecord, GarminSourceRecord.garmin_source_id,
+         _load_garmin_sleep_record_side) if provider == "garmin" else
+        (GoogleSourceRecord, GoogleSleepRecord, GoogleSourceRecord.google_source_id,
+         _load_google_sleep_record_side)
+    )
+    result = {
+        "contract_version": SOURCE_SLEEP_RANGE_VERSION, "provider": provider,
+        "start_date": start.isoformat(), "end_date": wake_date.isoformat(),
+        "state": "no_records", "days": [], "series": [],
+        "observed_dates": None, "missing_dates": None, "wake_date_missing_count": None,
+        "wake_date_missing_by_source": None, "limit": MAX_SOURCE_SLEEP_RANGE_RECORDS,
+    }
+    ensure_read_snapshot(session)
+    query = (
+        select(model.id, typed.wake_date, column)
+        .outerjoin(typed, typed.record_id == model.id)
+        .where(model.stream_code == "sleep", model.projection_status == "current",
+               or_(typed.wake_date.between(start, wake_date),
+                   typed.wake_date.is_(None) & model.source_local_date.between(start, wake_date)))
+        .order_by(typed.wake_date, column, model.id)
+        .limit(MAX_SOURCE_SLEEP_RANGE_RECORDS + 1)
+    )
+    if source_id is not None:
+        query = query.where(column == source_id)
+    rows = list(session.execute(query))
+    by_date: dict[date, list[str]] = {}
+    missing_by_source: dict[str, int] = {}
+    for record_id, local_date, identity in rows:
+        if local_date is None:
+            missing_by_source[identity] = missing_by_source.get(identity, 0) + 1
+        else:
+            by_date.setdefault(local_date, []).append(record_id)
+    if len(rows) > MAX_SOURCE_SLEEP_RANGE_RECORDS or any(
+        len(ids) > MAX_SOURCE_SLEEP_RECORDS for ids in by_date.values()
+    ):
+        result["state"] = "read_limit_exceeded"
+        return result
+    series: dict[str, dict[str, Any]] = {}
+    for local_date in dates:
+        sources = _night_sources(session, by_date.get(local_date, ()), loader, local_date)
+        night = {"provider": provider, "wake_date": local_date.isoformat(), "sources": sources,
+                 "state": "records" if sources else "no_records", "limit": MAX_SOURCE_SLEEP_RECORDS}
+        result["days"].append(night)
+        for source in sources:
+            identity = source["source"]["source_id"]
+            series.setdefault(identity, {"source": source["source"], "points": []})
+    for identity, item in series.items():
+        for night in result["days"]:
+            source = next((s for s in night["sources"] if s["source"]["source_id"] == identity),
+                          {"sessions": []})
+            item["points"].append({"wake_date": night["wake_date"],
+                                   **resolve_source_sleep_point(source, provider=provider)})
+    result.update(state="records" if rows else "no_records", series=list(series.values()),
+                  observed_dates=[d.isoformat() for d in dates if d in by_date],
+                  missing_dates=[d.isoformat() for d in dates if d not in by_date],
+                  wake_date_missing_count=sum(missing_by_source.values()),
+                  wake_date_missing_by_source=missing_by_source)
     return result
