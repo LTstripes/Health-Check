@@ -37,26 +37,27 @@ canonical history. Engineering integration, local deployment and human acceptanc
 are different outcomes. The latest real Owner UAT is **PARTIAL**, not a blanket PASS.
 See [Project Wiki](PROJECT_WIKI.md) and [Current History](EXECUTION_HISTORY_CURRENT.md).
 
-### Owner execution priority — 2026-10-09
+### Owner execution priority — 2026-10-09 (first wave integrated)
 
-**Data first:** [#342](https://github.com/LTstripes/Health-Check/issues/342) is a P1
-first-wave investigation, alongside [#294](https://github.com/LTstripes/Health-Check/issues/294)
-portal comments and [#341](https://github.com/LTstripes/Health-Check/issues/341)
-bounded health-plus-context evidence for discussion in ChatGPT. Diagnose absent,
-excluded, stale, disabled and failed sources before claiming useful complete
-analytics. This is not permission to invent missing data or trigger provider work.
+**Reliable data first:** [#342](https://github.com/LTstripes/Health-Check/issues/342)
+has accepted bounded offline historical-clone source classification. Stored Google
+sleep records exist; selected-date emptiness, source/role exclusions and missing
+eligible device/family Compare pairs differ from provider collection errors.
+This does not establish current Stable/provider health, a Google vendor score
+or permission to trigger providers. Garmin RHR remains #340.
 
-Comments and the evidence exporter can be developed on synthetic fixtures in
-parallel with that read-only investigation. Cosmetic work is secondary. Complete
-documentation reconciliation before the Owner starts the new assignments; the
-[roadmap](ROADMAP.md#current-backlog) owns sequencing and shared-file boundaries.
+[#294 Stage A](https://github.com/LTstripes/Health-Check/issues/294) has
+integrated dated `/context` comments and revision history; [#341 Stage A](https://github.com/LTstripes/Health-Check/issues/341)
+has integrated bounded standalone Weight/Garmin-scalars/current-Context
+evidence export. They are engineering deliveries, **not** completed durable
+Owner UAT or an actual private export. Direct authenticated ChatGPT tools
+still need a proven connection and consent. A skill alone cannot reach the
+Owner PC; Telegram remains optional, and #343–#348 are not launched.
 
-The next useful end-to-end outcome is: the Owner records a comment with an explicit
-event date and optional time, reads it back durably, and discusses the selected
-measurements and context here in ChatGPT. Telegram is optional/later, not a
-prerequisite. First deliver a bounded export; direct authenticated read tools need
-their own verified connection. A skill is not network reachability, and this plan
-does not claim that ChatGPT currently reads the Owner's loopback application.
+Next Owner outcome: save and read back a real dated comment on an explicitly
+selected durable profile, then explicitly review/share a selected private
+evidence export in ChatGPT. Disposable UAT notes do not become Stable notes.
+The [roadmap](ROADMAP.md#current-backlog) owns further sequencing and gates.
 
 ## Sources
 
@@ -64,7 +65,7 @@ does not claim that ChatGPT currently reads the Owner's loopback application.
 - **Garmin Vivoactive 5 / Garmin Connect:** released ingestion, historical backfill, deterministic analytics and owner dashboard; current collection health still needs source-specific evidence.
 - **Google Health API v4:** released ingestion for sleep and supported health metrics/measurements, with preserved source/device metadata and explicit source-family semantics.
 - **Google wearable / Fitbit evidence:** device-level agreement requires explicit persisted Fitbit/device attribution. Broader wearable-family and account observations are not automatically device evidence.
-- **Free-text context:** Context Capture v0 already stores revisioned original text, dates/instants/intervals; #294 adds its portal adapter, not another note system.
+- **Free-text context:** Context Capture v0 stores revisioned original text, dates/instants/intervals; integrated #294 Stage A adds its secondary desktop portal adapter, not another note system.
 - **Planned:** confirmed laboratory results and source documents under #348, then medication/supplement and other personal-health-record capabilities when separately scoped.
 
 Every source value remains available. A canonical rule may select one value for one metric/period, but selection never deletes competing evidence.
