@@ -112,6 +112,7 @@ def _cell(
         },
         "observed_count": observed_count,
         "observed_day_count": len(set(observed_dates)),
+        "observed_calendar_dates": sorted(set(observed_dates)),
         "eligible_dates": sorted(set(dates)),
         "effective_dates": _bounds(dates),
         "observed_dates": _bounds(observed_dates),
@@ -204,7 +205,13 @@ class PeriodSummaryService:
                     side["metrics"].update(self._activities(source, start, end_date))
                 side["metrics"][SLEEP_CODE] = self._sleep(source, start, end_date)
             for metric, cell in side["metrics"].items():
-                cell["missing_day_count"] = days - cell["observed_day_count"]
+                observed_dates = set(cell["observed_calendar_dates"])
+                cell["missing_dates"] = [
+                    day.isoformat()
+                    for offset in range(days)
+                    if (day := start + timedelta(days=offset)).isoformat() not in observed_dates
+                ]
+                cell["missing_day_count"] = len(cell["missing_dates"])
                 cell["source_metric_code"] = (
                     (
                         "sleep_duration_seconds"
@@ -351,7 +358,11 @@ class PeriodSummaryService:
                 if code == "cycling_distance_meters"
                 else ({"tennis", "tennis_v2"} if code.startswith("tennis_") else None)
             )
-            candidates = [r for r in current if types is None or r.activity_type in types]
+            candidates = [
+                r
+                for r in current
+                if types is None or r.activity_type in types or not r.activity_type
+            ]
             history = Counter(
                 r.retire_reason or "unspecified"
                 for r in records
@@ -367,6 +378,8 @@ class PeriodSummaryService:
                     reason = "record_invalid"
                 elif identity_counts[row.external_record_id or row.id] != 1:
                     reason = "duplicate_current_identity"
+                elif types is not None and not row.activity_type:
+                    reason = "activity_type_missing"
                 elif code in {"cycling_distance_meters", "tennis_duration_seconds"}:
                     field = (
                         "distance_meters"

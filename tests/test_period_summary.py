@@ -433,6 +433,57 @@ def test_proven_empty_activity_count_is_distinct_from_unknown(projection_databas
     assert cell["coverage"]["complete"] is True
 
 
+@pytest.mark.parametrize("kind", [None, ""])
+def test_unknown_activity_type_never_proves_empty_tennis(projection_database, kind):
+    session, paths = projection_database
+    _activity(session, paths)
+    session.scalar(select(GarminSourceRecord)).activity_type = kind
+    _coverage(session, session.scalar(select(GarminSource)))
+    session.commit()
+    packet = _packet(session)
+    assert _metric(packet, "activity_session_count")["aggregation"]["value"] == 1
+    assert _metric(packet, "activity_type_counts")["aggregation"]["value"] == {"unknown": 1}
+    for code in ("tennis_session_count", "tennis_duration_seconds", "cycling_distance_meters"):
+        cell = _metric(packet, code)
+        assert cell["coverage"]["complete"] is True
+        assert cell["aggregation"]["value"] is None
+        assert cell["observed_count"] == 1
+        assert _reasons(cell)["activity_type_missing"] == 1
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+@pytest.mark.parametrize("days", [7, 30])
+def test_missing_dates_distinguish_absence_from_ineligible_observations(
+    projection_database, provider, days
+):
+    session, paths = projection_database
+    start = END - timedelta(days=days - 1)
+    excluded_day = start + timedelta(days=2)
+    persist = _garmin if provider == "garmin" else _google
+    persist(session, paths, start)
+    persist(session, paths, excluded_day)
+    persist(session, paths, END)
+    model = GarminSourceRecord if provider == "garmin" else GoogleSourceRecord
+    typed = GarminSleepRecord if provider == "garmin" else GoogleSleepRecord
+    session.scalar(
+        select(model)
+        .join(typed, typed.record_id == model.id)
+        .where(typed.wake_date == excluded_day)
+    ).record_status = "invalid"
+    session.commit()
+    packet = PeriodSummaryService(session).build(end_date=END, days=days)
+    cell = _metric(packet, side=int(provider == "google"))
+    assert cell["observed_calendar_dates"] == [str(start), str(excluded_day), str(END)]
+    assert cell["eligible_dates"] == [str(start), str(END)]
+    assert cell["missing_dates"] == [
+        str(start + timedelta(days=i))
+        for i in range(days)
+        if start + timedelta(days=i) not in {start, excluded_day, END}
+    ]
+    assert cell["missing_day_count"] == days - 3
+    assert str(excluded_day) not in cell["missing_dates"]
+
+
 def test_multiple_google_sources_remain_separate_even_with_same_wake_date(projection_database):
     session, paths = projection_database
     _google(session, paths, START, source="synthetic-source-one", minutes="60")
