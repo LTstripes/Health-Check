@@ -32,7 +32,7 @@ implementation/CI and local evidence live in [Current History](EXECUTION_HISTORY
 The brand opens Overview at `/brief`; the legacy root remains Weight. Existing
 API/query/import contracts are not redefined by navigation. The Data queue describes
 its bounded recent-batch inventory, not an exhaustive count of all history.
-Context and Statistics are planned entries below, not currently delivered routes.
+Context is now delivered as a quiet secondary `/context` route, not a sixth primary health tab; durable Owner UAT is pending. Statistics remains planned.
 
 ## One A+ visual and language system
 
@@ -136,15 +136,15 @@ that copied Garmin/Google collection errors have been recovered. Activity clears
 prior evidence on submissions and rejects late completions. One usable Garmin
 source needs no redundant selector; multiple identities require explicit selection.
 
-## Planned Owner direction — 2026-10-09, not yet implementation
+## First-wave engineering delivered; remaining Owner direction — 2026-10-09
 
-Keep the accepted A+ appearance. **P1 #342 source availability**, #294 Stage A
-comments and #341 Stage A chat evidence are the first wave after documentation
-closeout. Do not launch multiple conflicting page writers or treat this section
-as an automatic queue. Detailed scope/workspace assignments live in those issues.
+Keep the accepted A+ appearance. #294 Context and #341 standalone evidence
+are now integrated; #342 bounded offline real-clone diagnosis is accepted, not
+proof of current provider health. Durable Owner UAT/first export and the later
+features below are not automatically dispatched. See the linked issues.
 
-- **#294 Context:** a compact secondary portal entry for original comments, visible editable event date, optional time/range, list/revise/history. Recorded-at is separate; no invented midnight. Routine use must target a durable Owner profile, not silently disposable UAT data.
-- **#341 evidence:** selected period/domain/current-context export first; its later small share UI follows #294 integration. Direct authenticated ChatGPT tools require a verified connection; no skill-only localhost access, automatic private upload or Telegram prerequisite.
+- **#294 Context delivered:** secondary `/context` for original comments, visible event date/optional time or range, list/revise/history; recorded-at remains separate. Routine use still needs verified durable Owner rollout, not disposable clone notes.
+- **#341 exporter delivered:** standalone selected-period/domain/current-Context JSON/text export; the share UI and direct authenticated ChatGPT tools are not shipped. A skill alone cannot reach localhost; no automatic upload or Telegram prerequisite.
 - **#343 Sleep:** primary 7/30-day duration chart with Garmin and Google together, source toggles and pointer/focus/click details. X = wake dates, Y = human hour ticks. Independent source display does not require Agreement pairs. Competing observations stay ambiguous; no longest/latest winner or invented gap values. Statistical Compare is secondary.
 - **#344 Overview:** Owner-approved thin connectors between measured Weight daily medians, with visually distinct unmeasured spans and no interpolated data/points; preserve EWMA. Human intermediate Sleep ticks and quieter long freshness explanation, while necessary source/date/action cues stay visible.
 - **#345/#346 Activity:** saved-session detail cards and meaningful 7/30-day summaries beside dated native recovery snapshots. Only supported fields; #319 owns new calories/max-HR/dual-effect evidence. No averaging categorical status or summing overlapping rolling loads.

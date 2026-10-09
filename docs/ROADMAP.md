@@ -16,11 +16,12 @@ reference (#322), shared shell (#326), real Overview (#328), Sleep v3 (#317),
 compact Activity A/B (#318), Activity v4 history (#335), sparse Weight-chart clarity
 (#334), compact source attention (#333) and the #295 indexed Google freshness fix.
 
-The audited **product checkpoint** before this documentation reconciliation is
-`013482ec3a51d89fd57c3a55ab9b09d1d2228e25`, exact post-main CI
-[37884822270](https://github.com/LTstripes/Health-Check/actions/runs/37884822270)
-SUCCESS. Documentation has its own candidate/PR/post-main gates; always read live
-GitHub instead of treating this product SHA as a permanent current-main value.
+Latest integrated first-wave engineering checkpoint is `main`
+`8efb1f972ba9a77dc014b69ca93f4168d573482b` (#294 Stage A PR #350 and
+#341 Stage A PR #351). [Its exact post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/37975552600)
+is a distinct gate from candidate/PR CI and Owner UAT. The prior audited A+
+product checkpoint `013482ec3a51d89fd57c3a55ab9b09d1d2228e25` and #349
+documentation closeout remain historical; use live GitHub for current main.
 
 Owner-local activation used a verified disposable **copy of real data**, not
 synthetic fixtures. Human UAT #330 is **PARTIAL**, with design and shorter Activity
@@ -36,30 +37,28 @@ The [2026-10-06 handoff](OWNER_UAT_FOLLOWUP_2026-10-06.md) is historical, not an
 
 ## Current backlog — 2026-10-09
 
-### First wave: data, comments and conversational evidence
+### First wave: integrated engineering, pending Owner acceptance
 
-**Owner decision:** finish GitHub/documentation reconciliation before any new task
-launch. Then use the existing short prompts for #342/#294/#341; they read their
-updated issues and live main. This is not an automatic unattended queue.
+The initial source-diagnosis/Context/export wave is delivered or classified;
+it is no longer a queue of new Workers. Private/Stable and human gates remain.
 
-| Priority / issue | State and smallest next result | Parallel boundary |
+| Priority / issue | Accepted state | Smallest next gate |
 | --- | --- | --- |
-| **P1 #342 — data availability** | First-wave read-only diagnosis of real clone vs current sources, Google sleep/score, collection errors and missingness | Code/contracts research alongside the two writers; any private probe stays in a separately authorized Owner-local path |
-| **#294 Stage A — Context UI** | Add/list/revise original comments with explicit event date and optional time over existing v0 | Sole UI/Context writer; weight-goal Settings is later Stage B |
-| **#341 Stage A — health-chat evidence** | Bounded read-only health + current Context export, including origin, sources, coverage and revisions | Separate module/script/tests; consume but do not modify Context service/models or shared web/navigation |
+| **P1 #342 — source availability** | Offline real-clone Phase A/B classification ACCEPT; stored Google sleep exists, but exact-date and Compare cohort gates affect visibility | Trusted clone-origin and selected-date coverage notice; fresh provider auth/sync only by separate Owner authorization |
+| **#294 Stage A — Context UI** | MERGED: original dated/optional-time notes, list/revise/history, secondary `/context` | Durable Owner-profile UAT; weight-goal Settings Stage B remains deferred |
+| **#341 Stage A — health-chat evidence** | MERGED: explicit bounded read-only Weight/Garmin-scalars/current-Context standalone export | First manually shared private Owner export; later local share UI and direct authenticated access are separate scopes |
 
-Data availability is not cosmetic work to defer. The two implementations may use
-synthetic fixtures while #342 investigates, but cannot imply recovered/complete
-Owner data. Launch from fresh main after documentation closeout; remain pinned
-after assignment. Host-specific Windows/Linux workspaces and external synthetic
-temp roots are already recorded in #294/#341. Integrator reconciles additive test
-manifest changes; no Worker overwrites or rebases another task. On the shared
-Owner machine, serialize heavy local pytest/browser runs. CI gates stay complete.
+Research/diagnosis does not prove a current provider failure, data refresh or
+app read bug; #342's full fresh DB integrity after cutoff is still UNVERIFIED.
+No filter weakening, fabricated Google vendor score or automatic recovery.
+See [#342 Integrator decision](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625).
+Garmin RHR remains with #340.
 
-After #294 and #341 integrate, add the small export/share UI action against their
-accepted interfaces. Direct ChatGPT read access is a later verified authenticated
-connection, not a skill-only promise; it must not expose the whole portal or grant
-write/sync/import/restore operations. Telegram is optional and not on the critical path.
+A later `Поделиться данными для разбора` UI may reuse #341's accepted
+interface, but the first private export and explicit Owner sharing come first.
+ChatGPT direct read requires proven authenticated transport and permissions;
+a local skill alone cannot access the Owner PC. No #343–#348 implementation
+is automatically launched. Telegram is optional.
 
 ### Existing data, performance and Owner gates
 
@@ -214,7 +213,7 @@ Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #18
 
 ### Source freshness / data quality
 
-#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics and #295 indexed Google reads are integrated. The observed new-code source-freshness request completes, but source availability remains first-wave #342; RHR surface eligibility is #340. Keep request performance, collection health, data completeness and human acceptance separate.
+#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics and #295 indexed Google reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility remains #340. Keep request performance, collection health, data completeness and human acceptance separate.
 
 ### Hardware/private Owner gates
 
@@ -223,8 +222,8 @@ Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #18
 ### Owner UI
 
 The A+ visual system and desktop-only scope are approved. Five main sections are
-Обзор / Вес / Сон / Активность / Данные. Context is a planned low-noise secondary
-entry; Statistics is a planned additional product section, not yet a shipped route.
+Обзор / Вес / Сон / Активность / Данные. Context `/context` is a shipped secondary
+entry awaiting durable Owner UAT; Statistics is planned, not yet shipped.
 The Owner likes the style and requests functionality first. See
 [Owner UI](OWNER_UI_SHELL.md) for current versus planned behavior.
 
@@ -238,7 +237,7 @@ The Owner likes the style and requests functionality first. See
 
 ## R06 — Context and read-only conversational evidence
 
-Context v0 and real Stable adoption #215 are accepted. Owner's 2026-10-09 priority promotes **portal comments #294 Stage A** and **bounded health + Context export #341 Stage A** now. Direct authenticated ChatGPT read tools follow a verified connection contract; Telegram is optional/later, not required. No unrestricted SQL/raw-series LLM mathematics or automatic model/provider action. R06 as a whole is not declared released.
+Context v0 and historical Stable proof #215 are accepted. **Portal comments #294 Stage A** and **standalone health + Context evidence #341 Stage A** are merged into GitHub main. Durable Owner UAT and first real private export remain UNVERIFIED; in-app sharing and authenticated direct ChatGPT access are future scoped steps, not shipped. Telegram remains optional; no unrestricted SQL, LLM raw-series arithmetic or provider actions. R06 as a whole is not yet declared released.
 
 ## R07 — Saved reports and delivery
 

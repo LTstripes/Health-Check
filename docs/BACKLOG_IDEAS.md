@@ -7,24 +7,24 @@ this file as a second automatic Worker queue.
 ## Promoted Owner work — 2026-10-09
 
 The Owner chose functionality and data availability before further cosmetic work.
-The [roadmap](ROADMAP.md#current-backlog) owns the full order; finish documentation
-reconciliation before launching the next tasks.
+The [roadmap](ROADMAP.md#current-backlog) owns the full order; #294/#341 Stage A
+have integrated, #342 offline diagnosis is accepted, and later tasks are not launched.
 
 | Direction | Owning task / current boundary |
 | --- | --- |
-| **P1 source availability first** | #342 diagnosis; existing #340 RHR surface rule, #319 activity-field evidence and #295 speed remain distinct |
-| Portal comments with date/optional time | #294 Stage A over accepted Context v0; weight-goal settings remain later Stage B |
-| Discuss health + comments in ChatGPT | #341 bounded export first, then verified authenticated read-only connection; Telegram optional |
+| **P1 source availability first** | #342 Phase A/B OFFLINE diagnosis ACCEPT, not present-day provider recovery; #340 RHR, #319 extra-field evidence and #295 speed stay separate |
+| Portal comments with date/optional time | #294 Stage A MERGED over Context v0; durable Owner UAT pending, weight-goal Settings deferred Stage B |
+| Discuss health + comments in ChatGPT | #341 bounded standalone Stage A MERGED; first real private export/share UI/authenticated connection remain separate Owner gates; Telegram optional |
 | Two-source Sleep history | #343 independently labelled Garmin/Google 7/30-day chart; no pairing prerequisite merely to display sources |
 | Overview readability | #344 thin honest Weight connectors, intermediate Sleep ticks and concise disclosure; no formula changes |
 | Activity details / period recovery cards | #345 and #346; additional metric evidence stays #319 |
 | Statistics | #347: **left source / right source, both visible**, source-specific units/windows/coverage; no combined total, numeric delta only when compatible |
 | Laboratory document intake | #348 first R09 contract: original document, extracted candidates, explicit confirmation and traceable results |
 
-These capabilities are planned, not declared implemented. The Context UI and export
-module have compatible write scopes; #342 is parallel read-only research. Deeper
-context inference, medicines/supplements, scheduled reports and autonomous provider
-operations are not implicitly included.
+The first three Stage A/diagnostic slices above are now implemented or accepted;
+#343–#348 and direct read transport remain planned, not automatically assigned.
+Deeper context inference, medicines/supplements, scheduled reports and autonomous
+provider operations are not implicitly included.
 
 ## Medication & Supplement Timeline
 

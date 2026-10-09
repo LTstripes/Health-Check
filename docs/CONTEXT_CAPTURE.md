@@ -108,25 +108,19 @@ retry, stale/concurrent edits, history, escaping and negative input/security cas
 The browser check uses desktop Chromium 1024/1440 with an explicit disposable
 synthetic profile; Owner rollout and durable-profile write/readback remain separate.
 
-## Planned chat evidence — Owner decision 2026-10-09
+## Chat evidence — standalone Stage A implemented, transport later
 
-The service and portal contracts above are implemented. Chat evidence and direct
-access below remain separately assigned capabilities, not supplied by this adapter.
+The #294 portal adapter above is implemented. [#341 Stage A](https://github.com/LTstripes/Health-Check/issues/341)
+now supplies a separate bounded read-only standalone Weight/Garmin-scalars/
+current-Context evidence envelope without changing Context history, original
+text or Period Brief hashes. Its command, privacy/output-path restrictions and
+coverage limits live in [Health Chat Evidence](HEALTH_CHAT_EVIDENCE.md).
+The first actual Owner export and explicit manual sharing remain UNVERIFIED;
+there is no share button or authenticated direct ChatGPT connection yet.
 
-- [#341 Stage A](https://github.com/LTstripes/Health-Check/issues/341) consumes current
-  revisions through existing reads into a separate versioned, bounded health/context
-  evidence envelope. It does not modify Context service/models in parallel with
-  #294, alter original text, infer tags/exposure absence, or rewrite Period Brief
-  hashes. A history view stays separately available when explicitly requested.
-- P1 [#342](https://github.com/LTstripes/Health-Check/issues/342) diagnoses source
-  availability concurrently as read-only research. Missing source records cannot
-  be filled by a comment or silently inferred by the model.
-
-The Owner requested documentation reconciliation before launching the three tasks.
-Their existing short prompts remain valid; task/workspace/file ownership is in the
-issues and [roadmap](ROADMAP.md#current-backlog). A future sharing button follows
-accepted #294/#341 integration. Direct ChatGPT read access needs a verified
-connection and explicit bounded consent; Telegram is not a prerequisite.
+The [#342 offline clone diagnosis](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625)
+is accepted as historical source classification, not a fresh provider recovery.
+Source absence cannot be inferred from comments or repaired by a model.
 
 Routine comments must be saved to the explicitly selected **durable Owner profile**
 after a safe rollout. A note entered in a disposable UAT clone is not automatically

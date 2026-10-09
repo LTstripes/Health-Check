@@ -6,27 +6,28 @@ proof. Do not use an older status paragraph as an instruction to repeat complete
 
 ## Current canonical state — 2026-10-09
 
-- Audited **product checkpoint** before documentation reconciliation: `013482ec3a51d89fd57c3a55ab9b09d1d2228e25`; exact post-main [CI 37884822270](https://github.com/LTstripes/Health-Check/actions/runs/37884822270) SUCCESS attempt 1, quality + three Linux lanes + Windows + final checks. Documentation publication has its own PR/CI record; read live main before work.
+- Latest accepted engineering checkpoint before this docs closeout: `main 8efb1f972ba9a77dc014b69ca93f4168d573482b` after Context PR #350 and exporter PR #351; [post-main CI 37975552600](https://github.com/LTstripes/Health-Check/actions/runs/37975552600) SUCCESS attempt 1. Earlier A+ checkpoint `013482ec3a51d89fd57c3a55ab9b09d1d2228e25` and docs #349 are historical. Read live main before work.
 - Approved desktop-only A+ shell/Overview (#321/#322/#326/#328), Sleep v3 (#317), compact Activity A/B (#318), Activity v4 (#335), sparse Overview Weight chart (#334), compact source attention (#333) and indexed Google freshness reads (#295) are integrated.
 - Human Owner UAT **#330 is PARTIAL**, not unperformed and not overall PASS. Style, dedicated Weight and shorter Activity history received positive feedback; data availability, Sleep history experience and new functionality remain active requests.
-- Latest numbered release remains R05. Post-R05 Runtime, Period Brief, Context v0, Training/Recovery, source freshness/collection policy, screenshots and reliability/correction foundations remain canonical. New R06/R09 slices are planned, not released by creating their issues.
+- Latest numbered release remains R05. Post-R05 Runtime, Period Brief, Context v0, Training/Recovery, source freshness/collection policy, screenshots and reliability/correction foundations remain canonical. The first R06 Context/export slices are engineering-integrated, but R06 as a whole and R09 are not declared released.
 - The last verified Owner UI was launched from the product checkpoint on an existing verified **disposable copy of real data**. That is neither synthetic data nor an automatically refreshed Stable profile. A GitHub merge alone does not deploy code or refresh records.
 - Dependabot #270/#271 remain independent review proposals; administrative #126 and deferred #167 are not housekeeping changes. CI optimization is not reopened by this product plan.
 
-## First wave after documentation closeout
+## First wave integrated; Owner-private gates remain
 
-**P1 #342 data availability** is at the front of the queue, alongside **#294 Stage A
-portal comments** and **#341 Stage A bounded health-plus-context export**. Data is not
-deferred behind cosmetic work. No task launches until this documentation
-reconciliation finishes and the Owner submits the prompts.
+#294 Stage A now supplies the secondary `/context` dated notes/history and
+#341 Stage A supplies a bounded standalone selected-period evidence export.
+#342 Phase A/B offline classification on the verified UAT clone is ACCEPT;
+Google sleep history exists, while selected-date and Compare cohort gates
+cause distinct empty views. An app read bug and current provider recovery
+were not proven. [Roadmap](ROADMAP.md#current-backlog) owns next sequencing.
 
-The existing short launch prompts for #342/#294/#341 remain valid: they read the
-updated issue and live main. #294 is the sole UI/Context writer; #341 owns separate
-export-module/script/tests, reading the existing Context service without changing
-it. #342 runs read-only code/contracts research. Assigned host-specific task and
-external synthetic paths are in the issues; do not mix Windows and Linux roots.
-Heavy local verification on the shared Owner machine is serialized. Integrator
-reconciles additive manifest changes and all exact candidate/PR/main CI separately.
+Owner durable Context UAT and first private export remain UNVERIFIED; later
+share UI/authenticated read access and #343–#348 are not launched. #330 stays
+PARTIAL. The old Owner UI stopped; GitHub merges neither restart it nor
+refresh Stable or providers. Both Context/export test-lane entries survived
+the merged tree, and #351 exact post-main CI passed. Provider rights are
+unchanged; Garmin RHR remains #340.
 
 The intended first usable flow is **comment with explicit date/optional time →
 durable read-back → selected health/context evidence → discussion in ChatGPT**.
@@ -97,7 +98,7 @@ success. #305/#342 own those distinct remaining questions.
 
 - Deterministic Period Brief and thin API/text/CLI rendering with stable packet/hash, explicit JSON/text stdout (#248), limited-encoding compatibility (#203) and coherent compound SQLite/ORM reads (#227).
 - Shared persisted freshness (#147/#191/#193/#238), not ad-hoc UI thresholds. #295's indexed per-source Google reads preserve the existing facts; current real Overview is still slow.
-- Context v0 already adds/lists/revises original text with explicit time precision, append-only history and idempotent requests. #294 adds the portal adapter. #341 adds a new versioned bounded export envelope without rewriting the Period Brief packet or doing LLM-side raw-series mathematics.
+- Context v0 adds/lists/revises original text with explicit time precision, append-only history and idempotent requests. #294 Stage A portal and #341 Stage A versioned bounded export are integrated without rewriting Period Brief packet or doing LLM-side raw-series mathematics.
 
 ### Durable Owner runtime
 

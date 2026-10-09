@@ -15,7 +15,7 @@ Canonical source: `main`. Repository integration, Owner-local deployment and hum
 - **R05 — Garmin / Google wearable sleep agreement:** pairing, comparable projection, immutable agreement runs, statistics/gates, exploratory owner report; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - **Post-R05 Owner Runtime & Period Brief:** one durable private Owner profile, verified backup/restore UAT clones, one-command Garmin/Google refresh, deterministic Period Brief correctness/UI closeout and historical Owner UAT.
 - **Garmin Training & Recovery:** live-discovered Garmin-native Training Status/load/ACWR, Load Focus, Training Readiness/Recovery and activity Training Effect/load are persisted, included in normal owner refresh and shown read-only.
-- **Context Capture v0:** revisioned owner-authored free-text context events with explicit dates/instants/intervals and CLI capture/list/revise. The convenient portal adapter (#294) and health-plus-context chat export (#341) are planned, not yet delivered.
+- **Context Capture v0:** revisioned owner-authored free-text context events with explicit dates/instants/intervals and CLI capture/list/revise. The secondary `/context` portal (#294 Stage A) and bounded standalone Weight/Garmin-scalars/current-Context export (#341 Stage A) are integrated. Durable Owner UAT, manual private export and ChatGPT transport are separate gates.
 - **Owner screenshot workflow:** Xiaomi screenshot -> repo skill `health-weight-screenshot-import` -> Owner-assisted structured extraction -> existing R01 photo pipeline -> Stable; OLD/NEW/exact-replay Owner gate PASS (#217/#219/#221). #240 adds durable visible/Owner-attested/workflow-profile/unknown metadata origins and date-only attestation without rewriting legacy provenance.
 - **Safety/reliability:** screenshot algorithm identity (#226), coherent compound reads (#227), privacy test oracle (#233), Windows cleanup/CI provenance (#181/#243), reviewable changed-sidecar corrections (#229), UI Host/Origin validation (#244) and non-Windows Google AEAD v2 with unchanged Windows DPAPI (#247).
 - **Automatic selected-stream collection:** #214 accepted an Owner-reported automatic/logon run with a complete successful report and Task Scheduler result 0; #238 subsequently completed explicit collection-policy/freshness semantics. That historical proof is not a promise of current provider availability.
@@ -34,24 +34,24 @@ The final R04 owner gate proved the populated private runtime remained healthy a
 
 ## Current focus — 2026-10-09
 
-**Data availability first (#342, P1), comments with explicit date/time (#294),
-and bounded health-plus-context evidence for discussion in ChatGPT (#341).**
-Telegram is not a prerequisite. The Owner requested documentation reconciliation
-before launching the new tasks; old short prompts for these first-wave tasks remain
-valid because the issue is the specification and each prompt starts from live main.
+**#294 dated Context UI and #341 bounded standalone evidence exporter are integrated**
+(PR #350/#351). #342's Owner-clone offline classification is accepted: Google
+and Garmin sleep records exist, while an empty selected date and current
+device/family Compare eligibility explain the observed empty views; not all
+Google history is absent. This does not prove present-day provider recovery or
+an app read bug. See [#342 accepted diagnosis](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625).
 
-Source diagnosis is not deferred behind cosmetic work. The Context UI and separate
-export module can be implemented on synthetic fixtures alongside read-only source
-research, with explicit shared-file ownership. No current direct ChatGPT connection,
-private export or new source recovery is implied by this plan.
+Next gates: selected durable-profile Context UAT and first explicit private
+Owner export; local share UI and direct authenticated ChatGPT read tools remain
+unimplemented. Human #330 UAT is PARTIAL. #343–#348 stay planned, not launched.
 
-The running Owner UAT uses a verified **copy of real data**, not synthetic fixtures
-and not the automatically updated Stable profile. Its code was brought to the
-accepted product checkpoint `013482ec3a51d89fd57c3a55ab9b09d1d2228e25`; this does not
-prove all copied source data are current. The latest human review likes A+ and the
+The prior Owner UAT inspected a verified disposable **copy of real data**,
+not synthetic fixtures or automatically updated Stable. The tested local code
+was `013482ec3a51d89fd57c3a55ab9b09d1d2228e25`; the earlier UI process
+has since stopped, and a GitHub merge does not restart it or refresh clone data. The latest human review likes A+ and the
 shorter Activity journal but requests further functionality and cleanup. #330 is
 PARTIAL. Data's freshness request now returns a result in the observed clone; actual
-source reauth/failure, missing Google sleep and incomplete metrics are separate.
+historical copied provider failures, exact-date absence, role/source eligibility and incomplete metrics are separate.
 
 The [current backlog](docs/ROADMAP.md#current-backlog) is the task map: #340 owns the
 specific stored-RHR surface-filter problem, #319 owns extra activity metric evidence,
@@ -152,7 +152,7 @@ The accepted final GitHub Actions verdict is **`checks`**. It fail-closes over m
 - [Architecture](docs/ARCHITECTURE.md)
 - [Roadmap / current backlog](docs/ROADMAP.md)
 - [Owner UI routes and visual contract](docs/OWNER_UI_SHELL.md)
-- [Context Capture — delivered v0 and planned portal adapter](docs/CONTEXT_CAPTURE.md)
+- [Context Capture — delivered v0 and secondary portal adapter](docs/CONTEXT_CAPTURE.md)
 - [Backlog Ideas / promoted work](docs/BACKLOG_IDEAS.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
