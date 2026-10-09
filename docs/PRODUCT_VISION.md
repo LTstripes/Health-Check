@@ -142,7 +142,7 @@ Owner profile: a note in a disposable UAT clone is not automatically a Stable no
 - Represent unavailable/missing evidence honestly; never convert it to zero.
 - Keep proprietary provider scores separate from Health-Check-derived metrics.
 - Permit historical reprocessing under new parser/canonical versions without destroying prior evidence.
-- Keep owner secrets, raw payloads and private runtime data outside Git and worker environments.
+- Keep owner secrets and real datasets outside Git and code fixtures. Owner-authorized read-only analysis and normal presentation in the AI conversation follow [Owner data workflow](OWNER_DATA_WORKFLOW.md); personal values do not require automatic masking.
 - Distinguish synthetic fixtures, a disposable copy of real data and the durable live profile. A code update does not refresh copied source data.
 
 ## Product boundaries
