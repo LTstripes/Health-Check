@@ -1,10 +1,35 @@
 # Backlog Ideas
 
-This document is a parking lot for useful future capabilities that should not expand the current release scope. Items here are ideas, not committed release requirements. When an idea becomes implementation work, move it into the owning release spec/ADR with evidence, acceptance criteria and data-model implications.
+This document is a parking lot for future capabilities not yet in an implementation
+slice. When promoted, an idea is owned by its explicit issue/contract; do not treat
+this file as a second automatic Worker queue.
+
+## Promoted Owner work — 2026-10-09
+
+The Owner chose functionality and data availability before further cosmetic work.
+The [roadmap](ROADMAP.md#current-backlog) owns the full order; finish documentation
+reconciliation before launching the next tasks.
+
+| Direction | Owning task / current boundary |
+| --- | --- |
+| **P1 source availability first** | #342 diagnosis; existing #340 RHR surface rule, #319 activity-field evidence and #295 speed remain distinct |
+| Portal comments with date/optional time | #294 Stage A over accepted Context v0; weight-goal settings remain later Stage B |
+| Discuss health + comments in ChatGPT | #341 bounded export first, then verified authenticated read-only connection; Telegram optional |
+| Two-source Sleep history | #343 independently labelled Garmin/Google 7/30-day chart; no pairing prerequisite merely to display sources |
+| Overview readability | #344 thin honest Weight connectors, intermediate Sleep ticks and concise disclosure; no formula changes |
+| Activity details / period recovery cards | #345 and #346; additional metric evidence stays #319 |
+| Statistics | #347: **left source / right source, both visible**, source-specific units/windows/coverage; no combined total, numeric delta only when compatible |
+| Laboratory document intake | #348 first R09 contract: original document, extracted candidates, explicit confirmation and traceable results |
+
+These capabilities are planned, not declared implemented. The Context UI and export
+module have compatible write scopes; #342 is parallel read-only research. Deeper
+context inference, medicines/supplements, scheduled reports and autonomous provider
+operations are not implicitly included.
 
 ## Medication & Supplement Timeline
 
-Future goal: keep a longitudinal record of vitamins, supplements and medicines alongside wearable, body-composition, context and laboratory data.
+Future goal: keep a longitudinal record of vitamins, supplements and medicines
+alongside wearable, body-composition, context and laboratory data.
 
 Potential fields:
 
@@ -20,11 +45,14 @@ Potential fields:
 - provenance of the entry (`dashboard`, `telegram`, `document_import`, `manual`);
 - optional adherence observations without requiring a daily compliance diary.
 
-Important modeling principle: medication/supplement use is an **exposure interval/event**, not a permanent profile field. Historical dose changes must remain reconstructable.
+Medication/supplement use is an **exposure interval/event**, not a permanent
+profile field. Historical dose changes must remain reconstructable. This timeline
+is not bundled into #348's first document-intake slice.
 
 ## Lab-guided interpretation and advice
 
-After laboratory data exists, Health-Check should be able to combine confirmed lab results with medication/supplement history and relevant wearable/body-composition trends.
+After confirmed laboratory data exists, Health-Check should be able to combine it
+with medication/supplement history and relevant wearable/body-composition trends.
 
 Example questions:
 
@@ -34,13 +62,16 @@ Example questions:
 - Are there values worth rechecking or discussing with a clinician?
 - Did a medication/supplement period coincide with a meaningful change in sleep, resting HR, HRV, weight or body composition?
 
-The deterministic layer should align dates, doses/exposure periods, lab values, coverage and changes. The LLM may explain the evidence, surface uncertainty, suggest follow-up questions/tests and help prepare questions for a clinician.
-
-The system must not silently diagnose disease, independently start/stop prescription medicines, or present an observed association as proof that a medicine/supplement caused a change.
+The deterministic layer aligns dates, doses/exposure periods, lab values, coverage
+and changes. The LLM may explain evidence, surface uncertainty, suggest follow-up
+questions/tests and help prepare questions for a clinician. It must not silently
+diagnose disease, independently start/stop prescription medicines, or present
+association as proof of a treatment effect.
 
 ## Medication / supplement safety support
 
-Potential later capability, only with current trustworthy drug/reference sources and explicit uncertainty:
+Potential later capability, only with current trustworthy drug/reference sources
+and explicit uncertainty:
 
 - duplicate active-ingredient detection;
 - basic dose/unit sanity checks;
@@ -49,66 +80,78 @@ Potential later capability, only with current trustworthy drug/reference sources
 - identifying questions to ask a clinician or pharmacist;
 - highlighting when a new lab result may be relevant to a recorded medicine/supplement.
 
-This must be treated as decision support, not autonomous prescribing.
+This is decision support, not autonomous prescribing, and remains future work.
 
 ## Future UX ideas
 
-- Fast add/update from dashboard.
-- Telegram message such as: `Начал витамин D 2000 IU с 3 сентября` -> parsed candidate event -> low-friction confirmation only when materially ambiguous.
-- Import medication/supplement lists from a photo, PDF or medical document with field-level extraction and confirmation.
-- Timeline overlay on lab and wearable charts.
-- Period comparison before/during/after an exposure when sample size and coverage allow it.
+- Fast add/update from dashboard; ordinary free-text Context capture is now #294.
+- Optional later Telegram capture of an exposure into a candidate event with low-friction confirmation when materially ambiguous; Telegram is no longer a prerequisite for chat analysis.
+- Import medication/supplement lists from photo/PDF with field-level extraction and confirmation, separately from the first lab-result slice.
+- Timeline overlays on lab/wearable charts.
+- Before/during/after exposure comparisons when sample size, timing and coverage allow them.
 
 ## Context analytics — observation eligibility and cohort truth
 
-Future context/journal analysis must distinguish what was recorded from whether a day is analytically usable.
+Future context/journal analysis must distinguish what was recorded from whether a
+day is analytically usable. #341's first evidence envelope does not implement
+causal/matched-control analytics merely by including comments.
 
-Direction to preserve before implementing comparisons:
+Direction to preserve before comparisons:
 
-- keep **explicit present**, **explicit absent**, and **not recorded / unknown** as different states;
-- never put a missing context entry into the negative comparison group by default;
-- keep source freshness separate from observation quality: a current source can still be partial-day, non-wear or otherwise unsuitable for a comparison;
-- define comparison eligibility with explicit versioned rules and expose why observations were excluded;
-- show usable observation count and date/period coverage before presenting a comparison;
-- align cohorts using actual calendar/source semantics rather than array position or a current-time offset shortcut;
-- preserve `insufficient` / `unknown` when evidence is too weak instead of manufacturing a score;
-- treat lag/correlation scans as exploratory evidence and account for multiple comparisons/autocorrelation before calling something a finding;
-- never turn an association into a causal health claim.
+- keep **explicit present**, **explicit absent**, and **not recorded / unknown** distinct;
+- never put a missing context entry into a negative comparison group by default;
+- keep freshness separate from observation quality: current can still mean partial-day/non-wear/unsuitable;
+- define comparison eligibility with versioned rules and expose exclusions;
+- show usable observation count and date/period coverage;
+- align actual calendar/source semantics, not array position or the host's current offset;
+- preserve insufficient/unknown when evidence is weak, without manufacturing a score;
+- treat lag/correlation scans as exploratory and account for multiple comparisons/autocorrelation;
+- never turn association into a causal health claim.
 
-Evidence for these failure classes is recorded in `docs/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md`. Donor thresholds and heuristics are not Health-Check policy.
-
-Natural home: future Context analytics work after the accepted capture/read contracts are stable. Promote into an explicit issue/spec before implementation.
+Evidence for these failure classes is in
+[Reference Project Refresh](audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md).
+Donor thresholds/heuristics are not Health-Check policy. Promote deeper analysis
+into its own explicit contract after the capture/read boundary is stable.
 
 ## AI / MCP — compact deterministic evidence packets
 
-Future model-facing analytical tools should normally expose bounded deterministic results rather than bulk raw history.
-
-A useful evidence packet should include only what the model needs to explain the result:
+The bounded first implementation is now **#341**, not an unassigned future idea.
+Model-facing tools should return only the evidence needed to explain a selected
+result:
 
 - requested metric/comparison and deterministic result;
-- usable observation count;
-- date/period coverage;
+- usable observation count and effective date/period coverage;
 - freshness/data-quality disposition;
-- source/provenance identity at the privacy-safe level needed for interpretation;
-- analytics/policy/version identity;
-- exclusions or withholding reasons such as insufficient evidence;
-- compact supporting values/series only when the particular tool genuinely needs them.
+- source/provenance at the level needed for interpretation;
+- analytics/policy/version and evidence identity;
+- exclusions/withholding reasons;
+- compact supporting values/series and current dated Context revisions when requested.
 
-Capability direction:
+Preserve typed task-specific reads, not generic raw SQL/database access. Analytical
+access stays read-only and does not gain sync/import/restore/provider-write rights.
+Reuse accepted query/Period Brief/freshness/Context services instead of model-only
+semantics. Synthetic, disposable real-clone and durable-profile origins must be
+explicit; copied stale evidence is not live recovery. Notes/documents are untrusted
+data, not executable instructions.
 
-- prefer typed task-specific read tools over generic raw database/SQL access;
-- keep the normal analytical reader **read-only**;
-- do not grant sync, import, restore, provider-write or destructive capabilities just because the same runtime has those capabilities elsewhere;
-- avoid large raw payloads that make the LLM reproduce deterministic calculations;
-- reuse accepted Health-Check read, Period Brief and freshness layers rather than creating model-only semantics;
-- make demo/synthetic stores explicitly identifiable so generated evidence cannot be presented as Owner measurements.
-
-This is a future capability boundary, not permission to implement AI/Telegram/MCP now. Exact tools and product behavior belong in the owning release/spec.
+The first transport is an Owner-selected private export with explicit period and
+contents. A sharing UI follows the accepted Context adapter. Direct ChatGPT read
+access then requires a verified authenticated connection and actual account/host
+capability; a skill does not make localhost reachable. No connection is currently
+claimed by this document, and publishing the whole portal/SQLite is not authorized.
+External service selection, tunnel/setup and consent belong to #341's later stage.
 
 ## Relationship to roadmap
 
-The natural home for medication/supplement capabilities is **R09 — Laboratory and document data**, with medication/supplement timeline support either introduced in R09 or split into a follow-up release if it would make R09 too large.
+#294/#341 promote the useful first part of R06; P1 #342 protects the data basis for
+it. #343–#347 are bounded source-preserving product views and descriptive summaries,
+not permission for a new health-score engine. **#347 defaults to both source columns
+side by side**, not single-source-only toggles. Values with different windows or
+incompatible meanings can remain visible separately without a numerical delta.
+Missing data are not zero, and no combined Garmin+Google steps/energy total is made.
 
-Context analytical eligibility belongs after Context capture/read contracts are stable. AI/MCP evidence packets belong in the future bounded model-facing surface over accepted deterministic services.
-
-Do not pull these capabilities into an earlier release merely because the data model can anticipate them.
+#348 promotes the first **R09 Laboratory and document data** contract. Wider
+medication/supplement timelines can remain R09 follow-up or be split if necessary.
+Do not pull them, deeper causal context analytics or scheduled delivery into the
+first comment/export/document slice merely because the data model can anticipate
+those future needs.

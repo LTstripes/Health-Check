@@ -1,26 +1,26 @@
 # Health-Check
 
-Health-Check is a single-user, local-first personal health observatory for a Windows laptop. It preserves source evidence from personal devices, turns it into reproducible deterministic analytics, and exposes the same evidence through local dashboards, deterministic period reviews, Garmin training/recovery views and later bounded AI tools.
+Health-Check is a single-user, local-first personal health observatory for a Windows laptop. It preserves source evidence from personal devices, turns it into reproducible deterministic analytics, and exposes the same evidence through local dashboards, deterministic period reviews, Garmin training/recovery views and planned bounded AI tools.
 
 It is not a SaaS product, medical diagnostic system, workout planner, or replacement for Garmin / Google Health / Xiaomi daily apps.
 
 ## What is available in canonical main
 
-Canonical source: `main`. Repository integration and Owner-local deployment are separate.
+Canonical source: `main`. Repository integration, Owner-local deployment and human UAT are separate.
 
 - **R01 — Weight & Body Composition:** Xiaomi screenshot/photo import, openScale/openScale-sync contract, provenance, canonical selection, conservative body-composition analytics, local dashboard, backup/restore. Screenshots are the accepted operational Weight path; optional openScale compatibility #153 is closed as not planned.
 - **R02 — Garmin ingestion/backfill:** protected owner session reuse, typed Garmin persistence, bounded incremental sync, resumable historical backfill, coverage/checkpoints and exact-rerun idempotency.
 - **R03 — Garmin analytics/dashboard:** deterministic personal baselines/trends, activity comparison, lagged associations, provider-native metric presentation, reproducible evidence manifests and owner-facing read-only Garmin UI.
-- **R04 — Google Health ingestion:** Google Health API v4 OAuth, protected session storage, source-aware typed persistence, bounded incremental sync/backfill/refresh, coverage/checkpoints, privacy-safe diagnostics and live owner verification.
+- **R04 — Google Health ingestion:** Google Health API v4 OAuth, protected session storage, source-aware typed persistence, bounded incremental sync/backfill/refresh, coverage/checkpoints, privacy-safe diagnostics and historical live owner verification.
 - **R05 — Garmin / Google wearable sleep agreement:** pairing, comparable projection, immutable agreement runs, statistics/gates, exploratory owner report; Garmin remains canonical/default; #105 deferred/NOT_ELIGIBLE.
 - **Post-R05 Owner Runtime & Period Brief:** one durable private Owner profile, verified backup/restore UAT clones, one-command Garmin/Google refresh, deterministic Period Brief correctness/UI closeout and historical Owner UAT.
 - **Garmin Training & Recovery:** live-discovered Garmin-native Training Status/load/ACWR, Load Focus, Training Readiness/Recovery and activity Training Effect/load are persisted, included in normal owner refresh and shown read-only.
-- **Context capture v0:** revisioned owner-authored free-text context events with deterministic local storage and CLI capture/list/revise flow.
+- **Context Capture v0:** revisioned owner-authored free-text context events with explicit dates/instants/intervals and CLI capture/list/revise. The convenient portal adapter (#294) and health-plus-context chat export (#341) are planned, not yet delivered.
 - **Owner screenshot workflow:** Xiaomi screenshot -> repo skill `health-weight-screenshot-import` -> Owner-assisted structured extraction -> existing R01 photo pipeline -> Stable; OLD/NEW/exact-replay Owner gate PASS (#217/#219/#221). #240 adds durable visible/Owner-attested/workflow-profile/unknown metadata origins and date-only attestation without rewriting legacy provenance.
 - **Safety/reliability:** screenshot algorithm identity (#226), coherent compound reads (#227), privacy test oracle (#233), Windows cleanup/CI provenance (#181/#243), reviewable changed-sidecar corrections (#229), UI Host/Origin validation (#244) and non-Windows Google AEAD v2 with unchanged Windows DPAPI (#247).
-- **Automatic selected-stream collection:** #214 accepted an Owner-reported automatic/logon run with a complete successful report and Task Scheduler result 0; #238 subsequently completed explicit collection-policy/freshness semantics.
-- **Owner UI / post-redesign Owner flow:** #189 stages 1–7 are integrated and closed. The post-UAT wave delivered Data diagnostics/import-history presentation (#305, functional timeout still open), Weight v3 timelines (#306), source-explicit Overview v2 (#307), Sleep v2 Garmin / Google / Compare views (#308) and Garmin-backed Activity v2 with explicit A/B comparison and the evidence-proven `tennis_v2` label (#309). The 2026-10-07 consolidated Owner UAT produced bounded follow-ups rather than reopening the shell or treating every screen as unconditionally accepted.
-- **Period Brief output/performance:** explicit `period-brief --format json|text` preserves default behavior and packet identity (#248). Measured bounded backend reads improve the full-size synthetic build from 55.108 s to 6.520 s with equal packets/hashes, without a migration, new index or cache (#283); this is not an Owner Stable timing promise.
+- **Automatic selected-stream collection:** #214 accepted an Owner-reported automatic/logon run with a complete successful report and Task Scheduler result 0; #238 subsequently completed explicit collection-policy/freshness semantics. That historical proof is not a promise of current provider availability.
+- **Owner UI A+ / desktop:** the approved warm shell and real Overview (#322/#326/#328), source-only Sleep v3 including unpaired account observations (#317), compact Activity A/B (#318), five-recent-session journal/history disclosure (#335), sparse Overview Weight-chart clarity (#334) and compact source attention (#333) are integrated. Desktop 1024px+ only (#321); all source/date/coverage and privacy boundaries remain. Real Owner feedback is partial, not blanket acceptance.
+- **Period Brief output/performance:** explicit `period-brief --format json|text` preserves default behavior and packet identity (#248). Historical #283 synthetic optimization and #295 indexed Google freshness reads are integrated. Current real-clone Overview latency still needs work; engineering speed evidence is not a claim that the Owner page is fast.
 
 R04 release lineage:
 
@@ -32,13 +32,41 @@ R04 release lineage:
 
 The final R04 owner gate proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations. This is historical R04 evidence, not the current migration-head claim.
 
-## Current focus — 2026-10-07
+## Current focus — 2026-10-09
 
-The completed UI/UAT wave is now the product baseline, not a queue to repeat. The immediate functional follow-up is #305: the real Stable freshness check now reports a precise `timeout` after 15 seconds, but its cause and fix are not yet established. Browser photo recognition is correctly shown as unconfigured; the accepted screenshot workflow remains separate.
+**Data availability first (#342, P1), comments with explicit date/time (#294),
+and bounded health-plus-context evidence for discussion in ChatGPT (#341).**
+Telegram is not a prerequisite. The Owner requested documentation reconciliation
+before launching the new tasks; old short prompts for these first-wave tasks remain
+valid because the issue is the specification and each prompt starts from live main.
 
-Next product decisions concern fuller Sleep source views (#317), quieter Activity comparison (#318), evidence-first activity metric inventory (#319) and Settings & Context (#294). Review the Owner's forthcoming design feedback before launching the next UI implementation. #295 performance and #298 Stress diagnosis are closed as not planned after the current symptoms were no longer reported; this is not a measured optimization or root-cause proof.
+Source diagnosis is not deferred behind cosmetic work. The Context UI and separate
+export module can be implemented on synthetic fixtures alongside read-only source
+research, with explicit shared-file ownership. No current direct ChatGPT connection,
+private export or new source recovery is implied by this plan.
 
-Use the [current backlog](docs/ROADMAP.md#current-backlog) for the complete queue, including parked/admin-gated work and the separate Dependabot proposals. Exact integration evidence and recorded Owner UAT are in [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md); the [2026-10-06 UAT handoff](docs/OWNER_UAT_FOLLOWUP_2026-10-06.md) is retained as a historical snapshot. See also [Owner UI routes and visual contract](docs/OWNER_UI_SHELL.md), [CI optimization closeout](docs/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md) and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md). GitHub merges still do not update the local Owner checkout or restart its runtime.
+The running Owner UAT uses a verified **copy of real data**, not synthetic fixtures
+and not the automatically updated Stable profile. Its code was brought to the
+accepted product checkpoint `013482ec3a51d89fd57c3a55ab9b09d1d2228e25`; this does not
+prove all copied source data are current. The latest human review likes A+ and the
+shorter Activity journal but requests further functionality and cleanup. #330 is
+PARTIAL. Data's freshness request now returns a result in the observed clone; actual
+source reauth/failure, missing Google sleep and incomplete metrics are separate.
+
+The [current backlog](docs/ROADMAP.md#current-backlog) is the task map: #340 owns the
+specific stored-RHR surface-filter problem, #319 owns extra activity metric evidence,
+and #295 remains open for slow Overview. Planned follow-ons include two-source Sleep
+history (#343), Overview polish (#344), session details (#345), period recovery cards
+(#346), **side-by-side source Statistics** (#347) and lab document confirmation (#348).
+These are not all launched or implemented. Do not reopen completed #317/#318 merely
+because the Owner requested a new experience.
+
+Exact integration and sanitized Owner evidence are in [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
+and [#330](https://github.com/LTstripes/Health-Check/issues/330). The
+[2026-10-06 UAT handoff](docs/OWNER_UAT_FOLLOWUP_2026-10-06.md) remains historical.
+See [Owner UI](docs/OWNER_UI_SHELL.md), [CI optimization closeout](docs/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md)
+and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md). GitHub merges do not update
+or restart the local Owner runtime automatically.
 
 ## Architecture in one minute
 
@@ -79,7 +107,7 @@ R04 uses Google Health API v4 only and exactly the accepted read scopes for slee
 
 Live owner acceptance proved bounded capability, incremental sync, resumable pagination, exact completed-window zero-call rerun, historical backfill and explicit bounded refresh. A real terminal HTTP-200 envelope with omitted empty repeated fields was repaired narrowly under #110; malformed/null/non-array variants remain fail-closed.
 
-Source identity remains conservative. Query mode and `dataSourceFamily` are acquisition context, not device identity. Broader wearable-family evidence must not be labelled Fitbit-device evidence without explicit metadata.
+Source identity remains conservative. Query mode and `dataSourceFamily` are acquisition context, not device identity. Broader wearable-family evidence must not be labelled Fitbit-device evidence without explicit metadata. Source-only account observations (#317) do not loosen legacy device-agreement or canonical-switch gates.
 
 ## Local bootstrap
 
@@ -98,29 +126,34 @@ Start the canonical Windows runtime:
 ```
 
 Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HEALTHCHECK_DATA_DIR`.
+The startup script prepares/migrates its selected runtime; it is not a read-only
+inspection command. Candidate UAT uses the explicitly verified disposable clone,
+not Stable as a scratch target.
 
 For normal Owner operation, the durable private profile is `D:\HealthCheck\stable`; the clean control checkout is `D:\HealthCheck\main`; disposable private UAT/recovery state belongs under `D:\HealthCheck\uat`; Owner-local wrappers live in `D:\HealthCheck\ops`. New agent work uses `D:\HealthCheck\workspaces\<client>\<issue-or-task>`. See [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md) for the canonical roles and cleanup lifecycle. GitHub merges still do not update the local checkout or restart its processes automatically.
 
 [Owner Refresh](docs/OWNER_REFRESH.md) documents the local selected-stream runner, Scheduler controls and unchanged bounded CLI. The command requires an already-established external runtime and does not create a new profile. Never switch/pull code while the Owner refresh or dependent application processes are using that checkout.
 
-No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository.
+No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository. Routine comments added to a disposable clone will not automatically become durable Stable notes; #294's real rollout must make the target explicit.
 
 ## CI and integration gate
 
 Normal development uses targeted checks while iterating, then required exact-candidate, PR integration and post-main gates. Documentation-only changes follow the existing classifier policy; a Markdown filename does not by itself authorize skipping checks.
 
-The accepted final GitHub Actions verdict is **`checks`**. It fail-closes over mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. #302 pins the Linux evidence-producing/consuming path (`quality`, the three Linux lanes and `checks`) to one exact CPython patch so hosted-runner patch rollout cannot create a false cross-job environment mismatch; the equality gate itself remains strict. The repository is public at this checkpoint; #126 remains an explicit repository-settings/Owner decision. Regardless of server enforcement, Integrator process must not advance `main` unless `checks` succeeded on the exact tree/SHA being promoted under the accepted PR contract.
+The accepted final GitHub Actions verdict is **`checks`**. It fail-closes over mandatory quality evidence, exact Linux test-partition reconciliation and focused Windows evidence. #302 pins the Linux evidence-producing/consuming path (`quality`, the three Linux lanes and `checks`) to one exact CPython patch so hosted-runner patch rollout cannot create a false cross-job environment mismatch; the equality gate itself remains strict. #126 remains an explicit repository-settings/Owner decision. Regardless of server enforcement, Integrator process must not advance `main` unless `checks` succeeded on the exact tree/SHA being promoted under the accepted PR contract.
 
-#181/#243 preserve fail-closed ownership, CreationTime identity and same-attempt completeness. Partial reruns are not complete acceptance evidence; historical failures remain failures. Dependency changes additionally require the separate dependency-audit gate. See [Development Process](docs/DEVELOPMENT_PROCESS.md).
+#181/#243 preserve fail-closed ownership, CreationTime identity and same-attempt completeness. Partial reruns are not complete acceptance evidence; historical failures remain failures. Dependency changes additionally require the separate dependency-audit gate. Dependabot #270/#271 are not documentation-housekeeping merges. See [Development Process](docs/DEVELOPMENT_PROCESS.md).
 
 ## Canonical documentation
 
 - [Project Wiki / current state](docs/PROJECT_WIKI.md)
-- [Owner UAT follow-up — 2026-10-06](docs/OWNER_UAT_FOLLOWUP_2026-10-06.md)
+- [Owner UAT follow-up — 2026-10-06, historical](docs/OWNER_UAT_FOLLOWUP_2026-10-06.md)
 - [Product Vision](docs/PRODUCT_VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Roadmap](docs/ROADMAP.md)
+- [Roadmap / current backlog](docs/ROADMAP.md)
 - [Owner UI routes and visual contract](docs/OWNER_UI_SHELL.md)
+- [Context Capture — delivered v0 and planned portal adapter](docs/CONTEXT_CAPTURE.md)
+- [Backlog Ideas / promoted work](docs/BACKLOG_IDEAS.md)
 - [Decisions and Open Questions](docs/DECISIONS_AND_OPEN_QUESTIONS.md)
 - [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
 - [Owner Machine Layout](docs/OWNER_MACHINE_LAYOUT.md)

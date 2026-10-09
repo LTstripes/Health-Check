@@ -2,67 +2,139 @@
 
 The roadmap is organized as usable vertical releases. Each release must work locally on Windows, preserve source evidence, and remain reproducible without live provider access in CI.
 
-Future ideas not committed to a release live in [Backlog Ideas](BACKLOG_IDEAS.md).
+Future ideas not committed to a task live in [Backlog Ideas](BACKLOG_IDEAS.md). Issues own detailed contracts; this document owns sequence and dependencies, not another copy of every Worker prompt.
 
-## Current state
+## Current state — 2026-10-09
 
-Released foundation in canonical `main`: R01–R05 plus deterministic Period Brief, durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source freshness/collection policy, Owner screenshot workflow and the completed reliability/correction slice.
+Released foundation in canonical `main`: R01–R05 plus deterministic Period Brief,
+durable Owner Runtime, Context Capture v0, Garmin Training/Recovery, source
+freshness/collection policy, Owner screenshot workflow and reliability/correction.
 
-The Owner UI redesign **#189 stages 1–7 is integrated and closed**. The 2026-10-06 UAT created #305–#309; the following integration wave and consolidated Owner UAT reached product checkpoint `29cc9fcf53c508fa5f4994e3170e697726c0514c` on 2026-10-07. #306–#309 are complete; #305 retains one real functional timeout. Exact repository/CI evidence and recorded Owner UAT are separated in [Current History](EXECUTION_HISTORY_CURRENT.md). The [2026-10-06 UAT handoff](OWNER_UAT_FOLLOWUP_2026-10-06.md) is historical, not the current execution queue.
+The #189 stages 1–7 and #306–#309 UI/UAT wave are historical completed work. The
+subsequent A+ wave integrated desktop-only acceptance (#321), approved static
+reference (#322), shared shell (#326), real Overview (#328), Sleep v3 (#317),
+compact Activity A/B (#318), Activity v4 history (#335), sparse Weight-chart clarity
+(#334), compact source attention (#333) and the #295 indexed Google freshness fix.
 
-Latest completed work includes:
-- #305 / PR #311: sanitized freshness failure classes, honest extractor configuration and calmer import history are integrated; this does not close the real Stable timeout.
-- #306 / PR #312: responsive human-readable Weight/composition timelines with separate compatibility-group spans.
-- #307 / PR #313: source-explicit Overview v2; the Google display window is bounded and disclosed without narrowing long custom Period Brief ranges.
-- #308 / PR #314: Sleep v2 Garmin / Google / Compare views, one-row Garmin nightly history and evidence-gated comparisons.
-- #309 / PRs #315/#316: Garmin-backed Activity v2, explicit A/B comparison and the real-evidence-backed `tennis_v2` presentation alias; no persisted-code rewrite.
-- #240 / PR #273: per-candidate metadata-origin provenance, legacy-safe replay and strict date-only Owner attestation for screenshots.
-- #247 / PR #278: non-Windows Google purpose-bound AEAD v2, authenticated legacy reads and write-time-only migration; Windows DPAPI unchanged.
-- #248 / PR #276: explicit Period Brief JSON/text stdout with unchanged default output and deterministic packet.
-- #172 / #283 / PR #284: Owner-first Period Brief UX plus measured backend reads. Full-size synthetic median 55.108 s -> 6.520 s with equal packets/hashes; no migration, new index or cache. These are synthetic proxy measurements, not exact Owner Stable timings.
-- #251/#246/#243/#242/#244 and #302: completed CI lane/dedup/docs-route, Windows transcript, dependency/security, loopback Host/Origin and deterministic Linux-environment maintenance. Detailed rollout evidence remains in the [CI optimization closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md) and current history.
-- #274 / PR #277: completed measured NO-GO for the tested sync-fixture optimization; no optimization code retained.
-- #148/#238/#256 and earlier durability/runtime maintenance remain complete.
+The audited **product checkpoint** before this documentation reconciliation is
+`013482ec3a51d89fd57c3a55ab9b09d1d2228e25`, exact post-main CI
+[37884822270](https://github.com/LTstripes/Health-Check/actions/runs/37884822270)
+SUCCESS. Documentation has its own candidate/PR/post-main gates; always read live
+GitHub instead of treating this product SHA as a permanent current-main value.
+
+Owner-local activation used a verified disposable **copy of real data**, not
+synthetic fixtures. Human UAT #330 is **PARTIAL**, with design and shorter Activity
+history liked but data availability, Sleep experience and further functionality
+still requiring work. The observed freshness request completes; that does not
+prove provider recovery. Real-clone Overview remains slow. Exact integration,
+latency/classification and UAT evidence are in [Current History](EXECUTION_HISTORY_CURRENT.md).
+The [2026-10-06 handoff](OWNER_UAT_FOLLOWUP_2026-10-06.md) is historical, not an active queue.
 
 <a id="current-backlog"></a>
 <a id="current-backlog--2026-10-03"></a>
 <a id="current-backlog--2026-10-06"></a>
 
-## Current backlog — 2026-10-07
+## Current backlog — 2026-10-09
 
-Nine open issues at the live read-back, excluding pull requests: five product follow-ups and four parked/deferred/admin-gated items.
+### First wave: data, comments and conversational evidence
 
-| Issue | Current state | Next bounded action |
+**Owner decision:** finish GitHub/documentation reconciliation before any new task
+launch. Then use the existing short prompts for #342/#294/#341; they read their
+updated issues and live main. This is not an automatic unattended queue.
+
+| Priority / issue | State and smallest next result | Parallel boundary |
 | --- | --- | --- |
-| #305 | OPEN; implementation slice integrated, real UAT timeout reproduced | Diagnose the 15-second persisted-source freshness timeout; no blind timeout increase, provider collection or freshness-policy change |
-| #317 | OPEN; Sleep Owner v3, design review before implementation | Fuller Garmin/Google source-specific nightly views from existing accepted evidence; keep daily vitals separate and comparison semantics unchanged |
-| #318 | OPEN; Activity Owner v3, design review before implementation | Quieter A/B comparison, human durations and useful fields without changing B−A, percent-to-A or missing/zero semantics |
-| #319 | OPEN; evidence inventory first | Sanitized read-only inventory for calories, max HR and separate aerobic/anaerobic effects; decide the smallest supported slice before code/schema/ingestion changes |
-| #294 | OPEN; separately scoped follow-up | Owner Settings & Context: durable weight goal and revisioned context through the UI |
-| #228 | Research accepted / parked | No cross-image semantic auto-merge until trustworthy event identity exists |
-| #167 | Owner-deferred privacy/history operation | Requires explicit freeze/decision before any rewrite |
-| #126 | Owner/admin decision | Recheck required-check/protection capability before settings changes |
-| #105 | NOT_ELIGIBLE | No canonical sleep switch until the accepted device-pair evidence gate is met |
+| **P1 #342 — data availability** | First-wave read-only diagnosis of real clone vs current sources, Google sleep/score, collection errors and missingness | Code/contracts research alongside the two writers; any private probe stays in a separately authorized Owner-local path |
+| **#294 Stage A — Context UI** | Add/list/revise original comments with explicit event date and optional time over existing v0 | Sole UI/Context writer; weight-goal Settings is later Stage B |
+| **#341 Stage A — health-chat evidence** | Bounded read-only health + current Context export, including origin, sources, coverage and revisions | Separate module/script/tests; consume but do not modify Context service/models or shared web/navigation |
 
-#189/#290/#291/#292/#293/#297/#302/#306/#307/#308/#309 are complete, not active queue items. #295 performance and #298 Stress diagnosis are closed as not planned after consolidated Owner UAT: no currently reported general-latency/Stress symptom justifies the old probes. This is neither measured optimization proof nor a diagnosed Stress fix. #153 and #210 remain closed as not planned.
+Data availability is not cosmetic work to defer. The two implementations may use
+synthetic fixtures while #342 investigates, but cannot imply recovered/complete
+Owner data. Launch from fresh main after documentation closeout; remain pinned
+after assignment. Host-specific Windows/Linux workspaces and external synthetic
+temp roots are already recorded in #294/#341. Integrator reconciles additive test
+manifest changes; no Worker overwrites or rebases another task. On the shared
+Owner machine, serialize heavy local pytest/browser runs. CI gates stay complete.
 
-The only open PRs before this documentation closeout are Dependabot #270/#271. They remain separate review proposals and must not be merged as documentation cleanup.
+After #294 and #341 integrate, add the small export/share UI action against their
+accepted interfaces. Direct ChatGPT read access is a later verified authenticated
+connection, not a skill-only promise; it must not expose the whole portal or grant
+write/sync/import/restore operations. Telegram is optional and not on the critical path.
 
-This is a status map, not an automatic Worker queue. Finish documentation reconciliation, then review the Owner's forthcoming Grok/Astra design answers before selecting the next UI direction. #305 remains the functional priority; #319 is an evidence prerequisite for new activity metrics, not an implied parallel assignment. The old #305 + #306 → #307 → #308 → #309 launch sequence is complete/superseded. Existing visual/IA and data contracts stay in force until explicitly changed.
+### Existing data, performance and Owner gates
+
+| Issue | Current disposition |
+| --- | --- |
+| #295 | OPEN: indexed Google freshness optimization delivered, but new-code real-clone /brief is still slow; diagnose the remaining measured hot path before new caching/index changes |
+| #305 | OPEN: request failure classification/import UI delivered; latest endpoint and human screen response progress do not establish healthy provider collection or complete Data acceptance |
+| #333 | Source-attention engineering integrated; human visual follow-up and missingness tracked with #330/#342, RHR-specific repair in #340 |
+| #340 | Existing RHR collection-surface eligibility issue; contract/evidence first, not a blind removal of filters or a duplicate #342 implementation |
+| #319 | Evidence prerequisite for calories, max HR and distinct aerobic/anaerobic effects; new metrics cannot be inferred from requested cards |
+| #330 | Consolidated real Owner UAT PARTIAL; preserve positive findings and unresolved per-screen/data/performance outcomes |
+
+### Planned product slices after the first functional wave
+
+| Issue | Planned result | Dependency / meaning boundary |
+| --- | --- | --- |
+| #343 | Primary Sleep 7/30-day Garmin+Google history, source toggles and point detail; Compare secondary | Independent source observations do not require accepted Agreement pairs; bounded range adapter retains source/role/ambiguity rules |
+| #344 | Thin honest Weight connectors, useful intermediate Sleep ticks and quieter Overview freshness detail | No invented observations, EWMA change, lost source warning or extra costly page reads |
+| #345 | One saved-activity detail view with useful metric cards | Existing duration/distance/average HR first; optional new fields use #319 |
+| #346 | Meaningful weekly/monthly Training/Recovery cards beside the dated native snapshot | Define aggregate meaning/count/coverage first; no averaging categorical status or summing overlapping rolling loads |
+| #347 | **Statistics: left-source/right-source columns, both visible by default** for steps, activity, distance, energy and sleep | Source-labelled periods/units/denominators; optional right-minus-left delta only when compatible; no pooling or combined total; reuse aggregates in Activity/Overview/chat |
+| #348 | First laboratory-document upload → candidates → Owner confirmation → preserved original/results slice | R09 contract first, exact labels/units/report ranges/sample dates and revision/replay identity; no diagnostic inference |
+| #294 Stage B | Durable weight-goal settings | Later than comments; narrow storage/migration only if needed |
+
+For #347, incompatible windows or a missing side do not hide the other source.
+Both columns remain useful with explicit coverage/absence; no Agreement gate is
+required just to juxtapose independent values. A numeric difference is a separate
+compatibility claim. Multiple identities need explicit source selection, not just
+brand-labelled pooling. UI implementations are sequenced by actual shared files,
+not all launched in parallel because branches differ.
+
+### Parked / administrative work
+
+- #228: artifact replay vs semantic weigh-in identity research accepted; no cross-image auto-merge without trustworthy event proof.
+- #167: Owner-deferred privacy/history operation; explicit freeze/decision before rewriting history.
+- #126: Owner/admin protection capability and enforcement decision; no billing/settings change implied.
+- #105: NOT_ELIGIBLE for canonical sleep switching until its existing device-pair evidence gates are met.
+- Dependabot #270/#271: independent review proposals, not housekeeping merges.
+
+#317/#318/#321/#322/#326/#328/#334/#335 delivered engineering is not restarted by
+new UI requirements. #295 was previously closed as not planned and then reopened
+after new real latency evidence; the old closure is historical, not current.
+#298 Stress diagnosis, #153 optional openScale work and #210 model bookkeeping
+remain not-planned dispositions. GitHub owns exact live issue counts/statuses.
 
 ### Operational disposition
 
-The durable Owner runtime is `D:\HealthCheck\stable`; the clean control checkout is `D:\HealthCheck\main`; Owner Ops live in `D:\HealthCheck\ops`; new agent tasks use `D:\HealthCheck\workspaces\<client>\<issue-or-task>`. See [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md).
+The durable Owner runtime is `D:\HealthCheck\stable`; clean control checkout is
+`D:\HealthCheck\main`; Ops are `D:\HealthCheck\ops`; disposable UAT profiles are
+under `D:\HealthCheck\uat`. Agent task workspaces are separate. See
+[Owner Machine Layout](OWNER_MACHINE_LAYOUT.md).
 
-Google high-frequency sample HR remains intentionally disabled under the accepted explicit collection policy; existing history is preserved and no broad backfill/re-enable is authorized merely to make freshness look green. Other accepted Garmin/Google/Training/wearables-sleep collection remains bounded by the existing operational contracts.
+A cloned real profile is a snapshot, not a demonstration and not automatically
+updated Stable. Stored collection errors may be snapshot history. Updating code
+alone cannot recover unavailable provider data. Routine comments must eventually
+be written to the explicitly selected durable profile; UAT notes do not migrate
+themselves. No local restart, backup, restore, provider call or scheduler change is
+authorized merely by this roadmap update.
 
-The tested off-site recovery path is a verified ordinary ZIP in the Owner's materialized Google Drive folder plus supported clean restore. Protected age-based publication remains optional rather than required for the Owner workflow.
+Google high-frequency sample HR remains intentionally disabled under explicit
+collection policy; retained history is preserved. Do not broadly backfill/re-enable
+it merely to make status green. Other collection remains bounded by existing
+operational contracts.
 
-Workspace cleanup runs daily at 12:00 with a seven-day minimum retention and fail-closed eligibility. Legacy roots such as `D:\Garmin` or old client roots are not in the janitor allowlist and require explicit/manual disposition. This session closeout does not delete local workspaces or change scheduled tasks.
+The practical off-site recovery path is a verified ordinary ZIP in the Owner's
+materialized Google Drive folder plus supported clean restore. Protected age-based
+publication remains optional. Workspace cleanup runs daily at 12:00 with a
+seven-day minimum retention and fail-closed eligibility; legacy roots are outside
+the janitor allowlist and require explicit disposition.
 
-Weight remains operational through screenshots; #229 provides explicit correction/replay semantics and #240 records metadata origins without rewriting legacy history. #153 is closed as not planned; #228 remains parked. The unconfigured browser extractor observed in #305 is not a failure of the separately accepted screenshot-skill path.
-
-See [Current History](EXECUTION_HISTORY_CURRENT.md), [Owner UI](OWNER_UI_SHELL.md), [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md), [Owner Refresh](OWNER_REFRESH.md) and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
+Weight remains operational through screenshots. #229 preserves explicit
+correction/replay, #240 metadata origins and date-only Owner attestation; #153 is
+not planned and #228 parked. An unconfigured browser extractor is not failure of
+the accepted screenshot-skill path. See [Owner UI](OWNER_UI_SHELL.md),
+[Owner Refresh](OWNER_REFRESH.md) and [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md).
 
 ## R00 — Final architecture (complete)
 
@@ -110,7 +182,7 @@ source evidence -> pairing / eligibility -> comparable projection
  -> immutable versioned agreement run -> optional canonical-source rule
 ```
 
-- Sleep uses local wake date and one main overnight session per source/date; naps excluded, ambiguous multiple-main sessions fail closed.
+- Legacy comparison pairs sleep by local wake date and one eligible main overnight session per source/date; naps/ambiguous mains are excluded.
 - `fitbit_device`/`device_pair` requires explicit persisted device metadata. Wearable-family and uncertain account cohorts are exploratory and not canonical-switch evidence.
 - Manual Google-edited evidence is not strong 42-night evidence.
 - Compare only compatible session duration/timing/TIB/stages/WASO. RHR/SpO2 may be agreement-only; HRV/respiration are outside v1 unless explicitly scoped. Scores remain display-only.
@@ -120,65 +192,69 @@ source evidence -> pairing / eligibility -> comparable projection
 
 Implementation: #100 pairing, #101 projection, #102 immutable runs/replay, #103 statistics/gates, #104 reporting, #105 conditional canonical rule, #106 Owner closeout. R05 closed with exploratory agreement; #105 remains NOT_ELIGIBLE.
 
-See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md).
+#317 later reuses accepted account-observation source/role rules for unpaired
+source-only display without altering legacy Compare/Agreement. Planned #343 and
+#347 independent source views likewise are not canonical-switch evidence.
+See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md) and
+[Account Sleep Observations](R05_ACCOUNT_SLEEP_OBSERVATIONS.md).
 
 ## Post-R05 / #119 — deterministic Period Brief v1 (completed)
 
-Deterministic bounded Weight/sleep/activity/data-quality packet, stable result hash, thin API/text/CLI renderers, direct R05 reuse, full bounded activity inventory and honest missing/unavailable/confirmed-empty distinctions. #203 fixes limited-encoding stdout; #227 provides coherent compound reads without changing packet mathematics; #248 adds explicit JSON/text output. #172 UX and #283 backend performance are complete. No new score or LLM/Telegram delivery.
+Deterministic bounded Weight/sleep/activity/data-quality packet, stable result hash, thin API/text/CLI renderers, direct R05 reuse, full bounded activity inventory and honest missing/unavailable/confirmed-empty distinctions. #203 fixes limited-encoding stdout; #227 coherent compound reads; #248 explicit JSON/text output. #172 UX and #283 backend performance are complete. #328/#334/#333 adapt Overview without changing packet mathematics. The new #341 evidence envelope must not silently change this packet or hash.
 
 ## Post-R05 Stable Owner Runtime — completed foundation
 
-One persistent private cross-domain profile, supported backup/restore into disposable UAT clones, reproducible exploratory agreement, bounded provider refresh, stabilized Google identity and stale SyncRun recovery are canonical. #214 added successful automatic selected-stream operation; #238 later completed explicit reversible collection-intent/freshness semantics.
+One persistent private cross-domain profile, supported backup/restore into disposable UAT clones, reproducible exploratory agreement, bounded provider refresh, stabilized Google identity and stale SyncRun recovery are canonical. #214 proved one automatic selected-stream run; #238 explicit reversible collection intent/freshness. These historical successes do not prove current auth or continuous collection health.
 
 ## Post-R05 Garmin Training & Recovery — completed
 
-Parent #160 closed after #175 bounded discovery, #180 typed persistence and live replay proof, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT.
-
-No custom Health-Check training/readiness score, medical/coaching claim, VO2 guessing or invented producer attribution. #189 completed the Russian Owner-first Activity foundation and #309 completed Activity v2. Further presentation is #318; possible additional metric evidence is separately investigated under #319.
+Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT. No custom recovery score, VO2 guessing, coaching/medical claim or invented producer attribution. New presentation is #345/#346; additional field evidence remains #319.
 
 ## Current owner-facing product work
 
 ### Source freshness / data quality
 
-#147/#191/#193 delivered provider-call-free shared freshness from persisted facts. #238 completed explicit collection intent so intentionally disabled streams remain historically truthful/non-actionable without hiding enabled failures or rewriting history. #189 Stage 2 makes Данные the shared source/freshness/import entry point. #305 adds safe failure classification and import-history UX, but the real 15-second freshness timeout still requires diagnosis and a verified fix.
+#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics and #295 indexed Google reads are integrated. The observed new-code source-freshness request completes, but source availability remains first-wave #342; RHR surface eligibility is #340. Keep request performance, collection health, data completeness and human acceptance separate.
 
 ### Hardware/private Owner gates
 
-#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is closed as not planned; screenshot import remains the accepted Weight workflow.
+#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is not planned; screenshots remain the Weight workflow. New Context routine use requires an explicit durable-profile rollout after its UI is accepted.
 
-### Owner UI #189 — integrated; post-UAT follow-up active
+### Owner UI
 
-Accepted IA and one frozen visual/language system govern all pages. Stages 1–6 are complete: shared shell, Данные, Обзор, Вес, Сон and Активность. Sleep is primary at `/sleep`; Agreement remains secondary at `/agreement`. No provider/analytics/schema semantics are changed by presentation redesign.
-
-#189 stages 1–7 and the subsequent #306–#309 wave are integrated. Consolidated Owner UAT on the 2026-10-07 product checkpoint produced the current bounded follow-ups in the backlog above. Neither #317/#318 nor forthcoming design proposals silently reopen the shell or redefine data contracts. See [Owner UI](OWNER_UI_SHELL.md) and [Current History](EXECUTION_HISTORY_CURRENT.md).
+The A+ visual system and desktop-only scope are approved. Five main sections are
+Обзор / Вес / Сон / Активность / Данные. Context is a planned low-noise secondary
+entry; Statistics is a planned additional product section, not yet a shipped route.
+The Owner likes the style and requests functionality first. See
+[Owner UI](OWNER_UI_SHELL.md) for current versus planned behavior.
 
 ## Engineering maintenance — CI feedback/reliability closeout
 
-#123–#125 and #181 are complete. Historical measured accepted CI time changed from about 5m02s to 2m48s during the earlier maintenance campaign; this is not a promise for current runs. Exact Linux inventory plus focused native Windows DPAPI/startup/HTTP/cleanup proof remain mandatory.
+#123–#125 and #181 are complete. Historical measured accepted CI time changed from about 5m02s to 2m48s during an earlier campaign; this is not a promise for current runs. Exact Linux inventory plus focused native Windows DPAPI/startup/HTTP/cleanup proof remain mandatory.
 
-#181 adds fail-closed root/child identity and CreationTime evidence, exact exit-255 grammar and full-rerun-only evidence. The post-main transient-WMI escape was retained and repaired before final green main. No retry-until-green or incompatible-attempt mixing. See [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md) and [Development Process](DEVELOPMENT_PROCESS.md).
+#181 adds fail-closed root/child identity and CreationTime evidence, exact exit-255 grammar and full-rerun-only evidence. The post-main transient-WMI escape was repaired before final green main. No retry-until-green or incompatible-attempt mixing. See [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md) and [Development Process](DEVELOPMENT_PROCESS.md).
 
-#126 remains an Owner/capability decision. Current public visibility does not itself establish protection. No settings/visibility/history changes are authorized by this handoff.
+#251 lane balance, #246 docs-route/event dedup, #242 dependency security, #243 Windows transcript, #244 Host/Origin and #302 deterministic Linux environment are complete. #126 remains an Owner/capability decision; no settings/visibility/history change is authorized by this plan.
 
-## R06 — Context, Telegram, and read-only AI tools
+## R06 — Context and read-only conversational evidence
 
-Low-friction free-text event/exposure capture; typed read-only analytic tools over compact packets; conversational investigation over deterministic results; no unrestricted SQL/raw-series LLM mathematics. Context v0 and real Stable adoption #215 are accepted; Telegram and bounded AI remain separate later stages.
+Context v0 and real Stable adoption #215 are accepted. Owner's 2026-10-09 priority promotes **portal comments #294 Stage A** and **bounded health + Context export #341 Stage A** now. Direct authenticated ChatGPT read tools follow a verified connection contract; Telegram is optional/later, not required. No unrestricted SQL/raw-series LLM mathematics or automatic model/provider action. R06 as a whole is not declared released.
 
 ## R07 — Saved reports and delivery
 
-One deterministic report/evidence model for weekly/month-end/annual reviews, dashboard archive, Telegram/email rendering and delivery audit/retry.
+One deterministic report/evidence model for weekly/month-end/annual reviews, dashboard archive, selected chat/Telegram/email rendering and delivery audit/retry. Transport/scheduling remains future scoped work.
 
 ## R08 — Deeper personal analytics and experiments
 
-Event-aligned/matched-control analysis, lagged comparisons/effect sizes with coverage gates, structured n-of-1 experiments; consider Recovery Score only for a demonstrated unmet need.
+Event-aligned/matched-control analysis, lagged comparisons/effect sizes with coverage gates, structured n-of-1 experiments; consider Recovery Score only for a demonstrated unmet need. Descriptive #346/#347 summaries must not silently become causal experiments or proprietary-score arithmetic.
 
 ## R09 — Laboratory, medication, supplement and document data
 
-Original documents outside Git, confirmed structured analytes/units/reference ranges, exposure timelines and longitudinal context without causal overclaiming.
+**#348 now owns the first planned lab-document contract:** original PDF/image outside Git, extraction candidates, explicit confirmation, original analyte/units/report ranges/sample dates and traceable corrections. It is not yet implemented and does not pull the whole medication/supplement roadmap into the first slice. Lab-derived interpretation remains bounded decision support, not diagnosis.
 
 ## R10 — Optional advanced work
 
-Timezone/travel semantics, providers/mobile integration, secure remote access/notifications and Obsidian/food-diary integration only for demonstrated needs.
+Timezone/travel extensions, provider/mobile integration, secure remote access/notifications and Obsidian/food-diary integration only for demonstrated needs. Current desktop-only scope is unchanged; #341's bounded read connection is not public exposure of the full portal.
 
 ## Release gates that always apply
 
