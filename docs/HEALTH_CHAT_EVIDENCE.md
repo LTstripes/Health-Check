@@ -26,6 +26,20 @@ sync, refresh or provider/model call. The existing profile must be migrated to
 this checkout's Alembic head; missing or outdated databases fail without repair.
 The output directory must be new and outside the selected profile. It contains
 `evidence.json` and `evidence.txt`; existing destinations are never overwritten.
+Before any profile/database read or output creation, the command rejects a
+resolved destination inside any Git checkout or linked worktree: a `.git`
+directory or file at the destination or any ancestor is sufficient. This also
+covers new nested destinations and existing directory links into a checkout.
+The check applies to all profile classifications, including synthetic exports.
+Known agent development roots without Git metadata must be supplied explicitly
+with repeatable `--agent-workspace-root <root>` arguments; equal or descendant
+destinations are rejected. Unreadable path checks fail closed. Rejection leaves
+the profile untouched and creates no output directory or files.
+
+Owner-only exports must go to an external Owner-controlled private directory,
+never an agent workspace. Git markers and explicitly supplied roots are the
+enforced identities; the command cannot classify other non-Git agent directories
+and does not guess their role from basenames or scan machine configuration.
 Normal stdout reports only completion; failures use bounded codes, without
 paths, values or text. Sharing either file is a separate explicit Owner action.
 

@@ -18,6 +18,21 @@ from healthcheck.chat_evidence import (
 )
 
 
+def _check_output_location(output: Path, agent_workspace_roots: list[Path]) -> None:
+    # Inspect markers only: linked worktrees use a .git file, not a directory.
+    # lstat also rejects broken marker links; unreadable ancestry fails closed.
+    for ancestor in (output, *output.parents):
+        try:
+            (ancestor / ".git").lstat()
+        except FileNotFoundError:
+            continue
+        raise EvidenceError("output_must_be_outside_git_or_agent_workspace")
+    for root in agent_workspace_roots:
+        workspace = root.expanduser().resolve()
+        if output == workspace or workspace in output.parents:
+            raise EvidenceError("output_must_be_outside_git_or_agent_workspace")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Local bounded health + Context export")
     parser.add_argument("--profile", required=True, type=Path)
@@ -32,10 +47,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="Explicit export policy, not inferred from runtime config (default 7)")
     parser.add_argument("--output-dir", required=True, type=Path,
                         help="New directory outside the profile; never overwrites existing files")
+    parser.add_argument("--agent-workspace-root", type=Path, action="append", default=[],
+                        help="Explicit development root to exclude even without .git; repeatable")
     args = parser.parse_args(argv)
     try:
-        profile = args.profile.expanduser().resolve()
         output = args.output_dir.expanduser().resolve()
+        _check_output_location(output, args.agent_workspace_root)
+        profile = args.profile.expanduser().resolve()
         if output == profile or profile in output.parents:
             raise EvidenceError("output_must_be_outside_profile")
         if output.exists():

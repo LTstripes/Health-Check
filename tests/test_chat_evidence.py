@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import socket
 import sqlite3
+import subprocess
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -15,6 +18,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DatabaseError
 
 from healthcheck import chat_evidence as evidence
+from healthcheck import export_chat_evidence as exporter
 from healthcheck.chat_evidence import EvidenceError, EvidenceRequest, read_period_evidence
 from healthcheck.config import Settings
 from healthcheck.context import ContextService, parse_date_only, parse_interval, parse_timestamp
@@ -276,6 +280,135 @@ def test_standalone_command_outputs_without_profile_or_environment_leaks(profile
     assert not (paths.root / "export").exists()
     captured = capsys.readouterr()
     assert "Synthetic corrected note" not in captured.out + captured.err
+
+
+def _profile_fingerprint(root):
+    return {
+        path.relative_to(root).as_posix(): (
+            path.is_dir(), path.stat().st_mtime_ns,
+            None if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest(),
+        )
+        for path in (root, *root.rglob("*"))
+    }
+
+
+def _export_args(paths, output, kind="synthetic"):
+    return ["--profile", str(paths.root), "--profile-kind", kind, "--from", "2099-05-01",
+            "--to", "2099-05-03", "--domain", "context", "--output-dir", str(output)]
+
+
+@pytest.mark.parametrize("kind", sorted(evidence.PROFILE_KINDS))
+@pytest.mark.parametrize("marker_kind", ["directory", "file"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_git_destination_rejected_before_read_or_write(profile, tmp_path, monkeypatch, capsys,
+                                                      kind, marker_kind, nested):
+    paths, engine = profile
+    seed(paths, engine)  # All data remain synthetic, including Owner-classification cases.
+    root = tmp_path / "repo"
+    root.mkdir()
+    marker = root / ".git"
+    if marker_kind == "directory":
+        marker.mkdir()
+    else:
+        marker.write_text("gitdir: synthetic-worktree-metadata", encoding="utf-8")
+    output = root / "missing-parent" / "export" if nested else root / "export"
+    before = _profile_fingerprint(paths.root)
+    reads = []
+    monkeypatch.setattr(exporter, "read_period_evidence", lambda **kwargs: reads.append(kwargs))
+
+    assert main(_export_args(paths, output, kind)) == 2
+
+    assert reads == []
+    assert not output.exists() and not (root / "missing-parent").exists()
+    assert list(root.iterdir()) == [marker]
+    assert _profile_fingerprint(paths.root) == before
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "Export failed: output_must_be_outside_git_or_agent_workspace\n"
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_explicit_non_git_workspace_rejected_before_read(profile, tmp_path, monkeypatch, capsys,
+                                                         nested):
+    paths, _ = profile
+    workspace = tmp_path / "development"
+    output = workspace / "new-parent" / "export" if nested else workspace
+    before = _profile_fingerprint(paths.root)
+    reads = []
+    monkeypatch.setattr(exporter, "read_period_evidence", lambda **kwargs: reads.append(kwargs))
+    args = _export_args(paths, output, "durable_owner_runtime")
+    args += ["--agent-workspace-root", str(tmp_path / "other"),
+             "--agent-workspace-root", str(workspace)]
+    assert main(args) == 2
+    assert reads == [] and not workspace.exists()
+    assert _profile_fingerprint(paths.root) == before
+    assert capsys.readouterr().err == (
+        "Export failed: output_must_be_outside_git_or_agent_workspace\n"
+    )
+
+
+@pytest.mark.parametrize("marker_kind", ["directory", "file"])
+def test_link_into_git_destination_rejected(profile, tmp_path, monkeypatch, capsys, marker_kind):
+    paths, _ = profile
+    root = tmp_path / "repo"
+    root.mkdir()
+    marker = root / ".git"
+    if marker_kind == "directory":
+        marker.mkdir()
+    else:
+        marker.write_text("gitdir: synthetic-worktree-metadata", encoding="utf-8")
+    alias = tmp_path / "alias"
+    if os.name == "nt":
+        # A junction needs no developer-mode/symlink privilege on Windows.
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(root)],
+                       check=True, capture_output=True)
+    else:
+        alias.symlink_to(root, target_is_directory=True)
+    output = alias / "missing-parent" / "export"
+    before = _profile_fingerprint(paths.root)
+    reads = []
+    monkeypatch.setattr(exporter, "read_period_evidence", lambda **kwargs: reads.append(kwargs))
+    assert main(_export_args(paths, output, "durable_owner_runtime")) == 2
+    assert reads == [] and not (root / "missing-parent").exists()
+    assert _profile_fingerprint(paths.root) == before
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "Export failed: output_must_be_outside_git_or_agent_workspace\n"
+
+
+def test_unreadable_git_marker_check_fails_closed(profile, tmp_path, monkeypatch, capsys):
+    paths, _ = profile
+    output = tmp_path / "export"
+    original = Path.lstat
+
+    def lstat(path, *args, **kwargs):
+        if path == tmp_path / ".git":
+            raise PermissionError("SENSITIVE_PATH_SENTINEL")
+        return original(path, *args, **kwargs)
+
+    before = _profile_fingerprint(paths.root)
+    reads = []
+    monkeypatch.setattr(Path, "lstat", lstat)
+    monkeypatch.setattr(exporter, "read_period_evidence", lambda **kwargs: reads.append(kwargs))
+    assert main(_export_args(paths, output, "disposable_owner_clone")) == 2
+    assert reads == [] and not output.exists()
+    assert _profile_fingerprint(paths.root) == before
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "Export failed: output_or_profile_unavailable\n"
+
+
+@pytest.mark.parametrize("kind", ["disposable_owner_clone", "durable_owner_runtime"])
+def test_owner_classified_synthetic_fixture_exports_outside_git(profile, tmp_path, kind):
+    paths, engine = profile
+    seed(paths, engine)
+    output = tmp_path / "external-export"
+    assert main(_export_args(paths, output, kind)) == 0
+    artifact = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
+    assert artifact["privacy"]["classification"] == "private_owner_data"
+    assert (output / "evidence.txt").read_text(encoding="utf-8") == (
+        evidence.render_evidence(artifact)
+    )
 
 
 def test_complete_partial_coverage_and_ambiguous_values(profile):
