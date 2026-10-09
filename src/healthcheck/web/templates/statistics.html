@@ -42,6 +42,7 @@
       {% for side in packet.sides %}
       {% set cell = side.metrics[code] %}
       {% set value = cell.aggregation.value %}
+      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected'] %}
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
         <div class="statistics-value">
@@ -51,13 +52,21 @@
           {% else %}{{ value }} <small>{{ unit_labels[cell.unit] }}</small>{% endif %}
         </div>
         <p>{{ state_labels[cell.state] }}</p>
+        {% if unevaluated %}
+        <p class="statistics-denominator">Наблюдения и знаменатель не оценены: {{ state_labels[cell.state]|lower }}.</p>
+        <p class="muted">Покрытие и пропуски не установлены.</p>
+        {% else %}
         <p class="statistics-denominator">Допустимо: {{ cell.aggregation.eligible_count }} {{ 'ночей' if cell.aggregation.denominator == 'eligible_saved_nights' else 'сессий' }} · наблюдалось {{ cell.observed_count }} записей / {{ cell.observed_day_count }} {{ 'ночей' if code == 'sleep_duration_asleep_seconds' else 'дней' }}.</p>
         <p class="muted">Покрытие сбора: {{ 'полное' if cell.coverage.complete else 'неполное / не установлено' }} · без наблюдений {{ cell.missing_day_count }} дней.</p>
+        {% endif %}
         <details class="statistics-details">
           <summary>Покрытие и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
           <dl>
             <dt>Источник / поле</dt><dd>{{ side.source_identity.source_id if side.source_identity else state_labels[side.state] }} / {{ cell.source_metric_code }}</dd>
             <dt>Единицы и преобразование</dt><dd>{{ cell.source_unit }} → {{ cell.unit }} · {{ cell.conversion }}</dd>
+            {% if unevaluated %}
+            <dt>Покрытие / знаменатель / исключения</dt><dd>{{ state_labels[cell.state] }}. Счётчики, даты наблюдений и пропуски не оценены; это не ноль событий.</dd>
+            {% else %}
             <dt>Агрегация / знаменатель</dt><dd>{{ cell.aggregation.kind }} / {{ cell.aggregation.denominator }}: {{ cell.aggregation.eligible_count }}</dd>
             <dt>Даты допустимых значений</dt><dd>{{ cell.effective_dates.min_observed or 'нет' }} — {{ cell.effective_dates.max_observed or 'нет' }}</dd>
             <dt>Состояние покрытия</dt><dd>{{ cell.coverage.state }} · {% for state, count in cell.coverage.status_counts.items() %}{{ state }}: {{ count }}{% if not loop.last %}; {% endif %}{% endfor %}</dd>
@@ -65,6 +74,7 @@
             <dt>Исключения ({{ cell.aggregation.excluded_count }})</dt><dd>{% for reason in cell.exclusions %}{{ reason.reason_code }}: {{ reason.count }}{% if not loop.last %}; {% endif %}{% else %}Нет{% endfor %}</dd>
             <dt>Даты без наблюдений</dt><dd>{{ cell.missing_dates|join(', ') or 'Нет' }}. Отсутствие наблюдения не доказывает отсутствие событий.</dd>
             <dt>Повторы сохранённых снимков</dt><dd>{{ cell.snapshot_evidence.duplicate_payload_observation_count }}; версии нормализации: {{ cell.snapshot_evidence.normalization_versions|join(', ') or 'нет' }}</dd>
+            {% endif %}
           </dl>
         </details>
       </article>

@@ -132,11 +132,16 @@ def test_route_matches_accepted_packet(statistics_ui, case, days):
                     assert f"{kind}: {count}" in text
             else:
                 assert str(value) in text
-            assert f"Допустимо: {cell['aggregation']['eligible_count']}" in text
-            assert f"без наблюдений {cell['missing_day_count']} дней" in text
+            if cell["state"] in {"source_missing", "selection_required", "not_collected"}:
+                assert "Наблюдения и знаменатель не оценены" in text
+                assert "Допустимо: 0" not in text
+                assert "без наблюдений" not in text
+            else:
+                assert f"Допустимо: {cell['aggregation']['eligible_count']}" in text
+                assert f"без наблюдений {cell['missing_day_count']} дней" in text
+                assert cell["coverage"]["state"] in text
             assert cell["source_unit"] in text and cell["unit"] in text
             assert cell["conversion"] in text
-            assert cell["coverage"]["state"] in text
             for reason in cell["exclusions"]:
                 assert f"{reason['reason_code']}: {reason['count']}" in text
     assert "Не собирается" in cells["activity_session_count", "right"]

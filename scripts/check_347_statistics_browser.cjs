@@ -35,7 +35,8 @@ const base = 'http://127.0.0.1:8120';
           assert.equal(route.request().method(), 'GET');
           const selected = scenario === 'ambiguous' && url.searchParams.get('garmin_source_id') &&
             url.searchParams.get('google_source_id');
-          const file = selected ? 'ambiguous-selected-30.html' : `${scenario}-${url.searchParams.get('days') || 7}.html`;
+          const days = url.searchParams.get('days') || 7;
+          const file = selected ? `ambiguous-selected-${days}.html` : `${scenario}-${days}.html`;
           return route.fulfill({ contentType: 'text/html; charset=utf-8', body: fs.readFileSync(path.join(fixtures, file), 'utf8') });
         });
         assert.equal((await page.goto(`${base}/statistics?days=7&end_date=2099-01-08`)).status(), 200);
@@ -115,8 +116,18 @@ const base = 'http://127.0.0.1:8120';
           assert.match(await sleep.locator('article').nth(1).innerText(), /Недоступно/);
           await sleep.locator('article').nth(1).locator('summary').focus(); await page.keyboard.press('Enter');
           assert.match(await sleep.locator('article').nth(1).innerText(), /ambiguous_google_main: 2/);
+          await period.focus(); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Tab');
+          assert.equal(await period.inputValue(), '7');
+          await page.getByRole('button', { name: 'Показать', exact: true }).focus();
+          await Promise.all([page.waitForURL(url => url.searchParams.get('days') === '7' && url.searchParams.get('google_source_id') === ids[1]), page.keyboard.press('Enter')]);
+          await page.reload();
+          for (const [index, provider] of ['garmin', 'google'].entries()) assert.equal(await page.locator(`[name="${provider}_source_id"]`).inputValue(), ids[index]);
+          assert.match(await page.locator('.statistics-window').innerText(), /2099-01-02 — 2099-01-08 · 7 дней/);
+          assert.match(await sleep.locator('article').nth(0).innerText(), /28800/);
+          assert.match(await sleep.locator('article').nth(1).innerText(), /Недоступно/);
         }
-        checks.push({ width, scenario, geometry, keyboard: true, period: 30, bothSides: true });
+        checks.push({ width, scenario, geometry, keyboard: true, periods: [7, 30],
+          selectedReloadBothPeriods: scenario === 'ambiguous', bothSides: true });
         await page.close();
       }
     }
