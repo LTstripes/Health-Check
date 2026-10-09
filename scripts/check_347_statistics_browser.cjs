@@ -57,7 +57,8 @@ const base = 'http://127.0.0.1:8120';
           assert.equal((await sleep.locator('.statistics-value').nth(1).innerText()).trim(), '6 ч 50 мин');
         } else if (scenario === 'fractional') {
           assert.equal((await headline('sleep_duration_asleep_seconds').innerText()).trim(), '8 ч 0 мин 30,5 с');
-          assert.equal((await sleep.locator('.statistics-value').nth(1).innerText()).trim(), '6 ч 50 мин 30 с');
+          // B1 rejects fractional Google minutes; formatting must preserve that exclusion.
+          assert.equal((await sleep.locator('.statistics-value').nth(1).innerText()).trim(), 'Недоступно');
           assert.equal((await headline('cycling_distance_meters').innerText()).trim(), '12,35 км');
           assert.equal((await headline('tennis_duration_seconds').innerText()).trim(), '1 ч 1 мин 1,25 с');
         } else if (scenario === 'zero') {
@@ -112,6 +113,7 @@ const base = 'http://127.0.0.1:8120';
           const distanceDetails = page.locator('[data-statistics-metric="cycling_distance_meters"] details').first();
           assert.match(await distanceDetails.innerText(), /meters → meters · identity_v1/);
           if (scenario === 'fractional') assert.match(await distanceDetails.innerText(), /12345\.6 \/ 12345\.6 · meters/);
+          if (scenario === 'fractional') assert.match(await sleep.locator('details').nth(1).innerText(), /metric_invalid: 1/);
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
         const period = page.getByLabel('Период', { exact: true });
