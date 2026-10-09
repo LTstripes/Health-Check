@@ -45,10 +45,10 @@ Next gates: selected durable-profile Context UAT and first explicit private
 Owner export; local share UI and direct authenticated ChatGPT read tools remain
 unimplemented. Human #330 UAT is PARTIAL. #343–#348 stay planned, not launched.
 
-The running Owner UAT uses a verified **copy of real data**, not synthetic fixtures
-and not the automatically updated Stable profile. Its code was brought to the
-accepted product checkpoint `013482ec3a51d89fd57c3a55ab9b09d1d2228e25`; this does not
-prove all copied source data are current. The latest human review likes A+ and the
+The prior Owner UAT inspected a verified disposable **copy of real data**,
+not synthetic fixtures or automatically updated Stable. The tested local code
+was `013482ec3a51d89fd57c3a55ab9b09d1d2228e25`; the earlier UI process
+has since stopped, and a GitHub merge does not restart it or refresh clone data. The latest human review likes A+ and the
 shorter Activity journal but requests further functionality and cleanup. #330 is
 PARTIAL. Data's freshness request now returns a result in the observed clone; actual
 historical copied provider failures, exact-date absence, role/source eligibility and incomplete metrics are separate.
