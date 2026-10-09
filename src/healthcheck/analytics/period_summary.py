@@ -361,7 +361,7 @@ class PeriodSummaryService:
             candidates = [
                 r
                 for r in current
-                if types is None or r.activity_type in types or not r.activity_type
+                if types is None or r.activity_type in types or not (r.activity_type or "").strip()
             ]
             history = Counter(
                 r.retire_reason or "unspecified"
@@ -378,7 +378,7 @@ class PeriodSummaryService:
                     reason = "record_invalid"
                 elif identity_counts[row.external_record_id or row.id] != 1:
                     reason = "duplicate_current_identity"
-                elif types is not None and not row.activity_type:
+                elif types is not None and not (row.activity_type or "").strip():
                     reason = "activity_type_missing"
                 elif code in {"cycling_distance_meters", "tennis_duration_seconds"}:
                     field = (
@@ -405,7 +405,10 @@ class PeriodSummaryService:
                     values.append(value)
                     dates.append(row.source_local_date.isoformat())
                     partial += row.record_status == "partial"
-                    type_counts[row.activity_type or "unknown"] += 1
+                    activity_type = (
+                        row.activity_type if (row.activity_type or "").strip() else "unknown"
+                    )
+                    type_counts[activity_type] += 1
             cell = _cell(
                 code,
                 values=values,

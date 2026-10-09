@@ -433,11 +433,10 @@ def test_proven_empty_activity_count_is_distinct_from_unknown(projection_databas
     assert cell["coverage"]["complete"] is True
 
 
-@pytest.mark.parametrize("kind", [None, ""])
+@pytest.mark.parametrize("kind", [None, "", " ", "\t\r\n"])
 def test_unknown_activity_type_never_proves_empty_tennis(projection_database, kind):
     session, paths = projection_database
-    _activity(session, paths)
-    session.scalar(select(GarminSourceRecord)).activity_type = kind
+    _activity(session, paths, kind=kind)
     _coverage(session, session.scalar(select(GarminSource)))
     session.commit()
     packet = _packet(session)
