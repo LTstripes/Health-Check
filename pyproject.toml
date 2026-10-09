@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -10,16 +10,16 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
-    "alembic>=1.14,<2",
+    "alembic>=1.20.0,<2",
     "cryptography>=50.0,<51",
-    "fastapi>=0.115,<1",
+    "fastapi>=0.142.2,<1",
     "garminconnect @ git+https://github.com/cyberjunky/python-garminconnect.git@54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5",
     "jinja2>=3.1,<4",
     "pydantic-settings>=2.6,<3",
     "python-multipart>=0.0.9,<1",
-    "sqlalchemy>=2.0,<3",
-    "tzdata>=2024.1",
-    "uvicorn[standard]>=0.34,<1",
+    "sqlalchemy>=2.1.1,<3",
+    "tzdata>=2026.4",
+    "uvicorn[standard]>=0.54.0,<1",
 ]
 
 [project.scripts]
@@ -28,8 +28,8 @@ healthcheck = "healthcheck.cli:main"
 [dependency-groups]
 dev = [
     "httpx>=0.27,<1",
-    "pytest>=9.0.3,<10",
-    "ruff>=0.9,<1",
+    "pytest>=9.1.1,<10",
+    "ruff>=0.16.9,<1",
 ]
 
 [tool.hatch.build.targets.wheel]
