@@ -67,10 +67,18 @@ def read_overview_values(
             )
         ).all()
         for code, capability, unit, label in GARMIN_OVERVIEW_METRICS:
+            is_rhr = code == "resting_heart_rate_bpm"
+            # RHR acquisition surface and metric capability are distinct.
+            # Match typed identity before selecting/validating the latest snapshot.
             candidates = [
                 (record, metric) for record, metric in rows
                 if metric.metric_code == code
-                and record.surface_code in (None, capability)
+                and (
+                    record.stream_code == "daily_health"
+                    and record.surface_code in (None, "daily_summary", "resting_heart_rate")
+                    and metric.capability_code == "resting_heart_rate"
+                    if is_rhr else record.surface_code in (None, capability)
+                )
             ]
             cell: dict[str, Any] = {
                 "label": label, "state": "unknown", "value": None, "date": None,
@@ -92,6 +100,7 @@ def read_overview_values(
                     number = metric.value_number
                     usable = (
                         metric.state == "value" and metric.unit == unit
+                        and (not is_rhr or isinstance(number, (int, float)))
                         and number is not None and isfinite(number)
                         and record.record_status in ("ok", "partial")
                     )
