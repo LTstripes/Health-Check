@@ -40,7 +40,7 @@ from healthcheck.garmin.normalization import (
 )
 
 ANALYTIC_INPUT_CONTRACT_VERSION = "r03-garmin-analytic-input-v1"
-ANALYTIC_RULE_VERSION = "r03-garmin-analytic-rules-v1"
+ANALYTIC_RULE_VERSION = "r03-garmin-analytic-rules-v2"
 ANALYTIC_COVERAGE_RULE_VERSION = "r03-garmin-analytic-coverage-v1"
 
 
@@ -53,6 +53,7 @@ class AggregateKind(StrEnum):
     SAMPLE = "sample"
     SESSION_TOTAL = "session_total"
     SESSION_AVERAGE = "session_average"
+    SESSION_MAXIMUM = "session_maximum"
     PROVIDER_SESSION_SCORE = "provider_session_score"
     PROVIDER_SESSION_LOAD = "provider_session_load"
     UNKNOWN = "unknown"
@@ -233,6 +234,15 @@ ANALYTIC_METRIC_REGISTRY: dict[str, AnalyticMetricDefinition] = {
         source_field_paths=("avgPower", "metrics.powerWatts"),
         description="Provider session average power when source-field semantics are unambiguous.",
     ),
+    "max_heart_rate_bpm": AnalyticMetricDefinition(
+        metric_code="max_heart_rate_bpm",
+        capability_code="cycling_metrics",
+        unit="bpm",
+        aggregate_kind=AggregateKind.SESSION_MAXIMUM,
+        window="activity_session",
+        source_field_paths=("maxHR",),
+        description="Provider session maximum heart rate; independent of session average HR.",
+    ),
     "cadence_rpm": AnalyticMetricDefinition(
         metric_code="cadence_rpm",
         capability_code="cycling_metrics",
@@ -258,7 +268,16 @@ ANALYTIC_METRIC_REGISTRY: dict[str, AnalyticMetricDefinition] = {
         aggregate_kind=AggregateKind.PROVIDER_SESSION_SCORE,
         window="activity_session",
         source_field_paths=("aerobicTrainingEffect", "trainingEffect"),
-        description="Garmin/provider-native training effect score; not a custom score.",
+        description="Garmin/provider-native aerobic/general session score; not a combined effect.",
+    ),
+    "anaerobic_training_effect": AnalyticMetricDefinition(
+        metric_code="anaerobic_training_effect",
+        capability_code="training_effect",
+        unit="points",
+        aggregate_kind=AggregateKind.PROVIDER_SESSION_SCORE,
+        window="activity_session",
+        source_field_paths=("anaerobicTrainingEffect",),
+        description="Garmin/provider-native anaerobic session score; producer unverified.",
     ),
     "acute_training_load": AnalyticMetricDefinition(
         metric_code="acute_training_load",
@@ -290,6 +309,8 @@ SURFACE_ANALYTIC_METRIC_CODES: dict[str, tuple[str, ...]] = {
         "cadence_rpm",
         "training_effect",
         "acute_training_load",
+        "max_heart_rate_bpm",
+        "anaerobic_training_effect",
     ),
 }
 
@@ -338,7 +359,9 @@ def resolve_aggregate_kind(metric_code: str, field_path: str | None = None) -> A
         "distanceMeters",
     }:
         return AggregateKind.SESSION_TOTAL
-    if leaf in {"aerobicTrainingEffect", "trainingEffect"}:
+    if leaf == "maxHR":
+        return AggregateKind.SESSION_MAXIMUM
+    if leaf in {"aerobicTrainingEffect", "trainingEffect", "anaerobicTrainingEffect"}:
         return AggregateKind.PROVIDER_SESSION_SCORE
     if leaf in {"activityTrainingLoad", "trainingLoad"}:
         return AggregateKind.PROVIDER_SESSION_LOAD

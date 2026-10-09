@@ -620,7 +620,10 @@ def test_storage_backed_assembler_rejects_mismatched_observation_ingest_event(
     _paths, session, store = analytic_persistence_database
     fixture_value = load_synthetic_fixture(FIXTURE_ROOT / "sleep.json")
     payload = (FIXTURE_ROOT / "sleep.json").read_bytes()
-    result_v1 = normalize_garmin_payload(fixture_value)
+    result_v1 = replace(
+        normalize_garmin_payload(fixture_value),
+        contract_version="r02-garmin-normalization-contract-v1",
+    )
     repository = GarminPersistenceRepository(session, payload_store=store)
     source = repository.sources.get_or_create(result_v1.source)
     provenance = repositories_for(session)
