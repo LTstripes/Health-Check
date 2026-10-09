@@ -318,7 +318,7 @@ No Health-Check Recovery Score is currently justified. Preserve Garmin/Fitbit si
 
 ## 14. Security and license boundaries
 
-- Real data, payloads, documents, databases, and secrets never enter Git or synthetic fixtures.
+- Real data, payloads, documents, databases, and secrets never enter Git or synthetic fixtures. Assigned Owner read-only analysis and presentation in the authorized AI conversation follow [Owner data workflow](OWNER_DATA_WORKFLOW.md); this does not authorize data/runtime mutations.
 - The durable Owner Stable profile is never a development-agent workspace. Owner UAT uses a separate disposable restore/clone.
 - Dashboard/read/import is loopback-only; the separate LAN ingest app has no product routes, uses a stable sender UUID plus independent high-entropy rotatable credential, and has an encrypted-overlay/HTTPS or explicitly warned trusted-private-LAN transport boundary.
 - Log identifiers/counts/status, not authorization material or raw health values by default.

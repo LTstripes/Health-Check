@@ -55,7 +55,10 @@ Protected location roles are unchanged:
 - Stable private runtime: durable evidence and verified backup source outside Git; never reset/repurpose for testing.
 - Per-client development root: separate assigned task clones/worktrees, not a shared mutable checkout switched between sessions.
 
-No real health data, credentials, backups or links to private locations enter an agent workspace. Candidate private UAT uses a disposable verified backup/restore clone; machine-path changes do not relax these boundaries.
+Real datasets, credentials and backups stay outside code workspaces and synthetic fixtures.
+Assigned Owner analysis may read relevant real data and show it in the authorized AI
+conversation under [Owner data workflow](OWNER_DATA_WORKFLOW.md), without per-read
+approval or mandatory value masking. Candidate UAT uses an isolated approved clone.
 
 ## 4. Workspace creation rules for workers
 
@@ -120,6 +123,15 @@ Issue: task authority/evidence. Architecture/decision docs or ADR: a durable con
 At release, review the integrated diff against the active spec; pass full automated release checks; run the required Owner-only preview/device/provider gates from a disposable verified Stable backup/restore clone. Do not use old release checklists as current by default; use that release's issue/checklist. Unperformed permitted live gates stay UNVERIFIED, never implicitly passed.
 
 Resolve findings in dedicated task branches, not ad-hoc UAT edits. After accepted integration-to-main PR merge, read back canonical main and exact post-merge CI, record release/UAT outcome and start subsequent release work from this new main. GitHub publication does not update/restart Owner-local code. Owner fast-forwards the clean operation checkout only when relevant processes are idle and the update is appropriate.
+
+### Resuming Owner analysis and UAT
+
+Use the [offline/runtime distinction and evidence receipt](OWNER_DATA_WORKFLOW.md#offline-evidence-and-runtime-continuation).
+Do not require a running UI for an offline clone audit. For runtime checks, verify
+current process/code/profile binding; retain completed steps and resume only after
+checking the dependencies of the next step. Missing human UAT is not a reason to
+rerun successful synthetic tests. Use atomic physical-checkout ownership before
+local writing/verification, not just different branch names in a shared tree.
 
 ## 12. Current Codex and future provider automation
 

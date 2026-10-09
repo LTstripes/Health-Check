@@ -48,7 +48,7 @@ The accountable Worker reports material changes to scope, verification or review
 
 ## Escalation triggers
 
-Return to the Integrator for conflicting authority; possible history loss/reinterpretation; identity ambiguity affecting history; access to real Owner data/credentials; changed security exposure/provider contracts; out-of-scope services/dependencies; or newly required architecture/health semantics. Ordinary reversible implementation choices within a resolved contract need no repeated approval.
+Return to the Integrator for conflicting authority; possible history loss/reinterpretation; identity ambiguity affecting history; access outside the Owner-authorized data scope or credential disclosure; changed security exposure/provider contracts; out-of-scope services/dependencies; or newly required architecture/health semantics. Ordinary reversible implementation choices within a resolved contract need no repeated approval.
 
 ## Owner task proposal
 

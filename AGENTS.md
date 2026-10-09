@@ -45,17 +45,23 @@ Stay on the assigned pinned baseline; the Integrator decides refresh/retest at i
 
 One active write/verification task owns one physical working tree. Use only the assigned task directory; do not inspect/create/move/rename/delete sibling workspaces without an explicit filesystem assignment. Owner canonical, Stable/private-runtime and preview/UAT locations are not development workspaces, regardless of paths. Current Owner-machine roles and Windows roots are maintained in [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md); do not duplicate that path table here.
 
-## Runtime/private-data isolation — hard invariant
+## Owner data and runtime isolation
 
-Development workspaces must not contain/access real health SQLite databases or sidecars, backups, Owner/device payloads, measurement screenshots/photos, lab/medical documents, UAT runtime data, credentials/tokens/refresh tokens/bind keys/MAC or key material, or symlinks/junctions/hardlinks to them. Sanitized evidence is permitted only under an explicitly separated Owner-controlled probe.
-
-Use synthetic fixtures and external synthetic runtime/temp paths. Do not call live Garmin/Google or other account-backed providers in normal agent checks. Private/live gates remain Owner/Integrator controlled and `UNVERIFIED` until performed. Candidate UAT uses a disposable verified backup/restore clone; never reset or repurpose Stable as a candidate sandbox.
+Follow [Owner data and efficient task execution](docs/OWNER_DATA_WORKFLOW.md).
+Owner-requested analysis, diagnosis and UAT permit relevant real-data reads and
+ordinary presentation in the authorized assistant conversation, without masking
+personal values or asking again for each query/image. Keep credentials out of
+outputs, real datasets out of tracked code/CI, and synthetic data in automated tests.
+Reading data is distinct from permission to change data, runtime or publication.
+Preserve Stable and the applicable migration/recovery/financial/health contracts.
 
 ## Scope discipline
 
 Do only the assigned issue/listed eligible work: no automatic next roadmap item, unrelated cleanup or unused future infrastructure. Do not reinterpret product/health semantics without an issue/ADR decision. Missing/unknown/unavailable is never silently zero; do not invent diagnosis or causality from wearable/BIA associations. Return architecture/privacy/canonical-data/health-semantics expansion to the Integrator for re-scope.
 
 ## Verification
+
+Claim the physical checkout before writing/testing and check ownership before delivery, as described in the Owner-data workflow. Every STOP cites a concrete boundary or failure; do not invent privacy gates for authorized Owner reads.
 
 Use [proportional checks](docs/DEVELOPMENT_PROCESS.md#verification-by-change), then required exact-candidate/integration gates. A separate participant does not automatically rerun the full suite; inspect valid evidence and add focused checks for concrete gaps. Required independent review is set by [risk policy](docs/MODEL_ROUTING.md#independent-review-triggers), not by enabling a queue.
 
@@ -65,7 +71,7 @@ Never claim tests, browser/device/provider checks, independent review or success
 
 Return one concise report: issue/status; baseline/target; branch/workspace/final SHA; change summary (diff stat when available); actual checks/results; material deviations/blockers/limitations. For local Git work include clean/dirty status and HEAD/remote read-back; state any departure from assigned branch/workspace boundaries. Omit irrelevant optional fields rather than filling N/A sections.
 
-Model benchmarking and attribution bookkeeping were retired by the Owner in [#210](https://github.com/LTstripes/Health-Check/issues/210). Do not request or wait for model/provider labels, require a Model evidence block, or append model scores/journal entries. Older model-reporting instructions are explicitly superseded; ordinary technical evidence and review gates remain required. Never include private prompts, hidden reasoning, secrets or health values.
+Model benchmarking and attribution bookkeeping were retired by the Owner in [#210](https://github.com/LTstripes/Health-Check/issues/210). Do not request or wait for model/provider labels, require a Model evidence block, or append model scores/journal entries. Older model-reporting instructions are explicitly superseded; ordinary technical evidence and review gates remain required. Never include hidden reasoning or credentials. Owner-visible health evidence follows the linked Owner-data workflow; public engineering reports do not publish private datasets.
 
 ## Durable history and decisions
 
