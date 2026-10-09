@@ -36,6 +36,7 @@
       "tests/test_core_schema.py",
       "tests/test_context_capture.py",
       "tests/test_chat_evidence.py",
+      "tests/test_chat_evidence_mcp.py",
       "tests/test_fk_safe_migration_repair.py",
       "tests/test_google_daily_vitals.py",
       "tests/test_google_freshness_read_equivalence.py",
