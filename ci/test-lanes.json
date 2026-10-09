@@ -71,6 +71,7 @@
       "tests/test_openscale_contract.py",
       "tests/test_openscale_webhook.py",
       "tests/test_owner_data_v2.py",
+      "tests/test_overview_garmin_rhr.py",
       "tests/test_period_brief.py",
       "tests/test_period_brief_ui.py",
       "tests/test_photo_import.py",
