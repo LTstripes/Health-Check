@@ -448,6 +448,9 @@ def test_unknown_activity_type_never_proves_empty_tennis(projection_database, ki
         assert cell["aggregation"]["value"] is None
         assert cell["observed_count"] == 1
         assert _reasons(cell)["activity_type_missing"] == 1
+        assert cell["snapshot_evidence"]["normalization_versions"] == [
+            "r02-garmin-normalization-contract-v1"
+        ]
 
 
 @pytest.mark.parametrize("provider", ["garmin", "google"])

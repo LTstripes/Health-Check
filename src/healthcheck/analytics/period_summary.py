@@ -366,7 +366,10 @@ class PeriodSummaryService:
             history = Counter(
                 r.retire_reason or "unspecified"
                 for r in records
-                if r.projection_status == "retired" and (types is None or r.activity_type in types)
+                if r.projection_status == "retired"
+                and (
+                    types is None or r.activity_type in types or not (r.activity_type or "").strip()
+                )
             )
             values, dates = [], []
             exclusions, type_counts = Counter(), Counter()
@@ -426,7 +429,14 @@ class PeriodSummaryService:
             )
             cell["coverage"] = coverage
             cell["snapshot_evidence"] = self._snapshot_evidence(
-                [r for r in records if types is None or r.activity_type in types], google=False
+                [
+                    r
+                    for r in records
+                    if types is None
+                    or r.activity_type in types
+                    or not (r.activity_type or "").strip()
+                ],
+                google=False,
             )
             cell["state"] = (
                 "observed"
