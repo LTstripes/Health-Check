@@ -48,8 +48,8 @@
         <div class="statistics-value">
           {% if value is none %}<span>Недоступно</span>
           {% elif value is mapping %}
-            {% if value %}<ul>{% for type, count in value.items() %}<li>{{ type }}: {{ count }} {{ unit_labels[cell.unit] }}</li>{% endfor %}</ul>{% else %}0 {{ unit_labels[cell.unit] }}{% endif %}
-          {% else %}{{ value }} <small>{{ unit_labels[cell.unit] }}</small>{% endif %}
+            {% if value %}<ul>{% for type, count in value.items() %}<li>{{ type }}: {{ format_value(code, count) }}</li>{% endfor %}</ul>{% else %}{{ format_value(code, 0) }}{% endif %}
+          {% else %}{{ format_value(code, value) }}{% endif %}
         </div>
         <p>{{ state_labels[cell.state] }}</p>
         {% if unevaluated %}
@@ -64,6 +64,7 @@
           <dl>
             <dt>Источник / поле</dt><dd>{{ side.source_identity.source_id if side.source_identity else state_labels[side.state] }} / {{ cell.source_metric_code }}</dd>
             <dt>Единицы и преобразование</dt><dd>{{ cell.source_unit }} → {{ cell.unit }} · {{ cell.conversion }}</dd>
+            <dt>Точное значение / числитель</dt><dd>{{ value if value is not none else 'Недоступно' }} / {{ cell.aggregation.numerator if cell.aggregation.numerator is not none else 'Недоступно' }} · {{ cell.unit }}</dd>
             {% if unevaluated %}
             <dt>Покрытие / знаменатель / исключения</dt><dd>{{ state_labels[cell.state] }}. Счётчики, даты наблюдений и пропуски не оценены; это не ноль событий.</dd>
             {% else %}

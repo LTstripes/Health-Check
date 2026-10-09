@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import socket
+from copy import deepcopy
 from datetime import timedelta
 from html.parser import HTMLParser
 from pathlib import Path
@@ -17,6 +18,7 @@ from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryServic
 from healthcheck.config import Settings
 from healthcheck.db.models import GarminRecordMetric, GarminSource, GoogleSource
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+from healthcheck.web.statistics import format_statistics_value
 from healthcheck.web.ui_app import create_ui_app
 from test_period_summary import END, START, _activity, _coverage
 from test_sleep_account_cohort import _garmin, _google
@@ -27,8 +29,11 @@ class MetricParser(HTMLParser):
     def __init__(self, html):
         super().__init__()
         self.cells = {}
+        self.values = {}
+        self.details = {}
         self.code = self.side = None
         self.in_article = False
+        self.in_value = self.in_details = False
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
@@ -39,26 +44,64 @@ class MetricParser(HTMLParser):
             self.side = attrs["data-statistics-side"]
             self.in_article = True
             self.cells[self.code, self.side] = ""
+            self.values[self.code, self.side] = ""
+            self.details[self.code, self.side] = ""
+        if tag == "div" and attrs.get("class") == "statistics-value":
+            self.in_value = True
+        if tag == "details" and self.in_article:
+            self.in_details = True
 
     def handle_endtag(self, tag):
         if tag == "article":
             self.in_article = False
+        if tag == "div":
+            self.in_value = False
+        if tag == "details":
+            self.in_details = False
 
     def handle_data(self, data):
         if self.in_article:
             self.cells[self.code, self.side] += data
+            if self.in_value:
+                self.values[self.code, self.side] += data
+            if self.in_details:
+                self.details[self.code, self.side] += data
 
 
 def seed(session, paths, case):
     if case == "missing":
         return
-    _activity(session, paths, kind="cycling", distance=0 if case == "sparse" else 21000)
-    _activity(session, paths, kind="tennis_v2", suffix="tennis", duration=3600)
+    _activity(
+        session,
+        paths,
+        kind="cycling",
+        distance=0 if case == "sparse" else 12345.6 if case == "fractional" else 21000,
+    )
+    _activity(
+        session,
+        paths,
+        kind="tennis_v2",
+        suffix="tennis",
+        duration=3661.25 if case == "fractional" else 0 if case == "zero" else 3600,
+    )
     nights = 7 if case == "full" else 1
     for offset in range(nights):
         day = START + timedelta(days=offset)
-        _garmin(session, paths, wake=day, attributed=True, seconds=28800)
-        _google(session, paths, wake=day, main="true", nap="false", minutes="410")
+        _garmin(
+            session,
+            paths,
+            wake=day,
+            attributed=True,
+            seconds=28830.5 if case == "fractional" else 0 if case == "zero" else 28800,
+        )
+        _google(
+            session,
+            paths,
+            wake=day,
+            main="true",
+            nap="false",
+            minutes="410.5" if case == "fractional" else "410",
+        )
     if case == "full":
         source = session.scalar(select(GarminSource))
         _coverage(session, source)
@@ -100,12 +143,21 @@ def statistics_ui(projection_database, monkeypatch):
         yield session, paths, client
 
 
-@pytest.mark.parametrize("case", ["full", "sparse", "missing", "ambiguous"])
+@pytest.mark.parametrize("case", ["full", "sparse", "missing", "ambiguous", "fractional", "zero"])
 @pytest.mark.parametrize("days", [7, 30])
-def test_route_matches_accepted_packet(statistics_ui, case, days):
+def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
     session, paths, client = statistics_ui
     seed(session, paths, case)
     packet = PeriodSummaryService(session).build(end_date=END, days=days)
+    original_build = PeriodSummaryService.build
+    rendered_packets = []
+
+    def capture_packet(service, **kwargs):
+        result = original_build(service, **kwargs)
+        rendered_packets.append((result, deepcopy(result)))
+        return result
+
+    monkeypatch.setattr(PeriodSummaryService, "build", capture_packet)
     session.rollback()
     statements = []
 
@@ -119,19 +171,31 @@ def test_route_matches_accepted_packet(statistics_ui, case, days):
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert 'href="/statistics" class="active" aria-current="page"' in response.text
-    cells = MetricParser(response.text).cells
+    parser = MetricParser(response.text)
+    cells = parser.cells
+    assert len(rendered_packets) == 1
+    actual, before_render = rendered_packets[0]
+    assert actual == before_render
+    assert {k: v for k, v in actual.items() if k != "evaluated_at"} == {
+        k: v for k, v in packet.items() if k != "evaluated_at"
+    }
     assert len(cells) == 12
     for side in packet["sides"]:
         for code, cell in side["metrics"].items():
             text = cells[code, side["position"]]
             value = cell["aggregation"]["value"]
+            headline = parser.values[code, side["position"]].strip()
+            details = parser.details[code, side["position"]]
             if value is None:
-                assert "Недоступно" in text
+                assert headline == "Недоступно"
             elif isinstance(value, dict):
                 for kind, count in value.items():
-                    assert f"{kind}: {count}" in text
+                    assert f"{kind}: {int(count)} сессий" in headline
             else:
-                assert str(value) in text
+                assert headline == format_statistics_value(code, value)
+            assert f"{value if value is not None else 'Недоступно'} / " in details
+            numerator = cell["aggregation"]["numerator"]
+            assert f"/ {numerator if numerator is not None else 'Недоступно'}" in details
             if cell["state"] in {"source_missing", "selection_required", "not_collected"}:
                 assert "Наблюдения и знаменатель не оценены" in text
                 assert "Допустимо: 0" not in text
@@ -140,8 +204,8 @@ def test_route_matches_accepted_packet(statistics_ui, case, days):
                 assert f"Допустимо: {cell['aggregation']['eligible_count']}" in text
                 assert f"без наблюдений {cell['missing_day_count']} дней" in text
                 assert cell["coverage"]["state"] in text
-            assert cell["source_unit"] in text and cell["unit"] in text
-            assert cell["conversion"] in text
+            assert f"{cell['source_unit']} → {cell['unit']}" in details
+            assert cell["conversion"] in details
             for reason in cell["exclusions"]:
                 assert f"{reason['reason_code']}: {reason['count']}" in text
     assert "Не собирается" in cells["activity_session_count", "right"]
@@ -201,7 +265,7 @@ def test_explicit_independent_selection_and_period_persistence(statistics_ui):
     cells = MetricParser(response.text).cells
     assert "ambiguous_google_main: 2" in cells[SLEEP_CODE, "right"]
     assert "Недоступно" in cells[SLEEP_CODE, "right"]
-    assert "28800.0" in cells[SLEEP_CODE, "left"]
+    assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
     for days in (7, 30):
         assert client.get("/statistics", params={**params, "days": days}).status_code == 200
 
@@ -240,7 +304,37 @@ def test_missing_google_keeps_the_independent_empty_side(statistics_ui):
     response = client.get("/statistics", params={"end_date": str(END)})
     assert response.status_code == 200
     cells = MetricParser(response.text).cells
-    assert "28800.0" in cells[SLEEP_CODE, "left"]
+    assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
     assert "Источник отсутствует" in cells[SLEEP_CODE, "right"]
     assert "Недоступно" in cells[SLEEP_CODE, "right"]
     assert "Не собирается" in cells["activity_session_count", "right"]
+
+
+@pytest.mark.parametrize(
+    "code,value,expected",
+    [
+        (SLEEP_CODE, None, "Недоступно"),
+        (SLEEP_CODE, 0.0, "0 мин"),
+        (SLEEP_CODE, 28800.0, "8 ч 0 мин"),
+        (SLEEP_CODE, 24600.0, "6 ч 50 мин"),
+        (SLEEP_CODE, 28830.5, "8 ч 0 мин 30,5 с"),
+        (SLEEP_CODE, 0.001, "<0,01 с"),
+        ("tennis_duration_seconds", None, "Недоступно"),
+        ("tennis_duration_seconds", 0, "0 мин"),
+        ("tennis_duration_seconds", 3600.0, "1 ч 0 мин"),
+        ("tennis_duration_seconds", 3661.25, "1 ч 1 мин 1,25 с"),
+        ("tennis_duration_seconds", 59.999, "1 мин"),
+        ("cycling_distance_meters", None, "Недоступно"),
+        ("cycling_distance_meters", 0.0, "0 км"),
+        ("cycling_distance_meters", 21000, "21 км"),
+        ("cycling_distance_meters", 12345.6, "12,35 км"),
+        ("cycling_distance_meters", 999995, "1000 км"),
+        ("cycling_distance_meters", 1, "<0,01 км"),
+        ("activity_session_count", 2.0, "2 сессий"),
+        ("activity_session_count", 0.0, "0 сессий"),
+        ("tennis_session_count", 1.0, "1 сессий"),
+        ("activity_type_counts", 2.0, "2 сессий"),
+    ],
+)
+def test_headline_formatting(code, value, expected):
+    assert format_statistics_value(code, value) == expected

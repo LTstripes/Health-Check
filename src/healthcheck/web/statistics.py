@@ -1,6 +1,7 @@
 """Desktop presentation of the accepted read-only source-period packet (#347 B2)."""
 
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -32,6 +33,35 @@ STATE_LABELS = {
 }
 
 
+def format_statistics_value(code: str, value: int | float | None) -> str:
+    """Format accepted nonnegative scalars for headlines only; never mutate the packet."""
+    if value is None:
+        return "Недоступно"
+    number = Decimal(str(value))
+    if code in {"sleep_duration_asleep_seconds", "tennis_duration_seconds"}:
+        seconds = number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if number > 0 and seconds == 0:
+            return "<0,01 с"
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        parts = []
+        if hours:
+            parts.append(f"{int(hours)} ч")
+        if hours or minutes or not seconds:
+            parts.append(f"{int(minutes)} мин")
+        if seconds:
+            text = format(seconds, "f").rstrip("0").rstrip(".").replace(".", ",")
+            parts.append(f"{text} с")
+        return " ".join(parts)
+    if code == "cycling_distance_meters":
+        km = (number / 1000).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if number > 0 and km == 0:
+            return "<0,01 км"
+        text = format(km, "f").rstrip("0").rstrip(".").replace(".", ",")
+        return f"{text} км"
+    return f"{int(number)} сессий"
+
+
 @router.get("/statistics")
 def statistics(
     request: Request,
@@ -59,6 +89,7 @@ def statistics(
             "metric_labels": METRIC_LABELS,
             "unit_labels": UNIT_LABELS,
             "state_labels": STATE_LABELS,
+            "format_value": format_statistics_value,
         },
         headers={"Cache-Control": "no-store"},
     )

@@ -19,7 +19,7 @@ const base = 'http://127.0.0.1:8120';
   try {
     fs.mkdirSync(evidence, { recursive: true });
     for (const width of [1024, 1440]) {
-      for (const scenario of ['full', 'sparse', 'missing', 'ambiguous']) {
+      for (const scenario of ['full', 'sparse', 'missing', 'ambiguous', 'fractional', 'zero']) {
         const page = await browser.newPage({ viewport: { width, height: 1000 }, javaScriptEnabled: false });
         page.on('pageerror', error => errors.push(error.message));
         await page.route('**/*', route => {
@@ -51,14 +51,35 @@ const base = 'http://127.0.0.1:8120';
           assert.ok(l.x < r.x && Math.abs(l.y - r.y) < 1 && l.width > 300 && r.width > 300);
         }
         const sleep = page.locator('[data-statistics-metric="sleep_duration_asleep_seconds"]');
+        const headline = code => page.locator(`[data-statistics-metric="${code}"] .statistics-value`).first();
         if (scenario === 'full' || scenario === 'sparse') {
-          assert.match(await sleep.locator('article').nth(0).innerText(), /28800/);
-          assert.match(await sleep.locator('article').nth(1).innerText(), /24600/);
+          assert.equal((await sleep.locator('.statistics-value').nth(0).innerText()).trim(), '8 ч 0 мин');
+          assert.equal((await sleep.locator('.statistics-value').nth(1).innerText()).trim(), '6 ч 50 мин');
+        } else if (scenario === 'fractional') {
+          assert.equal((await headline('sleep_duration_asleep_seconds').innerText()).trim(), '8 ч 0 мин 30,5 с');
+          assert.equal((await sleep.locator('.statistics-value').nth(1).innerText()).trim(), '6 ч 50 мин 30 с');
+          assert.equal((await headline('cycling_distance_meters').innerText()).trim(), '12,35 км');
+          assert.equal((await headline('tennis_duration_seconds').innerText()).trim(), '1 ч 1 мин 1,25 с');
+        } else if (scenario === 'zero') {
+          assert.equal((await headline('sleep_duration_asleep_seconds').innerText()).trim(), '0 мин');
+          assert.equal((await headline('tennis_duration_seconds').innerText()).trim(), '0 мин');
         } else {
           assert.equal(await sleep.getByText('Недоступно', { exact: true }).count(), 2);
         }
         if (scenario === 'sparse') {
-          assert.match(await page.locator('[data-statistics-metric="cycling_distance_meters"] .statistics-value').first().innerText(), /^0(?:\.0)? м$/);
+          assert.equal((await headline('cycling_distance_meters').innerText()).trim(), '0 км');
+        }
+        if (!['missing', 'ambiguous'].includes(scenario)) {
+          assert.equal((await headline('activity_session_count').innerText()).trim(), '2 сессий');
+          assert.equal((await headline('tennis_session_count').innerText()).trim(), '1 сессий');
+          assert.match(await headline('activity_type_counts').innerText(), /cycling: 1 сессий/);
+          assert.doesNotMatch(await headline('activity_type_counts').innerText(), /\.0/);
+          if (scenario !== 'fractional' && scenario !== 'sparse') {
+            assert.equal((await headline('cycling_distance_meters').innerText()).trim(), '21 км');
+          }
+          if (scenario === 'full' || scenario === 'sparse') {
+            assert.equal((await headline('tennis_duration_seconds').innerText()).trim(), '1 ч 0 мин');
+          }
         }
         assert.match(await page.locator('[data-statistics-metric="activity_session_count"] article').nth(1).innerText(), /Не собирается/);
         assert.equal(await page.locator('.statistics-comparison').filter({ hasText: 'Google − Garmin:' }).count(), 0);
@@ -84,6 +105,13 @@ const base = 'http://127.0.0.1:8120';
           assert.equal(await summary.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
         }
         assert.match(await sleep.locator('article').nth(1).innerText(), /min → seconds · minutes_times_60_v1/);
+        if (!['missing', 'ambiguous'].includes(scenario)) {
+          const rawSleep = scenario === 'fractional' ? '28830.5' : scenario === 'zero' ? '0.0' : '28800.0';
+          assert.ok((await sleep.locator('details').first().innerText()).includes(`${rawSleep} / ${rawSleep} · seconds`));
+          const distanceDetails = page.locator('[data-statistics-metric="cycling_distance_meters"] details').first();
+          assert.match(await distanceDetails.innerText(), /meters → meters · identity_v1/);
+          if (scenario === 'fractional') assert.match(await distanceDetails.innerText(), /12345\.6 \/ 12345\.6 · meters/);
+        }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
         const period = page.getByLabel('Период', { exact: true });
         await period.focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Tab');
@@ -112,7 +140,7 @@ const base = 'http://127.0.0.1:8120';
           await Promise.all([page.waitForURL(url => url.searchParams.get('google_source_id') === ids[1]), page.keyboard.press('Enter')]);
           for (const [index, provider] of ['garmin', 'google'].entries()) assert.equal(await page.locator(`[name="${provider}_source_id"]`).inputValue(), ids[index]);
           await page.reload();
-          assert.match(await sleep.locator('article').nth(0).innerText(), /28800/);
+          assert.equal((await headline('sleep_duration_asleep_seconds').innerText()).trim(), '8 ч 0 мин');
           assert.match(await sleep.locator('article').nth(1).innerText(), /Недоступно/);
           await sleep.locator('article').nth(1).locator('summary').focus(); await page.keyboard.press('Enter');
           assert.match(await sleep.locator('article').nth(1).innerText(), /ambiguous_google_main: 2/);
@@ -123,7 +151,7 @@ const base = 'http://127.0.0.1:8120';
           await page.reload();
           for (const [index, provider] of ['garmin', 'google'].entries()) assert.equal(await page.locator(`[name="${provider}_source_id"]`).inputValue(), ids[index]);
           assert.match(await page.locator('.statistics-window').innerText(), /2099-01-02 — 2099-01-08 · 7 дней/);
-          assert.match(await sleep.locator('article').nth(0).innerText(), /28800/);
+          assert.equal((await headline('sleep_duration_asleep_seconds').innerText()).trim(), '8 ч 0 мин');
           assert.match(await sleep.locator('article').nth(1).innerText(), /Недоступно/);
         }
         checks.push({ width, scenario, geometry, keyboard: true, periods: [7, 30],
