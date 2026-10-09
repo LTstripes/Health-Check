@@ -31,7 +31,8 @@
   </header>
   <main id="owner-main" tabindex="-1">
     <header class="owner-page-header">
-      <h1>{{ sections[section][0] if section else 'Health-Check' }}</h1>
+      <h1>{{ 'Комментарии / Контекст' if page|default('') == 'context' else (sections[section][0] if section else 'Health-Check') }}</h1>
+      <p><small><a href="/context"{% if page|default('') == 'context' %} aria-current="page"{% endif %}>Комментарии / Контекст</a></small></p>
       {% if section == 'sleep' %}
       <nav class="preset-links sleep-source-switch" aria-label="Источники сна">
         {% for key, label in [('garmin', 'Garmin'), ('google', 'Google'), ('compare', 'Сравнить')] %}

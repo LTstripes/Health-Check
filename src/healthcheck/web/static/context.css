@@ -1,0 +1,13 @@
+.context-page { max-width: 1000px; }
+.context-page textarea { width: 100%; resize: vertical; font: inherit; padding: 12px; background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 4px; }
+.context-page label { display: grid; gap: 4px; margin: 8px 0; min-width: 0; }
+.context-page input { width: 100%; min-width: 0; }
+.context-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.context-actions { display: flex; gap: 16px; margin-top: 16px; }
+.context-note { border-bottom: 1px solid var(--line); padding: 12px 0; overflow-wrap: anywhere; }
+.context-note h3 { font-size: 1rem; }
+.context-text { white-space: pre-wrap; }
+.context-error { background: var(--error-bg); color: var(--error-ink); padding: 16px; }
+.context-success { background: var(--accent-soft); color: var(--accent); padding: 16px; }
+.context-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.context-page summary, .context-page button { min-height: 44px; }

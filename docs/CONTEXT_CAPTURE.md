@@ -33,8 +33,8 @@ forms reject a timezone. Mixed-precision or reversed interval bounds fail
 closed. Production persistence does not parse words such as `today`,
 `yesterday`, or `last night`.
 
-Capture sources implemented by v0 are `cli` and `manual`. The schema reserves
-`telegram` and `dashboard` for later adapters, but v0 cannot write them. Tags
+Capture sources implemented by v0 are `cli`, `manual` and `dashboard`. The
+portal adapter uses `dashboard`; `telegram` remains reserved and rejected. Tags
 are Unicode-normalized, case-folded, separator-normalized, limited to **64
 code points**, and deduplicated. CLI tags are persisted with `confirmed` status
 and their capture-source provenance. The schema can later represent
@@ -73,18 +73,46 @@ the hard maximum is **200**. Add/revise success output omits the note text;
 unrelated provider or health evidence. Validation/storage errors do not echo
 the submitted note.
 
-## Planned portal adapter and chat evidence — Owner decision 2026-10-09
+## Portal adapter — #294 Stage A
 
-The v0 contract above remains the implemented baseline. The following are assigned
-next capabilities, **not changes already available because this document was updated**.
+The loopback portal exposes `/context` through a secondary **Комментарии / Контекст**
+link in the existing desktop shell. It adds, lists and revises through Context v0;
+no new schema, weight-goal settings, providers or migrations are introduced.
 
-- [#294 Stage A](https://github.com/LTstripes/Health-Check/issues/294) adds a compact
-  portal form, recent list and revision history using this service. The original
-  comment, visible editable event date and optional time/range are preserved;
-  event time is not recorded-at. Date-only input must not become invented midnight.
-  Dashboard capture-source activation is a narrow adapter change with provenance
-  tests, not a second journal or unrestricted settings schema. Weight-goal settings
-  stay Stage B and must not block comments.
+- The form preserves original Unicode text and shows an editable event date.
+  Optional time accepts `HH:MM`, seconds or fractional seconds with an explicit
+  `Z`/numeric UTC offset. An optional IANA zone validates that clock/offset.
+  Ambiguous DST times require the caller to select an offset; nonexistent times
+  fail validation. Date-only input carries no clock/offset/zone. Optional interval
+  endpoints have the same precision and their own explicit offsets.
+- **Сейчас** explicitly populates browser-local date, minute, offset and IANA zone.
+  The initial visible date uses the host calendar; it can be changed before saving.
+  Event time/precision and automatic recorded-at UTC are displayed separately.
+- POST/303/GET reads the committed current revision from storage. A hidden operation
+  key supports identical retries and a submitting guard prevents double clicks.
+  An older operation retry shows the latest current version with a notice and history
+  link. A hidden expected revision and a serialized write transaction reject stale
+  editors; the escaped draft is retained for comparison, never silently overwrites.
+- Current entries use inclusive explicit date/interval-overlap filters (initially the
+  last 30 days), most recent first, with a 50-entry bound and an overflow notice.
+  A per-event history link explicitly requests the latest 50 append-only revisions;
+  their currentness, revision number and source are visible. No deletion or AI tags.
+- Existing UI Host/Origin protections apply to all writes. The adapter accepts bounded
+  URL-encoded forms only (64 KiB; text 4000 code points), rejects duplicate/foreign
+  fields, escapes rendered text, sends `Cache-Control: no-store` and uses generic
+  validation/conflict/storage messages. Submitted text is retained only in the form
+  draft/readback, not included in error diagnostics or logs.
+
+Synthetic HTTP/service checks cover persistence across app restart, source/precision,
+retry, stale/concurrent edits, history, escaping and negative input/security cases.
+The browser check uses desktop Chromium 1024/1440 with an explicit disposable
+synthetic profile; Owner rollout and durable-profile write/readback remain separate.
+
+## Planned chat evidence — Owner decision 2026-10-09
+
+The service and portal contracts above are implemented. Chat evidence and direct
+access below remain separately assigned capabilities, not supplied by this adapter.
+
 - [#341 Stage A](https://github.com/LTstripes/Health-Check/issues/341) consumes current
   revisions through existing reads into a separate versioned, bounded health/context
   evidence envelope. It does not modify Context service/models in parallel with

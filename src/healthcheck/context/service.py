@@ -27,7 +27,7 @@ MAX_TEXT_LENGTH = 4_000
 MAX_TAG_LENGTH = 64
 MAX_LIST_RESULTS = 200
 DEFAULT_LIST_RESULTS = 50
-IMPLEMENTED_CAPTURE_SOURCES = frozenset({"cli", "manual"})
+IMPLEMENTED_CAPTURE_SOURCES = frozenset({"cli", "manual", "dashboard"})
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIMESTAMP_RE = re.compile(

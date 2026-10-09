@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Комментарии / Контекст — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/context.css">{% endblock %}
+{% macro note(view) %}
+<article class="context-note" data-revision="{{ view.revision_id }}">
+  <h3>Событие: {{ view.temporal.start_source_timestamp or view.temporal.start_local_date }}{% if view.temporal.end_local_date %} — {{ view.temporal.end_source_timestamp or view.temporal.end_local_date }}{% endif %}</h3>
+  <p class="context-text">{{ view.original_text }}</p>
+  <p class="muted">{% if view.temporal.start_precision == 'date' %}Только дата, время не задано{% else %}Точность: {{ {'minute': 'минута', 'second': 'секунда', 'microsecond': 'доля секунды'}[view.temporal.start_precision] }}{% if view.temporal.start_timezone %} · {{ view.temporal.start_timezone }}{% endif %}{% endif %}</p>
+  <p class="muted">Записано автоматически: {{ view.created_at.isoformat() }} · Версия {{ view.revision_number }} · {{ 'Актуальная' if view.is_current else 'Предыдущая' }} · Источник: {{ view.capture_source }}</p>
+  {% if view.tags %}<p>Метки: {% for tag in view.tags %}{{ tag.name }} ({{ tag.status }}, {{ tag.provenance_source }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+</article>
+{% endmacro %}
+{% block content %}
+<div class="context-page">
+  <p>Исходные комментарии с датой события. Время необязательно. Исправления сохраняют предыдущие версии.</p>
+  {% if error %}<p class="context-error" role="alert">{{ error }}</p>{% endif %}
+  {% if saved %}<p class="context-success" role="status">Сохранено. Ниже запись, прочитанная из хранилища.</p>{% endif %}
+  {% if saved_older %}<p role="status">Операция сохранена ранее. Ниже более новая актуальная версия; предыдущая доступна в истории.</p>{% endif %}
+  {% if current %}
+    {{ note(current) }}
+    <p><a href="/context/{{ current.event_id }}?history=1">История исправлений</a> · <a href="/context">К списку комментариев</a></p>
+  {% elif editing_event_id %}
+    <p><a href="/context/{{ editing_event_id }}">Открыть актуальную запись</a> · <a href="/context">К списку</a></p>
+  {% endif %}
+  {% if form %}
+  <section class="card">
+    <h2>{{ 'Исправить комментарий' if current or editing_event_id else 'Добавить комментарий' }}</h2>
+    <form id="context-form" method="post" action="/context{% if current %}/{{ current.event_id }}{% elif editing_event_id %}/{{ editing_event_id }}{% endif %}">
+      <input type="hidden" name="operation_id" value="{{ form.operation_id }}">
+      {% if form.expected_revision_id %}<input type="hidden" name="expected_revision_id" value="{{ form.expected_revision_id }}">{% endif %}
+      <label for="original-text">Комментарий (обязательно, до 4000 символов)</label>
+      <textarea id="original-text" name="original_text" rows="4" required aria-describedby="context-text-help">
+{{ form.original_text|default('') }}</textarea>
+      <p class="muted" id="context-text-help">Текст сохраняется без перефразирования. Метки и выводы автоматически не добавляются.</p>
+      <div class="context-fields">
+        <label>Дата события<input name="event_date" type="date" required value="{{ form.event_date }}"></label>
+        <label>Время (необязательно)<input name="event_time" type="text" inputmode="text" placeholder="19:30 или 19:30:00" value="{{ form.event_time|default('') }}" maxlength="20"></label>
+        <label>UTC-смещение для времени<input name="offset" type="text" placeholder="+03:00 или Z" value="{{ form.offset|default('') }}" maxlength="6"></label>
+      </div>
+      <label>Часовой пояс IANA (необязательно, только с временем)<input name="timezone_name" placeholder="Europe/Moscow" value="{{ form.timezone_name|default('') }}" maxlength="100"></label>
+      <p class="muted">Для повторяющегося при переходе часов времени выбери смещение явно. Дата без времени не превращается в полночь.</p>
+      <details{% if form.end_date %} open{% endif %}>
+        <summary>Интервал (необязательно)</summary>
+        <div class="context-fields">
+          <label>Дата окончания<input name="end_date" type="date" value="{{ form.end_date|default('') }}"></label>
+          <label>Время окончания<input name="end_time" type="text" placeholder="21:00" value="{{ form.end_time|default('') }}" maxlength="20"></label>
+          <label>UTC-смещение окончания<input name="end_offset" type="text" placeholder="+03:00 или Z" value="{{ form.end_offset|default('') }}" maxlength="6"></label>
+        </div>
+      </details>
+      <div class="context-actions">
+        <button type="button" id="context-now">Сейчас</button>
+        <button type="submit">{{ 'Сохранить исправление' if current or editing_event_id else 'Добавить комментарий' }}</button>
+      </div>
+      <p id="context-pending" class="muted" role="status"></p>
+    </form>
+  </section>
+  {% endif %}
+  {% if from_date is defined %}
+  <section class="card">
+    <h2>Комментарии за период</h2>
+    <form method="get" action="/context" class="context-fields">
+      <label>С даты<input type="date" name="from_date" required value="{{ from_date }}"></label>
+      <label>По дату<input type="date" name="to_date" required value="{{ to_date }}"></label>
+      <button type="submit">Показать</button>
+    </form>
+    {% if items is defined %}
+      {% for view in items %}
+        {{ note(view) }}<p><a href="/context/{{ view.event_id }}">Открыть / исправить</a></p>
+      {% else %}<p>За выбранные даты комментариев нет. Это не означает отсутствие событий.</p>{% endfor %}
+    {% endif %}
+  </section>
+  {% endif %}
+  {% if history %}<section class="card"><h2>История исправлений</h2>{% for view in history %}{{ note(view) }}{% endfor %}</section>{% endif %}
+  {% if has_more %}<p>Показаны первые 50 записей. Есть ещё{% if current %}; история ограничена 50 последними версиями{% else %}; сузь период{% endif %}.</p>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/context.js" defer></script>{% endblock %}
