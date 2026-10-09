@@ -149,7 +149,34 @@ def test_route_matches_accepted_packet(statistics_ui, case, days):
     if export:
         directory = Path(export)
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"{case}-{days}.html").write_text(response.text, encoding="utf-8")
+        # Navigation must retain identities from the SAME persisted database.
+        # Each pytest parameter has a fresh DB; export both windows together.
+        for window in (7, 30):
+            rendered = client.get("/statistics", params={"days": window, "end_date": str(END)})
+            assert rendered.status_code == 200
+            (directory / f"{case}-{window}.html").write_text(rendered.text, encoding="utf-8")
+            if case == "ambiguous":
+                garmin = session.scalar(
+                    select(GarminSource).where(GarminSource.device_attributed.is_(True))
+                )
+                google = session.scalar(
+                    select(GoogleSource).where(
+                        GoogleSource.source_instance_id != "synthetic-other-source"
+                    )
+                )
+                selected = client.get(
+                    "/statistics",
+                    params=dict(
+                        days=window,
+                        end_date=str(END),
+                        garmin_source_id=garmin.id,
+                        google_source_id=google.id,
+                    ),
+                )
+                assert selected.status_code == 200
+                (directory / f"ambiguous-selected-{window}.html").write_text(
+                    selected.text, encoding="utf-8"
+                )
 
 
 def test_explicit_independent_selection_and_period_persistence(statistics_ui):
@@ -172,9 +199,6 @@ def test_explicit_independent_selection_and_period_persistence(statistics_ui):
     assert "28800.0" in cells[SLEEP_CODE, "left"]
     for days in (7, 30):
         assert client.get("/statistics", params={**params, "days": days}).status_code == 200
-    export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
-    if export:
-        Path(export, "ambiguous-selected-30.html").write_text(response.text, encoding="utf-8")
 
 
 @pytest.mark.parametrize(
