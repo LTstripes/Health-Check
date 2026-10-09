@@ -32,7 +32,7 @@ from healthcheck.chat_evidence import (
     read_period_evidence,
 )
 
-PROTOCOL_VERSIONS = ("2025-03-26", "2025-06-18")
+PROTOCOL_VERSIONS = ("2025-06-18",)
 MAX_REQUEST_BYTES = 8192
 READ_SCOPE = "health.evidence:read"
 INSTRUCTIONS = (
@@ -174,8 +174,8 @@ def create_app(config: MCPConfig) -> FastAPI:
 
     @app.post("/mcp")
     async def mcp(request: Request):
-        version = request.headers.get("mcp-protocol-version", PROTOCOL_VERSIONS[0])
-        if version not in PROTOCOL_VERSIONS:
+        version = request.headers.get("mcp-protocol-version")
+        if version is not None and version not in PROTOCOL_VERSIONS:
             return Response(status_code=400)
         if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
             return Response(status_code=415)
@@ -191,7 +191,7 @@ def create_app(config: MCPConfig) -> FastAPI:
                 return Response(status_code=413)
         try:
             message = json.loads(body.decode("utf-8"))
-        except (ValueError, UnicodeError):
+        except (ValueError, UnicodeError, RecursionError):
             return _error(None, -32700, "invalid_json", 400)
         if (not isinstance(message, dict) or message.get("jsonrpc") != "2.0"
                 or set(message) - {"jsonrpc", "id", "method", "params"}):
@@ -199,10 +199,19 @@ def create_app(config: MCPConfig) -> FastAPI:
         request_id = message.get("id")
         if "id" in message and type(request_id) not in (int, str):
             return _error(None, -32600, "invalid_request", 400)
+        if isinstance(request_id, str):
+            try:
+                request_id.encode("utf-8")
+            except UnicodeError:
+                return _error(None, -32600, "invalid_request", 400)
         method = message.get("method")
         params = message.get("params", {})
         if not isinstance(method, str) or not isinstance(params, dict):
             return _error(request_id, -32600, "invalid_request", 400)
+        # An unversioned initialize starts negotiation. Subsequent unversioned
+        # messages would imply March, whose required batches we do not implement.
+        if method != "initialize" and version is None:
+            return Response(status_code=400)
         if "id" not in message:
             # Notifications cannot read data; stateless server has nothing to cancel.
             return Response(status_code=202)

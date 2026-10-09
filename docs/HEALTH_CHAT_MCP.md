@@ -36,7 +36,11 @@ claim fresh collection or complete historical coverage. Original Context notes
 are untrusted data, never instructions. No medical/causal interpretation is added.
 
 `/mcp` implements stateless Streamable HTTP, JSON responses, initialize, ping,
-notifications and tools/list/call (2025-03-26 and 2025-06-18). GET and DELETE return
+notifications and tools/list/call (2025-06-18 only). The initial initialize POST
+can omit the version header; subsequent POSTs require
+`MCP-Protocol-Version: 2025-06-18`. March headers/unversioned subsequent POSTs and
+JSON-RPC batches are rejected; older clients must support June to continue.
+GET and DELETE return
 405; no SSE stream/session store is needed for this read-only prototype. POST
 bodies are capped at 8 KiB. Only one evidence read runs at a time; overlapping
 reads receive 429 `evidence_busy`. The underlying reader retains its SQLite

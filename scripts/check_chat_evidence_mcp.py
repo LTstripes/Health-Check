@@ -46,7 +46,8 @@ def probe(root: Path) -> None:
     before = fingerprint()
     app = create_app(MCPConfig(paths.root, "synthetic", ZoneInfo("UTC")))
     with TestClient(app, base_url="http://127.0.0.1",
-                    headers={"Accept": "application/json, text/event-stream"}) as http:
+                    headers={"Accept": "application/json, text/event-stream",
+                             "MCP-Protocol-Version": "2025-06-18"}) as http:
         def rpc(method, params):
             response = http.post("/mcp", json={"jsonrpc": "2.0", "id": 1,
                                                "method": method, "params": params})

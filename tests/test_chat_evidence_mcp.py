@@ -24,7 +24,8 @@ from healthcheck.runtime import prepare_runtime
 from test_chat_evidence import _profile_fingerprint
 
 ARGS = {"start": "2099-05-01", "end": "2099-05-03", "domains": ["weight", "context"]}
-HEADERS = {"Accept": "application/json, text/event-stream"}
+HEADERS = {"Accept": "application/json, text/event-stream",
+           "MCP-Protocol-Version": "2025-06-18"}
 TOKEN = "synthetic-gateway-credential-fixture-only"
 
 
@@ -310,3 +311,38 @@ def test_concurrent_read_is_rejected_without_queueing_another_query(config, monk
             release.set()
             thread.join(10)
     assert len(completed) == 1 and completed[0].status_code == 200
+
+
+def test_only_june_is_negotiated_and_unversioned_calls_fail(config):
+    with TestClient(mcp.create_app(config), base_url="http://127.0.0.1",
+                    headers={"Accept": "application/json, text/event-stream"}) as http:
+        response = rpc(http, "initialize", {
+            "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {},
+        })
+        assert response.status_code == 200
+        assert response.json()["result"]["protocolVersion"] == "2025-06-18"
+        assert call(http).status_code == 400
+        assert rpc(http, "ping", headers={"MCP-Protocol-Version": "2025-03-26"}).status_code == 400
+        assert rpc(http, "ping", headers={"MCP-Protocol-Version": "2025-06-18"}).status_code == 200
+
+
+def test_nested_json_and_invalid_unicode_id_are_bounded_protocol_errors(config, monkeypatch):
+    with client(config) as http:
+        response = http.post("/mcp", content=b"[" * 2000 + b"]" * 2000,
+                             headers={"Content-Type": "application/json"})
+        assert response.status_code == 400
+        # Parser recursion limits vary by runtime: parsed arrays are invalid RPC too.
+        assert response.json()["error"]["code"] in {-32700, -32600}
+        with monkeypatch.context() as patch:
+            def recursion_failure(*_a, **_kw):
+                raise RecursionError("synthetic parser recursion")
+
+            patch.setattr(mcp.json, "loads", recursion_failure)
+            exhausted = http.post("/mcp", content=b"{}",
+                                  headers={"Content-Type": "application/json"})
+        assert exhausted.status_code == 400
+        assert exhausted.json()["error"]["code"] == -32700
+        response = http.post("/mcp", content=b'{"jsonrpc":"2.0","id":"\\ud800","method":"ping"}',
+                             headers={"Content-Type": "application/json"})
+        assert response.status_code == 400 and response.json()["id"] is None
+        assert response.json()["error"]["code"] == -32600
