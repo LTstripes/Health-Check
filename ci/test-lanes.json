@@ -3,6 +3,7 @@
   "lanes": {
     "garmin": [
       "tests/test_activity_owner_ui.py",
+      "tests/test_activity_session_detail.py",
       "tests/test_garmin_activity_comparison.py",
       "tests/test_garmin_activity_pagination_resume.py",
       "tests/test_garmin_analytic_contract.py",

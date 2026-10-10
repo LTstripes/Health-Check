@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.analytic_contract import (
     ANALYTIC_METRIC_REGISTRY,
     AnalyticAvailability,
@@ -31,6 +32,7 @@ from healthcheck.garmin.persistence import PROJECTION_CURRENT
 
 R03_02_ALGORITHM = "r03-02-garmin-activity-comparison-v1"
 R03_02_RULE_VERSION = "r03-02-v2"
+R03_02_SESSION_DETAIL_CONTRACT_VERSION = "r03-02-garmin-activity-session-detail-v1"
 
 MIN_SELECTED_ACTIVITIES = 2
 MAX_SELECTED_ACTIVITIES = 20
@@ -257,6 +259,48 @@ class ComparisonCoverageSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class GarminActivitySessionDetail:
+    """One exact current activity session identity with typed metric coverage."""
+
+    contract_version: str
+    rule_version: str
+    record_id: str
+    external_record_id: str | None
+    activity_type: str | None
+    idempotency_key: str | None
+    stream_code: str
+    projection_status: str
+    temporal_precision: str | None
+    source_local_date: str | None
+    measured_at_utc: str | None
+    local_wall_time: str | None
+    temporal: dict[str, Any] | None
+    metric_coverage: tuple[SessionMetricCoverage, ...]
+    frozen_inputs: tuple[dict[str, Any], ...]
+    result_hash: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "rule_version": self.rule_version,
+            "record_id": self.record_id,
+            "external_record_id": self.external_record_id,
+            "activity_type": self.activity_type,
+            "idempotency_key": self.idempotency_key,
+            "stream_code": self.stream_code,
+            "projection_status": self.projection_status,
+            "temporal_precision": self.temporal_precision,
+            "source_local_date": self.source_local_date,
+            "measured_at_utc": self.measured_at_utc,
+            "local_wall_time": self.local_wall_time,
+            "temporal": dict(self.temporal) if self.temporal is not None else None,
+            "metric_coverage": [item.as_dict() for item in self.metric_coverage],
+            "frozen_inputs": [dict(item) for item in self.frozen_inputs],
+            "result_hash": self.result_hash,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class GarminActivityComparisonResult:
     """Versioned deterministic R03-02 result with frozen #55 input manifests."""
 
@@ -329,6 +373,38 @@ def cadence_source_field_is_unambiguous(field_path: str | None) -> bool:
     return leaf in _CADENCE_UNAMBIGUOUS_LEAVES
 
 
+def _validate_metric_codes(metric_codes: Sequence[str] | None) -> tuple[str, ...]:
+    """Return the reviewed distinct metric-code selection or raise deterministically."""
+
+    codes = (
+        tuple(ACTIVITY_COMPARISON_METRIC_CODES)
+        if metric_codes is None
+        else tuple(code.strip() for code in metric_codes)
+    )
+    if not codes:
+        raise GarminActivityComparisonError(
+            "empty_metric_codes",
+            "at least one metric code is required",
+        )
+    if len(codes) != len(set(codes)):
+        raise GarminActivityComparisonError(
+            "duplicate_metric_codes",
+            "metric_codes must be distinct",
+        )
+    for code in codes:
+        if code not in ACTIVITY_COMPARISON_METRIC_CODES:
+            raise GarminActivityComparisonError(
+                "unsupported_metric_code",
+                f"metric code is not part of R03-02 activity comparison: {code}",
+            )
+        if code not in ANALYTIC_METRIC_REGISTRY:
+            raise GarminActivityComparisonError(
+                "unknown_metric_code",
+                f"unknown analytic metric code: {code}",
+            )
+    return codes
+
+
 def _validate_query(
     *,
     garmin_source_id: str,
@@ -376,38 +452,48 @@ def _validate_query(
             "reference_not_in_selection",
             "reference_activity_id must be one of the selected activity_record_ids",
         )
-    codes = (
-        tuple(ACTIVITY_COMPARISON_METRIC_CODES)
-        if metric_codes is None
-        else tuple(code.strip() for code in metric_codes)
-    )
-    if not codes:
-        raise GarminActivityComparisonError(
-            "empty_metric_codes",
-            "at least one metric code is required",
-        )
-    if len(codes) != len(set(codes)):
-        raise GarminActivityComparisonError(
-            "duplicate_metric_codes",
-            "metric_codes must be distinct",
-        )
-    for code in codes:
-        if code not in ACTIVITY_COMPARISON_METRIC_CODES:
-            raise GarminActivityComparisonError(
-                "unsupported_metric_code",
-                f"metric code is not part of R03-02 activity comparison: {code}",
-            )
-        if code not in ANALYTIC_METRIC_REGISTRY:
-            raise GarminActivityComparisonError(
-                "unknown_metric_code",
-                f"unknown analytic metric code: {code}",
-            )
+    codes = _validate_metric_codes(metric_codes)
     return GarminActivityComparisonQuery(
         garmin_source_id=source_id,
         activity_record_ids=tuple(ordered_ids),
         reference_activity_id=reference_id,
         metric_codes=codes,
     )
+
+
+def _validate_activity_record(record: GarminSourceRecord, *, garmin_source_id: str) -> None:
+    """Fail closed unless the record is this source's current activity projection."""
+
+    if record.garmin_source_id != garmin_source_id:
+        raise GarminActivityComparisonError(
+            "wrong_source_activity_record",
+            f"activity record {record.id} does not belong to garmin_source_id "
+            f"{garmin_source_id}",
+        )
+    if record.projection_status != PROJECTION_CURRENT:
+        raise GarminActivityComparisonError(
+            "non_current_activity_record",
+            f"activity record {record.id} is not a current projection "
+            f"(status={record.projection_status})",
+        )
+    if record.stream_code != GarminStream.ACTIVITY.value:
+        raise GarminActivityComparisonError(
+            "non_activity_record",
+            f"record {record.id} stream_code={record.stream_code!r} is not activity",
+        )
+
+
+def _load_activity_record(
+    session: Session, *, garmin_source_id: str, activity_record_id: str
+) -> GarminSourceRecord:
+    record = session.get(GarminSourceRecord, activity_record_id)
+    if record is None:
+        raise GarminActivityComparisonError(
+            "unknown_activity_record_id",
+            f"activity record not found: {activity_record_id}",
+        )
+    _validate_activity_record(record, garmin_source_id=garmin_source_id)
+    return record
 
 
 def _load_selected_records(
@@ -429,23 +515,7 @@ def _load_selected_records(
                 "unknown_activity_record_id",
                 f"activity record not found: {record_id}",
             )
-        if record.garmin_source_id != query.garmin_source_id:
-            raise GarminActivityComparisonError(
-                "wrong_source_activity_record",
-                f"activity record {record_id} does not belong to garmin_source_id "
-                f"{query.garmin_source_id}",
-            )
-        if record.projection_status != PROJECTION_CURRENT:
-            raise GarminActivityComparisonError(
-                "non_current_activity_record",
-                f"activity record {record_id} is not a current projection "
-                f"(status={record.projection_status})",
-            )
-        if record.stream_code != GarminStream.ACTIVITY.value:
-            raise GarminActivityComparisonError(
-                "non_activity_record",
-                f"record {record_id} stream_code={record.stream_code!r} is not activity",
-            )
+        _validate_activity_record(record, garmin_source_id=query.garmin_source_id)
         ordered.append(record)
     return tuple(ordered)
 
@@ -585,6 +655,34 @@ def _coverage_lookup(
         if item.metric_code == metric_code:
             return item
     raise KeyError(metric_code)
+
+
+def _assemble_record_metrics(
+    session: Session,
+    *,
+    record: GarminSourceRecord,
+    metric_codes: Sequence[str],
+) -> tuple[
+    tuple[SessionMetricCoverage, ...],
+    dict[str, SessionMetricCoverage],
+    dict[str, Any] | None,
+    tuple[AnalyticInputDTO, ...],
+]:
+    """Assemble one record's exact typed coverage and frozen inputs per metric."""
+
+    metric_rows: list[SessionMetricCoverage] = []
+    per_metric: dict[str, SessionMetricCoverage] = {}
+    temporal_dict: dict[str, Any] | None = None
+    dtos: list[AnalyticInputDTO] = []
+    for metric_code in metric_codes:
+        coverage, dto = _assemble_session_metric(session, record=record, metric_code=metric_code)
+        metric_rows.append(coverage)
+        per_metric[metric_code] = coverage
+        if dto is not None:
+            dtos.append(dto)
+            if temporal_dict is None and dto.temporal is not None:
+                temporal_dict = dto.temporal.as_dict()
+    return tuple(metric_rows), per_metric, temporal_dict, tuple(dtos)
 
 
 def _percent_delta(
@@ -784,19 +882,11 @@ def compute_garmin_activity_comparison(
     coverage_by_record: dict[str, dict[str, SessionMetricCoverage]] = {}
 
     for record in records:
-        metric_rows: list[SessionMetricCoverage] = []
-        per_metric: dict[str, SessionMetricCoverage] = {}
-        temporal_dict: dict[str, Any] | None = None
-        for metric_code in query.metric_codes:
-            coverage, dto = _assemble_session_metric(
-                session, record=record, metric_code=metric_code
-            )
-            metric_rows.append(coverage)
-            per_metric[metric_code] = coverage
-            if dto is not None:
-                frozen_by_hash[dto.manifest_hash] = dto.as_dict()
-                if temporal_dict is None and dto.temporal is not None:
-                    temporal_dict = dto.temporal.as_dict()
+        metric_rows, per_metric, temporal_dict, dtos = _assemble_record_metrics(
+            session, record=record, metric_codes=query.metric_codes
+        )
+        for dto in dtos:
+            frozen_by_hash[dto.manifest_hash] = dto.as_dict()
         sessions.append(
             ComparedActivitySession(
                 record_id=record.id,
@@ -807,7 +897,7 @@ def compute_garmin_activity_comparison(
                 projection_status=record.projection_status,
                 is_reference=record.id == query.reference_activity_id,
                 temporal=temporal_dict,
-                metric_coverage=tuple(metric_rows),
+                metric_coverage=metric_rows,
             )
         )
         coverage_by_record[record.id] = per_metric
@@ -890,21 +980,117 @@ def analyze_garmin_activity_comparison(
     )
 
 
+def assemble_garmin_activity_session(
+    session: Session,
+    *,
+    garmin_source_id: str,
+    activity_record_id: str,
+    metric_codes: Sequence[str] | None = None,
+) -> GarminActivitySessionDetail:
+    """Assemble exact typed coverage for one current session of one explicit source.
+
+    Bound to one persisted ``garmin_source_id`` plus one current activity record id:
+    an unknown, wrong-source, retired or non-activity record raises the same
+    deterministic errors as the comparison instead of returning another session.
+    Values reuse the reviewed R03-02 input assembly, so missing/null/zero/invalid
+    states stay distinct and no value is inferred from another metric.
+    """
+
+    source_id = (garmin_source_id or "").strip()
+    if not source_id:
+        raise GarminActivityComparisonError(
+            "missing_garmin_source_id",
+            "garmin_source_id is required for activity session detail",
+        )
+    record_id = (activity_record_id or "").strip()
+    if not record_id:
+        raise GarminActivityComparisonError(
+            "missing_activity_record_id",
+            "activity_record_id is required for activity session detail",
+        )
+    codes = _validate_metric_codes(metric_codes)
+    record = _load_activity_record(
+        session, garmin_source_id=source_id, activity_record_id=record_id
+    )
+    metric_rows, _per_metric, temporal_dict, dtos = _assemble_record_metrics(
+        session, record=record, metric_codes=codes
+    )
+    frozen_by_hash: dict[str, dict[str, Any]] = {}
+    for dto in dtos:
+        frozen_by_hash[dto.manifest_hash] = dto.as_dict()
+    frozen_inputs = sorted(
+        frozen_by_hash.values(),
+        key=lambda item: (
+            (item.get("evidence") or {}).get("record_id") or "",
+            (item.get("selected") or {}).get("metric_code") or "",
+            item.get("manifest_hash") or "",
+        ),
+    )
+    timestamp = restore_stored_utc(record.source_timestamp_utc)
+    body = {
+        "contract_version": R03_02_SESSION_DETAIL_CONTRACT_VERSION,
+        "rule_version": R03_02_RULE_VERSION,
+        "record_id": record.id,
+        "external_record_id": record.external_record_id,
+        "activity_type": record.activity_type,
+        "idempotency_key": record.idempotency_key,
+        "stream_code": record.stream_code,
+        "projection_status": record.projection_status,
+        "temporal_precision": record.temporal_precision,
+        "source_local_date": (
+            record.source_local_date.isoformat()
+            if record.source_local_date is not None
+            else None
+        ),
+        "measured_at_utc": timestamp.isoformat() if timestamp is not None else None,
+        "local_wall_time": record.local_wall_time,
+        "temporal": temporal_dict,
+        "metric_coverage": [item.as_dict() for item in metric_rows],
+        "frozen_inputs": frozen_inputs,
+    }
+    result_hash = _hash_result_body(body)
+    return GarminActivitySessionDetail(
+        contract_version=R03_02_SESSION_DETAIL_CONTRACT_VERSION,
+        rule_version=R03_02_RULE_VERSION,
+        record_id=record.id,
+        external_record_id=record.external_record_id,
+        activity_type=record.activity_type,
+        idempotency_key=record.idempotency_key,
+        stream_code=record.stream_code,
+        projection_status=record.projection_status,
+        temporal_precision=record.temporal_precision,
+        source_local_date=(
+            record.source_local_date.isoformat()
+            if record.source_local_date is not None
+            else None
+        ),
+        measured_at_utc=timestamp.isoformat() if timestamp is not None else None,
+        local_wall_time=record.local_wall_time,
+        temporal=temporal_dict,
+        metric_coverage=metric_rows,
+        frozen_inputs=tuple(frozen_inputs),
+        result_hash=result_hash,
+    )
+
+
 __all__ = [
     "ACTIVITY_COMPARISON_METRIC_CODES",
     "MAX_SELECTED_ACTIVITIES",
     "MIN_SELECTED_ACTIVITIES",
     "R03_02_ALGORITHM",
     "R03_02_RULE_VERSION",
+    "R03_02_SESSION_DETAIL_CONTRACT_VERSION",
     "ComparedActivitySession",
     "ComparisonCoverageSummary",
     "GarminActivityComparisonError",
     "GarminActivityComparisonQuery",
     "GarminActivityComparisonResult",
+    "GarminActivitySessionDetail",
     "MetricComparisonDelta",
     "SessionComparisonBlock",
     "SessionMetricCoverage",
     "analyze_garmin_activity_comparison",
+    "assemble_garmin_activity_session",
     "cadence_source_field_is_unambiguous",
     "source_field_matches_reviewed",
     "compute_garmin_activity_comparison",

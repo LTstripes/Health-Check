@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "owner_ui.html" as owner %}
+{% set activity_names = {'cycling': 'Велотренировка', 'running': 'Бег', 'walking': 'Ходьба', 'swimming': 'Плавание', 'strength_training': 'Силовая тренировка', 'tennis': 'Теннис', 'tennis_v2': 'Теннис'} %}
+{% set card_labels = {
+ 'duration_seconds': 'Длительность',
+ 'distance_meters': 'Расстояние',
+ 'heart_rate_bpm': 'Средний пульс Garmin',
+ 'max_heart_rate_bpm': 'Максимальный пульс Garmin',
+ 'training_effect': 'Аэробный эффект Garmin',
+ 'anaerobic_training_effect': 'Анаэробный эффект Garmin',
+ 'acute_training_load': 'Нагрузка сессии Garmin'
+} %}
+{% set unit_labels = {'seconds': 'с', 'meters': 'м', 'bpm': 'уд/мин', 'points': 'баллы', 'm/s': 'м/с', 'watts': 'Вт', 'rpm': 'об/мин', '%': '%'} %}
+{% macro human_duration(value) -%}
+{%- set total = value | float -%}
+{%- set hours = (total // 3600) | int -%}
+{%- set minutes = ((total % 3600) // 60) | int -%}
+{%- set seconds = total % 60 -%}
+{%- if hours %}{{ hours }} ч {% endif %}{% if hours or minutes %}{{ minutes }} мин {% endif %}{{ seconds | owner_number }} с
+{%- endmacro %}
+{% block title %}Сессия — Активность — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/activity_detail.css">{% endblock %}
+{% block content %}
+{% set session = detail.session %}{% set sel = detail.source %}
+<section class="card activity-session-detail" aria-label="Сохранённая сессия Garmin">
+ <p class="muted activity-session-back"><a href="{{ back_href }}">К журналу активности</a></p>
+ <h2>{{ activity_names.get(session.activity_type, 'Другой вид активности') }}</h2>
+ <p class="muted">Сохранённая сессия Garmin{% if sel %} · {{ sel.device_model or 'Учётная запись' }}{% endif %} · {{ (session.source_local_date or session.local_wall_time or session.measured_at_utc) | owner_date }}</p>
+ <p>Средний и максимальный пульс — разные поля Garmin. Пропуски не заменяются нулём. Точные значения, единицы и происхождение — в технических деталях.</p>
+ <div class="activity-detail-grid">
+  {% for card in detail.cards %}
+  <article class="activity-metric-card" data-metric="{{ card.metric_code }}">
+   <h3>{{ card_labels.get(card.metric_code, 'Показатель') }}</h3>
+   {% if card.state in ['value', 'zero', 'partial'] %}
+   <p class="activity-metric-value"><span data-owner-state="present">{{ card.value | owner_number }}</span>{% if card.unit %} <span class="activity-metric-unit">{{ unit_labels.get(card.unit, card.unit) }}</span>{% else %} <span class="activity-metric-unit muted">Единица не предоставлена</span>{% endif %}</p>
+   {% if card.metric_code == 'duration_seconds' and card.value is not none and card.value >= 0 %}<p class="muted activity-metric-hint">{{ human_duration(card.value) }}</p>{% endif %}
+   {% if card.state == 'partial' %}{{ owner.state_chip('partial') }}{% endif %}
+   {% elif card.state == 'invalid' %}
+   <p><span class="status-chip owner-state unknown" data-owner-state="unknown">Некорректное значение</span></p>
+   {% else %}
+   <p><span class="unavailable" data-owner-state="unavailable">Не предоставлено</span></p>
+   {% endif %}
+  </article>
+  {% endfor %}
+ </div>
+ <p class="muted">Если источник не сохранил пригодное значение, показатель остаётся отсутствующим, а не нулевым.</p>
+</section>
+{% call owner.technical_details('activity-session-technical') %}
+ <p>Точные значения без округления, состояния, единицы, пути исходных полей и происхождение. Производитель каждой метрики не подтверждён.</p>
+ <h2>Запись сессии</h2>
+ <pre id="activity-session-evidence">{{ session | tojson(indent=2) }}</pre>
+ <h2>Источник</h2>
+ <pre id="activity-session-source">{{ sel | tojson(indent=2) }}</pre>
+{% endcall %}
+{% endblock %}

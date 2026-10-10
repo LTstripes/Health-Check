@@ -1,0 +1,25 @@
+/* Bounded saved-session detail (#345); journal and A/B comparison stay unchanged. */
+.activity-session-back { margin-top: 0; }
+.activity-session-back a { font-weight: 600; }
+.activity-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.activity-metric-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 12px 16px;
+  min-width: 0;
+}
+.activity-metric-card h3 { margin: 0 0 8px; font-size: .95rem; }
+.activity-metric-value {
+  margin: 0;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.activity-metric-unit { font-size: .9rem; }
+.activity-metric-hint { margin: 4px 0 0; font-size: .875rem; }
+.activity-session-detail > p { overflow-wrap: anywhere; }

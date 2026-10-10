@@ -19,6 +19,8 @@
 {% block styles %}<link rel="stylesheet" href="/static/activity_comparison.css"><link rel="stylesheet" href="/static/activity_owner.css">{% endblock %}
 {% block content %}
 {% set sel = payload.source_selection %}{% set overview = payload.training_overview %}
+{% set session_query = namespace(value='') %}
+{% for key in ('metric_code', 'start_date', 'end_date') %}{% set raw = request.query_params.get(key) %}{% if raw %}{% set session_query.value = session_query.value ~ '&' ~ key ~ '=' ~ (raw | urlencode) %}{% endif %}{% endfor %}
 <section class="card activity-source-card" aria-label="Источник активности">
  <p>Сохранённые сессии Garmin. Сессии Google пока не загружаются. <a href="/imports">Данные источников</a>.</p>
  {% if sel.sources | length > 1 %}
@@ -49,7 +51,7 @@
    </div>
    <div class="activity-recent"><h2>Последние сессии</h2>
     <div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Вид активности</th><th>Дата / время</th></tr></thead><tbody>
-    {% for activity in payload.activities[:5] %}<tr><td>{{ loop.index }}</td><td>{{ activity_names.get(activity.activity_type, 'Другой вид активности') }}</td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
+    {% for activity in payload.activities[:5] %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity_names.get(activity.activity_type, 'Другой вид активности') }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
     </tbody></table></div>
    </div>
   </div>
@@ -65,7 +67,7 @@
  </section>
  <details class="card owner-details activity-history"><summary>Полный журнал · до 50 последних записей{% if payload.activities %} · {{ payload.activities | length }} сохранено{% endif %}</summary>
   {% if payload.activities %}<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Вид активности</th><th>Дата / время</th></tr></thead><tbody>
-  {% for activity in payload.activities %}<tr><td>{{ loop.index }}</td><td>{{ activity_names.get(activity.activity_type, 'Другой вид активности') }}</td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
+  {% for activity in payload.activities %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity_names.get(activity.activity_type, 'Другой вид активности') }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
   </tbody></table></div>{% else %}<p class="unavailable">Сохранённые сессии недоступны. Это не подтверждает отсутствие тренировок.</p>{% endif %}
  </details>
 </div>

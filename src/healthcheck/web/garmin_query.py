@@ -13,6 +13,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from healthcheck.analytics.garmin_activity_comparison import (
@@ -22,6 +23,7 @@ from healthcheck.analytics.garmin_activity_comparison import (
     GarminActivityComparisonError,
     GarminActivityComparisonQuery,
     analyze_garmin_activity_comparison,
+    assemble_garmin_activity_session,
 )
 from healthcheck.analytics.garmin_baselines import (
     MAX_SERIES_CALENDAR_DAYS,
@@ -128,6 +130,44 @@ DASHBOARD_DISCLAIMER = (
 )
 DEFAULT_SCALAR_METRIC = "stress_daily_average"
 DEFAULT_WINDOW_DAYS = 28
+
+# Owner saved-session detail (#345): core cards always render with exact states;
+# typed #319 extras render only when the persisted session actually has a value.
+ACTIVITY_SESSION_DETAIL_VIEW_CONTRACT = "garmin-activity-session-owner-view-v1"
+_ACTIVITY_SESSION_DETAIL_CORE_CODES = (
+    "duration_seconds",
+    "distance_meters",
+    "heart_rate_bpm",
+    "training_effect",
+    "acute_training_load",
+)
+_ACTIVITY_SESSION_DETAIL_TYPED_CODES = (
+    "max_heart_rate_bpm",
+    "anaerobic_training_effect",
+)
+_SESSION_DETAIL_VALUE_STATES = frozenset({"value", "zero", "partial"})
+_SESSION_DETAIL_CARD_STATES = {
+    "usable": "value",
+    "zero": "zero",
+    "partial": "partial",
+    "missing": "missing",
+    "null": "null",
+    "invalid": "invalid",
+}
+
+
+def _session_metric_card(metric_code: str, item: dict[str, Any] | None) -> dict[str, Any]:
+    """Map one exact session metric coverage row to an owner card without inventing values."""
+
+    if item is None:
+        return {"metric_code": metric_code, "state": "absent", "value": None, "unit": None}
+    state = _SESSION_DETAIL_CARD_STATES.get(str(item.get("status") or ""), "unavailable")
+    return {
+        "metric_code": metric_code,
+        "state": state,
+        "value": item.get("value") if state in _SESSION_DETAIL_VALUE_STATES else None,
+        "unit": item.get("unit"),
+    }
 
 
 class GarminQueryError(ValueError):
@@ -393,6 +433,46 @@ class GarminQueryService:
         except Exception as exc:  # noqa: BLE001
             raise _map_domain_error(exc) from exc
         return self._present_activity_result(result.as_dict())
+
+    def activity_session_detail(
+        self,
+        *,
+        garmin_source_id: str,
+        activity_record_id: str,
+    ) -> dict[str, Any]:
+        """Exact read-only detail for one saved current session of one explicit source."""
+
+        source_id = self._require_source_id(garmin_source_id)
+        try:
+            detail = assemble_garmin_activity_session(
+                self.session,
+                garmin_source_id=source_id,
+                activity_record_id=activity_record_id,
+            )
+        except SQLAlchemyError:
+            # Persistence failures keep the shared HTML read-failure parity (#347).
+            raise
+        except Exception as exc:  # noqa: BLE001 - mapped to sanitized client errors
+            raise _map_domain_error(exc) from exc
+        body = detail.as_dict()
+        coverage_by_code = {item["metric_code"]: item for item in body["metric_coverage"]}
+        cards = [
+            _session_metric_card(code, coverage_by_code.get(code))
+            for code in _ACTIVITY_SESSION_DETAIL_CORE_CODES
+        ]
+        for code in _ACTIVITY_SESSION_DETAIL_TYPED_CODES:
+            card = _session_metric_card(code, coverage_by_code.get(code))
+            if card["state"] in _SESSION_DETAIL_VALUE_STATES:
+                cards.append(card)
+        source_row = self.session.get(GarminSource, source_id)
+        return _sanitize(
+            {
+                "contract_version": ACTIVITY_SESSION_DETAIL_VIEW_CONTRACT,
+                "source": self._source_payload(source_row) if source_row is not None else None,
+                "session": body,
+                "cards": cards,
+            }
+        )
 
     def lagged_association(
         self,
