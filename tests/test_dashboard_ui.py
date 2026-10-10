@@ -1061,6 +1061,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         ("/", "Вес"),
         ("/sleep", "Сон"),
         ("/garmin", "Активность"),
+        ("/statistics", "Статистика"),
         ("/imports", "Данные"),
     ]
     expected_modes = {
@@ -1068,6 +1069,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         "Вес": "Вес и состав тела",
         "Сон": None,
         "Активность": "Тренировки и восстановление",
+        "Статистика": "Независимые источники за период",
         "Данные": "Проверка импорта",
     }
     with TestClient(
@@ -1102,7 +1104,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
                 selected = "Сравнить" if path == "/agreement" else "Garmin"
                 assert f'aria-current="page">{selected}</a>' in switch
             # The thematic pages are Russian; legacy import detail stays English.
-            if section in ("Обзор", "Вес", "Сон", "Активность") or path == "/imports":
+            if section in ("Обзор", "Вес", "Сон", "Активность", "Статистика") or path == "/imports":
                 assert 'class="owner-page-content" lang="en"' not in response.text
             else:
                 assert 'class="owner-page-content" lang="en"' in response.text
