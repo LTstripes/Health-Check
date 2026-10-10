@@ -793,7 +793,10 @@ def test_provenance_fail_closed(assoc_database) -> None:
     _paths, session, store = assoc_database
     fixture_value = json.loads((FIXTURE_ROOT / "sleep.json").read_text(encoding="utf-8"))
     payload_bytes = (FIXTURE_ROOT / "sleep.json").read_bytes()
-    result_v1 = normalize_garmin_payload(fixture_value)
+    result_v1 = replace(
+        normalize_garmin_payload(fixture_value),
+        contract_version="r02-garmin-normalization-contract-v1",
+    )
     repository = GarminPersistenceRepository(session, payload_store=store)
     source = repository.sources.get_or_create(result_v1.source)
     provenance = repositories_for(session)

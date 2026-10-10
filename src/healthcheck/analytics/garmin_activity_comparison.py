@@ -30,7 +30,7 @@ from healthcheck.garmin.capabilities import GarminStream
 from healthcheck.garmin.persistence import PROJECTION_CURRENT
 
 R03_02_ALGORITHM = "r03-02-garmin-activity-comparison-v1"
-R03_02_RULE_VERSION = "r03-02-v1"
+R03_02_RULE_VERSION = "r03-02-v2"
 
 MIN_SELECTED_ACTIVITIES = 2
 MAX_SELECTED_ACTIVITIES = 20
@@ -44,6 +44,8 @@ ACTIVITY_COMPARISON_METRIC_CODES: tuple[str, ...] = (
     "cadence_rpm",
     "training_effect",
     "acute_training_load",
+    "max_heart_rate_bpm",
+    "anaerobic_training_effect",
 )
 
 # Cadence is only comparable when the persisted source leaf is unambiguous RPM.

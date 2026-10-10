@@ -45,7 +45,7 @@ from healthcheck.garmin.contracts import (
     is_forbidden_payload_key,
 )
 
-NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v1"
+NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v2"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 SYNTHETIC_SOURCE_KIND = "synthetic"
 PROVIDER_SOURCE_KIND = "provider"
@@ -760,6 +760,13 @@ _ACTIVITY_SCALARS = (
         "points",
     ),
     _ScalarSpec(
+        "training_effect",
+        "anaerobic_training_effect",
+        ("anaerobicTrainingEffect",),
+        "number",
+        "points",
+    ),
+    _ScalarSpec(
         "acute_training_load",
         "acute_training_load",
         ("activityTrainingLoad", "trainingLoad"),
@@ -772,6 +779,7 @@ _ACTIVITY_SCALARS = (
     _ScalarSpec(
         "cycling_metrics", "heart_rate_bpm", ("averageHR", "metrics.heartRateBpm"), "number", "bpm"
     ),
+    _ScalarSpec("cycling_metrics", "max_heart_rate_bpm", ("maxHR",), "number", "bpm"),
     _ScalarSpec(
         "cycling_metrics",
         "cadence_rpm",
@@ -784,13 +792,15 @@ _ACTIVITY_SCALARS = (
     ),
 )
 
-_OPTIONAL_ACTIVITY_TRAINING_CODES = frozenset(
+_OPTIONAL_ACTIVITY_METRIC_CODES = frozenset(
     {
         "activityTrainingLoad",
         "aerobicTrainingEffect",
         "anaerobicTrainingEffect",
         "trainingEffectLabel",
         "activityRecorderDeviceId",
+        "max_heart_rate_bpm",
+        "anaerobic_training_effect",
     }
 )
 
@@ -1510,8 +1520,13 @@ def _parse_record(
                     "trainingEffectLabel",
                     "activityRecorderDeviceId",
                     "training_effect",
+                    "anaerobic_training_effect",
                     "acute_training_load",
                 }
+                and (
+                    item.metric_code != "max_heart_rate_bpm"
+                    or item.capability_status is not None
+                )
             ),
         )
         for item in metrics
@@ -1548,7 +1563,7 @@ def _parse_record(
         item.state is GarminFieldState.MISSING
         and not (
             stream is GarminStream.ACTIVITY
-            and item.metric_code in _OPTIONAL_ACTIVITY_TRAINING_CODES
+            and item.metric_code in _OPTIONAL_ACTIVITY_METRIC_CODES
         )
         for item in metrics
     )
@@ -1602,7 +1617,7 @@ def _parse_scalar(
 ) -> tuple[GarminMetricDTO, list[GarminDiagnostic]]:
     field_path, value = _first_present(raw, spec.paths)
     full_path = f"{source_path}.{field_path or spec.paths[0]}"
-    capability_status = _capability_status(spec.capability_code)
+    capability_status = _scalar_capability_status(spec)
     if value is _MISSING:
         return (
             GarminMetricDTO(
@@ -1711,7 +1726,7 @@ def _invalid_metric(
             state=GarminFieldState.INVALID,
             reason=reason,
             unit=spec.unit,
-            capability_status=_capability_status(spec.capability_code),
+            capability_status=_scalar_capability_status(spec),
         ),
         [_diag(code, field_path, "error")],
     )
@@ -2274,6 +2289,19 @@ def _contains_forbidden_key(value: Any) -> bool:
     elif _is_sequence(value):
         return any(_contains_forbidden_key(item) for item in value)
     return False
+
+
+def _scalar_capability_status(spec: _ScalarSpec) -> CapabilityStatus | None:
+    # Session-max HR is source-factual, but cannot inherit the reviewed average
+    # HR family's device claim until maxHR itself is in its reviewed fields.
+    if spec.metric_code == "max_heart_rate_bpm":
+        try:
+            capability = get_capability(spec.capability_code)
+        except (KeyError, TypeError):
+            return None
+        if "maxHR" not in capability.client_fields:
+            return None
+    return _capability_status(spec.capability_code)
 
 
 def _capability_status(code: str) -> CapabilityStatus | None:

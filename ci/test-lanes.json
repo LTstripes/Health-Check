@@ -62,6 +62,7 @@
     "app-ingest": [
       "tests/test_bootstrap.py",
       "tests/test_context_ui.py",
+      "tests/test_statistics_ui.py",
       "tests/test_dashboard_ui.py",
       "tests/test_demo_tooling.py",
       "tests/test_google_normalization.py",

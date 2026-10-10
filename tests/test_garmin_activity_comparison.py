@@ -27,12 +27,19 @@ from healthcheck.db.engine import create_session_factory, create_sqlite_engine, 
 from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
 from healthcheck.db.repositories import repositories_for
 from healthcheck.garmin.analytic_contract import (
+    ANALYTIC_RULE_VERSION,
+    SURFACE_ANALYTIC_METRIC_CODES,
     AggregateKind,
     AnalyticInputAssemblyError,
     build_analytic_input_from_storage,
     get_analytic_metric_definition,
+    resolve_aggregate_kind,
+    substitute_aggregate_is_forbidden,
 )
-from healthcheck.garmin.normalization import normalize_garmin_payload
+from healthcheck.garmin.normalization import (
+    NORMALIZATION_CONTRACT_VERSION,
+    normalize_garmin_payload,
+)
 from healthcheck.garmin.persistence import PROJECTION_RETIRED, GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.runtime import prepare_runtime
@@ -753,7 +760,10 @@ def test_provenance_fail_closed(comparison_database) -> None:
     _paths, session, store = comparison_database
     payload = _activity_payload(activity_id="prov-1", duration=3000)
     payload_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
-    result_v1 = normalize_garmin_payload(payload)
+    result_v1 = replace(
+        normalize_garmin_payload(payload),
+        contract_version="r02-garmin-normalization-contract-v1",
+    )
     repository = GarminPersistenceRepository(session, payload_store=store)
     source = repository.sources.get_or_create(result_v1.source)
     provenance = repositories_for(session)
@@ -948,4 +958,235 @@ def test_all_reviewed_metric_codes_listed() -> None:
         "cadence_rpm",
         "training_effect",
         "acute_training_load",
+        "max_heart_rate_bpm",
+        "anaerobic_training_effect",
     )
+    assert len(set(ACTIVITY_COMPARISON_METRIC_CODES)) == len(ACTIVITY_COMPARISON_METRIC_CODES)
+    assert SURFACE_ANALYTIC_METRIC_CODES["activities"] == ACTIVITY_COMPARISON_METRIC_CODES
+    assert R03_02_RULE_VERSION == "r03-02-v2"
+    assert ANALYTIC_RULE_VERSION == "r03-garmin-analytic-rules-v2"
+
+
+def test_session_maximum_and_effect_registry_meanings() -> None:
+    maximum = get_analytic_metric_definition("max_heart_rate_bpm")
+    assert maximum.aggregate_kind is AggregateKind.SESSION_MAXIMUM
+    assert maximum.unit == "bpm"
+    assert maximum.window == "activity_session"
+    assert maximum.source_field_paths == ("maxHR",)
+    assert substitute_aggregate_is_forbidden("max_heart_rate_bpm", ["heart_rate_bpm"])
+    assert substitute_aggregate_is_forbidden("heart_rate_bpm", ["max_heart_rate_bpm"])
+    assert resolve_aggregate_kind("legacy", "payload.activities.maxHR") is (
+        AggregateKind.SESSION_MAXIMUM
+    )
+    aerobic = get_analytic_metric_definition("training_effect")
+    anaerobic = get_analytic_metric_definition("anaerobic_training_effect")
+    assert aerobic.source_field_paths == ("aerobicTrainingEffect", "trainingEffect")
+    assert "aerobic/general" in aerobic.description
+    assert anaerobic.source_field_paths == ("anaerobicTrainingEffect",)
+    assert anaerobic.capability_code == aerobic.capability_code == "training_effect"
+    assert anaerobic.aggregate_kind is AggregateKind.PROVIDER_SESSION_SCORE
+    assert anaerobic.unit == "points"
+    assert anaerobic.window == "activity_session"
+    assert resolve_aggregate_kind("legacy", "payload.activities.anaerobicTrainingEffect") is (
+        AggregateKind.PROVIDER_SESSION_SCORE
+    )
+
+
+def test_typed_session_comparison_preserves_distinct_values_and_provenance(
+    comparison_database,
+) -> None:
+    _paths, session, store = comparison_database
+    left_payload = _activity_payload(activity_id="typed-ref", average_hr=120, training_effect=2)
+    right_payload = _activity_payload(activity_id="typed-cmp", average_hr=130, training_effect=3)
+    left_payload["payload"]["activities"][0].update(
+        maxHR=160, anaerobicTrainingEffect=0, trainingEffect=4.5
+    )
+    right_payload["payload"]["activities"][0].update(
+        maxHR=180, anaerobicTrainingEffect=1.5, trainingEffect=5
+    )
+    left, right = _persist_pair(session, store, left_payload, right_payload)
+    result = compute_garmin_activity_comparison(
+        session,
+        garmin_source_id=left.garmin_source_id,
+        activity_record_ids=[left.id, right.id],
+        reference_activity_id=left.id,
+    )
+    deltas = _delta_map(result.comparisons[0])
+    assert deltas["heart_rate_bpm"].absolute_delta == 10
+    assert deltas["max_heart_rate_bpm"].absolute_delta == 20
+    assert deltas["max_heart_rate_bpm"].aggregate_kind == "session_maximum"
+    assert deltas["training_effect"].reference_value == 2
+    assert deltas["training_effect"].absolute_delta == 1
+    assert deltas["anaerobic_training_effect"].reference_value == 0
+    assert deltas["anaerobic_training_effect"].absolute_delta == 1.5
+    assert deltas["anaerobic_training_effect"].percent_delta is None
+    assert deltas["anaerobic_training_effect"].percent_reason == "zero_reference_percent"
+    assert list(deltas) == list(ACTIVITY_COMPARISON_METRIC_CODES)
+    for block in result.sessions:
+        for code in ("max_heart_rate_bpm", "training_effect", "anaerobic_training_effect"):
+            coverage = _metric_map(block)[code]
+            row = session.get(GarminRecordMetric, coverage.metric_row_id)
+            assert row.source_device_attributed is False
+            dto = build_analytic_input_from_storage(
+                session, metric_row_id=row.id, operational_surface_present=True
+            )
+            assert dto.rule_version == ANALYTIC_RULE_VERSION
+            assert dto.evidence.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
+            assert dto.evidence.raw_payload_id
+            assert dto.evidence.content_hash
+            assert dto.evidence.observation_id
+            assert dto.evidence.observation_key
+            assert dto.evidence.record_id == block.record_id
+            assert dto.evidence.metric_row_id == row.id
+            assert dto.selected.field_path == coverage.field_path == row.field_path
+            assert dto.manifest_hash == coverage.input_manifest_hash
+            assert row.capability_status == (None if code == "max_heart_rate_bpm" else "unverified")
+    # An unchanged synthetic persistence retry keeps metric identities and counts.
+    original_rows = tuple(session.scalars(select(GarminRecordMetric)).all())
+    _persist(session, store, left_payload, received_at=datetime(2099, 1, 3, 1, tzinfo=UTC))
+    session.commit()
+    assert {row.id for row in session.scalars(select(GarminRecordMetric))} == {
+        row.id for row in original_rows
+    }
+
+
+@pytest.mark.parametrize(
+    ("value", "status"), [(None, "null"), (True, "invalid"), ("170", "invalid"), (0, "zero")]
+)
+def test_new_comparison_fields_do_not_fallback_on_unusable_values(
+    comparison_database, value, status
+):
+    _paths, session, store = comparison_database
+    left_payload = _activity_payload(activity_id="states-ref")
+    right_payload = _activity_payload(activity_id="states-cmp")
+    left_payload["payload"]["activities"][0].update(maxHR=160, anaerobicTrainingEffect=2)
+    right_payload["payload"]["activities"][0].update(maxHR=value, anaerobicTrainingEffect=value)
+    left, right = _persist_pair(session, store, left_payload, right_payload)
+    result = compute_garmin_activity_comparison(
+        session,
+        garmin_source_id=left.garmin_source_id,
+        activity_record_ids=[left.id, right.id],
+        reference_activity_id=left.id,
+    )
+    for code in ("max_heart_rate_bpm", "anaerobic_training_effect"):
+        coverage = _metric_map(result.sessions[1])[code]
+        assert coverage.status == status
+        assert coverage.value == (0 if status == "zero" else None)
+        assert _delta_map(result.comparisons[0])[code].status == (
+            "compared" if status == "zero" else "not_computable"
+        )
+    assert _delta_map(result.comparisons[0])["heart_rate_bpm"].status == "compared"
+    assert _delta_map(result.comparisons[0])["training_effect"].status == "compared"
+
+
+def test_pre_v2_projection_keeps_missing_new_metrics_unavailable(comparison_database) -> None:
+    _paths, session, store = comparison_database
+    payload = _activity_payload(activity_id="legacy-ref")
+    normalized = normalize_garmin_payload(payload)
+    legacy_record = replace(
+        normalized.records[0],
+        metrics=tuple(
+            item
+            for item in normalized.records[0].metrics
+            if item.metric_code not in {"max_heart_rate_bpm", "anaerobic_training_effect"}
+        ),
+    )
+    legacy = replace(
+        normalized,
+        records=(legacy_record,),
+        contract_version="r02-garmin-normalization-contract-v1",
+    )
+    persisted = GarminPersistenceRepository(session, payload_store=store).persist_result(
+        legacy,
+        payload=json.dumps(payload, sort_keys=True).encode("utf-8"),
+        source_filename="legacy-synthetic.json",
+        received_at=datetime(2099, 1, 3, tzinfo=UTC),
+    )
+    companion = _persist(session, store, _activity_payload(activity_id="current-cmp"))
+    session.commit()
+    left, right = persisted.records[0], companion.records[0]
+    result = compute_garmin_activity_comparison(
+        session,
+        garmin_source_id=left.garmin_source_id,
+        activity_record_ids=[left.id, right.id],
+        reference_activity_id=left.id,
+    )
+    assert result.rule_version == "r03-02-v2"
+    for code in ("max_heart_rate_bpm", "anaerobic_training_effect"):
+        assert _metric_map(result.sessions[0])[code].reason == "metric_absent_from_projection"
+        assert _metric_map(result.sessions[1])[code].status == "missing"
+        assert _delta_map(result.comparisons[0])[code].status == "not_computable"
+
+
+@pytest.mark.parametrize(
+    ("code", "wrong_leaf"),
+    [("max_heart_rate_bpm", "averageHR"), ("anaerobic_training_effect", "aerobicTrainingEffect")],
+)
+def test_new_session_metrics_reject_cross_identity_source_paths(
+    comparison_database, code, wrong_leaf
+):
+    _paths, session, store = comparison_database
+    left_payload = _activity_payload(activity_id="path-ref")
+    right_payload = _activity_payload(activity_id="path-cmp")
+    for payload in (left_payload, right_payload):
+        payload["payload"]["activities"][0].update(maxHR=170, anaerobicTrainingEffect=1.5)
+    left, right = _persist_pair(session, store, left_payload, right_payload)
+    row = session.scalar(
+        select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == right.id,
+            GarminRecordMetric.metric_code == code,
+        )
+    )
+    row.field_path = f"payload.activities.{wrong_leaf}"
+    session.commit()
+    result = compute_garmin_activity_comparison(
+        session,
+        garmin_source_id=left.garmin_source_id,
+        activity_record_ids=[left.id, right.id],
+        reference_activity_id=left.id,
+    )
+    assert _metric_map(result.sessions[1])[code].status == "unsupported"
+    assert _metric_map(result.sessions[1])[code].reason == "unreviewed_source_field"
+    assert _delta_map(result.comparisons[0])[code].absolute_delta is None
+
+
+def test_v2_correction_does_not_rewrite_frozen_v1_comparison(
+    comparison_database, monkeypatch
+) -> None:
+    from healthcheck.analytics import garmin_activity_comparison as comparison
+
+    _paths, session, store = comparison_database
+    first_payload = _activity_payload(activity_id="version-ref", training_effect=2)
+    second_payload = _activity_payload(activity_id="version-cmp", training_effect=3)
+    left, right = _persist_pair(session, store, first_payload, second_payload)
+    original_codes = ACTIVITY_COMPARISON_METRIC_CODES[:-2]
+    with monkeypatch.context() as legacy:
+        legacy.setattr(comparison, "R03_02_RULE_VERSION", "r03-02-v1")
+        original = compute_garmin_activity_comparison(
+            session,
+            garmin_source_id=left.garmin_source_id,
+            activity_record_ids=[left.id, right.id],
+            reference_activity_id=left.id,
+            metric_codes=original_codes,
+        )
+    frozen = copy.deepcopy(original.as_dict())
+    first_payload["payload"]["activities"][0].update(maxHR=160, anaerobicTrainingEffect=1.5)
+    corrected = _persist(
+        session, store, first_payload, received_at=datetime(2099, 1, 4, tzinfo=UTC)
+    )
+    session.commit()
+    rebuilt = compute_garmin_activity_comparison(
+        session,
+        garmin_source_id=left.garmin_source_id,
+        activity_record_ids=[left.id, right.id],
+        reference_activity_id=left.id,
+    )
+    assert corrected.records[0].id == left.id
+    assert original.as_dict() == frozen
+    assert frozen["rule_version"] == "r03-02-v1"
+    assert frozen["query"]["metric_codes"] == list(original_codes)
+    assert rebuilt.rule_version == "r03-02-v2"
+    assert rebuilt.query.metric_codes == ACTIVITY_COMPARISON_METRIC_CODES
+    assert rebuilt.result_hash != frozen["result_hash"]
+    assert _metric_map(rebuilt.sessions[0])["max_heart_rate_bpm"].value == 160
+    assert _metric_map(rebuilt.sessions[0])["anaerobic_training_effect"].value == 1.5

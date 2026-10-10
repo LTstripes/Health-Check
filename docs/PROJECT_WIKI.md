@@ -4,36 +4,32 @@ This is the compact current-state entry point. The [roadmap](ROADMAP.md#current-
 owns sequencing, issues own execution contracts, and release/history documents retain
 proof. Do not use an older status paragraph as an instruction to repeat completed work.
 
-## Current canonical state — 2026-10-09
+<a id="current-canonical-state"></a>
 
-- Latest accepted engineering checkpoint before this docs closeout: `main 8efb1f972ba9a77dc014b69ca93f4168d573482b` after Context PR #350 and exporter PR #351; [post-main CI 37975552600](https://github.com/LTstripes/Health-Check/actions/runs/37975552600) SUCCESS attempt 1. Earlier A+ checkpoint `013482ec3a51d89fd57c3a55ab9b09d1d2228e25` and docs #349 are historical. Read live main before work.
-- Approved desktop-only A+ shell/Overview (#321/#322/#326/#328), Sleep v3 (#317), compact Activity A/B (#318), Activity v4 (#335), sparse Overview Weight chart (#334), compact source attention (#333) and indexed Google freshness reads (#295) are integrated.
-- Human Owner UAT **#330 is PARTIAL**, not unperformed and not overall PASS. Style, dedicated Weight and shorter Activity history received positive feedback; data availability, Sleep history experience and new functionality remain active requests.
-- Latest numbered release remains R05. Post-R05 Runtime, Period Brief, Context v0, Training/Recovery, source freshness/collection policy, screenshots and reliability/correction foundations remain canonical. The first R06 Context/export slices are engineering-integrated, but R06 as a whole and R09 are not declared released.
-- The last verified Owner UI was launched from the product checkpoint on an existing verified **disposable copy of real data**. That is neither synthetic data nor an automatically refreshed Stable profile. A GitHub merge alone does not deploy code or refresh records.
-- Dependabot #270/#271 remain independent review proposals; administrative #126 and deferred #167 are not housekeeping changes. CI optimization is not reopened by this product plan.
+## Current canonical state — 2026-10-10
 
-## First wave integrated; Owner-private gates remain
+This is a dated engineering snapshot of `main 6cef1e1875afd0c8bfc2279154a15785a0230c67`.
+Read [live main](https://github.com/LTstripes/Health-Check/commits/main) and the
+[active issues](https://github.com/LTstripes/Health-Check/issues) before assigning work.
+The roadmap owns sequence/dependencies; issue/PR receipts own candidate checks,
+review, acceptance and remaining gates. History and closeouts retain dated evidence.
 
-#294 Stage A now supplies the secondary `/context` dated notes/history and
-#341 Stage A supplies a bounded standalone selected-period evidence export.
-#342 Phase A/B offline classification on the verified UAT clone is ACCEPT;
-Google sleep history exists, while selected-date and Compare cohort gates
-cause distinct empty views. An app read bug and current provider recovery
-were not proven. [Roadmap](ROADMAP.md#current-backlog) owns next sequencing.
-
-Owner durable Context UAT and first private export remain UNVERIFIED; later
-share UI/authenticated read access and #343–#348 are not launched. #330 stays
-PARTIAL. The old Owner UI stopped; GitHub merges neither restart it nor
-refresh Stable or providers. Both Context/export test-lane entries survived
-the merged tree, and #351 exact post-main CI passed. Provider rights are
-unchanged; Garmin RHR remains #340.
-
-The intended first usable flow is **comment with explicit date/optional time →
-durable read-back → selected health/context evidence → discussion in ChatGPT**.
-A private export is the first transport. Direct authenticated read tools require
-verified account/connection setup and cannot be obtained merely by handing a skill
-the Owner's loopback URL. Telegram is optional, not a dependency.
+- The desktop A+ wave, Context portal and standalone evidence export remain integrated.
+  Subsequent accepted slices are [stored Garmin RHR projection (#353)](https://github.com/LTstripes/Health-Check/pull/353),
+  [source-specific period summaries (#355)](https://github.com/LTstripes/Health-Check/pull/355),
+  [bounded read-only evidence MCP endpoint (#356)](https://github.com/LTstripes/Health-Check/pull/356),
+  [Owner data workflow (#359)](https://github.com/LTstripes/Health-Check/pull/359) and
+  [source-specific sleep range reader (#360)](https://github.com/LTstripes/Health-Check/pull/360).
+  A backend reader or transport does not establish completed UI or account connection.
+- [Owner UAT #330](https://github.com/LTstripes/Health-Check/issues/330) remains PARTIAL;
+  [#295](https://github.com/LTstripes/Health-Check/issues/295) owns remaining real Overview latency,
+  [#342](https://github.com/LTstripes/Health-Check/issues/342) source availability,
+  and [#341](https://github.com/LTstripes/Health-Check/issues/341) export/MCP connection disposition.
+  Use those live records for remaining private/runtime gates, not an older launch list.
+- Latest numbered release remains R05; R06 as a whole and R09 are not declared released.
+  GitHub acceptance does not deploy Owner-local code, refresh Stable/providers or complete human UAT.
+- Dependabot #270/#271 remain review proposals; administrative #126 and deferred #167
+  remain separate Owner decisions. Existing CI/review gates apply to each new candidate.
 
 ## What the product can do today
 
@@ -56,13 +52,15 @@ Sleep v3 displays bounded persisted Garmin/Google source sessions, including
 unpaired account observations, exact wake dates, role uncertainty, source-specific
 stage/timing limits and Garmin-native score/nap gates. Daily Google vitals remain
 separate. Compare/Agreement retain their statistical and canonical boundaries.
-The requested two-source 7/30-day primary history is **planned #343**, not shipped.
+The source-specific 7/30-day reader is integrated in #360; the primary history UI
+remains a separate #343 slice.
 
 Activity has five recent sessions with full existing history under disclosure
 (#335), five-column A/B and human duration (#318). B−A/percent-to-A, genuine zero,
 missing values and technical evidence remain unchanged. The evidenced `tennis_v2`
 alias renders as Теннис without rewriting stored codes. Detailed sessions (#345),
-period recovery cards (#346) and Statistics (#347) are planned.
+period recovery cards (#346) and Statistics UI (#347) are planned; #355 supplies
+the accepted source-specific summary backend.
 
 Data prioritizes pending imports and folds completed history. An unconfigured
 browser photo extractor remains honestly unconfigured; the accepted screenshot
@@ -98,7 +96,7 @@ success. #305/#342 own those distinct remaining questions.
 
 - Deterministic Period Brief and thin API/text/CLI rendering with stable packet/hash, explicit JSON/text stdout (#248), limited-encoding compatibility (#203) and coherent compound SQLite/ORM reads (#227).
 - Shared persisted freshness (#147/#191/#193/#238), not ad-hoc UI thresholds. #295's indexed per-source Google reads preserve the existing facts; current real Overview is still slow.
-- Context v0 adds/lists/revises original text with explicit time precision, append-only history and idempotent requests. #294 Stage A portal and #341 Stage A versioned bounded export are integrated without rewriting Period Brief packet or doing LLM-side raw-series mathematics.
+- Context v0 adds/lists/revises original text with explicit time precision, append-only history and idempotent requests. #294 Stage A portal, #341 Stage A versioned bounded export and #356 read-only MCP endpoint are integrated without rewriting Period Brief packet or doing LLM-side raw-series mathematics. Direct ChatGPT connection remains deferred in #341.
 
 ### Durable Owner runtime
 
@@ -120,9 +118,9 @@ at the product checkpoint records `/brief` first 18.402 s, one repeat 11.983 s,
 7-day 9.345 s; `/api/source-freshness` 1.846 s, all HTTP 200. These are bounded
 observations, not controlled before/after benchmarks. #295 remains open.
 
-The selected Garmin RHR has otherwise usable stored evidence excluded by the
-Overview surface predicate (#340). Weekly Garmin HRV has missing stored values
-in the inspected window even ignoring that predicate. #342 separates clone
+#353 repaired the stored Garmin RHR Overview surface exclusion under #340;
+that engineering result does not establish fresh provider collection. Weekly Garmin
+HRV had missing stored values in the inspected window even ignoring that predicate. #342 separates clone
 snapshot, absence, projection exclusion, source/window mismatch, disabled
 collection and provider failures; no substitution from Google or broad sync is
 implied. #330 human comments are more recent than the earlier automated readiness
@@ -171,7 +169,7 @@ an Owner/capability decision; manual Integrator exact gates remain required.
 - `main` is the only canonical source; no automatic local deployment.
 - Issue = contract; a short prompt locates the role, baseline/workspace and delivery.
 - Workers do not self-accept or merge; independent review is risk-based.
-- Real health data, screenshots, tokens, payloads and runtime DBs stay outside Git/CI/Worker workspaces.
+- Real datasets and credentials stay outside tracked code/CI; assigned Owner reads and presentation follow [Owner data workflow](OWNER_DATA_WORKFLOW.md).
 - Missing/null/zero/unavailable/unknown remain distinct; UI/LLM do not invent mathematics.
 - #210 model bookkeeping is retired. Complexity/model recommendations route work; they are not benchmark logs.
 - No feature task, provider call, network exposure or Owner runtime mutation is started by this documentation update.
