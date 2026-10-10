@@ -8,6 +8,7 @@ to the pure period-brief packet assembler.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
@@ -79,6 +80,36 @@ def _latest_usable_point(result: Any) -> dict[str, Any] | None:
     }
 
 
+@dataclass(frozen=True)
+class BriefChartInputs:
+    """Transient full inputs, valid only in the producing session transaction.
+
+    Never serialized into a packet, retained on the service, or shared between
+    requests. The packet hash binds this handoff to the exact assembled packet.
+    """
+
+    session: Session
+    transaction: Any
+    packet_hash: str
+    start_date: date
+    end_date: date
+    selected_id: str | None
+    weight_summary: dict[str, Any]
+    sleep_series: dict[str, Any]
+
+    def validate(self, session, packet, selected_id):
+        if (session is not self.session
+                or session.new or session.dirty or session.deleted
+                or session.get_transaction() is not self.transaction
+                or not self.transaction.is_active
+                or not session.connection().connection.driver_connection.in_transaction
+                or packet["result_hash"] != self.packet_hash
+                or packet["period"]["start_date"] != self.start_date.isoformat()
+                or packet["period"]["end_date"] != self.end_date.isoformat()
+                or selected_id != self.selected_id):
+            raise ValueError("Brief chart inputs require the producing packet and read snapshot")
+
+
 class PeriodBriefService:
     """Session-backed assembler that only consumes existing analytics services."""
 
@@ -96,6 +127,14 @@ class PeriodBriefService:
         end_date: date,
         garmin_source_id: str | None = None,
     ) -> dict[str, Any]:
+        return self._build(
+            start_date=start_date, end_date=end_date, garmin_source_id=garmin_source_id
+        )
+
+    def _build(
+        self, *, start_date: date, end_date: date,
+        garmin_source_id: str | None = None, chart_inputs: dict | None = None,
+    ) -> dict[str, Any]:
         period = normalize_period(start_date, end_date)
         ensure_read_snapshot(self.session)
         evaluated_at_utc = datetime.now(UTC)
@@ -107,6 +146,7 @@ class PeriodBriefService:
         activities: list[dict[str, Any]] = []
         comparison: dict[str, Any] | None = None
         selection_policy: str | None = None
+        sleep_series: dict[str, Any] = {}
         sleep_baselines: list[dict[str, Any]] = []
         activity_baselines: list[dict[str, Any]] = []
         activity_acquisition_coverage: dict[str, Any] | None = None
@@ -125,7 +165,9 @@ class PeriodBriefService:
             )
             comparison, selection_policy = self._maybe_compare_activities(selected_id, activities)
             sleep_baselines = self._safe_baselines(
-                selected_id, period.start_date, period.end_date, PERIOD_BRIEF_SLEEP_BASELINE_METRICS
+                selected_id, period.start_date, period.end_date,
+                PERIOD_BRIEF_SLEEP_BASELINE_METRICS,
+                full_results=sleep_series if chart_inputs is not None else None,
             )
             activity_baselines = self._safe_baselines(
                 selected_id,
@@ -162,7 +204,7 @@ class PeriodBriefService:
             weight_cadence_days=self.settings.weight_cadence_days,
             collection_policy=collection_policy,
         )
-        return build_period_brief_packet(
+        packet = build_period_brief_packet(
             period=period,
             weight_summary=weight_summary,
             sleep_report=sleep_report,
@@ -177,6 +219,13 @@ class PeriodBriefService:
             freshness_projection=freshness_projection,
             sleep_acquisition_state=sleep_acquisition_state,
         )
+        if chart_inputs is not None:
+            chart_inputs["inputs"] = BriefChartInputs(
+                session=self.session, transaction=self.session.get_transaction(),
+                packet_hash=packet["result_hash"], start_date=start_date, end_date=end_date,
+                selected_id=selected_id, weight_summary=weight_summary, sleep_series=sleep_series,
+            )
+        return packet
 
     def build_with_render(
         self,
@@ -189,6 +238,22 @@ class PeriodBriefService:
         packet = self.build(
             start_date=start_date, end_date=end_date, garmin_source_id=garmin_source_id
         )
+        return self._render(packet, thin_display=thin_display)
+
+    def build_with_chart_inputs(
+        self, *, start_date: date, end_date: date,
+        garmin_source_id: str | None = None, thin_display: bool = False,
+    ) -> tuple[dict[str, Any], BriefChartInputs]:
+        """Build /brief and hand its already-read full series to its charts."""
+        handoff: dict[str, Any] = {}
+        packet = self._build(
+            start_date=start_date, end_date=end_date, garmin_source_id=garmin_source_id,
+            chart_inputs=handoff,
+        )
+        return self._render(packet, thin_display=thin_display), handoff["inputs"]
+
+    @staticmethod
+    def _render(packet, *, thin_display):
         display = thin_period_brief_for_display(packet) if thin_display else packet
         return {
             "packet": packet,
@@ -267,6 +332,7 @@ class PeriodBriefService:
         start_date: date,
         end_date: date,
         metric_codes: Sequence[str],
+        *, full_results: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         summaries: list[dict[str, Any]] = []
         requested_window = normalize_period(start_date, end_date)
@@ -318,6 +384,8 @@ class PeriodBriefService:
                     }
                 )
                 continue
+            if full_results is not None:
+                full_results[metric_code] = result.as_dict()
             summary = baseline_summary_from_result(
                 result.as_dict(),
                 requested_window=requested_window,

@@ -1041,7 +1041,7 @@ def period_brief_page(
             ensure_read_snapshot(session)
             service = PeriodBriefService(session, request.app.state.settings)
             source_selection = service.garmin.resolve_source(garmin_source_id)
-            result = service.build_with_render(
+            result, brief_inputs = service.build_with_chart_inputs(
                 start_date=start,
                 end_date=end,
                 garmin_source_id=garmin_source_id,
@@ -1053,6 +1053,7 @@ def period_brief_page(
             )
             charts = read_overview_charts(
                 session, request.app.state.settings, packet=result["packet"],
+                brief_inputs=brief_inputs,
                 selected_id=source_selection.get("selected_source_id"),
             )
     except GarminQueryError as exc:
