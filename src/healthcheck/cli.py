@@ -372,7 +372,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         reset_note = " after explicit reset" if result.reset else ""
         print(
             f"seed-demo: {action}{reset_note}; synthetic data only; "
-            f"{result.weigh_in_count} weigh-ins, {result.candidate_count} candidates"
+            f"{result.weigh_in_count} weigh-ins, {result.candidate_count} candidates, "
+            f"{result.garmin_sleep_count} Garmin sleep nights, "
+            f"{result.garmin_activity_count} Garmin activities, "
+            f"{result.google_sleep_count} Google sleep records, "
+            f"{result.context_count} context notes"
         )
         return 0
 
