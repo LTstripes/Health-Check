@@ -47,8 +47,11 @@ server and remove only the confirmed dedicated demo directory above.
 
 - `/` and `/brief?start_date=2026-01-01&end_date=2026-07-31` — Weight history,
   EWMA trend and coverage; no observation is rendered as zero.
-- `/sleep?wake_date=2026-10-10` — Garmin night with duration, score and four
-  stage intervals; `/sleep?wake_date=2026-10-08` — a missing night.
+- `/sleep?wake_date=2026-10-10` — the default 30-day Garmin + Google duration
+  timeline with separate exact-source rows and explicit gaps.
+- `/sleep?wake_date=2026-10-10&view=garmin` — legacy Garmin night with duration,
+  score and four stage intervals; `/sleep?wake_date=2026-10-08&view=garmin` — a
+  missing night.
 - `/sleep?wake_date=2026-10-04&view=google` and
   `/sleep?wake_date=2026-09-23&view=google` — the independent Google family
   label with present and partial nights.
@@ -69,8 +72,8 @@ $env:HEALTHCHECK_BROWSER_EVIDENCE_DIR = Join-Path $env:TEMP "hc358-demo-evidence
 node scripts/check_358_demo_browser.cjs
 ```
 
-The script checks the screens above at 1024 and 1440 px, blocks external
-requests, fails on page errors and horizontal overflow, and writes screenshots
-plus `demo-browser.json` into the evidence directory. That evidence is synthetic
-demo evidence only; it is not Owner UAT, provider verification or a real-profile
-performance claim.
+The script checks the screens above at 1024 and 1440 px, including the default
+sleep timeline, blocks external requests, fails on page errors and horizontal
+overflow, and writes screenshots plus `demo-browser.json` into the evidence
+directory. That evidence is synthetic demo evidence only; it is not Owner UAT,
+provider verification or a real-profile performance claim.

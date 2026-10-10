@@ -68,7 +68,38 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await settle('brief');
       await shoot('demo-weight-brief');
 
-      // 2. Garmin sleep: fixed full night with all four stage intervals.
+      // 2. Sleep timeline (default /sleep view): both fixed sources, honest gaps.
+      await open('sleep timeline', '/sleep?wake_date=2026-10-10');
+      const timeline = page.locator('[data-sleep-timeline]');
+      assert.equal(await timeline.count(), 1);
+      assert.equal(await page.locator('.sleep-source-switch [aria-current]').innerText(), 'Динамика');
+      assert.equal(await timeline.locator('[data-sleep-series-toggle]').count(), 2);
+      assert.equal(await timeline.locator('[data-sleep-timeline-cell]').count(), 60);
+      assert.equal(await timeline.locator('[data-sleep-timeline-cell="value"]').count(), 48);
+      assert.equal(await timeline.locator('[data-sleep-timeline-cell="no_records"]').count(), 10);
+      assert.equal(await timeline.locator('[data-sleep-timeline-cell="unavailable"]').count(), 1);
+      assert.equal(await timeline.locator('[data-sleep-timeline-cell="missing"]').count(), 1);
+      assert.ok(await timeline.locator('.sleep-timeline-gap-tick').count() > 0);
+      const garminSeries = timeline.locator('[data-sleep-series-group^="garmin:"]');
+      const googleSeries = timeline.locator('[data-sleep-series-group^="google:"]');
+      assert.equal(await garminSeries.locator('[data-sleep-point-state="value"]').count(), 25);
+      assert.equal(await googleSeries.locator('[data-sleep-point-state="value"]').count(), 23);
+      // Seeded missing, nap-only and partial nights never acquire a plotted point.
+      for (const [series, wakeDate] of [[garminSeries, '2026-10-08'], [googleSeries, '2026-10-07'],
+        [googleSeries, '2026-09-20'], [googleSeries, '2026-09-23']]) {
+        assert.equal(await series.locator(`[data-wake-date="${wakeDate}"]`).count(), 0);
+      }
+      await timeline.locator('.sleep-timeline-table > summary').click();
+      const timelineTable = await timeline.locator('.sleep-timeline-table').innerText();
+      assert.match(timelineTable, /Нет сохранённой записи/);
+      assert.match(timelineTable, /Запись дневного сна; основной ночной сон не подтверждён\./);
+      assert.match(timelineTable, /За эту дату нет пригодного значения\./);
+      assert.doesNotMatch(timelineTable, /0 ч 0 мин/);
+      await timeline.locator('.sleep-timeline-table > summary').click();
+      await settle('sleep timeline');
+      await shoot('demo-sleep-timeline');
+
+      // 3. Garmin sleep: fixed full night with all four stage intervals.
       await open('garmin sleep', '/sleep?wake_date=2026-10-10&view=garmin');
       const garminNight = page.locator('.sleep-night');
       const garminNightText = await garminNight.innerText();
@@ -84,7 +115,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await settle('garmin sleep');
       await shoot('demo-sleep-garmin-full');
 
-      // 3. Garmin sleep: a missing fixed night stays a missing state.
+      // 4. Garmin sleep: a missing fixed night stays a missing state.
       await open('garmin sleep missing', '/sleep?wake_date=2026-10-08&view=garmin');
       const missingText = await page.locator('.sleep-night').innerText();
       assert.match(missingText, /нет пригодного значения/);
@@ -93,7 +124,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await settle('garmin sleep missing');
       await shoot('demo-sleep-garmin-missing');
 
-      // 4. Google sleep: independent source label with its own duration.
+      // 5. Google sleep: independent source label with its own duration.
       await open('google sleep', '/sleep?wake_date=2026-10-04&view=google');
       const googleNight = page.locator('.google-sleep-night');
       assert.match(await googleNight.innerText(), /Google/);
@@ -103,7 +134,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await settle('google sleep');
       await shoot('demo-sleep-google');
 
-      // 5. Google sleep: the partial fixed night keeps a non-value state.
+      // 6. Google sleep: the partial fixed night keeps a non-value state.
       await open('google sleep partial', '/sleep?wake_date=2026-09-23&view=google');
       const partialCell = page.locator('.google-sleep-night').locator(
         '[data-source-sleep-metric="sleep_duration_asleep_seconds"]');
@@ -113,7 +144,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await settle('google sleep partial');
       await shoot('demo-sleep-google-partial');
 
-      // 6. Comparison: no fabricated agreement without a published run.
+      // 7. Comparison: no fabricated agreement without a published run.
       await open('sleep comparison', '/sleep?wake_date=2026-10-10&view=compare');
       const compareText = await page.locator('main').innerText();
       assert.match(compareText, /Нет доступного сохранённого сравнения\./);
@@ -124,7 +155,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await compareTechnical.locator('summary').click();
       assert.match(await compareTechnical.innerText(), /Разность: Google − Garmin/);
 
-      // 7. Activity: tennis and cycling sessions from the fixed seed.
+      // 8. Activity: tennis and cycling sessions from the fixed seed.
       await open('activity', '/garmin');
       assert.equal(await page.locator('.activity-recent tbody tr').count(), 5);
       assert.equal(await page.locator('.activity-history tbody tr').count(), 6);
@@ -135,7 +166,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await settle('activity');
       await shoot('demo-activity');
 
-      // 8. Dated Context notes with synthetic labels.
+      // 9. Dated Context notes with synthetic labels.
       await open('context', '/context');
       assert.equal(await page.locator('.context-note').count(), 6);
       const firstNote = await page.locator('.context-note').first().innerText();
@@ -144,7 +175,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await settle('context');
       await shoot('demo-context');
 
-      // 9. Overview: the same synthetic profile stays visually labelled data.
+      // 10. Overview: the same synthetic profile stays visually labelled data.
       await open('overview', '/');
       assert.match(await page.locator('main').innerText(), /76\.2/);
       await settle('overview');

@@ -38,13 +38,22 @@ function contrast(a, b) {
   const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (lighter + .05) / (darker + .05);
 }
+// Since #343 the default /sleep view is the source timeline; the night-detail
+// store/state checks below pin the retained legacy Garmin view explicitly.
 const sections = [
   ['Обзор', '/brief?start_date=2099-01-01&end_date=2099-01-08'],
   ['Вес', '/'],
-  ['Сон', '/sleep?wake_date=2099-01-02'],
+  ['Сон', '/sleep?view=garmin&wake_date=2099-01-02'],
   ['Активность', '/garmin?metric_code=stress_daily_average&start_date=2099-01-01&end_date=2099-01-08'],
   ['Данные', '/imports'],
   ['Сон', '/agreement'],
+];
+// Primary shell links in visual order for the navigation and Tab-order checks.
+// Статистика joined the shell in #347; its page states have their own dedicated
+// check, so the store-state matrix below keeps the original fixture sections.
+const navSections = [
+  ['Обзор', '/brief'], ['Вес', '/'], ['Сон', '/sleep'],
+  ['Активность', '/garmin'], ['Статистика', '/statistics'], ['Данные', '/imports'],
 ];
 
 (async () => {
@@ -72,8 +81,11 @@ const sections = [
       separator: getComputedStyle(document.querySelector('.owner-page-header')).borderBottomColor,
       surface: (() => {const el = document.createElement('span'); el.style.backgroundColor = 'var(--card)'; el.style.color = 'var(--muted)'; document.body.append(el); const s = getComputedStyle(el); const colors = {background: s.backgroundColor, muted: s.color}; el.remove(); return colors;})(),
       controls: [...document.querySelectorAll('button, input, select, table')].map(el => getComputedStyle(el).fontFamily),
+      // A+ overview metric headings intentionally use --ink for their heading
+      // link (accepted overview.css); every other body link uses --accent.
       links: [...document.querySelectorAll('main a:not(.button-link)')]
-        .filter(el => el.getBoundingClientRect().height).map(el => getComputedStyle(el).color),
+        .filter(el => el.getBoundingClientRect().height)
+        .map(el => ({color: getComputedStyle(el).color, heading: !!el.closest('.overview-metric-heading h3')})),
     }));
     assert.ok(g.doc <= g.view + 1, label + ': ' + JSON.stringify(g));
     assert.equal(g.rows, 1, label);
@@ -85,7 +97,7 @@ const sections = [
     assert.deepEqual(g.active, {color: 'rgb(49, 88, 75)', border: 'rgb(49, 88, 75)', width: '2px', weight: '600', radius: '0px'}, label);
     assert.equal(g.separator, 'rgb(220, 220, 204)', label);
     assert.ok(g.controls.every(font => /Segoe UI.*sans-serif/.test(font)), label);
-    assert.ok(g.links.every(color => color === 'rgb(49, 88, 75)'), label + ': ' + JSON.stringify(g.links));
+    assert.ok(g.links.every(link => link.color === (link.heading ? 'rgb(41, 45, 39)' : 'rgb(49, 88, 75)')), label + ': ' + JSON.stringify(g.links));
     for (const text of [g.ink, g.surface.muted, g.active.color]) {
       for (const bg of [g.background, g.surface.background, 'rgb(239, 238, 229)', 'rgb(230, 241, 239)']) {
         assert.ok(contrast(text, bg) >= 4.5, `${label}: text contrast ${text} on ${bg}`);
@@ -174,7 +186,7 @@ const sections = [
       await page.setViewportSize({width, height: 900});
       // Follow the actual primary links, including horizontal nav scrolling.
       await page.goto(base + '/brief');
-      for (const [name, url] of sections.slice(0, 5)) {
+      for (const [name, url] of navSections) {
         await page.locator('.owner-nav').getByRole('link', {name, exact: true}).click();
         await settled();
         assert.equal(await page.locator('h1').innerText(), name);
@@ -193,7 +205,7 @@ const sections = [
         await page.locator('.skip-link').focus();
       } else assert.equal(skipFocused, true);
       if (skipFocused) {
-        for (const name of ['Health-Check', 'Обзор', 'Вес', 'Сон', 'Активность', 'Данные']) {
+        for (const name of ['Health-Check', 'Обзор', 'Вес', 'Сон', 'Активность', 'Статистика', 'Данные']) {
           await page.keyboard.press('Tab');
           assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), name, `${width}: shell Tab order`);
           assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineWidth), '3px', `${width}: shell visible focus`);
@@ -202,7 +214,7 @@ const sections = [
       }
       await page.keyboard.press('Enter');
       assert.equal(await page.locator('main').evaluate(el => el === document.activeElement), true);
-      checks.push(`${width}: five real nav links, brand and keyboard skip activation${skipFocused ? ', first Tab focus' : '; first Tab focus UNVERIFIED'}`);
+      checks.push(`${width}: six real nav links, brand and keyboard skip activation${skipFocused ? ', first Tab focus' : '; first Tab focus UNVERIFIED'}`);
 
       for (const [store, origin] of [['populated', base], ['empty', empty]]) {
         for (const [index, [name, url]] of sections.entries()) {
@@ -231,7 +243,8 @@ const sections = [
             await page.locator('#activity-b').selectOption(ids[1]);
             await page.locator('#activity-form button').click();
             await page.waitForFunction(() => document.querySelector('#activity-result').getAttribute('aria-busy') === 'false');
-            assert.match(await page.locator('#activity-result').innerText(), /Сопоставлено/);
+            assert.match(await page.locator('#activity-result').innerText(), /Сравнение сессий: B минус A/);
+            assert.deepEqual(await page.locator('#activity-result thead th').allTextContents(), ['Показатель', 'A', 'B', 'B − A', '% к A']);
             await geometry(label + ' comparison'); await localScrolling(label + ' comparison');
             await page.locator('[data-activity-mode="training-recovery"]').click();
             await page.waitForFunction(() => document.querySelector('#activity-journal').hidden);
@@ -286,7 +299,7 @@ const sections = [
       }
 
       // Shared real validation/error documents at every viewport.
-      for (const url of ['/brief?preset=invalid', '/sleep?wake_date=invalid', '/garmin?start_date=invalid', '/garmin?garmin_source_id=stage7-unknown', '/imports/stage7-unknown']) {
+      for (const url of ['/brief?preset=invalid', '/sleep?view=garmin&wake_date=invalid', '/garmin?start_date=invalid', '/garmin?garmin_source_id=stage7-unknown', '/imports/stage7-unknown']) {
         inducedFailures.add(base + url);
         const response = await page.goto(base + url);
         assert.ok(response.status() >= 400, url + ' must reject invalid input');
