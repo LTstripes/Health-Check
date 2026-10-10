@@ -82,6 +82,13 @@ Verdicts: **ACCEPT** (integrated or explicitly accepted-and-held with remaining 
 
 Reviewers do not silently repair the candidate. Small explicit Integrator-owned documentation/metadata commits are permitted; behavioral fixes normally return to a Worker. Independent review is not claimed for self-authored work.
 
+Keep one authoritative current task status in the active issue or designated
+tracker. Link concise Worker delivery, required independent review and Integrator
+acceptance receipts there; the PR summary links to that status.
+Receipts retain their exact candidate/check scope and remaining gates; link them
+instead of copying their evidence into each status update or closeout. A changed
+candidate invalidates affected evidence, not the record of the earlier attempt.
+
 ### Verification by change
 
 | Change / stage | Necessary work |
@@ -116,7 +123,9 @@ Detailed task scope, attempts, exact candidates/checks/review/integration and me
 
 ### Durable decision split
 
-Issue: task authority/evidence. Architecture/decision docs or ADR: a durable contract change. Roadmap: release sequence. Backlog: uncommitted ideas. README: product overview, stable usage and links, not a running task-status ledger. Release notes describe product changes. Update a second document only when its own meaning became stale; do not synchronize the same report across all of them. Git retains old policy versions; do not add archival copies merely to preserve replaced prose.
+[Project Wiki](PROJECT_WIKI.md#current-canonical-state) owns the dated
+current engineering-status entry point; live GitHub remains authoritative for refs
+and issue/PR status. Issue: task authority/evidence. Architecture/decision docs or ADR: a durable contract change. Roadmap: release sequence. Backlog: uncommitted ideas. README: product overview, stable usage and links, not a running task-status ledger. Release notes describe product changes. Update a second document only when its own meaning became stale; do not synchronize the same report across all of them. Git retains old policy versions; do not add archival copies merely to preserve replaced prose.
 
 ## 10. Release integration and UAT
 
