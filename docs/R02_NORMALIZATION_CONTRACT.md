@@ -59,6 +59,34 @@ account-level value remains unattributed. A client method or an inventory row ne
 evidence. A metric is device evidence only when both the source is explicitly attributed and the
 R02 capability status is `verified` or `verified_conditional`.
 
+## Version 2 session fields (#319 B1)
+
+`r02-garmin-normalization-contract-v2` adds `max_heart_rate_bpm` from `maxHR`
+(bpm) and `anaerobic_training_effect` from `anaerobicTrainingEffect` (points).
+Both retain the presence rules above and exact source field paths. Average HR
+and maximum HR never substitute for one another.
+
+`training_effect` remains the aerobic/general provider score: its alternatives
+are `aerobicTrainingEffect`, then `trainingEffect`, selected by first **present**
+path. A present null/invalid/zero does not fall through. Anaerobic effect has no
+aerobic fallback. Raw camelCase rows and labels remain provenance only; the
+analytic registry exposes exactly one identity per effect, with no score sum.
+
+Both effects remain producer-unverified and non-device evidence. Maximum HR
+uses the existing `cycling_metrics` family but its capability status stays
+unknown and its device attribution stays false unless `maxHR` itself is included
+in that family's reviewed client fields. This change does not add that reviewed
+capability claim or upgrade the capability matrix. Numeric source evidence can
+be compared without claiming a verified device producer.
+
+The reconciliation contract and SQLite schema are unchanged. This version bump
+does not reprocess historical projections. Replay requires separate explicit
+Owner authorization. `calories` and `bmrCalories` remain outside normalization
+and the analytic registry pending reviewed unit/composition evidence.
+
+Absent new optional fields do not downgrade an otherwise complete activity
+record; their own metric-level availability remains `missing`.
+
 ## Idempotency
 
 `stable_garmin_idempotency_key` emits a `garmin:v1:record:<sha256>` key when a stable source

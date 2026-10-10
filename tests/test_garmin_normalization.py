@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
+from healthcheck.garmin.capabilities import CapabilityStatus, get_capability
 from healthcheck.garmin.contracts import load_synthetic_fixture
 from healthcheck.garmin.normalization import (
     NORMALIZATION_CONTRACT_VERSION,
@@ -31,6 +33,109 @@ def fixture(name: str):
 
 def raw_fixture(name: str) -> dict:
     return json.loads((FIXTURE_ROOT / f"{name}.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    ("leaf", "code", "unit"),
+    [
+        ("maxHR", "max_heart_rate_bpm", "bpm"),
+        ("aerobicTrainingEffect", "training_effect", "points"),
+        ("anaerobicTrainingEffect", "anaerobic_training_effect", "points"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("present", "value", "state", "reason"),
+    [
+        (False, None, "missing", None),
+        (True, None, "null", None),
+        (True, 0, "value", None),
+        (True, 2.5, "value", None),
+        (True, True, "invalid", "boolean_not_numeric"),
+        (True, "2.5", "invalid", "numeric_string_not_coerced"),
+        (True, float("nan"), "invalid", "non_finite_value"),
+        (True, float("inf"), "invalid", "non_finite_value"),
+        (True, {}, "invalid", "shape_drift"),
+        (True, [], "invalid", "shape_drift"),
+    ],
+)
+def test_session_metrics_preserve_presence_and_typed_provenance(
+    leaf, code, unit, present, value, state, reason
+) -> None:
+    payload = raw_fixture("activity")
+    activity = payload["payload"]["activities"][0]
+    activity.pop(leaf, None)
+    if present:
+        activity[leaf] = value
+    result = normalize_garmin_payload(payload)
+    metric = result.records[0].metric(code)
+    assert result.contract_version == "r02-garmin-normalization-contract-v2"
+    assert metric.state.value == state
+    assert metric.field_path == f"payload.activities.{leaf}"
+    assert metric.unit == unit
+    assert metric.reason == reason
+    assert metric.value == (value if state == "value" else None)
+    assert metric.is_zero is (state == "value" and value == 0)
+    assert metric.source_device_attributed is False
+    assert metric.device_evidence is False
+    assert metric.capability_status is (None if leaf == "maxHR" else CapabilityStatus.UNVERIFIED)
+
+
+@pytest.mark.parametrize("primary", [None, 0, True, "bad", 2.3])
+def test_aerobic_alias_never_falls_through_present_primary(primary) -> None:
+    payload = raw_fixture("activity")
+    activity = payload["payload"]["activities"][0]
+    activity.update(aerobicTrainingEffect=primary, trainingEffect=4.5, anaerobicTrainingEffect=1.2)
+    record = normalize_garmin_payload(payload).records[0]
+    aerobic = record.metric("training_effect")
+    assert aerobic.field_path.endswith(".aerobicTrainingEffect")
+    assert aerobic.value == (primary if type(primary) in {int, float} else None)
+    assert record.metric("anaerobic_training_effect").value == 1.2
+    assert record.metric("anaerobic_training_effect").field_path.endswith(
+        ".anaerobicTrainingEffect"
+    )
+
+
+def test_effect_alias_and_maximum_never_substitute_other_identities() -> None:
+    payload = raw_fixture("activity")
+    activity = payload["payload"]["activities"][0]
+    del activity["aerobicTrainingEffect"]
+    activity["trainingEffect"] = 2.5
+    record = normalize_garmin_payload(payload).records[0]
+    assert record.metric("training_effect").value == 2.5
+    assert record.metric("training_effect").field_path.endswith(".trainingEffect")
+    assert record.metric("anaerobic_training_effect").state is GarminFieldState.MISSING
+    assert record.metric("max_heart_rate_bpm").state is GarminFieldState.MISSING
+    assert record.metric("heart_rate_bpm").value == 128
+    del activity["trainingEffect"]
+    del activity["averageHR"]
+    activity.update(maxHR=170, anaerobicTrainingEffect=1.5)
+    record = normalize_garmin_payload(payload).records[0]
+    assert record.metric("training_effect").state is GarminFieldState.MISSING
+    assert record.metric("heart_rate_bpm").state is GarminFieldState.MISSING
+    assert record.metric("anaerobic_training_effect").value == 1.5
+    assert record.metric("max_heart_rate_bpm").value == 170
+
+
+@pytest.mark.parametrize("status", [CapabilityStatus.UNVERIFIED, CapabilityStatus.UNAVAILABLE])
+def test_reviewed_maximum_field_with_unverified_capability_is_not_device_evidence(
+    monkeypatch, status
+) -> None:
+    from healthcheck.garmin import normalization
+
+    original = get_capability("cycling_metrics")
+    reviewed = replace(
+        original, client_fields=(*original.client_fields, "maxHR"), audit_status=status
+    )
+    monkeypatch.setattr(
+        normalization,
+        "get_capability",
+        lambda code: reviewed if code == "cycling_metrics" else get_capability(code),
+    )
+    payload = raw_fixture("activity")
+    payload["payload"]["activities"][0]["maxHR"] = 170
+    metric = normalize_garmin_payload(payload).records[0].metric("max_heart_rate_bpm")
+    assert metric.capability_status is status
+    assert metric.device_evidence is False
 
 
 def test_sleep_fixture_projects_typed_values_and_date_only_semantics() -> None:
@@ -169,9 +274,9 @@ def test_missing_null_and_zero_are_three_distinct_states() -> None:
     missing = raw_fixture("daily_health")
     del missing["payload"]["allMetrics"]["metricsMap"]["WELLNESS_RESTING_HEART_RATE"]
     explicit_null = raw_fixture("daily_health")
-    explicit_null["payload"]["allMetrics"]["metricsMap"][
-        "WELLNESS_RESTING_HEART_RATE"
-    ][0]["value"] = None
+    explicit_null["payload"]["allMetrics"]["metricsMap"]["WELLNESS_RESTING_HEART_RATE"][0][
+        "value"
+    ] = None
 
     present_result = normalize_garmin_payload(present)
     zero_result = normalize_garmin_payload(zero)
