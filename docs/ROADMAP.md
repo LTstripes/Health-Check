@@ -16,12 +16,9 @@ reference (#322), shared shell (#326), real Overview (#328), Sleep v3 (#317),
 compact Activity A/B (#318), Activity v4 history (#335), sparse Weight-chart clarity
 (#334), compact source attention (#333) and the #295 indexed Google freshness fix.
 
-Latest integrated first-wave engineering checkpoint is `main`
-`8efb1f972ba9a77dc014b69ca93f4168d573482b` (#294 Stage A PR #350 and
-#341 Stage A PR #351). [Its exact post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/37975552600)
-is a distinct gate from candidate/PR CI and Owner UAT. The prior audited A+
-product checkpoint `013482ec3a51d89fd57c3a55ab9b09d1d2228e25` and #349
-documentation closeout remain historical; use live GitHub for current main.
+The [Project Wiki](PROJECT_WIKI.md#current-canonical-state) owns the
+dated current engineering-status entry point. This roadmap owns sequence and
+dependencies; read live issue/PR receipts for acceptance and remaining gates.
 
 Owner-local activation used a verified disposable **copy of real data**, not
 synthetic fixtures. Human UAT #330 is **PARTIAL**, with design and shorter Activity
@@ -46,19 +43,19 @@ it is no longer a queue of new Workers. Private/Stable and human gates remain.
 | --- | --- | --- |
 | **P1 #342 — source availability** | Offline real-clone Phase A/B classification ACCEPT; stored Google sleep exists, but exact-date and Compare cohort gates affect visibility | Trusted clone-origin and selected-date coverage notice; fresh provider auth/sync only by separate Owner authorization |
 | **#294 Stage A — Context UI** | MERGED: original dated/optional-time notes, list/revise/history, secondary `/context` | Durable Owner-profile UAT; weight-goal Settings Stage B remains deferred |
-| **#341 Stage A — health-chat evidence** | MERGED: explicit bounded read-only Weight/Garmin-scalars/current-Context standalone export | First manually shared private Owner export; later local share UI and direct authenticated access are separate scopes |
+| **#341 — health-chat evidence** | Standalone export and bounded read-only MCP endpoint integrated | Current private/connection gates live in #341; direct ChatGPT connection is deferred |
 
 Research/diagnosis does not prove a current provider failure, data refresh or
 app read bug; #342's full fresh DB integrity after cutoff is still UNVERIFIED.
 No filter weakening, fabricated Google vendor score or automatic recovery.
 See [#342 Integrator decision](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625).
-Garmin RHR remains with #340.
+Garmin RHR projection was repaired in #353; later Owner acceptance stays with #340/#330.
 
 A later `Поделиться данными для разбора` UI may reuse #341's accepted
 interface, but the first private export and explicit Owner sharing come first.
 ChatGPT direct read requires proven authenticated transport and permissions;
-a local skill alone cannot access the Owner PC. No #343–#348 implementation
-is automatically launched. Telegram is optional.
+a local skill alone cannot access the Owner PC. Further #343–#348 implementation
+requires its own assignment. Telegram is optional.
 
 ### Existing data, performance and Owner gates
 
@@ -67,7 +64,7 @@ is automatically launched. Telegram is optional.
 | #295 | OPEN: indexed Google freshness optimization delivered, but new-code real-clone /brief is still slow; diagnose the remaining measured hot path before new caching/index changes |
 | #305 | OPEN: request failure classification/import UI delivered; latest endpoint and human screen response progress do not establish healthy provider collection or complete Data acceptance |
 | #333 | Source-attention engineering integrated; human visual follow-up and missingness tracked with #330/#342, RHR-specific repair in #340 |
-| #340 | Existing RHR collection-surface eligibility issue; contract/evidence first, not a blind removal of filters or a duplicate #342 implementation |
+| #340 | Stored RHR projection repair integrated (#353); Owner acceptance does not establish provider recovery |
 | #319 | Evidence prerequisite for calories, max HR and distinct aerobic/anaerobic effects; new metrics cannot be inferred from requested cards |
 | #330 | Consolidated real Owner UAT PARTIAL; preserve positive findings and unresolved per-screen/data/performance outcomes |
 
