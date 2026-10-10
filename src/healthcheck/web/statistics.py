@@ -6,10 +6,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.analytics.period_summary import PeriodSummaryService
 from healthcheck.db.engine import session_scope
-from healthcheck.web.common import request_engine
+from healthcheck.web.common import database_unavailable, request_engine
+from healthcheck.web.pages import _persist_error, render_error
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -80,6 +82,18 @@ def statistics(
             )
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=400, detail="invalid_statistics_selection") from exc
+    except SQLAlchemyError as exc:
+        # Owner read-failure parity with the other HTML pages: never the raw
+        # API JSON 500. Uninitialized storage keeps the accepted 503 document;
+        # any other read failure keeps the shared Russian 500 alert document.
+        if not database_unavailable(exc):
+            return _persist_error(request, "statistics_page")
+        return render_error(
+            request,
+            code="database_unavailable",
+            message="database is not ready",
+            status_code=503,
+        )
     return templates.TemplateResponse(
         request=request,
         name="statistics.html",

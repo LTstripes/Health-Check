@@ -1,6 +1,8 @@
 /* Offline Chromium against HTML captured from the real /statistics route and B1.
  * Export with HEALTHCHECK_STATISTICS_FIXTURES_DIR while running test_statistics_ui.py.
- * Both providers and all browser network access stay blocked. Desktop only.
+ * Failure captures (unavailable store, read error) assert the accepted Russian
+ * alert documents, never the raw JSON 500. Both providers and all browser network
+ * access stay blocked. Desktop only.
  */
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
@@ -160,6 +162,51 @@ const base = 'http://127.0.0.1:8120';
         checks.push({ width, scenario, geometry, keyboard: true, periods: [7, 30],
           selectedReloadBothPeriods: scenario === 'ambiguous', bothSides: true });
         await page.close();
+      }
+    }
+    // #347 read-failure parity: the real route's error documents must render as
+    // the accepted Russian alert (role=alert, Статистика shell section), never
+    // the raw JSON 500. HTML captured by test_statistics_ui.py.
+    for (const width of [1024, 1440]) {
+      for (const [file, status, message] of [
+        ['unavailable-503.html', 503, 'Локальное хранилище данных не готово.'],
+        ['read-error-500.html', 500, 'Не удалось выполнить запрос. Попробуй повторить его.'],
+      ]) {
+        const failure = await browser.newPage({ viewport: { width, height: 1000 }, javaScriptEnabled: false });
+        failure.on('pageerror', error => errors.push(error.message));
+        await failure.route('**/*', route => {
+          const url = new URL(route.request().url());
+          if (url.origin !== base) { external.push(url.origin); return route.abort(); }
+          if (url.pathname === '/static/dashboard.css') {
+            return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(
+              path.join(process.cwd(), 'src/healthcheck/web/static/dashboard.css'), 'utf8') });
+          }
+          assert.equal(url.pathname, '/statistics');
+          return route.fulfill({ status, contentType: 'text/html; charset=utf-8',
+            body: fs.readFileSync(path.join(fixtures, file), 'utf8') });
+        });
+        assert.equal((await failure.goto(`${base}/statistics?days=7&end_date=2099-01-08`)).status(), status);
+        assert.equal(await failure.getByRole('link', { name: 'Статистика', exact: true }).getAttribute('aria-current'), 'page');
+        const alert = failure.getByRole('alert');
+        assert.equal(await alert.isVisible(), true);
+        const alertText = (await alert.innerText()).replace(/\s+/g, ' ');
+        assert.match(alertText, /Не удалось/);
+        assert.ok(alertText.includes(message), `${file}: owner message ${message}`);
+        assert.doesNotMatch(await failure.locator('main').innerText(), /request failed|synthetic Stage-7|no such table|OperationalError/);
+        assert.equal(await failure.locator('details[open]').count(), 0);
+        const geometry = await failure.evaluate(() => ({
+          overflow: document.documentElement.scrollWidth > innerWidth + 1,
+          navRows: new Set([...document.querySelector('.owner-nav').children].map(el => el.offsetTop)).size,
+          background: getComputedStyle(document.body).backgroundColor,
+          heading: document.querySelector('.owner-page-header h1').innerText,
+        }));
+        assert.equal(geometry.overflow, false, `${file}: overflow`);
+        assert.equal(geometry.navRows, 1, `${file}: nav rows`);
+        assert.equal(geometry.background, 'rgb(246, 242, 233)', `${file}: background`);
+        assert.equal(geometry.heading, 'Статистика', `${file}: heading`);
+        await failure.screenshot({ path: path.join(evidence, `failure-${status}-${width}.png`), fullPage: true });
+        checks.push({ width, failure: file, status, ownerMessage: message });
+        await failure.close();
       }
     }
     assert.deepEqual(errors, []); assert.deepEqual(external, []);

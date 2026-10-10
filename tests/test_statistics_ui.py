@@ -1,4 +1,4 @@
-"""Synthetic route/packet equivalence and desktop fixture exports for #347 B2."""
+"""Synthetic route/packet equivalence, desktop fixture exports and read-failure parity for #347."""
 
 from __future__ import annotations
 
@@ -13,11 +13,14 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 from sqlalchemy import event, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
 from healthcheck.config import Settings
+from healthcheck.db.engine import migrate_database
 from healthcheck.db.models import GarminRecordMetric, GarminSource, GoogleSource
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+from healthcheck.runtime import prepare_runtime
 from healthcheck.web.statistics import format_statistics_value
 from healthcheck.web.ui_app import create_ui_app
 from test_period_summary import END, START, _activity, _coverage
@@ -338,3 +341,64 @@ def test_missing_google_keeps_the_independent_empty_side(statistics_ui):
 )
 def test_headline_formatting(code, value, expected):
     assert format_statistics_value(code, value) == expected
+
+
+def _export_failure_html(name, text):
+    export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
+    if not export:
+        return
+    directory = Path(export)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(text, encoding="utf-8")
+
+
+def test_uninitialized_store_uses_accepted_russian_error_document(tmp_path):
+    """Uninitialized storage keeps the accepted 503 document, never raw JSON (#347 parity)."""
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        assert client.get("/statistics").status_code == 200
+    app.state.engine.dispose()
+    paths.database.unlink()
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        response = client.get("/statistics")
+    assert response.status_code == 503
+    assert response.headers["content-type"].startswith("text/html")
+    primary, technical = response.text.split('<details class="card owner-details', 1)
+    assert 'role="alert"' in primary
+    assert 'data-owner-state="error"' in primary
+    assert "Локальное хранилище данных не готово." in primary
+    assert "<h1>Статистика</h1>" in response.text
+    assert 'href="/statistics" class="active" aria-current="page"' in response.text
+    assert "database_unavailable" in technical
+    assert "no such table" not in response.text.lower()
+    assert "OperationalError" not in response.text
+    details_open_tag = response.text.split("<details", 1)[1].split(">", 1)[0]
+    assert "open" not in details_open_tag
+    _export_failure_html("unavailable-503.html", response.text)
+
+
+def test_read_failure_is_russian_alert_without_raw_internals(statistics_ui, monkeypatch):
+    """Read failures keep the shared Russian alert document, never raw JSON (#347 parity)."""
+    _, _, client = statistics_ui
+
+    def failing_build(*args, **kwargs):
+        raise SQLAlchemyError("synthetic Stage-7 read failure")
+
+    monkeypatch.setattr(PeriodSummaryService, "build", failing_build)
+    response = client.get("/statistics")
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("text/html")
+    primary, technical = response.text.split('<details class="card owner-details', 1)
+    assert 'role="alert"' in primary
+    assert "Не удалось показать страницу" in primary
+    assert "Не удалось выполнить запрос. Попробуй повторить его." in primary
+    assert "synthetic Stage-7" not in response.text
+    assert "<h1>Статистика</h1>" in response.text
+    assert 'href="/statistics" class="active" aria-current="page"' in response.text
+    assert "persistence_error" in technical
+    details_open_tag = response.text.split("<details", 1)[1].split(">", 1)[0]
+    assert "open" not in details_open_tag
+    _export_failure_html("read-error-500.html", response.text)

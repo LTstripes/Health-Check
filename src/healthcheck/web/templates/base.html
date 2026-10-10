@@ -9,7 +9,7 @@
   'data': ('Данные', '/imports', 'Проверка импорта')
 } %}
 {% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data'} %}
-{% set path_sections = {'/brief': 'overview', '/': 'weight', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/imports': 'data'} %}
+{% set path_sections = {'/brief': 'overview', '/': 'weight', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data'} %}
 {% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
 <html lang="ru">
