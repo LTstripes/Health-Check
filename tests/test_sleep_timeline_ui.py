@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from healthcheck.analytics.sleep_source_view import read_source_sleep_range
 from healthcheck.db.engine import create_sqlite_engine, session_scope
+from healthcheck.db.models import GoogleSleepRecord, GoogleSourceRecord
 from healthcheck.garmin.normalization import normalize_garmin_payload
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
@@ -67,16 +68,19 @@ def _range_series(provider: str, source_id: str, points):
     }
 
 
-def _range_packet(series, *, state: str = "records"):
-    return {
+def _range_packet(series, *, state: str = "records", **overrides):
+    packet = {
         "state": state,
         "days": [],
         "series": series,
         "observed_dates": [],
         "missing_dates": [],
         "wake_date_missing_count": 0,
+        "wake_date_missing_by_source": {},
         "limit": 400,
     }
+    packet.update(overrides)
+    return packet
 
 
 def _seed_nights(paths):
@@ -200,6 +204,28 @@ def test_build_timeline_keeps_gaps_ambiguity_zero_and_labels():
     assert timeline["table_rows"][2]["cells"][0]["value_seconds"] == 0
     assert len(timeline["table_rows"]) == 7
     assert timeline["read_limit_exceeded"] is False
+    assert timeline["undated_records"] == []
+
+
+def test_build_timeline_undated_only_records_never_read_confirmed_empty():
+    packet = _range_packet(
+        [],
+        state="records",
+        wake_date_missing_count=2,
+        wake_date_missing_by_source={"g-1": 2},
+    )
+    timeline = build_sleep_timeline(
+        {"garmin": packet, "google": _range_packet([])}, days=7, end_date=END
+    )
+    # B1 retained undated rows keep no invented plot series and no empty claim.
+    assert timeline["series"] == []
+    assert timeline["undated_records"] == [
+        {"provider": "garmin", "provider_label": "Garmin", "count": 2}
+    ]
+    technical = sleep_timeline_technical(timeline)
+    assert technical["providers"]["garmin"]["wake_date_missing_by_source"] == {"g-1": 2}
+    assert technical["nights"] == []
+    assert technical["undated_records"] == timeline["undated_records"]
 
 
 def test_build_timeline_read_limit_fails_closed_without_counts():
@@ -217,6 +243,7 @@ def test_build_timeline_read_limit_fails_closed_without_counts():
     )
     assert timeline["read_limit_exceeded"] is True
     assert timeline["series"] == []
+    assert timeline["undated_records"] == []
     assert timeline["providers"]["garmin"]["observed_dates"] is None
     assert timeline["providers"]["google"]["read_limit_exceeded"] is True
 
@@ -258,7 +285,108 @@ def test_sleep_timeline_technical_counts_states_without_packets():
     }
     assert technical["series"][0]["source"]["source_id"] == "g-1"
     assert technical["series"][0]["point_states"] == {"value": 1, "no_records": 6}
-    assert "nights" not in technical
+    assert technical["series"][0]["points"][-1]["state"] == "value"
+    assert technical["nights"] == []
+    assert technical["undated_records"] == []
+
+
+def test_sleep_timeline_technical_discloses_session_and_point_evidence():
+    night = {
+        "provider": "google",
+        "wake_date": "2099-01-07",
+        "state": "records",
+        "limit": 200,
+        "sources": [
+            {
+                "source": {
+                    "source_id": "g-1",
+                    "source_kind": "data_source",
+                    "source_instance_id": "users/me/dataSources/g-1",
+                    "device_attributed": True,
+                    "device_code": None,
+                    "device_model": "Watch",
+                    "device_manufacturer": "Fitbit",
+                    "platform": "fitbit",
+                    "data_source_name": None,
+                },
+                "sessions": [
+                    {
+                        "record_id": "rec-1",
+                        "record_status": "partial",
+                        "reason": None,
+                        "role": {"selection": "single_uncertain_session", "reason": None},
+                        "field_states": {"session": "value"},
+                        "temporal_evidence": {
+                            "precision": "instant",
+                            "source_local_date": "2099-01-07",
+                            "source_timestamp_utc": "2099-01-07T05:00:00Z",
+                            "source_local_timestamp": "2099-01-07T08:00:00",
+                            "local_wall_time": None,
+                            "source_utc_offset_minutes": 180,
+                            "source_timezone": "Europe/Moscow",
+                        },
+                        "metrics": {
+                            "sleep_duration_asleep_seconds": {
+                                "state": "value", "eligible": True, "value": 24600,
+                                "reason": None, "is_zero": False,
+                                "evidence": {"nested": "payload-shape"},
+                            },
+                            "sleep_score": {
+                                "state": "missing", "eligible": False, "value": None,
+                                "reason": "metric_missing",
+                            },
+                        },
+                    }
+                ],
+                "ambiguous": False,
+                "summary": None,
+            }
+        ],
+    }
+    series = _range_series(
+        "google",
+        "g-1",
+        [
+            _range_point(
+                "2099-01-07",
+                state="ambiguous",
+                value=None,
+                record_id=None,
+                candidate_record_ids=["rec-1", "rec-2"],
+                reason="ambiguous_google_main",
+                exclusions=[
+                    {"record_id": "rec-3", "reason": "google_explicit_main_preferred"}
+                ],
+            )
+        ],
+    )
+    timeline = build_sleep_timeline(
+        {"google": _range_packet([series], days=[night])}, days=7, end_date=END
+    )
+    technical = sleep_timeline_technical(timeline)
+    assert len(technical["nights"]) == 1
+    disclosed = technical["nights"][0]
+    assert disclosed["provider"] == "google" and disclosed["wake_date"] == "2099-01-07"
+    session = disclosed["sources"][0]["sessions"][0]
+    assert session["record_id"] == "rec-1"
+    assert session["record_status"] == "partial"
+    assert session["role"] == {"selection": "single_uncertain_session", "reason": None}
+    assert session["temporal_evidence"]["source_utc_offset_minutes"] == 180
+    assert session["temporal_evidence"]["source_local_timestamp"] == "2099-01-07T08:00:00"
+    assert session["temporal_evidence"]["source_timezone"] == "Europe/Moscow"
+    duration = session["metrics"]["sleep_duration_asleep_seconds"]
+    assert duration == {
+        "state": "value", "eligible": True, "value": 24600, "reason": None, "is_zero": False
+    }
+    assert "evidence" not in duration  # bounded: no nested raw evidence
+    assert session["metrics"]["sleep_score"]["eligible"] is False
+    point = technical["series"][0]["points"][-1]
+    assert point["reason"] == "ambiguous_google_main"
+    assert point["candidate_record_ids"] == ["rec-1", "rec-2"]
+    assert point["exclusions"] == [
+        {"record_id": "rec-3", "reason": "google_explicit_main_preferred"}
+    ]
+    assert point["exclusion_reasons"] == ["google_explicit_main_preferred"]
 
 
 def test_sleep_default_route_is_timeline_with_embedded_packets(tmp_path):
@@ -315,11 +443,18 @@ def test_sleep_default_route_is_timeline_with_embedded_packets(tmp_path):
         ambiguous_point = google_point("2099-01-04")
         assert ambiguous_point["state"] == "ambiguous"
         assert ambiguous_point["candidate_count"] == 2
+        assert ambiguous_point["candidate_record_ids"]
+        assert ambiguous_point["exclusions"] == []
         zero_point = google_point("2099-01-06")
         assert zero_point["state"] == "value" and zero_point["is_zero"] is True
+        assert session["record_status"]
+        assert session["temporal_evidence"]["source_local_date"] == "2099-01-02"
         assert '"point_states"' in technical
         assert '"read_limit_exceeded": false' in technical
         assert '"sleep_score"' in technical
+        assert '"record_status"' in technical
+        assert '"temporal_evidence"' in technical
+        assert '"exclusions"' in technical
     assert "BEGIN" in statements
     assert not any(
         sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for sql in statements
@@ -348,6 +483,44 @@ def test_sleep_timeline_windows_and_legacy_views_stay_available(tmp_path):
         assert "Сравнение сна" in client.get("/sleep?view=compare&wake_date=2099-01-07").text
         assert client.get("/agreement").status_code == 200
         assert client.get("/sleep?view=invalid&wake_date=2099-01-07").status_code == 200
+
+
+def test_sleep_timeline_undated_only_provider_is_unknown_not_confirmed_empty(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            _persist_google(session, paths, payload=_google_sleep_payload())
+            record = session.scalar(select(GoogleSourceRecord))
+            record.source_local_date = date(2099, 1, 7)
+            session.scalar(select(GoogleSleepRecord)).wake_date = None
+    finally:
+        engine.dispose()
+    app.state.engine = create_sqlite_engine(paths)
+    with client_for(app) as client:
+        page = client.get("/sleep?wake_date=2099-01-07")
+        primary, technical = page.text.split(
+            '<details class="card owner-details sleep-technical"', 1
+        )
+        assert page.status_code == 200
+        assert 'data-owner-state="unknown"' in primary
+        assert "пригодной даты пробуждения" in primary
+        assert "Google — 1" in primary
+        assert "нет текущих сохранённых ночей" not in primary
+        assert 'data-owner-state="confirmed_empty"' not in primary
+        assert '"wake_date_missing_by_source"' in technical
+        assert "wake_date_missing_by_source" not in primary
+
+
+def test_sleep_timeline_true_empty_stays_confirmed_empty(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with client_for(app) as client:
+        page = client.get("/sleep?wake_date=2099-01-07")
+        primary = page.text.split('<details class="card owner-details sleep-technical"', 1)[0]
+        assert page.status_code == 200
+        assert 'data-owner-state="confirmed_empty"' in primary
+        assert "нет текущих сохранённых ночей" in primary
+        assert "пригодной даты пробуждения" not in primary
 
 
 def test_sleep_timeline_read_limit_and_unavailable_stay_honest(tmp_path, monkeypatch):

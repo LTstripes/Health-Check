@@ -21,6 +21,25 @@ SLEEP_TIMELINE_PROVIDERS = ("garmin", "google")
 SLEEP_SOURCE_FRESHNESS_SCOPES = ("garmin:sleep", "google:sleep")
 SLEEP_FRESHNESS_ATTENTION_STATES = ("stale", "unavailable", "unknown", "not_requested")
 
+# Bounded per-session evidence inside the Owner-visible technical disclosure.
+SLEEP_TECHNICAL_METRIC_CODES = (
+    "sleep_duration_asleep_seconds",
+    "sleep_time_in_bed_seconds",
+    "sleep_start_at",
+    "sleep_end_at",
+    "sleep_stage_light_seconds",
+    "sleep_stage_deep_seconds",
+    "sleep_stage_rem_seconds",
+    "sleep_awake_waso_seconds",
+    "sleep_score",
+    "nap_duration_seconds",
+)
+SLEEP_TECHNICAL_METRIC_FIELDS = ("state", "eligible", "value", "reason", "is_zero")
+
+
+def _provider_label(provider: str) -> str:
+    return "Garmin" if provider == "garmin" else "Google"
+
 SLEEP_FRESHNESS_STATE_TEXT = {
     "fresh": "обновления поступают",
     "quiet": "новых обновлений недавно не было",
@@ -89,13 +108,21 @@ def _point_view(raw: Mapping[str, Any] | None, day: str) -> dict[str, Any]:
             "role_uncertain": False,
             "record_id": None,
             "reason": None,
+            "candidate_record_ids": [],
             "candidate_count": 0,
+            "exclusions": [],
             "exclusion_reasons": [],
             "note": "Нет сохранённой записи за эту дату.",
         }
     value = raw.get("value") if raw.get("state") == "value" else None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         value = None
+    candidates = list(raw.get("candidate_record_ids") or ())
+    exclusions = [
+        {"record_id": exclusion.get("record_id"), "reason": exclusion.get("reason")}
+        for exclusion in raw.get("exclusions") or ()
+        if isinstance(exclusion, Mapping)
+    ]
     return {
         "wake_date": day,
         "state": raw.get("state"),
@@ -106,10 +133,10 @@ def _point_view(raw: Mapping[str, Any] | None, day: str) -> dict[str, Any]:
         "role_uncertain": bool(raw.get("role_uncertain")),
         "record_id": raw.get("record_id"),
         "reason": raw.get("reason"),
-        "candidate_count": len(raw.get("candidate_record_ids") or ()),
-        "exclusion_reasons": [
-            exclusion.get("reason") for exclusion in raw.get("exclusions") or ()
-        ],
+        "candidate_record_ids": candidates,
+        "candidate_count": len(candidates),
+        "exclusions": exclusions,
+        "exclusion_reasons": [item["reason"] for item in exclusions],
         "note": timeline_point_note(raw),
     }
 
@@ -194,6 +221,7 @@ def build_sleep_timeline(
     providers: dict[str, Any] = {}
     nights: dict[str, dict[str, Any]] = {}
     series: list[dict[str, Any]] = []
+    undated_records: list[dict[str, Any]] = []
     read_limited = False
     for provider in SLEEP_TIMELINE_PROVIDERS:
         packet = ranges.get(provider)
@@ -210,8 +238,22 @@ def build_sleep_timeline(
             "wake_date_missing_count": (
                 None if limited else packet.get("wake_date_missing_count")
             ),
+            "wake_date_missing_by_source": (
+                None if limited else packet.get("wake_date_missing_by_source")
+            ),
             "limit": packet.get("limit"),
         }
+        # B1 retains bounded null-wake-date records as real saved evidence.
+        # They never get an invented date and must never read as confirmed empty.
+        missing = 0 if limited else int(packet.get("wake_date_missing_count") or 0)
+        if missing:
+            undated_records.append(
+                {
+                    "provider": provider,
+                    "provider_label": _provider_label(provider),
+                    "count": missing,
+                }
+            )
         nights[provider] = {
             day["wake_date"]: day
             for day in packet.get("days") or ()
@@ -235,13 +277,66 @@ def build_sleep_timeline(
             for index, day in enumerate(dates)
         ],
         "nights": nights,
+        "undated_records": undated_records,
         "freshness": timeline_freshness_items(freshness),
         "read_limit_exceeded": read_limited,
     }
 
 
+def _technical_session(session: Mapping[str, Any]) -> dict[str, Any]:
+    metrics = session.get("metrics") or {}
+    return {
+        "record_id": session.get("record_id"),
+        "record_status": session.get("record_status"),
+        "reason": session.get("reason"),
+        "role": session.get("role"),
+        "field_states": session.get("field_states"),
+        "temporal_evidence": session.get("temporal_evidence"),
+        "metrics": {
+            code: {
+                field: metrics[code].get(field)
+                for field in SLEEP_TECHNICAL_METRIC_FIELDS
+                if field in metrics[code]
+            }
+            for code in SLEEP_TECHNICAL_METRIC_CODES
+            if isinstance(metrics.get(code), Mapping)
+        },
+    }
+
+
+def _technical_nights(nights: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Bounded exact per-night evidence for the Owner-visible disclosure."""
+
+    out: list[dict[str, Any]] = []
+    for provider in SLEEP_TIMELINE_PROVIDERS:
+        for day, packet in (nights.get(provider) or {}).items():
+            sources = packet.get("sources") or []
+            if not sources:
+                continue
+            out.append(
+                {
+                    "provider": provider,
+                    "wake_date": day,
+                    "sources": [
+                        {
+                            "source_id": source["source"]["source_id"],
+                            "source_kind": source["source"]["source_kind"],
+                            "source_instance_id": source["source"]["source_instance_id"],
+                            "device_attributed": source["source"]["device_attributed"],
+                            "sessions": [
+                                _technical_session(session)
+                                for session in source.get("sessions") or ()
+                            ],
+                        }
+                        for source in sources
+                    ],
+                }
+            )
+    return out
+
+
 def sleep_timeline_technical(timeline: Mapping[str, Any]) -> dict[str, Any]:
-    """Compact disclosure summary; full per-night packets stay in the page snapshot."""
+    """Bounded per-night/point disclosure; no raw provider payload bodies."""
 
     return {
         "contract_version": timeline.get("contract_version"),
@@ -251,6 +346,7 @@ def sleep_timeline_technical(timeline: Mapping[str, Any]) -> dict[str, Any]:
             "end_date": timeline.get("end_date"),
         },
         "providers": timeline.get("providers"),
+        "undated_records": timeline.get("undated_records"),
         "series": [
             {
                 "series_id": item["series_id"],
@@ -258,9 +354,11 @@ def sleep_timeline_technical(timeline: Mapping[str, Any]) -> dict[str, Any]:
                 "label": item["label"],
                 "source": item["source"],
                 "point_states": _point_state_counts(item["points"]),
+                "points": item["points"],
             }
             for item in timeline.get("series") or ()
         ],
+        "nights": _technical_nights(timeline.get("nights") or {}),
     }
 
 

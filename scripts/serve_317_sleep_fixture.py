@@ -26,9 +26,11 @@ def main():
     import json
 
     import uvicorn
+    from sqlalchemy import select
 
     from healthcheck.config import Settings
     from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+    from healthcheck.db.models import GoogleSleepRecord
     from healthcheck.garmin.normalization import normalize_garmin_payload
     from healthcheck.garmin.persistence import GarminPersistenceRepository
     from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
@@ -140,6 +142,24 @@ def main():
                 persist_day(11, main="unknown", nap="unknown")
                 persist_day(12, name="first", account_source="synthetic-source-a")
                 persist_day(12, name="second", account_source="synthetic-source-b")
+
+                # B1 retained undated evidence: null wake date with a bounded
+                # persisted source_local_date. Real data, no invented plot date.
+                undated_payload = _google_sleep_payload(name="synthetic-undated")
+                undated_interval = undated_payload["dataPoints"][0]["sleep"]["interval"]
+                undated_interval["startTime"] = "2099-01-11T22:00:00Z"
+                undated_interval["endTime"] = "2099-01-12T05:00:00Z"
+                for key in ("civilStartTime", "civilEndTime"):
+                    undated_interval[key]["date"] = "2099-01-12"
+                undated = _persist_google(session, paths, payload=undated_payload)
+                session.flush()
+                undated_record = undated.records[0]
+                undated_record.source_local_date = date(2099, 1, 12)
+                session.scalar(
+                    select(GoogleSleepRecord).where(
+                        GoogleSleepRecord.record_id == undated_record.id
+                    )
+                ).wake_date = None
         finally:
             engine.dispose()
     app, _ = create_ui_app(settings)

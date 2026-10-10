@@ -106,6 +106,14 @@
     const add = function (label, value) {
       rows.push("<div><dt>" + esc(label) + "</dt><dd>" + value + "</dd></div>");
     };
+    const recordStatusLabels = {
+      ok: "полная", partial: "неполная", empty: "пустая", invalid: "недействительная"
+    };
+    if (session.record_status) {
+      const status = String(session.record_status);
+      add("Состояние записи", esc(status) +
+        (recordStatusLabels[status] ? " (" + esc(recordStatusLabels[status]) + ")" : ""));
+    }
     if (eligible("sleep_start_at")) {
       add("Начало сессии · UTC", esc(String(cell("sleep_start_at").value)));
     }
@@ -123,6 +131,21 @@
     ].forEach(function (item) {
       if (eligible(item[0])) add(item[1], durationText(cell(item[0]).value));
     });
+    // Existing temporal evidence only; never infer a local time or offset.
+    const temporal = session.temporal_evidence || {};
+    const local = temporal.source_local_timestamp || temporal.local_wall_time;
+    if (local) add("Исходное местное время", esc(String(local)));
+    if (temporal.source_timestamp_utc) {
+      add("UTC-время источника", esc(String(temporal.source_timestamp_utc)));
+    }
+    if (temporal.source_utc_offset_minutes !== null &&
+        temporal.source_utc_offset_minutes !== undefined) {
+      add("Смещение источника, мин", esc(String(temporal.source_utc_offset_minutes)));
+    }
+    if (temporal.source_timezone) {
+      add("Часовой пояс источника", esc(String(temporal.source_timezone)));
+    }
+    if (temporal.precision) add("Точность времени", esc(String(temporal.precision)));
     // Native Garmin score stays a per-session detail; Google has no promised score.
     if (series.provider === "garmin" && eligible("sleep_score")) {
       add("Оценка сна Garmin · сессия", fmtNumber(cell("sleep_score").value) + " баллы");
@@ -137,6 +160,27 @@
       html += '<p class="muted">ID записи: ' + esc(session.record_id) + "</p>";
     }
     return html;
+  }
+
+  function pointEvidence(point) {
+    const rows = [];
+    const add = function (label, value) {
+      if (value === null || value === undefined || value === "") return;
+      rows.push("<div><dt>" + esc(label) + "</dt><dd>" + esc(String(value)) + "</dd></div>");
+    };
+    if (point.state !== "value") add("Состояние точки", point.state);
+    add("Причина", point.reason);
+    if (point.state === "ambiguous") add("Кандидатов", point.candidate_count);
+    if (Array.isArray(point.candidate_record_ids) && point.candidate_record_ids.length) {
+      add("Кандидаты", point.candidate_record_ids.join(", "));
+    }
+    if (Array.isArray(point.exclusions) && point.exclusions.length) {
+      add("Исключённые записи", point.exclusions.map(function (item) {
+        return (item.record_id || "без ID") + ": " + item.reason;
+      }).join("; "));
+    }
+    if (!rows.length) return "";
+    return '<h4>Основание точки</h4><dl class="sleep-timeline-session">' + rows.join("") + "</dl>";
   }
 
   function showPoint(series, point) {
@@ -159,6 +203,7 @@
     } else {
       html += "<p>" + esc(point.note || "Нет пригодного значения.") + "</p>";
     }
+    html += pointEvidence(point);
     detail.innerHTML = html;
   }
 
@@ -365,7 +410,7 @@
       if (hidden[series.series_id]) group.classList.add("is-hidden");
       svg.appendChild(group);
     });
-    if (current) {
+    if (current && !hidden[current.series.series_id]) {
       const matches = focusables.filter(function (node) {
         return node.getAttribute("data-sleep-series-id") === current.series.series_id &&
           node.getAttribute("data-wake-date") === current.point.wake_date;
@@ -381,6 +426,8 @@
     let nearest = null;
     let distance = Infinity;
     focusables.forEach(function (node) {
+      // A toggled-off series must never win hit-testing or navigation.
+      if (hidden[node.getAttribute("data-sleep-series-id")]) return;
       const shape = node.querySelector("circle");
       if (!shape) return;
       const dx = Number(shape.getAttribute("cx")) - cursor.x;
@@ -412,8 +459,10 @@
         if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
           event.preventDefault();
           const same = focusables.filter(function (item) {
-            return item.getAttribute("data-sleep-series-id") === series.series_id;
+            const seriesId = item.getAttribute("data-sleep-series-id");
+            return seriesId === series.series_id && !hidden[seriesId];
           });
+          if (!same.length) return;
           const index = same.indexOf(node);
           const next = (index + (event.key === "ArrowRight" ? 1 : -1) + same.length) % same.length;
           same[next].focus();
@@ -438,6 +487,18 @@
         hidden[id] = !toggle.checked;
         const label = toggle.closest("label");
         if (label) label.classList.toggle("is-hidden-series", !toggle.checked);
+        if (!toggle.checked && current && current.series.series_id === id) {
+          // The selected point hid with its series: clear its detail, not the table.
+          current = null;
+          if (detail) {
+            detail.textContent = "Выбери точку на графике, чтобы увидеть подробности ночи.";
+          }
+          const active = document.activeElement;
+          if (active && active.getAttribute &&
+              active.getAttribute("data-sleep-series-id") === id) {
+            active.blur();
+          }
+        }
         if (!svg) return;
         const groups = svg.querySelectorAll("[data-sleep-series-group]");
         Array.prototype.forEach.call(groups, function (group) {

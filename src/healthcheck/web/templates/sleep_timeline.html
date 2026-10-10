@@ -22,6 +22,10 @@
   {% elif timeline.read_limit_exceeded %}
   {{ owner_ui.state_chip('unknown') }}
   <p>За выбранное окно слишком много сохранённых записей; график не построен, полнота не оценивается. Сузьте окно до 7 дней или откройте «Сравнить».</p>
+  {% elif not timeline.series and timeline.undated_records %}
+  {{ owner_ui.state_chip('unknown') }}
+  <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} есть сохранённые записи, но у них нет пригодной даты пробуждения. Точная дата не подставляется; график не построен.</p>
+  <p class="muted">Без пригодной даты: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Идентификаторы записей — в технических деталях.</p>
   {% elif not timeline.series %}
   {{ owner_ui.state_chip('confirmed_empty') }}
   <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} нет текущих сохранённых ночей Garmin или Google. Это не доказывает, что сна не было.</p>
@@ -53,6 +57,9 @@
     </div>
     <p class="muted">Таблица содержит все даты окна независимо от переключателей графика. Явный ноль источника — значение, а не пропуск.</p>
   </details>
+  {% if timeline.undated_records %}
+  <p class="muted">Часть сохранённых записей без пригодной даты пробуждения не показана: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Дата не подставляется; записи остаются в технических деталях.</p>
+  {% endif %}
   {% endif %}
   {% if timeline_freshness %}
     {% set attention_items = timeline_freshness | selectattr('attention') | list %}

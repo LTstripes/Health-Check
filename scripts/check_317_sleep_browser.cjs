@@ -53,26 +53,50 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.equal((garminLines[0].match(/L/g) || []).length, 1);
       const cells = await timeline.locator('[data-sleep-timeline-cell]').count();
       assert.equal(cells, 150);
+      // Undated retained evidence is counted, never plotted or claimed empty.
+      assert.match(await timeline.innerText(),
+        /без пригодной даты пробуждения не показана: Google — 1/);
       // Legend toggles hide the chart series only; the table stays complete.
       const fitbitToggle = timeline.locator('[data-sleep-series-toggle]').nth(1);
+      const fitbitZero = timeline.locator('[data-sleep-series-group^="google:"]').first()
+        .locator('[data-sleep-point-state="value"][data-wake-date="2099-01-07"]');
+      await fitbitZero.focus();
+      assert.match(await timeline.locator('#sleep-timeline-detail').innerText(), /явный ноль/);
+      const fitbitBox = await fitbitZero.boundingBox();
       await fitbitToggle.uncheck();
       assert.equal(await timeline.locator('[data-sleep-series-group^="google:"]').first().isHidden(), true);
       assert.equal(await timeline.locator('[data-sleep-timeline-cell]').count(), cells);
+      // Hiding the selected series clears its detail and blocks hidden hit-testing.
+      assert.match(await timeline.locator('#sleep-timeline-detail').innerText(),
+        /Выбери точку на графике/);
+      await page.mouse.move(fitbitBox.x + fitbitBox.width / 2, fitbitBox.y + fitbitBox.height / 2);
+      const hiddenHover = await timeline.locator('#sleep-timeline-detail').innerText();
+      assert.match(hiddenHover, /Выбери точку на графике/);
+      assert.doesNotMatch(hiddenHover, /явный ноль/);
       await fitbitToggle.check();
-      // Point details: exact seconds, explicit zero, native Garmin score only.
+      // Point details: exact evidence, explicit zero, native Garmin score only.
       await timeline.locator('[data-sleep-series-group^="garmin:"] [data-sleep-point-state="value"]').first().focus();
       const garminDetail = await timeline.locator('#sleep-timeline-detail').innerText();
       assert.match(garminDetail, /8 ч 0 мин/);
       assert.match(garminDetail, /28800 с/);
       assert.match(garminDetail, /Оценка сна Garmin/);
-      await timeline.locator('[data-sleep-series-group^="google:"]').first()
-        .locator('[data-sleep-point-state="value"][data-wake-date="2099-01-07"]').focus();
+      assert.match(garminDetail, /Состояние записи\s+ok/);
+      assert.match(garminDetail, /Точность времени|Исходное местное время|UTC-время источника/);
+      await fitbitZero.focus();
       const zeroDetail = await timeline.locator('#sleep-timeline-detail').innerText();
       assert.match(zeroDetail, /явный ноль/);
+      assert.match(zeroDetail, /Состояние записи\s+partial/);
+      assert.match(zeroDetail, /Смещение источника, мин/);
       assert.doesNotMatch(zeroDetail, /Оценка сна Garmin/);
       await page.keyboard.press('ArrowLeft');
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-wake-date')),
         '2099-01-06');
+      // Ambiguity exposes the point reason, candidates and exclusions.
+      await timeline.locator('[data-sleep-point-state="ambiguous"]').focus();
+      const ambiguousDetail = await timeline.locator('#sleep-timeline-detail').innerText();
+      assert.match(ambiguousDetail, /ambiguous_google_main/);
+      assert.match(ambiguousDetail, /Кандидатов\s+2/);
+      assert.match(ambiguousDetail, /Кандидаты\s/);
       // Accessible table keeps every date and every distinct state.
       await timeline.locator('.sleep-timeline-table > summary').click();
       const tableText = await timeline.locator('.sleep-timeline-table').innerText();
@@ -80,6 +104,20 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.match(tableText, /явный ноль/);
       assert.match(tableText, /Нет сохранённой записи/);
       await timeline.locator('.sleep-timeline-table > summary').click();
+      // Owner-visible technical disclosure carries the same bounded evidence.
+      const timelineTechnical = page.locator('main .sleep-technical');
+      assert.equal(await timelineTechnical.getAttribute('open'), null);
+      await timelineTechnical.locator('> summary').click();
+      const techText = await timelineTechnical.innerText();
+      assert.match(techText, /"record_status": "ok"/);
+      assert.match(techText, /"temporal_evidence"/);
+      assert.match(techText, /"source_utc_offset_minutes": 180/);
+      assert.match(techText, /"ambiguous_google_main"/);
+      assert.match(techText, /"candidate_record_ids"/);
+      assert.match(techText, /"exclusions"/);
+      assert.match(techText, /"wake_date_missing_by_source"/);
+      await geometry();
+      await timelineTechnical.locator('> summary').click();
       // 7-day preset is a bounded quick window on the same sources.
       await timeline.locator('.preset-links a[href*="days=7"]').click();
       await page.waitForURL('**days=7**');
@@ -178,7 +216,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.equal(await page.locator('[data-source-sleep]').count(), 0);
       assert.equal(await page.locator('[data-source-series]').count(), 0);
       await geometry();
-      checks.push(`${width}px: primary 7/30 timeline (5 exact sources, no bridged gaps, ambiguity marker, display toggles, point details, explicit zero, accessible table), Garmin account without device, non-Fitbit Google account, missing/invalid/false roles, separate sources, dated vitals, missing/ambiguous/CLASSIC/summary-only/zero/nap, keyboard disclosure, unchanged empty Compare, no overflow`);
+      checks.push(`${width}px: primary 7/30 timeline (5 exact sources, no bridged gaps, ambiguity marker, display toggles, hidden-series hover/clear, point evidence details, bounded technical disclosure, undated-evidence note, explicit zero, accessible table), Garmin account without device, non-Fitbit Google account, missing/invalid/false roles, separate sources, dated vitals, missing/ambiguous/CLASSIC/summary-only/zero/nap, keyboard disclosure, unchanged empty Compare, no overflow`);
     }
     assert.deepEqual(errors, []);
     const result = { status: 'PASS', browser: browser.version(), checks, errors };
