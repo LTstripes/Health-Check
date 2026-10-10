@@ -291,7 +291,7 @@ def test_garmin_primary_table_respects_source_view_gate(tmp_path, monkeypatch, f
 
     monkeypatch.setattr("healthcheck.web.pages.read_source_sleep_night", read_rejected_evidence)
     with client_for(app) as client:
-        response = client.get("/sleep?wake_date=2099-01-02")
+        response = client.get("/sleep?view=garmin&wake_date=2099-01-02")
     assert response.status_code == 200
     primary = response.text.split('<details class="card owner-details sleep-technical"')[0]
     assert "data-night-row" in primary

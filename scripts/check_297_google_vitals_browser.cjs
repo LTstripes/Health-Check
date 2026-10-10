@@ -70,7 +70,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       checks.push(width + 'px: two source-explicit blocks, mixed states, bounded window switch, no overflow');
     }
     await page.setViewportSize({ width: 1100, height: 900 });
-    await page.goto(base + '/sleep?wake_date=2099-01-03');
+    await page.goto(base + '/sleep?view=garmin&wake_date=2099-01-03');
     assert.match(await page.locator('.sleep-night').innerText(), /нет пригодного значения/);
     await page.goto(base + '/sleep?wake_date=2099-01-03&view=google');
     const missingNight = page.locator('[data-google-vitals]');

@@ -1097,11 +1097,11 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
                 switch = response.text.split('aria-label="Источники сна">', 1)[1].split(
                     "</nav>", 1
                 )[0]
-                for view, label in (("garmin", "Garmin"), ("google", "Google"),
-                                    ("compare", "Сравнить")):
+                for view, label in (("timeline", "Динамика"), ("garmin", "Garmin"),
+                                    ("google", "Google"), ("compare", "Сравнить")):
                     assert f'href="/sleep?view={view}' in switch
                     assert f'>{label}</a>' in switch
-                selected = "Сравнить" if path == "/agreement" else "Garmin"
+                selected = "Сравнить" if path == "/agreement" else "Динамика"
                 assert f'aria-current="page">{selected}</a>' in switch
             # The thematic pages are Russian; legacy import detail stays English.
             if section in ("Обзор", "Вес", "Сон", "Активность", "Статистика") or path == "/imports":

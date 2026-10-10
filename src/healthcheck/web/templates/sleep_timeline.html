@@ -1,0 +1,86 @@
+{% import "owner_ui.html" as owner_ui %}
+{% macro timeline_cell(point) -%}
+{%- if point.state == 'value' -%}
+{{ metric_value('sleep_duration_seconds', point.value_seconds) }}{% if point.note %} · {{ point.note }}{% endif %}
+{%- elif point.state == 'ambiguous' -%}
+Несколько записей; значение не выбрано
+{%- else -%}
+{{ point.note or 'Нет пригодного значения' }}
+{%- endif -%}
+{%- endmacro %}
+<section class="card sleep-timeline" data-sleep-timeline>
+  <h2>Длительность сна по датам</h2>
+  <p class="muted">Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p>
+  <div class="preset-links" aria-label="Окно истории сна">
+    {% for window in (7, 30) %}
+    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}">{{ window }} дней</a>
+    {% endfor %}
+  </div>
+  {% if timeline is none %}
+  {{ owner_ui.state_chip('unavailable') }}
+  <p>Локальное хранилище данных не готово. Сохранённая история сна не читается.</p>
+  {% elif timeline.read_limit_exceeded %}
+  {{ owner_ui.state_chip('unknown') }}
+  <p>За выбранное окно слишком много сохранённых записей; график не построен, полнота не оценивается. Сузьте окно до 7 дней или откройте «Сравнить».</p>
+  {% elif not timeline.series and timeline.undated_records %}
+  {{ owner_ui.state_chip('unknown') }}
+  <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} есть сохранённые записи, но у них нет пригодной даты пробуждения. Точная дата не подставляется; график не построен.</p>
+  <p class="muted">Без пригодной даты: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Идентификаторы записей — в технических деталях.</p>
+  {% elif not timeline.series %}
+  {{ owner_ui.state_chip('confirmed_empty') }}
+  <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} нет текущих сохранённых ночей Garmin или Google. Это не доказывает, что сна не было.</p>
+  {% else %}
+  <p class="legend sleep-timeline-legend" data-sleep-timeline-legend>
+    {% for series in timeline.series %}
+    <label class="sleep-series-toggle"><input type="checkbox" checked data-sleep-series-toggle="{{ series.series_id }}"><span class="swatch sleep-series-{{ series.provider }}"></span>{{ series.label }}</label>
+    {% endfor %}
+  </p>
+  <div class="chart" id="sleep-timeline-chart" role="group" aria-labelledby="sleep-timeline-chart-title" aria-describedby="sleep-timeline-chart-desc">
+    <p class="muted" data-sleep-timeline-fallback>График требует JavaScript. Полная таблица дат и состояний — ниже.</p>
+  </div>
+  <p class="visually-hidden" id="sleep-timeline-chart-title">График длительности сна: часы по датам пробуждения</p>
+  <p class="visually-hidden" id="sleep-timeline-chart-desc">Каждый ряд — отдельный сохранённый источник. Пропуски не соединяются линией; несколько записей за дату отмечены отдельно.</p>
+  <p class="muted">Наведи, кликни или выбери точку клавишей Tab; стрелки ← → переключают точки. Переключатели ряда меняют только график — таблица остаётся полной.</p>
+  <div id="sleep-timeline-detail" class="sleep-timeline-detail" role="status" aria-live="polite" aria-atomic="true">Выбери точку на графике, чтобы увидеть подробности ночи.</div>
+  <details class="owner-details sleep-timeline-table">
+    <summary>Таблица дат и состояний</summary>
+    <div class="table-scroll" role="region" tabindex="0" aria-label="Длительность сна по датам и источникам">
+      <table>
+        <thead><tr><th>Дата пробуждения</th>{% for series in timeline.series %}<th>{{ series.label }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in timeline.table_rows %}
+          <tr><th scope="row">{{ row.date | owner_date }}</th>
+          {% for point in row.cells %}<td data-sleep-timeline-cell="{{ point.state }}">{{ timeline_cell(point) }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Таблица содержит все даты окна независимо от переключателей графика. Явный ноль источника — значение, а не пропуск.</p>
+  </details>
+  {% if timeline.undated_records %}
+  <p class="muted">Часть сохранённых записей без пригодной даты пробуждения не показана: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Дата не подставляется; записи остаются в технических деталях.</p>
+  {% endif %}
+  {% endif %}
+  {% if timeline_freshness %}
+    {% set attention_items = timeline_freshness | selectattr('attention') | list %}
+    <p class="sleep-source-status" data-sleep-freshness>
+      {% if attention_items %}
+        {% for item in attention_items %}<span class="sleep-freshness-note">{{ item.provider_label }}: {{ item.state_text }}{% if item.reason_text %} · {{ item.reason_text }}{% endif %}</span>{% endfor %}
+      {% else %}
+        <span>Замечаний по свежести источников сна нет.</span>
+      {% endif %}
+      <a href="/imports#data-status">Проверить источники →</a>
+    </p>
+  {% else %}
+    <p class="sleep-source-status" data-sleep-freshness>Состояние свежести источников недоступно. <a href="/imports#data-status">Проверить источники →</a></p>
+  {% endif %}
+  <p class="muted">Свежесть обновления отделена от сохранённой истории: сбой обновления не удаляет записи ниже.</p>
+</section>
+{% call owner_ui.technical_details('sleep-technical') %}
+  <h2>Динамика сна</h2>
+  <p>Каждый ряд — один точный сохранённый источник Garmin или Google. Сессии не объединяются, пропуски не заполняются, из нескольких записей значение не выбирается. Оценка Garmin относится к отдельной сессии; совместимой оценки Google нет. Полные ночные пакеты встроены в снимок страницы.</p>
+  <pre class="provenance">{{ timeline_technical | tojson(indent=2) }}</pre>
+  <h2>Свежесть источников</h2>
+  <pre class="provenance">{{ timeline_freshness | tojson(indent=2) }}</pre>
+{% endcall %}
+<script id="sleep-timeline-data" type="application/json">{{ timeline | tojson }}</script>

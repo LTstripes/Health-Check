@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,11 @@ from healthcheck.analytics.sleep_agreement_report import (
     unavailable_report,
 )
 from healthcheck.analytics.sleep_metrics import get_sleep_metric_definition
-from healthcheck.analytics.sleep_source_view import read_source_sleep_night
+from healthcheck.analytics.sleep_source_view import (
+    read_source_sleep_night,
+    read_source_sleep_range,
+)
+from healthcheck.collection_policy import resolve_profile_collection_policy
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import ImportCandidate, IngestEvent
 from healthcheck.db.repositories import restore_stored_utc
@@ -30,6 +34,7 @@ from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
+from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
@@ -44,6 +49,12 @@ from healthcheck.web.query import (
 )
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 from healthcheck.web.sleep_comparison import comparison_charts, comparison_value
+from healthcheck.web.sleep_timeline import (
+    SLEEP_TIMELINE_PROVIDERS,
+    build_sleep_timeline,
+    sleep_timeline_days,
+    sleep_timeline_technical,
+)
 from healthcheck.web.sleep_view import (
     GOOGLE_VITAL_METRICS,
     GOOGLE_VITALS_WINDOWS,
@@ -800,7 +811,8 @@ def sleep_page(
     wake_date: str | None = None,
     garmin_source_id: str | None = None,
     vitals_window: str | None = None,
-    view: str = "garmin",
+    view: str = "timeline",
+    days: str | None = None,
 ) -> HTMLResponse:
     try:
         end = date.fromisoformat(wake_date) if wake_date is not None else date.today()
@@ -816,9 +828,13 @@ def sleep_page(
             message="Дата не позволяет показать 30 дней истории.",
         )
     start = end - timedelta(days=29)
-    view = view if view in {"garmin", "google", "compare"} else "garmin"
+    view = view if view in {"timeline", "garmin", "google", "compare"} else "timeline"
     if view == "compare":
         return _render_comparison(request, start=start, end=end, vitals_days=vitals_days)
+    if view == "timeline":
+        return _render_sleep_timeline(
+            request, end=end, days=sleep_timeline_days(days), vitals_days=vitals_days
+        )
     vitals_start = end - timedelta(days=vitals_days - 1)
     results: dict[str, Any] = {}
     selection: dict[str, Any] = {"status": "no_data", "sources": []}
@@ -888,6 +904,57 @@ def sleep_page(
         "google_vital_cell_state": google_vital_cell_state,
         "google_vital_value_text": google_vital_value_text,
         "google_vital_ineligible_note": google_vital_ineligible_note,
+    })
+
+
+def _render_sleep_timeline(
+    request: Request, *, end: date, days: int, vitals_days: int
+) -> HTMLResponse:
+    """Primary #343 desktop view: independent 7/30 source ranges in one SSR snapshot.
+
+    The range packets (including per-night disclosure) are embedded in the
+    existing page snapshot; no separate endpoint is added. A failed refresh is
+    never conflated with removed saved history.
+    """
+
+    timeline: dict[str, Any] | None = None
+    timeline_technical: dict[str, Any] | None = None
+    try:
+        with session_scope(request_engine(request)) as session:
+            ensure_read_snapshot(session)
+            ranges = {
+                provider: read_source_sleep_range(
+                    session, provider=provider, wake_date=end, days=days
+                )
+                for provider in SLEEP_TIMELINE_PROVIDERS
+            }
+            settings = request.app.state.settings
+            evaluated_at_utc = datetime.now(UTC)
+            timeline = build_sleep_timeline(
+                ranges,
+                days=days,
+                end_date=end,
+                freshness=read_consumer_freshness_projection(
+                    session,
+                    evaluated_at_utc=evaluated_at_utc,
+                    evaluation_local_date=evaluated_at_utc.astimezone().date(),
+                    weight_cadence_days=settings.weight_cadence_days,
+                    collection_policy=resolve_profile_collection_policy(settings),
+                ),
+            )
+            timeline_technical = sleep_timeline_technical(timeline)
+    except SQLAlchemyError as exc:
+        if not database_unavailable(exc):
+            return _persist_error(request, "sleep_page")
+    return render(request, "sleep.html", {
+        "page": "sleep", "wake_date": end, "start_date": end - timedelta(days=days - 1),
+        "sleep_view": "timeline", "sleep_timeline_days": days,
+        "selection": {"status": "no_data", "sources": []},
+        "google_vitals_window_days": vitals_days,
+        "timeline": timeline,
+        "timeline_freshness": timeline["freshness"] if timeline else None,
+        "timeline_technical": timeline_technical,
+        "metric_value": metric_value,
     })
 
 

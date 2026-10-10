@@ -418,3 +418,36 @@ main, .legal { max-width: var(--owner-content-width); }
 .statistics-comparison { color: var(--muted); font-size: .8125rem; margin: 16px 0 0; }
 .statistics-comparison small { display: block; }
 .statistics-unavailable { padding: 24px 0; }
+
+/* Sleep B2: independent 7/30 source timelines over exact saved sources. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.sleep-timeline .chart { min-height: 0; }
+.sleep-timeline .chart svg { display: block; width: 100%; min-width: 320px; height: auto; }
+.sleep-timeline-legend { gap: 4px 24px; margin: 12px 0; }
+.sleep-timeline-series.is-hidden { display: none; }
+.sleep-series-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; cursor: pointer; }
+.sleep-series-toggle.is-hidden-series { color: var(--muted); }
+.sleep-series-toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.swatch.sleep-series-garmin { background: var(--series-1); }
+.swatch.sleep-series-google { background: var(--series-4); }
+.sleep-timeline-axis { fill: var(--muted); font: 13px var(--owner-sans); }
+.sleep-timeline-point { cursor: pointer; outline: none; }
+.sleep-timeline-dot { stroke: var(--card); stroke-width: 2px; }
+.sleep-timeline-point:hover .sleep-timeline-dot,
+.sleep-timeline-point:focus .sleep-timeline-dot { stroke: var(--accent); stroke-width: 4px; }
+.sleep-timeline-point:focus .sleep-timeline-diamond { stroke: var(--accent); stroke-width: 3px; }
+.sleep-timeline-detail { padding: 12px; margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
+.sleep-timeline-detail h3 { margin-top: 0; }
+.sleep-timeline-detail p { margin: 4px 0 8px; }
+.sleep-timeline-detail-source { font-weight: 600; }
+.sleep-timeline-session { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; margin: 8px 0; }
+.sleep-timeline-session dt { color: var(--muted); font-size: .875rem; }
+.sleep-timeline-session dd { margin: 0; font-variant-numeric: tabular-nums; }
+.sleep-timeline-table table { min-width: 560px; }
+.sleep-timeline-table td[data-sleep-timeline-cell="ambiguous"] { color: var(--attention-ink); }
+.sleep-timeline-table td[data-sleep-timeline-cell="no_records"] { color: var(--muted); }
+.sleep-source-status { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; margin: 16px 0 8px; }
+.sleep-freshness-note { color: var(--attention-ink); font-weight: 600; }
+@media (max-width: 800px) {
+  .sleep-timeline-session { grid-template-columns: minmax(0, 1fr); }
+}
