@@ -268,8 +268,8 @@ def test_period_brief_rendered_summary_deduplicates_warning_and_notables(tmp_pat
         def __init__(self, *_args):
             self.garmin = FakeGarmin()
 
-        def build_with_render(self, **_kwargs):
-            return {"packet": packet, "display": display, "rendered_text": ""}
+        def build_with_chart_inputs(self, **_kwargs):
+            return {"packet": packet, "display": display, "rendered_text": ""}, None
 
     monkeypatch.setattr("healthcheck.web.pages.PeriodBriefService", FakeService)
     settings = Settings(data_dir=tmp_path / "runtime")
@@ -488,8 +488,8 @@ def _stub_brief_service(monkeypatch, result, source_selection=None):
         def __init__(self, *_args):
             self.garmin = FakeGarmin()
 
-        def build_with_render(self, **_kwargs):
-            return result
+        def build_with_chart_inputs(self, **_kwargs):
+            return result, None
 
     monkeypatch.setattr("healthcheck.web.pages.PeriodBriefService", FakeService)
 
@@ -1384,3 +1384,160 @@ def test_selected_garmin_missing_rhr_hrv_remains_source_and_date_specific(tmp_pa
     if mode != "outside_window":
         # Google daily values remain separate, never fill Garmin's missing cell.
         assert "42.5 мс" in response.text and "55 уд/мин" in response.text
+
+
+@pytest.mark.parametrize("days,mode", [
+    (7, "populated"), (30, "populated"), (365, "populated"),
+    (7, "empty"), (30, "multiple"), (7, "baseline_error"),
+])
+def test_295_route_reuse_matches_control_packet_charts_html_and_read_counts(
+    tmp_path, monkeypatch, days, mode,
+):
+    """Compare real /brief with the prior re-reading chart path, in one fixture."""
+    from collections import Counter
+    from copy import deepcopy
+    from unittest.mock import patch
+
+    from sqlalchemy import event
+
+    from healthcheck.analytics import garmin_baselines
+    from healthcheck.web import period_brief_query
+    from healthcheck.web.period_brief_query import PeriodBriefService
+    from healthcheck.web.query import WeightQueryService
+    from test_dashboard_ui import _ui as create_fixture
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2099, 1, 10, 12, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(period_brief_query, "datetime", FrozenDatetime)
+    app, settings, paths = create_fixture(tmp_path)
+    if mode != "empty":
+        seed_overview_a_plus(paths)
+    if mode == "multiple":
+        engine = create_sqlite_engine(paths)
+        with create_session_factory(engine)() as session:
+            first = session.query(GarminSource).first()
+            session.add(GarminSource(
+                id="synthetic-second", provider_id=first.provider_id,
+                acquisition_source_id=first.acquisition_source_id,
+                source_kind="provider", provider_code=first.provider_code,
+                source_instance_id="synthetic-second",
+            ))
+            session.commit()
+        engine.dispose()
+    if mode == "baseline_error":
+        original_analytic = period_brief_query.analyze_garmin_metric_series
+
+        def fail_duration(session, query):
+            if query.metric_code == "sleep_duration_seconds":
+                raise ValueError("synthetic unavailable baseline")
+            return original_analytic(session, query)
+
+        monkeypatch.setattr(period_brief_query, "analyze_garmin_metric_series", fail_duration)
+    calls = Counter()
+    sql = []
+    original_weight = WeightQueryService.summary
+    original_scalar = garmin_baselines.compute_garmin_scalar_series
+
+    def weight(self, **kwargs):
+        calls["weight"] += 1
+        return original_weight(self, **kwargs)
+
+    def scalar(session, **kwargs):
+        calls[kwargs["metric_code"]] += 1
+        return original_scalar(session, **kwargs)
+
+    def record_sql(conn, cursor, statement, parameters, context, executemany):
+        sql.append(statement)
+
+    def control(self, **kwargs):
+        return self.build_with_render(**kwargs), None
+
+    params = {"start_date": (date(2099, 1, 7) - timedelta(days=days-1)).isoformat(),
+              "end_date": "2099-01-07"}
+    with TestClient(app, base_url="http://127.0.0.1:8120",
+                    headers={"Origin": "http://127.0.0.1:8120"}) as client:
+        seed_a_plus_weight(client)
+        monkeypatch.setattr(WeightQueryService, "summary", weight)
+        monkeypatch.setattr(garmin_baselines, "compute_garmin_scalar_series", scalar)
+        from sqlalchemy.engine import Engine
+        event.listen(Engine, "before_cursor_execute", record_sql)
+        try:
+            with patch.object(PeriodBriefService, "build_with_chart_inputs", control):
+                before = client.get("/brief", params=params)
+            before_calls, before_sql = calls.copy(), len(sql)
+            calls.clear()
+            sql.clear()
+            after = client.get("/brief", params=params)
+        finally:
+            event.remove(Engine, "before_cursor_execute", record_sql)
+        assert before.status_code == after.status_code == 200
+        assert after.context["packet"] == before.context["packet"]
+        assert after.context["brief"] == before.context["brief"]
+        assert after.context["charts"] == before.context["charts"]
+        assert after.text == before.text  # Includes technical evidence disclosures.
+        assert before_calls["weight"] == 2 and calls["weight"] == 1
+        for metric in ("sleep_duration_seconds", "sleep_score"):
+            expected = 0 if mode in {"empty", "multiple"} or (
+                mode == "baseline_error" and metric == "sleep_duration_seconds"
+            ) else 1
+            assert calls[metric] == expected
+            assert before_calls[metric] == expected * 2
+        assert len(sql) < before_sql
+        print(f"295 {days}d/{mode}: SQL {before_sql}->{len(sql)}; "
+              f"reads {dict(before_calls)}->{dict(calls)}")
+        if mode == "populated":
+            latest_sleep = after.context["charts"]["sleep_latest"]["sleep_duration_seconds"]
+            assert latest_sleep["value"] == 26400
+            assert after.context["charts"]["sleep_nights"]
+        # A new request must observe newly confirmed Weight evidence.
+        original_packet = deepcopy(after.context["packet"])
+        seed_334_weight(client, 1, (6,))
+        latest = client.get("/brief", params=params)
+        assert latest.context["packet"]["result_hash"] != original_packet["result_hash"]
+        assert len(latest.context["charts"]["weight"]["points"]) == 6
+
+
+def test_295_handoff_rejects_foreign_packet_source_session_or_transaction(tmp_path):
+    from copy import deepcopy
+
+    from healthcheck.db.engine import session_scope
+    from healthcheck.web.overview_charts import read_overview_charts
+    from healthcheck.web.period_brief_query import PeriodBriefService
+    from test_dashboard_ui import _ui as create_fixture
+
+    _, settings, paths = create_fixture(tmp_path)
+    seed_overview_a_plus(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            result, inputs = PeriodBriefService(session, settings).build_with_chart_inputs(
+                start_date=date(2099, 1, 1), end_date=date(2099, 1, 7), thin_display=True,
+            )
+            packet = result["packet"]
+            args = dict(settings=settings, packet=packet, selected_id=inputs.selected_id,
+                        brief_inputs=inputs)
+            expected = read_overview_charts(session, settings, packet=packet,
+                                            selected_id=inputs.selected_id)
+            assert read_overview_charts(session=session, **args) == expected
+            with pytest.raises(ValueError, match="producing packet"):
+                read_overview_charts(session=session, **{**args, "selected_id": "foreign"})
+            changed = deepcopy(packet)
+            changed["result_hash"] = "foreign"
+            with pytest.raises(ValueError, match="producing packet"):
+                read_overview_charts(session=session, **{**args, "packet": changed})
+            changed = deepcopy(packet)
+            changed["period"]["end_date"] = "2099-01-08"
+            with pytest.raises(ValueError, match="producing packet"):
+                read_overview_charts(session=session, **{**args, "packet": changed})
+            with session_scope(engine) as other:
+                with pytest.raises(ValueError, match="producing packet"):
+                    read_overview_charts(session=other, **args)
+            # Even a matching packet cannot be reused after the snapshot ends.
+            session.rollback()
+            with pytest.raises(ValueError, match="producing packet"):
+                read_overview_charts(session=session, **args)
+    finally:
+        engine.dispose()

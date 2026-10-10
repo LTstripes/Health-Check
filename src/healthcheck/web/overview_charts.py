@@ -70,7 +70,7 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
     return figure
 
 
-def read_overview_charts(session, settings, *, packet, selected_id):
+def read_overview_charts(session, settings, *, packet, selected_id, brief_inputs=None):
     """Reuse Weight and Sleep presentation contracts; never interpret raw payloads.
 
     Sleep uses the packet's existing bounded baseline window and the same
@@ -79,7 +79,11 @@ def read_overview_charts(session, settings, *, packet, selected_id):
     """
     start = date.fromisoformat(packet["period"]["start_date"])
     end = date.fromisoformat(packet["period"]["end_date"])
-    weight = WeightQueryService(session, settings).summary(start_date=start, end_date=end)
+    if brief_inputs is not None:
+        brief_inputs.validate(session, packet, selected_id)
+        weight = brief_inputs.weight_summary
+    else:
+        weight = WeightQueryService(session, settings).summary(start_date=start, end_date=end)
     trend = weight["trend"]
     trend_by_day = {p["observed_date"]: p["trend_kg"] for p in trend["points"]}
     weight_rows = [{"date": p["observed_date"], "value": p["median_kg"], "state": "present",
@@ -103,10 +107,24 @@ def read_overview_charts(session, settings, *, packet, selected_id):
                 sleep_error = True
                 continue
             try:
-                sleep_results[code] = service.scalar_series(
-                    garmin_source_id=selected_id, metric_code=code,
-                    start_date=sleep_start, end_date=sleep_end,
-                )
+                if brief_inputs is None:
+                    sleep_results[code] = service.scalar_series(
+                        garmin_source_id=selected_id, metric_code=code,
+                        start_date=sleep_start, end_date=sleep_end,
+                    )
+                else:
+                    body = brief_inputs.sleep_series[code]
+                    query = body["query"]
+                    if (query["garmin_source_id"] != selected_id
+                            or query["metric_code"] != code
+                            or query["start_date"] != sleep_start.isoformat()
+                            or query["end_date"] != sleep_end.isoformat()
+                            or body["result_hash"] != baseline["result_hash"]):
+                        raise ValueError("Brief sleep series does not match its baseline")
+                    # Preserve scalar_series source validation and presentation,
+                    # including sanitization and provider-native score evidence.
+                    service._require_source_id(selected_id)
+                    sleep_results[code] = service._present_scalar_result(body)
             except GarminQueryError:
                 sleep_error = True
     nights = nightly_rows(sleep_results)

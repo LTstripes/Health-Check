@@ -293,3 +293,39 @@ def test_failed_compound_read_releases_snapshot_and_session_can_be_reused(
     confirm()
     with session_scope(engine) as reader:
         assert WeightQueryService(reader, settings).summary(**PERIOD)["current"]["value_kg"] == 80.0
+
+
+def test_295_brief_and_reused_charts_share_snapshot_across_writer_commit(
+    pending_import, monkeypatch,
+):
+    from healthcheck.web.overview_charts import read_overview_charts
+
+    engine, settings, confirm, commits = pending_import
+    with session_scope(engine) as reader:
+        service = PeriodBriefService(reader, settings)
+        original = service.weight.summary
+
+        def read_then_confirm(**kwargs):
+            result = original(**kwargs)
+            confirm()
+            return result
+
+        monkeypatch.setattr(service.weight, "summary", read_then_confirm)
+        result, inputs = service.build_with_chart_inputs(**PERIOD)
+        charts = read_overview_charts(
+            reader, settings, packet=result["packet"], selected_id=inputs.selected_id,
+            brief_inputs=inputs,
+        )
+        assert commits == [True]
+        assert charts["weight_current"]["value_kg"] is None
+        assert charts["weight"]["points"] == []
+        assert result["packet"]["sections"]["data_quality"]["import_queue"][
+            "pending_candidate_count"] == 1
+    with session_scope(engine) as reader:
+        result, inputs = PeriodBriefService(reader, settings).build_with_chart_inputs(**PERIOD)
+        charts = read_overview_charts(
+            reader, settings, packet=result["packet"], selected_id=inputs.selected_id,
+            brief_inputs=inputs,
+        )
+        assert charts["weight_current"]["value_kg"] == 80.0
+        assert len(charts["weight"]["points"]) == 1
