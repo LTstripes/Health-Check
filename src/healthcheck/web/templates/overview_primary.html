@@ -2,15 +2,18 @@
 <figure class="overview-figure" data-overview-chart="{{ kind }}">
   <svg viewBox="0 0 350 {{ 200 if kind == 'weight' else 142 }}" role="img" aria-labelledby="{{ kind }}-title {{ kind }}-desc">
     <title id="{{ kind }}-title">{{ label }}</title>
-    <desc id="{{ kind }}-desc">{{ figure.start | owner_date }} — {{ figure.end | owner_date }}. Даты расположены по времени. Пропуски отмечены штрихом, это не ноль. Точные значения и состояния — в таблице под графиком.</desc>
+    <desc id="{{ kind }}-desc">{{ figure.start | owner_date }} — {{ figure.end | owner_date }}. Даты расположены по времени. Пропуски отмечены штрихом, это не ноль.{% if kind == 'weight' %} Тонкие линии соединяют только наблюдаемые измерения; пунктир между ними обозначает дни без наблюдений, значения для этих дней не вычисляются.{% endif %} Точные значения и состояния — в таблице под графиком.</desc>
     {% if kind == 'weight' %}
     <text x="52" y="18" text-anchor="end">кг</text>
     {% for tick in figure.value_ticks %}<path class="overview-gridline" d="M62 {{ tick.y }}H326"/><text x="52" y="{{ tick.y + 5 }}" text-anchor="end">{{ overview_number(tick.value) }}</text>{% else %}<text x="62" y="84">Нет измерений</text>{% endfor %}
+    {% elif kind == 'sleep' and figure.hour_ticks %}
+    {% for tick in figure.hour_ticks %}<path class="overview-gridline" d="M38 {{ tick.y }}H322"/><text class="overview-hour-tick" x="30" y="{{ tick.y + 4 }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}
     {% else %}<path class="overview-gridline" d="M38 24H322 M38 64H322 M38 104H322"/>
     {% if figure.points | selectattr("value", "ne", none) | list %}<text x="0" y="20">{{ overview_number(figure.high / 3600 if kind == 'sleep' else figure.high) }} {{ unit }}</text>
     <text x="0" y="104">{{ overview_number(figure.low / 3600 if kind == 'sleep' else figure.low) }}</text>{% else %}<text x="38" y="64">Нет пригодных значений</text>{% endif %}
     {% endif %}
     {% for gap in figure.gaps %}<path class="overview-gap" d="M{{ gap.x }} {{ 144 if kind == 'weight' else 111 }}h{{ gap.width }}"><title>Нет наблюдений: {{ gap.start }} — {{ gap.end }}</title></path>{% endfor %}
+    {% if kind == 'weight' %}{% for line in figure.observed_segments %}<line class="overview-weight-connector{% if line.gap %} overview-weight-connector-gap{% endif %}" x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"><title>{{ line.start | owner_date }} — {{ line.end | owner_date }}{% if line.gap %}: между измерениями есть дни без наблюдений{% endif %}</title></line>{% endfor %}{% endif %}
     {% for line in figure.segments %}<line class="overview-trend" x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"/>{% endfor %}
     {% for point in figure.points %}
       {% if point.y is not none %}
@@ -22,7 +25,7 @@
     {% endfor %}
     {% if kind == 'weight' %}{% for tick in figure.date_ticks %}<path class="overview-gridline" d="M{{ tick.x }} 150v4"/><text x="{{ tick.x }}" y="174" text-anchor="{{ 'start' if loop.first else ('end' if loop.last else 'middle') }}">{{ tick.label }}</text>{% endfor %}<text x="194" y="195" text-anchor="middle">{{ figure.years }}</text>{% else %}<text x="38" y="137">{{ figure.start }}</text><text x="322" y="137" text-anchor="end">{{ figure.end }}</text>{% endif %}
   </svg>
-  <figcaption>{% if kind == 'weight' %}<span class="overview-weight-key"><i class="overview-weight-dot" aria-hidden="true"></i> Измерения · дневные медианы</span><span class="overview-weight-key"><i class="overview-weight-diamond" aria-hidden="true"></i> EWMA, 21 день · тренд</span><span>Обводка — последний день с измерениями.</span><span>Штрих — нет наблюдений, это не ноль. Линия тренда только между соседними днями.</span>{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
+  <figcaption>{% if kind == 'weight' %}<span class="overview-weight-key"><i class="overview-weight-dot" aria-hidden="true"></i> Измерения · дневные медианы</span><span class="overview-weight-key"><i class="overview-weight-diamond" aria-hidden="true"></i> EWMA, 21 день · тренд</span><span>Обводка — последний день с измерениями.</span><span>Штрих — нет наблюдений, это не ноль. Тонкая линия соединяет измерения; пунктир — дни без наблюдений. Значения между точками не вычисляются. Линия тренда только между соседними днями.</span>{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
 </figure>
 <details class="owner-details brief-records overview-chart-values"><summary>{{ label }} · таблица</summary>
   <div class="table-scroll" role="region" tabindex="0" aria-label="{{ label }}: значения графика">

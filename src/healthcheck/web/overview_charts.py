@@ -12,8 +12,9 @@ from healthcheck.web.sleep_view import nightly_rows
 def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=False):
     """Only coordinates: preserve dates, values, missing days and partial states.
 
-    A gap is an interval without a supplied observation, never a zero. Lines
-    connect only adjacent calendar days. No interpolation or smoothing here.
+    A gap is an interval without a supplied observation, never a zero. EWMA lines
+    connect only adjacent calendar days. Weight observation connectors are dashed
+    across unmeasured dates. No interpolation or smoothing here.
     """
     rows = sorted(rows, key=lambda row: row["date"])
     values = [row[key] for row in rows for key in ("value", "trend")
@@ -36,6 +37,8 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
                      - (100 if weight_layout else 80) * (value - low) / (high - low), 2)
 
     points, gaps, segments = [], [], []
+    observed_segments = []
+    previous_observed = None
     cursor = start
     previous = None
     for row in rows:
@@ -49,6 +52,15 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
             if previous["trend_y"] is not None and point["trend_y"] is not None:
                 segments.append({"x1": previous["x"], "y1": previous["trend_y"],
                                  "x2": point["x"], "y2": point["trend_y"]})
+        if weight_layout and point["y"] is not None:
+            if previous_observed is not None:
+                observed_segments.append({
+                    "x1": previous_observed["x"], "y1": previous_observed["y"],
+                    "x2": point["x"], "y2": point["y"],
+                    "start": previous_observed["date"], "end": point["date"],
+                    "gap": (day - date.fromisoformat(previous_observed["date"])).days > 1,
+                })
+            previous_observed = point
         points.append(point)
         previous = point
         cursor = day + timedelta(days=1)
@@ -58,6 +70,7 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
     figure = {"points": points, "gaps": gaps, "segments": segments, "low": low, "high": high,
               "start": start.isoformat(), "end": end.isoformat()}
     if weight_layout:
+        figure["observed_segments"] = observed_segments
         months = ("янв", "фев", "мар", "апр", "май", "июн",
                   "июл", "авг", "сен", "окт", "ноя", "дек")
         days = sorted({start, start + timedelta(days=(end - start).days // 2), end})
@@ -147,10 +160,18 @@ def read_overview_charts(session, settings, *, packet, selected_id, brief_inputs
         state = "present" if count is not None or complete else "unknown"
         activity_rows.append({"date": day, "value": count if count else (0 if complete else None),
                               "state": state})
+    sleep_figure = dated_chart(sleep_rows, start=sleep_start, end=sleep_end, zero_axis=True)
+    # Axis formatting only: coordinates and all source values stay in seconds.
+    sleep_hours = sleep_figure["high"] / 3600
+    step = 1 if sleep_hours <= 4 else (2 if sleep_hours <= 12 else 4)
+    sleep_figure["hour_ticks"] = [
+        {"label": f"{hour} ч", "y": round(104 - 80 * hour * 3600 / sleep_figure["high"], 2)}
+        for hour in range(0, int(sleep_hours) + 1, step)
+    ] if any(row["value"] is not None for row in sleep_rows) else []
     return {
         "weight": dated_chart(weight_rows, start=start, end=end, weight_layout=True),
         "weight_current": weight.get("current"), "weight_trend": trend,
-        "sleep": dated_chart(sleep_rows, start=sleep_start, end=sleep_end, zero_axis=True),
+        "sleep": sleep_figure,
         "sleep_nights": nights, "sleep_latest": latest, "sleep_error": sleep_error,
         "sleep_limited": sleep_start != start,
         "sleep_newer_unusable": any(row["value"] is None and latest["sleep_duration_seconds"]
