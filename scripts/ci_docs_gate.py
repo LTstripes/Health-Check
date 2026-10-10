@@ -15,8 +15,11 @@ from pathlib import Path
 # README.md is build metadata. New files and every unlisted path require full CI.
 DOC_PATHS = frozenset(
     {
+        "AGENTS.md",
         "docs/ARCHITECTURE.md",
         "docs/DEVELOPMENT_PROCESS.md",
+        "docs/MODEL_ROUTING.md",
+        "docs/OWNER_DATA_WORKFLOW.md",
         "docs/PRODUCT_VISION.md",
         "docs/PROJECT_WIKI.md",
         "docs/ROADMAP.md",

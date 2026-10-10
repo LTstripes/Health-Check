@@ -148,6 +148,59 @@ def test_actual_cli_docs_example_has_terminal_verifiable_outcome(repo, tmp_path)
     assert result.stdout.strip() == "docs"
 
 
+# Exact prose paths audited for links/agent-policy consumers only. Policy/content
+# and privacy review still applies even when the product test suite is skipped.
+POLICY_PROSE = ("AGENTS.md", "docs/MODEL_ROUTING.md", "docs/OWNER_DATA_WORKFLOW.md")
+
+
+@pytest.mark.parametrize("path", POLICY_PROSE)
+def test_existing_policy_prose_has_complete_verified_docs_outcome(repo, tmp_path, path):
+    (repo[0] / path).write_text("# Updated policy prose\n", encoding="utf-8")
+    root, identity = merge(repo)
+    decision = GATE.classify(root, identity)
+    assert decision["mode"] == "docs"
+    assert decision["paths"] == [path]
+    assert route(root, evidence(tmp_path, root, identity), identity) == "docs"
+
+
+def test_six_policy_paths_from_359_qualify_only_as_existing_prose_edits(repo, tmp_path):
+    paths = (
+        *POLICY_PROSE,
+        "docs/ARCHITECTURE.md",
+        "docs/DEVELOPMENT_PROCESS.md",
+        "docs/PRODUCT_VISION.md",
+    )
+    for path in paths:
+        (repo[0] / path).write_text("# Updated policy prose\n", encoding="utf-8")
+    root, identity = merge(repo)
+    decision = GATE.classify(root, identity)
+    assert decision["mode"] == "docs"
+    assert decision["paths"] == sorted(paths)
+    assert route(root, evidence(tmp_path, root, identity), identity) == "docs"
+
+
+@pytest.mark.parametrize("path", POLICY_PROSE)
+@pytest.mark.parametrize("extra", ["src/runtime.py", "docs/new-policy.md", "tests/fixture.md"])
+def test_policy_prose_with_code_new_prose_or_fixture_requires_full(repo, path, extra):
+    (repo[0] / path).write_text("# Updated policy prose\n", encoding="utf-8")
+    (repo[0] / extra).write_text("mixed change\n", encoding="utf-8")
+    root, identity = merge(repo)
+    assert GATE.classify(root, identity)["mode"] == "full"
+
+
+@pytest.mark.parametrize("path", POLICY_PROSE)
+@pytest.mark.parametrize(
+    "content", [b"\0binary", b"[missing](missing.md)", b"Bearer " + b"x" * 30, b"\xffinvalid UTF-8"]
+)
+def test_policy_prose_retains_content_link_and_privacy_checks(repo, path, content):
+    (repo[0] / path).write_bytes(content)
+    root, identity = merge(repo)
+    decision = GATE.classify(root, identity)
+    assert decision["mode"] == "docs"
+    with pytest.raises((GATE.DocsError, UnicodeError, subprocess.CalledProcessError)):
+        GATE.check_documents(root, decision)
+
+
 @pytest.mark.parametrize(
     "path",
     [
@@ -173,10 +226,10 @@ def test_mixed_unknown_fixture_build_dependency_and_policy_changes_require_full(
     assert GATE.classify(root, identity)["mode"] == "full"
 
 
+@pytest.mark.parametrize("path", ("docs/PRODUCT_VISION.md", *POLICY_PROSE))
 @pytest.mark.parametrize("operation", ["new", "rename", "delete", "executable", "symlink"])
-def test_even_allowlisted_path_requires_existing_regular_unchanged_mode(repo, operation):
+def test_even_allowlisted_path_requires_existing_regular_unchanged_mode(repo, operation, path):
     root = repo[0]
-    path = "docs/PRODUCT_VISION.md"
     if operation == "new":
         git(root, "rm", path)
         git(root, "commit", "-m", "synthetic removal")
