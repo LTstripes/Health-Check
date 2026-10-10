@@ -23,15 +23,25 @@ def main():
         parser.error("runtime must be a fresh external hc317-* synthetic directory")
     os.environ["HEALTHCHECK_UI_PORT"] = str(args.port)
     sys.path.insert(0, str(ROOT / "tests"))
+    import json
+
     import uvicorn
 
     from healthcheck.config import Settings
     from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+    from healthcheck.garmin.normalization import normalize_garmin_payload
+    from healthcheck.garmin.persistence import GarminPersistenceRepository
+    from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
     from healthcheck.google.contracts import GoogleSourceIdentity, GoogleSourceKind
     from healthcheck.runtime import prepare_runtime
     from healthcheck.web.ui_app import create_ui_app
     from test_google_daily_vitals import seed_google_daily_vitals
-    from test_sleep_metrics import _google_sleep_payload, _persist_google, _stage
+    from test_sleep_metrics import (
+        GARMIN_SLEEP_FIXTURE,
+        _google_sleep_payload,
+        _persist_google,
+        _stage,
+    )
     from test_sleep_source_view import _persist_account_garmin, _persist_identity
 
     settings = Settings(data_dir=runtime, ui_port=args.port)
@@ -44,6 +54,38 @@ def main():
         try:
             with session_scope(engine) as session:
                 _persist_account_garmin(session, paths)
+
+                def persist_garmin_night(day, *, seconds, score):
+                    wake = date(2099, 1, day)
+                    previous = wake - timedelta(days=1)
+                    payload = json.loads(GARMIN_SLEEP_FIXTURE.read_text(encoding="utf-8"))
+                    payload["device"] = {"attributed": False}
+                    dto = payload["payload"]["dailySleepDTO"]
+                    dto["calendarDate"] = wake.isoformat()
+                    dto["sleepTimeSeconds"] = seconds
+                    dto["sleepScores"]["overall"]["value"] = score
+                    for level in payload["payload"]["levels"]:
+                        for field in ("startTimeGMT", "endTimeGMT"):
+                            level[field] = (
+                                level[field]
+                                .replace("2099-01-01", "{previous}")
+                                .replace("2099-01-02", "{wake}")
+                                .replace("{previous}", previous.isoformat())
+                                .replace("{wake}", wake.isoformat())
+                            )
+                    GarminPersistenceRepository(
+                        session,
+                        payload_store=ContentAddressedGarminPayloadStore(
+                            paths.root / "garmin-artifacts"
+                        ),
+                    ).persist_result(
+                        normalize_garmin_payload(payload), payload=json.dumps(payload).encode()
+                    )
+
+                # Garmin nights 2/3/5/8 leave a visible 6-7 gap for the timeline.
+                persist_garmin_night(3, seconds=27000, score=74)
+                persist_garmin_night(5, seconds=32400, score=88)
+                persist_garmin_night(8, seconds=25200, score=65)
 
                 def persist_day(day, *, name="night", sleep_type="STAGES", status="SUCCEEDED",
                                 main=True, nap=False, zero=False, summary_only=False,

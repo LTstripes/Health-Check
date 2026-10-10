@@ -36,8 +36,8 @@
       <p><small><a href="/context"{% if page|default('') == 'context' %} aria-current="page"{% endif %}>Комментарии / Контекст</a></small></p>
       {% if section == 'sleep' %}
       <nav class="preset-links sleep-source-switch" aria-label="Источники сна">
-        {% for key, label in [('garmin', 'Garmin'), ('google', 'Google'), ('compare', 'Сравнить')] %}
-        <a class="button-link{% if sleep_view|default('garmin') == key %} selected{% endif %}" href="/sleep?view={{ key }}{% if wake_date|default(none) %}&amp;wake_date={{ wake_date }}{% endif %}&amp;vitals_window={{ google_vitals_window_days|default(30) }}{% if selection is defined and selection.status == 'selected' %}&amp;garmin_source_id={{ selection.selected_source_id|urlencode }}{% elif request.query_params.get('garmin_source_id') %}&amp;garmin_source_id={{ request.query_params.get('garmin_source_id')|urlencode }}{% endif %}"{% if sleep_view|default('garmin') == key %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% for key, label in [('timeline', 'Динамика'), ('garmin', 'Garmin'), ('google', 'Google'), ('compare', 'Сравнить')] %}
+        <a class="button-link{% if sleep_view|default('timeline') == key %} selected{% endif %}" href="/sleep?view={{ key }}{% if key == 'timeline' and sleep_timeline_days is defined %}&amp;days={{ sleep_timeline_days }}{% endif %}{% if wake_date|default(none) %}&amp;wake_date={{ wake_date }}{% endif %}&amp;vitals_window={{ google_vitals_window_days|default(30) }}{% if selection is defined and selection.status == 'selected' %}&amp;garmin_source_id={{ selection.selected_source_id|urlencode }}{% elif request.query_params.get('garmin_source_id') %}&amp;garmin_source_id={{ request.query_params.get('garmin_source_id')|urlencode }}{% endif %}"{% if sleep_view|default('timeline') == key %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
       </nav>
       {% elif section and section != 'overview' %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}

@@ -116,7 +116,7 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
             "before_cursor_execute",
             lambda _c, _cur, sql, *_a: statements.append(sql),
         )
-        page = client.get("/sleep?wake_date=2099-01-02")
+        page = client.get("/sleep?view=garmin&wake_date=2099-01-02")
         assert page.status_code == 200
         primary, technical = page.text.split(
             '<details class="card owner-details sleep-technical"', 1
@@ -147,7 +147,7 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
                 },
             ).json()
             assert result == body
-        missing = client.get("/sleep?wake_date=2099-01-03")
+        missing = client.get("/sleep?view=garmin&wake_date=2099-01-03")
         hero = missing.text.split("<summary>История сна</summary>", 1)[0]
         assert "нет пригодного значения" in hero
         assert "28800" not in hero and "82.0" not in hero
@@ -173,7 +173,7 @@ def test_sleep_ambiguous_source_fails_closed_and_escapes_labels(tmp_path, monkey
         lambda *args, **kwargs: pytest.fail("ambiguous source must not read series"),
     )
     with client_for(app) as client:
-        page = client.get("/sleep")
+        page = client.get("/sleep?view=garmin")
         assert page.status_code == 200
         assert "Найдено несколько источников" in page.text
         assert 'data-owner-state="unknown"' in page.text
@@ -188,12 +188,12 @@ def test_sleep_ambiguous_source_fails_closed_and_escapes_labels(tmp_path, monkey
 def test_sleep_empty_and_unavailable_stay_honest(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
     with client_for(app) as client:
-        page = client.get("/sleep")
+        page = client.get("/sleep?view=garmin")
         primary = page.text.split('<details class="card owner-details', 1)[0]
         assert "Нет доступного источника Garmin" in primary
         assert 'data-owner-state="unavailable"' in primary
         assert "0 с" not in primary and "0 баллы" not in primary
-        assert client.get("/sleep?garmin_source_id=unknown").status_code == 200
+        assert client.get("/sleep?view=garmin&garmin_source_id=unknown").status_code == 200
     app.state.engine.dispose()
     app.state.runtime_paths.database.unlink()
     with client_for(app) as client:
@@ -284,7 +284,7 @@ def test_comparison_source_switch_keeps_date_and_independent_panels(tmp_path):
     seed_sleep(paths)
     seed_google_daily_vitals(paths)
     with client_for(app) as client:
-        garmin = client.get("/sleep?wake_date=2099-01-02&vitals_window=7").text
+        garmin = client.get("/sleep?view=garmin&wake_date=2099-01-02&vitals_window=7").text
         google = client.get("/sleep?view=google&wake_date=2099-01-02&vitals_window=7").text
         compare = client.get("/sleep?view=compare&wake_date=2099-01-02").text
         assert "data-google-vitals" not in garmin

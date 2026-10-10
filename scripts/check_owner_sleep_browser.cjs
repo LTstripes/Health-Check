@@ -32,7 +32,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     }
     for (const width of [1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto(base + '/sleep?wake_date=2099-01-02');
+      await page.goto(base + '/sleep?view=garmin&wake_date=2099-01-02');
       assert.equal(await page.locator('.sleep-night [data-night-row]').count(), 1);
       assert.match(await page.locator('.sleep-night [data-night-row]').innerText(), /8 ч 0 мин.*82/s);
       assert.equal(await page.locator('[data-google-vitals]').count(), 0);
@@ -100,7 +100,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.match(await page.locator('main').innerText(), /\+8 мин 30 с/);
       await geometry();
       await page.screenshot({path: path.join(evidence, `sleep-saved-comparison-${width}.png`), fullPage: true});
-      await page.goto(base + '/sleep?wake_date=2099-01-03');
+      await page.goto(base + '/sleep?view=garmin&wake_date=2099-01-03');
       const night = page.locator('.sleep-night');
       assert.match(await night.innerText(), /нет пригодного значения/);
       assert.doesNotMatch(await night.innerText(), /28800|82|0 ч/);

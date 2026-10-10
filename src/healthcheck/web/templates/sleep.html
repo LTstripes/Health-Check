@@ -2,6 +2,9 @@
 {% import "owner_ui.html" as owner_ui %}
 {% block title %}Сон — Health-Check{% endblock %}
 {% block content %}
+{% if sleep_view == 'timeline' %}
+{% include "sleep_timeline.html" %}
+{% else %}
 <section class="card brief-controls">
   <h2>Ночь по дате пробуждения</h2>
   <form method="get" action="/sleep" class="inline-edit owner-controls">
@@ -128,4 +131,6 @@
   <h2>Сравнение</h2>
   <p>Сравнимые пары доступны в режиме «Сравнить». Разные источники, варианты сна и определения показателей не объединяются. Основной источник не меняется.</p>
 {% endcall %}
+{% endif %}
 {% endblock %}
+{% block scripts %}{% if sleep_view == 'timeline' %}<script src="/static/sleep_timeline.js"></script>{% endif %}{% endblock %}
