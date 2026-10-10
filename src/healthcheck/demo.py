@@ -14,6 +14,8 @@ import json
 import os
 import random
 import shutil
+import sqlite3
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -159,7 +161,10 @@ def seed_demo(settings: Settings, *, reset: bool = False) -> DemoSeedResult:
     except ValueError as exc:
         raise DemoSeedError(str(exc)) from None
 
+    # Reject both the lexical target and its resolved location so an alias
+    # (symlink/junction prefix) cannot point into another Git working tree.
     _reject_source_workspace_target(raw_target)
+    _reject_source_workspace_target(paths.root)
 
     marker = paths.root / DEMO_MARKER_NAME
     if paths.root.exists():
@@ -258,10 +263,14 @@ def _is_reparse_link(path: Path) -> bool:
     return path.is_symlink() or path.is_junction()
 
 
-def _reject_source_workspace_target(raw_target: Path) -> None:
-    """Refuse a demo target inside any Git working tree, not only this checkout."""
+def _reject_source_workspace_target(target: Path) -> None:
+    """Refuse a demo target inside any Git working tree.
 
-    for candidate in (raw_target, *raw_target.parents):
+    The caller applies this to both the lexical input path and the resolved
+    path so a symlink/junction prefix cannot hide another checkout's ``.git``.
+    """
+
+    for candidate in (target, *target.parents):
         git_entry = candidate / ".git"
         if git_entry.exists() or git_entry.is_symlink():
             raise DemoSeedError(
@@ -710,6 +719,340 @@ def _write_marker(
     os.replace(temporary, marker)
 
 
+_RESET_V2_ZERO_TABLES = (
+    "agreement_coverages",
+    "agreement_metric_results",
+    "agreement_rule_sets",
+    "agreement_run_exclusions",
+    "agreement_run_pairs",
+    "agreement_runs",
+    "coverage_intervals",
+    "derived_measurements",
+    "garmin_daily_records",
+    "garmin_fit_records",
+    "garmin_intraday_records",
+    "garmin_training_acquisitions",
+    "garmin_training_observation_records",
+    "garmin_training_snapshots",
+    "google_record_intervals",
+    "sync_runs",
+    "sync_stream_state",
+)
+
+_RESET_V1_MULTIDOMAIN_TABLES = (
+    "context_event_heads",
+    "context_event_revisions",
+    "context_events",
+    "garmin_activity_records",
+    "garmin_sleep_records",
+    "garmin_sources",
+    "google_sleep_records",
+    "google_sources",
+)
+
+# Every table the reset preflight inspects.  Counts come from a read-only
+# connection; a missing table is reported as -1 (allowed only for the optional
+# v1 domain tables, never for a v2 manifest entry).
+_RESET_COUNTED_TABLES = tuple(
+    dict.fromkeys(
+        (
+            "alembic_version",
+            "ingest_batches",
+            "ingest_events",
+            "raw_artifacts",
+            "import_candidates",
+            "import_candidate_edits",
+            "measurement_sessions",
+            "scalar_measurements",
+            "canonical_selection_runs",
+            "canonical_selections",
+            "canonical_rule_sets",
+            "acquisition_sources",
+            "providers",
+            "physical_devices",
+            "measurement_algorithms",
+            "garmin_sources",
+            "garmin_source_records",
+            "garmin_raw_payloads",
+            "garmin_payload_observations",
+            "garmin_sleep_records",
+            "garmin_sleep_stage_intervals",
+            "garmin_activity_records",
+            "garmin_record_metrics",
+            "google_sources",
+            "google_source_records",
+            "google_raw_payloads",
+            "google_payload_observations",
+            "google_normalization_attempts",
+            "google_sleep_records",
+            "google_sleep_field_states",
+            "google_sleep_intervals",
+            "google_record_source_evidence",
+            "google_record_metrics",
+            "context_events",
+            "context_event_revisions",
+            "context_event_heads",
+            "context_revision_tags",
+            "context_tags",
+            *_RESET_V2_ZERO_TABLES,
+            *_RESET_V1_MULTIDOMAIN_TABLES,
+        )
+    )
+)
+
+
+def _read_reset_snapshot(database: Path) -> dict[str, Any]:
+    """Read identity/count evidence from a private copy, never the profile itself.
+
+    A read-only SQLite connection to a WAL database still creates or touches
+    ``-wal``/``-shm`` sidecars.  The preflight therefore copies the database
+    (and an existing WAL) into a temporary directory and reads only the copy,
+    leaving every byte of the marked profile untouched.
+    """
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="healthcheck-demo-reset-") as temporary:
+            work = Path(temporary) / database.name
+            shutil.copyfile(database, work)
+            wal = Path(f"{database}-wal")
+            if wal.is_file():
+                shutil.copyfile(wal, Path(f"{work}-wal"))
+            connection: sqlite3.Connection | None = None
+            try:
+                connection = sqlite3.connect(f"{work.as_uri()}?mode=ro", uri=True)
+                connection.execute("PRAGMA query_only = ON")
+                return _read_reset_snapshot_from(connection)
+            finally:
+                if connection is not None:
+                    connection.close()
+    except OSError as exc:
+        raise DemoSeedError(
+            "marked synthetic demo database content could not be read; refusing reset"
+        ) from exc
+
+
+def _read_reset_snapshot_from(connection: sqlite3.Connection) -> dict[str, Any]:
+    try:
+        existing = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        counts = {
+            table: (
+                int(connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+                if table in existing
+                else -1
+            )
+            for table in _RESET_COUNTED_TABLES
+        }
+        labels = (
+            tuple(
+                row[0]
+                for row in connection.execute(
+                    "SELECT source_application FROM acquisition_sources"
+                )
+            )
+            if "acquisition_sources" in existing
+            else ()
+        )
+        garmin_sources = (
+            tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT source_kind, device_attributed, device_code, device_model "
+                    "FROM garmin_sources"
+                )
+            )
+            if "garmin_sources" in existing
+            else ()
+        )
+        google_sources = (
+            tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT source_kind, source_instance_id FROM google_sources"
+                )
+            )
+            if "google_sources" in existing
+            else ()
+        )
+        garmin_latest = (
+            connection.execute("SELECT MAX(wake_date) FROM garmin_sleep_records").fetchone()[0]
+            if "garmin_sleep_records" in existing
+            else None
+        )
+        google_latest = (
+            connection.execute("SELECT MAX(wake_date) FROM google_sleep_records").fetchone()[0]
+            if "google_sleep_records" in existing
+            else None
+        )
+        context_texts = (
+            tuple(
+                row[0]
+                for row in connection.execute("SELECT original_text FROM context_event_revisions")
+            )
+            if "context_event_revisions" in existing
+            else ()
+        )
+    except sqlite3.Error as exc:
+        raise DemoSeedError(
+            "marked synthetic demo database content could not be read; refusing reset"
+        ) from exc
+    return {
+        "table_counts": counts,
+        "acquisition_labels": labels,
+        "garmin_sources": garmin_sources,
+        "google_sources": google_sources,
+        "garmin_latest_wake": garmin_latest,
+        "google_latest_wake": google_latest,
+        "context_texts": context_texts,
+    }
+
+
+def _reset_content_version(marker_data: dict[str, Any]) -> int:
+    if (
+        marker_data.get("format_version") == DEMO_MARKER_FORMAT_VERSION
+        and marker_data.get("seed_id") == DEMO_SEED_ID
+    ):
+        return DEMO_MARKER_FORMAT_VERSION
+    if (
+        marker_data.get("format_version") == DEMO_LEGACY_FORMAT_VERSION
+        and marker_data.get("seed_id") in DEMO_LEGACY_SEED_IDS
+    ):
+        return DEMO_LEGACY_FORMAT_VERSION
+    raise DemoSeedError("demo marker version does not match its seed identity; refusing reset")
+
+
+def _expected_reset_manifest_v2(marker_data: dict[str, Any]) -> dict[str, int]:
+    """Exact v2 table manifest for the fixed-seed dataset.
+
+    The two metric counts, the tag count and the non-zero certificate tables
+    are pinned constants of the fixed payload builders; the focused demo tests
+    fail if the builders ever drift from them.
+    """
+
+    garmin_sleep = int(marker_data["garmin_sleep_count"])
+    garmin_activity = int(marker_data["garmin_activity_count"])
+    google_sleep = int(marker_data["google_sleep_count"])
+    weigh_in = int(marker_data["weigh_in_count"])
+    candidates = int(marker_data["candidate_count"])
+    context = int(marker_data["context_count"])
+    full_garmin_nights = garmin_sleep - len(_GARMIN_SLEEP_SPARSE_OFFSETS)
+    ingest_events = weigh_in + garmin_sleep + 1 + google_sleep
+    manifest = {
+        "alembic_version": 1,
+        "ingest_batches": 1 + garmin_sleep + 1 + google_sleep,
+        "ingest_events": ingest_events,
+        "raw_artifacts": ingest_events,
+        "import_candidates": candidates,
+        "import_candidate_edits": candidates,
+        "measurement_sessions": weigh_in,
+        "scalar_measurements": candidates,
+        "canonical_selection_runs": 2,
+        "canonical_selections": candidates,
+        "canonical_rule_sets": 1,
+        "acquisition_sources": 4,
+        "providers": 3,
+        "physical_devices": 2,
+        "measurement_algorithms": 2,
+        "garmin_sources": 1,
+        "garmin_source_records": garmin_sleep + garmin_activity,
+        "garmin_raw_payloads": garmin_sleep + 1,
+        "garmin_payload_observations": garmin_sleep + 1,
+        "garmin_sleep_records": garmin_sleep,
+        "garmin_sleep_stage_intervals": full_garmin_nights * 4,
+        "garmin_activity_records": garmin_activity,
+        "garmin_record_metrics": 190,
+        "google_sources": 1,
+        "google_source_records": google_sleep,
+        "google_raw_payloads": google_sleep,
+        "google_payload_observations": google_sleep,
+        "google_normalization_attempts": google_sleep,
+        "google_sleep_records": google_sleep,
+        "google_sleep_field_states": google_sleep,
+        "google_sleep_intervals": google_sleep,
+        "google_record_source_evidence": google_sleep,
+        "google_record_metrics": 390,
+        "context_events": context,
+        "context_event_revisions": context,
+        "context_event_heads": context,
+        "context_revision_tags": context * 2,
+        "context_tags": 7,
+    }
+    manifest.update({table: 0 for table in _RESET_V2_ZERO_TABLES})
+    return manifest
+
+
+def _validate_reset_content_v2(snapshot: dict[str, Any], marker_data: dict[str, Any]) -> None:
+    counts = snapshot["table_counts"]
+    for table, expected in _expected_reset_manifest_v2(marker_data).items():
+        if counts.get(table, -1) != expected:
+            raise DemoSeedError(
+                "marked synthetic v2 demo database does not match its fixed-seed content; "
+                "refusing reset"
+            )
+    if sorted(snapshot["acquisition_labels"]) != sorted(
+        (
+            "Xiaomi Home",
+            DEMO_SOURCE_APPLICATION,
+            "python-garminconnect",
+            "google-health-api",
+        )
+    ):
+        raise DemoSeedError("marked synthetic v2 demo sources are not the fixed demo set")
+    if snapshot["garmin_sources"] != (
+        ("synthetic", 1, DEMO_GARMIN_DEVICE_CODE, DEMO_GARMIN_DEVICE_MODEL),
+    ):
+        raise DemoSeedError("marked synthetic v2 demo Garmin source identity changed")
+    if snapshot["google_sources"] != (("family_aggregate", DEMO_GOOGLE_FAMILY),):
+        raise DemoSeedError("marked synthetic v2 demo Google source identity changed")
+    anchor = DEMO_ANCHOR_DATE.isoformat()
+    if snapshot["garmin_latest_wake"] != anchor or snapshot["google_latest_wake"] != anchor:
+        raise DemoSeedError("marked synthetic v2 demo is not anchored to the fixed demo date")
+    if len(snapshot["context_texts"]) != int(marker_data["context_count"]) or not all(
+        text.startswith("Синтетическое демо") for text in snapshot["context_texts"]
+    ):
+        raise DemoSeedError("marked synthetic v2 demo context notes are missing or unlabelled")
+
+
+def _validate_reset_content_v1(snapshot: dict[str, Any], marker_data: dict[str, Any]) -> None:
+    counts = snapshot["table_counts"]
+    weigh_in = int(marker_data["weigh_in_count"])
+    candidates = int(marker_data["candidate_count"])
+    expected = {
+        "ingest_batches": 1,
+        "ingest_events": weigh_in,
+        "import_candidates": candidates,
+        "measurement_sessions": weigh_in,
+        "scalar_measurements": candidates,
+    }
+    for table, expected_count in expected.items():
+        if counts.get(table, -1) != expected_count:
+            raise DemoSeedError(
+                "marked synthetic v1 demo database does not match its seed manifest; "
+                "refusing reset"
+            )
+    for table in (*_RESET_V1_MULTIDOMAIN_TABLES, *_RESET_V2_ZERO_TABLES):
+        if counts.get(table, 0) not in (0, -1):
+            raise DemoSeedError(
+                "marked synthetic v1 demo contains unexpected non-v1 rows; refusing reset"
+            )
+    if DEMO_SOURCE_APPLICATION not in snapshot["acquisition_labels"]:
+        raise DemoSeedError("marked synthetic v1 demo has no labelled acquisition source")
+
+
+def _validate_reset_database(database: Path, marker_data: dict[str, Any]) -> None:
+    """Positive content/identity validation before destructive reset."""
+
+    snapshot = _read_reset_snapshot(database)
+    if _reset_content_version(marker_data) == DEMO_MARKER_FORMAT_VERSION:
+        _validate_reset_content_v2(snapshot, marker_data)
+    else:
+        _validate_reset_content_v1(snapshot, marker_data)
+
+
 def _reset_marked_demo(paths: RuntimePaths, marker: Path) -> None:
     """Preflight all reset targets, then remove only marked demo state."""
 
@@ -724,7 +1067,7 @@ def _preflight_marked_demo_reset(paths: RuntimePaths, marker: Path) -> _DemoRese
         raise DemoSeedError("demo target must be a real directory")
     if marker.parent != paths.root or _is_reparse_link(marker) or not marker.is_file():
         raise DemoSeedError("demo marker is not a regular file")
-    _read_and_validate_marker(marker)
+    marker_data = _read_and_validate_marker(marker)
 
     database_paths = (
         paths.database,
@@ -738,6 +1081,8 @@ def _preflight_marked_demo_reset(paths: RuntimePaths, marker: Path) -> _DemoRese
             database_path.exists() and not database_path.is_file()
         ):
             raise DemoSeedError("demo database state is not a regular file")
+
+    _validate_reset_database(paths.database, marker_data)
 
     artifacts = paths.root / "artifacts"
     if _is_reparse_link(artifacts) or (artifacts.exists() and not artifacts.is_dir()):

@@ -22,9 +22,14 @@ Reproducibility: random seed `358` and anchor date `2026-10-10` make reruns
 idempotent and two fresh seeds produce identical stored rows. Missing and
 partial days stay missing; nothing is zero-filled.
 
-Safety: `seed-demo` refuses symlink/junction targets, targets inside any Git
-checkout or workspace, and non-empty unmarked profiles (also with `--reset`).
-`--reset` rebuilds only a positively identified marked demo.
+Safety: `seed-demo` refuses symlink/junction targets (including aliases that
+resolve into another Git workspace), targets inside any Git checkout or
+workspace, and non-empty unmarked profiles (also with `--reset`). Before any
+destructive reset it re-reads the persisted database through a private
+read-only copy and validates it against the versioned fixed-seed manifest:
+foreign content, extra records or a marker/content version mismatch are refused
+without modifying any file. `--reset` then rebuilds only the positively
+identified marked demo (v1 or v2).
 
 ## Prepare and run
 

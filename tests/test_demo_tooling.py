@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -16,7 +17,7 @@ from healthcheck.analytics.sleep_pairing import (
 )
 from healthcheck.config import Settings
 from healthcheck.context import ContextService
-from healthcheck.db.engine import create_sqlite_engine, session_scope
+from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
 from healthcheck.db.models import (
     GarminActivityRecord,
     GarminRecordMetric,
@@ -28,16 +29,70 @@ from healthcheck.demo import (
     DEMO_ANCHOR_DATE,
     DEMO_MARKER_NAME,
     DEMO_SEED_ID,
+    DEMO_SOURCE_APPLICATION,
     DemoSeedError,
+    _synthetic_uploads,
     seed_demo,
 )
-from healthcheck.runtime import resolve_runtime_paths
+from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
+from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
+from healthcheck.runtime import prepare_runtime, resolve_runtime_paths
 from healthcheck.uat import (
     _HttpResult,
     format_smoke_results,
     run_smoke,
     smoke_exit_code,
 )
+
+
+def _file_digest(root: Path) -> dict[str, str]:
+    return {
+        str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _seed_legacy_v1_profile(settings: Settings) -> None:
+    """Build a genuine v1-shaped runtime through the accepted photo service."""
+
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    uploads, expected_candidates = _synthetic_uploads()
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            service = PhotoImportService(
+                session,
+                paths,
+                FakeImageMeasurementExtractor(version="synthetic-demo-v1"),
+            )
+            imported = service.import_photos(
+                uploads,
+                timezone="UTC",
+                provider_code="xiaomi_home",
+            )
+            candidate_ids = [
+                candidate_id for item in imported.items for candidate_id in item.candidate_ids
+            ]
+            assert len(candidate_ids) == expected_candidates
+            service.confirm(candidate_ids, actor="synthetic-demo")
+    finally:
+        engine.dispose()
+    (settings.data_dir / DEMO_MARKER_NAME).write_text(
+        json.dumps(
+            {
+                "format_version": 1,
+                "seed_id": "r01-six-month-synthetic-v1",
+                "label": "synthetic demo data",
+                "weigh_in_count": len(uploads),
+                "candidate_count": expected_candidates,
+            }
+        ),
+        encoding="utf-8",
+    )
+
 
 
 def _demo_digest(data_dir: Path) -> dict[str, object]:
@@ -315,7 +370,7 @@ def test_seed_demo_reset_rejects_junctioned_artifacts(
     assert database.read_bytes() == saved_database
 
 
-def test_seed_demo_legacy_marker_requires_explicit_reset(tmp_path: Path) -> None:
+def test_seed_demo_legacy_marker_on_current_content_fails_closed(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path / "synthetic-demo")
     seed_demo(settings)
     marker = settings.data_dir / DEMO_MARKER_NAME
@@ -331,14 +386,125 @@ def test_seed_demo_legacy_marker_requires_explicit_reset(tmp_path: Path) -> None
         ),
         encoding="utf-8",
     )
+    database = settings.data_dir / "healthcheck.db"
+
+    with pytest.raises(DemoSeedError, match="--reset"):
+        seed_demo(settings)
+
+    saved_database = database.read_bytes()
+    saved_marker = marker.read_bytes()
+
+    # A legacy marker on current-content rows is inconsistent ownership; the
+    # content preflight must refuse to delete anything.
+    with pytest.raises(DemoSeedError, match="does not match"):
+        seed_demo(settings, reset=True)
+
+    assert database.read_bytes() == saved_database
+    assert marker.read_bytes() == saved_marker
+
+
+def test_seed_demo_genuine_legacy_v1_reset_rebuilds(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path / "synthetic-demo")
+    settings.data_dir.mkdir(parents=True)
+    _seed_legacy_v1_profile(settings)
+    marker = settings.data_dir / DEMO_MARKER_NAME
 
     with pytest.raises(DemoSeedError, match="--reset"):
         seed_demo(settings)
 
     rebuilt = seed_demo(settings, reset=True)
+
     assert rebuilt.created is True
     assert rebuilt.reset is True
-    assert json.loads(marker.read_text(encoding="utf-8"))["seed_id"] == DEMO_SEED_ID
+    assert rebuilt.weigh_in_count == 26
+    assert rebuilt.garmin_sleep_count == 25
+    assert rebuilt.google_sleep_count == 26
+    marker_data = json.loads(marker.read_text(encoding="utf-8"))
+    assert marker_data["seed_id"] == DEMO_SEED_ID
+    assert marker_data["format_version"] == 2
+
+
+def test_seed_demo_reset_rejects_foreign_database_with_copied_marker(
+    tmp_path: Path,
+) -> None:
+    donor = Settings(data_dir=tmp_path / "donor")
+    seed_demo(donor)
+
+    target = tmp_path / "foreign-profile"
+    target.mkdir()
+    settings = Settings(data_dir=target)
+    paths = prepare_runtime(settings)
+    migrate_database(paths)
+    (target / DEMO_MARKER_NAME).write_bytes(
+        (donor.data_dir / DEMO_MARKER_NAME).read_bytes()
+    )
+    saved = _file_digest(target)
+
+    with pytest.raises(DemoSeedError, match="does not match"):
+        seed_demo(settings, reset=True)
+
+    assert _file_digest(target) == saved
+
+
+def test_seed_demo_reset_rejects_extra_foreign_record(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path / "synthetic-demo")
+    seed_demo(settings)
+    paths = resolve_runtime_paths(settings)
+    payload = weigh_in_payload(
+        source_local_date=DEMO_ANCHOR_DATE,
+        weight_kg=71.5,
+        source_application=DEMO_SOURCE_APPLICATION,
+    )
+    image = encode_synthetic_png(payload)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            service = PhotoImportService(
+                session,
+                paths,
+                FakeImageMeasurementExtractor(version="synthetic-demo-v1"),
+            )
+            imported = service.import_photos(
+                [PhotoUpload(filename="extra.png", content=image, declared_media_type="image/png")],
+                timezone="UTC",
+                provider_code="xiaomi_home",
+            )
+            candidate_ids = [
+                candidate_id for item in imported.items for candidate_id in item.candidate_ids
+            ]
+            service.confirm(candidate_ids, actor="extra-record")
+    finally:
+        engine.dispose()
+    saved = _file_digest(settings.data_dir)
+
+    with pytest.raises(DemoSeedError, match="does not match"):
+        seed_demo(settings, reset=True)
+
+    assert _file_digest(settings.data_dir) == saved
+
+
+def test_seed_demo_rejects_junction_alias_into_another_checkout(tmp_path: Path) -> None:
+    checkout = tmp_path / "other-checkout"
+    nested = checkout / "nested"
+    nested.mkdir(parents=True)
+    (checkout / ".git").write_text("gitdir: somewhere else\n", encoding="utf-8")
+
+    alias = tmp_path / "alias"
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(alias), str(nested)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+    else:
+        alias.symlink_to(nested, target_is_directory=True)
+
+    with pytest.raises(DemoSeedError, match="checkout or workspace"):
+        seed_demo(Settings(data_dir=alias / "demo"))
+
+    assert not (nested / "demo").exists()
 
 
 def test_seed_demo_reset_refuses_foreign_marker(tmp_path: Path) -> None:
