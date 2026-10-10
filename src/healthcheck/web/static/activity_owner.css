@@ -26,5 +26,7 @@
 .activity-owner-summary .garmin-table th, .activity-owner-summary .garmin-table td { padding: 4px 8px; }
 .activity-owner-summary .garmin-table th:last-child { width: 45%; }
 .activity-journal-context { margin: 8px 0 0; font-size: .875rem; }
+.activity-session-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.activity-session-link:hover, .activity-session-link:focus-visible { text-decoration-thickness: 2px; }
 #activity-comparison > .muted { margin: 8px 0; font-size: .875rem; }
 #activity-comparison { scroll-margin-top: 100px; }

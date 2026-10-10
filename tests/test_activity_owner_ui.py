@@ -222,6 +222,9 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         assert 'href="/imports"' in primary
         assert 'data-owner-state="present">0.0</span>' in primary
         assert 'data-owner-state="unavailable">Не предоставлено' in primary
+        visible_primary = re.sub(r'<option value="[^"]+"', "<option", primary)
+        # Journal links carry the source/record query identity; only visible text must stay clean.
+        visible_primary = re.sub(r'href="[^"]*"', 'href=""', visible_primary)
         for internal in (
             "result_hash",
             "dailyTrainingLoadAcute",
@@ -230,7 +233,7 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
             "activity recorder",
             source,
         ):
-            assert internal not in re.sub(r'<option value="[^"]+"', "<option", primary)
+            assert internal not in visible_primary
             assert internal in technical
         assert 'activity-technical" open' not in page.text
         # Embedded data and APIs are exact service results, not UI recomputations.
@@ -425,9 +428,16 @@ def test_compact_journal_preserves_bounded_source_records_and_period_independenc
             assert recent.count("<tr><td>") == min(count, 5)
             assert history.group(1).count("<tr><td>") == min(count, 50)
             names = {"tennis_v2": "Теннис", "cycling": "Велотренировка", "walking": "Ходьба"}
+            context_query = "&amp;start_date=2098-01-01&amp;end_date=2098-01-02"
             for index, record in enumerate(records):
+                session_link = (
+                    '<a class="activity-session-link" '
+                    f'href="/garmin/session?garmin_source_id={source}'
+                    f"&amp;record_id={record['record_id']}{context_query}\">"
+                    f"{names[record['activity_type']]}</a>"
+                )
                 expected_row = (
-                    f"<tr><td>{index + 1}</td><td>{names[record['activity_type']]}</td>"
+                    f"<tr><td>{index + 1}</td><td>{session_link}</td>"
                     f"<td>{owner_date(record['source_local_date'])}</td></tr>"
                 )
                 assert expected_row in history.group(1)
