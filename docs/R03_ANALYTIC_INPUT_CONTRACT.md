@@ -38,6 +38,33 @@ Rules:
 - Operational acquisition success for a stress/SpO2 surface is not permission to
   invent a missing aggregate.
 
+## Versioned activity session extension (#319 B1)
+
+Analytic rules `r03-garmin-analytic-rules-v2` add:
+
+| Metric code | Aggregate kind | Window | Unit | Reviewed source fields |
+| --- | --- | --- | --- | --- |
+| `max_heart_rate_bpm` | `session_maximum` | `activity_session` | `bpm` | `maxHR` |
+| `training_effect` (existing aerobic alias) | `provider_session_score` | `activity_session` | `points` | `aerobicTrainingEffect`, alternate `trainingEffect` |
+| `anaerobic_training_effect` | `provider_session_score` | `activity_session` | `points` | `anaerobicTrainingEffect` |
+
+Maximum and average HR are independent identities. Both effects remain separate
+provider-native scores with unverified producer attribution; raw camelCase rows
+and labels are not additional analytic metrics. There is no combined effect,
+cross-effect substitution or energy metric in this extension.
+
+Comparison algorithm `r03-02-garmin-activity-comparison-v1` is unchanged; its
+output rule changes from `r03-02-v1` to `r03-02-v2`. Frozen v1 outputs retain the
+original ordered eight codes: `duration_seconds`, `distance_meters`, `speed_mps`,
+`heart_rate_bpm`, `power_watts`, `cadence_rpm`, `training_effect`,
+`acute_training_load`. V2 defaults append `max_heart_rate_bpm`, then
+`anaerobic_training_effect`. Serialized query codes, definitions, rule versions,
+input manifests and result hashes identify each output without reinterpreting
+old results under a new default. A legacy projection without either new row
+reports `not_computable` / `metric_absent_from_projection`; it does not invent
+coverage or run replay. The input DTO shape remains v1, and normalization version
+is retained in each immutable evidence reference.
+
 ## Series time semantics
 
 `_sample_temporal` (incremental sync series expansion) follows the same rules as

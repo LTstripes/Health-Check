@@ -279,7 +279,10 @@ def test_identical_bytes_keep_each_window_sync_and_normalization_observation(
     _paths, session, store = persistence_database
     fixture_value = fixture("activity")
     payload = (FIXTURE_ROOT / "activity.json").read_bytes()
-    result_v1 = normalize_garmin_payload(fixture_value)
+    result_v1 = replace(
+        normalize_garmin_payload(fixture_value),
+        contract_version="r02-garmin-normalization-contract-v1",
+    )
     repository = GarminPersistenceRepository(session, payload_store=store)
     source = repository.sources.get_or_create(result_v1.source)
     provenance = repositories_for(session)
