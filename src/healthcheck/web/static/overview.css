@@ -80,3 +80,13 @@
   .overview-a-plus .overview-value { font-size: 2.1rem; }
   .overview-secondary article { padding: 0 12px; }
 }
+
+/* #344: presentation only, scoped to Overview. */
+.overview-weight-connector { stroke: var(--series-1); stroke-width: 1; fill: none; }
+.overview-weight-connector-gap { stroke-dasharray: 3 3; }
+.overview-freshness { margin: 8px 0; font-size: .75rem; }
+.overview-a-plus .overview-freshness-details { margin: 0; }
+.overview-freshness-details > summary { font-weight: 400; }
+.overview-freshness-details p { margin: 4px 0 8px; }
+.overview-freshness > a { display: inline-flex; align-items: center; min-height: 44px; }
+[data-overview-chart="sleep"] .overview-hour-tick { font-size: 13px; }

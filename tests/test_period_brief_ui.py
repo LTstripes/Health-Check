@@ -1541,3 +1541,55 @@ def test_295_handoff_rejects_foreign_packet_source_session_or_transaction(tmp_pa
                 read_overview_charts(session=session, **args)
     finally:
         engine.dispose()
+
+
+def test_344_observed_connectors_preserve_dates_gaps_and_ewma():
+    from healthcheck.web.overview_charts import dated_chart
+
+    rows = [
+        {'date': '2099-01-01', 'value': 75, 'trend': 75, 'state': 'present'},
+        {'date': '2099-01-02', 'value': 74, 'trend': 74.9, 'state': 'present'},
+        {'date': '2099-01-05', 'value': 73, 'trend': 74.8, 'state': 'present'},
+    ]
+    chart = dated_chart(rows, start=date(2099, 1, 1), end=date(2099, 1, 7),
+                        weight_layout=True)
+    assert [{key: p[key] for key in rows[0]} for p in chart['points']] == rows
+    assert len(chart['segments']) == 1  # EWMA still never crosses a gap.
+    assert [line['gap'] for line in chart['observed_segments']] == [False, True]
+    assert [(line['start'], line['end']) for line in chart['observed_segments']] == [
+        ('2099-01-01', '2099-01-02'), ('2099-01-02', '2099-01-05')]
+    for line, a, b in zip(chart['observed_segments'], chart['points'], chart['points'][1:]):
+        assert (line['x1'], line['y1'], line['x2'], line['y2']) == (
+            a['x'], a['y'], b['x'], b['y'])
+    assert chart['gaps'][0]['start'] == '2099-01-03'
+    assert chart['gaps'][0]['end'] == '2099-01-04'
+
+
+def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(tmp_path):
+    from healthcheck.web.overview_charts import dated_chart
+    from test_dashboard_ui import _ui as create_fixture
+
+    app, _, paths = create_fixture(tmp_path)
+    seed_overview_a_plus(paths)
+    with TestClient(app, base_url='http://127.0.0.1:8120',
+                    headers={'Origin': 'http://127.0.0.1:8120'}) as client:
+        seed_a_plus_weight(client)
+        page = client.get('/brief?start_date=2099-01-01&end_date=2099-01-07')
+    assert page.status_code == 200
+    sleep = page.context['charts']['sleep']
+    control = dated_chart(sleep['points'], start=date.fromisoformat(sleep['start']),
+                          end=date.fromisoformat(sleep['end']), zero_axis=True)
+    assert {k: v for k, v in sleep.items() if k != 'hour_ticks'} == control
+    assert [tick['label'] for tick in sleep['hour_ticks']] == ['0 ч', '2 ч', '4 ч', '6 ч']
+    assert sleep['points'][2]['value'] == 0
+    assert len(sleep['gaps']) == 3
+    assert page.context['charts']['sleep_latest']['sleep_duration_seconds']['date'] == '2099-01-07'
+    assert page.context['packet']['result_hash'] == page.context['brief']['source_result_hash']
+    for scope in ('garmin:sleep', 'garmin:activities'):
+        fragment = page.text.split(f'data-freshness-scope="{scope}"', 1)[1].split('</div>', 1)[0]
+        assert 'overview-freshness-details" open' not in fragment
+        assert 'Свежесть:' in fragment.split('</summary>', 1)[0]
+        assert ('Сохранённые значения не подтверждают обновление.'
+                in fragment.split('</summary>', 1)[1])
+        assert 'href="/imports#data-status"' in fragment.split('</details>', 1)[1]
+    assert 'Пробуждение 7 января 2099' in page.text

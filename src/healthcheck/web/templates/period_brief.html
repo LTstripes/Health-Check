@@ -34,7 +34,15 @@
 {% macro freshness_note(scope) %}
   {% set freshness = quality.get('coverage', {}).get('freshness', {}) %}
   {% for item in freshness.get('owner', {}).get('actionable_items', []) + freshness.get('optional_details', []) + freshness.get('not_requested_required', []) if item.scope_key == scope %}
-    {% if item.state in ['stale', 'unknown', 'unavailable', 'not_requested'] %}<p class="overview-warning">Свежесть: {{ {'stale': 'данные устарели', 'unknown': 'неизвестна', 'unavailable': 'данные недоступны', 'not_requested': 'данные не запрашивались'}[item.state] }}. Сохранённые значения не подтверждают обновление.</p>{% endif %}
+    {% if item.state in ['stale', 'unknown', 'unavailable', 'not_requested'] %}
+    <div class="overview-freshness" data-freshness-scope="{{ scope }}">
+      <details class="owner-details overview-freshness-details">
+        <summary>Свежесть: {{ {'stale': 'данные устарели', 'unknown': 'неизвестна', 'unavailable': 'данные недоступны', 'not_requested': 'данные не запрашивались'}[item.state] }}</summary>
+        <p>Сохранённые значения не подтверждают обновление.</p>
+      </details>
+      {% if item.state != 'not_requested' %}<a href="/imports#data-status">{{ 'Повторить вход' if item.reason_code == 'reauth_required' else 'Проверить источник' }}</a>{% endif %}
+    </div>
+    {% endif %}
   {% endfor %}
 {% endmacro %}
 
