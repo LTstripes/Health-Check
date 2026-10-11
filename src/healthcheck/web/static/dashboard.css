@@ -427,6 +427,18 @@ main, .legal { max-width: var(--owner-content-width); }
 .statistics-comparison { color: var(--muted); font-size: .8125rem; margin: 16px 0 0; }
 .statistics-comparison small { display: block; }
 .statistics-unavailable { padding: 24px 0; }
+.statistics-steps { padding: 22px 0; border-bottom: 1px solid var(--line); }
+.statistics-steps-table { max-height: 34rem; overflow: auto; }
+.statistics-steps-table table { table-layout: fixed; }
+.statistics-steps-table th:first-child { width: 124px; }
+.statistics-steps-table th:nth-child(2) { width: 180px; }
+.statistics-steps-table td, .statistics-steps-table th { vertical-align: top; overflow-wrap: anywhere; }
+.statistics-steps-table td p { margin: 0; }
+.statistics-steps-value { font-family: var(--owner-heading-font); font-size: 1.25rem; }
+.statistics-steps-evidence dl { font-size: .75rem; }
+.statistics-steps-evidence[open] { max-height: 24rem; overflow: auto; }
+.statistics-steps-warning { color: var(--attention-ink); }
+.statistics-steps-record { border-top: 1px solid var(--line); padding-top: 8px; }
 
 /* Sleep B2: independent 7/30 source timelines over exact saved sources. */
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

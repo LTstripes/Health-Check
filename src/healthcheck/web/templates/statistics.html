@@ -15,11 +15,12 @@
     <label>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
     {% for side in packet.sides %}
     {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
+    {% set control_source_id = selected_garmin_source_id if side.position == 'left' else (side.source_identity.source_id if side.source_identity else side.requested_source_id|default(none)) %}
     <label>{{ provider }}: источник
       <select name="{{ 'garmin' if side.position == 'left' else 'google' }}_source_id" aria-label="{{ provider }}: источник">
-        {% if side.state == 'search_incomplete' and side.requested_source_id %}<option value="{{ side.requested_source_id }}" selected>Выбранный источник: поиск не завершён</option>{% endif %}
-        <option value=""{% if not side.source_identity and not (side.state == 'search_incomplete' and side.requested_source_id) %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
-        {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if side.source_identity and side.source_identity.source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
+        {% if side.state == 'search_incomplete' and side.requested_source_id and control_source_id %}<option value="{{ side.requested_source_id }}" selected>Выбранный источник: поиск не завершён</option>{% endif %}
+        <option value=""{% if not control_source_id %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
+        {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if control_source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
       </select>
     </label>
     {% endfor %}
@@ -46,6 +47,7 @@
     </header>
     {% endfor %}
   </div>
+  {% include "statistics_steps.html" %}
   {% for code, label in metric_labels.items() %}
   <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">
     <h2 id="metric-{{ code }}">{{ label }}</h2>
@@ -103,9 +105,9 @@
   </section>
   {% endfor %}
   <section class="statistics-unavailable" aria-label="Недоступные показатели">
-    <h2>Шаги и калории</h2>
+    <h2>Другие показатели</h2>
     <div class="statistics-pair">
-      <p><strong>Garmin</strong> · Недоступно: типизированные данные шагов и калорий отсутствуют.</p>
+      <p><strong>Garmin</strong> · Недоступно: типизированные данные калорий отсутствуют.</p>
       <p><strong>Google</strong> · Не собирается: шаги и калории.</p>
     </div>
   </section>
