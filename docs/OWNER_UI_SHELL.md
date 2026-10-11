@@ -25,6 +25,7 @@ implementation/CI and local evidence live in [Current History](EXECUTION_HISTORY
 | Вес | `/` | Current confirmed weight, trend/change, configured goal, timelines and separate composition-group spans |
 | Сон | `/sleep` | Primary 7/30-day Garmin + Google duration timeline over exact saved sources, with display toggles, point details and an accessible date table; Garmin / Google / Compare selected-date modes remain |
 | Сон, secondary mode | `/agreement` | Exploratory Garmin/Google comparison and diagnostic evidence |
+| Статистика | `/statistics` | Accepted 7/30 source-specific Garmin left / Google right period summaries; extra field/year coverage pending |
 | Активность | `/garmin#activity-journal` | Five recent saved sessions, full existing history disclosure and five-column A/B comparison |
 | Активность, secondary mode | `/garmin#training-recovery` | Garmin dated snapshots, period series and exploratory lagged associations |
 | Данные | `/imports` | Persisted freshness/actions plus upload/review queue; batch details under `/imports/{id}` |
@@ -32,7 +33,7 @@ implementation/CI and local evidence live in [Current History](EXECUTION_HISTORY
 The brand opens Overview at `/brief`; the legacy root remains Weight. Existing
 API/query/import contracts are not redefined by navigation. The Data queue describes
 its bounded recent-batch inventory, not an exhaustive count of all history.
-Context is now delivered as a quiet secondary `/context` route, not a sixth primary health tab; durable Owner UAT is pending. Statistics remains planned.
+The implemented `/context` page is presently a secondary link; **Owner-approved next UI** promotes **Комментарии** to a discoverable primary navigation item, retaining the same revisioned route. Statistics `/statistics` is implemented for 7/30 days; its source-default and historical-window follow-ups are not yet implemented.
 
 ## One A+ visual and language system
 
@@ -136,25 +137,98 @@ that copied Garmin/Google collection errors have been recovered. Activity clears
 prior evidence on submissions and rejects late completions. One usable Garmin
 source needs no redundant selector; multiple identities require explicit selection.
 
-## First-wave engineering delivered; remaining Owner direction — 2026-10-09
+## Accepted engineering and Owner UAT decisions — 2026-10-11
 
-Keep the accepted A+ appearance. #294 Context and #341 standalone evidence
-are now integrated; #342 bounded offline real-clone diagnosis is accepted, not
-proof of current provider health. Durable Owner UAT/first export and the later
-features below are not automatically dispatched. See the linked issues.
+[Owner feedback #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913)
+comes from a verified **disposable clone of real saved Owner data**, not
+synthetic screenshots or an updated Stable/provider session. Accepted main
+`f0e6c36c…` integrates #343 Sleep B2, #358 demo, #347 Statistics 7/30,
+#295 /brief request-local reuse, #345 Activity session details and #344 Overview
+readability; [CI](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
+is GREEN. Human UAT is **PARTIAL**, with A+ / Sleep / Activity positives,
+copied source-freshness failures and open source-selection/usability findings.
+New requirements below are **approved direction, not delivered UI**.
 
-- **#294 Context delivered:** secondary `/context` for original comments, visible event date/optional time or range, list/revise/history; recorded-at remains separate. Routine use still needs verified durable Owner rollout, not disposable clone notes.
-- **#341 exporter delivered:** standalone selected-period/domain/current-Context JSON/text export; the share UI and direct authenticated ChatGPT tools are not shipped. A skill alone cannot reach localhost; no automatic upload or Telegram prerequisite.
-- **#343 Sleep timeline delivered:** primary `/sleep` is the 7/30-day duration chart with Garmin and Google together, per-exact-source legends that toggle the chart only, gaps that are never bridged or filled, explicit ambiguity/no-point markers, hover/focus/click night details (native Garmin score only in details; no Google score), an accessible date table and compact source freshness separate from saved history. The old `view=garmin|google|compare` screens and `/agreement` remain secondary. Real Owner visual UAT is still UNVERIFIED.
-- **#344 Overview:** Owner-approved thin connectors between measured Weight daily medians, with visually distinct unmeasured spans and no interpolated data/points; preserve EWMA. Human intermediate Sleep ticks and quieter long freshness explanation, while necessary source/date/action cues stay visible.
-- **#345/#346 Activity:** saved-session detail cards and meaningful 7/30-day summaries beside dated native recovery snapshots. Only supported fields; #319 owns new calories/max-HR/dual-effect evidence. No averaging categorical status or summing overlapping rolling loads.
-- **#347 Statistics:** **left source / right source, both visible by default** for each metric. Stable names, units, effective periods, denominator/count/coverage on each side; missing side remains labelled. Optional right-minus-left delta only for compatible meanings/windows/units/denominators. Independent display remains allowed without statistical pairing; no pooled/combined source total. Optional selectors customize the pair, not hide it by default. Reuse aggregates later in Overview/chat.
-- **#348 labs:** source PDF/image → extraction candidates → Owner-confirmed results with original labels/units/report ranges/sample date and revision provenance. Planned contract, not an implemented route or diagnosis.
+### Historical evidence and dates versus today's data
 
-Repeated source-warning prose may move into accessible detail, but genuine absence,
-ambiguity, stale dates and necessary actions cannot be deleted merely for aesthetics.
-A trusted runtime-origin cue must distinguish real clone/synthetic/durable profile;
-never infer origin or freshness from displayed values or a directory name.
+Default everyday reading cards can offer **"Последнее доступное: DD.MM.YYYY
+(несколько дней назад)"** from the most recent **eligible current saved**
+observation, with exact source-local date, coverage/age and snapshot-origin
+disclosure; still state if there was no observation on the queried day. Never
+say that a saved older value was measured *today* or that its originating
+provider is currently healthy. Explicitly selected dates/periods remain fixed:
+do not silently change the user's query window, compute a numeric provider
+delta between mismatched actual windows or hide a missing day. An unavailable
+source or ambiguous eligible identity is not a zero. The reusable contract is
+[#376](https://github.com/LTstripes/Health-Check/issues/376); today's
+`/brief`/`/statistics` behaviour is not yet changed.
+
+### Weight / composition
+
+[#375](https://github.com/LTstripes/Health-Check/issues/375) is the Owner's
+chosen simplification: **one longitudinal full-history table** for confirmed
+measurements, weight, body-fat % (source), derived fat/lean kg and separate
+muscle kg (source), with understandable source/method labels. Align by real
+persisted measurement identity, not coincident date/weight; absent metric
+remains blank. One selectable-metric chart shares a global date axis, while
+different incompatible method groups remain distinct/never connected.
+Compact details preserve exact rows and provenance, not per-group duplicate
+tables. Derived fat+lean is complementary; the vendor muscle estimate does
+not equal lean mass.
+
+### Sleep and Statistics
+
+The **already delivered** 7/30 Sleep chart, source-only role/ambiguity/missing
+states, native Garmin score detail and secondary Compare stay. Normal Owner
+display should have the two conceptual providers **Garmin and Google**.
+A Google Fitbit data source and Google family-aggregate are internal saved
+identities; require an evidence-backed default/exact eligible overlap decision
+under [#342](https://github.com/LTstripes/Health-Check/issues/342) before
+reducing visible source lines. Neither a guessed Fitbit preference nor an
+implicit family/device pool is acceptable. Advanced display retains every
+exact identity and original evidence; no R05/canonical switch.
+
+Statistics currently implements only source-specific **7/30** values and
+exact-source selection; its opaque IDs and ambiguous Google source choice are
+**Owner UAT friction**. Follow-up [#347](https://github.com/LTstripes/Health-Check/issues/347)
+should use meaningful labels and a proven eligible default or clear choice,
+not a fabricated Garmin/Google aggregate. Additional source-specific
+periods **trailing 365 / calendar year / all history** require accepted
+[#380](https://github.com/LTstripes/Health-Check/issues/380) range and performance
+contract. **Steps #377** need a verified typed acquisition source; **calories
+#319** remain blocked by energy/BMR field meaning. Unsupported Google activity
+and absent energy/steps must never become 0.
+
+### Data, Comments and common style
+
+- Data keeps saved-measurement date/age apart from provider **refresh**
+  success/failed/reauth and snapshot origin; copy of old failed sync does not
+  establish present-day upstream failure. One concise provider action and
+  expandable per-stream details; [#305](https://github.com/LTstripes/Health-Check/issues/305).
+- The Owner wants **Комментарии** in the **primary navigation**. The current
+  `/context` CRUD is delivered but too hidden; primary form should use one
+  **human city/IANA timezone selector** with local event date/optional time.
+  Store the derived exact UTC offset and zone as before; no required UTC
+  textbox in routine UI. Date-only has no timezone/midnight instant; DST
+  ambiguous/nonexistent times need strict validation, explicit disambiguation
+  only when actually needed. [#294](https://github.com/LTstripes/Health-Check/issues/294).
+- Maintain one A+ system throughout the app; Data/Context/Activity/Weight/
+  Statistics tables and forms need proportionate shared typography,
+  spacing, controls and readable source labels. [#379](https://github.com/LTstripes/Health-Check/issues/379)
+  owns the cross-screen audit, not a new full redesign or mobile test suite.
+  Only one writer at a time for shared CSS/shell and impacted templates.
+- Current Activity detail and A/B work. Owner-requested **future functional
+  analytics discovery** [#378](https://github.com/LTstripes/Health-Check/issues/378)
+  takes precedence over duplicate #346 four-card implementation. #348
+  laboratory documents, #357 personal stress baseline and weight-goal Settings
+  remain separately gated future slices.
+- #341 standalone export/MCP code exists, while direct authenticated ChatGPT
+  connection stays deferred. UAT clone notes do not become durable Stable
+  notes automatically.
+
+Do not equate CI, synthetic browser success and Owner UAT. No reference screenshot,
+working runtime, Saved data, provider credentials or private profile is moved to
+GitHub through this document.
 
 ## Verification and post-UAT follow-up
 
