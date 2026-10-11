@@ -4,11 +4,14 @@ Version 1 accepts 7/30 inclusive source-local days. Activity types are frozen to
 cycling and tennis|tennis_v2. Sleep uses R05 account-observation scalar/role
 eligibility, independently of Agreement. Acquisition coverage is separate from
 observed values. Provider-wide coverage cannot establish a device's coverage.
+Explicit annual v2 requests reuse those rules with bounded batch reads and a
+request deadline; incomplete inputs never become an official aggregate.
 """
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from math import fsum, isfinite
 from typing import Any
@@ -16,6 +19,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from healthcheck.analytics import period_summary_read as bounded
 from healthcheck.analytics.coverage import COVERAGE_STATUSES, calculate_coverage
 from healthcheck.analytics.sleep_source_view import read_source_sleep_night
 from healthcheck.db.models import (
@@ -132,40 +136,126 @@ def _cell(
     }
 
 
+def _window(end_date, days, period_type, calendar_year):
+    if period_type is None:
+        if type(end_date) is not date or type(days) is not int or days not in {7, 30}:
+            raise ValueError("period summary requires an end date and 7 or 30 inclusive days")
+        if calendar_year is not None:
+            raise ValueError("calendar year requires an explicit period type")
+        return end_date - timedelta(days=days - 1), end_date, days, None
+    if days is not None:
+        raise ValueError("annual period type cannot be combined with days")
+    if period_type == "calendar_year":
+        if end_date is not None or type(calendar_year) is not int or not 1 <= calendar_year < 9999:
+            raise ValueError("calendar_year requires a selected year and no end date")
+        start, end = date(calendar_year, 1, 1), date(calendar_year, 12, 31)
+    elif period_type in {"trailing365", "year_to_date"}:
+        if type(end_date) is not date or end_date == date.max or calendar_year is not None:
+            raise ValueError("annual period requires an explicit end date and no selected year")
+        end = end_date
+        start = end - timedelta(days=364) if period_type == "trailing365" else date(end.year, 1, 1)
+    else:
+        raise ValueError("unsupported period type")
+    count = (end - start).days + 1
+    if not 1 <= count <= 366:
+        raise ValueError("annual period must contain at most 366 inclusive days")
+    return start, end, count, period_type
+
+
 class PeriodSummaryService:
     """Consumer-neutral packet from existing typed persistence in one snapshot."""
 
     def __init__(self, session: Session):
         self.session = session
+        self._read = None
 
     def build(
         self,
         *,
-        end_date: date,
-        days: int,
+        end_date: date | None = None,
+        days: int | None = None,
+        period_type: str | None = None,
+        calendar_year: int | None = None,
         garmin_source_id: str | None = None,
         google_source_id: str | None = None,
     ) -> dict[str, Any]:
-        if type(end_date) is not date or type(days) is not int or days not in {7, 30}:
-            raise ValueError("period summary requires an end date and 7 or 30 inclusive days")
-        start = end_date - timedelta(days=days - 1)
+        """Explicit annual periods; omission never enables last-available fallback.
+
+        calendar_year requires only a selected year (no competing end/days).
+        year_to_date and trailing365 require an explicit civil end date.
+        Legacy 7/30 packets and their validation remain unchanged.
+        """
+        start, end, count, kind = _window(end_date, days, period_type, calendar_year)
+        if kind is None:
+            return self._build(start, end, count, garmin_source_id, google_source_id)
+        with bounded.PeriodReadBudget(self.session) as budget:
+            self._read = budget
+            try:
+                packet = self._build(start, end, count, garmin_source_id, google_source_id)
+                packet["contract_version"] = "source-period-summary-v2"
+                packet["requested_window"]["period_type"] = kind
+                packet["read_limits"] = bounded.read_limits()
+                return packet
+            finally:
+                self._read = None
+
+    def _rows(self, query, cap, reason, *, scalar=True):
+        if self._read is not None:
+            return self._read.rows(query, cap, reason, scalar=scalar)
+        result = self.session.execute(query)
+        return list(result.scalars() if scalar else result)
+
+    def _incomplete(self, metric, days, reason):
+        cell = _cell(
+            metric, values=[], dates=[], observed_dates=[], observed_count=0, exclusions=Counter()
+        )
+        cell["state"] = "search_incomplete"
+        for key in ("value", "numerator", "denominator", "eligible_count", "excluded_count"):
+            cell["aggregation"][key] = None
+        for key in (
+            "observed_count",
+            "observed_day_count",
+            "observed_calendar_dates",
+            "eligible_dates",
+        ):
+            cell[key] = None
+        cell["availability_counts"] = dict.fromkeys(cell["availability_counts"])
+        cell["coverage"] = _coverage_unknown(days, "search_incomplete")
+        cell["snapshot_evidence"] = None
+        cell["search"] = {"complete": False, "reason": reason}
+        return cell
+
+    @contextmanager
+    def _metric_scope(self, result, metric, days):
+        try:
+            yield
+            if self._read is not None:
+                self._read.check()
+        except bounded.IncompletePeriodRead as exc:
+            result[metric] = self._incomplete(metric, days, str(exc))
+
+    def _build(self, start, end_date, days, garmin_source_id, google_source_id):
         ensure_read_snapshot(self.session)
         sides = []
         for position, provider, model, selected in (
             ("left", "garmin_connect", GarminSource, garmin_source_id),
             ("right", "google_health", GoogleSource, google_source_id),
         ):
-            sources = list(
-                self.session.scalars(
-                    select(model).where(model.provider_code == provider).order_by(model.id)
+            incomplete = None
+            try:
+                sources = self._rows(
+                    select(model).where(model.provider_code == provider).order_by(model.id),
+                    bounded.MAX_PERIOD_SOURCES,
+                    "source_inventory_limit_exceeded",
                 )
-            )
+            except bounded.IncompletePeriodRead as exc:
+                sources, incomplete = [], str(exc)
             source = (
                 next((s for s in sources if s.id == selected), None)
                 if selected
                 else (sources[0] if len(sources) == 1 else None)
             )
-            if selected and source is None:
+            if selected and source is None and incomplete is None:
                 raise ValueError(f"unknown selected {provider} source")
             side = {
                 "position": position,
@@ -182,6 +272,8 @@ class PeriodSummaryService:
                 "freshness": {"state": "unknown", "reason": "saved_period_not_live_freshness"},
                 "metrics": {},
             }
+            if self._read is not None:
+                side["requested_source_id"] = selected
             for metric in METRICS:
                 cell = _cell(
                     metric,
@@ -202,16 +294,40 @@ class PeriodSummaryService:
                         cell["coverage"] = _coverage_unknown(days, "not_collected")
             if source:
                 if provider == "garmin_connect":
-                    side["metrics"].update(self._activities(source, start, end_date))
-                side["metrics"][SLEEP_CODE] = self._sleep(source, start, end_date)
+                    try:
+                        side["metrics"].update(self._activities(source, start, end_date))
+                    except bounded.IncompletePeriodRead as exc:
+                        side["metrics"].update(
+                            {
+                                m: self._incomplete(m, days, str(exc))
+                                for m in METRICS
+                                if m != SLEEP_CODE
+                            }
+                        )
+                try:
+                    side["metrics"][SLEEP_CODE] = self._sleep(source, start, end_date)
+                except bounded.IncompletePeriodRead as exc:
+                    side["metrics"][SLEEP_CODE] = self._incomplete(SLEEP_CODE, days, str(exc))
+            if incomplete is not None:
+                side["state"] = "search_incomplete"
+                for metric in METRICS:
+                    if provider != "google_health" or metric == SLEEP_CODE:
+                        side["metrics"][metric] = self._incomplete(metric, days, incomplete)
             for metric, cell in side["metrics"].items():
-                observed_dates = set(cell["observed_calendar_dates"])
-                cell["missing_dates"] = [
-                    day.isoformat()
-                    for offset in range(days)
-                    if (day := start + timedelta(days=offset)).isoformat() not in observed_dates
-                ]
-                cell["missing_day_count"] = len(cell["missing_dates"])
+                limited = cell["state"] == "search_incomplete"
+                observed_dates = set(cell["observed_calendar_dates"] or [])
+                cell["missing_dates"] = (
+                    None
+                    if limited
+                    else [
+                        day.isoformat()
+                        for offset in range(days)
+                        if (day := start + timedelta(days=offset)).isoformat() not in observed_dates
+                    ]
+                )
+                cell["missing_day_count"] = None if limited else len(cell["missing_dates"])
+                if self._read is not None and not limited:
+                    cell["search"] = {"complete": True, "reason": None}
                 cell["source_metric_code"] = (
                     (
                         "sleep_duration_seconds"
@@ -260,32 +376,38 @@ class PeriodSummaryService:
         google = isinstance(source, GoogleSource)
         # Google sync currently stores provider/query-family coverage without
         # actual-source attribution. Do not reinterpret it as device coverage.
-        rows = list(
-            self.session.scalars(
-                select(CoverageInterval).where(
-                    CoverageInterval.provider_id == source.provider_id,
-                    CoverageInterval.acquisition_source_id == source.acquisition_source_id,
-                    CoverageInterval.metric_code == ("google_coverage" if google else surface),
-                    CoverageInterval.interval_start
-                    < datetime.combine(end + timedelta(days=1), time.min, tzinfo=UTC),
-                    CoverageInterval.interval_end > datetime.combine(start, time.min, tzinfo=UTC),
-                )
-            )
+        rows = self._rows(
+            select(CoverageInterval).where(
+                CoverageInterval.provider_id == source.provider_id,
+                CoverageInterval.acquisition_source_id == source.acquisition_source_id,
+                CoverageInterval.metric_code == ("google_coverage" if google else surface),
+                CoverageInterval.interval_start
+                < datetime.combine(end + timedelta(days=1), time.min, tzinfo=UTC),
+                CoverageInterval.interval_end > datetime.combine(start, time.min, tzinfo=UTC),
+            ),
+            bounded.MAX_COVERAGE_ROWS,
+            "coverage_interval_limit_exceeded",
         )
         if google:
             rows = [r for r in rows if ":sleep:" in r.stream_code]
         # An acquisition identity shared by multiple actual sources is not a
         # source-specific completeness proof, even after explicit selection.
         model = GoogleSource if google else GarminSource
-        siblings = list(
-            self.session.scalars(
-                select(model.id).where(model.acquisition_source_id == source.acquisition_source_id)
-            )
+        siblings = self._rows(
+            select(model.id).where(model.acquisition_source_id == source.acquisition_source_id),
+            bounded.MAX_PERIOD_SOURCES,
+            "source_inventory_limit_exceeded",
         )
         if not rows or len(siblings) != 1:
             return _coverage_unknown(days)
         summary = calculate_coverage(
-            start, end, observations=(), coverage_intervals=rows, cadence_days=1, as_of_date=end
+            start,
+            end,
+            observations=(),
+            coverage_intervals=rows,
+            cadence_days=1,
+            as_of_date=end,
+            check_work=self._read.check if self._read is not None else None,
         )
         counts = dict(summary.status_counts)
         complete = all(b.status in {"present", "confirmed_empty"} for b in summary.bins)
@@ -321,30 +443,46 @@ class PeriodSummaryService:
         return coverage
 
     def _activities(self, source: GarminSource, start: date, end: date) -> dict[str, Any]:
-        inventory = PeriodBriefService(self.session)._list_activities_in_period(
-            source.id, start, end
+        inventory = (
+            PeriodBriefService(self.session)._list_activities_in_period(source.id, start, end)
+            if self._read is None
+            else None
         )
-        records = list(
-            self.session.scalars(
-                select(GarminSourceRecord).where(
-                    GarminSourceRecord.garmin_source_id == source.id,
-                    GarminSourceRecord.stream_code == "activity",
-                    GarminSourceRecord.source_local_date.between(start, end),
-                )
-            )
+        records = self._rows(
+            select(GarminSourceRecord).where(
+                GarminSourceRecord.garmin_source_id == source.id,
+                GarminSourceRecord.stream_code == "activity",
+                GarminSourceRecord.source_local_date.between(start, end),
+            ),
+            bounded.MAX_PERIOD_RECORDS,
+            "candidate_record_limit_exceeded",
         )
         by_id = {r.id: r for r in records}
-        current = [by_id[item["record_id"]] for item in inventory]
+        current = (
+            [by_id[item["record_id"]] for item in inventory]
+            if inventory is not None
+            else [r for r in records if r.projection_status == "current"]
+        )
         identity_counts = Counter(r.external_record_id or r.id for r in current)
-        metric_rows = {
-            (m.record_id, m.metric_code): m
-            for m in self.session.scalars(
+        metric_inputs = (
+            self._read.related(
+                GarminRecordMetric,
+                GarminRecordMetric.record_id,
+                [r.id for r in current],
+                cap=bounded.MAX_METRIC_ROWS,
+                conditions=(
+                    GarminRecordMetric.metric_code.in_(["distance_meters", "duration_seconds"]),
+                ),
+            )
+            if self._read is not None
+            else self.session.scalars(
                 select(GarminRecordMetric).where(
                     GarminRecordMetric.record_id.in_([r.id for r in current]),
                     GarminRecordMetric.metric_code.in_(["distance_meters", "duration_seconds"]),
                 )
             )
-        }
+        )
+        metric_rows = {(m.record_id, m.metric_code): m for m in metric_inputs}
         coverage = self._observed_coverage(
             self._coverage(source, start, end, "activities"),
             [r.source_local_date.isoformat() for r in current],
@@ -353,91 +491,95 @@ class PeriodSummaryService:
         for code in METRICS:
             if code == SLEEP_CODE:
                 continue
-            types = (
-                {"cycling"}
-                if code == "cycling_distance_meters"
-                else ({"tennis", "tennis_v2"} if code.startswith("tennis_") else None)
-            )
-            scoped_records = [
-                r
-                for r in records
-                if types is None or r.activity_type in types or not (r.activity_type or "").strip()
-            ]
-            scoped_ids = {r.id for r in scoped_records}
-            candidates = [r for r in current if r.id in scoped_ids]
-            history = Counter(
-                r.retire_reason or "unspecified"
-                for r in scoped_records
-                if r.projection_status == "retired"
-            )
-            values, dates = [], []
-            exclusions, type_counts = Counter(), Counter()
-            partial = 0
-            for row in candidates:
-                reason = None
-                value = 1
-                if row.record_status == "invalid":
-                    reason = "record_invalid"
-                elif identity_counts[row.external_record_id or row.id] != 1:
-                    reason = "duplicate_current_identity"
-                elif types is not None and not (row.activity_type or "").strip():
-                    reason = "activity_type_missing"
-                elif code in {"cycling_distance_meters", "tennis_duration_seconds"}:
-                    field = (
-                        "distance_meters"
-                        if code == "cycling_distance_meters"
-                        else ("duration_seconds")
-                    )
-                    metric = metric_rows.get((row.id, field))
-                    if metric is None or metric.state != "value":
-                        reason = f"metric_{metric.state if metric else 'missing'}"
-                    elif metric.unit != METRICS[code][1]:
-                        reason = "metric_unit_mismatch"
-                    elif (
-                        metric.value_number is None
-                        or not isfinite(metric.value_number)
-                        or metric.value_number < 0
-                    ):
-                        reason = "metric_invalid"
-                    else:
-                        value = metric.value_number
-                if reason:
-                    exclusions[reason] += 1
-                else:
-                    values.append(value)
-                    dates.append(row.source_local_date.isoformat())
-                    partial += row.record_status == "partial"
-                    activity_type = (
-                        row.activity_type if (row.activity_type or "").strip() else "unknown"
-                    )
-                    type_counts[activity_type] += 1
-            cell = _cell(
-                code,
-                values=values,
-                dates=dates,
-                observed_dates=[r.source_local_date.isoformat() for r in candidates],
-                observed_count=len(candidates),
-                exclusions=exclusions,
-                partial=partial,
-                retired=sum(history.values()),
-                history_reasons=history,
-                type_counts=type_counts,
-                proven_empty=not candidates
-                and coverage["complete"]
-                and METRICS[code][0] in {"count", "counts_by_type"},
-            )
-            cell["coverage"] = coverage
-            cell["snapshot_evidence"] = self._snapshot_evidence(scoped_records, google=False)
-            cell["state"] = (
-                "observed"
-                if values
-                else (
-                    "confirmed_empty"
-                    if cell["aggregation"]["value"] is not None
-                    else "no_eligible_values"
+            with self._metric_scope(result, code, (end - start).days + 1):
+                types = (
+                    {"cycling"}
+                    if code == "cycling_distance_meters"
+                    else ({"tennis", "tennis_v2"} if code.startswith("tennis_") else None)
                 )
-            )
-            result[code] = cell
+                scoped_records = [
+                    r
+                    for r in records
+                    if (types is None or r.activity_type in types
+                        or not (r.activity_type or "").strip())
+                ]
+                scoped_ids = {r.id for r in scoped_records}
+                candidates = [r for r in current if r.id in scoped_ids]
+                history = Counter(
+                    r.retire_reason or "unspecified"
+                    for r in scoped_records
+                    if r.projection_status == "retired"
+                )
+                values, dates = [], []
+                exclusions, type_counts = Counter(), Counter()
+                partial = 0
+                for row in candidates:
+                    if self._read is not None:
+                        self._read.check()
+                    reason = None
+                    value = 1
+                    if row.record_status == "invalid":
+                        reason = "record_invalid"
+                    elif identity_counts[row.external_record_id or row.id] != 1:
+                        reason = "duplicate_current_identity"
+                    elif types is not None and not (row.activity_type or "").strip():
+                        reason = "activity_type_missing"
+                    elif code in {"cycling_distance_meters", "tennis_duration_seconds"}:
+                        field = (
+                            "distance_meters"
+                            if code == "cycling_distance_meters"
+                            else ("duration_seconds")
+                        )
+                        metric = metric_rows.get((row.id, field))
+                        if metric is None or metric.state != "value":
+                            reason = f"metric_{metric.state if metric else 'missing'}"
+                        elif metric.unit != METRICS[code][1]:
+                            reason = "metric_unit_mismatch"
+                        elif (
+                            metric.value_number is None
+                            or not isfinite(metric.value_number)
+                            or metric.value_number < 0
+                        ):
+                            reason = "metric_invalid"
+                        else:
+                            value = metric.value_number
+                    if reason:
+                        exclusions[reason] += 1
+                    else:
+                        values.append(value)
+                        dates.append(row.source_local_date.isoformat())
+                        partial += row.record_status == "partial"
+                        activity_type = (
+                            row.activity_type if (row.activity_type or "").strip() else "unknown"
+                        )
+                        type_counts[activity_type] += 1
+                cell = _cell(
+                    code,
+                    values=values,
+                    dates=dates,
+                    observed_dates=[r.source_local_date.isoformat() for r in candidates],
+                    observed_count=len(candidates),
+                    exclusions=exclusions,
+                    partial=partial,
+                    retired=sum(history.values()),
+                    history_reasons=history,
+                    type_counts=type_counts,
+                    proven_empty=not candidates
+                    and coverage["complete"]
+                    and METRICS[code][0] in {"count", "counts_by_type"},
+                )
+                cell["coverage"] = coverage
+                cell["snapshot_evidence"] = self._snapshot_evidence(scoped_records, google=False)
+                cell["state"] = (
+                    "observed"
+                    if values
+                    else (
+                        "confirmed_empty"
+                        if cell["aggregation"]["value"] is not None
+                        else "no_eligible_values"
+                    )
+                )
+                result[code] = cell
         return result
 
     def _sleep(self, source, start: date, end: date) -> dict[str, Any]:
@@ -448,19 +590,20 @@ class PeriodSummaryService:
             if google
             else (GarminSourceRecord, GarminSleepRecord, GarminSourceRecord.garmin_source_id)
         )
-        records = list(
-            self.session.execute(
-                select(model, typed.wake_date)
-                .outerjoin(typed, typed.record_id == model.id)
-                .where(
-                    column == source.id,
-                    model.stream_code == "sleep",
-                    or_(
-                        typed.wake_date.between(start, end),
-                        typed.wake_date.is_(None) & model.source_local_date.between(start, end),
-                    ),
-                )
-            )
+        records = self._rows(
+            select(model, typed.wake_date)
+            .outerjoin(typed, typed.record_id == model.id)
+            .where(
+                column == source.id,
+                model.stream_code == "sleep",
+                or_(
+                    typed.wake_date.between(start, end),
+                    typed.wake_date.is_(None) & model.source_local_date.between(start, end),
+                ),
+            ),
+            bounded.MAX_PERIOD_RECORDS,
+            "candidate_record_limit_exceeded",
+            scalar=False,
         )
         by_date = defaultdict(list)
         history = Counter()
@@ -478,11 +621,23 @@ class PeriodSummaryService:
         exclusions["wake_date_missing"] = missing_wake
         partial = uncertain = 0
         observed = missing_wake
+        sides = (
+            self._read.sleep_sessions(source, [r for r, _wake in records])
+            if self._read is not None
+            else None
+        )
         for wake_date, rows in sorted(by_date.items()):
             observed += len(rows)
             observed_dates.append(wake_date.isoformat())
-            night = read_source_sleep_night(
-                self.session, provider=provider, wake_date=wake_date, source_id=source.id
+            night = (
+                read_source_sleep_night(
+                    self.session, provider=provider, wake_date=wake_date, source_id=source.id
+                )
+                if self._read is None
+                else {
+                    "state": "records",
+                    "sources": [{"sessions": self._read.night(source, rows, sides, wake_date)}],
+                }
             )
             if night["state"] == "read_limit_exceeded":
                 exclusions["read_limit_exceeded"] += len(rows)
@@ -550,6 +705,8 @@ class PeriodSummaryService:
         activity/night. Counts describe snapshots backing selected-period rows;
         received-at timestamps do not decide their source-local eligibility.
         """
+        if self._read is not None:
+            return self._read.snapshot_evidence(records, google=google)
         model = GooglePayloadObservation if google else GarminPayloadObservation
         raw_column = model.google_raw_payload_id if google else model.garmin_raw_payload_id
         counts = (

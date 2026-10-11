@@ -659,6 +659,16 @@ def _source_attribution(
     return values
 
 
+@dataclass(frozen=True)
+class _SleepEvidenceInputs:
+    """Preloaded metadata for the existing evidence rules; no raw bodies."""
+
+    raw: GarminRawPayload | GoogleRawPayload | None
+    observations: tuple[GarminPayloadObservation | GooglePayloadObservation, ...]
+    attempts: tuple[GoogleNormalizationAttempt, ...] = ()
+    source_evidence: GoogleRecordSourceEvidence | None = None
+
+
 def _normalization_provenance(
     session: Session,
     *,
@@ -668,6 +678,7 @@ def _normalization_provenance(
     observation: GarminPayloadObservation | GooglePayloadObservation | None,
     observation_candidates: Sequence[str],
     observation_valid: bool,
+    inputs: _SleepEvidenceInputs | None = None,
 ) -> dict[str, object]:
     """Freeze normalization identity without copying provider payload bodies."""
 
@@ -712,7 +723,7 @@ def _normalization_provenance(
                 "query_mode": item.query_mode,
                 "data_source_family": item.data_source_family,
             }
-            for item in session.scalars(
+            for item in (session.scalars(
                 select(GoogleNormalizationAttempt)
                 .where(GoogleNormalizationAttempt.observation_id == observation.id)
                 .order_by(
@@ -720,9 +731,12 @@ def _normalization_provenance(
                     GoogleNormalizationAttempt.attempted_at,
                     GoogleNormalizationAttempt.id,
                 )
-            )
+            ) if inputs is None else (
+                item for item in inputs.attempts if item.observation_id == observation.id
+            ))
         ]
-        evidence_row = session.get(GoogleRecordSourceEvidence, record.id)
+        evidence_row = (session.get(GoogleRecordSourceEvidence, record.id)
+                        if inputs is None else inputs.source_evidence)
         if evidence_row is not None:
             parsed_evidence = _json_object(evidence_row.evidence_json)
             source_evidence = {
@@ -803,11 +817,12 @@ def _record_evidence(
     source: GarminSource | GoogleSource,
     record: GarminSourceRecord | GoogleSourceRecord,
     eligibility: SleepSourceEligibility,
+    inputs: _SleepEvidenceInputs | None = None,
 ) -> SleepMetricEvidenceRef:
     """Resolve immutable payload metadata without reading the raw body."""
 
     raw_payload_id = record.raw_payload_id
-    raw: GarminRawPayload | GoogleRawPayload | None = (
+    raw: GarminRawPayload | GoogleRawPayload | None = inputs.raw if inputs is not None else (
         session.get(GarminRawPayload, raw_payload_id)
         if provider == "garmin"
         else session.get(GoogleRawPayload, raw_payload_id)
@@ -820,7 +835,7 @@ def _record_evidence(
     observation: GarminPayloadObservation | GooglePayloadObservation | None = None
 
     if provider == "garmin":
-        candidates = list(
+        candidates = list(inputs.observations) if inputs is not None else list(
             session.scalars(
                 select(GarminPayloadObservation)
                 .where(GarminPayloadObservation.garmin_raw_payload_id == raw_payload_id)
@@ -845,7 +860,11 @@ def _record_evidence(
     else:
         assert isinstance(record, GoogleSourceRecord)
         if record.observation_id is not None:
-            observation = session.get(GooglePayloadObservation, record.observation_id)
+            observation = (
+                session.get(GooglePayloadObservation, record.observation_id) if inputs is None
+                else next((item for item in inputs.observations
+                           if item.id == record.observation_id), None)
+            )
             if observation is not None:
                 observation_candidates = (observation.id,)
                 observation_id = observation.id
@@ -855,7 +874,7 @@ def _record_evidence(
                     and observation.google_source_id == record.google_source_id
                 )
         else:
-            candidates = list(
+            candidates = list(inputs.observations) if inputs is not None else list(
                 session.scalars(
                     select(GooglePayloadObservation)
                     .where(GooglePayloadObservation.google_raw_payload_id == raw_payload_id)
@@ -921,6 +940,7 @@ def _record_evidence(
             observation=observation,
             observation_candidates=observation_candidates,
             observation_valid=observation_valid,
+            inputs=inputs,
         ),
         exclusion_basis=reason,
         immutable=immutable,

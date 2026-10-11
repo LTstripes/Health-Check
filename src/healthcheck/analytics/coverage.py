@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
@@ -264,6 +264,7 @@ def calculate_coverage(
     intervals: Iterable[Any] | None = None,
     cadence_days: int = DEFAULT_WEIGHT_CADENCE_DAYS,
     as_of_date: date | None = None,
+    check_work: Callable[[], None] | None = None,
 ) -> CoverageSummary:
     """Calculate sparse weight coverage over fixed cadence bins.
 
@@ -300,6 +301,8 @@ def calculate_coverage(
     expected = _expected_bins(start, end, cadence_days)
     bins: list[CoverageBin] = []
     for bin_start, bin_end in expected:
+        if check_work is not None:
+            check_work()
         bin_observations = tuple(
             value
             for value in in_period

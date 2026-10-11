@@ -81,7 +81,9 @@ def _canonical_outcome(side: _StoredSleepSide, code: str, variant: str | None):
     return _stage_projection_outcome(side, target=target, variant=variant)
 
 
-def _session_view(side: _StoredSleepSide, wake_date: date) -> dict[str, Any]:
+def _session_view(
+    side: _StoredSleepSide, wake_date: date, *, metric_codes: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     source_decision = dict(side.evidence.attribution["source_eligibility"])
     reason = source_decision.get("reason")
     if side.record.record_status == "invalid":
@@ -100,7 +102,7 @@ def _session_view(side: _StoredSleepSide, wake_date: date) -> dict[str, Any]:
     # A Garmin-only view has no Google variant to infer or require.
     variant = None if side.provider == "garmin" else _google_sleep_variant(side)
     metrics = {}
-    for code in SLEEP_CANONICAL_METRIC_CODES:
+    for code in SLEEP_CANONICAL_METRIC_CODES if metric_codes is None else metric_codes:
         outcome = _canonical_outcome(side, code, variant)
         if side.provider == "google":
             outcome = _with_variant_gate(outcome, variant=variant)
@@ -111,7 +113,7 @@ def _session_view(side: _StoredSleepSide, wake_date: date) -> dict[str, Any]:
         metrics[code] = _metric_input(
             provider=side.provider, record_id=side.record.id, outcome=outcome
         ).as_dict()
-    if side.provider == "garmin":
+    if side.provider == "garmin" and metric_codes is None:
         for code, unit in (("sleep_score", "points"), ("nap_duration_seconds", "seconds")):
             outcome = _outcome_from_scalar(side, metric_code=code, expected_unit=unit, variant=None)
             if reason and outcome.eligible:
