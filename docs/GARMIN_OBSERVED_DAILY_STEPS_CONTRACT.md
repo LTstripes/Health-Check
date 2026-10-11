@@ -60,3 +60,40 @@ separation, date-only precision, unsupported dates and shapes, fail-closed bound
 and artifact integrity, and ordinary reconciliation retaining Steps evidence.
 Google Steps, device fusion, correction selection, timezone conversion, statistics
 cards and Calories/Energy are outside this contract.
+
+## Read-only materialized window
+
+`read_observed_steps_window` in `garmin/observed_steps_read.py` returns one cell
+per exact civil date in an explicitly selected Garmin source/window. It never
+calls `project_day`, opens saved bytes, materializes records, commits, selects an
+automatic source, seeks a latest value, or aggregates days. The caller owns the
+read snapshot. This reader is not yet connected to Statistics or another UI.
+
+Windows contain 1–366 inclusive calendar days; larger/reversed windows and
+missing source selection are rejected. The independent reader contract is
+`garmin-observed-daily-steps-window-v1`. Each request reads at most 4,097
+candidate/history records on the `observed_daily_steps` surface, including
+retired/unsupported records, using the 4,097th only to detect the 4,096-row cap.
+The singleton metric/raw/artifact metadata joins cannot multiply candidates.
+A second independent cap+1 query reads up to 4,097 eligible saved acquisition
+observations for these raw identities; repeated raw references do not multiply
+provenance rows. This cap is reader-local, not an analytics/annual-read budget.
+
+Ascending date order establishes complete earlier groups. A truncated candidate
+day and subsequent unexamined dates yield `search_incomplete` with no value.
+A truncated provenance day and later candidate groups also yield
+`search_incomplete`; independently complete cells remain usable. Unsupported
+materialized contracts, absent metric/acquisition links and inconsistent
+provenance fail that day closed. Returned evidence on incomplete cells may be
+partial and does not establish group completeness. Counts describe examined
+rows, including the detection row, rather than total history size.
+
+Complete cells preserve the projection's distinct valid-count resolution and
+missing/null/invalid evidence, including exact integer text storage and zero.
+Without materialized day evidence the cell is `projection_unavailable` with
+reason `not_evidenced`, never a claim that projection was not run, the leaf was
+missing, collection never occurred, or Steps were zero. An unknown exact source
+uses `source_not_found`. Coverage, device, timezone and finality remain unknown.
+Persisted provenance references and contract versions are retained; the reader
+does not re-verify artifact bytes or attest completeness of unsaved/unprojected
+history. No schema, replay, collection, ledger or migration contract changes.
