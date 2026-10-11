@@ -158,7 +158,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       await page.mouse.click(center.x, center.y);
       assert.match(await page.locator('#composition-detail').innerText(), /2026-04-01/);
       assert.match(await page.locator('#composition-detail').innerText(), /Xiaomi Home.*метод 1/);
-      assert.match(await page.locator('#provenance-panel').innerText(), /evidence_id: long-2/);
+      assert.match(await page.locator('#provenance-panel').textContent(), /evidence_id: long-2/);
       assert.equal(long[2].body_fat_pct, short[1].body_fat_pct);
       const dimensions = await page.evaluate(() => ({ width: innerWidth, document: document.documentElement.scrollWidth,
         chart: document.querySelector('#composition-groups .chart').clientWidth,
