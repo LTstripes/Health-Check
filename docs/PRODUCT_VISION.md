@@ -37,27 +37,47 @@ canonical history. Engineering integration, local deployment and human acceptanc
 are different outcomes. The latest real Owner UAT is **PARTIAL**, not a blanket PASS.
 See [Project Wiki](PROJECT_WIKI.md) and [Current History](EXECUTION_HISTORY_CURRENT.md).
 
-### Owner execution priority — 2026-10-09 (first wave integrated)
+### Owner direction — 2026-10-11 (after complete A+ integration)
 
-**Reliable data first:** [#342](https://github.com/LTstripes/Health-Check/issues/342)
-has accepted bounded offline historical-clone source classification. Stored Google
-sleep records exist; selected-date emptiness, source/role exclusions and missing
-eligible device/family Compare pairs differ from provider collection errors.
-This does not establish current Stable/provider health, a Google vendor score
-or permission to trigger providers. Garmin RHR remains #340.
+[Current engineering main f0e6c36c](https://github.com/LTstripes/Health-Check/commit/f0e6c36c4d10f03069111665f10201575ee6ea0e)
+includes source-separated 7/30 Garmin/Google Sleep and Statistics, synthetic
+demo, request-local Overview read reuse, Activity session detail and improved
+Overview chart readability. [CI 38070804783](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
+SUCCESS. Human [Owner UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913)
+is **PARTIAL** on a verified **older disposable copy of real data**, not
+approval of current providers/Stable. The visual A+ / new Sleep / Activity
+functionality received positive feedback; Stats source confusion, long history,
+context usability and data freshness remain the next product needs.
 
-[#294 Stage A](https://github.com/LTstripes/Health-Check/issues/294) has
-integrated dated `/context` comments and revision history; [#341 Stage A](https://github.com/LTstripes/Health-Check/issues/341)
-has integrated bounded standalone Weight/Garmin-scalars/current-Context
-evidence export. They are engineering deliveries, **not** completed durable
-Owner UAT or an actual private export. Direct authenticated ChatGPT tools
-still need a proven connection and consent. A skill alone cannot reach the
-Owner PC; Telegram remains optional, and #343–#348 are not launched.
+**Product-first decisions:**
+- One chronological full saved Weight+composition table and a single selected
+  composition-metric chart, retaining incompatibility labels and original
+  observed dates (#375).
+- Normal wearable concept is **Garmin and Google**, not multiple unrelated
+  Fitbit/Google brands; retain exact origin devices/sources and do not merge
+  overlapping observations without eligibility/identity evidence (#342/#343/#347).
+- **Last eligible saved value + actual observation date/age** can be a useful
+  default when a day lacks data. It is not today's value, a new provider
+  success or a silent rewrite of explicitly selected windows (#376).
+- Meaningful Statistics needs human source names/eligibility, bounded trailing
+  365/calendar-year/all-history contracts (#380), real Steps with accepted
+  source/typed evidence (#377) and non-fabricated energy after #319 meaning
+  resolution. Google activity/session parity is not yet collected.
+- Add **Комментарии** to primary navigation; normal time input selects one
+  human city/IANA zone and the exact UTC offset is derived and persisted
+  internally. Date-only remains date-only and DST ambiguity is validated (#294).
+- Show preserved saved measurements separately from provider auth/refresh
+  failures (#305); apply the accepted A+ system consistently to forms/tables
+  throughout the application (#379).
+- Future Activity value/design questions are deliberately read-only Owner-led
+  discovery (#378), not automatic cards, provider features or a second analytics
+  engine (#346).
 
-Next Owner outcome: save and read back a real dated comment on an explicitly
-selected durable profile, then explicitly review/share a selected private
-evidence export in ChatGPT. Disposable UAT notes do not become Stable notes.
-The [roadmap](ROADMAP.md#current-backlog) owns further sequencing and gates.
+[R06 health evidence exporter](https://github.com/LTstripes/Health-Check/issues/341)
+and Context v0 are built, but direct ChatGPT access is paused. Routine notes
+need an explicitly selected durable Owner profile, not an UAT clone. The
+[roadmap](ROADMAP.md#current-backlog) owns sequence; proposals do not
+authorize implementation, live provider calls or Stable modification.
 
 ## Sources
 
@@ -65,33 +85,36 @@ The [roadmap](ROADMAP.md#current-backlog) owns further sequencing and gates.
 - **Garmin Vivoactive 5 / Garmin Connect:** released ingestion, historical backfill, deterministic analytics and owner dashboard; current collection health still needs source-specific evidence.
 - **Google Health API v4:** released ingestion for sleep and supported health metrics/measurements, with preserved source/device metadata and explicit source-family semantics.
 - **Google wearable / Fitbit evidence:** device-level agreement requires explicit persisted Fitbit/device attribution. Broader wearable-family and account observations are not automatically device evidence.
-- **Free-text context:** Context Capture v0 stores revisioned original text, dates/instants/intervals; integrated #294 Stage A adds its secondary desktop portal adapter, not another note system.
+- **Free-text context:** Context Capture v0 stores revisioned original text, dates/instants/intervals; integrated #294 Stage A adds the existing desktop portal adapter; discoverable primary 'Комментарии' navigation is a separately approved follow-up, not another note system.
 - **Planned:** confirmed laboratory results and source documents under #348, then medication/supplement and other personal-health-record capabilities when separately scoped.
 
 Every source value remains available. A canonical rule may select one value for one metric/period, but selection never deletes competing evidence.
 
 ## Source display is not a canonical-source decision
 
-The Owner wants independent source observations visible together. Planned Sleep
-history (#343) shows Garmin/Google duration series over 7/30 days with source
-selection and point detail; it does not require successful Agreement pairing simply
-to display the observations.
+The implemented Sleep timeline and source-specific 7/30 Statistics can display
+stored Garmin/Google values without new successful Agreement pairs. Normal
+Owner UI should use the two provider concepts **Garmin** and **Google**, while
+retaining every exact device/account/family source identity for source-bound
+eligibility, provenance and transparent advanced selection. Fitbit entries and
+Google family aggregates may represent overlapping evidence. No last-writer,
+longest-night or summed/mean provider-wide winner may be assumed without a
+separate reviewed identity/eligibility decision.
 
-Planned **Statistics (#347)** shows the same metric in **left-source / right-source
-columns**, both visible by default, with actual source names, units, dates and
-coverage. A missing side remains explicitly missing. Compatible sides may have a
-labelled right-minus-left difference; incompatible windows, meanings or denominators
-remain visible but do not receive a misleading numerical difference. Sources are
-never summed into a combined total or silently pooled across devices. The same
-accepted aggregates can later feed Overview and chat evidence.
+A source-specific value shows its **true date/eligible coverage/units**. A
+missing observation can be supplemented by a clearly labelled *last eligible
+saved* dated observation, but never silently backfilled into the requested
+date or period. Two providers need matching compatible meanings/windows/
+denominators for a numeric delta; side-by-side display alone proves neither
+Agreement nor live provider reachability. Distinct missing, partial, zero,
+excluded, disabled and reauth/failed states stay truthful.
 
-R05's separate empirical question remains: which source should be canonical for
-which metric? Pair eligible sessions, project comparable metrics, compute versioned
-agreement statistics and only then consider a reversible per-metric rule. The
-exploratory gate is 14 paired nights; a provisional canonical-source decision needs
-42 valid device-pair nights across at least six weeks plus coverage/stability.
-Correlation alone is insufficient. Garmin remains the default until an explicitly
-reviewed rule changes it. Ordinary side-by-side display does not satisfy those gates.
+The R05 canonical question remains **separate**: which source, if any, to
+choose by reversible per-metric rule. Explore after 14 eligible paired nights;
+a provisional device-pair decision needs 42 valid device nights over at least
+six weeks plus coverage/stability. Correlation alone is insufficient; Garmin
+remains accepted default pending explicit change. Presentation does not
+weaken those gates.
 
 ## Core usage modes
 

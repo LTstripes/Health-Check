@@ -13,6 +13,64 @@ Earlier indexes also remain:
 - [Reliability/correction history through 2026-10-01](EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md).
 - [Verbose historical engineering log](EXECUTION_HISTORY.md).
 
+## 2026-10-10 — final integrated Owner UI engineering package
+
+Accepted canonical product main:
+`f0e6c36c4d10f03069111665f10201575ee6ea0e`.
+[Final full post-main CI 38070804783](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
+SUCCESS attempt 1 (quality, three Linux lanes, Windows and final checks).
+All previous accepted deliverables remain ancestors; see each task PR for exact
+head/merge-tree/readback and independent review evidence.
+
+| Work | Integration / separate engineering gate |
+| --- | --- |
+| #343 Sleep B2 | [PR #368](https://github.com/LTstripes/Health-Check/pull/368) accepted/merged; [post-main 38042233440](https://github.com/LTstripes/Health-Check/actions/runs/38042233440) SUCCESS; source exactness and R05 retained |
+| #358 synthetic multidomain demo | [PR #369](https://github.com/LTstripes/Health-Check/pull/369) merged; [post-main 38042829875](https://github.com/LTstripes/Health-Check/actions/runs/38042829875) SUCCESS; synthetic data is not private Owner proof |
+| #347 parity/acceptance | [PRs #370](https://github.com/LTstripes/Health-Check/pull/370), [#371](https://github.com/LTstripes/Health-Check/pull/371) merged; [post-main #371 38059813658](https://github.com/LTstripes/Health-Check/actions/runs/38059813658) SUCCESS |
+| #295 /brief read reuse | [PR #372](https://github.com/LTstripes/Health-Check/pull/372) merged, [post-main 38065282880](https://github.com/LTstripes/Health-Check/actions/runs/38065282880) SUCCESS; real cold route latency not yet PASS |
+| #345 Activity session detail | [PR #373](https://github.com/LTstripes/Health-Check/pull/373) merged, [post-main 38066888854](https://github.com/LTstripes/Health-Check/actions/runs/38066888854) SUCCESS |
+| #344 Overview readability | [PR #374](https://github.com/LTstripes/Health-Check/pull/374) merged after exact independent source review; [PR 38070191305](https://github.com/LTstripes/Health-Check/actions/runs/38070191305) and [post-main 38070804783](https://github.com/LTstripes/Health-Check/actions/runs/38070804783) SUCCESS |
+
+## 2026-10-11 — real-clone Owner visual UAT / next product decisions
+
+Owner-local operator safely updated the clean control checkout to accepted
+main, ran an **isolated previously verified 2026-10-08 real-data clone**
+and established process/code/profile binding. Seven primary UI routes were
+HTTP 200. Nine bounded checked tables PASS; full clone DB integrity scan
+hit 180-second cutoff, **UNVERIFIED**. No Stable/provider/scheduler/secret
+or durable Owner data changes; browser testing was real-clone human UAT,
+distinct from synthetic tests and CI.
+
+Owner reports improved A+ look and perceived responsiveness, strongly prefers
+new Sleep history, and confirms saved Activity details work. The same readout
+identified confusing extra Google/Fitbit source identities, opaque Statistics
+source labels and empty cards, duplicated composition histories/tables,
+unavailable copied freshness statuses, hidden Context link and redundant
+UTC-offset/IANA fields. First /brief load reached 30-second timeout; repeat
+about 14 seconds; no claimed cold speedup. The unverified latest live
+provider state cannot be inferred from historical clone errors.
+
+[Owner product record #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913)
+makes the overall human acceptance **PARTIAL**, not blanket PASS.
+Owner then approved:
+one full-history weight+composition table and multi-method dated chart
+[#375](https://github.com/LTstripes/Health-Check/issues/375);
+two conceptual Garmin/Google provider lines after #342 evidence;
+readable Stats sources and future long windows [#380](https://github.com/LTstripes/Health-Check/issues/380);
+new Steps source inventory+typed UI [#377](https://github.com/LTstripes/Health-Check/issues/377)
+and still-blocked calories #319; latest eligible dated evidence rather than
+blank default cards [#376](https://github.com/LTstripes/Health-Check/issues/376);
+primary 'Комментарии' navigation/city-zone input #294; saved dates vs
+refresh state #305; cross-app A+ consistency [#379](https://github.com/LTstripes/Health-Check/issues/379);
+and future Owner-requested Activity analytics discovery [#378](https://github.com/LTstripes/Health-Check/issues/378).
+No source eligibility, canonical rule, provider, health data or release operation
+was changed by these **planning/issue** decisions. #346 duplicate Activity
+cards stay deferred and #341 direct ChatGPT connection paused. New Workers
+still require explicit launch/checkout ownership.
+
+The 2026-10-09 notes **below** preserve the earlier dated engineering
+snapshot/decisions and must not be mistaken for the current unstarted queue.
+
 ## 2026-10-09 — accepted Context/export wave and offline sleep diagnosis
 
 | Issue | Integrated/diagnostic outcome and gate |

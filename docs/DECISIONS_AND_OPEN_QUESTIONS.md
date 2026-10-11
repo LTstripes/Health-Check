@@ -2,8 +2,10 @@
 
 Current architecture/product decisions and remaining meaningful UNVERIFIED items.
 Historical decision evidence stays in release issues, audits and Git history.
-Reconciled on **2026-10-09** against product main
-`013482ec3a51d89fd57c3a55ab9b09d1d2228e25` and Owner #330 feedback.
+Latest Owner direction **2026-10-11** is checked against accepted
+product `main f0e6c36c4d10f03069111665f10201575ee6ea0e` and
+[partial real-clone UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913).
+The prior 2026-10-09 discussion is historical, not a current launch queue.
 [Current History](EXECUTION_HISTORY_CURRENT.md) owns exact evidence;
 [Roadmap](ROADMAP.md#current-backlog) owns execution order. Planned work below is
 not an assertion that its code or connection already exists.
@@ -17,30 +19,83 @@ not an assertion that its code or connection already exists.
 - R01–R05 are released. R05 closed with exploratory agreement, Garmin canonical/default and #105 NOT_ELIGIBLE.
 - Period Brief #119, durable Runtime, Context v0, Training/Recovery, source freshness, screenshots/corrections and technical maintenance foundations are complete.
 - #189 and #306–#309 are historical completed UI work. A+ shared shell/Overview, Sleep v3, compact Activity A/B and Activity v4, Weight-chart clarity and compact source attention are now integrated; they are not awaiting the original design discussion.
-- #295 was reopened after new real latency evidence. Its indexed Google freshness improvement is delivered, but real Overview is still slow; no blanket speed acceptance. #298 Stress and #153 optional openScale work remain not planned.
+- #295 now has indexed freshness and request-local /brief reuse integrated; Owner reports perceived speed improvement but first open exceeded 30s and repeat ~14s on copied data, so no cold performance PASS. #298 Stress and #153 optional openScale work remain not planned.
 - A custom Health-Check Recovery Score remains deferred until an evidenced unmet decision need.
 
-### Owner priority and launch decision — 2026-10-09
+### Owner product decisions and execution order — 2026-10-11
 
-**Documentation reconciliation first, then the Owner launches the next tasks.**
-No new task/Worker/provider operation is started by recording this decision.
+**Accepted engineering is not re-assigned.** PR #368 Sleep timeline, #369
+synthetic demo, #370/#371 acceptance/Statistics failure parity, #372 request-local
+Overview reads, #373 Activity details and #374 Overview readability are merged
+and full [post-main CI 38070804783](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
+is SUCCESS. Human UAT on a dated **disposable real-data clone** is PARTIAL,
+not release approval; Stable/providers have not been refreshed. No new task
+is started by these records.
 
-1. **P1 #342 source availability is first-wave work**, alongside #294 Context and #341 health-chat evidence. Data is essential, not polish to postpone. Distinguish real-clone snapshot from current Stable/provider health, stored absence from exclusion and empty comparison from absent source observations. #340 remains the specific RHR surface-filter owner; #319 the extra activity-field evidence owner.
-2. **#294 Stage A** adds portal add/list/revise comments with explicit editable event date and optional time/range, preserved wording/revisions/idempotency. Recorded-at is separate. Activate reserved dashboard capture source narrowly; weight-goal Settings remains later Stage B, not a dependency of comments.
-3. **#341 Stage A** adds a bounded read-only health-plus-current-Context export over accepted services with its own versioned envelope, not a new Period Brief hash or LLM calculation engine. Later sharing UI follows #294 integration. Direct ChatGPT access requires a verified authenticated connection; a skill does not make Owner localhost reachable. Telegram is optional, not required.
-4. Parallel scope: #294 sole UI/Context writer; #341 separate new export module/script/tests, existing Context interface read-only; #342 code/contracts researcher. Assigned host-specific workspaces/external synthetic roots are in the issues. Shared CI manifest additions are reconciled at integration; no overwriting another branch. Serialize heavy local tests on the shared machine.
-5. Existing first-wave prompts remain valid because they locate the updated issue and live main. Feature start waits for documentation closeout; each worker pins its actual baseline at launch. New shared-file/private-data scope still needs an explicit decision.
+Next product sequence (issue details remain authoritative):
 
-### Owner source-comparison UX — planned, not changed analytics
+1. **#342 + #343 + #347:** first decide how preserved Google source-family /
+   Fitbit identities overlap by exact eligible source-local date, then show the
+   two normal *provider concepts* **Garmin / Google**. Keep distinct evidence
+   and an advanced source choice; no unchecked pooling/dedup/longest-winner,
+   invented Google score or R05 canonical-switch side effect.
+2. **#375 Weight:** one true all-history table of confirmed weight +
+   composition measures by persisted semantic measurement identity, with
+   source/derived distinctions and one chart aligned over global dates. Respect
+   separate incompatible BIA method ranges; don't connect method boundaries
+   or infer missing values.
+3. **#376 last available:** the default **everyday reading** should show last
+   eligible stored observation and exact source date/age when today is missing,
+   alongside explicit missing-today and refresh/clone status. An explicitly
+   requested date/window is not silently replaced. Two providers with
+   unequal actual dates do not acquire a numerical paired delta.
+4. **#294 Comments:** make **Комментарии** a primary navigation section; keep
+   existing append-only Context v0 with one user-facing *city/IANA time-zone
+   selection*. Generate and persist correct event-date UTC offset internally,
+   validate DST ambiguity/gaps; date-only stays date-only. No separate
+   mandatory UTC text entry in the ordinary form.
+5. **#347 / #380:** readable source choices and missingness first; trailing
+   365-day, calendar-year and eventually all-history Statistics require a
+   separate bounded accepted source/coverage/performance contract and are
+   not part of frozen `7/30` B1. Supported values only. **#377 Steps** needs
+   exact source/typed ingestion and display; **#319 calories/BMR** needs
+   producer/units/active-vs-total meaning. No placeholder numeric data.
+6. **#305 Data:** show saved last-eligible date/age and clone snapshot origin
+   separately from Garmin/Google last refresh failure/reauth/disabled states.
+   One useful action/provider and expandable stream detail; don't erase
+   saved history or run providers to improve a badge.
+7. **#379 A+** is a full-app *style audit* to split into narrow existing-token
+   fixes for forms/tables and navigation after file ownership is assigned.
+   **#378 Activity** is Owner-requested read-only discovery of new functional
+   analytics; current #345 session detail works, and #346 duplicate cards
+   stay deferred pending product value review.
 
-The A+ appearance remains accepted; source data and useful capture/analysis precede
-further cosmetic work. Detailed scope is in #343–#348, not an automatic queue.
+No new universal health score, speculative cause/diagnosis, auto-archive of
+data, public sharing, model benchmarking or new mobile UI. #341 authenticated
+ChatGPT connection remains deferred; #348 labs, #357 stress baseline and
+weight-goal Settings are distinct later gates. Private Owner data may be
+read only under [Owner Data Workflow](OWNER_DATA_WORKFLOW.md); GitHub docs and CI
+stay synthetic/sanitized. Release, provider calls, migrations and durable
+writes require their respective authority.
 
-- **Sleep #343:** primary 7/30-day independent Garmin/Google duration series, both visible with optional source toggles and point/focus/click detail. Dates are wake dates, units hours with readable intermediate ticks. Statistical Compare/Agreement is secondary; displaying independent observations does not require eligible paired runs or canonical-switch evidence. Missing/ambiguous sessions do not acquire an inferred winner or zero.
-- **Overview #344:** thin visual Weight connectors are Owner-approved, with unmeasured spans visually distinct and no interpolated records, daily points or EWMA change. Improve Sleep ticks and move repeated long freshness prose into detail while retaining material date/source/action cues.
-- **Activity #345/#346:** existing session detail cards first; optional calories/max-HR/dual effects depend on #319. Period recovery cards keep the dated native snapshot, proper denominators/coverage and meaningful aggregation. No averaging categorical status or summing overlapping rolling-load snapshots.
-- **Statistics #347:** default **left-source / right-source columns for the same metric**, both visible, named and source-bound. Each side retains its units, effective dates, observed-day/session count and coverage. A compatible right-minus-left delta may be shown; otherwise display both independently with a short limitation, without a false numerical difference. Missing side remains labelled, not copied or zeroed. Do not combine Garmin/Google totals or pool devices under a brand label. Reuse the same accepted aggregates in Statistics/Activity/Overview/chat.
-- **Labs #348:** first R09 contract is original PDF/image → extraction candidates → explicit Owner confirmation → revisioned results with original labels, values/qualifiers, units, report ranges and sample/report dates. Not a diagnosis, automatic acceptance or the whole medication roadmap.
+### Owner source comparison is not canonical-source switching
+
+The A+ design, accepted source-specific reader and 7/30 Sleep/Statistics
+implementation remain intact. Ordinary product language presents two providers
+(Garmin and Google) while retaining exact saved source identities and eligibility
+for the chosen metric/window. A Fitbit source and a Google family-aggregate
+may overlap; they must not be treated as independently additive without proof.
+
+Independent per-source values may be shown side by side without Agreement pairs.
+A numerical delta requires compatible metric meaning, actual observation/period
+windows, eligible denominators and units. Missing sources stay visible and
+dated, not copied from another source or silently zeroed. The existing canonical
+Garmin/R05 decision remains unchanged until the separate evidence gate is met.
+
+Longitudinal "latest eligible" display is a *presentation of saved evidence*,
+not a new canonical/current-day value or blanket completeness certification.
+Stored time and BIA source provenance must be preserved under the accepted
+precise time/date-only, correction and method rules.
 
 ### Runtime
 
