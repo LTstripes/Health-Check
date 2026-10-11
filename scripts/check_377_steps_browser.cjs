@@ -89,8 +89,12 @@ const expected = { '2099-01-02': ['value', '17'], '2099-01-03': ['value', '0'],
       assert.match(await detail.innerText(), /garmin-observed-daily-steps-v1/);
       assert.match(await detail.innerText(), new RegExp(sources.a));
       const geometryResult = await geometry(page, width);
-      await page.screenshot({ path: path.join(evidence, `steps-selected-${width}.png`), fullPage: true });
+      assert.equal(await detail.evaluate(el => getComputedStyle(el.parentElement).textAlign), 'left');
       await detail.locator('summary').focus(); await page.keyboard.press('Enter');
+      await section.locator('[data-steps-date="2099-01-02"]').scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: path.join(evidence, `steps-selected-${width}.png`), fullPage: true });
+      await section.screenshot({ path: path.join(evidence, `steps-panel-${width}.png`) });
       await selector.selectOption(sources.b);
       await submit(page, url => url.searchParams.get('garmin_source_id') === sources.b);
       assert.equal((await section.locator('[data-steps-date="2099-01-10"] .statistics-steps-value').innerText()).trim(), '999');
