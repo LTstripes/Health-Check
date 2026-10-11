@@ -627,7 +627,12 @@
       circle.appendChild(title);
       if (onClick) {
         circle.addEventListener('focus', function () { onClick(item); });
-        circle.addEventListener("click", function () { onClick(item); });
+        circle.addEventListener("click", function (event) {
+          // Overlapping hit targets must resolve the closest visible dot.
+          // Keyboard/assistive activation has no pointer coordinates.
+          if (event.detail === 0) onClick(item);
+          else nearestPointer(event);
+        });
         circle.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(item); }
           if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {

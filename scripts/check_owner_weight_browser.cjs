@@ -74,7 +74,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       weight_measurement_id: id, body_fat_measurement_id: 'fat-' + id, compatibility_group: 'long',
       algorithm_code: 'xiaomi_home_s400_unknown_version', weight_kg: 80.125, body_fat_pct: 24.125 + index,
       estimated_fat_mass_kg: 19.33015625, estimated_lean_mass_kg: 60.79484375, source_muscle_mass_kg: null });
-    const long = dates.map((date, index) => c(date, 'long-' + index));
+    const long = dates.map((date, index) => c(date, 'long-' + index, index));
     const short = [c('2026-04-01', 'short-0', 1), c('2026-04-07', 'short-1', 2)].map(point => ({ ...point,
       compatibility_group: 'short', algorithm_code: 'openscale_s400_composition_unknown', algorithm_version: 'unknown/config-1' }));
     const combined = { ...payload.series, raw_points: [...dates.map((date, index) => w(date, 'long-' + index)),
@@ -145,6 +145,21 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
         }
       }
       await page.locator('#composition-groups select').selectOption('body_fat_pct');
+      // Six-year axis: equal metric values six days apart have overlapping hit
+      // targets. A pointer click must agree with hover, not the later DOM target.
+      await page.locator('#composition-groups svg').evaluate(svg => svg.scrollIntoView({ block: 'center' }));
+      const earlierDot = page.locator('#composition-groups [data-evidence-id="long-2"] .weight-dot');
+      const center = await earlierDot.evaluate(dot => {
+        const rect = dot.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      });
+      await page.mouse.move(center.x, center.y);
+      assert.match(await page.locator('#composition-detail').innerText(), /2026-04-01/);
+      await page.mouse.click(center.x, center.y);
+      assert.match(await page.locator('#composition-detail').innerText(), /2026-04-01/);
+      assert.match(await page.locator('#composition-detail').innerText(), /Xiaomi Home.*метод 1/);
+      assert.match(await page.locator('#provenance-panel').innerText(), /evidence_id: long-2/);
+      assert.equal(long[2].body_fat_pct, short[1].body_fat_pct);
       const dimensions = await page.evaluate(() => ({ width: innerWidth, document: document.documentElement.scrollWidth,
         chart: document.querySelector('#composition-groups .chart').clientWidth,
         chartScroll: document.querySelector('#composition-groups .chart').scrollWidth,
@@ -172,7 +187,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     await page.setViewportSize({ width: 1024, height: 900 });
     await checkAxis('2020-02-29', '2026-04-07');
     assert.equal(await point.evaluate(el => el === document.activeElement), true);
-    checks.push('1024/1440 desktop: common full-history axes for all metrics, observed method spans, no invented points/lines, measured tick collisions, keyboard/resize focus, table scroll, frozen styles/screenshots');
+    checks.push('1024/1440 desktop: overlapping pointer hit targets select exact visible observation date/ID/method; common full-history axes for all metrics, observed spans, no invented points/lines, keyboard/resize focus, table scroll, frozen styles/screenshots');
     // Missing vs zero, multiple methods for one exact identity, and composition-only session.
     const zero = { ...long[0], body_fat_pct: 0, estimated_fat_mass_kg: null, estimated_lean_mass_kg: null };
     const orphan = { ...short[0], observed_date: '2026-04-03', weight_measurement_id: null, weight_kg: null };
