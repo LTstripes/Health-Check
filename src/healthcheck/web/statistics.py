@@ -29,6 +29,7 @@ METRIC_LABELS = {
 }
 UNIT_LABELS = {"seconds": "с", "meters": "м", "sessions": "сессий"}
 STATE_LABELS = {
+    "search_incomplete": "Поиск сохранённых данных не завершён",
     "observed": "По сохранённым значениям",
     "confirmed_empty": "Подтверждено отсутствие активностей",
     "no_eligible_values": "Нет допустимых значений",
@@ -71,32 +72,47 @@ def format_statistics_value(code: str, value: int | float | None) -> str:
 @router.get("/statistics")
 def statistics(
     request: Request,
-    days: int = Query(default=7),
+    days: int | None = Query(default=None),
+    period: str | None = Query(default=None),
+    calendar_year: int | None = Query(default=None),
     end_date: date | None = Query(default=None),
     garmin_source_id: str | None = Query(default=None),
     google_source_id: str | None = Query(default=None),
 ):
     try:
+        selected_period = period or str(days if days is not None else 7)
+        if period is not None and days is not None:
+            raise ValueError("competing period selectors")
+        evaluated_date = end_date or date.today()
+        selected_year = calendar_year if calendar_year is not None else evaluated_date.year
+        if selected_period in {"7", "30"}:
+            window = {"days": int(selected_period), "end_date": evaluated_date}
+        elif selected_period == "calendar_year":
+            window = {"period_type": selected_period, "calendar_year": selected_year}
+        elif selected_period in {"trailing365", "year_to_date"}:
+            window = {"period_type": selected_period, "end_date": evaluated_date}
+        else:
+            raise ValueError("unsupported period")
         with session_scope(request_engine(request)) as session:
             ensure_read_snapshot(session)
-            evaluated_date = end_date or date.today()
             selected_google = google_source_id or None
-            if selected_google is None:
+            if selected_google is None and selected_period in {"7", "30"}:
                 inventory = read_sleep_source_inventory(session)
                 if len(inventory["sources"]) > 1 and not inventory["truncated"]:
                     timeline = build_sleep_timeline(
                         {"google": read_source_sleep_range(
-                            session, provider="google", wake_date=evaluated_date, days=days,
+                            session, provider="google", wake_date=evaluated_date,
+                            days=int(selected_period),
                         )},
-                        days=days, end_date=evaluated_date, google_inventory=inventory,
+                        days=int(selected_period), end_date=evaluated_date,
+                        google_inventory=inventory,
                     )
                     selection = timeline["google_selection"]
                     # Reuse #343's exact-source rule, only for the approved sleep family.
                     if selection["status"] == "sole_google_wearables":
                         selected_google = selection["selected_source_id"]
             packet = PeriodSummaryService(session).build(
-                end_date=evaluated_date,
-                days=days,
+                **window,
                 garmin_source_id=garmin_source_id or None,
                 google_source_id=selected_google,
             )
@@ -120,6 +136,13 @@ def statistics(
         context={
             "page": "statistics",
             "packet": packet,
+            "selected_period": selected_period,
+            "selected_year": selected_year,
+            "control_end_date": evaluated_date.isoformat(),
+            "period_labels": {
+                "7": "7 дней", "30": "30 дней", "trailing365": "Последние 365 дней",
+                "calendar_year": "Календарный год", "year_to_date": "С начала года",
+            },
             "metric_labels": METRIC_LABELS,
             "unit_labels": UNIT_LABELS,
             "state_labels": STATE_LABELS,
