@@ -1428,6 +1428,12 @@ def _metric_values(metric: GarminMetricDTO) -> tuple[float | None, str | None]:
         return None, None
     if isinstance(metric.value, bool):
         raise ValueError("boolean Garmin metric values are not persistable")
+    if metric.metric_code == "observed_daily_steps":
+        if type(metric.value) is not int or metric.value < 0:
+            raise ValueError("observed daily Steps must be a nonnegative integer")
+        # Keep exact counts in the existing text slot: Float cannot preserve
+        # all JSON integers. The observed Steps accessor returns a typed int.
+        return None, str(metric.value)
     if isinstance(metric.value, (int, float)):
         return float(metric.value), None
     if isinstance(metric.value, str):
