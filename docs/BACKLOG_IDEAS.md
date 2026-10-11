@@ -4,27 +4,39 @@ This document is a parking lot for future capabilities not yet in an implementat
 slice. When promoted, an idea is owned by its explicit issue/contract; do not treat
 this file as a second automatic Worker queue.
 
-## Promoted Owner work — 2026-10-09
+## Promoted Owner work — 2026-10-11
 
-The Owner chose functionality and data availability before further cosmetic work.
-The [roadmap](ROADMAP.md#current-backlog) owns the full order; #294/#341 Stage A
-have integrated, #342 offline diagnosis is accepted, and later tasks are not launched.
+The latest engineering package (#343 Sleep, #358 synthetic demo, #347
+Statistics, #295 /brief reads, #345 Activity details, #344 Overview) **is
+integrated** in accepted main. Owner's real-data-clone visual review
+[#330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913)
+is PARTIAL: positive design/Sleep/Activity feedback coexists with source,
+data and usability follow-ups. Do not queue a duplicate delivery for the
+already merged PRs.
 
-| Direction | Owning task / current boundary |
+[Roadmap](ROADMAP.md#current-backlog) is the sequencing map; explicit
+issues own the promoted work. No idea below starts a Worker automatically.
+
+| Need | Owning issue / boundary |
 | --- | --- |
-| **P1 source availability first** | #342 Phase A/B OFFLINE diagnosis ACCEPT, not present-day provider recovery; #340 RHR, #319 extra-field evidence and #295 speed stay separate |
-| Portal comments with date/optional time | #294 Stage A MERGED over Context v0; durable Owner UAT pending, weight-goal Settings deferred Stage B |
-| Discuss health + comments in ChatGPT | #341 bounded standalone Stage A MERGED; first real private export/share UI/authenticated connection remain separate Owner gates; Telegram optional |
-| Two-source Sleep history | #343 independently labelled Garmin/Google 7/30-day chart; no pairing prerequisite merely to display sources |
-| Overview readability | #344 thin honest Weight connectors, intermediate Sleep ticks and concise disclosure; no formula changes |
-| Activity details / period recovery cards | #345 and #346; additional metric evidence stays #319 |
-| Statistics | #347: **left source / right source, both visible**, source-specific units/windows/coverage; no combined total, numeric delta only when compatible |
-| Laboratory document intake | #348 first R09 contract: original document, extracted candidates, explicit confirmation and traceable results |
+| Garmin + Google as ordinary two-provider Sleep/Stats concepts | #342 source-overlap read-only decision, #343 Sleep, #347 Statistics; no device/family silent pooling |
+| Longitudinal Weight and composition | #375 one combined full-history table + metric chart, distinct incompatible methods |
+| Recent useful evidence despite missing today | #376 last **eligible** saved observation with actual date/age; explicit user period stays unchanged |
+| Primary Comments and one city/timezone selector | #294 UI follow-up, internal UTC offset/date precision unchanged, durable notes UAT separate |
+| Meaningful Statistics long history | #380 bounded trailing-year/calendar-year/all-history; #347 existing 7/30 delivery |
+| New actual steps | #377 verified typed saved Steps source/coverage → consumer; no inferred values |
+| Actual calorie/energy | #319 existing gate: calorie vs BMR, active/total energy source meaning before any typed UI |
+| Data rather than repeated stale badges | #305 saved last observation vs copied refresh failure/reauth; current provider work separately authorized |
+| Consistent A+ tables/forms across project | #379 non-writing audit and narrow CSS/template fixes, not a global redesign |
+| More valuable Activity analytics | #378 Owner-requested discovery, #346 duplicated cards remain on hold |
+| Earlier bounded historical sleep diagnosis | #342 accepted real-clone Phase A/B, not current provider repair |
+| Laboratory document intake | #348 bounded original → extracted candidate → Owner correction/confirm, future |
+| Personal stress baseline / goal settings | #357 / #294 Stage B future, explicitly separate |
+| Direct conversational private access | #341 read-only exporter/MCP built; direct ChatGPT connection deferred |
 
-The first three Stage A/diagnostic slices above are now implemented or accepted;
-#343–#348 and direct read transport remain planned, not automatically assigned.
-Deeper context inference, medicines/supplements, scheduled reports and autonomous
-provider operations are not implicitly included.
+Unpromoted medicines, supplements, reports and interpretation ideas below
+remain future capabilities and are not automatically included in the
+Owner's October UI/Statistics/Steps wave.
 
 ## Medication & Supplement Timeline
 
