@@ -5,24 +5,28 @@
 {%- endmacro %}
 {% block content %}
 <section class="statistics-page" aria-label="Статистика по источникам">
-  <form class="statistics-controls" method="get" action="/statistics">
+  <form class="statistics-controls" method="get" action="/statistics" autocomplete="off">
     <label>Период
-      <select name="days" aria-label="Период">
-        {% for days in [7, 30] %}<option value="{{ days }}"{% if packet.requested_window.inclusive_days == days %} selected{% endif %}>{{ days }} дней</option>{% endfor %}
+      <select name="period" aria-label="Период" aria-describedby="statistics-period-help">
+        {% for value, label in period_labels.items() %}<option value="{{ value }}"{% if selected_period == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </label>
-    <label>По дату включительно <input type="date" name="end_date" value="{{ packet.requested_window.end_date }}" required></label>
+    <label>По дату включительно <input type="date" name="end_date" value="{{ control_end_date }}" required></label>
+    <label>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
     {% for side in packet.sides %}
     {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
     <label>{{ provider }}: источник
       <select name="{{ 'garmin' if side.position == 'left' else 'google' }}_source_id" aria-label="{{ provider }}: источник">
-        <option value=""{% if not side.source_identity %} selected{% endif %}>{{ 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
+        {% if side.state == 'search_incomplete' and side.requested_source_id %}<option value="{{ side.requested_source_id }}" selected>Выбранный источник: поиск не завершён</option>{% endif %}
+        <option value=""{% if not side.source_identity and not (side.state == 'search_incomplete' and side.requested_source_id) %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
         {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if side.source_identity and side.source_identity.source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
       </select>
     </label>
     {% endfor %}
     <button type="submit">Показать</button>
   </form>
+  <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выберите точный источник.</p>
+  <p class="statistics-selected-period">Выбранный период: {{ period_labels[selected_period] }}{% if selected_period == 'calendar_year' %} {{ selected_year }}{% endif %}.</p>
   <p class="statistics-window">{{ packet.requested_window.start_date }} — {{ packet.requested_window.end_date }} · {{ packet.requested_window.inclusive_days }} дней включительно, по локальным датам источника.</p>
   <p class="muted">Два независимых источника. Значения относятся к сохранённым записям; пропуски не означают ноль. Актуальность сейчас неизвестна.</p>
   <div class="statistics-pair statistics-source-headings">
@@ -49,7 +53,8 @@
       {% for side in packet.sides %}
       {% set cell = side.metrics[code] %}
       {% set value = cell.aggregation.value %}
-      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected'] %}
+      {% set incomplete = cell.state == 'search_incomplete' %}
+      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] %}
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
         <div class="statistics-value">
@@ -59,7 +64,10 @@
           {% else %}{{ format_value(code, value) }}{% endif %}
         </div>
         <p>{{ state_labels[cell.state] }}</p>
-        {% if unevaluated %}
+        {% if incomplete %}
+        <p class="statistics-denominator">Официальный итог и знаменатель недоступны: поиск сохранённых данных не завершён.</p>
+        <p class="muted">Число наблюдений, пропуски и полнота сбора неизвестны. Это не подтверждённое отсутствие данных.</p>
+        {% elif unevaluated %}
         <p class="statistics-denominator">Наблюдения и знаменатель не оценены: {{ state_labels[cell.state]|lower }}.</p>
         <p class="muted">Покрытие и пропуски не установлены.</p>
         {% else %}
@@ -69,10 +77,13 @@
         <details class="statistics-details">
           <summary>Покрытие и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
           <dl>
+            {% if cell.search is defined %}<dt>Поиск сохранённых данных</dt><dd>{{ 'Завершён в выбранном периоде; это не подтверждает полноту сбора или покрытие устройства.' if cell.search.complete else 'Не завершён: ' ~ cell.search.reason }}</dd>{% endif %}
             <dt>Источник / поле</dt><dd>{{ side.source_identity.source_id if side.source_identity else state_labels[side.state] }} / {{ cell.source_metric_code }}</dd>
             <dt>Единицы и преобразование</dt><dd>{{ cell.source_unit }} → {{ cell.unit }} · {{ cell.conversion }}</dd>
             <dt>Точное значение / числитель</dt><dd>{{ value if value is not none else 'Недоступно' }} / {{ cell.aggregation.numerator if cell.aggregation.numerator is not none else 'Недоступно' }} · {{ cell.unit }}</dd>
-            {% if unevaluated %}
+            {% if incomplete %}
+            <dt>Официальный знаменатель / покрытие / исключения</dt><dd>Недоступны. Наблюдения и пропуски неизвестны до завершения поиска.</dd>
+            {% elif unevaluated %}
             <dt>Покрытие / знаменатель / исключения</dt><dd>{{ state_labels[cell.state] }}. Счётчики, даты наблюдений и пропуски не оценены; это не ноль событий.</dd>
             {% else %}
             <dt>Агрегация / знаменатель</dt><dd>{{ cell.aggregation.kind }} / {{ cell.aggregation.denominator }}: {{ cell.aggregation.eligible_count }}</dd>

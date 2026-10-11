@@ -37,7 +37,7 @@ const base = 'http://127.0.0.1:8120';
           assert.equal(route.request().method(), 'GET');
           const selected = scenario === 'ambiguous' && url.searchParams.get('garmin_source_id') &&
             url.searchParams.get('google_source_id');
-          const days = url.searchParams.get('days') || 7;
+          const days = url.searchParams.get('period') || url.searchParams.get('days') || 7;
           const file = selected ? `ambiguous-selected-${days}.html` : `${scenario}-${days}.html`;
           return route.fulfill({ contentType: 'text/html; charset=utf-8', body: fs.readFileSync(path.join(fixtures, file), 'utf8') });
         });
@@ -122,7 +122,7 @@ const base = 'http://127.0.0.1:8120';
         await period.focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Tab');
         assert.equal(await period.inputValue(), '30');
         await page.getByRole('button', { name: 'Показать', exact: true }).focus();
-        await Promise.all([page.waitForURL(/days=30/), page.keyboard.press('Enter')]);
+        await Promise.all([page.waitForURL(/period=30/), page.keyboard.press('Enter')]);
         assert.match(await page.locator('.statistics-window').innerText(), /2098-12-10 — 2099-01-08 · 30 дней/);
         if (scenario === 'ambiguous') {
           for (const provider of ['Garmin', 'Google']) {
@@ -152,7 +152,7 @@ const base = 'http://127.0.0.1:8120';
           await period.focus(); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Tab');
           assert.equal(await period.inputValue(), '7');
           await page.getByRole('button', { name: 'Показать', exact: true }).focus();
-          await Promise.all([page.waitForURL(url => url.searchParams.get('days') === '7' && url.searchParams.get('google_source_id') === ids[1]), page.keyboard.press('Enter')]);
+          await Promise.all([page.waitForURL(url => url.searchParams.get('period') === '7' && url.searchParams.get('google_source_id') === ids[1]), page.keyboard.press('Enter')]);
           await page.reload();
           for (const [index, provider] of ['garmin', 'google'].entries()) assert.equal(await page.locator(`[name="${provider}_source_id"]`).inputValue(), ids[index]);
           assert.match(await page.locator('.statistics-window').innerText(), /2099-01-02 — 2099-01-08 · 7 дней/);
