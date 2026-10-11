@@ -5,7 +5,7 @@
 {%- endmacro %}
 {% block content %}
 <section class="statistics-page" aria-label="Статистика по источникам">
-  <form class="statistics-controls" method="get" action="/statistics">
+  <form class="statistics-controls" method="get" action="/statistics" autocomplete="off">
     <label>Период
       <select name="period" aria-label="Период" aria-describedby="statistics-period-help">
         {% for value, label in period_labels.items() %}<option value="{{ value }}"{% if selected_period == value %} selected{% endif %}>{{ label }}</option>{% endfor %}

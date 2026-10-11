@@ -52,7 +52,7 @@ assert.ok(fixtures && evidence);
           const activity = page.locator('[data-statistics-metric="activity_session_count"] article').first();
           assert.match(await activity.innerText(), /Официальный итог и знаменатель недоступны/);
           await activity.locator('summary').click();
-          assert.match(await activity.innerText(), /activity_record_limit_exceeded/);
+          assert.match(await activity.innerText(), /candidate_record_limit_exceeded/);
           assert.doesNotMatch(await activity.innerText(), /Допустимо:|None|Источник отсутствует/);
         }
         const geometry = await page.evaluate(() => ({
