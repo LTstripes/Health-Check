@@ -56,10 +56,11 @@ class ContentAddressedGarminPayloadStore:
         absolute = self._resolve(relative)
         absolute.parent.mkdir(parents=True, exist_ok=True)
         if absolute.exists():
-            if (
-                not absolute.is_file()
-                or hashlib.sha256(absolute.read_bytes()).hexdigest() != digest
-            ):
+            if not absolute.is_file():
+                raise ValueError("content-addressed Garmin payload artifact is not a file")
+            with absolute.open("rb") as handle:
+                existing = handle.read(len(content) + 1)
+            if len(existing) != len(content) or hashlib.sha256(existing).hexdigest() != digest:
                 raise ValueError(
                     "content-addressed Garmin payload artifact does not match its hash"
                 )
@@ -80,8 +81,16 @@ class ContentAddressedGarminPayloadStore:
             byte_size=len(content),
         )
 
-    def read(self, relative_storage_path: str) -> bytes:
-        return self._resolve(relative_storage_path).read_bytes()
+    def read(self, relative_storage_path: str, *, max_bytes: int | None = None) -> bytes:
+        if max_bytes is None:
+            return self._resolve(relative_storage_path).read_bytes()
+        if type(max_bytes) is not int or max_bytes < 1:
+            raise ValueError("max_bytes must be a positive integer")
+        with self._resolve(relative_storage_path).open("rb") as handle:
+            content = handle.read(max_bytes + 1)
+        if len(content) > max_bytes:
+            raise ValueError("saved Garmin payload byte bound exceeded")
+        return content
 
     def _resolve(self, relative_storage_path: str) -> Path:
         relative = _validate_relative_storage_path(relative_storage_path)

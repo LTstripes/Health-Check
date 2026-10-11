@@ -772,3 +772,87 @@ def test_window_compound_reads_share_snapshot_across_new_projection(saved_databa
     assert result.cells[0].value == 17  # the concurrent materialization is outside this snapshot
     session.rollback()
     assert read_steps(session, source_id).cells[0].state == "ambiguous"
+
+
+@pytest.mark.parametrize("count", [4096, 4097])
+def test_projector_observation_cap_precedes_artifact_reads_and_writes(
+    saved_database, monkeypatch, count
+):
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 0})
+    duplicate_provenance(session, saved, count)
+    reads = []
+    original = store.read
+
+    def read(path, **kwargs):
+        reads.append(kwargs["max_bytes"])
+        return original(path, **kwargs)
+
+    monkeypatch.setattr(store, "read", read)
+    if count == 4096:
+        assert project(session, store, saved.source.id).value == 0
+        assert reads == [1024 * 1024]
+    else:
+        with pytest.raises(SavedStepsEvidenceError, match="observation bound"):
+            project(session, store, saved.source.id)
+        assert reads == []
+        assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0
+
+
+def test_corrupt_actual_file_cannot_bypass_byte_cap_with_small_metadata(
+    saved_database, monkeypatch
+):
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 0})
+    artifact = session.get(RawArtifact, saved.raw_payload.raw_artifact_id)
+    path = store._resolve(artifact.relative_storage_path)
+    path.write_bytes(b"x" * (2 * 1024 * 1024))
+    original_open = Path.open
+    read_sizes = []
+
+    def bounded_open(selected, *args, **kwargs):
+        handle = original_open(selected, *args, **kwargs)
+        if selected != path:
+            return handle
+        wrapper = MagicMock(wraps=handle)
+        wrapper.__enter__.return_value = wrapper
+        wrapper.__exit__.side_effect = lambda *_: handle.close()
+
+        def read(size=-1):
+            read_sizes.append(size)
+            assert size == 1024 * 1024 + 1
+            return handle.read(size)
+
+        wrapper.read.side_effect = read
+        return wrapper
+
+    monkeypatch.setattr(Path, "open", bounded_open)
+    with pytest.raises(SavedStepsEvidenceError, match="unreadable"):
+        project(session, store, saved.source.id)
+    assert read_sizes == [1024 * 1024 + 1]
+    assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0
+
+
+@pytest.mark.parametrize("start,end", [
+    (DAY, DAY - timedelta(days=1)), (DAY - timedelta(days=14), DAY), (RECEIVED, DAY)
+])
+def test_saved_refresh_window_validation_precedes_database_reads(saved_database, start, end):
+    session, store = saved_database
+    with pytest.raises(ValueError):
+        SavedDailyStepsRepository(session, payload_store=store).project_saved_summary(
+            "source", "observation", start_date=start, end_date=end
+        )
+    assert not session.in_transaction()
+
+
+def test_saved_refresh_rejects_acquisition_source_mismatch(saved_database):
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 0})
+    with pytest.raises(SavedStepsEvidenceError, match="acquisition mismatch"):
+        SavedDailyStepsRepository(session, payload_store=store).project_saved_summary(
+            "another-source", saved.observation.id, start_date=DAY, end_date=DAY
+        )
+    assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0

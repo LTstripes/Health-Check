@@ -6,6 +6,7 @@ credentials, session files, or live Garmin payloads.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
@@ -13,7 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, select
+from sqlalchemy.orm import Session
 
 from healthcheck import cli
 from healthcheck.config import Settings
@@ -21,6 +23,7 @@ from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import (
     CoverageInterval,
     GarminPayloadObservation,
+    GarminRawPayload,
     GarminRecordMetric,
     GarminSource,
     GarminSourceRecord,
@@ -36,6 +39,8 @@ from healthcheck.garmin.normalization import (
     garmin_source_identity,
     normalize_garmin_payload,
 )
+from healthcheck.garmin.observed_steps import METRIC_CODE, SavedDailyStepsRepository
+from healthcheck.garmin.observed_steps_read import read_observed_steps_window
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore, serialize_garmin_payload
 from healthcheck.garmin.sync import (
@@ -2049,3 +2054,388 @@ def test_activity_failure_stage_is_sanitized_and_privacy_closed(tmp_path: Path):
 def test_provider_source_kind_is_rejected_for_unknown_values():
     with pytest.raises(ValueError, match="synthetic or provider"):
         garmin_source_identity(source_kind="owner-live")
+
+
+class _DatedStepsClient(FakeSyncClient):
+    def _call(self, method, *args, **kwargs):
+        payload = super()._call(method, *args, **kwargs)
+        # Keep the selected summary response untouched so mismatched saved dates
+        # remain observable; other synthetic streams answer their requested day.
+        if method != "get_user_summary" and args and isinstance(args[0], str):
+            return json.loads(json.dumps(payload).replace(AS_OF.isoformat(), args[0]))
+        return payload
+
+
+def _steps_client(payload=None, *, errors=None):
+    return _DatedStepsClient(
+        include_device=False,
+        responses={"get_user_summary": payload or {
+            "calendarDate": AS_OF.isoformat(), "totalSteps": 0
+        }},
+        errors=errors,
+    )
+
+
+def _steps_window(tmp_path, *, start=AS_OF, source_id=None):
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            if source_id is None:
+                identity = garmin_source_identity(source_kind=PROVIDER_SOURCE_KIND)
+                source_id = session.scalar(select(GarminSource.id).where(
+                    GarminSource.source_instance_id == identity.source_instance_id
+                ))
+            return read_observed_steps_window(
+                session, source_id=source_id, start_date=start, end_date=AS_OF
+            )
+    finally:
+        engine.dispose()
+
+
+def _seed_steps_history(tmp_path, *, artifacts=1, observations=1, identity=None):
+    """Save synthetic summaries outside the normal request window, without projecting."""
+    from healthcheck.db.engine import migrate_database
+    from healthcheck.runtime import prepare_runtime
+
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
+    migrate_database(paths)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            identity = identity or garmin_source_identity(source_kind=PROVIDER_SOURCE_KIND)
+            repository = GarminPersistenceRepository(session, payload_store=store)
+            for index in range(artifacts):
+                payload = {"calendarDate": "2090-01-01", "totalSteps": 17, "extra": index}
+                result = normalize_garmin_payload(
+                    payload, stream="daily_health", source_identity=identity
+                )
+                saved = repository.persist_result(
+                    result, payload=payload, source_filename="daily_summary.json",
+                    received_at=datetime(2090, 1, 2, tzinfo=UTC),
+                    source_window_start_utc=datetime(2089, 12, 1, tzinfo=UTC),
+                    source_window_end_utc=datetime(2089, 12, 2, tzinfo=UTC),
+                )
+            if observations > 1:
+                session.execute(insert(GarminPayloadObservation), [
+                    {column.name: getattr(saved.observation, column.name)
+                     for column in GarminPayloadObservation.__table__.columns}
+                    | {"id": f"395-observation-{index:06}", "observation_key": f"{index:064}"}
+                    for index in range(1, observations)
+                ])
+            session.commit()
+            return saved.source.id
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("leaf,state,value", [
+    ({"totalSteps": 0}, "value", 0),
+    ({"totalSteps": 4321}, "value", 4321),
+    ({"totalSteps": 2**53 + 1}, "value", 2**53 + 1),
+    ({}, "missing", None),
+    ({"totalSteps": None}, "null", None),
+    ({"totalSteps": True}, "invalid", None),
+    ({"totalSteps": -1}, "invalid", None),
+    ({"totalSteps": 1.5}, "invalid", None),
+    ({"totalSteps": "17"}, "invalid", None),
+])
+def test_normal_refresh_materializes_saved_steps_and_repeat_is_noop(tmp_path, leaf, state, value):
+    payload = {"calendarDate": AS_OF.isoformat()} | leaf
+    assert _run(tmp_path, _steps_client(payload)).status is GarminSyncStatus.SUCCEEDED
+    first = _steps_window(tmp_path).cells[0]
+    assert (first.state, first.value) == (state, value)
+    assert len(first.evidence) == 1
+    assert first.attribution == "account"
+    assert (first.coverage, first.device, first.timezone, first.finality) == ("unknown",) * 4
+    assert _run(tmp_path, _steps_client(payload)).status is GarminSyncStatus.SUCCEEDED
+    repeated = _steps_window(tmp_path).cells[0]
+    assert repeated.evidence[0].record_id == first.evidence[0].record_id
+    assert repeated.evidence[0].metric_row_id == first.evidence[0].metric_row_id
+    assert repeated.evidence[0].ingest_event_id == first.evidence[0].ingest_event_id
+    assert len(repeated.evidence[0].observation_ids) == 2
+    assert repeated.evidence[0].projection_status == "current"
+
+
+@pytest.mark.parametrize("later,expected", [(7, "value"), (9, "ambiguous")])
+def test_normal_steps_correction_preserves_all_saved_artifacts(tmp_path, later, expected):
+    first_payload = {"calendarDate": AS_OF.isoformat(), "totalSteps": 7, "extra": "first"}
+    _run(tmp_path, _steps_client(first_payload))
+    first = _steps_window(tmp_path).cells[0]
+    corrected = {"calendarDate": AS_OF.isoformat(), "totalSteps": later, "extra": "second"}
+    report = _run(tmp_path, _steps_client(corrected))
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    cell = _steps_window(tmp_path).cells[0]
+    assert cell.state == expected
+    assert cell.value == (7 if later == 7 else None)
+    assert len(cell.evidence) == 2
+    assert first.evidence[0].record_id in {item.record_id for item in cell.evidence}
+    assert {item.projection_status for item in cell.evidence} == {"current"}
+
+
+@pytest.mark.parametrize("returned", ["2099-01-01", "2099-01-03", None, "20990102"])
+def test_normal_steps_never_substitutes_requested_date(tmp_path, returned):
+    payload = {"calendarDate": returned, "totalSteps": 17, "userActivitySummary": {}}
+    _run(tmp_path, _steps_client(payload))
+    assert _steps_window(tmp_path).cells[0].state == "projection_unavailable"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count(GarminSourceRecord.id)).where(
+                GarminSourceRecord.surface_code == METRIC_CODE
+            )) == 0
+    finally:
+        engine.dispose()
+
+
+def test_normal_steps_saved_day_can_differ_from_attempt_inside_full_window(tmp_path):
+    start = AS_OF - timedelta(days=1)
+    report = _run(tmp_path, _steps_client({"calendarDate": start.isoformat(), "totalSteps": 5}),
+                  trailing_window_days=2)
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    cells = _steps_window(tmp_path, start=start).cells
+    assert (cells[0].state, cells[0].value, cells[1].state) == (
+        "value", 5, "projection_unavailable"
+    )
+    assert len(cells[0].evidence) == 1
+    assert len(cells[0].evidence[0].observation_ids) == 2
+
+
+def test_normal_steps_conflicts_include_old_acquisition_window_and_exact_source(tmp_path):
+    source_id = _seed_steps_history(tmp_path)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            store = ContentAddressedGarminPayloadStore(resolve_runtime_paths(
+                Settings(data_dir=tmp_path / "runtime")
+            ).root / "artifacts")
+            repository = GarminPersistenceRepository(session, payload_store=store)
+            for identity, value in [
+                (garmin_source_identity(source_kind=PROVIDER_SOURCE_KIND), 7),
+                (garmin_source_identity(source_kind="synthetic"), 999),
+            ]:
+                payload = {"calendarDate": AS_OF.isoformat(), "totalSteps": value}
+                repository.persist_result(
+                    normalize_garmin_payload(
+                        payload, stream="daily_health", source_identity=identity
+                    ),
+                    payload=payload, source_filename="daily_summary.json",
+                    source_window_start_utc=datetime(2089, 1, 1, tzinfo=UTC),
+                    source_window_end_utc=datetime(2089, 1, 2, tzinfo=UTC),
+                )
+            session.commit()
+    finally:
+        engine.dispose()
+    _run(tmp_path, _steps_client({"calendarDate": AS_OF.isoformat(), "totalSteps": 9}))
+    cell = _steps_window(tmp_path, source_id=source_id).cells[0]
+    assert cell.state == "ambiguous"
+    assert {item.value for item in cell.evidence} == {7, 9}
+
+
+@pytest.mark.parametrize("kind,seed_count,ok", [
+    ("artifacts", 999, True), ("artifacts", 1000, False),
+    ("observations", 4095, True), ("observations", 4096, False),
+])
+def test_normal_steps_exact_caps_rollback_before_projection(tmp_path, kind, seed_count, ok):
+    source_id = _seed_steps_history(tmp_path, **{kind: seed_count})
+    report = _run(tmp_path, _steps_client())
+    attempt = next(item for item in report.attempts if item.surface == "daily_summary")
+    assert attempt.status is (GarminSyncStatus.SUCCEEDED if ok else GarminSyncStatus.FAILED)
+    cell = _steps_window(tmp_path, source_id=source_id).cells[0]
+    assert cell.state == ("value" if ok else "projection_unavailable")
+    if not ok:
+        assert report.status is GarminSyncStatus.PARTIAL
+        assert attempt.failure_stage == "steps_projection"
+        assert attempt.error.error_code == "saved_steps_projection_failed"
+        engine, factory = _engine_factory(tmp_path)
+        try:
+            with factory() as session:
+                assert session.scalar(select(func.count(GarminPayloadObservation.id)).where(
+                    GarminPayloadObservation.source_filename == "daily_summary.json"
+                )) == seed_count
+                state = session.scalar(select(SyncStreamState).where(
+                    SyncStreamState.stream_code == "daily_summary"
+                ))
+                assert state.last_success_at is None and state.watermark is None
+        finally:
+            engine.dispose()
+
+
+@pytest.mark.parametrize("over", [0, 1])
+def test_normal_steps_actual_one_mib_artifact_boundary(tmp_path, over):
+    from healthcheck.garmin.observed_steps import MAX_ARTIFACT_BYTES
+
+    payload = {"calendarDate": AS_OF.isoformat(), "totalSteps": 0, "padding": ""}
+    payload["padding"] = "x" * (MAX_ARTIFACT_BYTES - len(serialize_garmin_payload(payload)) + over)
+    assert len(serialize_garmin_payload(payload)) == MAX_ARTIFACT_BYTES + over
+    report = _run(tmp_path, _steps_client(payload))
+    summary = next(item for item in report.attempts if item.surface == "daily_summary")
+    assert summary.status is (GarminSyncStatus.FAILED if over else GarminSyncStatus.SUCCEEDED)
+    assert _steps_window(tmp_path).cells[0].state == (
+        "projection_unavailable" if over else "value"
+    )
+
+
+@pytest.mark.parametrize("failure", ["callback", "commit", "interrupt"])
+def test_normal_steps_attempt_atomicity_and_resume(tmp_path, monkeypatch, failure):
+    start = AS_OF - timedelta(days=1)
+    original = SavedDailyStepsRepository.project_saved_summary
+    original_commit = Session.commit
+
+    def project_then_fail(repository, source_id, observation_id, **kwargs):
+        result = original(repository, source_id, observation_id, **kwargs)
+        assert not repository.session.new and not repository.session.dirty
+        if result.calendar_date == AS_OF:
+            if failure == "interrupt":
+                raise KeyboardInterrupt("synthetic interruption")
+            if failure == "callback":
+                raise RuntimeError("synthetic projection failure must stay private")
+            repository.session.info["395-fail-commit"] = True
+        return result
+
+    def fail_commit(session):
+        if session.info.get("395-fail-commit"):
+            raise RuntimeError("synthetic commit failure")
+        return original_commit(session)
+
+    def payload(day):
+        return {"calendarDate": day, "totalSteps": 17}
+    with monkeypatch.context() as patch:
+        patch.setattr(SavedDailyStepsRepository, "project_saved_summary", project_then_fail)
+        patch.setattr(Session, "commit", fail_commit)
+        if failure == "interrupt":
+            with pytest.raises(KeyboardInterrupt):
+                _run(tmp_path, _steps_client(payload), trailing_window_days=2)
+        else:
+            report = _run(tmp_path, _steps_client(payload), trailing_window_days=2)
+            assert report.status is GarminSyncStatus.PARTIAL
+            bad = next(item for item in report.attempts
+                       if item.surface == "daily_summary" and item.day == AS_OF.isoformat())
+            assert bad.status is GarminSyncStatus.FAILED
+            assert bad.failure_stage == (
+                "steps_projection" if failure == "callback" else "persistence"
+            )
+            assert "synthetic projection failure" not in report.to_json()
+    before = _steps_window(tmp_path, start=start).cells
+    assert before[0].value == 17 and before[1].state == "projection_unavailable"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count(GarminPayloadObservation.id)).where(
+                GarminPayloadObservation.source_filename == "daily_summary.json"
+            )) == 1
+            failed_hash = hashlib.sha256(
+                serialize_garmin_payload(payload(AS_OF.isoformat()))
+            ).hexdigest()
+            assert session.scalar(select(GarminRawPayload.id).where(
+                GarminRawPayload.content_hash == failed_hash
+            )) is None
+            assert session.scalar(select(RawArtifact.id).where(
+                RawArtifact.content_hash == failed_hash
+            )) is None
+            run = session.scalar(select(SyncRun))
+            assert run.status == ("running" if failure == "interrupt" else "partial")
+            state = session.scalar(select(SyncStreamState).where(
+                SyncStreamState.stream_code == "daily_summary"
+            ))
+            assert state.cursor == start.isoformat()
+            assert state.last_success_at is not None
+    finally:
+        engine.dispose()
+    resumed = _run(tmp_path, _steps_client(payload), trailing_window_days=2)
+    assert resumed.status is GarminSyncStatus.SUCCEEDED
+    after = _steps_window(tmp_path, start=start).cells
+    assert [cell.value for cell in after] == [17, 17]
+    assert after[0].evidence[0].record_id == before[0].evidence[0].record_id
+
+
+def test_normal_steps_unrelated_failure_and_budget_stop_keep_truthful_status(tmp_path):
+    report = _run(tmp_path, _steps_client(errors={"get_hrv_data": ConnectionError("synthetic")}))
+    assert report.status is GarminSyncStatus.PARTIAL
+    assert _steps_window(tmp_path).cells[0].value == 0
+    stopped = _run(tmp_path / "stopped", _steps_client(), max_provider_requests=1)
+    assert stopped.status is GarminSyncStatus.PARTIAL
+    assert stopped.abort_reason == "request_budget_exhausted"
+    assert _steps_window(tmp_path / "stopped").cells[0].value == 0
+
+
+def test_normal_steps_provider_failure_never_invokes_projector(tmp_path, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("failed acquisition cannot project")
+
+    monkeypatch.setattr(SavedDailyStepsRepository, "project_saved_summary", forbidden)
+    report = _run(
+        tmp_path, _steps_client(errors={"get_user_summary": ConnectionError("synthetic")})
+    )
+    summary = next(item for item in report.attempts if item.surface == "daily_summary")
+    assert summary.failure_stage == "fetch"
+
+
+def test_normal_steps_projection_is_inside_runtime_lock(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from healthcheck.external_runtime_lock import (
+        ExternalRuntimeOperationBusyError,
+        ExternalRuntimeOperationLock,
+    )
+
+    original = SavedDailyStepsRepository.project_saved_summary
+    paths = resolve_runtime_paths(Settings(data_dir=tmp_path / "runtime"))
+
+    def contend():
+        with pytest.raises(ExternalRuntimeOperationBusyError):
+            with ExternalRuntimeOperationLock(paths):
+                pass
+
+    def under_lock(repository, *args, **kwargs):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(contend).result(timeout=5)
+        return original(repository, *args, **kwargs)
+
+    monkeypatch.setattr(SavedDailyStepsRepository, "project_saved_summary", under_lock)
+    assert _run(tmp_path, _steps_client()).status is GarminSyncStatus.SUCCEEDED
+
+
+def test_normal_steps_fourteen_day_window_is_bounded_and_not_history(tmp_path, monkeypatch):
+    from healthcheck.db.engine import migrate_database
+    from healthcheck.runtime import prepare_runtime
+
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
+    migrate_database(paths)
+    original = SavedDailyStepsRepository.project_saved_summary
+    calls = []
+
+    def capture(repository, source_id, observation_id, **kwargs):
+        assert not repository.session.new and not repository.session.dirty
+        assert repository.session.connection().connection.driver_connection.in_transaction
+        calls.append((source_id, kwargs["start_date"], kwargs["end_date"]))
+        return original(repository, source_id, observation_id, **kwargs)
+
+    def payload(day):
+        return {"calendarDate": day, "totalSteps": 17}
+
+    monkeypatch.setattr(SavedDailyStepsRepository, "project_saved_summary", capture)
+    report = _run(tmp_path, _steps_client(payload), trailing_window_days=14)
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    start = AS_OF - timedelta(days=13)
+    result = _steps_window(tmp_path, start=start)
+    assert len(calls) == 14
+    assert set(calls) == {(result.source_id, start, AS_OF)}
+    assert [cell.value for cell in result.cells] == [17] * 14
+
+
+def test_normal_steps_observation_budget_excludes_other_stored_sources(tmp_path):
+    _seed_steps_history(
+        tmp_path, observations=4097, identity=garmin_source_identity(source_kind="synthetic")
+    )
+    report = _run(tmp_path, _steps_client())
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    assert _steps_window(tmp_path).cells[0].value == 0
+
+
+def test_normal_steps_does_not_promote_adapted_date_alias(tmp_path):
+    report = _run(tmp_path, _steps_client({
+        "date": AS_OF.isoformat(), "totalSteps": 0, "userActivitySummary": {}
+    }))
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    assert _steps_window(tmp_path).cells[0].state == "projection_unavailable"

@@ -66,6 +66,31 @@ START = date(2098, 12, 20)
 END = date(2098, 12, 22)
 
 
+def test_historical_daily_summary_does_not_activate_steps_callback(tmp_path, monkeypatch):
+    from healthcheck.garmin.observed_steps import METRIC_CODE, SavedDailyStepsRepository
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("normal Steps callback cannot run during historical acquisition")
+
+    monkeypatch.setattr(SavedDailyStepsRepository, "project_saved_summary", forbidden)
+    client = DatedFakeSyncClient(responses={"get_user_summary": {
+        "calendarDate": "2099-01-02", "totalSteps": 17
+    }})
+    report = _run_backfill(tmp_path, client, streams=["daily_summary"])
+    assert report.status is GarminSyncStatus.SUCCEEDED
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count(GarminPayloadObservation.id)).where(
+                GarminPayloadObservation.source_filename == "daily_summary.json"
+            )) == 3
+            assert session.scalar(select(func.count(GarminSourceRecord.id)).where(
+                GarminSourceRecord.surface_code == METRIC_CODE
+            )) == 0
+    finally:
+        engine.dispose()
+
+
 def _relabel(payload: Any, day: str) -> Any:
     if payload is None:
         return None

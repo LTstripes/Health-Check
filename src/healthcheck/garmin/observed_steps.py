@@ -1,7 +1,7 @@
-"""Bounded offline projection of saved Garmin account-level Steps observations.
+"""Bounded projection of saved Garmin account-level Steps observations.
 
 This contract does not establish full-day coverage, device attribution, timezone,
-or correction authority. No provider client or runtime entry point is involved.
+or correction authority. The caller owns acquisition/runtime; this service reads saved bytes only.
 """
 
 from __future__ import annotations
@@ -37,6 +37,9 @@ from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 
 CONTRACT_VERSION = "garmin-observed-daily-steps-v1"
 METRIC_CODE = "observed_daily_steps"
+MAX_ARTIFACTS = 1000
+MAX_ARTIFACT_BYTES = 1024 * 1024
+MAX_OBSERVATIONS = 4096
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 
 
@@ -146,7 +149,7 @@ class SavedDailyStepsRepository:
     All eligible artifacts for the source are inspected: acquisition windows
     cannot substitute for the returned calendarDate. Bounds fail closed before
     inserting records, rather than returning a partial same-day answer. The
-    caller owns the transaction and must opt in to calling this offline service.
+    caller owns the transaction and explicitly invokes this saved-evidence service.
     """
 
     def __init__(self, session: Session, *, payload_store: ContentAddressedGarminPayloadStore):
@@ -154,13 +157,78 @@ class SavedDailyStepsRepository:
         self.payload_store = payload_store
         self.records = GarminSourceRecordRepository(session)
 
+    def project_saved_summary(
+        self, garmin_source_id: str, observation_id: str, *, start_date: date, end_date: date
+    ) -> ObservedDailySteps | None:
+        """Project only the saved response day inside one normal refresh window."""
+        if type(start_date) is not date or type(end_date) is not date:
+            raise ValueError("saved Steps refresh requires civil dates")
+        if not 1 <= (end_date - start_date).days + 1 <= 14:
+            raise ValueError("saved Steps refresh window must contain 1 to 14 days")
+        self._begin_snapshot()
+        observation = self.session.get(GarminPayloadObservation, observation_id)
+        if (
+            observation is None
+            or observation.garmin_source_id != garmin_source_id
+            or observation.stream_code != "daily_health"
+            or observation.payload_format != "json"
+            or observation.source_filename != "daily_summary.json"
+        ):
+            raise SavedStepsEvidenceError("saved daily-summary acquisition mismatch")
+        raw = self.session.get(GarminRawPayload, observation.garmin_raw_payload_id)
+        artifact = self.session.get(RawArtifact, raw.raw_artifact_id) if raw else None
+        if artifact is None or observation.raw_artifact_id != artifact.id:
+            raise SavedStepsEvidenceError("saved daily-summary provenance mismatch")
+        payload, _reason = self._read_summary(raw, artifact, garmin_source_id, MAX_ARTIFACT_BYTES)
+        day = _calendar_date(payload) if payload is not None else None
+        if day is None or not start_date <= day <= end_date:
+            return None
+        return self.project_day(garmin_source_id, day)
+
+    def _begin_snapshot(self) -> None:
+        if self.session.new or self.session.dirty or self.session.deleted:
+            raise InvalidRequestError("saved Steps projection requires flushed session changes")
+        # SQLite's legacy driver needs a physical BEGIN before compound reads.
+        # The caller owns this transaction, including rollback of insert savepoints.
+        connection = self.session.connection()
+        if not connection.connection.driver_connection.in_transaction:
+            connection.exec_driver_sql("BEGIN")
+        self.session.expire_all()
+
+    def _read_summary(
+        self, raw: GarminRawPayload | None, artifact: RawArtifact | None,
+        source_id: str, max_bytes: int,
+    ) -> tuple[dict[str, object] | None, str | None]:
+        if (
+            raw is None
+            or artifact is None
+            or raw.garmin_source_id != source_id
+            or raw.stream_code != "daily_health"
+            or raw.payload_format != "json"
+            or artifact.content_hash != raw.content_hash
+        ):
+            raise SavedStepsEvidenceError("saved daily-summary provenance mismatch")
+        if artifact.byte_size > max_bytes:
+            raise SavedStepsEvidenceError("saved daily-summary byte bound exceeded")
+        try:
+            content = self.payload_store.read(artifact.relative_storage_path, max_bytes=max_bytes)
+        except (OSError, ValueError) as exc:
+            raise SavedStepsEvidenceError("saved daily-summary artifact unreadable") from exc
+        if (
+            len(content) != artifact.byte_size
+            or hashlib.sha256(content).hexdigest() != raw.content_hash
+        ):
+            raise SavedStepsEvidenceError("saved daily-summary artifact integrity mismatch")
+        return _decode(content)
+
     def project_day(
         self,
         garmin_source_id: str,
         calendar_date: date,
         *,
-        max_artifacts: int = 1000,
-        max_artifact_bytes: int = 1024 * 1024,
+        max_artifacts: int = MAX_ARTIFACTS,
+        max_artifact_bytes: int = MAX_ARTIFACT_BYTES,
+        max_observations: int = MAX_OBSERVATIONS,
     ) -> ObservedDailySteps:
         if type(calendar_date) is not date:
             raise TypeError("calendar_date must be a date without a time")
@@ -168,15 +236,9 @@ class SavedDailyStepsRepository:
             raise ValueError("max_artifacts must be a positive integer")
         if type(max_artifact_bytes) is not int or max_artifact_bytes < 1:
             raise ValueError("max_artifact_bytes must be a positive integer")
-        if self.session.new or self.session.dirty or self.session.deleted:
-            raise InvalidRequestError("saved Steps projection requires flushed session changes")
-        # As in web/read_snapshot.py, SQLite's legacy driver needs a physical
-        # BEGIN before compound reads. Keep this transaction caller-owned, so
-        # releasing the insert savepoint cannot commit a caller's rollback.
-        connection = self.session.connection()
-        if not connection.connection.driver_connection.in_transaction:
-            connection.exec_driver_sql("BEGIN")
-        self.session.expire_all()
+        if type(max_observations) is not int or max_observations < 1:
+            raise ValueError("max_observations must be a positive integer")
+        self._begin_snapshot()
         source = self.session.get(GarminSource, garmin_source_id)
         if source is None or source.provider_code != "garmin_connect":
             raise SavedStepsEvidenceError("unknown Garmin source")
@@ -195,6 +257,23 @@ class SavedDailyStepsRepository:
         )
         if len(raw_ids) > max_artifacts:
             raise SavedStepsEvidenceError("saved daily-summary artifact bound exceeded")
+        # Bound all source acquisitions before loading complete per-artifact lists.
+        # Acquisition windows cannot exclude conflicting saved calendarDate evidence.
+        observation_ids = list(
+            self.session.scalars(
+                select(GarminPayloadObservation.id)
+                .where(
+                    GarminPayloadObservation.garmin_source_id == garmin_source_id,
+                    GarminPayloadObservation.stream_code == "daily_health",
+                    GarminPayloadObservation.payload_format == "json",
+                    GarminPayloadObservation.source_filename == "daily_summary.json",
+                )
+                .order_by(GarminPayloadObservation.id)
+                .limit(max_observations + 1)
+            )
+        )
+        if len(observation_ids) > max_observations:
+            raise SavedStepsEvidenceError("saved daily-summary observation bound exceeded")
         prepared = []
         excluded = []
         for raw_id in raw_ids:
@@ -214,28 +293,13 @@ class SavedDailyStepsRepository:
             observation_ids = tuple(item.id for item in observations)
             raw = self.session.get(GarminRawPayload, raw_id)
             artifact = self.session.get(RawArtifact, raw.raw_artifact_id) if raw else None
-            if (
-                raw is None
-                or artifact is None
-                or raw.garmin_source_id != garmin_source_id
-                or raw.stream_code != "daily_health"
-                or raw.payload_format != "json"
-                or artifact.content_hash != raw.content_hash
-                or any(item.raw_artifact_id != artifact.id for item in observations)
+            if artifact is None or any(
+                item.raw_artifact_id != artifact.id for item in observations
             ):
                 raise SavedStepsEvidenceError("saved daily-summary provenance mismatch")
-            if artifact.byte_size > max_artifact_bytes:
-                raise SavedStepsEvidenceError("saved daily-summary byte bound exceeded")
-            try:
-                content = self.payload_store.read(artifact.relative_storage_path)
-            except (OSError, ValueError) as exc:
-                raise SavedStepsEvidenceError("saved daily-summary artifact unreadable") from exc
-            if (
-                len(content) != artifact.byte_size
-                or hashlib.sha256(content).hexdigest() != raw.content_hash
-            ):
-                raise SavedStepsEvidenceError("saved daily-summary artifact integrity mismatch")
-            payload, reason = _decode(content)
+            payload, reason = self._read_summary(
+                raw, artifact, garmin_source_id, max_artifact_bytes
+            )
             day = _calendar_date(payload) if payload is not None else None
             if day is None:
                 excluded.append(
