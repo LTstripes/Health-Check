@@ -91,7 +91,15 @@ def test_annual_route_preserves_packet(statistics_ui, monkeypatch, period, start
     assert "Google − Garmin:" not in response.text
     if period not in {"7", "30"} and case != "missing":
         assert "это не подтверждает полноту сбора или покрытие устройства" in response.text
-    export(response, f"{case}-{period}")
+    if os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR"):
+        # Browser navigation must use the same persisted identities in every window.
+        monkeypatch.setattr(PeriodSummaryService, "build", original)
+        for choice, *_ in PERIODS:
+            rendered = client.get("/statistics", params={
+                "period": choice, "end_date": "2096-02-29", "calendar_year": 2096,
+            })
+            assert rendered.status_code == 200
+            export(rendered, f"{case}-{choice}")
 
 
 @pytest.mark.parametrize("cap", ["MAX_PERIOD_RECORDS", "MAX_PERIOD_SOURCES"])
