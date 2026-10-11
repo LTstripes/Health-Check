@@ -35,6 +35,7 @@ from healthcheck.saved_values import (
     SavedValueQuery,
     read_saved_rhr,
 )
+from healthcheck.web.overview_rhr import read_overview_rhr
 from test_google_daily_vitals import _daily_record, _family_identity, _fitbit_identity, _persist
 
 DAY = date(2099, 1, 3)
@@ -143,6 +144,98 @@ def _read(stored, **kwargs):
     session = stored[0]
     session.flush()
     return read_saved_rhr(session, _query(stored, **kwargs))
+
+
+def _card(stored, *, explicit=False, start=DAY, end=DAY, freshness=None):
+    session, _, source, _ = stored
+    session.flush()
+    result = read_overview_rhr(
+        session, start=start, end=end, explicit_period=explicit,
+        evaluated_at_utc=NOW, evaluation_local_date=DAY,
+        garmin_source_id=source.id if source.provider_code == "garmin_connect" else None,
+        google_source_id=source.id if source.provider_code == "google_health" else None,
+        freshness=freshness,
+    )
+    return next(item for item in result["items"]
+                if item["dto"]["query"]["provider_code"] == source.provider_code)
+
+
+@pytest.mark.parametrize("scenario", [
+    "zero", "old", "missing", "null", "invalid", "collision", "retired", "correction",
+    "empty", "period", "future", "partial",
+])
+def test_overview_card_preserves_reader_states_and_complete_evidence(stored, scenario):
+    if scenario not in {"empty", "future"}:
+        _seed(stored, day=DAY - timedelta(days=3), value=58)
+    if scenario not in {"empty", "old", "period"}:
+        record, metric = _seed(stored, value=0 if scenario == "zero" else 61)
+        if scenario in {"missing", "null", "invalid"}:
+            metric.state, metric.value_number = scenario, None
+        elif scenario == "collision":
+            _copy(stored, record, metric)
+        elif scenario == "retired":
+            record.projection_status, record.retired_at = "retired", NOW
+            record.retire_reason = "synthetic-correction"
+        elif scenario == "correction":
+            metric.value_number = 59
+        elif scenario == "future":
+            record.source_timestamp_utc = NOW + timedelta(days=1)
+        elif scenario == "partial":
+            record.record_status = "partial"
+    explicit = scenario == "period"
+    item = _card(stored, explicit=explicit)
+    dto = item["dto"]
+    expected = _read(stored, mode="explicit_period" if explicit else "default_latest").as_dict()
+    assert dto == expected  # no lossy projection or client-side winner/age computation
+    assert dto["origin_state"] == "unknown" and dto["snapshot_as_of"] is None
+    assert dto["acquisition_coverage_state"] == "unknown"
+    if scenario in {"empty", "period", "future"}:
+        assert dto["state"] == "no_eligible_in_search" and dto["observation"] is None
+        assert dto["collection_evidence_ref"] is None
+    elif scenario in {"old", "missing", "null", "invalid", "collision", "retired"}:
+        assert dto["state"] == "last_eligible"
+        assert dto["observation"]["observation_age_days"] == 3
+        if scenario == "collision":
+            assert dto["newer_exclusions"][0]["candidate_count"] == 2
+            assert len(dto["newer_exclusions"][0]["record_ids"]) == 2
+    else:
+        assert dto["state"] == "exact"
+        assert dto["observation"]["value"] == (0 if scenario == "zero" else
+                                               59 if scenario == "correction" else 61)
+
+
+def test_overview_card_uses_default_work_cap_and_does_not_select_a_prefix(stored):
+    record, metric = _seed(stored)
+    for index in range(module.MAX_CANDIDATE_RECORDS):
+        duplicate = _copy(stored, record, metric)
+        duplicate.idempotency_key = f"synthetic-card-overflow-{index}"
+        if isinstance(duplicate, GoogleSourceRecord):
+            duplicate.record_identity_key = f"synthetic-card-distinct-{index}"
+        stored[0].flush()
+    dto = _card(stored)["dto"]
+    assert dto["state"] == "search_incomplete" and dto["observation"] is None
+    assert dto["reason"] == "candidate_group_cap"
+    assert not dto["search"]["complete"] and dto["newer_exclusions"] == []
+
+
+@pytest.mark.parametrize("state,reason", [
+    ("stale", "refresh_failed"), ("unavailable", "reauth_required"),
+    ("unknown", "coverage_unknown"), ("not_requested", "disabled"),
+    ("not_requested", "not_requested"),
+])
+def test_overview_card_keeps_saved_number_and_independent_freshness(stored, state, reason):
+    _seed(stored, day=DAY - timedelta(days=2))
+    provider = "garmin" if stored[2].provider_code == "garmin_connect" else "google"
+    scope = provider + (":resting_heart_rate" if provider == "garmin" else ":daily_resting_hr")
+    fact = {"scope_key": scope, "state": state, "reason_code": reason}
+    projection = {"optional_details": [fact, {
+        "scope_key": "google:sleep", "state": "fresh", "reason_code": "unrelated",
+    }]}
+    item = _card(stored, freshness=projection)
+    assert item["freshness"] == [fact]
+    assert item["dto"]["observation"]["value"] == 61
+    assert item["dto"]["state"] == "last_eligible"
+    assert projection["optional_details"][0] == fact
 
 
 def _copy(stored, record, metric, **changes):

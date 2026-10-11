@@ -51,7 +51,7 @@
   <p class="brief-period">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span></p>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
-    <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
+    <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if overview.rhr.google_source_id %}&amp;google_rhr_source_id={{ overview.rhr.google_source_id }}{% endif %}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
     {% endfor %}
   </div>
   <details class="owner-details brief-custom-period"><summary>Другой период</summary>
@@ -59,6 +59,7 @@
     <label>Начало <input type="date" name="start_date" value="{{ brief.period.start_date }}" required></label>
     <label>Конец <input type="date" name="end_date" value="{{ brief.period.end_date }}" required></label>
     <input type="hidden" name="garmin_source_id" value="{{ source_selection.selected_source_id or '' }}">
+    {% if overview.rhr.google_source_id %}<input type="hidden" name="google_rhr_source_id" value="{{ overview.rhr.google_source_id }}">{% endif %}
     <button type="submit">Применить период</button>
   </form>
   </details>
@@ -80,6 +81,7 @@
     <form class="inline-edit" method="get" action="/brief">
       <input type="hidden" name="start_date" value="{{ brief.period.start_date }}">
       <input type="hidden" name="end_date" value="{{ brief.period.end_date }}">
+      {% if overview.rhr.google_source_id %}<input type="hidden" name="google_rhr_source_id" value="{{ overview.rhr.google_source_id }}">{% endif %}
       <label>Источник
         <select name="garmin_source_id">
           <option value="">— выбрать источник —</option>
@@ -190,6 +192,8 @@
   <pre class="brief-packet">{{ packet | tojson(indent=2) }}</pre>
   <h3>Исходные значения Garmin и Google</h3>
   <pre>{{ overview.technical | tojson(indent=2) }}</pre>
+  <h3>Пульс в покое · поиск сохранённых наблюдений</h3>
+  <pre data-rhr-dto>{{ overview.rhr | tojson(indent=2) }}</pre>
   <pre>{{ overview.training | tojson(indent=2) }}</pre>
   <h3>Ряды графиков</h3><pre>{{ charts.technical | tojson(indent=2) }}</pre>
 {% endcall %}
