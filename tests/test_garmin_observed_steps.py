@@ -3,7 +3,8 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, insert, select
+from sqlalchemy.exc import InvalidRequestError
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
@@ -28,6 +29,7 @@ from healthcheck.garmin.observed_steps import (
     SavedDailyStepsRepository,
     SavedStepsEvidenceError,
 )
+from healthcheck.garmin.observed_steps_read import read_observed_steps_window
 from healthcheck.garmin.persistence import GarminCollectionScope, GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.runtime import prepare_runtime
@@ -407,3 +409,366 @@ def test_unreadable_saved_bytes_fail_closed(saved_database):
     with pytest.raises(SavedStepsEvidenceError, match="unreadable"):
         project(session, store, saved.source.id)
     assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0
+
+
+def materialize(session, store, day=DAY, count=17, identity=None, extra=None):
+    payload = {"calendarDate": day.isoformat()}
+    if count is not ABSENT:
+        payload["totalSteps"] = count
+    if extra is not None:
+        payload["extra"] = extra
+    saved = save(session, store, payload, identity=identity)
+    result = SavedDailyStepsRepository(session, payload_store=store).project_day(
+        saved.source.id, day
+    )
+    return saved, result
+
+
+def read_steps(session, source_id, start=DAY, end=DAY):
+    return read_observed_steps_window(session, source_id=source_id, start_date=start, end_date=end)
+
+
+def test_window_daily_states_exact_counts_and_provenance(saved_database):
+    session, store = saved_database
+    counts = [0, 2**53 + 1, ABSENT, None, True, 17, None]
+    for index, count in enumerate(counts):
+        saved, _ = materialize(session, store, DAY + timedelta(days=index), count)
+    materialize(session, store, DAY + timedelta(days=5), 19)
+    materialize(session, store, DAY + timedelta(days=6), ABSENT)
+    result = read_steps(session, saved.source.id, end=DAY + timedelta(days=7))
+    assert [cell.state for cell in result.cells] == [
+        "value",
+        "value",
+        "missing",
+        "null",
+        "invalid",
+        "ambiguous",
+        "unavailable",
+        "projection_unavailable",
+    ]
+    assert [cell.value for cell in result.cells] == [
+        0,
+        2**53 + 1,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    ]
+    assert result.cells[-1].reason == "not_evidenced"
+    assert result.search_complete
+    for index, cell in enumerate(result.cells):
+        assert cell.calendar_date == DAY + timedelta(days=index)
+        assert cell.source_id == saved.source.id
+        assert (cell.coverage, cell.device, cell.timezone, cell.finality) == ("unknown",) * 4
+        for evidence in cell.evidence:
+            assert evidence.observation_ids
+            assert evidence.raw_artifact_id
+            assert evidence.content_hash
+            assert evidence.metric_row_id
+            assert evidence.normalization_version == CONTRACT_VERSION
+    assert {item.value for item in result.cells[5].evidence} == {17, 19}
+    assert {item.metric_state for item in result.cells[6].evidence} == {"missing", "null"}
+
+
+def test_window_same_count_and_nonvalues_keep_all_evidence(saved_database):
+    session, store = saved_database
+    saved, _ = materialize(session, store, count=17, extra=1)
+    for count, extra in [(17, 2), (None, 3), (ABSENT, 4), (False, 5)]:
+        materialize(session, store, count=count, extra=extra)
+    result = read_steps(session, saved.source.id)
+    assert (result.cells[0].state, result.cells[0].value) == ("value", 17)
+    assert len(result.cells[0].evidence) == 5
+
+
+def test_window_exact_source_dates_and_no_latest_or_auto_selection(saved_database):
+    session, store = saved_database
+    saved, _ = materialize(session, store, DAY - timedelta(days=1), 100)
+    materialize(session, store, DAY + timedelta(days=1), 200)
+    other, _ = materialize(session, store, DAY, 999, source("other-account"))
+    assert read_steps(session, saved.source.id).cells[0].state == "projection_unavailable"
+    assert read_steps(session, other.source.id).cells[0].value == 999
+    assert (
+        read_steps(session, saved.source.id, DAY - timedelta(days=1), DAY + timedelta(days=1))
+        .cells[0]
+        .value
+        == 100
+    )
+    for source_id in [None, "", " "]:
+        with pytest.raises(ValueError, match="explicit exact"):
+            read_steps(session, source_id)
+    unknown = read_steps(session, "nonexistent-source")
+    assert unknown.reason == "source_not_found"
+    assert unknown.cells[0].value is None
+
+
+@pytest.mark.parametrize("materialized", [False, True])
+def test_window_no_projection_is_not_missing_and_read_does_not_write(
+    saved_database, monkeypatch, materialized
+):
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 7})
+    if materialized:
+        project(session, store, saved.source.id)
+    session.commit()
+    session.connection().exec_driver_sql("PRAGMA query_only = ON")
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("reader called materialization or transaction mutation")
+
+    monkeypatch.setattr(SavedDailyStepsRepository, "project_day", forbidden)
+    monkeypatch.setattr(session, "commit", forbidden)
+    event.listen(session.bind, "before_cursor_execute", capture)
+    try:
+        result = read_steps(session, saved.source.id)
+    finally:
+        event.remove(session.bind, "before_cursor_execute", capture)
+    if materialized:
+        assert (result.cells[0].state, result.cells[0].value) == ("value", 7)
+    else:
+        assert (result.cells[0].state, result.cells[0].reason) == (
+            "projection_unavailable",
+            "not_evidenced",
+        )
+    assert all(sql.lstrip().upper().startswith(("SELECT", "BEGIN")) for sql in statements)
+    assert not (session.new or session.dirty or session.deleted)
+    assert session.scalar(select(func.count(GarminRecordMetric.id))) == int(materialized)
+
+
+@pytest.mark.parametrize("days", [1, 7, 30, 365, 366])
+def test_window_inclusive_supported_bounds(saved_database, days):
+    session, store = saved_database
+    saved, _ = materialize(session, store, count=0)
+    result = read_steps(session, saved.source.id, end=DAY + timedelta(days=days - 1))
+    assert len(result.cells) == days
+    assert result.cells[0].value == 0
+    assert result.cells[-1].calendar_date == DAY + timedelta(days=days - 1)
+
+
+def test_window_rejects_367_reversed_and_instant_dates_before_reads(saved_database):
+    session, _store = saved_database
+    for start, end in [
+        (DAY, DAY + timedelta(days=366)),
+        (DAY, DAY - timedelta(days=1)),
+        (RECEIVED, DAY),
+    ]:
+        with pytest.raises(ValueError):
+            read_steps(session, "explicit", start, end)
+    assert not session.in_transaction()
+
+
+def duplicate_candidates(session, result, count):
+    record = session.get(GarminSourceRecord, result.evidence[0].record_id)
+    metric = session.scalar(
+        select(GarminRecordMetric).where(GarminRecordMetric.record_id == record.id)
+    )
+    records, metrics = [], []
+    for index in range(1, count):
+        record_id = f"{record.id[:8]}-candidate-{index:06}"
+        records.append(
+            {
+                column.name: getattr(record, column.name)
+                for column in GarminSourceRecord.__table__.columns
+            }
+            | {"id": record_id, "idempotency_key": f"synthetic-{index:064}"}
+        )
+        metrics.append(
+            {
+                column.name: getattr(metric, column.name)
+                for column in GarminRecordMetric.__table__.columns
+            }
+            | {"id": f"{record.id[:8]}-metric-{index:06}", "record_id": record_id}
+        )
+    session.execute(insert(GarminSourceRecord), records)
+    session.execute(insert(GarminRecordMetric), metrics)
+
+
+def duplicate_provenance(session, saved, count):
+    rows = [
+        {
+            column.name: getattr(saved.observation, column.name)
+            for column in GarminPayloadObservation.__table__.columns
+        }
+        | {"id": f"synthetic-observation-{index:06}", "observation_key": f"{index:064}"}
+        for index in range(1, count)
+    ]
+    session.execute(insert(GarminPayloadObservation), rows)
+
+
+@pytest.mark.parametrize("kind", ["candidate", "provenance"])
+@pytest.mark.parametrize("count", [4095, 4096, 4097])
+def test_window_independent_cap_boundaries(saved_database, kind, count):
+    session, store = saved_database
+    saved, projected = materialize(session, store, count=0)
+    if kind == "candidate":
+        duplicate_candidates(session, projected, count)
+    else:
+        duplicate_provenance(session, saved, count)
+    result = read_steps(session, saved.source.id)
+    cell = result.cells[0]
+    assert (cell.state, cell.value) == (
+        ("value", 0) if count <= 4096 else ("search_incomplete", None)
+    )
+    assert result.search_complete == (count <= 4096)
+    assert (
+        result.candidates_examined if kind == "candidate" else result.provenance_examined
+    ) == count
+    if kind == "candidate" and count <= 4096:
+        assert result.provenance_examined == 1  # raw references do not multiply acquisitions
+    if kind == "provenance":
+        assert result.candidates_examined == 1
+
+
+@pytest.mark.parametrize("kind", ["candidate", "provenance"])
+def test_window_incomplete_later_group_preserves_independently_complete_cell(saved_database, kind):
+    session, store = saved_database
+    saved, _ = materialize(session, store, count=2**53 + 1)
+    later, projected = materialize(session, store, DAY + timedelta(days=1), 900)
+    if kind == "candidate":
+        duplicate_candidates(session, projected, 4097)
+    else:
+        duplicate_provenance(session, later, 4097)
+    result = read_steps(session, saved.source.id, end=DAY + timedelta(days=2))
+    assert result.cells[0].value == 2**53 + 1
+    assert result.cells[0].search_complete
+    assert (result.cells[1].state, result.cells[1].value) == ("search_incomplete", None)
+    assert result.cells[1].reason == f"{kind}_limit_exceeded"
+    assert result.cells[2].state == (
+        "search_incomplete" if kind == "candidate" else "projection_unavailable"
+    )
+
+
+def test_window_metric_row_absence_is_incomplete_not_leaf_missing(saved_database):
+    session, store = saved_database
+    saved, projected = materialize(session, store)
+    metric = session.scalar(
+        select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == projected.evidence[0].record_id
+        )
+    )
+    session.delete(metric)
+    session.flush()
+    result = read_steps(session, saved.source.id)
+    assert (result.cells[0].state, result.cells[0].value, result.cells[0].reason) == (
+        "search_incomplete",
+        None,
+        "metric_row_not_evidenced",
+    )
+
+
+def test_window_pending_writes_are_rejected(saved_database):
+    session, store = saved_database
+    saved, _ = materialize(session, store)
+    saved.source.source_kind = "pending-change"
+    with pytest.raises(InvalidRequestError, match="pending"):
+        read_steps(session, saved.source.id)
+
+
+@pytest.mark.parametrize("text", ["00", "-1", "17.0", "17e0", " 17", "+17", None])
+def test_window_never_coerces_invalid_integer_storage(saved_database, text):
+    session, store = saved_database
+    saved, projected = materialize(session, store)
+    metric = session.scalar(
+        select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == projected.evidence[0].record_id
+        )
+    )
+    metric.value_text = text
+    session.flush()
+    result = read_steps(session, saved.source.id)
+    assert (result.cells[0].state, result.cells[0].value) == ("invalid", None)
+
+
+def test_window_history_not_hidden_by_current_filter(saved_database):
+    session, store = saved_database
+    saved, projected = materialize(session, store)
+    record = session.get(GarminSourceRecord, projected.evidence[0].record_id)
+    record.projection_status = "retired"
+    record.retired_at = RECEIVED
+    record.retire_reason = "synthetic-retirement"
+    session.flush()
+    result = read_steps(session, saved.source.id)
+    assert result.candidates_examined == 1
+    assert (result.cells[0].state, result.cells[0].value) == ("search_incomplete", None)
+    assert result.cells[0].evidence[0].projection_status == "retired"
+
+
+def test_window_provenance_mismatch_fails_day_closed(saved_database):
+    session, store = saved_database
+    saved, _ = materialize(session, store)
+    other, _ = materialize(session, store, DAY + timedelta(days=1), 19)
+    bad_observation = GarminPayloadObservation(
+        **{
+            column.name: getattr(saved.observation, column.name)
+            for column in GarminPayloadObservation.__table__.columns
+            if column.name not in {"id", "raw_artifact_id", "observation_key"}
+        },
+        raw_artifact_id=other.observation.raw_artifact_id,
+        observation_key="f" * 64,
+    )
+    session.add(bad_observation)
+    session.flush()
+    result = read_steps(session, saved.source.id, end=DAY + timedelta(days=1))
+    assert (result.cells[0].state, result.cells[0].value) == ("search_incomplete", None)
+    assert result.cells[0].reason == "provenance_mismatch"
+    assert result.cells[1].value == 19
+
+
+def test_window_absence_requires_evidenced_leaf_absence(saved_database):
+    session, store = saved_database
+    saved, projected = materialize(session, store, count=ABSENT)
+    metric = session.scalar(
+        select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == projected.evidence[0].record_id
+        )
+    )
+    metric.reason = None
+    session.flush()
+    result = read_steps(session, saved.source.id)
+    assert (result.cells[0].state, result.cells[0].reason) == (
+        "search_incomplete",
+        "leaf_absence_not_evidenced",
+    )
+
+
+def test_window_caps_exclude_other_sources_and_outside_dates(saved_database):
+    session, store = saved_database
+    saved, _ = materialize(session, store)
+    _, outside = materialize(session, store, DAY - timedelta(days=1), 100)
+    duplicate_candidates(session, outside, 4097)
+    _, other = materialize(session, store, DAY, 900, source("other-account"))
+    duplicate_candidates(session, other, 4097)
+    result = read_steps(session, saved.source.id)
+    assert result.search_complete
+    assert (result.candidates_examined, result.provenance_examined) == (1, 1)
+    assert result.cells[0].value == 17
+
+
+def test_window_compound_reads_share_snapshot_across_new_projection(saved_database, monkeypatch):
+    session, store = saved_database
+    saved, _ = materialize(session, store)
+    source_id = saved.source.id
+    session.commit()
+    original_get = session.get
+    committed = []
+
+    def read_then_materialize(model, identity, **kwargs):
+        row = original_get(model, identity, **kwargs)
+        if not committed:
+            with create_session_factory(session.bind)() as writer:
+                materialize(writer, store, count=19)
+                writer.commit()
+            committed.append(True)
+        return row
+
+    monkeypatch.setattr(session, "get", read_then_materialize)
+    result = read_steps(session, source_id)
+    assert committed == [True]
+    assert result.cells[0].value == 17  # the concurrent materialization is outside this snapshot
+    session.rollback()
+    assert read_steps(session, source_id).cells[0].state == "ambiguous"
