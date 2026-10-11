@@ -191,7 +191,7 @@ def read_sleep_source_inventory(session: Session) -> dict[str, Any]:
 
 def _display_series(
     series: Sequence[dict[str, Any]], google_source_id: str | None,
-    inventory: Mapping[str, Any],
+    inventory: Mapping[str, Any], undated_by_source: Mapping[str, int],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Select a display identity only; retained B1 series and nights stay intact.
 
@@ -213,6 +213,7 @@ def _display_series(
         ambiguous = sum(point["state"] == "ambiguous" for point in item["points"])
         selectable = bool(values or ambiguous)
         source = item["source"]
+        undated = undated_by_source.get(source["source_id"], 0)
         if source["source_kind"] == "family_aggregate":
             name = f"Google · семейство {source['source_instance_id'].rsplit('/', 1)[-1]}"
         else:
@@ -220,7 +221,8 @@ def _display_series(
         options.append({
             "source_id": source["source_id"], "label": name,
             "value_dates": values, "ambiguous_dates": ambiguous,
-            "selectable": selectable, "has_sleep_records": bool(item["points"]),
+            "wake_date_missing_count": undated,
+            "selectable": selectable, "has_sleep_records": bool(item["points"] or undated),
         })
         if selectable:
             candidates.append(item)
@@ -353,7 +355,10 @@ def build_sleep_timeline(
             )
     _disambiguate_labels(series)
     inventory = google_inventory or {"sources": [], "truncated": False}
-    display_series, google_selection = _display_series(series, google_source_id, inventory)
+    display_series, google_selection = _display_series(
+        series, google_source_id, inventory,
+        providers["google"].get("wake_date_missing_by_source") or {},
+    )
     return {
         "contract_version": SLEEP_TIMELINE_CONTRACT_VERSION,
         "days": days,

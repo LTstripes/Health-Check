@@ -747,3 +747,41 @@ def test_auto_google_default_does_not_become_human_choice_when_window_expands(tm
         packet = _timeline_json(client.get(preset.replace("&amp;", "&")).text)
         assert packet["google_selection"]["status"] == "explicit"
         assert packet["display_series"][1]["source"]["source_id"] == family_id
+
+
+def test_google_undated_source_details_retain_presence_without_point_or_selection(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            _persist_google(session, paths, payload=_google_sleep_payload())
+            record = session.scalar(select(GoogleSourceRecord))
+            source_id = record.google_source_id
+            record.source_local_date = date(2099, 1, 7)
+            session.scalar(select(GoogleSleepRecord)).wake_date = None
+    finally:
+        engine.dispose()
+    app.state.engine = create_sqlite_engine(paths)
+    with client_for(app) as client:
+        for days in (7, 30):
+            url = f"/sleep?wake_date=2099-01-07&days={days}"
+            page = client.get(url)
+            assert page.status_code == 200
+            packet = _timeline_json(page.text)
+            assert packet["providers"]["google"]["wake_date_missing_by_source"][source_id] == 1
+            option = next(item for item in packet["google_selection"]["options"]
+                          if item["source_id"] == source_id)
+            assert option["has_sleep_records"] is True
+            assert option["wake_date_missing_count"] == 1
+            assert option["value_dates"] == option["ambiguous_dates"] == 0
+            assert option["selectable"] is False
+            assert packet["series"] == packet["display_series"] == []
+            assert packet["google_selection"]["status"] == "no_eligible_series"
+            details = (
+                page.text.split('data-sleep-alternate-sources', 1)[1].split('</details>', 1)[0])
+            assert "Записи без пригодной даты пробуждения: 1; на график не нанесены." in details
+            assert "Нет записей сна в этом окне." not in details
+            assert f'<option value="{source_id}" disabled>' in details
+            selected = _timeline_json(client.get(url + "&google_sleep_source_id=" + source_id).text)
+            assert selected["google_selection"]["status"] == "invalid_selection"
+            assert selected["display_series"] == []

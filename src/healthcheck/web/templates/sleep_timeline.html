@@ -41,7 +41,7 @@
     </form>
     <p class="muted">Выбор меняет только отображение. Исключённые записи, пропуски, неопределённая роль сна и точная идентичность сохранены в таблице и технических деталях.</p>
     {% if timeline.google_source_inventory.truncated %}<p>Список идентичностей ограничен 200 источниками; полный статус доступен в разделе данных.</p>{% endif %}
-    <ul>{% for item in timeline.google_selection.options %}<li>{{ item.label }}: {{ item.value_dates }} ночей с длительностью, {{ item.ambiguous_dates }} неоднозначных.{% if not item.has_sleep_records %} Нет записей сна в этом окне.{% elif not item.selectable %} Нет пригодной длительности в этом окне.{% endif %}</li>{% endfor %}</ul>
+    <ul>{% for item in timeline.google_selection.options %}<li>{{ item.label }}: {{ item.value_dates }} ночей с длительностью, {{ item.ambiguous_dates }} неоднозначных.{% if item.wake_date_missing_count %} Записи без пригодной даты пробуждения: {{ item.wake_date_missing_count }}; на график не нанесены.{% endif %}{% if not item.has_sleep_records %} Нет записей сна в этом окне.{% elif not item.selectable %} Нет пригодной длительности в этом окне.{% endif %}</li>{% endfor %}</ul>
   </details>
   {% endif %}
   {% endif %}
