@@ -288,6 +288,14 @@ def test_rhr_production_collection_scope_displays_only_rhr(stored, rhr_engine, s
 def test_rhr_display_keeps_source_warning_packet_and_hash(
     tmp_path, monkeypatch, reason, state, notice,
 ):
+    from healthcheck.web import pages
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2099, 1, 3, 12, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
     app, _, paths = _ui(tmp_path)
     seed_overview_v2(paths)
     engine = create_sqlite_engine(paths)

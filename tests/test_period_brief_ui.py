@@ -166,6 +166,77 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
     assert source_instance_id in technical
 
 
+@pytest.mark.parametrize("kind", ["default", "preset", "day", "window", "wrong_source"])
+def test_376_existing_rhr_card_uses_real_reader_and_keeps_period_packet(
+    tmp_path, monkeypatch, kind,
+):
+    from sqlalchemy import select
+
+    from healthcheck.db.models import GoogleSourceRecord
+    from healthcheck.web import pages, period_brief_query
+    from test_garmin_query_dashboard import _ui as create_fixture
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2099, 1, 10, 12, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
+    monkeypatch.setattr(period_brief_query, "datetime", FrozenDatetime)
+    app, settings, paths = create_fixture(tmp_path)
+    seed_overview_v2(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            google_id = session.scalar(select(GoogleSourceRecord.google_source_id).where(
+                GoogleSourceRecord.stream_code == "daily_resting_hr"))
+        params = {"google_rhr_source_id": google_id}
+        if kind == "preset":
+            params["preset"] = "7"
+        elif kind in {"day", "window"}:
+            params.update(start_date="2099-01-04", end_date=(
+                "2099-01-04" if kind == "day" else "2099-01-06"))
+        elif kind == "wrong_source":
+            params["google_rhr_source_id"] = "synthetic-nonexistent"
+        with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+            response = client.get("/brief", params=params)
+        assert response.status_code == 200
+        rhr = response.context["overview"]["rhr"]
+        expected_mode = (
+            "explicit_period" if kind in {"preset", "day", "window"} else "default_latest"
+        )
+        assert rhr["mode"] == expected_mode
+        assert response.text.count("data-overview-rhr ") == 1  # existing card only
+        dto = rhr["items"][0]["dto"]
+        if expected_mode == "default_latest":
+            assert dto["state"] == "last_eligible" and dto["observation"]["value"] == 52
+            assert dto["observation"]["source_local_date"] == "2099-01-02"
+            assert dto["observation"]["observation_age_days"] == 8
+            assert "Сегодня нет допустимого наблюдения" in response.text
+        else:
+            assert dto["state"] == "no_eligible_in_search" and dto["observation"] is None
+            assert dto["search"]["start_date"] == response.context["brief"]["period"]["start_date"]
+            assert dto["search"]["end_date"] == response.context["brief"]["period"]["end_date"]
+        google = rhr["items"][1]["dto"]
+        assert google["query"]["source_id"] == params["google_rhr_source_id"]
+        if kind == "wrong_source":
+            assert google["reason"] == "source_not_found" and google["observation"] is None
+        else:
+            # Preset links retain the selected exact identity.
+            assert f"google_rhr_source_id={google_id}" in response.text
+        from healthcheck.web.period_brief_query import PeriodBriefService
+        with create_session_factory(engine)() as session:
+            control = PeriodBriefService(session, settings).build_with_render(
+                start_date=date.fromisoformat(response.context["brief"]["period"]["start_date"]),
+                end_date=date.fromisoformat(response.context["brief"]["period"]["end_date"]),
+                thin_display=True,
+            )
+        assert response.context["packet"] == control["packet"]
+        assert response.context["brief"] == control["display"]
+    finally:
+        engine.dispose()
+
+
 def test_period_brief_sleep_warning_is_collapsed_to_one_notice():
     from healthcheck.web.pages import _brief_sleep_uncertainty
 
@@ -1412,6 +1483,8 @@ def test_295_route_reuse_matches_control_packet_charts_html_and_read_counts(
             return cls(2099, 1, 10, 12, tzinfo=UTC).astimezone(tz)
 
     monkeypatch.setattr(period_brief_query, "datetime", FrozenDatetime)
+    from healthcheck.web import pages
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
     app, settings, paths = create_fixture(tmp_path)
     if mode != "empty":
         seed_overview_a_plus(paths)

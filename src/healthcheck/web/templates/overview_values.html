@@ -35,9 +35,13 @@
   {% for code, unit in [('resting_heart_rate_bpm', 'уд/мин'), ('hrv_weekly_average_ms', 'мс'), ('stress_daily_average', 'баллы'), ('body_battery', 'баллы')] %}
   {% set cell = overview.garmin.get(code) %}
   <article><h3>{{ cell.label if cell else {'resting_heart_rate_bpm': 'Пульс в покое', 'hrv_weekly_average_ms': 'HRV · среднее за неделю', 'stress_daily_average': 'Стресс Garmin · среднее за день', 'body_battery': 'Body Battery Garmin · последний снимок'}[code] }}</h3>
+    {% if code == 'resting_heart_rate_bpm' %}
+    {% include 'overview_rhr.html' %}
+    {% else %}
     <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>
     {{ garmin_cell(code, unit) }}
     <p class="overview-source">{% if cell and cell.value is not none %}Одно последнее доступное наблюдение; история не показана.{% else %}Нет однозначного пригодного наблюдения.{% endif %}</p>
+    {% endif %}
   </article>
   {% endfor %}
 </section>

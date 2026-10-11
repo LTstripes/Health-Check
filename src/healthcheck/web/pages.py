@@ -39,6 +39,7 @@ from healthcheck.web.common import database_unavailable, request_engine, wants_h
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
 from healthcheck.web.overview_charts import read_overview_charts
+from healthcheck.web.overview_rhr import read_overview_rhr
 from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import owner_date, owner_number
 from healthcheck.web.period_brief_query import PeriodBriefService
@@ -1038,6 +1039,7 @@ def period_brief_page(
     start_date: str | None = None,
     end_date: str | None = None,
     garmin_source_id: str | None = None,
+    google_rhr_source_id: str | None = None,
 ) -> HTMLResponse:
     try:
         start, end, selected_preset = _brief_period(
@@ -1056,6 +1058,17 @@ def period_brief_page(
             overview = read_overview_values(
                 session, start=start, end=end,
                 selected_id=source_selection.get("selected_source_id"),
+            )
+            evaluated_at = datetime.now(UTC)
+            overview["rhr"] = read_overview_rhr(
+                session, start=start, end=end,
+                explicit_period=any(value is not None for value in (preset, start_date, end_date)),
+                evaluated_at_utc=evaluated_at,
+                evaluation_local_date=evaluated_at.astimezone().date(),
+                garmin_source_id=source_selection.get("selected_source_id"),
+                google_source_id=google_rhr_source_id,
+                freshness=result["display"]["sections"].get("data_quality", {})
+                .get("coverage", {}).get("freshness", {}),
             )
             charts = read_overview_charts(
                 session, request.app.state.settings, packet=result["packet"],
@@ -1088,6 +1101,7 @@ def period_brief_page(
             "source_selection": source_selection,
             "selected_preset": selected_preset,
             "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"])
+            or any(item["dto"]["observation"] is not None for item in overview["rhr"]["items"])
             or any(cell["value"] is not None for cell in overview["garmin"].values())
             or any(
                 cell["latest"] is not None
