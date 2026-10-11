@@ -5,13 +5,17 @@ labelled; colliding Garmin snapshots never become one guessed value.
 """
 
 from datetime import date, timedelta
-from math import isfinite
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+from healthcheck.garmin.overview_values import (
+    latest_overview_snapshots,
+    overview_metric_is_usable,
+    overview_metric_matches,
+)
 from healthcheck.google.daily_vitals import (
     GOOGLE_DAILY_VITALS,
     MAX_GOOGLE_DAILY_VITALS_CALENDAR_DAYS,
@@ -67,18 +71,9 @@ def read_overview_values(
             )
         ).all()
         for code, capability, unit, label in GARMIN_OVERVIEW_METRICS:
-            is_rhr = code == "resting_heart_rate_bpm"
-            # RHR acquisition surface and metric capability are distinct.
-            # Match typed identity before selecting/validating the latest snapshot.
             candidates = [
                 (record, metric) for record, metric in rows
-                if metric.metric_code == code
-                and (
-                    record.stream_code == "daily_health"
-                    and record.surface_code in (None, "daily_summary", "resting_heart_rate")
-                    and metric.capability_code == "resting_heart_rate"
-                    if is_rhr else record.surface_code in (None, capability)
-                )
+                if overview_metric_matches(record, metric, code=code, capability=capability)
             ]
             cell: dict[str, Any] = {
                 "label": label, "state": "unknown", "value": None, "date": None,
@@ -87,23 +82,14 @@ def read_overview_values(
             if candidates:
                 # An explicit instant can order intraday snapshots. Date-only
                 # collisions remain ambiguous; UUID/ingestion order is no evidence.
-                latest_day = max(record.source_local_date for record, _ in candidates)
-                latest = [(r, m) for r, m in candidates if r.source_local_date == latest_day]
-                if all(r.source_timestamp_utc is not None for r, _ in latest):
-                    stamp = max(r.source_timestamp_utc for r, _ in latest)
-                    latest = [(r, m) for r, m in latest if r.source_timestamp_utc == stamp]
-                cell["date"] = latest_day.isoformat()
+                latest = latest_overview_snapshots(candidates)
+                cell["date"] = latest[0][0].source_local_date.isoformat()
                 if len(latest) != 1:
                     cell["note"] = "Garmin: несколько снимков; единое значение не выбрано."
                 else:
                     record, metric = latest[0]
                     number = metric.value_number
-                    usable = (
-                        metric.state == "value" and metric.unit == unit
-                        and (not is_rhr or isinstance(number, (int, float)))
-                        and number is not None and isfinite(number)
-                        and record.record_status in ("ok", "partial")
-                    )
+                    usable = overview_metric_is_usable(record, metric, code=code, unit=unit)
                     cell.update(
                         state=("partial" if record.record_status == "partial" else "present")
                         if usable else "unavailable",
