@@ -153,9 +153,9 @@ source evidence -> pairing / eligibility -> comparable projection
 
 Implementation: #100 pairing, #101 projection, #102 immutable runs/replay, #103 statistics/gates, #104 reporting, #105 conditional canonical rule, #106 Owner closeout. R05 closed with exploratory agreement; #105 remains NOT_ELIGIBLE.
 
-#317 later reuses accepted account-observation source/role rules for unpaired
-source-only display without altering legacy Compare/Agreement. Planned #343 and
-#347 independent source views likewise are not canonical-switch evidence.
+#317 and delivered #343/#347 source-specific Sleep/Statistics views reuse accepted
+account-observation/source rules without altering legacy Compare/Agreement.
+Independent display itself is not canonical-switch evidence.
 See [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md) and
 [Account Sleep Observations](R05_ACCOUNT_SLEEP_OBSERVATIONS.md).
 
@@ -169,13 +169,13 @@ One persistent private cross-domain profile, supported backup/restore into dispo
 
 ## Post-R05 Garmin Training & Recovery — completed
 
-Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT. No custom recovery score, VO2 guessing, coaching/medical claim or invented producer attribution. New presentation is #345/#346; additional field evidence remains #319.
+Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT. #345 session detail is now delivered; #346 duplicate summaries remain held for #378 product discovery. No custom recovery score, VO2 guessing, coaching/medical claim or invented producer attribution. #319 has typed max-HR/anaerobic but unresolved calories and separate Owner historical replay.
 
 ## Current owner-facing product work
 
 ### Source freshness / data quality
 
-#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics and #295 indexed Google reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility remains #340. Keep request performance, collection health, data completeness and human acceptance separate.
+#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics and #295 indexed Google/request-local Overview reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility was repaired via #340/#353. #376 will separate latest eligible saved evidence from refresh age. Keep request performance, collection health, data completeness and human acceptance separate.
 
 ### Hardware/private Owner gates
 
@@ -183,11 +183,12 @@ Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #18
 
 ### Owner UI
 
-The A+ visual system and desktop-only scope are approved. Five main sections are
-Обзор / Вес / Сон / Активность / Данные. Context `/context` is a shipped secondary
-entry awaiting durable Owner UAT; Statistics is planned, not yet shipped.
-The Owner likes the style and requests functionality first. See
-[Owner UI](OWNER_UI_SHELL.md) for current versus planned behavior.
+The A+ visual system and desktop-only scope are approved. Six accepted primary
+sections are Обзор / Вес / Сон / Активность / Статистика / Данные. Current
+`/context` is a shipped secondary entry awaiting durable Owner UAT; approved
+#294 follow-up promotes `Комментарии` to primary navigation. Statistics 7/30
+is shipped; long periods, readable Google source choices and new fields are
+separately planned. See [Owner UI](OWNER_UI_SHELL.md) for current vs requested.
 
 ## Engineering maintenance — CI feedback/reliability closeout
 
