@@ -57,11 +57,13 @@ from healthcheck.garmin.normalization import (
     normalize_garmin_payload,
     stable_garmin_reconciliation_key,
 )
+from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
 from healthcheck.garmin.persistence import (
     GARMIN_COVERAGE_RULE_VERSION,
     PROJECTION_CURRENT,
     RECONCILIATION_CONTRACT_VERSION,
     GarminCollectionScope,
+    GarminPersistenceOutcome,
     GarminPersistenceRepository,
 )
 from healthcheck.garmin.redaction import GarminDeviceAttribution, infer_device_attribution
@@ -76,6 +78,7 @@ MAX_SYNC_PROVIDER_REQUESTS = 140
 ACTIVITY_PAGE_SIZE = 20
 MAX_ACTIVITY_PAGES = 5
 INCREMENTAL_RUN_STREAM = "garmin_incremental"
+SavedSummaryCallback = Callable[[Session, GarminPersistenceOutcome], None]
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ACTIVITY_ENDPOINT_ATTRIBUTE = "garmin_connect_activities"
 _ACTIVITY_ENDPOINT = "/activitylist-service/activities/search/activities"
@@ -1244,6 +1247,15 @@ class GarminIncrementalSync:
             provider_id = provider.id
 
         days = _calendar_days(window_start, window_end)
+
+        def project_saved_summary(session: Session, outcome: GarminPersistenceOutcome) -> None:
+            SavedDailyStepsRepository(session, payload_store=store).project_saved_summary(
+                outcome.source.id,
+                outcome.observation.id,
+                start_date=window_start,
+                end_date=window_end,
+            )
+
         attempts, abort_reason = self._ingest_window(
             factory,
             store,
@@ -1255,6 +1267,7 @@ class GarminIncrementalSync:
             budget=budget,
             surfaces=PRODUCTION_SYNC_SURFACES,
             days=days,
+            saved_summary_callback=project_saved_summary,
         )
 
         if abort_reason is not None:
@@ -1357,6 +1370,7 @@ class GarminIncrementalSync:
         budget: _SyncBudget,
         surfaces: Sequence[GarminSyncSurface],
         days: Sequence[date],
+        saved_summary_callback: SavedSummaryCallback | None = None,
     ) -> tuple[list[GarminSyncAttempt], str | None]:
         attempts: list[GarminSyncAttempt] = []
         abort_reason: str | None = None
@@ -1378,6 +1392,7 @@ class GarminIncrementalSync:
                         window_end=window_end,
                         trailing_window_days=trailing_window_days,
                         budget=budget,
+                        saved_summary_callback=saved_summary_callback,
                     )
                     attempts.append(attempt)
                     if attempt.status is GarminSyncStatus.REAUTH_REQUIRED:
@@ -1486,6 +1501,7 @@ class GarminIncrementalSync:
         window_end: date,
         trailing_window_days: int,
         budget: _SyncBudget,
+        saved_summary_callback: SavedSummaryCallback | None = None,
     ) -> GarminSyncAttempt:
         if surface.method not in _ALLOWED_METHODS or surface.method in _FORBIDDEN_METHODS:
             raise RuntimeError("attempted Garmin method outside the incremental allowlist")
@@ -1611,6 +1627,7 @@ class GarminIncrementalSync:
             payload=fetched,
             request_count=request_count,
             fetch_complete=fetch_complete,
+            saved_summary_callback=saved_summary_callback,
         )
 
     def _fetch(
@@ -1702,6 +1719,7 @@ class GarminIncrementalSync:
         payload: Any,
         request_count: int,
         fetch_complete: bool,
+        saved_summary_callback: SavedSummaryCallback | None = None,
     ) -> GarminSyncAttempt:
         attribution = infer_device_attribution(payload).status
         identity = _source_identity_for(payload)
@@ -1746,6 +1764,7 @@ class GarminIncrementalSync:
                 failure_stage="raw_payload_validation",
             )
 
+        failure_stage = "persistence"
         try:
             with factory() as session:
                 persistence = GarminPersistenceRepository(session, payload_store=store)
@@ -1774,6 +1793,18 @@ class GarminIncrementalSync:
                         coverage_status=coverage_status,
                     ),
                 )
+                if (
+                    saved_summary_callback is not None
+                    and surface.code == "daily_summary"
+                    and fetch_complete
+                    and coverage_status in {"present", "confirmed_empty"}
+                ):
+                    # Raw evidence and Steps must commit with this attempt's checkpoint.
+                    # Historical callers of the shared ingest path have no callback.
+                    session.flush()
+                    failure_stage = "steps_projection"
+                    saved_summary_callback(session, outcome)
+                    failure_stage = "persistence"
                 self._write_checkpoint(
                     session,
                     provider_id=provider_id,
@@ -1815,7 +1846,7 @@ class GarminIncrementalSync:
                 request_count=request_count,
                 attribution=attribution,
                 exc=exc,
-                failure_stage="persistence",
+                failure_stage=failure_stage,
             )
 
     def _failed_attempt(
@@ -1833,7 +1864,11 @@ class GarminIncrementalSync:
         exc: BaseException,
         failure_stage: str,
     ) -> GarminSyncAttempt:
-        error = classify_garmin_error(exc)
+        error = (
+            GarminSafeError("storage", "saved_steps_projection_failed")
+            if failure_stage == "steps_projection"
+            else classify_garmin_error(exc)
+        )
         self._record_failure_checkpoint(
             factory,
             provider_id=provider_id,

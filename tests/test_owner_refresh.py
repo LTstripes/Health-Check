@@ -216,6 +216,49 @@ def _patch_hr_context(monkeypatch, owner_refresh):
     monkeypatch.setattr(owner_refresh, "_owner_heart_rate_day_refresh", fake_context)
 
 
+@pytest.mark.parametrize("projection_failure", [False, True])
+def test_owner_refresh_real_garmin_steps_nested_lock_keeps_four_layer_status(
+    monkeypatch, tmp_path, projection_failure
+):
+    import healthcheck.owner_refresh as owner_refresh
+    from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
+    from healthcheck.garmin.sync import GarminIncrementalSync
+    from test_garmin_incremental_sync import AS_OF, _steps_client, _steps_window
+
+    settings = _established_settings(tmp_path)
+    google_calls = []
+
+    def google(settings, **kwargs):
+        google_calls.append(kwargs)
+        return _report(GoogleSyncStatus.SUCCEEDED)
+
+    _patch_providers(monkeypatch, owner_refresh, garmin_cls=GarminIncrementalSync, google_fn=google)
+    monkeypatch.setattr(_FakeGarminAuth, "load_existing", lambda self: (
+        _steps_client(), GarminAuthResult(status=GarminAuthStatus.AUTHENTICATED)
+    ))
+    if projection_failure:
+        def fail(*args, **kwargs):
+            raise RuntimeError("synthetic projection failure")
+        monkeypatch.setattr(SavedDailyStepsRepository, "project_saved_summary", fail)
+    report = run_owner_refresh(
+        settings, as_of=AS_OF.isoformat(), trailing_window_days=1, streams=["sleep"]
+    )
+    assert report.status is (
+        OwnerRefreshStatus.PARTIAL if projection_failure else OwnerRefreshStatus.SUCCEEDED
+    )
+    assert report.garmin.status is (
+        GarminSyncStatus.PARTIAL if projection_failure else GarminSyncStatus.SUCCEEDED
+    )
+    assert report.garmin_training["status"] == "succeeded"
+    assert len(google_calls) == 2
+    assert google_calls[0]["streams"] == ["sleep"]
+    assert google_calls[1]["streams"] == list(OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_STREAMS)
+    assert google_calls[1]["query_mode"] == OWNER_REFRESH_GOOGLE_WEARABLES_SLEEP_QUERY_MODE
+    assert _steps_window(tmp_path).cells[0].state == (
+        "projection_unavailable" if projection_failure else "value"
+    )
+
+
 def test_owner_refresh_runs_garmin_and_both_google_layers(monkeypatch, tmp_path):
     import healthcheck.owner_refresh as owner_refresh
 
