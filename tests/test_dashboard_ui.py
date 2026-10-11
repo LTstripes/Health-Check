@@ -395,11 +395,11 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
         assert "openscale-brozek" in groups
         assert series["algorithm_boundary"]["present"] is True
         page = client.get("/")
-        assert "Каждый ряд — отдельная группа совместимых методов расчёта" in page.text
+        assert "Один график выбранного показателя за всю историю" in page.text
         assert "У групп свои даты измерений" in page.text
-        assert "Это не общий фильтр по времени" in page.text
-        assert "Несовместимые методы показаны отдельно" in page.text
-        assert "точки разных групп не соединяются линией" in page.text
+        assert 'id="weight-history"' in page.text
+        assert "Точки не соединяются линией" in page.text
+        assert "происхождение доступны в общей таблице" in page.text
         assert "xiaomi-home-unknown" in page.text
         assert "openscale-brozek" in page.text
     del settings
@@ -1645,8 +1645,8 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
         assert ".swatch" in css and "width: 8px" in css
         # Tables keep real layout inside dedicated scroller (JS creates wrapper).
         assert "table-scroll" in js
-        assert 'aria-label", "Состав тела' in js or "Состав тела, прокрутка таблицы" in js
-        assert 'createElement("table")' in js
+        assert "История веса и состава тела, прокрутка таблицы" in js
+        assert "createElement('table')" in js
         assert "display: block" not in js
         # Frozen series colors reused, no page-local palette.
         assert "#1d4e89" in js
@@ -1742,3 +1742,87 @@ def test_weight_v2_exposes_exact_same_session_composition_evidence(tmp_path, bod
         assert "76.0 кг" in html
         assert "Настройка цели появится" not in html
         assert "Мышцы источника — отдельная оценка, а не остаток веса" in html
+
+
+def test_weight_full_history_keeps_same_date_identities_and_current_correction(tmp_path):
+    """The presentation consumes the accepted full-history payload, not a date join."""
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repos = repositories_for(session)
+            source = ensure_photo_acquisition_source(repos, provider_code="xiaomi_home")
+            weight_algorithm = repos.measurement_algorithms.get_or_create(
+                code="xiaomi_s400_weight", version="1", metric_family="weight",
+                producer="xiaomi", compatibility_group="xiaomi_s400_weight",
+            )
+            fat_algorithm = repos.measurement_algorithms.get_or_create(
+                code="xiaomi_home_s400_unknown_version", version="unknown",
+                metric_family="body_composition", producer="xiaomi",
+                compatibility_group="xiaomi_home_s400_unknown_version",
+            )
+            weight_ids = []
+            original_session = original_weight = original_fat = None
+            for index, observed in enumerate([date(2020, 2, 29), date(2026, 4, 1),
+                                              date(2026, 4, 1)]):
+                measured = repos.measurement_sessions.create_confirmed(
+                    acquisition_source_id=source.id, semantic_key=f"history-{index}",
+                    source_local_date=observed, temporal_precision="date",
+                )
+                weight = repos.scalar_measurements.create(
+                    measurement_session_id=measured.id, metric_code="weight",
+                    normalized_value=80.0 + index, normalized_unit="kg",
+                    measurement_algorithm_id=weight_algorithm.id,
+                )
+                fat = repos.scalar_measurements.create(
+                    measurement_session_id=measured.id, metric_code="body_fat_pct",
+                    normalized_value=25.0 + index, normalized_unit="%",
+                    measurement_algorithm_id=fat_algorithm.id,
+                )
+                weight_ids.append(weight.id)
+                if index == 1:
+                    original_session, original_weight, original_fat = measured, weight, fat
+            revision = repos.measurement_sessions.create_revision(
+                original_session.id, source_local_date=date(2026, 4, 1),
+                temporal_precision="date",
+            )
+            corrected_weight = repos.scalar_measurements.create_revision(
+                original_weight.id, measurement_session_id=revision.id,
+                normalized_value=79.125, normalized_unit="kg",
+                measurement_algorithm_id=weight_algorithm.id,
+            )
+            repos.scalar_measurements.create_revision(
+                original_fat.id, measurement_session_id=revision.id,
+                normalized_value=0.0, normalized_unit="%",
+                measurement_algorithm_id=fat_algorithm.id,
+            )
+            corrected_id = corrected_weight.id
+            CanonicalSelectionService(session).recompute_dashboard()
+    finally:
+        engine.dispose()
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        before = _canonical_snapshot(paths)
+        full = client.get("/api/weight/series").json()
+        raw = full["raw_points"]
+        assert {point["evidence_id"] for point in raw} == {
+            weight_ids[0], weight_ids[2], corrected_id,
+        }
+        assert [point["observed_date"] for point in raw].count("2026-04-01") == 2
+        assert min(point["observed_date"] for point in raw) == "2020-02-29"
+        corrected = next(point for point in raw if point["evidence_id"] == corrected_id)
+        assert corrected["value_kg"] == 79.125
+        assert corrected["provenance"]["source_local_date"] == "2026-04-01"
+        assert corrected["provenance"]["source_timestamp_utc"] is None
+        points = [point for group in full["composition_by_group"].values() for point in group]
+        assert all(point["weight_measurement_id"] != original_weight.id for point in points)
+        zero = next(point for point in points if point["weight_measurement_id"] == corrected_id)
+        assert zero["session_id"] == revision.id
+        assert zero["body_fat_pct"] == 0.0
+        assert zero["estimated_fat_mass_kg"] is None
+        filtered = client.get("/api/weight/series?start_date=2026-01-01").json()
+        assert len(filtered["raw_points"]) == 2
+        html = client.get("/").text
+        assert 'id="weight-history"' in html
+        assert "Вся сохранённая история" in html
+        assert client.get("/api/weight/series").json() == full
+        assert _canonical_snapshot(paths) == before

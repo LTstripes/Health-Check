@@ -48,7 +48,9 @@
     renderRate(summary.rate || {});
     renderCoverage(summary.coverage);
     renderSimilar(summary.similar_weight || {});
-    renderCompositionGroups(series.composition_by_group || {});
+    const history = weightHistory(series);
+    renderWeightHistory(history);
+    renderCompositionGroups(series.composition_by_group || {}, history);
   }
 
   function fmt(value, digits) {
@@ -199,7 +201,126 @@
       "<p class=\"muted\">Один метод расчёта. Не утверждение о реальном росте мышц или потере жира.</p>";
   }
 
-  function renderCompositionGroups(groups) {
+  function compositionIndex(groups) {
+    const index = new Map();
+    Object.entries(groups).forEach(function ([group, points], methodIndex) {
+      points.forEach(function (point) {
+        if (!point.weight_measurement_id) return;
+        const entries = index.get(point.weight_measurement_id) || [];
+        entries.push({ point, group, methodIndex });
+        index.set(point.weight_measurement_id, entries);
+      });
+    });
+    return index;
+  }
+
+  function methodLabel(point, provenance, index) {
+    const methods = {
+      xiaomi_home_s400_unknown_version: 'Xiaomi Home · S400 (версия метода неизвестна)',
+      xiaomi_s400_unknown_app_algorithm: 'Xiaomi · S400 (приложение и метод неизвестны)',
+      openscale_brozek: 'openScale · Brozek',
+      xiaomi_s400_weight: 'Xiaomi · S400 · вес'
+    };
+    const code = point ? point.algorithm_code : provenance && provenance.algorithm_code;
+    const source = provenance ? [provenance.provider_display_name, provenance.device_display_name].filter(Boolean).join(' · ') : '';
+    return (methods[code] || source || (point ? 'Оценка состава тела' : 'Подтверждённый вес')) +
+      (point ? ' · метод ' + (index + 1) : '');
+  }
+
+  function weightHistory(series) {
+    const groups = series.composition_by_group || {};
+    const index = compositionIndex(groups);
+    const seen = new Set();
+    const rows = [];
+    (series.raw_points || []).forEach(function (weight) {
+      seen.add(weight.evidence_id);
+      const matches = index.get(weight.evidence_id) || [];
+      (matches.length ? matches : [null]).forEach(function (entry) {
+        rows.push({ date: weight.observed_date, weight: weight.value_kg, raw: weight,
+          composition: entry && entry.point,
+          method: methodLabel(entry && entry.point, weight.provenance, entry && entry.methodIndex) });
+      });
+    });
+    // Composition without a weight identity remains a distinct accepted session;
+    // never attach it to a date/nearby/equal-weight observation.
+    Object.entries(groups).forEach(function ([group, points], methodIndex) {
+      points.forEach(function (point) {
+        if (point.weight_measurement_id && seen.has(point.weight_measurement_id)) return;
+        rows.push({ date: point.observed_date, weight: point.weight_kg, raw: null,
+          composition: point, method: methodLabel(point, null, methodIndex) });
+      });
+    });
+    return rows.sort(function (a, b) { return a.date.localeCompare(b.date); });
+  }
+
+  function renderWeightHistory(rows) {
+    const node = document.getElementById('weight-history');
+    if (!node) return;
+    node.innerHTML = '';
+    if (!rows.length) {
+      node.innerHTML = '<p class="muted">Нет подтверждённых измерений. Это не означает ноль.</p>';
+      return;
+    }
+    const details = document.createElement('details');
+    details.open = rows.length <= 12;
+    const summary = document.createElement('summary');
+    summary.textContent = 'Все измерения / детали · ' + rows.length + ' · ' + readableDate(rows[0].date) +
+      ' — ' + readableDate(rows[rows.length - 1].date);
+    details.appendChild(summary);
+    const scroller = document.createElement('div');
+    scroller.className = 'table-scroll weight-history-table';
+    scroller.tabIndex = 0;
+    scroller.setAttribute('role', 'region');
+    scroller.setAttribute('aria-label', 'История веса и состава тела, прокрутка таблицы');
+    const table = document.createElement('table');
+    const caption = document.createElement('caption');
+    caption.textContent = 'Вся сохранённая история · по дате измерения · — означает отсутствие значения';
+    table.appendChild(caption);
+    const head = document.createElement('thead');
+    const headings = document.createElement('tr');
+    ['Дата измерения', 'Вес кг', 'Жир % (источник)', 'Жир кг (расчёт)', 'Безжировая масса кг (расчёт)',
+      'Мышцы кг (источник)', 'Источник/метод'].forEach(function (label) {
+      const cell = document.createElement('th');
+      cell.scope = 'col';
+      cell.textContent = label;
+      headings.appendChild(cell);
+    });
+    head.appendChild(headings);
+    table.appendChild(head);
+    const body = document.createElement('tbody');
+    rows.forEach(function (row) {
+      const tr = document.createElement('tr');
+      const point = row.composition || {};
+      [row.date, row.weight, point.body_fat_pct, point.estimated_fat_mass_kg,
+        point.estimated_lean_mass_kg, point.source_muscle_mass_kg].forEach(function (value) {
+        const cell = document.createElement('td');
+        cell.textContent = value === null || value === undefined ? '—' : String(value);
+        tr.appendChild(cell);
+      });
+      const source = document.createElement('td');
+      const disclosure = document.createElement('details');
+      const title = document.createElement('summary');
+      title.textContent = row.method;
+      disclosure.appendChild(title);
+      const eligibility = document.createElement('p');
+      eligibility.textContent = row.raw && row.raw.canonical_selected === false ?
+        'Подтверждено источником; не выбрано для канонического тренда.' : 'Принято в текущем расчёте.';
+      disclosure.appendChild(eligibility);
+      const evidence = document.createElement('pre');
+      // Preserve exact payload values, source-local dates, IDs and algorithm notes.
+      evidence.textContent = JSON.stringify({ weight: row.raw, composition: row.composition }, null, 2);
+      disclosure.appendChild(evidence);
+      source.appendChild(disclosure);
+      tr.appendChild(source);
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    scroller.appendChild(table);
+    details.appendChild(scroller);
+    node.appendChild(details);
+  }
+
+  function renderCompositionGroups(groups, history) {
     const node = document.getElementById("composition-groups");
     if (!node) return;
     const names = Object.keys(groups);
@@ -208,51 +329,56 @@
       return;
     }
     node.innerHTML = "";
-    names.forEach(function (group, index) {
-      const wrap = document.createElement("div");
-      wrap.className = 'weight-composition-group';
-      wrap.innerHTML = '<h3>Ряд состава ' + (index + 1) + ' · отдельная группа метода</h3>';
-      const dates = groups[group].map(function (item) { return item.observed_date; }).sort();
-      const span = document.createElement('p');
-      span.className = 'muted';
-      span.textContent = dates.length ? 'Измерения этой группы: ' + readableDate(dates[0]) +
-        (dates[0] === dates[dates.length - 1] ? '' : ' — ' + readableDate(dates[dates.length - 1])) +
-        '. Показаны только значения выбранного показателя; точные даты — в таблице.' : 'В этой группе нет измерений.';
-      wrap.appendChild(span);
-      const label = document.createElement('label');
-      label.textContent = 'Показатель ';
-      const select = document.createElement('select');
-      const metrics = [
-        ['body_fat_pct', 'Жир % (источник)', '%'],
-        ['estimated_fat_mass_kg', 'Оценка жира кг (Health-Check)', ' кг'],
-        ['estimated_lean_mass_kg', 'Оценка сухой массы кг (Health-Check)', ' кг'],
-        ['source_muscle_mass_kg', 'Мышцы кг (источник, отдельная оценка)', ' кг']
-      ];
-      metrics.forEach(function (metric) {
-        const option = document.createElement('option');
-        option.value = metric[0];
-        option.textContent = metric[1];
-        select.appendChild(option);
-      });
-      label.appendChild(select);
-      wrap.appendChild(label);
-      const chart = document.createElement("div");
-      chart.className = "chart";
-      wrap.appendChild(chart);
-      const detail = document.createElement('div');
-      detail.id = 'composition-detail-' + index;
-      detail.setAttribute('role', 'status');
-      detail.setAttribute('aria-live', 'polite');
-      detail.setAttribute('aria-atomic', 'true');
-      wrap.appendChild(detail);
-      node.appendChild(wrap);
-      function redraw() {
-        const metric = metrics[select.selectedIndex];
-        drawCompositionChart(chart, groups[group], metric, detail);
-      }
-      select.addEventListener('change', redraw);
-      redraw();
+    const wrap = document.createElement('div');
+    wrap.className = 'weight-composition-history';
+    const legend = document.createElement('ul');
+    legend.className = 'weight-method-legend';
+    const methodNames = names.map(function (group, index) {
+      return methodLabel(groups[group][0], null, index);
     });
+    names.forEach(function (group, index) {
+      const dates = groups[group].map(function (item) { return item.observed_date; }).sort();
+      const item = document.createElement('li');
+      item.style.setProperty('--method-color', 'var(--series-' + (index % 4 + 1) + ')');
+      item.innerHTML = '<span class="swatch weight-method-swatch"></span>';
+      item.appendChild(document.createTextNode(methodNames[index] + ' · ' +
+        (dates.length ? readableDate(dates[0]) + ' — ' + readableDate(dates[dates.length - 1]) : 'Нет измерений')));
+      legend.appendChild(item);
+    });
+    wrap.appendChild(legend);
+    const label = document.createElement('label');
+    label.textContent = 'Показатель ';
+    const select = document.createElement('select');
+    const metrics = [
+      ['body_fat_pct', 'Жир % (источник)', '%'],
+      ['estimated_fat_mass_kg', 'Оценка жира кг (Health-Check)', ' кг'],
+      ['estimated_lean_mass_kg', 'Безжировая масса кг (расчёт Health-Check)', ' кг'],
+      ['source_muscle_mass_kg', 'Мышцы кг (источник, отдельная оценка)', ' кг']
+    ];
+    metrics.forEach(function (metric) {
+      const option = document.createElement('option');
+      option.value = metric[0];
+      option.textContent = metric[1];
+      select.appendChild(option);
+    });
+    label.appendChild(select);
+    wrap.appendChild(label);
+    const chart = document.createElement("div");
+    chart.className = "chart";
+    wrap.appendChild(chart);
+    const detail = document.createElement('div');
+    detail.id = 'composition-detail';
+    detail.setAttribute('role', 'status');
+    detail.setAttribute('aria-live', 'polite');
+    detail.setAttribute('aria-atomic', 'true');
+    wrap.appendChild(detail);
+    node.appendChild(wrap);
+    function redraw() {
+      const metric = metrics[select.selectedIndex];
+      drawCompositionChart(chart, groups, metric, detail, history, methodNames);
+    }
+    select.addEventListener('change', redraw);
+    redraw();
   }
 
   function drawWeightChart(series) {
@@ -264,10 +390,10 @@
       host.innerHTML = "<p>" + chip("unavailable") + '</p><p class="muted">Нет подтверждённых измерений веса. Это не означает ноль.</p>';
       return;
     }
-    const composition = Object.values(series.composition_by_group || {}).flat();
+    const composition = compositionIndex(series.composition_by_group || {});
     const points = raw.map(function (item) {
       // Exact evidence identity only: a date or equal weight cannot prove a session.
-      const matches = composition.filter(function (entry) { return item.evidence_id && entry.weight_measurement_id === item.evidence_id; });
+      const matches = (composition.get(item.evidence_id) || []).map(function (entry) { return entry.point; });
       return { date: item.observed_date, value: item.value_kg, id: item.evidence_id, kind: "raw", provenance: item.provenance, composition: matches };
     });
     const trendPoints = trend.map(function (item) {
@@ -284,60 +410,31 @@
     if (points.length) showObservation(points[points.length - 1]);
   }
 
-  function drawCompositionChart(host, points, metric, detailNode) {
+  function drawCompositionChart(host, groups, metric, detailNode, history, methodNames) {
     host.innerHTML = '';
     detailNode.innerHTML = '';
-    const fat = (points || [])
+    const fat = Object.entries(groups).flatMap(function ([group, points], index) { return points
       .filter(function (item) { return item[metric[0]] !== null && item[metric[0]] !== undefined; })
       .map(function (item) {
-        return { date: item.observed_date, value: item[metric[0]], id: item.weight_measurement_id, kind: "raw", composition: [item], weight: item.weight_kg };
-      });
+        return { date: item.observed_date, value: item[metric[0]], id: item.weight_measurement_id,
+          kind: "raw", composition: [item], weight: item.weight_kg, method: methodNames[index],
+          color: 'var(--series-' + (index % 4 + 1) + ')' };
+      }); }).sort(function (a, b) { return a.date.localeCompare(b.date); });
     if (!fat.length) {
       host.innerHTML = '<p class="muted">Нет подтверждённых значений этого показателя. Это не означает ноль.</p>';
     } else {
       host.appendChild(svgSeries(fat, [], null, fat.map(function (item) { return item.value; }), function (point) {
-        showObservation({ date: point.date, value: point.weight, id: point.id, composition: point.composition }, detailNode);
-      }, metric[2], detailNode.id, host));
+        showObservation({ date: point.date, value: point.weight, id: point.id,
+          method: point.method, composition: point.composition }, detailNode);
+      }, metric[2], detailNode.id, host, history.map(function (row) { return row.date; })));
     }
-    const detail = document.createElement('details');
-    detail.innerHTML = '<summary>Все значения ряда</summary>';
-    const scroller = document.createElement("div");
-    scroller.className = "table-scroll";
-    scroller.setAttribute("tabindex", "0");
-    scroller.setAttribute("role", "region");
-    scroller.setAttribute("aria-label", "Состав тела, прокрутка таблицы");
-    const table = document.createElement("table");
-    table.innerHTML =
-      "<thead><tr><th>Дата</th><th>Жир % (источник)</th><th>Оценка жира кг (расчёт)</th><th>Оценка сухой массы кг (расчёт)</th><th>Мышцы источника кг</th></tr></thead>";
-    const body = document.createElement("tbody");
-    points.forEach(function (item) {
-      const row = document.createElement("tr");
-      row.innerHTML =
-        "<td>" +
-        escapeHtml(item.observed_date) +
-        "</td><td>" +
-        fmt(item.body_fat_pct, 1) +
-        "</td><td>" +
-        fmt(item.estimated_fat_mass_kg, 1) +
-        "</td><td>" +
-        fmt(item.estimated_lean_mass_kg, 1) +
-        "</td><td>" +
-        (item.source_muscle_mass_kg === null || item.source_muscle_mass_kg === undefined
-          ? "недоступно"
-          : fmt(item.source_muscle_mass_kg, 1)) +
-        "</td>";
-      body.appendChild(row);
-    });
-    table.appendChild(body);
-    scroller.appendChild(table);
-    detail.appendChild(scroller);
-    host.appendChild(detail);
   }
 
   function showObservation(point, detailNode) {
     const node = detailNode || document.getElementById('observation-detail');
     if (!node) return;
     let html = '<h3>Наблюдение · ' + escapeHtml(point.date) + '</h3><p>Вес ' + fmt(point.value, 1) + ' кг (источник)</p>';
+    if (point.method) html += '<p>' + escapeHtml(point.method) + '</p>';
     const items = point.composition || [];
     if (!items.length) html += '<p class="muted">Состав тела для этого наблюдения недоступен. Это не означает ноль.</p>';
     items.forEach(function (item, index) {
@@ -362,11 +459,11 @@
     return new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
   }
 
-  function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit, detailId, host) {
+  function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit, detailId, host, axisDates) {
     let width = Math.max(260, host.clientWidth);
     const height = 280;
     const pad = { l: 48, r: 16, t: 16, b: 52 };
-    const dates = rawPoints.concat(trendPoints).map(function (item) { return Date.parse(item.date); });
+    const dates = axisDates ? axisDates.map(Date.parse) : rawPoints.concat(trendPoints).map(function (item) { return Date.parse(item.date); });
     const minX = Math.min.apply(null, dates);
     const maxX = Math.max.apply(null, dates);
     const low = Math.min.apply(null, values);
@@ -513,7 +610,7 @@
       dot.setAttribute('cx', xOf(item.date));
       dot.setAttribute('cy', yOf(item.value));
       dot.setAttribute('r', 4.5);
-      dot.setAttribute('fill', '#1d4e89');
+      dot.setAttribute('fill', item.color || '#1d4e89');
       dot.setAttribute('class', 'weight-dot');
       circle.appendChild(hit);
       circle.appendChild(dot);
@@ -521,14 +618,14 @@
       circle.setAttribute("data-evidence-id", item.id || "");
       circle.setAttribute("tabindex", "0");
       circle.setAttribute('role', 'button');
-      circle.setAttribute('aria-label', item.date + ' · ' + fmt(item.value, 1) + (unit || ' кг') + ' · показать наблюдение');
+      circle.setAttribute('aria-label', item.date + ' · ' + fmt(item.value, 1) + (unit || ' кг') + (item.method ? ' · ' + item.method : '') + ' · показать наблюдение');
       circle.setAttribute('aria-controls', detailId || 'observation-detail');
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
       title.textContent = item.date + " · " + fmt(item.value, 1) + (unit || " кг");
       circle.appendChild(title);
       if (onClick) {
         circle.addEventListener('focus', function () { onClick(item); });
-        circle.addEventListener("click", nearestPointer);
+        circle.addEventListener("click", function () { onClick(item); });
         circle.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onClick(item); }
           if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
