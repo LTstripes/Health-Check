@@ -3,6 +3,11 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
+const { execFileSync } = require('node:child_process');
+const root = path.join(__dirname, '..');
+const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const base = process.env.HEALTHCHECK_BROWSER_BASE_URL;
 const evidence = process.env.HEALTHCHECK_BROWSER_EVIDENCE_DIR;
 if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
@@ -16,6 +21,14 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     const page = await browser.newPage({ viewport: { width: 1024, height: 900 }, timezoneId: 'America/Los_Angeles' });
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(base + '/');
+    const source = { candidate: git(['rev-parse', 'HEAD']), tree: git(['rev-parse', 'HEAD^{tree}']),
+      dirty: !!git(['status', '--porcelain']), files: {} };
+    for (const file of ['dashboard.js', 'dashboard.css']) {
+      source.files[file] = hash(fs.readFileSync(path.join(root, 'src/healthcheck/web/static', file)));
+      const response = await page.request.get(base + '/static/' + file);
+      assert.equal(response.status(), 200);
+      assert.equal(hash(await response.body()), source.files[file], 'served asset equals candidate source');
+    }
     const original = await page.locator('#dashboard-data').textContent();
     const payload = JSON.parse(original);
     const raw = payload.series.raw_points;
@@ -63,7 +76,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       estimated_fat_mass_kg: 19.33015625, estimated_lean_mass_kg: 60.79484375, source_muscle_mass_kg: null });
     const long = dates.map((date, index) => c(date, 'long-' + index));
     const short = [c('2026-04-01', 'short-0', 1), c('2026-04-07', 'short-1', 2)].map(point => ({ ...point,
-      compatibility_group: 'short', algorithm_code: 'openscale_brozek', algorithm_version: '2' }));
+      compatibility_group: 'short', algorithm_code: 'openscale_s400_composition_unknown', algorithm_version: 'unknown/config-1' }));
     const combined = { ...payload.series, raw_points: [...dates.map((date, index) => w(date, 'long-' + index)),
       w('2026-04-01', 'short-0'), w('2026-04-07', 'short-1'), w('2026-04-01', 'unmatched', 80.125)],
       trend_points: [], composition_by_group: { long, short } };
@@ -85,8 +98,8 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     await rowDetails.locator('summary').click();
     const legend = await page.locator('.weight-method-legend').innerText();
     assert.match(legend, /Xiaomi Home.*2020.*2026/s);
-    assert.match(legend, /openScale.*1 апр.*7 апр/s);
-    assert.doesNotMatch(legend, /xiaomi_home_s400_unknown_version|openscale_brozek/);
+    assert.match(legend, /openScale · S400 \(алгоритм состава неизвестен\).*1 апр.*7 апр/s);
+    assert.doesNotMatch(legend, /xiaomi_home_s400_unknown_version|openscale_s400_composition_unknown/);
     assert.equal(await page.locator('#composition-groups [data-series="raw"]').count(), 5);
     assert.equal(await page.locator('#composition-groups path').count(), 0);
     const colors = await page.locator('#composition-groups .weight-dot').evaluateAll(dots => [...new Set(dots.map(dot => getComputedStyle(dot).fill))]);
@@ -164,7 +177,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     const zero = { ...long[0], body_fat_pct: 0, estimated_fat_mass_kg: null, estimated_lean_mass_kg: null };
     const orphan = { ...short[0], observed_date: '2026-04-03', weight_measurement_id: null, weight_kg: null };
     await renderCase({ ...combined, raw_points: [w(dates[0], 'long-0')], composition_by_group: {
-      long: [zero], short: [{ ...zero, algorithm_code: 'openscale_brozek', body_fat_pct: 21 }, orphan] } });
+      long: [zero], short: [{ ...zero, algorithm_code: 'openscale_s400_composition_unknown', body_fat_pct: 21 }, orphan] } });
     assert.equal(await page.locator('#weight-history tbody tr').count(), 3);
     assert.equal(await page.locator('#composition-groups select').count(), 1);
     const negative = await page.locator('#weight-history tbody tr').evaluateAll(rows => rows.map(row =>
@@ -172,6 +185,8 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     assert.equal(negative[0][2], '0');
     assert.equal(negative[0][3], '—');
     assert.equal(negative[2][1], '—');
+    assert.match(await page.locator('#weight-history tbody tr').last().locator('summary').innerText(),
+      /openScale · S400 \(алгоритм состава неизвестен\)/);
     await page.locator('#composition-groups [data-series="raw"]').nth(1).focus();
     await page.keyboard.press('Enter');
     assert.match(await page.locator('#composition-detail').innerText(), /метод 2/);
@@ -185,7 +200,11 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     assert.match(await page.locator('#weight-history').innerText(), /Это не означает ноль/);
     checks.push('Short/singleton/empty histories; explicit 0 vs missing; multiple method rows for one semantic ID; standalone composition never date-joined');
     assert.deepEqual(errors, []);
-    const result = { status: 'PASS', browser: browser.version(), checks, geometry, errors };
+    assert.equal(git(['rev-parse', 'HEAD']), source.candidate);
+    for (const file of Object.keys(source.files)) {
+      assert.equal(hash(fs.readFileSync(path.join(root, 'src/healthcheck/web/static', file))), source.files[file]);
+    }
+    const result = { status: 'PASS', source, browser: browser.version(), checks, geometry, errors };
     fs.writeFileSync(path.join(evidence, 'weight-history-browser.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result, null, 2));
   } finally { await browser.close(); }

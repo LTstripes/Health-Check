@@ -219,6 +219,8 @@
       xiaomi_home_s400_unknown_version: 'Xiaomi Home · S400 (версия метода неизвестна)',
       xiaomi_s400_unknown_app_algorithm: 'Xiaomi · S400 (приложение и метод неизвестны)',
       openscale_brozek: 'openScale · Brozek',
+      openscale_s400_composition_unknown: 'openScale · S400 (алгоритм состава неизвестен)',
+      openscale_s400_weight: 'openScale · S400 · вес',
       xiaomi_s400_weight: 'Xiaomi · S400 · вес'
     };
     const code = point ? point.algorithm_code : provenance && provenance.algorithm_code;
