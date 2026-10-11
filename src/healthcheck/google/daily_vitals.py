@@ -310,7 +310,7 @@ def read_google_daily_vitals(
 
     by_source: dict[str, list[GoogleDailyVitalPoint]] = {}
     for (source_id, local_date), group in groups.items():
-        point = _point_for_group(definition, local_date, group, metrics)
+        point = project_google_daily_vital_group(definition, local_date, group, metrics)
         by_source.setdefault(source_id, []).append(point)
 
     source_rows = tuple(
@@ -376,7 +376,7 @@ def _load_metric_rows(
     return loaded
 
 
-def _point_for_group(
+def project_google_daily_vital_group(
     definition: GoogleDailyVitalDefinition,
     local_date: date,
     group: Sequence[GoogleSourceRecord],
@@ -548,6 +548,7 @@ __all__ = [
     "GoogleDailyVitalSource",
     "GoogleDailyVitalsResult",
     "get_google_daily_vital",
+    "project_google_daily_vital_group",
     "read_google_daily_vitals",
     "validate_google_daily_vitals_window",
 ]
