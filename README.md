@@ -32,41 +32,51 @@ R04 release lineage:
 
 The final R04 owner gate proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations. This is historical R04 evidence, not the current migration-head claim.
 
-## Current focus — 2026-10-09
+## Current focus — 2026-10-11 Owner UAT and controlled Stable handoff
 
-**#294 dated Context UI and #341 bounded standalone evidence exporter are integrated**
-(PR #350/#351). #342's Owner-clone offline classification is accepted: Google
-and Garmin sleep records exist, while an empty selected date and current
-device/family Compare eligibility explain the observed empty views; not all
-Google history is absent. This does not prove present-day provider recovery or
-an app read bug. See [#342 accepted diagnosis](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625).
+Latest accepted **product** (before a docs-only checkpoint):
+[`main fa36dc5b6402fe6e6e166091002faf4af1ec0993`](https://github.com/LTstripes/Health-Check/commit/fa36dc5b6402fe6e6e166091002faf4af1ec0993).
+[Separate post-main CI 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091)
+**SUCCESS attempt 1**, all mandatory Linux/Windows/quality/final checks.
+GitHub merges and docs commits do not deploy into Stable.
 
-Next gates: selected durable-profile Context UAT and first explicit private
-Owner export; local share UI and direct authenticated ChatGPT read tools remain
-unimplemented. Human #330 UAT is PARTIAL. #343–#348 stay planned, not launched.
+Now engineered and merged: one full-history Weight+composition view #375,
+normal Google sleep-source resolution #342/#343, dated RHR reader and first
+Overview consumer #376, more readable Statistics source labels #347,
+bounded trailing365/calendar-year/YTD Statistics #380, and **saved Garmin**
+daily Steps projection/read-only window/Statistics display #377
+(PRs #389–#391). Already delivered #344 Overview graph polish and #345
+saved-session Activity detail must **not** be relaunched. #319 calories/BMR
+remain meaning-blocked; Google Steps are not yet acquired.
 
-The prior Owner UAT inspected a verified disposable **copy of real data**,
-not synthetic fixtures or automatically updated Stable. The tested local code
-was `013482ec3a51d89fd57c3a55ab9b09d1d2228e25`; the earlier UI process
-has since stopped, and a GitHub merge does not restart it or refresh clone data. The latest human review likes A+ and the
-shorter Activity journal but requests further functionality and cleanup. #330 is
-PARTIAL. Data's freshness request now returns a result in the observed clone; actual
-historical copied provider failures, exact-date absence, role/source eligibility and incomplete metrics are separate.
+The Owner ran the new UI against an **isolated 2026-10-08 saved-data clone**,
+not current Stable: routes and tested process/profile identity PASS, fresh full
+DB integrity UNVERIFIED. Observed `/brief` first/repeat 23.098/9.470 seconds
+with uncontrolled cache; the responsiveness gate remains open. Human
+[#330 UAT is PARTIAL](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066).
+Old copied Garmin reauth/Google failures do not establish current provider
+health, and successful CI does not imply current data collection.
 
-The [current backlog](docs/ROADMAP.md#current-backlog) is the task map: #340 owns the
-specific stored-RHR surface-filter problem, #319 owns extra activity metric evidence,
-and #295 remains open for slow Overview. Planned follow-ons include two-source Sleep
-history (#343), Overview polish (#344), session details (#345), period recovery cards
-(#346), **side-by-side source Statistics** (#347) and lab document confirmation (#348).
-These are not all launched or implemented. Do not reopen completed #317/#318 merely
-because the Owner requested a new experience.
+Owner requests recorded without duplicate implementation: #392 exact Google
+Steps acquisition/storage contract; #395 attach the already accepted Garmin
+offline daily Steps projector to routine successful persisted acquisition;
+#393 source/day-correct period-mean RHR instead of verbose card; #394 truthful
+Body Battery daily-max vs saved snapshot semantics; #379 human Weight table
+precision/dates; #347 provider-first source selection; #294 primary Comments
+navigation/one IANA zone chooser; #305 concise saved-value versus refresh state.
+#380 all-history remains separate; #345 conceptual redesign deferred.
 
-Exact integration and sanitized Owner evidence are in [Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md)
-and [#330](https://github.com/LTstripes/Health-Check/issues/330). The
-[2026-10-06 UAT handoff](docs/OWNER_UAT_FOLLOWUP_2026-10-06.md) remains historical.
-See [Owner UI](docs/OWNER_UI_SHELL.md), [CI optimization closeout](docs/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md)
-and [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md). GitHub merges do not update
-or restart the local Owner runtime automatically.
+See the [2026-10-11 Owner UAT checkpoint](docs/OWNER_UAT_CHECKPOINT_2026-10-11.md),
+[current backlog](docs/ROADMAP.md#current-backlog),
+[Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md),
+[Owner UI](docs/OWNER_UI_SHELL.md) and
+[Owner Machine Layout](docs/OWNER_MACHINE_LAYOUT.md).
+A controlled Stable update is now worth planning, **not already executed**:
+Owner-local backup+verify+restored-clone rehearsal, runtime/process locks,
+rollback readiness and a separately assigned Codex deployment operation
+must precede any durable-profile migration/start. No unauthorized provider
+refresh, typed replay, private data write or scheduler change follows
+from this documentation reconciliation.
 
 ## Architecture in one minute
 

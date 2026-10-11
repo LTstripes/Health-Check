@@ -8,68 +8,80 @@ proof. Do not use an older status paragraph as an instruction to repeat complete
 
 ## Current canonical state — 2026-10-11
 
-Canonical accepted engineering checkpoint:
-`main f0e6c36c4d10f03069111665f10201575ee6ea0e`;
-[full post-main CI 38070804783](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
-SUCCESS attempt 1. Read [live main](https://github.com/LTstripes/Health-Check/commits/main)
-and [issues](https://github.com/LTstripes/Health-Check/issues) before implementation.
+Accepted **product** immediately before this docs-only reconciliation:
+[`main fa36dc5b6402fe6e6e166091002faf4af1ec0993`](https://github.com/LTstripes/Health-Check/commit/fa36dc5b6402fe6e6e166091002faf4af1ec0993);
+independent [post-main CI 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091)
+**SUCCESS attempt 1**. Check [live main](https://github.com/LTstripes/Health-Check/commits/main)
+and issues again before assigning new work. This docs closeout does not deliver product code.
 
-- The full A+ Owner wave is **engineered and integrated**: #343 7/30 Sleep timeline
-  [PR #368](https://github.com/LTstripes/Health-Check/pull/368), #358 fixed-seed
-  multidomain synthetic demo [#369](https://github.com/LTstripes/Health-Check/pull/369),
-  #347 Statistics parity [#370/#371](https://github.com/LTstripes/Health-Check/pull/370),
-  #295 request-local /brief read reuse [#372](https://github.com/LTstripes/Health-Check/pull/372),
-  #345 saved Activity detail [#373](https://github.com/LTstripes/Health-Check/pull/373)
-  and #344 chart/readability [#374](https://github.com/LTstripes/Health-Check/pull/374).
-  No repeat of delivered implementation tasks.
-- **Owner UAT #330 PARTIAL** on a verified disposable real-data clone as of Oct 8:
-  A+ look, Sleep chart and working Activity were positively reviewed; last known
-  measurements/source selection/data UX/timezone form and Statistics long windows
-  remain next steps. Perceived speed improved but first `/brief` still timed out.
-  Clone/old stored provider statuses are not present-day Stable/provider facts.
-  [Owner decision](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913).
-- New contract/task ownership: #375 one Weight+composition history table,
-  #376 dated last-known values, #377 typed steps evidence, #378 Activity
-  function discovery, #379 A+ cross-app consistency, #380 long-range Statistics,
-  while #342/#343/#347 own exact provider identity and #319 owns energy.
-- R01–R05 remain numbered releases. R06/R09 as complete releases and durable
-  rollout of this UI are not declared. CI acceptance is not private Owner
-  readback, Stable deployment or live provider recovery.
-- Dependabot #270/#271 remain independent review proposals; #126/#167 deferred
-  Owner/admin controls are not automatic housecleaning.
+- The earlier #343/#358/#347/#295/#345/#344 A+ Owner wave was already engineered,
+  reviewed and integrated. Do **not** repeat #344 chart readability or #345
+  Activity detail. Follow-up Activity design is [#378 Owner-held](https://github.com/LTstripes/Health-Check/issues/378).
+- Accepted further code: #375 one complete saved Weight+composition table/chart
+  ([PR #382](https://github.com/LTstripes/Health-Check/pull/382));
+  #376 exact latest saved RHR reader and Overview consumer (PRs #383/#385);
+  #343 exact eligible Google sleep family selection (PR #384);
+  #347 human Statistics labels (PR #386);
+  #380 bounded 365/calendar-year/YTD Statistics backend+UI (PRs #387/#388);
+  #377 **Garmin-only** typed saved daily Steps projection/window/Stats
+  ([PRs #389/#390/#391](https://github.com/LTstripes/Health-Check/issues/377)).
+  This is not Google Steps acquisition, normal-refresh projector wiring,
+  all-history Statistics, or a calorie entitlement.
+- A clean local code checkout was advanced to accepted main and served against a
+  previously verified **disposable saved-data clone as of Oct 8**; all main
+  routes reported HTTP 200. Initial/repeat Overview 23.098s/9.470s
+  (cache not controlled), fresh full DB integrity **UNVERIFIED**.
+  [Human Owner UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066)
+  stays **PARTIAL**, even though overall A+ reception is positive.
+  Copied auth/refresh failures are not present-day provider reachability.
+- **New bounded Owner issues**, not automatically launched:
+  [#392 Google Steps](https://github.com/LTstripes/Health-Check/issues/392),
+  [#395 Garmin routine Steps wiring](https://github.com/LTstripes/Health-Check/issues/395),
+  [#393 period RHR mean](https://github.com/LTstripes/Health-Check/issues/393),
+  [#394 Body Battery daily maximum/source proof](https://github.com/LTstripes/Health-Check/issues/394).
+  Existing #379 Weight table display, #347 provider-first source selection,
+  #294 primary Comments nav/timezone and #305 grouped saved-vs-refresh statuses
+  retain their issues. #319 energy/BMR meaning is **BLOCKED**.
+- R01–R05 remain named releases. Durable **Stable deployment has not occurred
+  for this accepted UI**. Plan bounded Owner backup/restore rehearsal, process
+  coordination, reversible code update and distinct human UAT
+  ([dated handoff](OWNER_UAT_CHECKPOINT_2026-10-11.md)).
+  The two open Dependabot PRs #270/#271 remain separate proposals.
 
 ## What the product can do today
 
 ### Owner interface
 
-The primary accepted desktop 1024px+ A+ navigation is **Обзор / Вес / Сон /
-Активность / Статистика / Данные**. Overview opens at `/brief`, Weight `/`,
-Sleep `/sleep` (legacy source-night modes and secondary `/agreement`),
-Activity `/garmin` with source-bound saved-session detail and A/B,
-Statistics `/statistics` with **7/30-day source-specific Garmin/Google
-columns**, Data `/imports` with saved freshness/import review. `/context`
-provides existing revisioned notes but **Комментарии** is still a hidden
-secondary link: Owner requested it in primary nav in #294.
+Desktop 1024px+ A+ primary navigation is **Обзор / Вес / Сон /
+Активность / Статистика / Данные**. Overview `/brief`, Weight `/`,
+Sleep `/sleep` (secondary `/agreement`), Activity `/garmin` with a
+source-bound saved session detail route and A/B, Statistics `/statistics`,
+Data `/imports`. The revisioned `/context` notes service/portal exists;
+its small repeated header link is **not** the requested primary
+`Комментарии` tab yet (#294).
 
-Sleep B2 already uses readable Garmin and Google source histories, faithful
-gaps and exact detail; the next source-default choice needs read-only evidence
-(#342) because stored Google/Fitbit and family-aggregate identities may overlap.
-Normal product display has two *provider concepts*, not three independent
-brands. Statistics labels are still too technical with multiple exact source
-identities, long periods and Steps/Energy are not yet implemented. Defaults
-must not sum independent source identities or fabricate a Google score.
+**Already delivered:** one all-history Weight+composition table and
+method-separated selectable chart (#375); Garmin+eligible Google Sleep timeline
+with exact provenance/unknowns (#343); human Statistics source labels and
+7/30/trailing365/calendar-year/year-to-date windows (#347/#380);
+dated latest-eligible RHR Overview card (#376);
+Garmin `observed_daily_steps` typed saved projection, bounded offline reader
+and daily Statistics view (#377). A saved Steps cell requires prior
+materialization and one exact source; current normal refresh wiring remains #395,
+Google Steps production acquisition #392. All-history Statistics is a distinct
+unimplemented bounded task; Energy/BMR #319 BLOCKED.
 
-Overview and Weight retain real source-backed values, accepted 21d weight
-trend, honest measured-point connectors and distinct BIA compatibility groups.
-The new [#375](https://github.com/LTstripes/Health-Check/issues/375) request
-consolidates all full-history confirmed Weight+composition into one dated table
-and a method-distinguished metric chart — **planned, not delivered**.
+Normal Owner provider concepts are **Garmin and Google**, but exact saved
+Google source identities still have metric-specific eligibility/ambiguity:
+the accepted sole `google-wearables` family default applies to **Sleep only**
+(#342), not physiology/Steps/Activity. Never pool Fitbit list copies,
+family source, Google physiology or Garmin accounts. #347 still owns the
+source-selection usability delta. Missing/ineligible/uncollected is not zero.
 
-Common **last eligible stored data with actual date/age** as a useful default
-on days without a new observation is [#376](https://github.com/LTstripes/Health-Check/issues/376);
-it must not silently change explicitly requested periods, claim today's
-measurement or imply recovered providers. Forms/tables/secondary screens need
-bounded A+ style consistency under #379, not another global redesign.
+The new Owner screenshots confirm large unresolved presentation density in
+Weight history/Context/Data, despite positive overall A+ feedback. A bounded
+first formatting slice is #379; permanent source/form values remain exact in
+technical disclosure.
 
 ### Weight / body composition
 
@@ -78,7 +90,7 @@ bounded A+ style consistency under #379, not another global redesign.
 - Owner-supplied date is date-only; fixed workflow identity is not falsely called visual evidence. Exact attachment replay is duplicate-safe; cross-image semantic dedup is not implemented (#228).
 - Changed-sidecar/provenance corrections (#229/#240) require explicit review; reject is non-mutating and confirm preserves revision/supersession history.
 - openScale/openScale-sync compatibility remains delivered optional contract; #153 is closed as not planned. Screenshots are the operational path.
-- Deterministic trends, observed daily medians and separate composition compatibility groups retain their meaning. #344 will add honest thin connectors and readability polish without changing EWMA or creating daily measurements.
+- Deterministic trends, observed daily medians and separate composition compatibility groups retain their meaning. #344 already added honest thin connectors and readable Sleep ticks without changing EWMA or creating daily measurements.
 
 ### Garmin
 
@@ -86,7 +98,7 @@ bounded A+ style consistency under #379, not another global redesign.
 - Deterministic baselines/trends, activity/cycling comparison and bounded exploratory lagged associations.
 - Garmin-native Training Status/load/ACWR, Load Focus and Readiness/Recovery with source chronology/provenance; requested acquisition date is not necessarily source date.
 - Bounded Training sync is part of normal Owner refresh. No invented recovery-time unit, provider attribution or custom score.
-- #319 already integrated typed max-HR and anaerobic Training Effect; saved history requires separate Owner replay. Calories/BMR meaning remains blocked; daily Steps source evidence is #377. Current #345 saved session detail is delivered.
+- #319 already integrated typed max-HR and anaerobic Training Effect; saved history requires separate Owner replay. Calories/BMR meaning remains blocked; Garmin saved daily Steps are delivered under #377, normal refresh wiring remains #395, and Google Steps need #392. Current #345 saved session detail is delivered.
 
 ### Google Health
 
@@ -116,41 +128,49 @@ a durable Stable journal entry; explicit rollout is required before normal use.
 
 ## Current real-data limitations and next work
 
-The Oct 11 Owner-local UAT on the accepted current code opened all seven
-primary pages successfully on an **older disposable copy** of genuine data.
-Initial `/brief` exceeded a 30s budget; repeat ~14s. Nine checked tables
-passed scoped verification; the full clone DB integrity scan timed out,
-**UNVERIFIED**, not PASS or evidence of corruption. Old saved Garmin reauth
-and Google failed collection statuses coexist with valid stored history:
-they do not describe current provider reachability. Source freshness
-and last eligible saved readings must be presented separately (#305/#376).
+[Owner UAT checkpoint](OWNER_UAT_CHECKPOINT_2026-10-11.md) is the current
+sanitized owner handoff: code `fa36dc5b…` opened all primary routes on
+the as-of-2026-10-08 disposable real-data clone; full fresh DB integrity
+remains UNVERIFIED; `/brief` first/repeat 23.098/9.470s with uncontrolled
+cache, not a performance PASS. Saved record presence and copied provider
+failures do not establish live Stable synchronization; #305 keeps these
+statuses distinct and #376 owns last-known dated evidence.
 
-The earlier [offline #342 classification](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625)
-distinguished accepted account sleep pairs from device/family Compare,
-source family vs data-source identities and saved record role exclusions.
-A further read-only per-source eligibility/overlap decision is needed before
-simplifying the normal Google source line in #343/#347; no pool or automatic
-canonical switch. One disputed screenshot measurement date remains a
-separate Owner-assisted correction gate; current code does not resolve it.
+Confirmed UAT issues and their bounded owners: #379 Weight table rounded
+display/human dates (NOT calculation), #393 eligible-day RHR mean, #394
+Body Battery maximum interpretation before value change, #347 provider-first
+Statistics with unambiguous exact source semantics, #294 primary Comments and
+human IANA timezone, #305 condensed Data source status, #395 automatic
+Garmin post-save Steps projection contract and #392 Google Steps type/source
+research. **No new reader** for already integrated #377. #319
+calories remains BLOCKED by authoritative field/unit/category/interval meaning;
+do not add components or infer totals. #378 speculative Activity redesign
+is held for Owner discovery.
+
+The former five Google exact identities on the clone were classified under
+[#342 accepted sleep overlap](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6107122463).
+That acceptance authorizes one **Sleep** Google series, not a default for all
+Google health metrics. Existing #343/#344/#345 engineering is integrated,
+not an unstarted queue. No unapproved Stable rewrite, automatic provider
+call, retrospective Garmin Steps projection or migration to change old
+source definitions.
+
+**Next operational choice:** an Owner-assigned controlled Stable code
+deployment after fresh supported backup, verification and a restored-clone
+startup/migration rehearsal. Stable/live provider UAT follows separately;
+docs-only GitHub updates are not deployment.
 
 ## Next product capabilities, not implemented promises
 
-Execution is tracked in [Roadmap](ROADMAP.md#current-backlog) and live issues.
-High-priority accepted decisions: #375 unified full-history Weight table/chart;
-#342/#343/#347 provider meaning and readable Statistics source selectors;
-#376 most recent **eligible** dated observation vs missing-today cue; #294
-'Комментарии' primary navigation and selectable city/IANA timezone while
-preserving internal offset/DST/date-only; #305 last saved values vs
-copied provider state; #377 typed Steps and #319 calorie/BMR contract;
-#380 trailing 365/calendar-year/all-history source-backed Statistics;
-#379 A+ consistency for forms/tables and #378 Owner-requested Activity
-functional analytics **research only** (avoid #346 duplicate cards).
-Personal stress baseline #357 and lab-doc intake #348 are later independent
-gates. Direct ChatGPT connection under #341 is deferred.
-
-All changes need their own acceptance/candidate/PR/post-main gates. No hidden
-date fallback, Google provider pooling, fake calories/steps or broad
-unbounded historical query is authorized by product direction alone.
+Use [Roadmap](ROADMAP.md#current-backlog) for actual remaining deltas and
+their dependencies. The key gaps are Google Steps producer proof,
+routine Garmin saved-Step projection, source-specific RHR period mean,
+Body Battery daily-maximum semantics, useful provider-first Statistics,
+Comments navigation/timezone, Data freshness clarity and bounded A+ form/table
+polish. #380 longer bounded windows are already merged; only complete
+all-history remains. #319 energy and Activity redesign stay gated.
+New code must pass exact candidate/PR/post-main gates; private Owner UAT,
+Stable rollout and provider freshness need separately verified evidence.
 
 ## Source-attribution rule that matters for R05
 
@@ -193,6 +213,7 @@ an Owner/capability decision; manual Integrator exact gates remain required.
 - [Architecture](ARCHITECTURE.md)
 - [Roadmap](ROADMAP.md)
 - [Owner UI](OWNER_UI_SHELL.md)
+- [Owner UAT checkpoint 2026-10-11](OWNER_UAT_CHECKPOINT_2026-10-11.md)
 - [Context Capture](CONTEXT_CAPTURE.md)
 - [Backlog Ideas](BACKLOG_IDEAS.md)
 - [Decisions and Open Questions](DECISIONS_AND_OPEN_QUESTIONS.md)

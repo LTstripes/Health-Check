@@ -22,10 +22,10 @@ implementation/CI and local evidence live in [Current History](EXECUTION_HISTORY
 | Primary section | Route | Current surface |
 | --- | --- | --- |
 | Обзор | `/brief` | A+ Weight/Sleep/Activity readings and source-backed graphs, secondary metrics, compact actions and disclosed evidence |
-| Вес | `/` | Current confirmed weight, trend/change, configured goal, timelines and separate composition-group spans |
+| Вес | `/` | Confirmed Weight/trend, one all-history Weight+composition table and selectable chart with distinct methods (#375) |
 | Сон | `/sleep` | Primary 7/30-day Garmin + Google duration timeline over exact saved sources, with display toggles, point details and an accessible date table; Garmin / Google / Compare selected-date modes remain |
 | Сон, secondary mode | `/agreement` | Exploratory Garmin/Google comparison and diagnostic evidence |
-| Статистика | `/statistics` | Accepted 7/30 source-specific Garmin left / Google right period summaries; extra field/year coverage pending |
+| Статистика | `/statistics` | Garmin/Google 7/30, trailing365, calendar-year/YTD; saved Garmin daily Steps; all-history and Google Steps pending |
 | Активность | `/garmin#activity-journal` | Five recent saved sessions, full existing history disclosure and five-column A/B comparison |
 | Активность, secondary mode | `/garmin#training-recovery` | Garmin dated snapshots, period series and exploratory lagged associations |
 | Данные | `/imports` | Persisted freshness/actions plus upload/review queue; batch details under `/imports/{id}` |
@@ -33,7 +33,7 @@ implementation/CI and local evidence live in [Current History](EXECUTION_HISTORY
 The brand opens Overview at `/brief`; the legacy root remains Weight. Existing
 API/query/import contracts are not redefined by navigation. The Data queue describes
 its bounded recent-batch inventory, not an exhaustive count of all history.
-The implemented `/context` page is presently a secondary link; **Owner-approved next UI** promotes **Комментарии** to a discoverable primary navigation item, retaining the same revisioned route. Statistics `/statistics` is implemented for 7/30 days; its source-default and historical-window follow-ups are not yet implemented.
+The implemented `/context` page is presently a secondary link; **Owner-approved next UI** promotes **Комментарии** to a discoverable primary navigation item, retaining the same revisioned route. Statistics `/statistics` already implements 7/30 and bounded 365/calendar-year/YTD; all-history and meaningful provider-first source defaults remain follow-ups.
 
 ## One A+ visual and language system
 
@@ -139,15 +139,26 @@ source needs no redundant selector; multiple identities require explicit selecti
 
 ## Accepted engineering and Owner UAT decisions — 2026-10-11
 
-[Owner feedback #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913)
-comes from a verified **disposable clone of real saved Owner data**, not
-synthetic screenshots or an updated Stable/provider session. Accepted main
-`f0e6c36c…` integrates #343 Sleep B2, #358 demo, #347 Statistics 7/30,
-#295 /brief request-local reuse, #345 Activity session details and #344 Overview
-readability; [CI](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
-is GREEN. Human UAT is **PARTIAL**, with A+ / Sleep / Activity positives,
-copied source-freshness failures and open source-selection/usability findings.
-New requirements below are **approved direction, not delivered UI**.
+Latest accepted **product** before these documentation edits:
+[`main fa36dc5b…`](https://github.com/LTstripes/Health-Check/commit/fa36dc5b6402fe6e6e166091002faf4af1ec0993);
+[post-main CI 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091)
+SUCCESS attempt 1. It includes #343 eligible Google Sleep, #345 Activity
+session detail, #344 Overview connectors/Sleep ticks, #375 Weight all-history,
+#376 latest eligible RHR, #347 readable Statistics sources, #380 365/calendar
+year/YTD and #377 Garmin typed Steps saved projection/window/Statistics UI.
+Do not relaunch completed functionality.
+
+The latest [Owner UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066)
+used the accepted code with a verified *as-of-2026-10-08 disposable clone of
+real saved data*, not a refreshed Stable profile. A+ direction positively
+received, but **Owner UAT PARTIAL**: Weight table exposes binary float
+tails/ISO row dates, Statistics has five technical Google identities,
+Overview RHR is too verbose and Body Battery is last snapshot rather than a
+certified day maximum; Data repeats copied reauth/refresh warnings and
+Comments is a small link on every heading. Fresh full clone integrity is
+UNVERIFIED; first/repeat `/brief` 23.098/9.470s with uncontrolled cache.
+See [UAT checkpoint and exact issue owners](OWNER_UAT_CHECKPOINT_2026-10-11.md).
+The product deltas below are **not automatically shipped** by this decision.
 
 ### Historical evidence and dates versus today's data
 
@@ -161,11 +172,11 @@ do not silently change the user's query window, compute a numeric provider
 delta between mismatched actual windows or hide a missing day. An unavailable
 source or ambiguous eligible identity is not a zero. The reusable contract is
 [#376](https://github.com/LTstripes/Health-Check/issues/376); today's
-`/brief`/`/statistics` behaviour is not yet changed.
+#376 first Overview RHR last-eligible consumer is already merged; broader metric-specific defaults and other cross-screen adapters still need their separate contracts.
 
 ### Weight / composition
 
-[#375](https://github.com/LTstripes/Health-Check/issues/375) is the Owner's
+[#375](https://github.com/LTstripes/Health-Check/issues/375) **already delivered** the Owner's
 chosen simplification: **one longitudinal full-history table** for confirmed
 measurements, weight, body-fat % (source), derived fat/lean kg and separate
 muscle kg (source), with understandable source/method labels. Align by real
@@ -188,16 +199,26 @@ reducing visible source lines. Neither a guessed Fitbit preference nor an
 implicit family/device pool is acceptable. Advanced display retains every
 exact identity and original evidence; no R05/canonical switch.
 
-Statistics currently implements only source-specific **7/30** values and
-exact-source selection; its opaque IDs and ambiguous Google source choice are
-**Owner UAT friction**. Follow-up [#347](https://github.com/LTstripes/Health-Check/issues/347)
-should use meaningful labels and a proven eligible default or clear choice,
-not a fabricated Garmin/Google aggregate. Additional source-specific
-periods **trailing 365 / calendar year / all history** require accepted
-[#380](https://github.com/LTstripes/Health-Check/issues/380) range and performance
-contract. **Steps #377** need a verified typed acquisition source; **calories
-#319** remain blocked by energy/BMR field meaning. Unsupported Google activity
-and absent energy/steps must never become 0.
+Statistics already supports source-specific **7/30, trailing 365,
+calendar-year and year-to-date** windows; all-history is still a separately
+bounded #380 scope. Human source labels were delivered under #347, but
+five exact Google identities and empty entries remain **Owner UAT friction**.
+Follow-up [#347](https://github.com/LTstripes/Health-Check/issues/347)
+must offer normal Garmin/Google provider choices and evidence-backed exact
+metric-specific defaults/advanced selection without source pooling. The
+[#342](https://github.com/LTstripes/Health-Check/issues/342)
+`google-wearables` family preference is valid for **Sleep only**, never
+applied automatically to all Google physiology or Steps.
+
+**Garmin observed daily Steps #377** are already typed over saved
+`calendarDate/totalSteps` and visible in Statistics through an exact-source,
+bounded read-only reader. Normal successful Garmin post-save projector wiring
+is #395 and full historical UAT-clone projection remains a separate authorized
+operation; Google Steps acquisition/type evidence is #392. Never turn missing
+or `projection_unavailable` into zero. **Calories #319** remain blocked by
+energy/BMR meaning. Source-specific per-period averages (RHR #393) and Body
+Battery day max vs last-snapshot (#394) require acceptance before changing
+existing values; provenance/error detail remains accessible.
 
 ### Data, Comments and common style
 

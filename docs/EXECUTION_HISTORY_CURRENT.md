@@ -13,6 +13,48 @@ Earlier indexes also remain:
 - [Reliability/correction history through 2026-10-01](EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md).
 - [Verbose historical engineering log](EXECUTION_HISTORY.md).
 
+## 2026-10-11 — Steps/Statistics engineering and second Owner UAT checkpoint
+
+Accepted product baseline immediately before this docs-only reconciliation:
+[`main fa36dc5b6402fe6e6e166091002faf4af1ec0993`](https://github.com/LTstripes/Health-Check/commit/fa36dc5b6402fe6e6e166091002faf4af1ec0993).
+Independent **post-main push CI 38164560091**
+([run](https://github.com/LTstripes/Health-Check/actions/runs/38164560091))
+SUCCESS attempt 1; classify, quality, all three Linux lanes, Windows and final
+checks passed; docs skipped as expected. Repository docs updates are separate,
+never recast this product run as a docs candidate gate.
+
+| Integrated delta | Durable engineering evidence |
+| --- | --- |
+| #375 full-history Weight and separate composition methods | [PR #382](https://github.com/LTstripes/Health-Check/pull/382), [post-main 38125452863](https://github.com/LTstripes/Health-Check/actions/runs/38125452863) SUCCESS |
+| #376 dated last eligible RHR reader + first Overview card | [PRs #383/#385](https://github.com/LTstripes/Health-Check/issues/376#issuecomment-6109039836), [post-main #385 38138876653](https://github.com/LTstripes/Health-Check/actions/runs/38138876653) SUCCESS; broader adapters not delivered |
+| #343 sole Google eligible sleep source | [PR #384](https://github.com/LTstripes/Health-Check/pull/384), [post-main 38134563549](https://github.com/LTstripes/Health-Check/actions/runs/38134563549) SUCCESS |
+| #347 Statistics labels | [PR #386](https://github.com/LTstripes/Health-Check/pull/386) merged; source confusion UAT remains |
+| #380 bounded long-window Statistics backend+UI | [PR #387](https://github.com/LTstripes/Health-Check/pull/387) + [PR #388](https://github.com/LTstripes/Health-Check/pull/388), [post-main 38150693455](https://github.com/LTstripes/Health-Check/actions/runs/38150693455) SUCCESS; all-history is not integrated |
+| #377 Garmin daily saved Steps projection / window / Stats | [PR #389](https://github.com/LTstripes/Health-Check/pull/389), [PR #390](https://github.com/LTstripes/Health-Check/pull/390), [PR #391](https://github.com/LTstripes/Health-Check/pull/391); [post-main 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091) SUCCESS; no automatic normal-refresh projection or Google Steps |
+
+**Owner-local separate gate:** clean `D:\HealthCheck\main` fast-forwarded
+to accepted product SHA. One real-data disposable UAT profile (snapshot as-of
+2026-10-08), code/process/profile binding and seven primary routes HTTP 200
+reported; UAT-only startup migration left reported DB hash unchanged and WAL
+empty. Fresh full clone integrity remains UNVERIFIED. Observed `/brief`
+23.098s first request / 9.470s repeat, system cache not cleared. Neither a
+controlled speedup nor an acceptable final response-time claim.
+Stable, providers, scheduler and persistent Context were not changed.
+
+**Human result:** A+ reception positive, Weight history/Data/Overview inspected
+with eight bounded product follow-ups; [#330 stays PARTIAL](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066).
+New source/meaning issues: [#392 Google Steps](https://github.com/LTstripes/Health-Check/issues/392),
+[#393 eligible-day RHR mean](https://github.com/LTstripes/Health-Check/issues/393),
+[#394 Body Battery daily max vs saved samples](https://github.com/LTstripes/Health-Check/issues/394),
+[#395 Garmin routine Steps materialization](https://github.com/LTstripes/Health-Check/issues/395).
+Existing #377/#347/#294/#305/#379/#375/#376/ #319 were updated
+**without** repeating already merged delivery. #319 calorie/energy semantics
+parked BLOCKED, #345 speculative Activity UI remains on Owner design hold.
+No Worker or Owner-local Stable operation was launched by these notes.
+
+See [dated sanitized UAT handoff and guarded Stable rollout proposal](OWNER_UAT_CHECKPOINT_2026-10-11.md)
+for the Owner's observations and precise readiness limits.
+
 ## 2026-10-10 — final integrated Owner UI engineering package
 
 Accepted canonical product main:

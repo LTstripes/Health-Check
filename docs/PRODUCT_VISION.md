@@ -39,15 +39,27 @@ See [Project Wiki](PROJECT_WIKI.md) and [Current History](EXECUTION_HISTORY_CURR
 
 ### Owner direction — 2026-10-11 (after complete A+ integration)
 
-[Current engineering main f0e6c36c](https://github.com/LTstripes/Health-Check/commit/f0e6c36c4d10f03069111665f10201575ee6ea0e)
-includes source-separated 7/30 Garmin/Google Sleep and Statistics, synthetic
-demo, request-local Overview read reuse, Activity session detail and improved
-Overview chart readability. [CI 38070804783](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
-SUCCESS. Human [Owner UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913)
-is **PARTIAL** on a verified **older disposable copy of real data**, not
-approval of current providers/Stable. The visual A+ / new Sleep / Activity
-functionality received positive feedback; Stats source confusion, long history,
-context usability and data freshness remain the next product needs.
+[Accepted product main fa36dc5b](https://github.com/LTstripes/Health-Check/commit/fa36dc5b6402fe6e6e166091002faf4af1ec0993)
+includes the earlier source-separated Sleep/Statistics A+ wave and #375
+full-history Weight+composition, #376 first RHR reader/card, #343 precise
+Google Sleep source selection, #347 readable labels, #380 bounded 365/year/YTD
+Statistics and #377 Garmin saved-daily Steps projection/read-only UI.
+[Post-main CI 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091)
+SUCCESS. This is **engineering**, not Stable deployment or Owner final UAT.
+
+Human [Owner UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066)
+is **PARTIAL** on the verified but historical Oct 8 disposable copy of real
+data. The Owner likes the general A+ direction but calls out noisy technical
+source/UI details, unformatted Weight-derived floats/dates, five Google
+identities, source selection friction, verbose RHR/Data, and the missing
+normal Garmin/Google daily Steps experience. First/repeat Overview 23.098s/
+9.470s with uncontrolled cache; fresh full-clone DB integrity UNVERIFIED.
+Separate guarded Stable code rollout recommended; no private/live provider
+status is proven by these stored clone errors.
+
+[Detailed UAT handoff and remaining issue owners](OWNER_UAT_CHECKPOINT_2026-10-11.md)
+and [current backlog](ROADMAP.md#current-backlog) replace superseded
+planning-status assumptions below.
 
 **Product-first decisions:**
 - One chronological full saved Weight+composition table and a single selected
@@ -59,10 +71,11 @@ context usability and data freshness remain the next product needs.
 - **Last eligible saved value + actual observation date/age** can be a useful
   default when a day lacks data. It is not today's value, a new provider
   success or a silent rewrite of explicitly selected windows (#376).
-- Meaningful Statistics needs human source names/eligibility, bounded trailing
-  365/calendar-year/all-history contracts (#380), real Steps with accepted
-  source/typed evidence (#377) and non-fabricated energy after #319 meaning
-  resolution. Google activity/session parity is not yet collected.
+- Statistics now has human labels and bounded 7/30, 365, calendar-year and YTD
+  windows; full all-history remains separately gated (#380). Garmin saved daily
+  Steps evidence/UI are integrated (#377), but routine projector wiring #395
+  and Google Steps source/ingestion #392 are not. Calories/BMR remain BLOCKED
+  under #319; Google activity/session parity is not yet collected.
 - Add **Комментарии** to primary navigation; normal time input selects one
   human city/IANA zone and the exact UTC offset is derived and persisted
   internally. Date-only remains date-only and DST ambiguity is validated (#294).
@@ -72,6 +85,14 @@ context usability and data freshness remain the next product needs.
 - Future Activity value/design questions are deliberately read-only Owner-led
   discovery (#378), not automatic cards, provider features or a second analytics
   engine (#346).
+
+Additional follow-ups: [#393](https://github.com/LTstripes/Health-Check/issues/393)
+requires exact eligible-day/source semantics for a compact period-mean resting
+pulse; [#394](https://github.com/LTstripes/Health-Check/issues/394)
+requires proof before using Body Battery day maximum instead of last snapshot;
+[#379](https://github.com/LTstripes/Health-Check/issues/379)
+addresses human Weight-table dates and floating-point display. No new calculation,
+health score, source pooling or provider calls are authorized by these UI requests.
 
 [R06 health evidence exporter](https://github.com/LTstripes/Health-Check/issues/341)
 and Context v0 are built, but direct ChatGPT access is paused. Routine notes
