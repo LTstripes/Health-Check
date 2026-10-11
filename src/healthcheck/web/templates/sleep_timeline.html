@@ -13,7 +13,7 @@
   <p class="muted">Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p>
   <div class="preset-links" aria-label="Окно истории сна">
     {% for window in (7, 30) %}
-    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.selected_source_id %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{{ window }} дней</a>
+    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{{ window }} дней</a>
     {% endfor %}
   </div>
   {% if timeline and not timeline.read_limit_exceeded %}

@@ -581,7 +581,7 @@ def test_week_range_matches_accepted_reader_without_writes(tmp_path):
         assert referenced <= embedded
 
 
-def _seed_normal_google(paths, *, competitor=False):
+def _seed_normal_google(paths, *, competitor=False, competitor_wake=None):
     from healthcheck.db.models import GoogleSource
     from healthcheck.google.contracts import (
         FAMILY_ALL_SOURCES,
@@ -622,7 +622,16 @@ def _seed_normal_google(paths, *, competitor=False):
                 elif "FITBIT" in instance:
                     excluded_id = identity
             if competitor:
-                _persist_google(session, paths, payload=_google_sleep_payload(name="competitor"))
+                payload = _google_sleep_payload(name="competitor")
+                if competitor_wake:
+                    wake = competitor_wake
+                    previous = wake - timedelta(days=1)
+                    interval = payload["dataPoints"][0]["sleep"]["interval"]
+                    interval["startTime"] = f"{previous}T22:00:00Z"
+                    interval["endTime"] = f"{wake}T05:00:00Z"
+                    interval["civilStartTime"]["date"] = wake.isoformat()
+                    interval["civilEndTime"]["date"] = wake.isoformat()
+                _persist_google(session, paths, payload=payload)
             session.flush()
             source = session.get(GoogleSource, excluded_id)
             session.add(GoogleSource(
@@ -711,3 +720,30 @@ def test_normal_google_ambiguity_blocks_default_and_zero_is_eligible():
     assert chosen["display_series"][0]["points"][-1]["is_zero"] is True
     assert chosen["display_series"][0]["points"][-1]["value_seconds"] == 0
     assert packet["google"]["series"][0]["source"]["source_id"] == "family"
+
+
+def test_auto_google_default_does_not_become_human_choice_when_window_expands(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    family_id, _ = _seed_normal_google(
+        paths, competitor=True, competitor_wake=date(2098, 12, 20),
+    )
+    app.state.engine = create_sqlite_engine(paths)
+    with client_for(app) as client:
+        week_url = "/sleep?wake_date=2099-01-02&days=7"
+        week = client.get(week_url)
+        assert _timeline_json(week.text)["google_selection"]["status"] == "sole_google_wearables"
+        import re
+
+        preset = re.search(r'href="(/sleep\?view=timeline&amp;days=30[^"]*)"', week.text)[1]
+        assert "google_sleep_source_id" not in preset
+        month = client.get(preset.replace("&amp;", "&"))
+        packet = _timeline_json(month.text)
+        assert packet["google_selection"]["status"] == "require_selection"
+        assert [item["provider"] for item in packet["display_series"]] == ["garmin"]
+        # Only a source the user explicitly picked survives changing the window.
+        explicit = client.get(week_url + "&google_sleep_source_id=" + family_id)
+        preset = re.search(r'href="(/sleep\?view=timeline&amp;days=30[^"]*)"', explicit.text)[1]
+        assert "google_sleep_source_id=" + family_id in preset
+        packet = _timeline_json(client.get(preset.replace("&amp;", "&")).text)
+        assert packet["google_selection"]["status"] == "explicit"
+        assert packet["display_series"][1]["source"]["source_id"] == family_id
