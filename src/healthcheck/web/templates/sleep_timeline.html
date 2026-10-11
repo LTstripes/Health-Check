@@ -13,9 +13,38 @@
   <p class="muted">Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p>
   <div class="preset-links" aria-label="Окно истории сна">
     {% for window in (7, 30) %}
-    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}">{{ window }} дней</a>
+    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.selected_source_id %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{{ window }} дней</a>
     {% endfor %}
   </div>
+  {% if timeline and not timeline.read_limit_exceeded %}
+  {% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %}
+  <p class="uncertainty-note" data-sleep-source-choice>Google: выберите источник сна для этого окна. Несколько независимых источников не объединяются; автоматический выбор не сделан.</p>
+  {% elif timeline.google_selection.status == 'no_eligible_series' %}
+  <p class="muted">Google: в этом окне нет пригодного значения длительности сна. Сохранённые источники доступны в деталях.</p>
+  {% endif %}
+  {% if timeline.google_selection.options %}
+  <details class="owner-details" data-sleep-alternate-sources{% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %} open{% endif %}>
+    <summary>Источники Google и выбор линии</summary>
+    <form method="get" action="/sleep" class="inline-edit owner-controls">
+      <input type="hidden" name="wake_date" value="{{ wake_date }}">
+      <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
+      <input type="hidden" name="view" value="timeline">
+      <label>Источник сна Google
+        <select name="google_sleep_source_id">
+          <option value="">Автоматически, если источник единственный</option>
+          {% for item in timeline.google_selection.options %}
+          <option value="{{ item.source_id }}"{% if item.source_id == timeline.google_selection.selected_source_id %} selected{% endif %}{% if not item.selectable %} disabled{% endif %}>{{ item.label }} — {{ item.value_dates }} ночей с длительностью{% if item.ambiguous_dates %}, {{ item.ambiguous_dates }} неоднозначных{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Показать</button>
+    </form>
+    <p class="muted">Выбор меняет только отображение. Исключённые записи, пропуски, неопределённая роль сна и точная идентичность сохранены в таблице и технических деталях.</p>
+    {% if timeline.google_source_inventory.truncated %}<p>Список идентичностей ограничен 200 источниками; полный статус доступен в разделе данных.</p>{% endif %}
+    <ul>{% for item in timeline.google_selection.options %}<li>{{ item.label }}: {{ item.value_dates }} ночей с длительностью, {{ item.ambiguous_dates }} неоднозначных.{% if not item.has_sleep_records %} Нет записей сна в этом окне.{% elif not item.selectable %} Нет пригодной длительности в этом окне.{% endif %}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% endif %}
   {% if timeline is none %}
   {{ owner_ui.state_chip('unavailable') }}
   <p>Локальное хранилище данных не готово. Сохранённая история сна не читается.</p>
@@ -31,7 +60,7 @@
   <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} нет текущих сохранённых ночей Garmin или Google. Это не доказывает, что сна не было.</p>
   {% else %}
   <p class="legend sleep-timeline-legend" data-sleep-timeline-legend>
-    {% for series in timeline.series %}
+    {% for series in timeline.display_series %}
     <label class="sleep-series-toggle"><input type="checkbox" checked data-sleep-series-toggle="{{ series.series_id }}"><span class="swatch sleep-series-{{ series.provider }}"></span>{{ series.label }}</label>
     {% endfor %}
   </p>

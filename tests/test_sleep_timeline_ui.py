@@ -579,3 +579,135 @@ def test_week_range_matches_accepted_reader_without_writes(tmp_path):
             for session in source["sessions"]
         }
         assert referenced <= embedded
+
+
+def _seed_normal_google(paths, *, competitor=False):
+    from healthcheck.db.models import GoogleSource
+    from healthcheck.google.contracts import (
+        FAMILY_ALL_SOURCES,
+        FAMILY_GOOGLE_WEARABLES,
+        GoogleSourceIdentity,
+        GoogleSourceKind,
+    )
+    from test_sleep_source_view import _persist_account_garmin, _persist_identity
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            _persist_account_garmin(session, paths)
+            family_id = None
+            excluded_id = None
+            for instance, kind, family, nap in (
+                (FAMILY_GOOGLE_WEARABLES, GoogleSourceKind.FAMILY_AGGREGATE,
+                 FAMILY_GOOGLE_WEARABLES, None),
+                ("users/me/dataSources/FITBIT-list", GoogleSourceKind.DATA_SOURCE,
+                 FAMILY_ALL_SOURCES, None),
+                ("users/me/dataSources/old-health-connect-nap", GoogleSourceKind.DATA_SOURCE,
+                 None, True),
+            ):
+                payload = _google_sleep_payload(name=instance)
+                payload["dataPoints"][0].pop("dataSource")
+                metadata = payload["dataPoints"][0]["sleep"]["metadata"]
+                metadata.pop("main", None)
+                metadata.pop("nap", None)
+                if nap:
+                    metadata["nap"] = True
+                result = _persist_identity(session, paths, payload, GoogleSourceIdentity(
+                    source_kind=kind, source_instance_id=instance,
+                    platform="FITBIT" if "FITBIT" in instance else None,
+                ), family)
+                identity = result.records[0].google_source_id
+                if kind == GoogleSourceKind.FAMILY_AGGREGATE:
+                    family_id = identity
+                elif "FITBIT" in instance:
+                    excluded_id = identity
+            if competitor:
+                _persist_google(session, paths, payload=_google_sleep_payload(name="competitor"))
+            session.flush()
+            source = session.get(GoogleSource, excluded_id)
+            session.add(GoogleSource(
+                provider_id=source.provider_id, acquisition_source_id=source.acquisition_source_id,
+                source_kind="data_source", provider_code=source.provider_code,
+                source_instance_id="users/me/dataSources/FITBIT-empty",
+                platform="FITBIT", device_attributed=False,
+                source_contract_version=source.source_contract_version,
+            ))
+    finally:
+        engine.dispose()
+    return family_id, excluded_id
+
+
+def test_normal_google_uses_sole_eligible_family_and_retains_alternates(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    family_id, excluded_id = _seed_normal_google(paths)
+    app.state.engine = create_sqlite_engine(paths)
+    with client_for(app) as client:
+        for days in (7, 30):
+            page = client.get(f"/sleep?wake_date=2099-01-02&days={days}")
+            assert page.status_code == 200
+            timeline = _timeline_json(page.text)
+            assert [item["label"] for item in timeline["display_series"]] == ["Garmin", "Google"]
+            assert timeline["google_selection"]["status"] == "sole_google_wearables"
+            assert timeline["google_selection"]["selected_source_id"] == family_id
+            assert len(timeline["series"]) == 4  # all stored Sleep B1 identities
+            assert len(timeline["google_selection"]["options"]) == 4  # plus empty metadata
+            point = timeline["display_series"][1]["points"][-1]
+            assert point["value_seconds"] == 24600
+            assert point["role_uncertain"] is True
+            assert point["candidate_count"] == 1
+            sources = timeline["nights"]["google"]["2099-01-02"]["sources"]
+            family = next(item for item in sources if item["source"]["source_id"] == family_id)
+            assert family["sessions"][0]["role"]["selection"] == "single_uncertain_session"
+            excluded = next(item for item in sources if item["source"]["source_id"] == excluded_id)
+            duration = excluded["sessions"][0]["metrics"]["sleep_duration_asleep_seconds"]
+            assert duration["eligible"] is False
+            assert "google_family_excluded" in page.text
+            assert "FITBIT-empty" in page.text
+            assert "google_nap_only" in page.text
+            assert page.text.count('data-sleep-series-toggle="') == 2
+
+
+def test_normal_google_requires_choice_for_two_eligible_sources_and_rejects_stale_choice(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    family_id, excluded_id = _seed_normal_google(paths, competitor=True)
+    app.state.engine = create_sqlite_engine(paths)
+    with client_for(app) as client:
+        url = "/sleep?wake_date=2099-01-02&days=7"
+        initial = _timeline_json(client.get(url).text)
+        assert initial["google_selection"]["status"] == "require_selection"
+        assert [item["provider"] for item in initial["display_series"]] == ["garmin"]
+        chosen = client.get(url + "&google_sleep_source_id=" + family_id)
+        packet = _timeline_json(chosen.text)
+        assert packet["google_selection"]["status"] == "explicit"
+        assert packet["display_series"][1]["source"]["source_id"] == family_id
+        assert packet["series"] == initial["series"]
+        assert packet["nights"] == initial["nights"]
+        assert "days=30&amp;wake_date=2099-01-02&amp;google_sleep_source_id=" in chosen.text
+        for invalid in (excluded_id, "foreign-source", family_id + "-stale"):
+            packet = _timeline_json(client.get(url + "&google_sleep_source_id=" + invalid).text)
+            assert packet["google_selection"]["status"] == "invalid_selection"
+            assert [item["provider"] for item in packet["display_series"]] == ["garmin"]
+        # A previously selected source outside the requested window never falls back.
+        packet = _timeline_json(client.get(
+            "/sleep?wake_date=2099-02-02&days=7&google_sleep_source_id=" + family_id
+        ).text)
+        assert packet["google_selection"]["status"] == "invalid_selection"
+        assert packet["display_series"] == []
+
+
+def test_normal_google_ambiguity_blocks_default_and_zero_is_eligible():
+    family = _range_series("google", "family", [_range_point("2099-01-07", value=0, is_zero=True)])
+    family["source"].update(source_kind="family_aggregate",
+                            source_instance_id="users/me/dataSourceFamilies/google-wearables")
+    ambiguous = _range_series("google", "other", [_range_point(
+        "2099-01-07", state="ambiguous", value=None, record_id=None,
+        candidate_record_ids=["a", "b"],
+    )])
+    packet = {"google": _range_packet([family, ambiguous])}
+    timeline = build_sleep_timeline(packet, days=7, end_date=END)
+    assert timeline["google_selection"]["status"] == "require_selection"
+    assert timeline["display_series"] == []
+    chosen = build_sleep_timeline(packet, days=7, end_date=END, google_source_id="family")
+    assert chosen["display_series"][0]["points"][-1]["is_zero"] is True
+    assert chosen["display_series"][0]["points"][-1]["value_seconds"] == 0
+    assert packet["google"]["series"][0]["source"]["source_id"] == "family"

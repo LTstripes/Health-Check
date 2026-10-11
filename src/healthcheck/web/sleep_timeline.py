@@ -2,7 +2,7 @@
 
 The UI only translates the accepted read-only packets: no pairing, canonical
 selection, score invention, gap bridging or stored writes. Each exact persisted
-source keeps its own labelled series; toggles hide a chart series only. Native
+source keeps its retained series; the normal chart selects one Google identity. Native
 Garmin score stays a per-session detail; no Google score is promised.
 """
 
@@ -12,6 +12,11 @@ from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from healthcheck.db.models import GoogleSource
+from healthcheck.google.contracts import FAMILY_GOOGLE_WEARABLES
 from healthcheck.web.sleep_view import source_sleep_label, source_sleep_note
 
 SLEEP_TIMELINE_CONTRACT_VERSION = "sleep-timeline-ui-v1"
@@ -166,6 +171,87 @@ def _disambiguate_labels(series: Sequence[dict[str, Any]]) -> None:
             item["label"] = f"{item['label']} · источник {seen[item['label']]}"
 
 
+def read_sleep_source_inventory(session: Session) -> dict[str, Any]:
+    """Bounded metadata only, including identities with no sleep rows in the window."""
+    rows = list(session.scalars(select(GoogleSource).order_by(
+        GoogleSource.source_kind, GoogleSource.source_instance_id, GoogleSource.id,
+    ).limit(201)))
+    return {
+        "limit": 200, "truncated": len(rows) > 200,
+        "sources": [{
+            "source_id": row.id, "source_kind": row.source_kind,
+            "source_instance_id": row.source_instance_id,
+            "device_attributed": row.device_attributed,
+            "device_model": row.device_model, "device_code": row.device_code,
+            "device_manufacturer": row.device_manufacturer,
+            "platform": row.platform, "data_source_name": row.data_source_name,
+        } for row in rows[:200]],
+    }
+
+
+def _display_series(
+    series: Sequence[dict[str, Any]], google_source_id: str | None,
+    inventory: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Select a display identity only; retained B1 series and nights stay intact.
+
+    A value (including zero) proves eligible duration in this requested window.
+    Unresolved same-source candidates also prevent an automatic source winner:
+    absence of a unique duration is not proof that a competing source is excluded.
+    """
+    garmin = [item for item in series if item["provider"] == "garmin"]
+    google = [item for item in series if item["provider"] == "google"]
+    present_ids = {item["source"]["source_id"] for item in google}
+    google = google + [{"source": source, "points": [],
+                        "label": source_sleep_label(source, "google")}
+                       for source in inventory.get("sources") or ()
+                       if source["source_id"] not in present_ids]
+    options = []
+    candidates = []
+    for index, item in enumerate(google, 1):
+        values = sum(point["state"] == "value" for point in item["points"])
+        ambiguous = sum(point["state"] == "ambiguous" for point in item["points"])
+        selectable = bool(values or ambiguous)
+        source = item["source"]
+        if source["source_kind"] == "family_aggregate":
+            name = f"Google · семейство {source['source_instance_id'].rsplit('/', 1)[-1]}"
+        else:
+            name = f"{item['label']} · источник {index}"
+        options.append({
+            "source_id": source["source_id"], "label": name,
+            "value_dates": values, "ambiguous_dates": ambiguous,
+            "selectable": selectable, "has_sleep_records": bool(item["points"]),
+        })
+        if selectable:
+            candidates.append(item)
+    selected = None
+    status = "no_eligible_series"
+    if google_source_id:
+        selected = next((item for item in candidates
+                         if item["source"]["source_id"] == google_source_id), None)
+        status = "explicit" if selected else "invalid_selection"
+    elif len(candidates) == 1:
+        selected = candidates[0]
+        source = selected["source"]
+        status = (
+            "sole_google_wearables"
+            if source["source_kind"] == "family_aggregate"
+            and source["source_instance_id"] == FAMILY_GOOGLE_WEARABLES
+            else "sole_eligible_series"
+        )
+    elif candidates:
+        status = "require_selection"
+    display = [dict(item, label="Garmin" if len(garmin) == 1 else item["label"])
+               for item in garmin]
+    if selected:
+        display.append(dict(selected, label="Google"))
+    return display, {
+        "status": status,
+        "selected_source_id": selected["source"]["source_id"] if selected else None,
+        "options": options,
+    }
+
+
 def timeline_freshness_items(
     freshness: Mapping[str, Any] | None,
 ) -> list[dict[str, Any]] | None:
@@ -213,6 +299,8 @@ def build_sleep_timeline(
     days: int,
     end_date: date,
     freshness: Mapping[str, Any] | None = None,
+    google_source_id: str | None = None,
+    google_inventory: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Merge the accepted per-provider range packets into one display packet."""
 
@@ -264,6 +352,8 @@ def build_sleep_timeline(
                 _series_view(provider, item, dates) for item in packet.get("series") or ()
             )
     _disambiguate_labels(series)
+    inventory = google_inventory or {"sources": [], "truncated": False}
+    display_series, google_selection = _display_series(series, google_source_id, inventory)
     return {
         "contract_version": SLEEP_TIMELINE_CONTRACT_VERSION,
         "days": days,
@@ -272,6 +362,9 @@ def build_sleep_timeline(
         "dates": dates,
         "providers": providers,
         "series": series,
+        "display_series": display_series,
+        "google_selection": google_selection,
+        "google_source_inventory": inventory,
         "table_rows": [
             {"date": day, "cells": [item["points"][index] for item in series]}
             for index, day in enumerate(dates)
@@ -346,6 +439,8 @@ def sleep_timeline_technical(timeline: Mapping[str, Any]) -> dict[str, Any]:
             "end_date": timeline.get("end_date"),
         },
         "providers": timeline.get("providers"),
+        "google_selection": timeline.get("google_selection"),
+        "google_source_inventory": timeline.get("google_source_inventory"),
         "undated_records": timeline.get("undated_records"),
         "series": [
             {

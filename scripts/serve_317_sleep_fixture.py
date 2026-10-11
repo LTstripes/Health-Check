@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--empty", action="store_true")
+    mode.add_argument("--normal-google", action="store_true")
     mode.add_argument("--unavailable", action="store_true")
     args = parser.parse_args()
     runtime = Path(os.environ["HEALTHCHECK_DATA_DIR"]).resolve()
@@ -50,7 +51,12 @@ def main():
     paths = prepare_runtime(settings)
     if not args.unavailable:
         migrate_database(paths)
-    if not args.empty and not args.unavailable:
+    if args.normal_google:
+        from test_sleep_timeline_ui import _seed_normal_google
+
+        seed_google_daily_vitals(paths)
+        _seed_normal_google(paths)
+    if not args.empty and not args.unavailable and not args.normal_google:
         seed_google_daily_vitals(paths)
         engine = create_sqlite_engine(paths)
         try:

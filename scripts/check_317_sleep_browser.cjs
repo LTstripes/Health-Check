@@ -41,9 +41,16 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       const timeline = page.locator('.sleep-timeline');
       assert.equal(await page.locator('[data-sleep-timeline]').count(), 1);
       assert.equal(await page.locator('.sleep-source-switch [aria-current]').innerText(), 'Динамика');
-      assert.equal(await timeline.locator('[data-sleep-series-toggle]').count(), 5);
+      assert.equal(await timeline.locator('[data-sleep-series-toggle]').count(), 1);
+      assert.equal(await timeline.locator('[data-sleep-source-choice]').count(), 1);
+      const packet = JSON.parse(await page.locator('#sleep-timeline-data').textContent());
+      const fitbit = packet.series.find(item => item.provider === 'google' && item.source.platform === 'fitbit');
+      await timeline.locator('select[name="google_sleep_source_id"]').selectOption(fitbit.source.source_id);
+      await timeline.locator('[data-sleep-alternate-sources] button').click();
+      await page.waitForURL('**google_sleep_source_id=**');
+      assert.equal(await timeline.locator('[data-sleep-series-toggle]').count(), 2);
       assert.equal(await timeline.locator('#sleep-timeline-chart svg').count(), 1);
-      assert.equal(await timeline.locator('[data-sleep-point-state="value"]').count(), 13);
+      assert.equal(await timeline.locator('[data-sleep-point-state="value"]').count(), 10);
       assert.equal(await timeline.locator('[data-sleep-point-state="ambiguous"]').count(), 1);
       assert.ok(await timeline.locator('.sleep-timeline-gap-tick').count() > 0);
       const garminLines = await timeline.locator('[data-sleep-series-group^="garmin:"] [data-sleep-line]')
@@ -216,7 +223,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       assert.equal(await page.locator('[data-source-sleep]').count(), 0);
       assert.equal(await page.locator('[data-source-series]').count(), 0);
       await geometry();
-      checks.push(`${width}px: primary 7/30 timeline (5 exact sources, no bridged gaps, ambiguity marker, display toggles, hidden-series hover/clear, point evidence details, bounded technical disclosure, undated-evidence note, explicit zero, accessible table), Garmin account without device, non-Fitbit Google account, missing/invalid/false roles, separate sources, dated vitals, missing/ambiguous/CLASSIC/summary-only/zero/nap, keyboard disclosure, unchanged empty Compare, no overflow`);
+      checks.push(`${width}px: primary 7/30 timeline (5 retained exact sources, explicit Google choice, 2 provider lines, no bridged gaps, ambiguity marker, display toggles, hidden-series hover/clear, point evidence details, bounded technical disclosure, undated-evidence note, explicit zero, accessible table), Garmin account without device, non-Fitbit Google account, missing/invalid/false roles, separate sources, dated vitals, missing/ambiguous/CLASSIC/summary-only/zero/nap, keyboard disclosure, unchanged empty Compare, no overflow`);
     }
     assert.deepEqual(errors, []);
     const result = { status: 'PASS', browser: browser.version(), checks, errors };
