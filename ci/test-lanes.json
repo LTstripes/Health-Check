@@ -15,6 +15,7 @@
       "tests/test_garmin_incremental_sync.py",
       "tests/test_garmin_lagged_associations.py",
       "tests/test_garmin_normalization.py",
+      "tests/test_garmin_observed_steps.py",
       "tests/test_garmin_persistence.py",
       "tests/test_garmin_probe.py",
       "tests/test_garmin_query_dashboard.py",
