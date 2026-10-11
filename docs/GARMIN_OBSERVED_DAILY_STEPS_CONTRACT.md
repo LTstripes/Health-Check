@@ -67,7 +67,7 @@ cards and Calories/Energy are outside this contract.
 per exact civil date in an explicitly selected Garmin source/window. It never
 calls `project_day`, opens saved bytes, materializes records, commits, selects an
 automatic source, seeks a latest value, or aggregates days. The caller owns the
-read snapshot. This reader is not yet connected to Statistics or another UI.
+read snapshot. Statistics presents these daily cells after explicit source selection.
 
 Windows contain 1–366 inclusive calendar days; larger/reversed windows and
 missing source selection are rejected. The independent reader contract is

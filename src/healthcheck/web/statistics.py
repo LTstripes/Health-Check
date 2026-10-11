@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.analytics.period_summary import PeriodSummaryService
 from healthcheck.analytics.sleep_source_view import read_source_sleep_range
 from healthcheck.db.engine import session_scope
+from healthcheck.garmin.observed_steps_read import read_observed_steps_window
 from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.pages import _persist_error, render_error
 from healthcheck.web.read_snapshot import ensure_read_snapshot
@@ -37,6 +38,17 @@ STATE_LABELS = {
     "source_missing": "Источник отсутствует",
     "selection_required": "Выбери источник",
     "selected": "Источник выбран",
+}
+
+STEPS_STATE_LABELS = {
+    "value": "Сохранённое наблюдение",
+    "missing": "Поле шагов отсутствует в сохранённом наблюдении",
+    "null": "Источник вернул null",
+    "invalid": "Недопустимое значение шагов",
+    "ambiguous": "Неоднозначно: сохранены разные значения",
+    "unavailable": "Нет допустимого значения; разные состояния наблюдений",
+    "projection_unavailable": "Нет подтверждённого сохранённого значения на эту дату",
+    "search_incomplete": "Поиск сохранённых данных не завершён",
 }
 
 
@@ -116,6 +128,16 @@ def statistics(
                 garmin_source_id=garmin_source_id or None,
                 google_source_id=selected_google,
             )
+            # A sole source chosen by the older period packet is not an explicit
+            # Steps selection. Use the request identity and the packet's exact window.
+            steps = None
+            if garmin_source_id:
+                steps = read_observed_steps_window(
+                    session,
+                    source_id=garmin_source_id,
+                    start_date=date.fromisoformat(packet["requested_window"]["start_date"]),
+                    end_date=date.fromisoformat(packet["requested_window"]["end_date"]),
+                )
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=400, detail="invalid_statistics_selection") from exc
     except SQLAlchemyError as exc:
@@ -136,6 +158,9 @@ def statistics(
         context={
             "page": "statistics",
             "packet": packet,
+            "steps": steps,
+            "steps_state_labels": STEPS_STATE_LABELS,
+            "selected_garmin_source_id": garmin_source_id or None,
             "selected_period": selected_period,
             "selected_year": selected_year,
             "control_end_date": evaluated_date.isoformat(),
