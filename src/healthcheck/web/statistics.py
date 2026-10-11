@@ -9,9 +9,13 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.analytics.period_summary import PeriodSummaryService
+from healthcheck.analytics.sleep_source_view import read_source_sleep_range
 from healthcheck.db.engine import session_scope
 from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.pages import _persist_error, render_error
+from healthcheck.web.read_snapshot import ensure_read_snapshot
+from healthcheck.web.sleep_timeline import build_sleep_timeline, read_sleep_source_inventory
+from healthcheck.web.sleep_view import source_sleep_label
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -74,11 +78,27 @@ def statistics(
 ):
     try:
         with session_scope(request_engine(request)) as session:
+            ensure_read_snapshot(session)
+            evaluated_date = end_date or date.today()
+            selected_google = google_source_id or None
+            if selected_google is None:
+                inventory = read_sleep_source_inventory(session)
+                if len(inventory["sources"]) > 1 and not inventory["truncated"]:
+                    timeline = build_sleep_timeline(
+                        {"google": read_source_sleep_range(
+                            session, provider="google", wake_date=evaluated_date, days=days,
+                        )},
+                        days=days, end_date=evaluated_date, google_inventory=inventory,
+                    )
+                    selection = timeline["google_selection"]
+                    # Reuse #343's exact-source rule, only for the approved sleep family.
+                    if selection["status"] == "sole_google_wearables":
+                        selected_google = selection["selected_source_id"]
             packet = PeriodSummaryService(session).build(
-                end_date=end_date or date.today(),
+                end_date=evaluated_date,
                 days=days,
                 garmin_source_id=garmin_source_id or None,
-                google_source_id=google_source_id or None,
+                google_source_id=selected_google,
             )
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=400, detail="invalid_statistics_selection") from exc
@@ -104,6 +124,23 @@ def statistics(
             "unit_labels": UNIT_LABELS,
             "state_labels": STATE_LABELS,
             "format_value": format_statistics_value,
+            "source_labels": statistics_source_labels(packet),
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+def statistics_source_labels(packet: dict) -> dict[str, str]:
+    """Readable labels, disambiguated without exposing opaque IDs in primary UI."""
+    labels = {}
+    for side in packet["sides"]:
+        provider = "garmin" if side["position"] == "left" else "google"
+        for index, source in enumerate(side["available_sources"], 1):
+            # B1 identities omit optional Google metadata; no inference from UUIDs.
+            label = source_sleep_label(
+                dict(data_source_name=None, platform=None, **source), provider,
+            )
+            labels[source["source_id"]] = (
+                f"{label} · источник {index}" if len(side["available_sources"]) > 1 else label
+            )
+    return labels

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Статистика — Health-Check{% endblock %}
 {% macro identity(source) -%}
-{{ source.device_model or source.device_code or source.source_kind }} · {{ source.source_id }}
+{{ source_labels[source.source_id] }}
 {%- endmacro %}
 {% block content %}
 <section class="statistics-page" aria-label="Статистика по источникам">
@@ -31,7 +31,14 @@
       <h2>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h2>
       <p>{{ identity(side.source_identity) if side.source_identity else state_labels[side.state] }}</p>
       <small>{{ side.requested_dates.start_date }} — {{ side.requested_dates.end_date }}</small>
-      {% if side.source_identity %}<p class="muted">{{ side.source_identity.source_kind }} · {{ 'Устройство атрибутировано' if side.source_identity.device_attributed else 'Без атрибуции устройства' }}</p>{% endif %}
+      {% if side.available_sources %}
+      <details class="statistics-details">
+        <summary>Точные источники · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+        <ul>{% for source in side.available_sources %}
+          <li>{{ identity(source) }}: {{ source.source_id }} · {{ source.source_kind }} · {{ source.source_instance_id }} · {{ source.device_attribution_basis }} · {{ 'Устройство атрибутировано' if source.device_attributed else 'Без атрибуции устройства' }}</li>
+        {% endfor %}</ul>
+      </details>
+      {% endif %}
     </header>
     {% endfor %}
   </div>
