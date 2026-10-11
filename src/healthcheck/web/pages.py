@@ -52,6 +52,7 @@ from healthcheck.web.sleep_comparison import comparison_charts, comparison_value
 from healthcheck.web.sleep_timeline import (
     SLEEP_TIMELINE_PROVIDERS,
     build_sleep_timeline,
+    read_sleep_source_inventory,
     sleep_timeline_days,
     sleep_timeline_technical,
 )
@@ -813,6 +814,7 @@ def sleep_page(
     vitals_window: str | None = None,
     view: str = "timeline",
     days: str | None = None,
+    google_sleep_source_id: str | None = None,
 ) -> HTMLResponse:
     try:
         end = date.fromisoformat(wake_date) if wake_date is not None else date.today()
@@ -833,7 +835,8 @@ def sleep_page(
         return _render_comparison(request, start=start, end=end, vitals_days=vitals_days)
     if view == "timeline":
         return _render_sleep_timeline(
-            request, end=end, days=sleep_timeline_days(days), vitals_days=vitals_days
+            request, end=end, days=sleep_timeline_days(days), vitals_days=vitals_days,
+            google_source_id=google_sleep_source_id,
         )
     vitals_start = end - timedelta(days=vitals_days - 1)
     results: dict[str, Any] = {}
@@ -908,7 +911,8 @@ def sleep_page(
 
 
 def _render_sleep_timeline(
-    request: Request, *, end: date, days: int, vitals_days: int
+    request: Request, *, end: date, days: int, vitals_days: int,
+    google_source_id: str | None = None,
 ) -> HTMLResponse:
     """Primary #343 desktop view: independent 7/30 source ranges in one SSR snapshot.
 
@@ -932,6 +936,8 @@ def _render_sleep_timeline(
             evaluated_at_utc = datetime.now(UTC)
             timeline = build_sleep_timeline(
                 ranges,
+                google_source_id=google_source_id,
+                google_inventory=read_sleep_source_inventory(session),
                 days=days,
                 end_date=end,
                 freshness=read_consumer_freshness_projection(

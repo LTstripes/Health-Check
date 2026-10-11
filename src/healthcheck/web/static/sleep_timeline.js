@@ -11,7 +11,7 @@
   } catch (_error) {
     return;
   }
-  if (!data || !Array.isArray(data.series) || !data.series.length) return;
+  if (!data || !Array.isArray(data.display_series) || !data.display_series.length) return;
   const detail = document.getElementById("sleep-timeline-detail");
   const seriesColors = { garmin: "#1d4e89", google: "#3f5f73" };
   const unresolvedColor = "#5c4d86";
@@ -76,7 +76,7 @@
 
   function seriesFor(element) {
     const id = element.getAttribute("data-sleep-series-id");
-    return data.series.find(function (item) { return item.series_id === id; }) || null;
+    return data.display_series.find(function (item) { return item.series_id === id; }) || null;
   }
 
   function sessionFor(series, point) {
@@ -269,7 +269,7 @@
     const dates = data.dates;
     const high = (function () {
       let top = 0;
-      data.series.forEach(function (series) {
+      data.display_series.forEach(function (series) {
         series.points.forEach(function (point) {
           if (plotted(point)) top = Math.max(top, point.value_hours);
         });
@@ -304,7 +304,7 @@
       svg.appendChild(node);
     }
     focusables = [];
-    data.series.forEach(function (series) {
+    data.display_series.forEach(function (series) {
       const color = seriesColors[series.provider] || seriesColors.garmin;
       const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
       group.setAttribute("data-sleep-series-group", series.series_id);
@@ -510,7 +510,7 @@
     });
   }
 
-  const markerCount = data.series.reduce(function (total, series) {
+  const markerCount = data.display_series.reduce(function (total, series) {
     return total + markerPoints(series).length;
   }, 0);
   if (!markerCount) {
