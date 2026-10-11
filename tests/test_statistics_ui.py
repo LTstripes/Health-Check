@@ -19,13 +19,78 @@ from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryServic
 from healthcheck.config import Settings
 from healthcheck.db.engine import migrate_database
 from healthcheck.db.models import GarminRecordMetric, GarminSource, GoogleSource
+from healthcheck.google.contracts import FAMILY_ALL_SOURCES, FAMILY_GOOGLE_WEARABLES
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.runtime import prepare_runtime
-from healthcheck.web.statistics import format_statistics_value
+from healthcheck.web.statistics import format_statistics_value, statistics_source_labels
 from healthcheck.web.ui_app import create_ui_app
 from test_period_summary import END, START, _activity, _coverage
 from test_sleep_account_cohort import _garmin, _google
 from test_sleep_metrics import projection_database as projection_database
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("case", [
+    "sole", "explicit_missing", "eligible", "conflict", "empty", "other_family", "outside", "zero",
+])
+def test_google_sleep_default_is_exact_and_window_bound(statistics_ui, case, days):
+    session, paths, client = statistics_ui
+    _garmin(session, paths, wake=START, seconds=28800, attributed=True)
+    _google(session, paths, wake=START, minutes="0" if case == "zero" else "410",
+            family=FAMILY_ALL_SOURCES if case == "other_family" else FAMILY_GOOGLE_WEARABLES)
+    family = session.scalar(select(GoogleSource))
+    _google(session, paths, wake=END, source="synthetic-alternative", nap="true")
+    alternative = session.scalar(select(GoogleSource).where(GoogleSource.id != family.id))
+    if case in {"eligible", "conflict"}:
+        _google(session, paths, wake=START, source="synthetic-alternative", name="other-main",
+                main="true", nap="false")
+    if case == "conflict":
+        _google(session, paths, wake=START, source="synthetic-alternative", name="other-conflict",
+                main="true", nap="false")
+    if case == "empty":
+        from healthcheck.db.models import GoogleRecordMetric
+        for metric in session.scalars(select(GoogleRecordMetric).where(
+            GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep",
+        )):
+            metric.state, metric.value_text, metric.value_number = "null", None, None
+    session.commit()
+    params = {"days": days, "end_date": str(END)}
+    if case == "explicit_missing":
+        params["google_source_id"] = alternative.id
+    if case == "outside":
+        params["end_date"] = str(END + timedelta(days=40))
+    response = client.get("/statistics", params=params)
+    assert response.status_code == 200
+    parser = MetricParser(response.text)
+    text = parser.cells[SLEEP_CODE, "right"]
+    if case in {"sole", "zero", "explicit_missing"}:
+        chosen = alternative if case == "explicit_missing" else family
+        expected = PeriodSummaryService(session).build(
+            end_date=END, days=days, google_source_id=chosen.id,
+        )["sides"][1]["metrics"][SLEEP_CODE]
+        assert parser.values[SLEEP_CODE, "right"].strip() == format_statistics_value(
+            SLEEP_CODE, expected["aggregation"]["value"],
+        )
+        assert chosen.id in parser.details[SLEEP_CODE, "right"]
+        assert f"Допустимо: {expected['aggregation']['eligible_count']}" in text
+        assert expected["aggregation"]["denominator"] in parser.details[SLEEP_CODE, "right"]
+    else:
+        assert parser.values[SLEEP_CODE, "right"].strip() == "Недоступно"
+        assert "Выбери источник" in text
+    assert "Не собирается" in parser.cells["activity_session_count", "right"]
+    export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
+    if export:
+        Path(export).mkdir(parents=True, exist_ok=True)
+        (Path(export) / f"source-{case}-{days}.html").write_text(response.text, encoding="utf-8")
+
+
+def test_readable_labels_disambiguate_same_model_exact_sources():
+    sources = [{"source_id": f"uuid-{index}", "device_model": "Same Watch"} for index in (1, 2)]
+    labels = statistics_source_labels({
+        "sides": [{"position": "left", "available_sources": sources}],
+    })
+    assert labels == {"uuid-1": "Garmin · Same Watch · источник 1",
+                      "uuid-2": "Garmin · Same Watch · источник 2"}
 
 
 class MetricParser(HTMLParser):

@@ -164,6 +164,48 @@ const base = 'http://127.0.0.1:8120';
         await page.close();
       }
     }
+    for (const width of [1024, 1440]) {
+      for (const days of [7, 30]) {
+        for (const scenario of ['sole', 'explicit_missing', 'eligible', 'conflict', 'empty', 'other_family', 'outside', 'zero']) {
+          const page = await browser.newPage({ viewport: { width, height: 1000 }, javaScriptEnabled: false });
+          await page.route('**/*', route => {
+            const url = new URL(route.request().url());
+            if (url.origin !== base) { external.push(url.origin); return route.abort(); }
+            if (url.pathname === '/static/dashboard.css') return route.fulfill({ contentType: 'text/css',
+              body: fs.readFileSync(path.join(process.cwd(), 'src/healthcheck/web/static/dashboard.css'), 'utf8') });
+            return route.fulfill({ contentType: 'text/html; charset=utf-8', body: fs.readFileSync(
+              path.join(fixtures, `source-${scenario}-${days}.html`), 'utf8') });
+          });
+          await page.goto(`${base}/statistics`);
+          const selector = page.locator('[name="google_source_id"]');
+          const selected = await selector.inputValue();
+          assert.equal(Boolean(selected), ['sole', 'explicit_missing', 'zero'].includes(scenario));
+          const options = await selector.locator('option').allTextContents();
+          assert.equal(new Set(options).size, options.length);
+          for (const provider of ['garmin', 'google']) {
+            const ids = await page.locator(`[name="${provider}_source_id"] option`).evaluateAll(
+              elements => elements.map(el => el.value).filter(Boolean));
+            const primary = await page.locator('main').innerText();
+            for (const id of ids) assert.ok(!primary.includes(id), 'UUID leaked outside collapsed details');
+            const detail = page.locator('.statistics-source-headings details').nth(provider === 'garmin' ? 0 : 1);
+            await detail.locator('summary').focus(); await page.keyboard.press('Enter');
+            const text = await detail.innerText();
+            for (const id of ids) assert.ok(text.includes(id), 'Exact identity absent from disclosure');
+            await detail.locator('summary').press('Enter');
+          }
+          const sleep = page.locator('[data-statistics-metric="sleep_duration_asleep_seconds"]');
+          const value = (await sleep.locator('.statistics-value').nth(1).innerText()).trim();
+          assert.equal(value, scenario === 'sole' ? '6 ч 50 мин' : scenario === 'zero' ? '0 мин' : 'Недоступно');
+          const left = await sleep.locator('article').nth(0).boundingBox();
+          const right = await sleep.locator('article').nth(1).boundingBox();
+          assert.ok(left.x < right.x && Math.abs(left.y - right.y) < 1);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+          if (days === 7) await page.screenshot({ path: path.join(evidence, `source-${scenario}-${width}.png`), fullPage: true });
+          checks.push({ width, days, sourceScenario: scenario, exactIdentityDisclosure: true, bothSides: true });
+          await page.close();
+        }
+      }
+    }
     // #347 read-failure parity: the real route's error documents must render as
     // the accepted Russian alert (role=alert, Статистика shell section), never
     // the raw JSON 500. HTML captured by test_statistics_ui.py.
