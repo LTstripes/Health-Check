@@ -380,6 +380,15 @@ main, .legal { max-width: var(--owner-content-width); }
 .weight-view label { display: block; margin: 8px 0; }
 .weight-view select { max-width: 100%; min-height: 44px; }
 .weight-view .table-scroll table { min-width: 620px; }
+.weight-view .weight-history-table table { min-width: 840px; table-layout: fixed; }
+.weight-view .weight-history-table th, .weight-view .weight-history-table td { vertical-align: top; font-variant-numeric: tabular-nums; }
+.weight-view .weight-history-table th:first-child { width: 120px; }
+.weight-view .weight-history-table th:last-child { width: 240px; }
+.weight-view .weight-history-table caption { text-align: left; color: var(--muted); padding: 12px 0; }
+.weight-view .weight-history-table summary { padding-top: 0; font-size: .875rem; }
+.weight-view .weight-history-table pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; max-height: 20rem; overflow: auto; }
+.weight-view .weight-method-legend { list-style: none; padding: 0; display: grid; gap: 8px; font-size: .875rem; }
+.weight-view .weight-method-swatch { background: var(--method-color); }
 @media (max-width: 480px) {
   .weight-view .current, .weight-view .weight-composition-values { grid-template-columns: minmax(0, 1fr); }
 }
