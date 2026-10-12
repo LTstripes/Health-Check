@@ -10,6 +10,16 @@
   {% if view.tags %}<p>Метки: {% for tag in view.tags %}{{ tag.name }} ({{ tag.status }}, {{ tag.provenance_source }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 </article>
 {% endmacro %}
+{% macro occurrence(field, label) %}
+{% if folds.get(field) %}
+<label data-fold="{{ field }}">{{ label }} — время повторяется
+  <select name="{{ field }}" required>
+    <option value="">Выбери вхождение</option>
+    {% for key, offset in folds[field] %}<option value="{{ key }}"{% if form.get(field) == key %} selected{% endif %}>{{ 'Первое' if key == 'first' else 'Второе' }} вхождение — UTC{{ offset }}</option>{% endfor %}
+  </select>
+</label>
+{% endif %}
+{% endmacro %}
 {% block content %}
 <div class="context-page">
   <p>Исходные комментарии с датой события. Время необязательно. Исправления сохраняют предыдущие версии.</p>
@@ -35,17 +45,27 @@
       <div class="context-fields">
         <label>Дата события<input name="event_date" type="date" required value="{{ form.event_date }}"></label>
         <label>Время (необязательно)<input name="event_time" type="text" inputmode="text" placeholder="19:30 или 19:30:00" value="{{ form.event_time|default('') }}" maxlength="20"></label>
-        <label>UTC-смещение для времени<input name="offset" type="text" placeholder="+03:00 или Z" value="{{ form.offset|default('') }}" maxlength="6"></label>
       </div>
-      <label>Часовой пояс IANA (необязательно, только с временем)<input name="timezone_name" placeholder="Europe/Moscow" value="{{ form.timezone_name|default('') }}" maxlength="100"></label>
-      <p class="muted">Для повторяющегося при переходе часов времени выбери смещение явно. Дата без времени не превращается в полночь.</p>
+      <div id="context-zone"{% if not form.event_time %} hidden{% endif %}>
+        <label>Город / часовой пояс
+          <select name="timezone_name"{% if not form.event_time %} disabled{% endif %} aria-describedby="context-zone-help">
+            <option value="">{{ 'Сохранить исходное время без IANA' if form.legacy_time else 'Выбери город / часовой пояс' }}</option>
+            {% if form.timezone_name and form.timezone_name not in zone_keys %}<option value="{{ form.timezone_name }}" selected>Исходный пояс — {{ form.timezone_name }}</option>{% endif %}
+            {% for key, label in zones %}<option value="{{ key }}"{% if form.timezone_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <p class="muted" id="context-zone-help">Смещение определяется по дате и времени события. Можно выбрать город с клавиатуры; IANA уточняет его часовой пояс.</p>
+        {% if form.legacy_time %}<p class="muted">Исходное время: {{ form.legacy_time }}. Город не указан. При исправлении только текста время сохраняется точно; для изменения времени выбери пояс.</p>{% endif %}
+        {{ occurrence('occurrence', 'Начало') }}
+      </div>
+      <p class="muted">Дата без времени остаётся датой — без часового пояса и полуночи.</p>
       <details{% if form.end_date %} open{% endif %}>
         <summary>Интервал (необязательно)</summary>
         <div class="context-fields">
           <label>Дата окончания<input name="end_date" type="date" value="{{ form.end_date|default('') }}"></label>
           <label>Время окончания<input name="end_time" type="text" placeholder="21:00" value="{{ form.end_time|default('') }}" maxlength="20"></label>
-          <label>UTC-смещение окончания<input name="end_offset" type="text" placeholder="+03:00 или Z" value="{{ form.end_offset|default('') }}" maxlength="6"></label>
         </div>
+        {{ occurrence('end_occurrence', 'Окончание') }}
       </details>
       <div class="context-actions">
         <button type="button" id="context-now">Сейчас</button>

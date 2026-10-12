@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import socket
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from uuid import uuid4
 
@@ -15,9 +15,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from healthcheck.config import Settings
-from healthcheck.context import ContextService, ContextValidationError, parse_date_only
+from healthcheck.context import (
+    ContextService,
+    ContextValidationError,
+    parse_date_only,
+    parse_interval,
+    parse_timestamp,
+)
 from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
-from healthcheck.db.models import ContextEventRevision
+from healthcheck.db.models import ContextEvent, ContextEventHead, ContextEventRevision
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.ui_app import create_ui_app
@@ -31,6 +37,7 @@ class FormParser(HTMLParser):
         self.values = {}
         self.in_form = False
         self.in_text = False
+        self.select = None
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
@@ -39,6 +46,11 @@ class FormParser(HTMLParser):
             self.in_form = attrs.get("id") == "context-form"
         if self.in_form and tag == "input":
             self.values[attrs["name"]] = attrs.get("value", "")
+        if self.in_form and tag == "select" and "disabled" not in attrs:
+            self.select = attrs["name"]
+            self.values[self.select] = ""
+        if self.select and tag == "option" and "selected" in attrs:
+            self.values[self.select] = attrs.get("value", "")
         if self.in_form and tag == "textarea":
             self.in_text = True
             self.values["original_text"] = ""
@@ -46,6 +58,8 @@ class FormParser(HTMLParser):
     def handle_endtag(self, tag):
         if tag == "form":
             self.in_form = False
+        if tag == "select":
+            self.select = None
         if tag == "textarea":
             self.in_text = False
             # HTML strips its first LF; the template supplies one to preserve the original.
@@ -129,19 +143,17 @@ def test_date_only_unicode_source_escaping_and_restart(ui):
     "fields,kind,precision",
     [
         (
-            {"event_time": "19:30", "offset": "+03:00", "timezone_name": "Europe/Moscow"},
+            {"event_time": "19:30", "timezone_name": "Europe/Moscow"},
             "instant",
             "minute",
         ),
-        ({"event_time": "19:30:10.123456", "offset": "Z"}, "instant", "microsecond"),
+        ({"event_time": "19:30:10.123456", "timezone_name": "UTC"}, "instant", "microsecond"),
         ({"end_date": "2099-01-05"}, "interval", "date"),
         (
             {
                 "event_time": "19:30:00",
-                "offset": "+03:00",
                 "end_date": "2099-01-02",
                 "end_time": "21:00:00",
-                "end_offset": "+03:00",
                 "timezone_name": "Europe/Moscow",
             },
             "interval",
@@ -151,7 +163,7 @@ def test_date_only_unicode_source_escaping_and_restart(ui):
             {
                 "event_date": "2026-11-01",
                 "event_time": "01:30",
-                "offset": "-04:00",
+                "occurrence": "first",
                 "timezone_name": "America/New_York",
             },
             "instant",
@@ -161,7 +173,7 @@ def test_date_only_unicode_source_escaping_and_restart(ui):
             {
                 "event_date": "2026-11-01",
                 "event_time": "01:30",
-                "offset": "-05:00",
+                "occurrence": "second",
                 "timezone_name": "America/New_York",
             },
             "instant",
@@ -195,34 +207,25 @@ def test_explicit_time_ranges_precision_roundtrip(ui, fields, kind, precision):
         {"event_date": "2099-02-30"},
         {"event_date": "today"},
         {"event_time": "19:30"},
-        {"offset": "+03:00"},
+        {"offset": "+03:00"},  # Obsolete/foreign adapter field, never an offset override.
         {"timezone_name": "Europe/Moscow"},
-        {"event_time": "19:30", "offset": "-00:00"},
-        {"event_time": "19:30", "offset": "+02:00", "timezone_name": "Europe/Moscow"},
-        {"event_time": "19:30", "offset": "Z", "timezone_name": "Invalid/Zone"},
+        {"event_time": "19:30", "timezone_name": "Invalid/Zone"},
         {"end_time": "21:00"},
         {"end_date": "2099-01-01"},
-        {"event_time": "19:30", "offset": "+03:00", "end_date": "2099-01-02"},
+        {"event_time": "19:30", "timezone_name": "Europe/Moscow", "end_date": "2099-01-02"},
         {
             "event_time": "19:30",
-            "offset": "+03:00",
+            "timezone_name": "Europe/Moscow",
             "end_date": "2099-01-02",
             "end_time": "18:30",
-            "end_offset": "+03:00",
         },
         {
             "event_time": "19:30",
-            "offset": "Z",
+            "timezone_name": "UTC",
             "end_date": "2099-01-03",
             "end_time": "19:30:00",
-            "end_offset": "Z",
         },
-        {
-            "event_date": "2026-03-08",
-            "event_time": "02:30",
-            "offset": "-05:00",
-            "timezone_name": "America/New_York",
-        },
+        {"event_date": "2026-03-08", "event_time": "02:30", "timezone_name": "America/New_York"},
         {"event_date": "2026-11-01", "event_time": "01:30", "timezone_name": "America/New_York"},
     ],
 )
@@ -396,3 +399,272 @@ def test_default_date_visible_primary_navigation(ui):
     assert response.text.count('href="/context"') == 1
     assert 'href="/context" class="active" aria-current="page">Комментарии</a>' in response.text
     assert "Текст сохраняется без перефразирования" in response.text
+
+
+@pytest.mark.parametrize(
+    "zone,day,clock,offset,utc",
+    [
+        ("Asia/Kathmandu", "2026-01-02", "00:15", "+05:45", "2026-01-01T18:30:00+00:00"),
+        (
+            "Australia/Adelaide",
+            "2026-07-02",
+            "12:00:10.123400",
+            "+09:30",
+            "2026-07-02T02:30:10.123400+00:00",
+        ),
+        ("America/St_Johns", "2026-01-02", "00:15", "-03:30", "2026-01-02T03:45:00+00:00"),
+        ("Pacific/Kiritimati", "2026-01-02", "00:15", "+14:00", "2026-01-01T10:15:00+00:00"),
+        ("Pacific/Pago_Pago", "2026-01-02", "23:15", "-11:00", "2026-01-03T10:15:00+00:00"),
+    ],
+)
+def test_city_zone_exact_numeric_offsets(ui, zone, day, clock, offset, utc):
+    client, engine, _ = ui
+    response = client.post(
+        "/context",
+        data=payload(
+            event_date=day,
+            event_time=clock,
+            timezone_name=zone,
+        ),
+    )
+    assert response.status_code == 200
+    row = rows(engine)[0]
+    assert row.start_source_timestamp == f"{day}T{clock}{offset}"
+    assert row.start_at_utc.replace(tzinfo=UTC) == datetime.fromisoformat(utc)
+    assert row.start_timezone == zone
+    assert 'name="offset"' not in response.text
+    assert 'name="end_offset"' not in response.text
+
+
+def test_fold_requires_each_endpoint_and_retry_keeps_occurrences(ui):
+    client, engine, _ = ui
+    form = payload(
+        event_date="2026-11-01",
+        event_time="01:15",
+        end_date="2026-11-01",
+        end_time="01:45",
+        timezone_name="America/New_York",
+        original_text="  Synthetic fold 日本語\n<script>bad</script>  ",
+    )
+    response = client.post("/context", data=form)
+    assert response.status_code == 422
+    assert 'name="occurrence"' in response.text and 'name="end_occurrence"' in response.text
+    assert FormParser(response.text).values["original_text"] == form["original_text"]
+    assert FormParser(response.text).values["operation_id"] == form["operation_id"]
+    assert rows(engine) == ()
+    assert client.post("/context", data={**form, "occurrence": "first"}).status_code == 422
+    form.update(occurrence="first", end_occurrence="second")
+    response = client.post("/context", data=form)
+    assert response.status_code == 200
+    row = rows(engine)[0]
+    assert row.start_source_timestamp == "2026-11-01T01:15-04:00"
+    assert row.end_source_timestamp == "2026-11-01T01:45-05:00"
+    assert (row.end_at_utc - row.start_at_utc).total_seconds() == 5400
+    assert client.post("/context", data=form).url == response.url
+    edit = FormParser(response.text).values
+    edit["original_text"] = "Synthetic revised fold"
+    revised = client.post(f"/context/{row.event_id}", data=edit)
+    assert revised.status_code == 200
+    assert client.post(f"/context/{row.event_id}", data=edit).url == revised.url
+    latest = rows(engine)[-1]
+    assert latest.start_source_timestamp == row.start_source_timestamp
+    assert latest.end_source_timestamp == row.end_source_timestamp
+    assert len(rows(engine)) == 2
+    # The original edit retry stays identical after a later head advance.
+    fresh = FormParser(revised.text).values
+    client.post(f"/context/{row.event_id}", data={**fresh, "original_text": "Synthetic third"})
+    assert client.post(f"/context/{row.event_id}", data=edit).status_code == 200
+    assert len(rows(engine)) == 3
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"event_date": "2026-03-08", "event_time": "02:30", "timezone_name": "America/New_York"},
+        {
+            "event_date": "2026-03-08",
+            "event_time": "01:30",
+            "end_date": "2026-03-08",
+            "end_time": "02:30",
+            "timezone_name": "America/New_York",
+        },
+        {"event_date": "2011-12-30", "event_time": "12:00", "timezone_name": "Pacific/Apia"},
+        {"event_date": "1900-01-02", "event_time": "12:00", "timezone_name": "Europe/Paris"},
+        {
+            "event_date": "2026-01-02",
+            "event_time": "12:00",
+            "timezone_name": "UTC",
+            "occurrence": "first",
+        },
+        {"event_date": "9999-12-31", "event_time": "23:59", "timezone_name": "America/New_York"},
+        {"event_time": "12:00:00.1234567", "timezone_name": "UTC"},
+        {
+            "event_date": "2026-11-01",
+            "event_time": "01:30",
+            "timezone_name": "America/New_York",
+            "occurrence": "second",
+            "end_date": "2026-11-01",
+            "end_time": "01:45",
+            "end_occurrence": "first",
+        },
+    ],
+)
+def test_city_invalid_time_preserves_draft_without_write(ui, fields):
+    client, engine, _ = ui
+    form = payload(**fields)
+    response = client.post("/context", data=form)
+    assert response.status_code == 422
+    read = FormParser(response.text).values
+    assert read["original_text"] == form["original_text"]
+    assert read["operation_id"] == form["operation_id"]
+    assert rows(engine) == ()
+
+
+def test_dst_interval_derives_independent_offsets(ui):
+    client, engine, _ = ui
+    response = client.post(
+        "/context",
+        data=payload(
+            event_date="2026-03-08",
+            event_time="01:30",
+            end_date="2026-03-08",
+            end_time="03:30",
+            timezone_name="America/New_York",
+        ),
+    )
+    assert response.status_code == 200
+    row = rows(engine)[0]
+    assert row.start_source_timestamp.endswith("-05:00")
+    assert row.end_source_timestamp.endswith("-04:00")
+    assert (row.end_at_utc - row.start_at_utc).total_seconds() == 3600
+
+
+@pytest.mark.parametrize(
+    "zone,day,clock,first,second,delta",
+    [
+        ("Australia/Lord_Howe", "2026-04-05", "01:45", "+11:00", "+10:30", 1800),
+        ("Europe/Dublin", "2026-10-25", "01:30", "+01:00", "+00:00", 3600),
+    ],
+)
+def test_fold_orders_actual_instants_including_half_hour_and_negative_dst(
+    ui,
+    zone,
+    day,
+    clock,
+    first,
+    second,
+    delta,
+):
+    client, engine, _ = ui
+    instants = []
+    for occurrence, offset in [("first", first), ("second", second)]:
+        response = client.post(
+            "/context",
+            data=payload(
+                event_date=day, event_time=clock, timezone_name=zone, occurrence=occurrence
+            ),
+        )
+        assert response.status_code == 200
+        with session_scope(engine) as session:
+            view = ContextService(session).list()[0]
+        assert view.temporal.start_source_timestamp == f"{day}T{clock}{offset}"
+        instants.append(view.temporal.start_at_utc)
+    assert (instants[1] - instants[0]).total_seconds() == delta
+
+
+def test_only_ambiguous_end_requires_choice(ui):
+    client, engine, _ = ui
+    form = payload(
+        event_date="2026-11-01",
+        event_time="00:30",
+        end_date="2026-11-01",
+        end_time="01:30",
+        timezone_name="America/New_York",
+    )
+    response = client.post("/context", data=form)
+    assert response.status_code == 422
+    assert 'name="occurrence"' not in response.text
+    assert 'name="end_occurrence"' in response.text
+    assert rows(engine) == ()
+    assert client.post("/context", data={**form, "end_occurrence": "second"}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "temporal",
+    [
+        parse_timestamp("2026-01-02T19:30Z"),
+        parse_timestamp("2026-01-02T19:30:10.123400+00:00"),
+        parse_timestamp("2026-01-02T19:30:00-03:30"),
+        parse_timestamp("2026-01-02T19:30:00.000000+03:00", timezone_name="Europe/Moscow"),
+        parse_timestamp("2026-10-25T01:30Z", timezone_name="Europe/Dublin"),
+        parse_interval("2026-03-08T01:30-05:00", "2026-03-08T03:30-04:00"),
+    ],
+)
+def test_text_only_edit_preserves_original_temporal_representation(ui, temporal):
+    client, engine, _ = ui
+    with session_scope(engine) as session:
+        original = ContextService(session).add(
+            text="Synthetic legacy", temporal=temporal, tags=["Tennis"]
+        )
+    read = client.get(f"/context/{original.event_id}")
+    edit = FormParser(read.text).values
+    if temporal.start_timezone == "Europe/Dublin":
+        assert edit["occurrence"] == "second"  # Native required select must allow text-only submit.
+    edit["original_text"] = "Synthetic text-only correction"
+    response = client.post(f"/context/{original.event_id}", data=edit)
+    assert response.status_code == 200
+    with session_scope(engine) as session:
+        current = ContextService(session).list()[0]
+        assert current.temporal == original.temporal
+        assert current.tags == original.tags
+    assert client.post(f"/context/{original.event_id}", data=edit).url == response.url
+    assert len(rows(engine)) == 2
+    if not temporal.start_timezone:
+        changed = {**FormParser(response.text).values, "event_time": "20:30"}
+        assert client.post(f"/context/{original.event_id}", data=changed).status_code == 422
+
+
+@pytest.mark.parametrize("zone", [None, "Legacy/Removed"])
+def test_historical_second_offset_record_text_edit_does_not_reparse_or_round(ui, zone):
+    client, engine, _ = ui
+    event_id = str(uuid4())
+    revision_id = str(uuid4())
+    with session_scope(engine) as session:
+        session.add(ContextEvent(id=event_id))
+        session.flush()
+        # Direct INSERT models historical input without weakening append-only guards.
+        session.add(
+            ContextEventRevision(
+                id=revision_id,
+                event_id=event_id,
+                revision_number=1,
+                operation_id=str(uuid4()),
+                operation_kind="add",
+                request_fingerprint="0" * 64,
+                original_text="Synthetic historical",
+                capture_source="manual",
+                temporal_kind="instant",
+                start_precision="microsecond",
+                start_local_date=date(1900, 1, 2),
+                start_utc_offset_minutes=9,
+                start_timezone=zone,
+                start_source_timestamp="1900-01-02T12:00:10.123400+00:09:21",
+                start_at_utc=datetime(1900, 1, 2, 11, 50, 49, 123400, tzinfo=UTC),
+            )
+        )
+        session.flush()
+        session.add(ContextEventHead(event_id=event_id, revision_id=revision_id))
+    with session_scope(engine) as session:
+        before = ContextService(session).list()[0]
+    edit = FormParser(client.get(f"/context/{event_id}").text).values
+    assert edit["event_time"] == "12:00:10.123400"
+    assert edit["timezone_name"] == (zone or "")
+    response = client.post(
+        f"/context/{event_id}",
+        data={**edit, "original_text": "Synthetic corrected historical"},
+    )
+    assert response.status_code == 200
+    with session_scope(engine) as session:
+        after = ContextService(session).list()[0]
+        assert after.temporal == before.temporal
+    assert rows(engine)[0].original_text == "Synthetic historical"
