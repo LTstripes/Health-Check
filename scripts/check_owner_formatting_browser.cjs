@@ -3,6 +3,7 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { cases: civilCases } = require('./check_owner_dates.cjs');
 const base = process.env.HEALTHCHECK_BASE_URL;
 const evidence = process.env.HEALTHCHECK_BROWSER_EVIDENCE_DIR;
 const identity = JSON.parse(fs.readFileSync(process.env.HEALTHCHECK_BROWSER_IDENTITY, 'utf8'));
@@ -53,6 +54,10 @@ assert.equal(identity.candidate, candidate);
         window.healthcheckOwnerDate('2099-01-02T19:30:10.123400+03:00', true),
       ]);
       assert.deepEqual(helperCases, ['29 февраля 2024', '2 января 2099, 00:15 UTC+14:00', '2 января 2099, 19:30:10.123400 UTC+03:00']);
+      const civilResults = await page.evaluate(cases => cases.map(test => ({
+        ...test, actual: window.healthcheckOwnerDate(test.value, test.sourcePrecision),
+      })), civilCases);
+      for (const test of civilResults) assert.equal(test.actual, test.expected, JSON.stringify(test.value));
       const selected = new URLSearchParams({ period: '7', end_date: identity.end,
         calendar_year: '2099', garmin_source_id: identity.source_id });
       const statisticsURL = `${base}/statistics?${selected}`;
@@ -132,6 +137,29 @@ assert.equal(identity.candidate, candidate);
       await page.waitForFunction(() => !document.querySelector('#data-refresh').disabled);
       assert.match(await page.locator('#data-clock').innerText(), /\d{1,2} [а-я]+ \d{4}/);
       await capture('data');
+      // Synthetic response-only invalid dates exercise the actual Data consumer.
+      await page.route('**/api/source-freshness?**', async route => {
+        const response = await route.fetch();
+        const payload = await response.json();
+        payload.evaluated_at_utc = '2026-01-02T25:61:70+99:99';
+        payload.evaluation_local_date = '2026-01-00';
+        for (const item of payload.components) {
+          item.facts.last_successful_refresh_utc = '2026-01-02T25:61:70+99:99';
+          item.facts.latest_evidence_local_date = '2026-02-30';
+        }
+        await route.fulfill({response, json: payload});
+      });
+      await page.getByRole('button', {name: 'Проверить состояние', exact: true}).click();
+      await page.waitForFunction(() => document.querySelector('#data-clock').textContent.includes('Дата не указана'));
+      const chronology = await page.locator('.data-chronology').allTextContents();
+      assert.ok(chronology.length > 0);
+      for (const text of chronology) {
+        assert.ok(text.includes('Дата не указана'));
+        assert.ok(!text.includes('30 февраля') && !text.includes('0 января') && !text.includes('25:61'));
+      }
+      const rawFacts = await page.locator('#data-results pre').innerText();
+      for (const value of ['2026-02-30', '2026-01-00', '2026-01-02T25:61:70+99:99']) assert.ok(rawFacts.includes(value));
+      await capture('data-invalid');
       await page.locator('#completed-imports summary').click();
       await page.locator('#completed-imports a').first().click();
       assert.match(await page.locator('.temporal-evidence').first().innerText(), /\d{1,2} [а-я]+ \d{4}/);
@@ -140,7 +168,8 @@ assert.equal(identity.candidate, candidate);
       assert.ok(!/\d{4}-\d{2}-\d{2}/.test(await page.locator('#commit-preview').innerText()));
       await capture('import-review');
       checks.push({ width, sessionsURL, filteredURL, keyboard: true, browserBack: true,
-        overflow: false, sourceLocalDates: true, nativeEvidence: true, stepsZeroMissing: true });
+        overflow: false, sourceLocalDates: true, nativeEvidence: true, stepsZeroMissing: true, civilValidationCases: civilResults.length,
+        invalidChronologyUnavailable: true, invalidRawPreserved: true });
       await page.close();
     }
     assert.deepEqual(errors, []); assert.deepEqual(external, []);

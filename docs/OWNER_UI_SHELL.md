@@ -280,6 +280,9 @@ The 2026-10-12 presentation candidate uses the existing Russian human-date style
 for Comments list/detail/revision history, Statistics period/Steps labels, Overview
 point titles, Weight current date, import-review dates and Data chronology. Native
 form values, API fields, data attributes and technical evidence retain ISO values.
+The shared JS helper validates Gregorian days/leap years, clock fields and numeric
+offset bounds before display; impossible civil values show the existing unavailable
+date label without normalizing or converting the source string.
 Comments keep event-local date/time, explicit offset, IANA zone when saved and
 minute/second/fraction precision. Automatically recorded time is labelled separately
 in UTC; it is never substituted for event time. Date-only never acquires midnight.

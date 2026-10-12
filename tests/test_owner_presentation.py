@@ -200,3 +200,26 @@ def test_overview_gap_titles_reuse_human_dates(ui):
     titles = re.findall(r"<title[^>]*>(.*?)</title>", response.text)
     assert any(title.startswith("Нет наблюдений:") for title in titles)
     assert all(not re.search(r"\d{4}-\d{2}-\d{2}", title) for title in titles)
+
+
+def test_javascript_civil_validation_and_python_parity():
+    import json
+    import subprocess
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["node", str(repo / "scripts/check_owner_dates.cjs")], cwd=repo,
+        check=True, capture_output=True, text=True, encoding="utf-8",
+    )
+    packet = json.loads(result.stdout)
+    assert packet["dateConversion"] is False
+    assert packet["extraInvalidInputs"] == 2
+    for case in packet["cases"]:
+        if not case["pythonParity"]:
+            continue
+        expected = owner_date(case["value"], "source" if case["sourcePrecision"] else None)
+        actual = re.sub(r" UTC([+-]\d{2}):(\d{2})$", r" UTC\1\2", case["actual"])
+        # Existing JS labels retain four-digit years; Python labels use numeric years.
+        actual = re.sub(r" (\d{4})(?=,|$)", lambda m: " " + str(int(m[1])), actual)
+        assert actual == expected, case["value"]
