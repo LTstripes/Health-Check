@@ -725,7 +725,15 @@ class GoogleAuthService:
             refreshed.refresh_token = current.refresh_token
         if not refreshed.scope:
             refreshed.scope = current.scope
-        self._write_tokens(refreshed)
+        try:
+            self._write_tokens(refreshed)
+        except Exception as exc:
+            # This step only protects/persists tokens. A disk/protection failure
+            # cannot authorize cached fallback, regardless of exception type.
+            # Do not globally relabel transport OSError as storage failures.
+            error = classify_google_oauth_error(exc)
+            code = error.error_code if error.error_class == "storage" else "storage_write_failed"
+            raise GoogleOAuthError("storage", code) from None
         return refreshed
 
     def _tokens_from_response(

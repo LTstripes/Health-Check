@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import sqlite3
@@ -1449,6 +1450,82 @@ def test_scope_storage_failure_preserves_first_startup_refresh_error(tmp_path, m
     assert report.auth_recovery["startup_error"]["error_code"] == "token_exchange_failed"
     assert report.auth_recovery["startup_error"]["http_status"] == 503
     assert "storage-canary" not in report.to_json() + repr(report)
+
+
+@pytest.mark.parametrize("io_error", [errno.ENOSPC, errno.EIO])
+@pytest.mark.parametrize("phase", ["startup", "recovery"])
+@pytest.mark.parametrize("boundary", ["tokens", "atomic_write"])
+def test_token_store_io_failure_stops_without_cached_fallback_or_replay(
+    tmp_path, monkeypatch, caplog, io_error, phase, boundary
+):
+    import healthcheck.google.auth as google_auth
+
+    transport = RecoveryTransport()
+    settings, sync, auth = _recovery_sync(tmp_path, transport)
+    if phase == "recovery":
+        transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", {"dataPoints": []})
+    writes = 0
+    original = auth._write_tokens if boundary == "tokens" else google_auth._atomic_write_text
+
+    def failing_write(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if phase == "startup" or writes == 2:
+            raise OSError(io_error, "synthetic-storage-canary", "secret-path-canary")
+        return original(*args, **kwargs)
+
+    if boundary == "tokens":
+        monkeypatch.setattr(auth, "_write_tokens", failing_write)
+    else:
+        monkeypatch.setattr(google_auth, "_atomic_write_text", failing_write)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.auth.status is GoogleAuthStatus.FAILED
+    assert report.auth.error == GoogleSafeError("storage", "storage_write_failed")
+    assert report.auth.refresh_attempted and not report.auth.refresh_succeeded
+    expected_requests = 0 if phase == "startup" else 1
+    assert report.request_count == expected_requests
+    assert len(transport.health_calls()) == expected_requests
+    assert transport.oauth_calls == (1 if phase == "startup" else 2)
+    assert report.auth_recovery["startup_refresh_attempts"] == 1
+    if phase == "startup":
+        assert report.auth_recovery["startup_error"] == report.auth.error.as_dict()
+        assert report.auth_recovery["recovery_refresh_attempts"] == 0
+    else:
+        assert report.auth_recovery["recovery_error"] == report.auth.error.as_dict()
+        assert report.auth_recovery["first_data_error"]["http_status"] == 401
+        assert report.auth_recovery["recovery_refresh_attempts"] == 1
+        assert report.attempts[0].page_count == 0
+        assert report.attempts[1].status is GoogleSyncStatus.NOT_RUN
+    persisted_token = auth._read_tokens().access_token
+    assert persisted_token == SYNTHETIC_ACCESS + ("" if phase == "startup" else "-1")
+    public = report.to_json() + repr(report) + caplog.text
+    assert all(canary not in public for canary in (
+        "synthetic-storage-canary", "secret-path-canary", SYNTHETIC_ACCESS, SYNTHETIC_REFRESH
+    ))
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(GoogleRawPayload)) == 0
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 0
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("io_error", [errno.ENOSPC, errno.EIO])
+def test_oauth_transport_oserror_remains_provider_failure_with_truthful_cached_fallback(
+    tmp_path, io_error
+):
+    transport = RecoveryTransport([OSError(io_error, "provider-secret-canary")])
+    _settings, sync, _auth = _recovery_sync(tmp_path, transport)
+    transport.queue("heart-rate", {"dataPoints": []})
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert report.status is GoogleSyncStatus.SUCCEEDED and report.request_count == 1
+    assert report.auth.error == GoogleSafeError("provider", "provider_error")
+    assert report.auth.token_health is GoogleTokenHealth.CACHED_UNVERIFIED
+    assert not report.auth.refresh_succeeded and transport.oauth_calls == 1
+    assert "provider-secret-canary" not in report.to_json() + repr(report)
 
 
 @pytest.mark.parametrize("mode,family", [("list", None), ("reconcile", FAMILY_GOOGLE_WEARABLES)])

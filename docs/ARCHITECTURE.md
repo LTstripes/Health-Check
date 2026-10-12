@@ -147,6 +147,9 @@ scope ceiling carry to later pages/streams. Repeated 401 or `invalid_grant` abor
 the run and leaves later streams `not_run`; unavailable, failed, malformed or
 storage/protection-failed recovery also stops. 403, POST rollups and other errors
 retain their existing terminal/bounded-transport behavior.
+Token persistence exceptions (including ENOSPC/EIO) are classified at the protected
+write boundary as storage failures and prohibit startup cached fallback; transport
+errors retain their provider classification.
 
 The original GET and its replay each consume the existing data-request budget and
 per-page attempt ceiling; OAuth attempts have separate sanitized counters. No
