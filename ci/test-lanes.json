@@ -11,6 +11,7 @@
       "tests/test_garmin_baselines_trends.py",
       "tests/test_garmin_capabilities.py",
       "tests/test_garmin_collection_reconciliation.py",
+      "tests/test_garmin_completed_steps.py",
       "tests/test_garmin_historical_backfill.py",
       "tests/test_garmin_incremental_sync.py",
       "tests/test_garmin_lagged_associations.py",
