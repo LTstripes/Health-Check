@@ -157,8 +157,14 @@ assert.equal(identity.candidate, candidate);
         assert.ok(text.includes('Дата не указана'));
         assert.ok(!text.includes('30 февраля') && !text.includes('0 января') && !text.includes('25:61'));
       }
-      const rawFacts = await page.locator('#data-results pre').innerText();
+      const rawPre = page.locator('#data-results pre');
+      const rawFacts = await rawPre.textContent();
       for (const value of ['2026-02-30', '2026-01-00', '2026-01-02T25:61:70+99:99']) assert.ok(rawFacts.includes(value));
+      const rawSummary = rawPre.locator('..').locator('summary');
+      await rawSummary.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await rawPre.isVisible(), true);
+      await page.keyboard.press('Enter');
       await capture('data-invalid');
       await page.locator('#completed-imports summary').click();
       await page.locator('#completed-imports a').first().click();
