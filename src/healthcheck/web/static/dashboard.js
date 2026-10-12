@@ -256,6 +256,19 @@
   }
 
   function renderWeightHistory(rows) {
+    function displayNumber(value, digits) {
+      if (value === null || value === undefined) return '—';
+      if (typeof value !== 'number' || !Number.isFinite(value)) return String(value);
+      if (value === 0) return '0'; // Normalize negative zero only in this display.
+      const rounded = value.toFixed(digits);
+      const trimFraction = function (text) { return text.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''); };
+      // A small nonzero observation must not look like an explicit source zero.
+      if (Number(rounded) === 0 || Math.abs(value) >= 1e21) {
+        const parts = value.toExponential(digits).split('e');
+        return trimFraction(parts[0]) + 'e' + parts[1];
+      }
+      return trimFraction(rounded);
+    }
     const node = document.getElementById('weight-history');
     if (!node) return;
     node.innerHTML = '';
@@ -293,10 +306,11 @@
     rows.forEach(function (row) {
       const tr = document.createElement('tr');
       const point = row.composition || {};
-      [row.date, row.weight, point.body_fat_pct, point.estimated_fat_mass_kg,
-        point.estimated_lean_mass_kg, point.source_muscle_mass_kg].forEach(function (value) {
+      [readableDate(row.date), displayNumber(row.weight, 1), displayNumber(point.body_fat_pct, 1),
+        displayNumber(point.estimated_fat_mass_kg, 2), displayNumber(point.estimated_lean_mass_kg, 2),
+        displayNumber(point.source_muscle_mass_kg, 1)].forEach(function (value) {
         const cell = document.createElement('td');
-        cell.textContent = value === null || value === undefined ? '—' : String(value);
+        cell.textContent = value;
         tr.appendChild(cell);
       });
       const source = document.createElement('td');
