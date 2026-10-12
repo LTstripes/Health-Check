@@ -183,9 +183,9 @@ The **already delivered** 7/30 Sleep chart, source-only role/ambiguity/missing
 states, native Garmin score detail and secondary Compare stay. Normal Owner
 display should have the two conceptual providers **Garmin and Google**.
 A Google Fitbit data source and Google family-aggregate are internal saved
-identities; require an evidence-backed default/exact eligible overlap decision
-under [#342](https://github.com/LTstripes/Health-Check/issues/342) before
-reducing visible source lines. Neither a guessed Fitbit preference nor an
+identities; the accepted Sleep-only default/exact eligible overlap decision
+under [#342](https://github.com/LTstripes/Health-Check/issues/342) is delivered.
+Neither a guessed Fitbit preference nor an
 implicit family/device pool is acceptable. Advanced display retains every
 exact identity and original evidence; no R05/canonical switch.
 

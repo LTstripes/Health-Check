@@ -246,7 +246,7 @@ See [Development Process](DEVELOPMENT_PROCESS.md).
 - Typed bounded read-only analytical access, not unrestricted SQL or inherited sync/import/restore powers.
 - Deterministic/versioned reports precede narrative and delivery.
 - Context v0 stores revisioned original text, explicit time and optional confirmed tags; #215 proved first private Stable adoption. No mandatory diary, inferred date/tag or assumed negative exposure.
-- #294 first portal adapter and #341 selected evidence export are now prioritized. Preserve one Context system and packet/revision/source identity; original content is untrusted data.
+- #294 portal/navigation/city-IANA input and #341 selected evidence export are integrated. Preserve one Context system and packet/revision/source identity; original content is untrusted data. Durable Owner UAT and direct chat transport remain separate.
 - Direct authenticated ChatGPT connection is planned and must be verified end-to-end with account/host capability and consent; no current direct localhost access claimed. Telegram is optional.
 - R09 first document intake is #348; extraction candidates are not confirmed lab values. Preserve original document/report-specific units/ranges/qualifiers and event dates before interpretation.
 
@@ -276,7 +276,7 @@ Independent review and CI/privacy boundaries remain unchanged.
 
 - Future MFA behavior, shape drift and retention beyond released proof.
 - Recovery Time units/producer attribution and VO2/dedicated max metrics outside accepted evidence.
-- #319 fields/units/coverage before new metrics; #340 surface-eligibility review before RHR display repair.
+- #319 calories remain blocked on field meaning/units/coverage; max-HR/anaerobic B1 and #340/#353 RHR eligibility repair are delivered, not new implementation assignments.
 - Current provider health and weekly HRV upstream cause remain unproven by the clone report. #98 maintenance is complete.
 
 ### Google Health / R04
@@ -285,20 +285,20 @@ Independent review and CI/privacy boundaries remain unchanged.
 - Device attribution is record/surface-specific; family membership is insufficient.
 - Pre-July Owner history was not established by the prior audit; no speculative broad backfill.
 - Disabled sample-HR history is incomplete by Owner choice, not a provider limitation.
-- #342 must distinguish source absence, dates/filters/eligibility, missing pairs and copied failures, and verify Google vendor-score support without renaming sleep efficiency.
+- #342 accepted saved-source classification and the Sleep-only default; current provider recovery and Google vendor-score support remain unproven. Preserve source absence, dates/filters/eligibility and copied-failure distinctions; never rename sleep efficiency as a vendor score.
 
 ### R05 / agreement
 
 - Device-pair evidence remains insufficient for #105; account observations remain noncanonical.
 - Firmware/app/algorithm change points may need separate epochs.
-- #317 is integrated; its existence does not meet the new #343 two-source history experience or prove real Google coverage. Both source series can be shown without changing pairing/statistics/canonical rules.
+- #317 and #343 two-source Sleep history are integrated; that does not prove current real Google coverage. Both source series remain visible without changing pairing/statistics/canonical rules.
 
 ### Operations / durability / CI / Owner UAT
 
 - #214 one automatic run, #215 first Context adoption, #148 practical recovery and #256 filesystem/janitor are complete foundations, not current service guarantees.
 - #181/#243 lifecycle/transcript and #251/#246 CI maintenance are complete. #126 enforcement remains separate.
 - Current human #330 UAT is PARTIAL. Keep positive design/Weight/Activity findings and unresolved per-screen data/performance requirements; do not describe it as unperformed or overall PASS.
-- Latest controlled activation is a verified real-data clone. No new code deployment/provider recovery/backup is performed by documentation work. Permanent Context rollout and actual direct chat connection remain future gates.
+- Latest installed Stable activation is the daytime `aca4b8f65eb276dddb3ae5de718a734afd19f369` rollout, confirmed by the [local receipt attribution](PROJECT_WIKI.md#current-canonical-state); Comments navigation/city-IANA input is included. Night PRs #407–#411 rollout, durable Context save/edit/persistence Owner UAT and direct chat connection remain separate pending gates. This documentation work performs no deployment/provider recovery/backup.
 
 ## Deferred owner choices
 
@@ -307,7 +307,7 @@ Independent review and CI/privacy boundaries remain unchanged.
 3. #341 direct read connection needs actual capability/auth/revocation/host setup; export is first useful transport, not a blocker on connection choice.
 4. Recovery Score only for an evidenced unmet need.
 5. Full remote portal exposure remains out of scope; bounded read tools are separately authorized.
-6. A+ style is decided. Implement the new #343–#348 functionality in bounded stages after P1 data, Context and evidence export; no new global redesign or lost shared-file ownership.
+6. A+ style is decided. Assign only remaining issue deltas after checking delivered stages and source contracts; #343 Sleep, Context and evidence-export foundations are integrated. No new global redesign or lost shared-file ownership.
 7. #167 history rewrite requires a new Owner decision/freeze.
 8. #228 cross-image merge requires trustworthy event proof.
 

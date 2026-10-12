@@ -165,20 +165,22 @@ Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #18
 
 ### Source freshness / data quality
 
-#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics and #295 indexed Google/request-local Overview reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility was repaired via #340/#353. #376 will separate latest eligible saved evidence from refresh age. Keep request performance, collection health, data completeness and human acceptance separate.
+#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics/compact presentation and #295 indexed Google/request-local Overview reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility was repaired via #340/#353; #376 latest eligible RHR reader/Overview consumer is delivered, while broader eligible metric value/date/age and clone-age adapters remain open. Keep request performance, collection health, data completeness and human acceptance separate.
 
 ### Hardware/private Owner gates
 
-#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is not planned; screenshots remain the Weight workflow. New Context routine use requires an explicit durable-profile rollout after its UI is accepted.
+#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is not planned; screenshots remain the Weight workflow. Comments navigation/city-IANA UI is included in the daytime installed Stable `aca4b8f…`; durable save/edit/timezone-persistence Owner UAT remains separate. See the [rollout receipt attribution](PROJECT_WIKI.md#current-canonical-state).
 
 ### Owner UI
 
-The A+ visual system and desktop-only scope are approved. Six accepted primary
-sections are Обзор / Вес / Сон / Активность / Статистика / Данные. Current
-`/context` is a shipped secondary entry awaiting durable Owner UAT; approved
-#294 follow-up promotes `Комментарии` to primary navigation. Statistics 7/30
-is shipped; long periods, readable Google source choices and new fields are
-separately planned. See [Owner UI](OWNER_UI_SHELL.md) for current vs requested.
+The A+ visual system and desktop-only scope are approved. Seven primary sections
+are Обзор / Вес / Сон / Активность / Статистика / Данные / Комментарии.
+`/context` primary navigation and city/IANA timezone input are delivered;
+durable save/edit/persistence Owner UAT remains separate. Statistics 7/30,
+trailing365, calendar-year/YTD, readable source labels and provider-first
+presentation are integrated. General per-metric eligible-source discovery,
+all-history and unsupported new fields remain separately gated. See
+[Owner UI](OWNER_UI_SHELL.md) for delivered surfaces and remaining limits.
 
 ## Engineering maintenance — CI feedback/reliability closeout
 

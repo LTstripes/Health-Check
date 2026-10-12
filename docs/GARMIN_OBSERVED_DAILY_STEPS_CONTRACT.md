@@ -105,8 +105,10 @@ history. No schema, replay, collection, ledger or migration contract changes.
 
 [Integrated amendment receipt](https://github.com/LTstripes/Health-Check/issues/377#issuecomment-6133714095)
 governs the separate Statistics view. It selects one exact Garmin source/account
-and the latest proved original acquisition `received_at` after the returned
-calendar day's end under explicit `Europe/Moscow` display policy. Current/future
+and the latest proved acquisition by `GarminPayloadObservation.received_at`,
+at or after the returned calendar day's end boundary under explicit
+`Europe/Moscow` display policy. The first-original `received_at` is not used for
+selection. Current/future
 days are excluded; the default rolling Steps window ends yesterday, preserving
 explicit historical bounds and other Statistics summaries.
 
