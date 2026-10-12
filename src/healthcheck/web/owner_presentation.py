@@ -2,7 +2,7 @@
 
 import re
 from datetime import date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Context, Decimal, localcontext
 from math import isfinite
 
 _MONTHS = (
@@ -59,11 +59,14 @@ def owner_duration(value: object) -> str:
     number = _nonnegative(value)
     if number is None:
         return "Недоступно"
-    seconds = number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    if number > 0 and seconds == 0:
-        return "<0,01 с"
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
+    with localcontext(_display_context(number)):
+        if number >= Decimal("3.6e12"):
+            return _compact_unit(number / 3600, "ч")
+        seconds = number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if number > 0 and seconds == 0:
+            return "<0,01 с"
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
     parts = []
     if hours:
         parts.append(f"{int(hours)} ч")
@@ -79,18 +82,33 @@ def owner_distance(value: object) -> str:
     number = _nonnegative(value)
     if number is None:
         return "Недоступно"
-    km = (number / 1000).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    if number > 0 and km == 0:
-        return "<0,01 км"
+    with localcontext(_display_context(number)):
+        if number >= Decimal("1e12"):
+            return _compact_unit(number / 1000, "км")
+        km = (number / 1000).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if number > 0 and km == 0:
+            return "<0,01 км"
     return f"{_decimal_text(km)} км"
 
 
 def _nonnegative(value: object) -> Decimal | None:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return None
-    if not isfinite(value) or value < 0:
+    if (isinstance(value, float) and not isfinite(value)) or value < 0:
         return None
-    return Decimal(str(value))
+    return Decimal(value) if isinstance(value, int) else Decimal(str(value))
+
+
+def _display_context(number: Decimal) -> Context:
+    # Own display context: enough integer + fractional digits, no caller precision leak.
+    return Context(prec=max(28, number.adjusted() + 6), rounding=ROUND_HALF_UP)
+
+
+def _compact_unit(number: Decimal, unit: str) -> str:
+    """Bound extreme label length; explicit approximation, exact native value in details."""
+    coefficient, exponent = format(number, ".2E").split("E")
+    coefficient = coefficient.rstrip("0").rstrip(".").replace(".", ",")
+    return f"≈{coefficient} × 10^{int(exponent)} {unit}"
 
 
 def _decimal_text(value: Decimal) -> str:

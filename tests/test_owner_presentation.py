@@ -225,3 +225,81 @@ def test_javascript_civil_validation_and_python_parity():
         # Existing JS labels retain four-digit years; Python labels use numeric years.
         actual = re.sub(r" (\d{4})(?=,|$)", lambda m: " " + str(int(m[1])), actual)
         assert actual == expected, case["value"]
+
+
+@pytest.mark.parametrize("value,duration,distance", [
+    (1e26, "≈2,78 × 10^22 ч", "≈1 × 10^23 км"),
+    (1e30, "≈2,78 × 10^26 ч", "≈1 × 10^27 км"),
+    (float.fromhex("0x1.fffffffffffffp+1023"),
+     "≈4,99 × 10^304 ч", "≈1,8 × 10^305 км"),
+    (float.fromhex("0x0.0000000000001p-1022"), "<0,01 с", "<0,01 км"),
+    pytest.param(10**5000, "≈2,78 × 10^4996 ч", "≈1 × 10^4997 км", id="huge-native-int"),
+])
+def test_duration_distance_are_total_for_finite_extremes(value, duration, distance):
+    from decimal import getcontext, localcontext
+
+    before = getcontext().copy()
+    assert owner_duration(value) == duration
+    assert owner_distance(value) == distance
+    assert getcontext().prec == before.prec
+    with localcontext() as caller:
+        caller.prec = 3
+        caller.Emax = 5
+        assert owner_duration(value) == duration
+        assert owner_distance(value) == distance
+        assert caller.prec == 3 and caller.Emax == 5
+    assert len(duration) < 32 and len(distance) < 32
+
+
+@pytest.mark.parametrize("duration,distance", [
+    (1e26, 1e30),
+    (float.fromhex("0x1.fffffffffffffp+1023"),
+     float.fromhex("0x1.fffffffffffffp+1023")),
+    (float.fromhex("0x0.0000000000001p-1022"),
+     float.fromhex("0x0.0000000000001p-1022")),
+])
+def test_extreme_saved_values_render_list_detail_without_mutation(
+    statistics_ui, duration, distance,
+):
+    import json
+    from html import unescape
+
+    from sqlalchemy import select
+
+    from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+    from test_period_summary import END, START, _activity
+
+    session, paths, client = statistics_ui
+    outcome = _activity(session, paths, duration=duration, distance=distance)
+    record = session.scalar(select(GarminSourceRecord).where(
+        GarminSourceRecord.garmin_source_id == outcome.source.id,
+        GarminSourceRecord.stream_code == "activity",
+    ))
+    session.commit()
+    params = {"garmin_source_id": outcome.source.id, "start_date": str(START),
+              "end_date": str(END), "metric_code": "activity_session_count", "sport": "all"}
+    response = client.get("/statistics/sessions", params=params)
+    assert response.status_code == 200
+    for code, expected in [("duration_seconds", owner_duration(duration)),
+                           ("distance_meters", owner_distance(distance))]:
+        cell = re.search(rf'data-session-metric="{code}"[^>]*>(.*?)</td>', response.text)
+        assert cell and unescape(cell[1]) == expected
+    detail = client.get("/garmin/session", params={
+        "garmin_source_id": outcome.source.id, "record_id": record.id,
+    })
+    assert detail.status_code == 200
+    assert owner_duration(duration) in unescape(detail.text)
+    assert owner_distance(distance) in unescape(detail.text)
+    raw = json.loads(re.search(
+        r'<pre id="activity-session-evidence">(.*?)</pre>', detail.text, re.S,
+    )[1])
+    coverage = {item["metric_code"]: item for item in raw["metric_coverage"]}
+    assert coverage["duration_seconds"]["value"] == duration
+    assert coverage["distance_meters"]["value"] == distance
+    assert coverage["duration_seconds"]["unit"] == "seconds"
+    assert coverage["distance_meters"]["unit"] == "meters"
+    for code, expected in [("duration_seconds", duration), ("distance_meters", distance)]:
+        metric = session.scalar(select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == record.id, GarminRecordMetric.metric_code == code,
+        ))
+        assert metric.value_number == expected and metric.state == "value"

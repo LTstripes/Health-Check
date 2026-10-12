@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--identity", type=Path, required=True)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--extreme-sessions", action="store_true")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     runtime = args.runtime.resolve()
@@ -42,10 +43,19 @@ def main():
     migrate_database(paths)
     engine = create_sqlite_engine(paths)
     with session_scope(engine) as session:
-        for index, (kind, duration, distance) in enumerate([
+        activities = [
             ("tennis", 3901.5, 12345.6), ("tennis_v2", 0.001, 0.001),
             ("cycling", 0, 0), ("tennis", None, None),
-        ]):
+        ]
+        if args.extreme_sessions:
+            largest = float.fromhex("0x1.fffffffffffffp+1023")
+            smallest = float.fromhex("0x0.0000000000001p-1022")
+            activities = [
+                ("tennis", 1e26, 1e30), ("cycling", largest, largest),
+                ("tennis_v2", smallest, smallest), ("walking", 0, 0),
+                ("tennis", None, None),
+            ]
+        for index, (kind, duration, distance) in enumerate(activities):
             outcome = _activity(session, paths, kind=kind, duration=duration,
                                 distance=distance, suffix=str(index))
             source_id = outcome.source.id
@@ -75,7 +85,9 @@ def main():
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True).strip():
         raise RuntimeError("browser evidence requires a clean committed candidate")
     identity = {"candidate": candidate, "checkout": str(repo), "pid": os.getpid(),
-                "python": sys.executable, "port": args.port, "source_id": source_id,
+                "python": sys.executable, "port": args.port,
+                "extreme_sessions": args.extreme_sessions,
+                "source_id": source_id,
                 "steps_source_id": steps_source_id,
                 "records": record_ids, "comments": comments,
                 "start": "2099-01-02", "end": "2099-01-08", "runtime": str(runtime)}

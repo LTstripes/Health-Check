@@ -291,7 +291,10 @@ Statistics saved-session rows and Activity detail display native seconds as hour
 minutes and residual seconds, and native metres as kilometres. They reuse the
 Statistics headline rounding (half-up to 0.01 second / 0.01 km); positive values
 below display precision read `<0,01 с` / `<0,01 км`, while true zero stays zero.
-Exact native values and units remain in technical disclosure; missing, invalid,
+Extreme values of at least a billion hours or kilometres use an explicitly
+approximate, three-significant-digit scientific label (≈… × 10^… ч / км), keeping
+primary text bounded. Formatting has its own magnitude-sized Decimal context;
+exact native values and units remain in technical disclosure. Missing, invalid,
 wrong-unit and partial states retain their existing meanings.
 
 This describes a candidate on baseline `aca4b8f65eb276dddb3ae5de718a734afd19f369`,
