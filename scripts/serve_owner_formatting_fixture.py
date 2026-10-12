@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -35,7 +35,6 @@ def main():
     from healthcheck.runtime import prepare_runtime
     from healthcheck.web.ui_app import create_ui_app
     from test_garmin_observed_steps import ABSENT, materialize
-    from test_period_brief_ui import seed_a_plus_weight
     from test_period_summary import _activity
 
     settings = Settings(data_dir=runtime, ui_port=args.port)
@@ -84,13 +83,28 @@ def main():
     app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
     with TestClient(app, base_url=f"http://127.0.0.1:{args.port}",
                     headers={"Origin": f"http://127.0.0.1:{args.port}"}) as client:
-        seed_a_plus_weight(client)
+        seed_format_weight(client)
     uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=False)
 
 
 def paths_store(paths):
     from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
     return ContentAddressedGarminPayloadStore(paths.root / "steps-artifacts")
+
+
+def seed_format_weight(client):
+    from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
+    from test_dashboard_ui import _confirm_all_pending
+
+    for index, value in enumerate([74.8, 74.6, 74.7, 74.4, 74.2]):
+        day = date.today() - timedelta(days=7 - index)
+        png = encode_synthetic_png(weigh_in_payload(
+            source_local_date=day, weight_kg=value, body_fat_pct=24.4,
+        ))
+        response = client.post("/api/imports/photos",
+                               files=[("files", (f"format-{index}.png", png, "image/png"))])
+        assert response.status_code == 200
+        _confirm_all_pending(client, response.json()["id"])
 
 
 if __name__ == "__main__":
