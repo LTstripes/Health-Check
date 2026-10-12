@@ -28,14 +28,14 @@
   </form>
   <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выберите точный источник.</p>
   <p class="statistics-selected-period">Выбранный период: {{ period_labels[selected_period] }}{% if selected_period == 'calendar_year' %} {{ selected_year }}{% endif %}.</p>
-  <p class="statistics-window">{{ packet.requested_window.start_date }} — {{ packet.requested_window.end_date }} · {{ packet.requested_window.inclusive_days }} дней включительно, по локальным датам источника.</p>
+  <p class="statistics-window">{{ packet.requested_window.start_date|owner_date }} — {{ packet.requested_window.end_date|owner_date }} · {{ packet.requested_window.inclusive_days }} дней включительно, по локальным датам источника.</p>
   <p class="muted">Два независимых источника. Значения относятся к сохранённым записям; пропуски не означают ноль. Актуальность сейчас неизвестна.</p>
   <div class="statistics-pair statistics-source-headings">
     {% for side in packet.sides %}
     <header data-statistics-side="{{ side.position }}">
       <h2>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h2>
       <p>{{ identity(side.source_identity) if side.source_identity else state_labels[side.state] }}</p>
-      <small>{{ side.requested_dates.start_date }} — {{ side.requested_dates.end_date }}</small>
+      <small>{{ side.requested_dates.start_date|owner_date }} — {{ side.requested_dates.end_date|owner_date }}</small>
       {% if side.available_sources %}
       <details class="statistics-details">
         <summary>Точные источники · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
@@ -105,6 +105,10 @@
     <p class="statistics-comparison">{% if packet.deltas[code].value is not none %}Google − Garmin: {{ packet.deltas[code].value }} {{ unit_labels[packet.sides[0].metrics[code].unit] }}{% else %}Числовая разница недоступна: совместимость не подтверждена. <small>{{ packet.deltas[code].reason }}</small>{% endif %}</p>
   </section>
   {% endfor %}
+  <details class="statistics-details"><summary>Точные даты периода</summary>
+    <p>{{ packet.requested_window.start_date }} — {{ packet.requested_window.end_date }}</p>
+    {% for side in packet.sides %}<p>{{ 'Garmin' if side.position == 'left' else 'Google' }}: {{ side.requested_dates.start_date }} — {{ side.requested_dates.end_date }}</p>{% endfor %}
+  </details>
   <section class="statistics-unavailable" aria-label="Недоступные показатели">
     <h2>Другие показатели</h2>
     <div class="statistics-pair">

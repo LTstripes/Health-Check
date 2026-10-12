@@ -3,10 +3,18 @@
 {% block styles %}<link rel="stylesheet" href="/static/context.css">{% endblock %}
 {% macro note(view) %}
 <article class="context-note" data-revision="{{ view.revision_id }}">
-  <h3>Событие: {{ view.temporal.start_source_timestamp or view.temporal.start_local_date }}{% if view.temporal.end_local_date %} — {{ view.temporal.end_source_timestamp or view.temporal.end_local_date }}{% endif %}</h3>
+  <h3>Событие: {{ (view.temporal.start_source_timestamp or view.temporal.start_local_date)|owner_date(view.temporal.start_precision) }}{% if view.temporal.end_local_date %} — {{ (view.temporal.end_source_timestamp or view.temporal.end_local_date)|owner_date(view.temporal.end_precision) }}{% endif %}</h3>
   <p class="context-text">{{ view.original_text }}</p>
   <p class="muted">{% if view.temporal.start_precision == 'date' %}Только дата, время не задано{% else %}Точность: {{ {'minute': 'минута', 'second': 'секунда', 'microsecond': 'доля секунды'}[view.temporal.start_precision] }}{% if view.temporal.start_timezone %} · {{ view.temporal.start_timezone }}{% endif %}{% endif %}</p>
-  <p class="muted">Записано автоматически: {{ view.created_at.isoformat() }} · Версия {{ view.revision_number }} · {{ 'Актуальная' if view.is_current else 'Предыдущая' }} · Источник: {{ view.capture_source }}</p>
+  <p class="muted">Записано автоматически: {{ view.created_at|owner_date("microsecond") }} · Версия {{ view.revision_number }} · {{ 'Актуальная' if view.is_current else 'Предыдущая' }} · Источник: {{ view.capture_source }}</p>
+  <details class="owner-details context-time-details">
+    <summary>Точные даты и время</summary>
+    <dl>
+      <dt>Событие: начало</dt><dd>{{ view.temporal.start_source_timestamp or view.temporal.start_local_date }} · {{ view.temporal.start_precision }}{% if view.temporal.start_timezone %} · {{ view.temporal.start_timezone }}{% endif %}</dd>
+      {% if view.temporal.end_local_date %}<dt>Событие: окончание</dt><dd>{{ view.temporal.end_source_timestamp or view.temporal.end_local_date }} · {{ view.temporal.end_precision }}{% if view.temporal.end_timezone %} · {{ view.temporal.end_timezone }}{% endif %}</dd>{% endif %}
+      <dt>Записано автоматически (не время события)</dt><dd>{{ view.created_at.isoformat() }}</dd>
+    </dl>
+  </details>
   {% if view.tags %}<p>Метки: {% for tag in view.tags %}{{ tag.name }} ({{ tag.status }}, {{ tag.provenance_source }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 </article>
 {% endmacro %}
@@ -55,7 +63,7 @@
           </select>
         </label>
         <p class="muted" id="context-zone-help">Смещение определяется по дате и времени события. Можно выбрать город с клавиатуры; IANA уточняет его часовой пояс.</p>
-        {% if form.legacy_time %}<p class="muted">Исходное время: {{ form.legacy_time }}. Город не указан. При исправлении только текста время сохраняется точно; для изменения времени выбери пояс.</p>{% endif %}
+        {% if form.legacy_time %}<p class="muted">Исходное время: {{ form.legacy_time|owner_date("source") }}. Город не указан. При исправлении только текста время сохраняется точно; для изменения времени выбери пояс.</p>{% endif %}
         {{ occurrence('occurrence', 'Начало') }}
       </div>
       <p class="muted">Дата без времени остаётся датой — без часового пояса и полуночи.</p>

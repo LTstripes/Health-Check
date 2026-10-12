@@ -11,13 +11,6 @@
  'acute_training_load': 'Нагрузка сессии Garmin'
 } %}
 {% set unit_labels = {'seconds': 'с', 'meters': 'м', 'bpm': 'уд/мин', 'points': 'баллы', 'm/s': 'м/с', 'watts': 'Вт', 'rpm': 'об/мин', '%': '%'} %}
-{% macro human_duration(value) -%}
-{%- set total = value | float -%}
-{%- set hours = (total // 3600) | int -%}
-{%- set minutes = ((total % 3600) // 60) | int -%}
-{%- set seconds = total % 60 -%}
-{%- if hours %}{{ hours }} ч {% endif %}{% if hours or minutes %}{{ minutes }} мин {% endif %}{{ seconds | owner_number }} с
-{%- endmacro %}
 {% block title %}Сессия — Активность — Health-Check{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/activity_detail.css">{% endblock %}
 {% block content %}
@@ -32,8 +25,11 @@
   <article class="activity-metric-card" data-metric="{{ card.metric_code }}">
    <h3>{{ card_labels.get(card.metric_code, 'Показатель') }}</h3>
    {% if card.state in ['value', 'zero', 'partial'] %}
-   <p class="activity-metric-value"><span data-owner-state="present">{{ card.value | owner_number }}</span>{% if card.unit %} <span class="activity-metric-unit">{{ unit_labels.get(card.unit, card.unit) }}</span>{% else %} <span class="activity-metric-unit muted">Единица не предоставлена</span>{% endif %}</p>
-   {% if card.metric_code == 'duration_seconds' and card.value is not none and card.value >= 0 %}<p class="muted activity-metric-hint">{{ human_duration(card.value) }}</p>{% endif %}
+   <p class="activity-metric-value">
+     {% if card.metric_code in ['duration_seconds', 'distance_meters'] %}
+     <span data-owner-state="present">{% if card.metric_code == 'duration_seconds' and card.unit == 'seconds' %}{{ card.value|owner_duration }}{% elif card.metric_code == 'distance_meters' and card.unit == 'meters' %}{{ card.value|owner_distance }}{% else %}Единица недоступна{% endif %}</span>
+     {% else %}<span data-owner-state="present">{{ card.value | owner_number }}</span>{% if card.unit %} <span class="activity-metric-unit">{{ unit_labels.get(card.unit, card.unit) }}</span>{% else %} <span class="activity-metric-unit muted">Единица не предоставлена</span>{% endif %}{% endif %}
+   </p>
    {% if card.state == 'partial' %}{{ owner.state_chip('partial') }}{% endif %}
    {% elif card.state == 'invalid' %}
    <p><span class="status-chip owner-state unknown" data-owner-state="unknown">Некорректное значение</span></p>

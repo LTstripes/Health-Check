@@ -9,17 +9,17 @@
   {% if not steps.search_complete %}<p class="statistics-steps-warning" role="status">Поиск сохранённых данных не завершён для части дат. Подтверждённые независимые даты показаны; неполные даты не имеют выбранного значения.</p>{% endif %}
   <div class="table-scroll statistics-steps-table" tabindex="0" role="region" aria-label="Шаги Garmin по календарным датам">
     <table>
-      <caption>{{ steps.start_date }} — {{ steps.end_date }}. Даты calendarDate сохранены без преобразования часового пояса.</caption>
+      <caption>{{ steps.start_date|owner_date }} — {{ steps.end_date|owner_date }}. Даты calendarDate сохранены без преобразования часового пояса.</caption>
       <thead><tr><th scope="col">Дата</th><th scope="col">Шаги</th><th scope="col">Состояние и происхождение</th></tr></thead>
       <tbody>
         {% for cell in steps.cells %}
         <tr data-steps-date="{{ cell.calendar_date }}" data-steps-state="{{ cell.state }}">
-          <th scope="row"><time datetime="{{ cell.calendar_date }}">{{ cell.calendar_date }}</time></th>
+          <th scope="row"><time datetime="{{ cell.calendar_date }}">{{ cell.calendar_date|owner_date }}</time></th>
           <td class="statistics-steps-value">{% if cell.value is not none %}{{ cell.value }}{% else %}Недоступно{% endif %}</td>
           <td>
             <p>{{ steps_state_labels[cell.state] }}{% if cell.state == 'value' and cell.value == 0 %} — явный ноль{% endif %}</p>
             <details class="statistics-details statistics-steps-evidence">
-              <summary>Происхождение и состояния — {{ cell.calendar_date }}</summary>
+              <summary>Происхождение и состояния — {{ cell.calendar_date|owner_date }}</summary>
               <dl>
                 <dt>Источник / дата calendarDate</dt><dd>{{ cell.source_id }} / {{ cell.calendar_date }}</dd>
                 <dt>Метрика / единица / атрибуция</dt><dd>{{ cell.metric_code }} / {{ cell.unit }} / {{ cell.attribution }}</dd>

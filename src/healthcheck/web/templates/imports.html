@@ -90,7 +90,7 @@
 {% if batches %}
 {% call owner_ui.technical_details() %}
 <h2>Состояния загрузок</h2>
-<ul>{% for batch in batches %}<li>{{ batch.started_at|owner_date }}: <code>{{ batch.status }}</code></li>{% endfor %}</ul>
+<ul>{% for batch in batches %}<li>{{ batch.started_at.isoformat() if batch.started_at else "Дата не указана" }}: <code>{{ batch.status }}</code></li>{% endfor %}</ul>
 {% endcall %}
 {% endif %}
 {% endblock %}

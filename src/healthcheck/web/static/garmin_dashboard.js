@@ -1,4 +1,5 @@
 (function () {
+  const ownerDate = window.healthcheckOwnerDate;
   const dataNode = document.getElementById("garmin-dashboard-data");
   if (!dataNode) return;
   const payload = JSON.parse(dataNode.textContent || "{}");
@@ -277,17 +278,6 @@
   }
   function chip(key) { if (key === "present") return ""; return '<span class="status-chip owner-state ' + key + '" data-owner-state="' + key + '">' + labels[key] + "</span>"; }
   function unavailable(reason) { return chip("unavailable") + "<p>" + escapeHtml(reason) + "</p>"; }
-  function ownerDate(value) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/.exec(String(value || ""));
-    if (!match) return "Дата не указана";
-    const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
-    const month = months[Number(match[2]) - 1];
-    if (!month) return "Дата не указана";
-    let text = Number(match[3]) + " " + month + " " + match[1];
-    if (match[4]) text += ", " + match[4] + ":" + match[5];
-    if (match[6]) text += ["Z", "+00:00"].includes(match[6]) ? " UTC" : " UTC" + match[6];
-    return text;
-  }
   function fmt(val, digits = 1) { return val === null || val === undefined || !Number.isFinite(Number(val)) ? "Не предоставлено" : Number(val).toFixed(digits); }
   function setHtml(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
   function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
