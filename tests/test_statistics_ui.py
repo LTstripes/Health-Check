@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import socket
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -15,10 +16,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from healthcheck.analytics import activity_period_sessions as reader
 from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
 from healthcheck.config import Settings
 from healthcheck.db.engine import migrate_database
-from healthcheck.db.models import GarminRecordMetric, GarminSource, GoogleSource
+from healthcheck.db.models import GarminRecordMetric, GarminSource, GarminSourceRecord, GoogleSource
 from healthcheck.google.contracts import FAMILY_ALL_SOURCES, FAMILY_GOOGLE_WEARABLES
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.runtime import prepare_runtime
@@ -467,3 +469,272 @@ def test_read_failure_is_russian_alert_without_raw_internals(statistics_ui, monk
     details_open_tag = response.text.split("<details", 1)[1].split(">", 1)[0]
     assert "open" not in details_open_tag
     _export_failure_html("read-error-500.html", response.text)
+
+
+def read(session, source, **kwargs):
+    return reader.read_activity_period_sessions(
+        session,
+        source_id=source.id,
+        start_date=START,
+        end_date=END,
+        metric_code=kwargs.pop("metric_code", "tennis_session_count"),
+        sport=kwargs.pop("sport", "tennis"),
+        **kwargs,
+    )
+
+
+def records(session):
+    return list(
+        session.scalars(
+            select(GarminSourceRecord)
+            .where(
+                GarminSourceRecord.stream_code == "activity",
+            )
+            .order_by(GarminSourceRecord.id)
+        )
+    )
+
+
+@pytest.mark.parametrize("count", [0, 1, 2, 51])
+def test_saved_window_empty_singleton_same_day_beyond_journal_limit(projection_database, count):
+    session, paths = projection_database
+    _activity(session, paths, kind="tennis", count=max(count, 1))
+    source = session.scalar(select(GarminSource))
+    if not count:
+        rows = records(session)
+        rows[0].source_local_date = START - timedelta(days=1)
+    session.flush()
+    packet = read(session, source)
+    assert packet["complete"] and packet["reason"] is None
+    assert len(packet["sessions"]) == count
+    assert all(item["source_local_date"] == str(START) for item in packet["sessions"])
+
+
+def test_boundaries_sports_source_local_not_utc_and_source_separation(projection_database):
+    session, paths = projection_database
+    for offset in [-1, 0, 6, 7]:
+        _activity(
+            session, paths, kind="tennis_v2", day=START + timedelta(days=offset), suffix=str(offset)
+        )
+    _activity(session, paths, kind="cycling", suffix="other-sport")
+    _activity(session, paths, kind="tennis", suffix="other-source", attributed=False)
+    source = session.scalar(select(GarminSource).where(GarminSource.device_attributed.is_(True)))
+    for row in records(session):
+        row.source_timestamp_utc = datetime(2080, 1, 1, tzinfo=UTC)
+    session.flush()
+    packet = read(session, source)
+    assert {i["source_local_date"] for i in packet["sessions"]} == {str(START), str(END)}
+    assert len(packet["sessions"]) == 2
+    assert (
+        len(read(session, source, metric_code="activity_session_count", sport="all")["sessions"])
+        == 3
+    )
+    assert (
+        len(
+            read(session, source, metric_code="cycling_distance_meters", sport="cycling")[
+                "sessions"
+            ]
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize("case", ["missing", "null", "invalid", "unit", "negative", "zero"])
+def test_originating_metric_eligibility_matches_statistics(projection_database, case):
+    session, paths = projection_database
+    _activity(session, paths, kind="tennis_v2")
+    source = session.scalar(select(GarminSource))
+    metric = session.scalar(
+        select(GarminRecordMetric).where(
+            GarminRecordMetric.metric_code == "duration_seconds",
+        )
+    )
+    if case in {"missing", "null", "invalid"}:
+        metric.state, metric.value_number, metric.value_text = case, None, None
+    elif case == "unit":
+        metric.unit = "minutes"
+    else:
+        metric.value_number = -1 if case == "negative" else 0
+    session.flush()
+    summary = PeriodSummaryService(session).build(days=7, end_date=END)["sides"][0]["metrics"]
+    for code in ["tennis_session_count", "tennis_duration_seconds"]:
+        packet = read(session, source, metric_code=code)
+        assert len(packet["sessions"]) == summary[code]["aggregation"]["eligible_count"]
+        assert len(packet["sessions"]) == (1 if code.endswith("count") or case == "zero" else 0)
+    count_row = read(session, source)["sessions"][0]
+    assert count_row["metrics"]["duration_seconds"]["state"] == metric.state
+    assert count_row["metrics"]["duration_seconds"]["value"] == metric.value_number
+    assert count_row["metrics"]["duration_seconds"]["unit"] == metric.unit
+
+
+def test_invalid_retired_duplicate_current_identity_across_sport(projection_database):
+    session, paths = projection_database
+    _activity(session, paths, kind="tennis", count=5)
+    rows = records(session)
+    rows[0].record_status = "invalid"
+    rows[1].projection_status = "retired"
+    rows[1].retired_at = datetime.now(UTC)
+    rows[1].retire_reason = "synthetic-test"
+    rows[2].external_record_id = rows[3].external_record_id
+    rows[3].activity_type = "cycling"
+    session.flush()
+    source = session.scalar(select(GarminSource))
+    assert [i["record_id"] for i in read(session, source)["sessions"]] == [rows[4].id]
+
+
+@pytest.mark.parametrize("count", [2, 3, 4])
+@pytest.mark.parametrize("cap_type", ["candidate", "display"])
+def test_explicit_caps_and_extra_record(projection_database, monkeypatch, count, cap_type):
+    session, paths = projection_database
+    _activity(session, paths, kind="tennis", count=count)
+    source = session.scalar(select(GarminSource))
+    monkeypatch.setattr(
+        reader, "MAX_CANDIDATE_RECORDS" if cap_type == "candidate" else "MAX_DISPLAY_SESSIONS", 3
+    )
+    packet = read(session, source)
+    assert packet["complete"] == (count <= 3)
+    if count > 3:
+        assert packet["reason"] == (
+            "candidate_record_limit_exceeded"
+            if cap_type == "candidate"
+            else "display_session_limit_exceeded"
+        )
+        assert len(packet["sessions"]) == (0 if cap_type == "candidate" else 3)
+    else:
+        assert len(packet["sessions"]) == count
+
+
+def test_budget_incomplete_never_empty(projection_database, monkeypatch):
+    session, paths = projection_database
+    _activity(session, paths, kind="tennis")
+    source = session.scalar(select(GarminSource))
+
+    def exhausted(*args, **kwargs):
+        raise reader.IncompletePeriodRead("time_budget_exceeded")
+
+    monkeypatch.setattr(reader.PeriodReadBudget, "check", exhausted)
+    packet = read(session, source)
+    assert not packet["complete"] and packet["reason"] == "time_budget_exceeded"
+    assert not packet["sessions"]
+
+
+class Links(HTMLParser):
+    def __init__(self, text):
+        super().__init__()
+        self.links = []
+        self.feed(text)
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self.links.append(dict(attrs))
+
+
+@pytest.mark.parametrize("period", ["7", "30", "calendar_year", "year_to_date", "trailing365"])
+def test_statistics_resolved_source_window_handoff_and_return(statistics_ui, period):
+    session, paths, client = statistics_ui
+    _activity(session, paths, kind="tennis_v2", count=2)
+    source = session.scalar(select(GarminSource))
+    ids = {r.id for r in records(session)}
+    session.commit()
+    statements = []
+
+    def capture(_connection, _cursor, statement, *_args):
+        statements.append(statement.lstrip().split()[0].upper())
+
+    event.listen(session.bind, "before_cursor_execute", capture)
+    try:
+        # No explicit source: the link must carry the source resolved by Statistics.
+        response = client.get(
+            "/statistics",
+            params={"period": period, "end_date": str(END), "calendar_year": END.year},
+        )
+        link = next(
+            a["href"]
+            for a in Links(response.text).links
+            if a.get("data-session-drilldown") == "tennis_session_count"
+        )
+        params = parse_qs(urlsplit(link).query)
+        assert params["garmin_source_id"] == [source.id]
+        drilldown = client.get(link)
+        assert drilldown.status_code == 200
+        assert drilldown.headers["cache-control"] == "no-store"
+        details = [
+            a["href"]
+            for a in Links(drilldown.text).links
+            if a["href"].startswith("/garmin/session?")
+        ]
+        assert len(details) == 2
+        assert {parse_qs(urlsplit(href).query)["record_id"][0] for href in details} == ids
+        for href in details:
+            query = parse_qs(urlsplit(href).query)
+            assert query["garmin_source_id"] == params["garmin_source_id"]
+            assert query["start_date"] == params["start_date"]
+            assert query["end_date"] == params["end_date"]
+            assert query["origin_metric_code"] == params["metric_code"]
+            assert "metric_code" not in query
+            detail = client.get(href)
+            assert detail.status_code == 200
+            assert query["record_id"][0] in detail.text
+        back = next(a["href"] for a in Links(drilldown.text).links if "data-statistics-return" in a)
+        back_query = parse_qs(urlsplit(back).query)
+        assert back_query["period"] == [period]
+        assert back_query["garmin_source_id"] == [source.id]
+        assert back_query["end_date"] == [str(END)]
+        assert client.get(back).status_code == 200
+    finally:
+        event.remove(session.bind, "before_cursor_execute", capture)
+    assert statements and set(statements) <= {"SELECT", "BEGIN", "PRAGMA"}
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"garmin_source_id": "unknown"},
+        {"metric_code": "sleep_duration_asleep_seconds"},
+        {"metric_code": "made-up"},
+        {"sport": "cycling"},
+        {"start_date": str(END + timedelta(days=1))},
+        {"start_date": str(END - timedelta(days=366))},
+        {"origin_period": "made-up"},
+    ],
+)
+def test_route_rejects_invalid_context(statistics_ui, override):
+    session, paths, client = statistics_ui
+    _activity(session, paths, kind="tennis")
+    source = session.scalar(select(GarminSource))
+    session.commit()
+    response = client.get(
+        "/statistics/sessions",
+        params={
+            "garmin_source_id": source.id,
+            "metric_code": "tennis_session_count",
+            "sport": "tennis",
+            "start_date": str(START),
+            "end_date": str(END),
+            **override,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_route_read_failure_and_incomplete_copy(statistics_ui, monkeypatch):
+    session, paths, client = statistics_ui
+    _activity(session, paths, kind="tennis", count=2)
+    source = session.scalar(select(GarminSource))
+    session.commit()
+    params = {
+        "garmin_source_id": source.id,
+        "metric_code": "tennis_session_count",
+        "sport": "tennis",
+        "start_date": str(START),
+        "end_date": str(END),
+    }
+    monkeypatch.setattr(reader, "MAX_CANDIDATE_RECORDS", 1)
+    response = client.get("/statistics/sessions", params=params)
+    assert "Список неполный" in response.text and "нет допустимых сессий" not in response.text
+
+    def failed(*args, **kwargs):
+        raise SQLAlchemyError("synthetic failure")
+
+    monkeypatch.setattr("healthcheck.web.activity_period.read_activity_period_sessions", failed)
+    assert client.get("/statistics/sessions", params=params).status_code == 500

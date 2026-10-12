@@ -18,6 +18,7 @@ from healthcheck.ingestion.photo.extractor import ImageMeasurementExtractor
 from healthcheck.ingestion.photo.vision import build_photo_extractor
 from healthcheck.logging import log_event
 from healthcheck.web.activity_detail import router as activity_detail_router
+from healthcheck.web.activity_period import router as activity_period_router
 from healthcheck.web.agreement import router as agreement_router
 from healthcheck.web.common import wants_html
 from healthcheck.web.context import router as context_router
@@ -52,6 +53,7 @@ def create_ui_app(
     app.include_router(weight_router)
     app.include_router(garmin_router)
     app.include_router(activity_detail_router)
+    app.include_router(activity_period_router)
     app.include_router(agreement_router)
     app.include_router(period_brief_router)
     app.include_router(source_freshness_router)

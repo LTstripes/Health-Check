@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Сессии за период — Health-Check{% endblock %}
+{% block content %}
+<section aria-labelledby="sessions-title">
+  <p><a href="{{ back_href }}" data-statistics-return>Вернуться к выбранной статистике</a></p>
+  <h2 id="sessions-title">{{ sport_labels[packet.sport] }} · сессии за период</h2>
+  <p>{{ packet.start_date|owner_date }} — {{ packet.end_date|owner_date }}, включительно по локальным датам источника Garmin.</p>
+  <p>Исходный показатель: {{ metric_label }}. Показаны только сессии, допустимые для этого показателя.</p>
+  {% if can_filter %}
+  <form method="get" action="/statistics/sessions" class="statistics-controls">
+    {% for key, value in context_params.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+    <label>Вид активности <select name="sport" aria-label="Вид активности">{% for key, label in sport_labels.items() %}<option value="{{ key }}"{% if packet.sport == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <button type="submit">Показать</button>
+  </form>
+  {% endif %}
+  {% if not packet.complete %}
+  <p role="status">Список неполный. {% if packet.reason == 'display_session_limit_exceeded' %}Показаны первые {{ packet.display_cap }} допустимых сессий; найдена как минимум ещё одна.{% else %}Поиск сохранённых записей не завершён; допустимый список не установлен. Лимит входных записей: {{ packet.candidate_cap }}.{% endif %}</p>
+  {% elif not packet.sessions %}
+  <p role="status">В сохранённых записях выбранного источника за этот период нет допустимых сессий.</p>
+  {% endif %}
+  <p class="muted">Полнота списка относится только к допустимым сохранённым записям. Она не подтверждает полноту истории провайдера. Лимит списка: {{ packet.display_cap }} сессий. Отсутствующее значение не равно нулю.</p>
+  {% if packet.sessions %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Сессии Garmin по локальным датам">
+    <table>
+      <thead><tr><th>Локальная дата</th><th>Вид</th><th>Длительность, с</th><th>Дистанция, м</th><th>Сохранённая сессия</th></tr></thead>
+      <tbody>{% for item in packet.sessions %}<tr data-session-record="{{ item.record_id }}">
+        <td>{{ item.source_local_date|owner_date }}</td>
+        <td>{{ 'Теннис' if item.activity_type in ['tennis', 'tennis_v2'] else 'Велотренировка' if item.activity_type == 'cycling' else item.activity_type or 'Вид не указан' }}</td>
+        {% for code, unit in [('duration_seconds', 'seconds'), ('distance_meters', 'meters')] %}
+        {% set metric = item.metrics[code] %}<td data-session-metric="{{ code }}" data-metric-state="{{ metric.state }}">{% if metric.displayable and metric.unit == unit %}{{ metric.value }}{% elif metric.state == 'missing' %}Поле отсутствует{% elif metric.state == 'null' %}Источник передал null{% elif metric.state == 'invalid' or not metric.displayable %}Некорректное значение{% else %}Единица недоступна{% if metric.unit %} ({{ metric.unit }}){% endif %}{% endif %}</td>
+        {% endfor %}
+        <td><a href="{{ item.detail_href }}">Открыть сессию {{ loop.index }}</a>{% if item.record_status == 'partial' %}<small> · частичная запись</small>{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+  <details class="statistics-details"><summary>Выбранный источник и пределы поиска</summary><p>Garmin: {{ packet.source_id }}. {{ packet.start_date }} — {{ packet.end_date }}. {{ packet.metric_code }}. Входные записи: не более {{ packet.candidate_cap }} с проверкой дополнительной записи. {{ packet.reason or 'Поиск сохранённых записей завершён.' }}</p></details>
+</section>
+{% endblock %}
