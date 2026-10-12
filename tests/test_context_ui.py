@@ -596,6 +596,7 @@ def test_only_ambiguous_end_requires_choice(ui):
         parse_timestamp("2026-01-02T19:30:10.123400+00:00"),
         parse_timestamp("2026-01-02T19:30:00-03:30"),
         parse_timestamp("2026-01-02T19:30:00.000000+03:00", timezone_name="Europe/Moscow"),
+        parse_timestamp("2026-10-25T01:30Z", timezone_name="Europe/Dublin"),
         parse_interval("2026-03-08T01:30-05:00", "2026-03-08T03:30-04:00"),
     ],
 )
@@ -607,6 +608,8 @@ def test_text_only_edit_preserves_original_temporal_representation(ui, temporal)
         )
     read = client.get(f"/context/{original.event_id}")
     edit = FormParser(read.text).values
+    if temporal.start_timezone == "Europe/Dublin":
+        assert edit["occurrence"] == "second"  # Native required select must allow text-only submit.
     edit["original_text"] = "Synthetic text-only correction"
     response = client.post(f"/context/{original.event_id}", data=edit)
     assert response.status_code == 200
@@ -621,7 +624,8 @@ def test_text_only_edit_preserves_original_temporal_representation(ui, temporal)
         assert client.post(f"/context/{original.event_id}", data=changed).status_code == 422
 
 
-def test_historical_second_offset_record_text_edit_does_not_reparse_or_round(ui):
+@pytest.mark.parametrize("zone", [None, "Legacy/Removed"])
+def test_historical_second_offset_record_text_edit_does_not_reparse_or_round(ui, zone):
     client, engine, _ = ui
     event_id = str(uuid4())
     revision_id = str(uuid4())
@@ -643,6 +647,7 @@ def test_historical_second_offset_record_text_edit_does_not_reparse_or_round(ui)
                 start_precision="microsecond",
                 start_local_date=date(1900, 1, 2),
                 start_utc_offset_minutes=9,
+                start_timezone=zone,
                 start_source_timestamp="1900-01-02T12:00:10.123400+00:09:21",
                 start_at_utc=datetime(1900, 1, 2, 11, 50, 49, 123400, tzinfo=UTC),
             )
@@ -653,7 +658,7 @@ def test_historical_second_offset_record_text_edit_does_not_reparse_or_round(ui)
         before = ContextService(session).list()[0]
     edit = FormParser(client.get(f"/context/{event_id}").text).values
     assert edit["event_time"] == "12:00:10.123400"
-    assert edit["timezone_name"] == ""
+    assert edit["timezone_name"] == (zone or "")
     response = client.post(
         f"/context/{event_id}",
         data={**edit, "original_text": "Synthetic corrected historical"},

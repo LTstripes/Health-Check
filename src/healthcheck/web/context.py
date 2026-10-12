@@ -64,7 +64,7 @@ ERRORS = {
 
 def _render(request: Request, *, status: int = 200, **context):
     form = context.get("form") or {}
-    context.update(zones=zone_choices(), folds=fold_choices(form))
+    context.update(zones=zone_choices(), folds=fold_choices(form), zone_keys=dict(zone_choices()))
     response = templates.TemplateResponse(
         request, "context.html", {"page": "context", **context}, status_code=status
     )
@@ -128,7 +128,9 @@ def _form_for(view: ContextRevisionView) -> dict[str, str]:
                     choices = occurrences(day, clock, value.start_timezone)
                     if len(choices) == 2:
                         form[prefix + "occurrence"] = next(
-                            key for key, candidate in choices if candidate == offset
+                            key
+                            for key, candidate in choices
+                            if candidate == ("+00:00" if offset == "Z" else offset)
                         )
                 except (ContextValidationError, StopIteration):
                     pass  # Unchanged edits retain the authoritative original, never guess.

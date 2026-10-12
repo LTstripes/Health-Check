@@ -50,6 +50,7 @@
         <label>Город / часовой пояс
           <select name="timezone_name"{% if not form.event_time %} disabled{% endif %} aria-describedby="context-zone-help">
             <option value="">{{ 'Сохранить исходное время без IANA' if form.legacy_time else 'Выбери город / часовой пояс' }}</option>
+            {% if form.timezone_name and form.timezone_name not in zone_keys %}<option value="{{ form.timezone_name }}" selected>Исходный пояс — {{ form.timezone_name }}</option>{% endif %}
             {% for key, label in zones %}<option value="{{ key }}"{% if form.timezone_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
           </select>
         </label>
