@@ -1,7 +1,8 @@
 """Desktop presentation of the accepted read-only source-period packet (#347 B2)."""
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.templating import Jinja2Templates
@@ -10,7 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.analytics.period_summary import PeriodSummaryService
 from healthcheck.analytics.sleep_source_view import read_source_sleep_range
 from healthcheck.db.engine import session_scope
-from healthcheck.garmin.observed_steps_read import read_observed_steps_window
+from healthcheck.garmin.completed_steps_read import DISPLAY_ZONE, read_completed_steps_window
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.owner_presentation import owner_date, owner_distance, owner_duration
 from healthcheck.web.pages import _persist_error, render_error
@@ -51,6 +53,10 @@ STEPS_STATE_LABELS = {
     "projection_unavailable": "Нет подтверждённого сохранённого значения на эту дату",
     "search_incomplete": "Поиск сохранённых данных не завершён",
 }
+
+
+def steps_evaluation_instant() -> datetime:
+    return datetime.now(UTC)
 
 
 def format_statistics_value(code: str, value: int | float | None) -> str:
@@ -113,16 +119,23 @@ def statistics(
                 garmin_source_id=garmin_source_id or None,
                 google_source_id=selected_google,
             )
-            # A sole source chosen by the older period packet is not an explicit
-            # Steps selection. Use the request identity and the packet's exact window.
-            steps = None
-            if garmin_source_id:
-                steps = read_observed_steps_window(
-                    session,
-                    source_id=garmin_source_id,
-                    start_date=date.fromisoformat(packet["requested_window"]["start_date"]),
-                    end_date=date.fromisoformat(packet["requested_window"]["end_date"]),
-                )
+            steps_now = steps_evaluation_instant()
+            steps_start = date.fromisoformat(packet["requested_window"]["start_date"])
+            steps_end = date.fromisoformat(packet["requested_window"]["end_date"])
+            # Default rolling Steps windows end yesterday in the explicit Owner
+            # display zone. Explicit historical windows and other aggregates stay exact.
+            if end_date is None and selected_period in {"7", "30", "trailing365"}:
+                steps_end = steps_now.astimezone(ZoneInfo(DISPLAY_ZONE)).date() - timedelta(days=1)
+                length = 365 if selected_period == "trailing365" else int(selected_period)
+                steps_start = steps_end - timedelta(days=length - 1)
+            steps = read_completed_steps_window(
+                session,
+                payload_store=ContentAddressedGarminPayloadStore(
+                    request.app.state.runtime_paths.root / "artifacts"
+                ),
+                source_id=garmin_source_id or None,
+                start_date=steps_start, end_date=steps_end, evaluated_at=steps_now,
+            )
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=400, detail="invalid_statistics_selection") from exc
     except SQLAlchemyError as exc:

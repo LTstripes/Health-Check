@@ -1,6 +1,5 @@
-"""Real Statistics route over synthetic materialized Steps, never Owner/provider data."""
+"""Completed-day Steps through the real Statistics route; external synthetic data."""
 
-import json
 import os
 from datetime import timedelta
 from html.parser import HTMLParser
@@ -10,22 +9,13 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
 
+from healthcheck.garmin.completed_steps_read import read_completed_steps_window
 from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
-from healthcheck.garmin.observed_steps_read import read_observed_steps_window
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.owner_presentation import owner_date
-from test_garmin_observed_steps import (
-    ABSENT,
-    DAY,
-    duplicate_candidates,
-    duplicate_provenance,
-    materialize,
-    source,
-)
+from test_garmin_completed_steps import ABSENT, BOUNDARY, DAY, NOW, acquire
 from test_statistics_ui import projection_database as projection_database
 from test_statistics_ui import statistics_ui as statistics_ui
-
-END = DAY + timedelta(days=8)
 
 
 class StepsParser(HTMLParser):
@@ -70,46 +60,53 @@ def export(response, name):
 
 def seed_steps(session, paths):
     store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
-    counts = [17, 0, None, ABSENT, True, 7, None]
-    for index, count in enumerate(counts):
-        saved, _ = materialize(session, store, DAY + timedelta(days=index), count)
-    materialize(session, store, DAY + timedelta(days=5), 9)
-    materialize(session, store, DAY + timedelta(days=6), ABSENT)
-    materialize(session, store, END, 2**53 + 1)
-    other, _ = materialize(session, store, END, 999, source("second-synthetic-account"))
-    session.commit()
-    return saved.source.id, other.source.id
+    for index, count in enumerate([17, 0, None, ABSENT, True, 7]):
+        saved = acquire(
+            session,
+            store,
+            count,
+            day=DAY + timedelta(days=index),
+            at=BOUNDARY + timedelta(days=index),
+        )
+    acquire(
+        session, store, 3, day=DAY + timedelta(days=5), at=BOUNDARY + timedelta(days=5, hours=1)
+    )
+    return saved.source.id
+
+
+@pytest.fixture(autouse=True)
+def deterministic_steps_clock(monkeypatch):
+    monkeypatch.setattr(
+        "healthcheck.web.statistics.steps_evaluation_instant", lambda: NOW + timedelta(days=7)
+    )
 
 
 @pytest.mark.parametrize("period", ["7", "30", "calendar_year", "trailing365", "year_to_date"])
-def test_steps_reader_uses_exact_period_and_preserves_result(statistics_ui, monkeypatch, period):
+def test_steps_reader_preserves_explicit_period_and_result(statistics_ui, monkeypatch, period):
     session, paths, client = statistics_ui
-    first, other = seed_steps(session, paths)
+    first = seed_steps(session, paths)
     captured = []
 
     def capture(read_session, **kwargs):
-        result = read_observed_steps_window(read_session, **kwargs)
+        result = read_completed_steps_window(read_session, **kwargs)
         captured.append((kwargs, result))
         return result
 
-    monkeypatch.setattr("healthcheck.web.statistics.read_observed_steps_window", capture)
-    params = {
-        "period": period,
-        "end_date": str(END),
-        "calendar_year": 2099,
-        "garmin_source_id": first,
-    }
-    response = client.get("/statistics", params=params)
-    assert response.status_code == 200
-    assert response.headers["cache-control"] == "no-store"
+    monkeypatch.setattr("healthcheck.web.statistics.read_completed_steps_window", capture)
+    end = DAY + timedelta(days=8)
+    response = client.get(
+        "/statistics",
+        params={
+            "period": period,
+            "end_date": str(end),
+            "calendar_year": 2099,
+            "garmin_source_id": first,
+        },
+    )
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
     selection, result = captured[0]
-    assert selection == {
-        "source_id": first,
-        "start_date": result.start_date,
-        "end_date": result.end_date,
-    }
-    assert (f"{owner_date(result.start_date)} — {owner_date(result.end_date)}"
-            in steps_html(response))
+    assert selection["source_id"] == first
+    assert result.end_date == (end if period != "calendar_year" else DAY.replace(month=12, day=31))
     parser = StepsParser(response.text)
     assert parser.states == {str(cell.calendar_date): cell.state for cell in result.cells}
     assert parser.values == {
@@ -117,117 +114,67 @@ def test_steps_reader_uses_exact_period_and_preserves_result(statistics_ui, monk
         for cell in result.cells
     }
     section = steps_html(response)
-    assert "9007199254740993" in section and "9007199254740992" not in section
-    assert other not in section
     assert "unknown / unknown / unknown / unknown" in section
-    assert "projection_not_run" not in section
-    assert "not_evidenced" in section
-    assert "statistics-denominator" not in section
-    assert "statistics-comparison" not in section
-    assert "999" not in parser.values.values()
+    assert "Europe/Moscow" in section and "garmin-completed-day-steps-moscow-v1" in section
+    assert "statistics-denominator" not in section and "statistics-comparison" not in section
     for cell in result.cells:
         for evidence in cell.evidence:
-            assert evidence.record_id in section
-            assert evidence.metric_row_id in section
-            assert evidence.raw_payload_id in section
-            assert evidence.content_hash in section
-            for observation_id in evidence.observation_ids:
-                assert observation_id in section
-    export(response, f"a-{period}")
-    second = client.get("/statistics", params=dict(params, garmin_source_id=other))
-    assert StepsParser(second.text).values[str(END)] == "999"
-    assert first not in steps_html(second)
-    export(second, f"b-{period}")
-    unselected = client.get("/statistics", params=dict(params, garmin_source_id=""))
-    assert 'data-steps-selection="required"' in unselected.text
-    assert not StepsParser(unselected.text).states
-    export(unselected, f"unselected-{period}")
-    root = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
-    if root:
-        (Path(root) / "steps-sources.json").write_text(
-            json.dumps({"a": first, "b": other}), encoding="utf-8"
-        )
-        if period == "year_to_date":
-            # All navigation captures must share this exact persisted source pair.
-            for choice in ("7", "30", "calendar_year", "trailing365", "year_to_date"):
-                for name, selected in (("a", first), ("b", other), ("unselected", "")):
-                    rendered = client.get(
-                        "/statistics",
-                        params=dict(
-                            params,
-                            period=choice,
-                            garmin_source_id=selected,
-                        ),
-                    )
-                    assert rendered.status_code == 200
-                    export(rendered, f"{name}-{choice}")
-            export(
-                client.get(
-                    "/statistics",
-                    params=dict(
-                        params,
-                        period="7",
-                        end_date="2099-02-08",
-                    ),
-                ),
-                "no-latest",
-            )
+            assert evidence.observation_id in section and evidence.content_hash in section
+    export(response, f"completed-{period}")
 
 
-@pytest.mark.parametrize("sole", [False, True])
-def test_steps_no_auto_selection_even_sole_source(statistics_ui, monkeypatch, sole):
+def test_default_targets_yesterday_and_does_not_shift_explicit_window(statistics_ui, monkeypatch):
     session, paths, client = statistics_ui
-    if sole:
-        materialize(session, ContentAddressedGarminPayloadStore(paths.root / "artifacts"), count=0)
-        session.commit()
-
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("Steps reader requires explicit selection")
-
-    monkeypatch.setattr("healthcheck.web.statistics.read_observed_steps_window", forbidden)
-    response = client.get("/statistics", params={"end_date": str(END)})
-    assert response.status_code == 200
-    assert 'data-steps-selection="required"' in response.text
-    selector = response.text.split('name="garmin_source_id"', 1)[1].split("</select>", 1)[0]
-    assert 'value="" selected' in selector
-    assert not StepsParser(response.text).states
-    export(response, "sole" if sole else "empty")
+    source = seed_steps(session, paths)
+    monkeypatch.setattr("healthcheck.web.statistics.steps_evaluation_instant", lambda: BOUNDARY)
+    response = client.get("/statistics", params={"garmin_source_id": source})
+    parser = StepsParser(response.text)
+    assert max(parser.states) == str(DAY) and len(parser.states) == 7
+    assert parser.values[str(DAY)] == "17"
+    historical = client.get(
+        "/statistics",
+        params={"end_date": str(DAY - timedelta(days=10)), "garmin_source_id": source},
+    )
+    assert max(StepsParser(historical.text).states) == str(DAY - timedelta(days=10))
 
 
-@pytest.mark.parametrize("kind", ["candidate", "provenance"])
-def test_steps_real_caps_keep_independent_cells(statistics_ui, kind):
+def test_sole_source_defaults_but_multiple_sources_require_honest_choice(statistics_ui):
     session, paths, client = statistics_ui
     store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
-    saved, _ = materialize(session, store, count=0)
-    later, projected = materialize(session, store, DAY + timedelta(days=1), 17)
-    if kind == "candidate":
-        duplicate_candidates(session, projected, 4097)
-    else:
-        duplicate_provenance(session, later, 4097)
-    session.commit()
-    response = client.get(
-        "/statistics",
-        params={"days": 7, "end_date": "2099-01-08", "garmin_source_id": saved.source.id},
+    first = acquire(session, store, 0)
+    response = client.get("/statistics", params={"end_date": str(DAY)})
+    assert StepsParser(response.text).values[str(DAY)] == "0"
+    second = acquire(session, store, 999, account="other-account")
+    response = client.get("/statistics", params={"end_date": str(DAY)})
+    assert 'data-steps-selection="required"' in response.text
+    assert not StepsParser(response.text).states
+    explicit = client.get(
+        "/statistics", params={"end_date": str(DAY), "garmin_source_id": first.source.id}
     )
-    assert response.status_code == 200
-    parser = StepsParser(response.text)
-    assert parser.values[str(DAY)] == "0"
-    assert parser.states[str(DAY + timedelta(days=1))] == "search_incomplete"
-    assert parser.values[str(DAY + timedelta(days=1))] == "Недоступно"
-    assert f"{kind}_limit_exceeded" in steps_html(response)
-    assert 'role="status"' in steps_html(response)
-    assert "не завершён; ссылки могут быть частичными" in steps_html(response)
-    export(response, f"cap-{kind}")
+    assert StepsParser(explicit.text).values[str(DAY)] == "0"
+    assert second.source.id not in steps_html(explicit)
 
 
-def test_steps_ui_never_materializes_or_writes_and_never_seeks_latest(statistics_ui, monkeypatch):
+def test_current_future_days_omitted_and_source_range_never_guessed(statistics_ui, monkeypatch):
     session, paths, client = statistics_ui
-    first, _ = seed_steps(session, paths)
-    session.rollback()
+    source = seed_steps(session, paths)
+    monkeypatch.setattr("healthcheck.web.statistics.steps_evaluation_instant", lambda: BOUNDARY)
+    response = client.get(
+        "/statistics", params={"end_date": str(DAY + timedelta(days=1)), "garmin_source_id": source}
+    )
+    assert max(StepsParser(response.text).states) == str(DAY)
+    assert owner_date(DAY) in steps_html(response)
+    missing = client.get("/statistics", params={"garmin_source_id": "missing-source"})
+    assert missing.status_code == 400  # Existing Statistics exact-source validation.
+
+
+def test_steps_ui_no_writes_or_projection(statistics_ui, monkeypatch):
+    session, paths, client = statistics_ui
+    first = seed_steps(session, paths)
     statements = []
 
     def forbidden(*_args, **_kwargs):
-        pytest.fail("UI request attempted Steps materialization")
+        pytest.fail("GET attempted Steps materialization")
 
     def capture(_connection, _cursor, statement, *_args):
         statements.append(statement.lstrip().split()[0].upper())
@@ -235,27 +182,41 @@ def test_steps_ui_never_materializes_or_writes_and_never_seeks_latest(statistics
     monkeypatch.setattr(SavedDailyStepsRepository, "project_day", forbidden)
     event.listen(session.bind, "before_cursor_execute", capture)
     try:
-        for _ in range(2):
-            response = client.get(
-                "/statistics",
-                params={"days": 7, "end_date": "2099-02-08", "garmin_source_id": first},
-            )
-            parser = StepsParser(response.text)
-            assert set(parser.states.values()) == {"projection_unavailable"}
-            assert set(parser.values.values()) == {"Недоступно"}
+        response = client.get(
+            "/statistics", params={"end_date": "2099-02-08", "garmin_source_id": first}
+        )
     finally:
         event.remove(session.bind, "before_cursor_execute", capture)
-    assert statements and set(statements) <= {"SELECT", "BEGIN", "PRAGMA"}
+    assert response.status_code == 200
+    assert not StepsParser(response.text).states  # Explicit future range has no completed days.
+    assert set(statements) <= {"SELECT", "BEGIN", "PRAGMA"}
 
 
-def test_steps_reader_failure_uses_existing_html_error_contract(statistics_ui, monkeypatch):
-    session, paths, client = statistics_ui
-    first, _ = seed_steps(session, paths)
+def test_reader_failure_keeps_html_error_contract(statistics_ui, monkeypatch):
+    _, _, client = statistics_ui
 
     def fail(*_args, **_kwargs):
         raise SQLAlchemyError("synthetic Steps failure")
 
-    monkeypatch.setattr("healthcheck.web.statistics.read_observed_steps_window", fail)
-    response = client.get("/statistics", params={"garmin_source_id": first})
+    monkeypatch.setattr("healthcheck.web.statistics.read_completed_steps_window", fail)
+    response = client.get("/statistics")
     assert response.status_code == 500 and 'role="alert"' in response.text
     assert "synthetic Steps failure" not in response.text
+
+
+def test_browser_period_captures_share_one_exact_source(statistics_ui):
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    for period in ("7", "30"):
+        response = client.get(
+            "/statistics",
+            params={
+                "period": period,
+                "end_date": "2099-01-10",
+                "calendar_year": 2099,
+                "garmin_source_id": source_id,
+            },
+        )
+        assert response.status_code == 200
+        assert source_id in steps_html(response)
+        export(response, f"completed-{period}")

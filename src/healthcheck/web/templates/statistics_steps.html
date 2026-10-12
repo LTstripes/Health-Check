@@ -1,41 +1,40 @@
 <section class="statistics-steps" aria-labelledby="statistics-steps-title" data-statistics-steps>
-  <h2 id="statistics-steps-title">Шаги Garmin по датам</h2>
-  <p>Сохранённые наблюдения аккаунта Garmin за выбранный период. Это не подтверждённые итоги полных суток.</p>
-  {% if steps is none %}
-  <p data-steps-selection="required">Выберите источник Garmin в форме выше и нажмите «Показать». Даже единственный источник требует явного выбора для шагов.</p>
-  {% else %}
-  <p data-steps-source="{{ steps.source_id }}">Источник: {{ source_labels.get(steps.source_id, 'Garmin — выбранный аккаунт') }}.</p>
-  <p class="muted">Покрытие суток, устройство, часовой пояс и окончательность значений неизвестны. Отсутствие подтверждённого значения не означает ноль шагов.</p>
-  {% if not steps.search_complete %}<p class="statistics-steps-warning" role="status">Поиск сохранённых данных не завершён для части дат. Подтверждённые независимые даты показаны; неполные даты не имеют выбранного значения.</p>{% endif %}
-  <div class="table-scroll statistics-steps-table" tabindex="0" role="region" aria-label="Шаги Garmin по календарным датам">
+  <h2 id="statistics-steps-title">Шаги за завершённые дни</h2>
+  <p>Последнее полученное значение после окончания дня по московскому времени. Garmin может позже исправить его; окончательный итог не подтверждён.</p>
+  {% if steps.reason in ['source_selection_required', 'source_not_evidenced', 'source_not_found'] %}
+  <p data-steps-selection="required">{% if steps.source_choices %}Выберите источник Garmin для шагов.{% else %}Нет подтверждённого источника Garmin за выбранный период.{% endif %}</p>
+  {% for choice in steps.source_choices %}<p><a href="{{ request.url.include_query_params(garmin_source_id=choice.source_id) }}">Garmin — источник {{ loop.index }}</a></p>{% endfor %}
+  {% endif %}
+  {% if not steps.search_complete %}<p class="statistics-steps-warning" role="status">Поиск сохранённых получений не завершён. Значения недоступны: {{ steps.reason }}.</p>{% endif %}
+  {% if steps.reason == 'no_completed_days' %}<p>В выбранном периоде ещё нет завершённых дней по московскому времени.</p>{% endif %}
+  {% if steps.cells %}
+  <div class="table-scroll statistics-steps-table" tabindex="0" role="region" aria-label="Шаги Garmin по завершённым дням">
     <table>
-      <caption>{{ steps.start_date|owner_date }} — {{ steps.end_date|owner_date }}. Даты calendarDate сохранены без преобразования часового пояса.</caption>
-      <thead><tr><th scope="col">Дата</th><th scope="col">Шаги</th><th scope="col">Состояние и происхождение</th></tr></thead>
+      <caption>{{ steps.start_date|owner_date }} — {{ steps.end_date|owner_date }}. Сегодняшний и будущие дни исключены.</caption>
+      <thead><tr><th scope="col">День</th><th scope="col">Шаги Garmin</th><th scope="col">Состояние и происхождение</th></tr></thead>
       <tbody>
         {% for cell in steps.cells %}
         <tr data-steps-date="{{ cell.calendar_date }}" data-steps-state="{{ cell.state }}">
           <th scope="row"><time datetime="{{ cell.calendar_date }}">{{ cell.calendar_date|owner_date }}</time></th>
           <td class="statistics-steps-value">{% if cell.value is not none %}{{ cell.value }}{% else %}Недоступно{% endif %}</td>
           <td>
-            <p>{{ steps_state_labels[cell.state] }}{% if cell.state == 'value' and cell.value == 0 %} — явный ноль{% endif %}</p>
+            <p>{% if cell.state == 'value' %}Последнее полученное значение{% if cell.value == 0 %} — явный ноль{% endif %}{% elif cell.state == 'ambiguous' %}Неоднозначно: разные значения или состояния в одно время{% elif cell.state == 'missing' %}Поле шагов отсутствует в последнем ответе{% elif cell.state == 'null' %}Последний ответ содержит null{% elif cell.state == 'invalid' %}Недопустимое последнее значение{% elif cell.state == 'search_incomplete' %}Поиск не завершён{% else %}Нет доказанного получения после окончания дня{% endif %}</p>
             <details class="statistics-details statistics-steps-evidence">
-              <summary>Происхождение и состояния — {{ cell.calendar_date|owner_date }}</summary>
+              <summary>Происхождение — {{ cell.calendar_date|owner_date }}</summary>
               <dl>
-                <dt>Источник / дата calendarDate</dt><dd>{{ cell.source_id }} / {{ cell.calendar_date }}</dd>
-                <dt>Метрика / единица / атрибуция</dt><dd>{{ cell.metric_code }} / {{ cell.unit }} / {{ cell.attribution }}</dd>
-                <dt>Состояние / причина</dt><dd>{{ cell.state }} / {{ cell.reason or 'нет' }}</dd>
-                <dt>Полнота поиска материализованных данных</dt><dd>{{ 'завершён' if cell.search_complete else 'не завершён; ссылки могут быть частичными' }}</dd>
-                <dt>Покрытие / устройство / часовой пояс / окончательность</dt><dd>{{ cell.coverage }} / {{ cell.device }} / {{ cell.timezone }} / {{ cell.finality }}</dd>
+                <dt>Источник / исходный calendarDate</dt><dd>{{ cell.source_id }} / {{ cell.calendar_date }}</dd>
+                <dt>Политика завершения / граница UTC</dt><dd>{{ steps.display_zone }} / {{ cell.completion_boundary_utc.isoformat() }}</dd>
+                <dt>Последнее получение UTC / причина</dt><dd>{{ cell.latest_received_at.isoformat() if cell.latest_received_at else 'не подтверждено' }} / {{ cell.reason or 'нет' }}</dd>
+                <dt>Покрытие / устройство / зона провайдера / окончательность</dt><dd>{{ cell.coverage }} / {{ cell.device }} / {{ cell.timezone }} / {{ cell.finality }}</dd>
               </dl>
               {% for item in cell.evidence %}
               <dl class="statistics-steps-record">
-                <dt>Наблюдение {{ loop.index }}: состояние / точное значение / причина</dt><dd>{{ item.metric_state or 'not_evidenced' }} / {{ item.value if item.value is not none else 'Недоступно' }} / {{ item.metric_reason or 'нет' }}</dd>
-                <dt>Запись / строка метрики / проекция</dt><dd>{{ item.record_id }} / {{ item.metric_row_id or 'not_evidenced' }} / {{ item.projection_status }}</dd>
-                <dt>Сырой ответ / артефакт / SHA-256</dt><dd>{{ item.raw_payload_id }} / {{ item.raw_artifact_id or 'not_evidenced' }} / {{ item.content_hash or 'not_evidenced' }}</dd>
-                <dt>Наблюдения получения / событие импорта</dt><dd>{{ item.observation_ids|join(', ') or 'not_evidenced' }} / {{ item.ingest_event_id or 'not_evidenced' }}</dd>
-                <dt>Нормализация / сверка</dt><dd>{{ item.normalization_version }} / {{ item.reconciliation_version }}</dd>
+                <dt>Получение {{ loop.index }}: время UTC / состояние / значение</dt><dd>{{ item.received_at.isoformat() }} / {{ item.state }} / {{ item.value if item.value is not none else 'Недоступно' }}{% if item.received_at == cell.latest_received_at %} — последнее{% endif %}</dd>
+                <dt>Успех acquisition / причина</dt><dd>{{ 'подтверждён' if item.acquisition_proven else 'не доказан' }} / {{ item.reason or 'нет' }}</dd>
+                <dt>Observation / run / событие</dt><dd>{{ item.observation_id }} / {{ item.sync_run_id or 'не подтверждён' }} / {{ item.ingest_event_id or 'не подтверждено' }}</dd>
+                <dt>Оригинал / артефакт / SHA-256</dt><dd>{{ item.raw_payload_id }} / {{ item.raw_artifact_id or 'не подтверждён' }} / {{ item.content_hash or 'не подтверждён' }}</dd>
               </dl>
-              {% else %}<p>Материализованное свидетельство для этой даты не подтверждено. Здесь не определяется, запускалась ли проекция.</p>{% endfor %}
+              {% else %}<p>Получение после окончания этого дня не подтверждено. Это не означает ноль шагов.</p>{% endfor %}
             </details>
           </td>
         </tr>
@@ -43,13 +42,14 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
   <details class="statistics-details">
     <summary>Источник и границы чтения шагов</summary>
     <dl>
-      <dt>Точный источник</dt><dd>{{ steps.source_id }}{% if steps.source_identity %} / {{ steps.source_identity.provider_code }} / {{ steps.source_identity.source_kind }} / {{ steps.source_identity.source_instance_id }}{% endif %}</dd>
-      <dt>Контракт чтения / причина</dt><dd>{{ steps.contract_version }} / {{ steps.reason or 'нет' }}</dd>
-      <dt>Просмотрено записей / ссылок получения</dt><dd>{{ steps.candidates_examined }} / {{ steps.provenance_examined }}. Это счётчики работы поиска, включая строку обнаружения предела; не количество шагов или размер всей истории.</dd>
+      <dt>Источник</dt><dd>{{ steps.source_id or 'не выбран' }}{% if steps.source_identity %} / {{ steps.source_identity.provider_code }} / {{ steps.source_identity.source_kind }} / {{ steps.source_identity.source_instance_id }}{% endif %}</dd>
+      <dt>Контракт / snapshot UTC / политика</dt><dd>{{ steps.contract_version }} / {{ steps.evaluated_at.isoformat() }} / {{ steps.display_zone }}</dd>
+      <dt>Полнота / причина</dt><dd>{{ 'полная в пределах поиска' if steps.search_complete else 'не доказана' }} / {{ steps.reason or 'нет' }}</dd>
+      <dt>Оригиналы / observations / прочитанные артефакты / bytes</dt><dd>{{ steps.candidates_examined }} / {{ steps.provenance_examined }} / {{ steps.artifacts_examined }} / {{ steps.bytes_examined }}</dd>
     </dl>
   </details>
-  {% endif %}
 </section>
