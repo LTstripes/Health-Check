@@ -136,6 +136,27 @@ OAuth for one personal account (Web Application / Web Server client per current 
 7. Do not make PKCE a universal R04 requirement for this Web Application route unless later current provider evidence requires it.
 8. Surface token health and require manual reconnect on revocation/`invalid_grant`.
 
+The bounded GET-401 exception approved in [#406](https://github.com/LTstripes/Health-Check/issues/406)
+keeps cached access explicitly unverified and retains the safe startup-refresh failure
+class/code/status; cached data success does not prove token refresh or expiry. One
+logical sync (including historical chunks, normal HR days and continuations) may
+perform at most one startup refresh
+and one recovery refresh. Only an actual successful protected refresh, with fallback
+disabled, permits replay of the identical data GET. Refreshed access and the existing
+scope ceiling carry to later pages/streams. Repeated 401 or `invalid_grant` aborts
+the run and leaves later streams `not_run`; unavailable, failed, malformed or
+storage/protection-failed recovery also stops. 403, POST rollups and other errors
+retain their existing terminal/bounded-transport behavior.
+
+The original GET and its replay each consume the existing data-request budget and
+per-page attempt ceiling; OAuth attempts have separate sanitized counters. No
+refresh is started when replay cannot fit. Safe diagnostics retain the first data
+401 and startup/recovery reasons, without provider text. OAuth responses and auth
+error bodies never enter data raw ingestion. Unauthorized attempts do not complete
+pages, promote staged data or advance completed checkpoints. Accepted evidence and
+resume cursor/idempotency rules remain unchanged. This synthetic code contract does
+not prove the cause of the observed refresh failure or authorize owner-live runs.
+
 Non-Windows Google credential writes use `healthcheck-google-local-key-v2`:
 canonical UTF-8 JSON (ASCII escapes, sorted compact keys) with exactly `format`,
 `purpose`, `nonce`, `ciphertext`. AES-256-GCM uses a fresh random 12-byte nonce

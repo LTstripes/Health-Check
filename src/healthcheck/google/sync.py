@@ -12,7 +12,7 @@ import json
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from threading import get_ident
@@ -295,6 +295,7 @@ class GoogleSyncReport:
     abort_reason: str | None = None
     skipped_complete_count: int = 0
     dry_run: bool = False
+    auth_recovery: Mapping[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         if self.auth is None:
@@ -328,6 +329,7 @@ class GoogleSyncReport:
                 "skipped_complete_count": self.skipped_complete_count,
                 "abort_reason": self.abort_reason,
                 "sync_run_id": self.sync_run_id,
+                "auth_recovery": dict(self.auth_recovery) if self.auth_recovery else None,
             },
             "privacy": {
                 "raw_values_emitted": False,
@@ -397,6 +399,32 @@ class _RequestBudget:
             return False
         self.used += 1
         return True
+
+
+@dataclass
+class _SyncAuthContext:
+    """One bounded logical execution; only safe diagnostics leave this context."""
+
+    auth: GoogleAuthResult | None = None
+    access_token: str | None = field(default=None, repr=False)
+    scopes: frozenset[str] = frozenset()
+    startup_refresh_attempts: int = 0
+    recovery_refresh_attempts: int = 0
+    recovery_used: bool = False
+    first_error: GoogleSafeError | None = None
+    startup_error: GoogleSafeError | None = None
+    recovery_error: GoogleSafeError | None = None
+    abort_reason: str | None = None
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "startup_refresh_attempts": self.startup_refresh_attempts,
+            "recovery_refresh_attempts": self.recovery_refresh_attempts,
+            "recovery_used": self.recovery_used,
+            "startup_error": self.startup_error.as_dict() if self.startup_error else None,
+            "first_data_error": self.first_error.as_dict() if self.first_error else None,
+            "recovery_error": self.recovery_error.as_dict() if self.recovery_error else None,
+        }
 
 
 def validate_sync_date(value: date | str | None, *, field_name: str = "date") -> date:
@@ -727,6 +755,8 @@ def _roll_up_status(
 ) -> GoogleSyncStatus:
     if abort_reason == "reauth_required":
         return GoogleSyncStatus.REAUTH_REQUIRED
+    if abort_reason == "auth_recovery_failed":
+        return GoogleSyncStatus.FAILED
     executed = [item for item in attempts if item.status is not GoogleSyncStatus.NOT_RUN]
     if not executed:
         return GoogleSyncStatus.FAILED if abort_reason else GoogleSyncStatus.EMPTY
@@ -799,6 +829,7 @@ class GoogleHealthSync:
         run_kind: GoogleRunKind = GoogleRunKind.INCREMENTAL,
         checkpoint_partition: str | None = None,
         phase_timing: GoogleHrPhaseTiming | None = None,
+        _auth_context: _SyncAuthContext | None = None,
     ) -> None:
         if max_provider_requests < 1:
             raise ValueError("max_provider_requests must be positive")
@@ -808,6 +839,7 @@ class GoogleHealthSync:
         self.auth_service = auth_service
         self.transport = transport or (auth_service.transport if auth_service is not None else None)
         self.auth_result = auth_result
+        self._auth_context = _auth_context
         self.access_token = access_token
         self.granted_scopes = granted_scopes
         self.sleeper = sleeper or (lambda _seconds: None)
@@ -940,29 +972,55 @@ class GoogleHealthSync:
                 as_of=as_of,
             )
 
-    def _resolve_auth(self) -> tuple[GoogleAuthResult, str | None, frozenset[str]]:
+    def _resolve_auth(
+        self,
+    ) -> tuple[GoogleAuthResult, str | None, frozenset[str], GoogleSafeError | None]:
         if self.auth_result is not None and self.access_token:
             scopes = self.granted_scopes if self.granted_scopes is not None else ALLOWED_SCOPES
-            return self.auth_result, self.access_token, scopes
+            return self.auth_result, self.access_token, scopes, self.auth_result.error
         if self.auth_service is None:
             auth = self.auth_result or GoogleAuthResult(
                 status=GoogleAuthStatus.REAUTH_REQUIRED,
                 error=GoogleSafeError("storage", "credential_missing"),
             )
-            return auth, None, frozenset()
+            return auth, None, frozenset(), auth.error
         auth = self.auth_result or self.auth_service.token_health()
         if not auth.ok:
-            return auth, None, frozenset()
+            return auth, None, frozenset(), auth.error
         token, live_auth = self.auth_service.load_access_token(refresh_if_needed=True)
         if not token or not live_auth.ok:
-            return live_auth, None, frozenset()
+            return live_auth, None, frozenset(), live_auth.error
         scopes = self.granted_scopes
         if scopes is None:
             try:
                 scopes = self.auth_service._read_tokens().granted_scopes()
-            except Exception:
-                scopes = ALLOWED_SCOPES
-        return live_auth, token, scopes
+            except Exception as exc:
+                return replace(
+                    live_auth, status=GoogleAuthStatus.FAILED,
+                    error=classify_google_oauth_error(exc),
+                ), None, frozenset(), live_auth.error
+        return live_auth, token, scopes, live_auth.error
+
+    def _new_auth_context(self) -> _SyncAuthContext:
+        auth, access_token, scopes, startup_error = self._resolve_auth()
+        return _SyncAuthContext(
+            auth, access_token, scopes,
+            startup_refresh_attempts=int(auth.refresh_attempted),
+            startup_error=startup_error,
+        )
+
+    def _execution_auth_context(self) -> _SyncAuthContext:
+        if self._auth_context is None:
+            return self._new_auth_context()
+        context = self._auth_context
+        if context.auth is None:
+            resolved = self._new_auth_context()
+            context.auth = resolved.auth
+            context.access_token = resolved.access_token
+            context.scopes = resolved.scopes
+            context.startup_refresh_attempts = resolved.startup_refresh_attempts
+            context.startup_error = resolved.startup_error
+        return context
 
     def _run(
         self,
@@ -978,12 +1036,18 @@ class GoogleHealthSync:
         per_stream_watermark: bool = False,
         as_of: date | None = None,
     ) -> GoogleSyncReport:
-        auth, access_token, scopes = self._resolve_auth()
+        auth_context = self._execution_auth_context()
+        auth, access_token = auth_context.auth, auth_context.access_token
+        assert auth is not None
         requested_start, requested_end = civil_bounds(window_start, window_end_exclusive)
-        if access_token is None or self.transport is None or not auth.ok:
+        if (
+            access_token is None or self.transport is None
+            or not auth.ok or auth_context.abort_reason
+        ):
             status = (
                 GoogleSyncStatus.REAUTH_REQUIRED
                 if auth.status is GoogleAuthStatus.REAUTH_REQUIRED
+                or auth_context.abort_reason == "reauth_required"
                 else GoogleSyncStatus.FAILED
             )
             run_id = self._record_auth_failure(
@@ -1003,7 +1067,8 @@ class GoogleHealthSync:
                 data_source_family=data_source_family,
                 streams=tuple(item.code for item in surfaces),
                 sync_run_id=run_id,
-                abort_reason=status.value,
+                abort_reason=auth_context.abort_reason or status.value,
+                auth_recovery=auth_context.diagnostics(),
             )
 
         budget = _RequestBudget(self.max_provider_requests)
@@ -1024,7 +1089,7 @@ class GoogleHealthSync:
         attempts: list[GoogleSyncAttempt] = []
         abort_reason: str | None = None
         for surface in surfaces:
-            if abort_reason == "reauth_required":
+            if abort_reason is not None:
                 attempts.append(
                     self._not_run_attempt(
                         surface,
@@ -1032,7 +1097,7 @@ class GoogleHealthSync:
                         data_source_family,
                         window_start,
                         window_end_exclusive,
-                        reason="reauth_required",
+                        reason=abort_reason,
                     )
                 )
                 continue
@@ -1046,8 +1111,7 @@ class GoogleHealthSync:
                 window_end_exclusive=window_end_exclusive,
                 provider_id=provider_id,
                 sync_run_id=sync_run_id,
-                access_token=access_token,
-                scopes=scopes,
+                auth_context=auth_context,
                 budget=budget,
                 skip_complete=skip_complete,
                 per_stream_watermark=per_stream_watermark,
@@ -1056,6 +1120,8 @@ class GoogleHealthSync:
             attempts.append(attempt)
             if attempt.status is GoogleSyncStatus.REAUTH_REQUIRED:
                 abort_reason = "reauth_required"
+            elif auth_context.abort_reason is not None:
+                abort_reason = auth_context.abort_reason
 
         run_status = _roll_up_status(attempts, abort_reason)
         received = sum(item.record_count for item in attempts)
@@ -1092,7 +1158,7 @@ class GoogleHealthSync:
             reason=abort_reason or run_status.value,
         )
         return GoogleSyncReport(
-            auth=auth,
+            auth=auth_context.auth,
             status=run_status,
             kind=self.run_kind,
             window_start=window_start.isoformat(),
@@ -1105,6 +1171,7 @@ class GoogleHealthSync:
             attempts=tuple(attempts),
             abort_reason=abort_reason,
             skipped_complete_count=sum(1 for item in attempts if item.skipped),
+            auth_recovery=auth_context.diagnostics(),
         )
 
     def _record_auth_failure(
@@ -1176,8 +1243,7 @@ class GoogleHealthSync:
         window_end_exclusive: date,
         provider_id: str,
         sync_run_id: str,
-        access_token: str,
-        scopes: frozenset[str],
+        auth_context: _SyncAuthContext,
         budget: _RequestBudget,
         skip_complete: bool,
         per_stream_watermark: bool = False,
@@ -1204,7 +1270,7 @@ class GoogleHealthSync:
                 as_of=as_of,
             )
         start_utc, end_utc = civil_bounds(window_start, window_end_exclusive)
-        if surface.required_scope not in scopes:
+        if surface.required_scope not in auth_context.scopes:
             return self._not_run_attempt(
                 surface,
                 query_mode,
@@ -1366,13 +1432,13 @@ class GoogleHealthSync:
                 query=query,
                 window_start=window_start,
                 window_end_exclusive=window_end_exclusive,
-                access_token=access_token,
+                auth_context=auth_context,
                 page_token=next_token,
                 budget=budget,
             )
             request_count += consumed
             if error is not None:
-                if response is not None:
+                if response is not None and error.error_class != "authentication":
                     self._persist_terminal(
                         factory,
                         store,
@@ -1388,7 +1454,9 @@ class GoogleHealthSync:
                     )
                 status = (
                     GoogleSyncStatus.REAUTH_REQUIRED
-                    if error.error_code == "authentication_failed"
+                    if error.error_code in {
+                        "authentication_failed", "invalid_grant", "refresh_unavailable"
+                    }
                     else GoogleSyncStatus.FAILED
                 )
                 self._write_checkpoint(
@@ -1656,7 +1724,7 @@ class GoogleHealthSync:
         query: GoogleQueryContext,
         window_start: date,
         window_end_exclusive: date,
-        access_token: str,
+        auth_context: _SyncAuthContext,
         page_token: str | None,
         budget: _RequestBudget,
     ) -> tuple[GoogleHttpResponse | None, GoogleSafeError | None, int]:
@@ -1678,11 +1746,13 @@ class GoogleHealthSync:
                         query=query,
                         window_start=window_start,
                         window_end_exclusive=window_end_exclusive,
-                        access_token=access_token,
+                        access_token=auth_context.access_token,
                         page_token=page_token,
                     )
             except Exception as exc:
                 last_error = classify_google_oauth_error(exc)
+                if last_error.error_code in {"invalid_grant", "authentication_failed"}:
+                    auth_context.abort_reason = "reauth_required"
                 if (
                     last_error.error_class == "provider"
                     and last_error.error_code == "provider_unavailable"
@@ -1698,9 +1768,56 @@ class GoogleHealthSync:
                     continue
                 return None, last_error, consumed
             if response.status in {401, 403}:
+                error = GoogleSafeError("authentication", "authentication_failed", response.status)
+                if response.status == 401 and query.query_mode in {
+                    GoogleQueryMode.LIST, GoogleQueryMode.RECONCILE
+                }:
+                    auth_context.first_error = auth_context.first_error or error
+                    if auth_context.recovery_used:
+                        auth_context.abort_reason = "reauth_required"
+                    elif budget.remaining() <= 0 or attempt_index + 1 >= MAX_RETRY_ATTEMPTS:
+                        # Do not spend OAuth work when the exact replay cannot fit.
+                        auth_context.abort_reason = "reauth_required"
+                    else:
+                        auth_context.recovery_used = True
+                        if self.auth_service is None or not callable(
+                            getattr(self.auth_service, "load_access_token", None)
+                        ):
+                            error = GoogleSafeError("authentication", "refresh_unavailable")
+                        else:
+                            auth_context.recovery_refresh_attempts += 1
+                            try:
+                                token, refreshed = self.auth_service.load_access_token(
+                                    refresh_if_needed=True, allow_cached_fallback=False
+                                )
+                                auth_context.auth = refreshed
+                                if not token or not refreshed.ok or not refreshed.refresh_succeeded:
+                                    error = refreshed.error or GoogleSafeError(
+                                        "authentication", "refresh_unverified"
+                                    )
+                                else:
+                                    scopes = self.auth_service._read_tokens().granted_scopes()
+                                    auth_context.scopes &= scopes
+                                    if surface.required_scope not in auth_context.scopes:
+                                        error = GoogleSafeError("authentication", "scope_required")
+                                    else:
+                                        auth_context.access_token = token
+                                        continue
+                            except Exception as exc:
+                                error = classify_google_oauth_error(exc)
+                        auth_context.recovery_error = error
+                        auth_context.abort_reason = (
+                            "reauth_required" if error.error_code in {
+                                "invalid_grant", "refresh_unavailable"
+                            }
+                            else "auth_recovery_failed"
+                        )
+                        # OAuth responses are never data evidence. Retain only the
+                        # safe original 401 in diagnostics, not either raw body.
+                        return None, error, consumed
                 return (
                     response,
-                    GoogleSafeError("authentication", "authentication_failed", response.status),
+                    error,
                     consumed,
                 )
             if response.status in RETRY_STATUS_CODES:
@@ -2381,6 +2498,7 @@ def run_google_refresh(
     sleeper: Callable[[float], None] | None = None,
     checkpoint_partition: str | None = None,
     phase_timing: GoogleHrPhaseTiming | None = None,
+    _auth_context: _SyncAuthContext | None = None,
 ) -> GoogleSyncReport:
     start_date, end_inclusive = validate_inclusive_window(start, end)
     return GoogleHealthSync(
@@ -2395,6 +2513,7 @@ def run_google_refresh(
         run_kind=GoogleRunKind.REFRESH,
         checkpoint_partition=checkpoint_partition,
         phase_timing=phase_timing,
+        _auth_context=_auth_context,
     ).run_window(
         start=start_date,
         end_exclusive=inclusive_to_exclusive_end(end_inclusive),
@@ -2414,6 +2533,7 @@ def _owner_heart_rate_day_refresh(
     query_mode: str | GoogleQueryMode | None,
     data_source_family: str | None,
     phase_timing: GoogleHrPhaseTiming | None,
+    _auth_context: _SyncAuthContext | None = None,
 ) -> Iterator[Callable[[], GoogleSyncReport]]:
     """Reuse setup for one bounded Owner HR day, retaining per-call sync epochs."""
 
@@ -2427,6 +2547,7 @@ def _owner_heart_rate_day_refresh(
         run_kind=GoogleRunKind.REFRESH,
         checkpoint_partition=day.isoformat(),
         phase_timing=phase_timing,
+        _auth_context=_auth_context,
     )
     with _google_execution_resources(settings) as execution:
         active = True
@@ -2435,6 +2556,15 @@ def _owner_heart_rate_day_refresh(
         def refresh() -> GoogleSyncReport:
             if not active or get_ident() != owner_thread:
                 raise RuntimeError("Owner HR-day execution context is unavailable")
+            if sync._auth_context is None or sync._auth_context.auth is None:
+                sync._auth_context = sync._execution_auth_context()
+            elif sync._auth_context.abort_reason is None:
+                # Continuation retains the same recovery allowance, with the
+                # existing read-only credential readiness check on each call.
+                readiness = auth_service.token_health()
+                if not readiness.ok:
+                    sync._auth_context.auth = readiness
+                    sync._auth_context.access_token = None
             return sync._execute(
                 window_start=start_date,
                 window_end_exclusive=inclusive_to_exclusive_end(end_inclusive),

@@ -82,6 +82,7 @@ class GoogleTokenHealth(StrEnum):
     PARTIAL_SCOPES = "partial_scopes"
     PROTECTION_UNAVAILABLE = "protection_unavailable"
     UNKNOWN = "unknown"
+    CACHED_UNVERIFIED = "cached_unverified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +117,9 @@ class GoogleAuthResult:
     protection: str | None = None
     redirect_uri: str = DEFAULT_GOOGLE_OAUTH_REDIRECT_URI
     error: GoogleSafeError | None = None
+    access_verified: bool = False
+    refresh_attempted: bool = False
+    refresh_succeeded: bool = False
 
     @property
     def ok(self) -> bool:
@@ -138,6 +142,9 @@ class GoogleAuthResult:
             "client_type": "web_application",
             "access_type": "offline",
             "error": self.error.as_dict() if self.error else None,
+            "access_verified": self.access_verified,
+            "refresh_attempted": self.refresh_attempted,
+            "refresh_succeeded": self.refresh_succeeded,
         }
 
 
@@ -737,14 +744,29 @@ class GoogleAuthService:
             ) from exc
         if not isinstance(payload, Mapping):
             raise GoogleOAuthError("authentication", "token_response_invalid", response.status)
-        if response.status >= 400:
+        if not 200 <= response.status < 300:
             error = str(payload.get("error", ""))
             if error == "invalid_grant":
                 raise GoogleOAuthError("authentication", "invalid_grant", response.status)
             if response.status in {401, 403}:
                 raise GoogleOAuthError("authentication", "authentication_failed", response.status)
             raise GoogleOAuthError("authentication", "token_exchange_failed", response.status)
-        tokens = _parse_token_payload(payload)
+        access = payload.get("access_token")
+        token_type = payload.get("token_type", "Bearer")
+        if (
+            not isinstance(access, str) or not access or any(char.isspace() for char in access)
+            or not isinstance(token_type, str) or token_type.casefold() != "bearer"
+            or "error" in payload
+            or ("scope" in payload and not payload["scope"])
+        ):
+            raise GoogleOAuthError("authentication", "token_response_invalid", response.status)
+        # An omitted refresh scope means the existing grant, never full consent.
+        if not require_refresh and "scope" not in payload:
+            payload = dict(payload, scope="")
+        try:
+            tokens = _parse_token_payload(payload)
+        except GoogleOAuthError as exc:
+            raise GoogleOAuthError(exc.error_class, exc.error_code, response.status) from None
         if require_refresh and not tokens.refresh_token:
             raise GoogleOAuthError("authentication", "refresh_token_missing", response.status)
         return tokens
@@ -780,7 +802,7 @@ class GoogleAuthService:
             )
         granted = tokens.granted_scopes()
         missing = ALLOWED_SCOPES - granted
-        health = GoogleTokenHealth.PARTIAL_SCOPES if missing else GoogleTokenHealth.VALID
+        health = GoogleTokenHealth.CACHED_UNVERIFIED
         return GoogleAuthResult(
             status=GoogleAuthStatus.AUTHENTICATED,
             token_health=health,
@@ -792,8 +814,14 @@ class GoogleAuthService:
             redirect_uri=self.redirect_uri,
         )
 
-    def load_access_token(self, *, refresh_if_needed: bool = True) -> tuple[str, GoogleAuthResult]:
-        """Load a usable access token and sanitized health (never logged by callers)."""
+    def load_access_token(
+        self, *, refresh_if_needed: bool = True, allow_cached_fallback: bool = True
+    ) -> tuple[str, GoogleAuthResult]:
+        """Load cached access or verify a refresh; preserve safe failure provenance.
+
+        Recovery callers disable fallback: auth.ok alone cannot prove refresh.
+        Storage/protection failures and revocation always fail closed.
+        """
 
         try:
             tokens = self._read_tokens()
@@ -817,47 +845,58 @@ class GoogleAuthService:
                 redirect_uri=self.redirect_uri,
                 error=error,
             )
+        refresh_error = None
+        refreshed = False
         if refresh_if_needed:
             try:
                 tokens = self.refresh_access_token(tokens)
-                health = GoogleTokenHealth.REFRESHED
-            except GoogleOAuthError as exc:
-                if exc.error_code == "invalid_grant":
+                refreshed = True
+            except Exception as exc:
+                refresh_error = classify_google_oauth_error(exc)
+                if (
+                    not allow_cached_fallback
+                    or refresh_error.error_code == "invalid_grant"
+                    or refresh_error.error_class == "storage"
+                    or refresh_error.error_code in {
+                        "token_response_invalid", "refresh_token_missing"
+                    }
+                ):
                     return "", GoogleAuthResult(
-                        status=GoogleAuthStatus.REAUTH_REQUIRED,
-                        token_health=GoogleTokenHealth.INVALID_GRANT,
+                        status=(
+                            GoogleAuthStatus.REAUTH_REQUIRED
+                            if refresh_error.error_code == "invalid_grant"
+                            else GoogleAuthStatus.FAILED
+                        ),
+                        token_health=(
+                            GoogleTokenHealth.INVALID_GRANT
+                            if refresh_error.error_code == "invalid_grant"
+                            else GoogleTokenHealth.UNKNOWN
+                        ),
                         session_reused=True,
                         protection=self.protection_kind,
                         redirect_uri=self.redirect_uri,
-                        error=exc.as_safe(),
+                        error=refresh_error,
+                        refresh_attempted=True,
                     )
-                # Keep existing access token if refresh failed for non-revocation reasons.
-                health = GoogleTokenHealth.VALID
-            else:
-                granted = tokens.granted_scopes()
-                missing = ALLOWED_SCOPES - granted
-                result = GoogleAuthResult(
-                    status=GoogleAuthStatus.AUTHENTICATED,
-                    token_health=GoogleTokenHealth.PARTIAL_SCOPES if missing else health,
-                    session_reused=True,
-                    granted_scope_count=len(granted & ALLOWED_SCOPES),
-                    missing_scope_count=len(missing),
-                    refresh_expires_in_known=tokens.refresh_token_expires_in is not None,
-                    protection=self.protection_kind,
-                    redirect_uri=self.redirect_uri,
-                )
-                return tokens.access_token, result
         granted = tokens.granted_scopes()
         missing = ALLOWED_SCOPES - granted
         return tokens.access_token, GoogleAuthResult(
             status=GoogleAuthStatus.AUTHENTICATED,
-            token_health=GoogleTokenHealth.PARTIAL_SCOPES if missing else GoogleTokenHealth.VALID,
+            token_health=(
+                GoogleTokenHealth.PARTIAL_SCOPES if missing and refreshed
+                else GoogleTokenHealth.REFRESHED if refreshed
+                else GoogleTokenHealth.CACHED_UNVERIFIED
+            ),
             session_reused=True,
             granted_scope_count=len(granted & ALLOWED_SCOPES),
             missing_scope_count=len(missing),
             refresh_expires_in_known=tokens.refresh_token_expires_in is not None,
             protection=self.protection_kind,
             redirect_uri=self.redirect_uri,
+            error=refresh_error,
+            access_verified=refreshed,
+            refresh_attempted=refresh_if_needed,
+            refresh_succeeded=refreshed,
         )
 
     def complete_authorization_code(
@@ -884,6 +923,7 @@ class GoogleAuthService:
                 ),
                 force_reauth=force_reauth,
                 prompt_consent=force_reauth or True,
+                access_verified=True,
                 granted_scope_count=len(granted & ALLOWED_SCOPES),
                 missing_scope_count=len(missing),
                 refresh_expires_in_known=tokens.refresh_token_expires_in is not None,

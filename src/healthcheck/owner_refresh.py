@@ -45,6 +45,7 @@ from healthcheck.google.sync import (
     GoogleSyncStatus,
     _owner_heart_rate_day_refresh,
     _roll_up_status,
+    _SyncAuthContext,
     inclusive_to_exclusive_end,
     parse_data_source_family,
     parse_google_streams,
@@ -314,6 +315,10 @@ def _consolidate_google_refresh_reports(
     primary = reports[0]
     if len(reports) == 1:
         return primary
+    primary = replace(
+        primary, auth=reports[-1].auth or primary.auth,
+        auth_recovery=reports[-1].auth_recovery or primary.auth_recovery,
+    )
     total_request_count = sum(report.request_count for report in reports)
     hr_indexes = [
         index for index, attempt in enumerate(primary.attempts) if attempt.stream == "heart_rate"
@@ -411,6 +416,7 @@ def _run_normal_google_refresh(
 
     window_start, window_end = validate_inclusive_window(start, end)
     family = parse_data_source_family(data_source_family)
+    auth_context = _SyncAuthContext()
     non_heart_rate_streams = [
         item.code for item in selected if item.stream is not GoogleStream.HEART_RATE
     ]
@@ -427,6 +433,7 @@ def _run_normal_google_refresh(
             streams=non_heart_rate_streams,
             query_mode=query_mode,
             data_source_family=data_source_family,
+            _auth_context=auth_context,
         )
         if timing_phases is not None and non_heart_rate_started_ns is not None:
             timing_phases["non_heart_rate"] = {
@@ -439,7 +446,7 @@ def _run_normal_google_refresh(
     abort_reason = non_heart_rate_report.abort_reason if non_heart_rate_report else None
     stop_days = (
         non_heart_rate_report is not None
-        and non_heart_rate_report.status is GoogleSyncStatus.REAUTH_REQUIRED
+        and non_heart_rate_report.abort_reason is not None
     )
     current_day = window_end
     while current_day >= window_start:
@@ -468,6 +475,7 @@ def _run_normal_google_refresh(
             query_mode=query_mode,
             data_source_family=data_source_family,
             phase_metrics=heart_rate_day_metrics,
+            _auth_context=auth_context,
         )
         if (
             timing_phases is not None
@@ -527,6 +535,7 @@ def _run_normal_google_refresh(
         attempts=tuple(attempts),
         abort_reason=abort_reason,
         skipped_complete_count=sum(report.skipped_complete_count for report in reports),
+        auth_recovery=auth_context.diagnostics(),
     )
 
 
@@ -560,6 +569,7 @@ def _run_heart_rate_day(
     query_mode: str | None,
     data_source_family: str | None,
     phase_metrics: dict[str, int | None] | None = None,
+    _auth_context: _SyncAuthContext | None = None,
 ) -> GoogleSyncReport:
     """Run one independently staged HR day with bounded continuation."""
 
@@ -571,6 +581,7 @@ def _run_heart_rate_day(
         query_mode=query_mode,
         data_source_family=data_source_family,
         phase_timing=phase_timing,
+        _auth_context=_auth_context,
     ) as refresh:
         reports = [refresh()]
         for _ in range(OWNER_REFRESH_GOOGLE_HEART_RATE_CONTINUATION_ROUNDS):
