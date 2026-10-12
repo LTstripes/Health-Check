@@ -47,10 +47,10 @@ const invalid = [
 const cases = valid.map(([value, expected, sourcePrecision = false]) =>
   ({ value, expected, sourcePrecision, pythonParity: true })).concat(invalid.flatMap(value => [false, true].map(sourcePrecision => ({
     value, expected: unavailable, sourcePrecision,
-    // Python fromisoformat also accepts compact dates and normalizes offset minutes;
+    // Python fromisoformat accepts compact dates/offset overflow; 3.12 also accepts a dangling dot.
     // this presentation contract requires literal YYYY-MM-DD and strict civil fields.
     pythonParity: typeof value !== 'number' && !['20260102', '2026-01-02T00:00:00+00:60', '2026-01-02T00:00:00-00:99',
-      '2026-01-02T00:00:00+23:60'].includes(value),
+      '2026-01-02T00:00:00+23:60', '2026-01-02T00:00:00.Z'].includes(value),
   }))));
 function loadHelper() {
   class ForbiddenDate {
