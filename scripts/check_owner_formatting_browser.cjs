@@ -10,7 +10,7 @@ const candidate = process.env.HEALTHCHECK_CANDIDATE_SHA;
 assert.match(candidate, /^[a-f0-9]{40}$/);
 assert.equal(identity.candidate, candidate);
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.HEALTHCHECK_BROWSER_EXECUTABLE });
   const checks = [], errors = [], external = [];
   try {
     fs.mkdirSync(evidence, { recursive: true });
@@ -131,6 +131,13 @@ assert.equal(identity.candidate, candidate);
       await page.waitForFunction(() => !document.querySelector('#data-refresh').disabled);
       assert.match(await page.locator('#data-clock').innerText(), /\d{1,2} [а-я]+ \d{4}/);
       await capture('data');
+      await page.locator('#completed-imports summary').click();
+      await page.locator('#completed-imports a').first().click();
+      assert.ok((await page.locator('.temporal-evidence').first().innerText()).includes('января 2099'));
+      await page.locator('.candidate-select').first().check();
+      assert.ok((await page.locator('#commit-preview').innerText()).includes('января 2099'));
+      assert.ok(!(await page.locator('#commit-preview').innerText()).includes('2099-01-'));
+      await capture('import-review');
       checks.push({ width, sessionsURL, filteredURL, keyboard: true, browserBack: true,
         overflow: false, sourceLocalDates: true, nativeEvidence: true, stepsZeroMissing: true });
       await page.close();
