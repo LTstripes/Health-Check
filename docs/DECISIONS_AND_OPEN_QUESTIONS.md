@@ -2,13 +2,13 @@
 
 Current architecture/product decisions and remaining meaningful UNVERIFIED items.
 Historical decision evidence stays in release issues, audits and Git history.
-Latest Owner direction **2026-10-11** is checked against accepted
-product `main f0e6c36c4d10f03069111665f10201575ee6ea0e` and
-[partial real-clone UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913).
-The prior 2026-10-09 discussion is historical, not a current launch queue.
-[Current History](EXECUTION_HISTORY_CURRENT.md) owns exact evidence;
-[Roadmap](ROADMAP.md#current-backlog) owns execution order. Planned work below is
-not an assertion that its code or connection already exists.
+Current engineering is reconciled on **2026-10-12** against accepted product
+`main 8100b7ae7051af181a6bf3151ce3bc3e1d4c4151`; the
+[Wiki](PROJECT_WIKI.md#current-canonical-state) owns live receipts and the separate
+daytime installed Stable SHA. No new product decision is made here. Historical
+Owner direction and PARTIAL UAT remain evidence, not a repeat launch queue.
+[Current History](EXECUTION_HISTORY_CURRENT.md) owns outcomes;
+[Roadmap](ROADMAP.md#current-backlog) owns remaining deltas.
 
 ## Final decisions
 
@@ -22,61 +22,42 @@ not an assertion that its code or connection already exists.
 - #295 now has indexed freshness and request-local /brief reuse integrated; Owner reports perceived speed improvement but first open exceeded 30s and repeat ~14s on copied data, so no cold performance PASS. #298 Stress and #153 optional openScale work remain not planned.
 - A custom Health-Check Recovery Score remains deferred until an evidenced unmet decision need.
 
-### Owner product decisions and execution order — 2026-10-11
+### Owner decisions and remaining gates — 2026-10-12
 
-**Accepted engineering is not re-assigned.** PR #368 Sleep timeline, #369
-synthetic demo, #370/#371 acceptance/Statistics failure parity, #372 request-local
-Overview reads, #373 Activity details and #374 Overview readability are merged
-and full [post-main CI 38070804783](https://github.com/LTstripes/Health-Check/actions/runs/38070804783)
-is SUCCESS. Human UAT on a dated **disposable real-data clone** is PARTIAL,
-not release approval; Stable/providers have not been refreshed. No new task
-is started by these records.
+**Accepted engineering is not reassigned.** #375 history, #376 last-eligible RHR,
+#380 bounded long Statistics windows, #395 routine Steps wiring, primary Comments
+navigation/city-IANA timezone and saved-session/drilldown work are delivered.
+PRs #407–#411 additionally delivered Google401 recovery, readable dates/units,
+compact Data, completed-day Steps and provider-first presentation. Their exact
+receipts/post-main SUCCESS are [indexed in the Wiki](PROJECT_WIKI.md#current-canonical-state).
+Installed Stable is daytime `aca4b8f…`; night changes have no rollout/Owner UAT.
 
-Next product sequence (issue details remain authoritative):
+- #305/#376 still require eligible saved metric value/date/age and clone age.
+  Compact stream chronology/refresh status is not that evidence.
+- #347 delivered presentation only. General per-metric eligible-source
+  discovery/autoselection is outstanding; preserve exact identities and
+  Sleep-only #342 default, no pooling or false metric availability.
+- [#393 Stage A research ACCEPT](https://github.com/LTstripes/Health-Check/issues/393#issuecomment-6115459995)
+  leaves Stage B PARKED for Owner minimum eligible days/coverage, precision and
+  rounding, and custom windows >400 days. Proposed defaults are not decisions.
+- [#319 energy disposition](https://github.com/LTstripes/Health-Check/issues/319#issuecomment-6113152691)
+  is an evidence blocker: authoritative leaf/unit/category/interval, resting
+  inclusion, correction authority and separately authorized eligible coverage
+  are missing. No component addition, zero-fill or invented formula; typed
+  max-HR/anaerobic B1 is complete.
+- #377 completed-day view selects latest proved acquisition after Europe/Moscow
+  day end, preserving repeats/lower corrections/ties/missing and v1/history.
+  It is not final Garmin totals; cooperative 5-second guard is not a hard SQL
+  deadline and real latency awaits UAT. #392 Google Steps and #394 Body Battery
+  meaning remain separately gated.
+- #379/#378 retain broader style/discovery/Owner acceptance work, without
+  repeating date/unit or session drilldown delivery. Google #406 repair is
+  synthetic-only; real Stable recovery/original failure cause remains unproven.
 
-1. **#342 + #343 + #347:** first decide how preserved Google source-family /
-   Fitbit identities overlap by exact eligible source-local date, then show the
-   two normal *provider concepts* **Garmin / Google**. Keep distinct evidence
-   and an advanced source choice; no unchecked pooling/dedup/longest-winner,
-   invented Google score or R05 canonical-switch side effect.
-2. **#375 Weight:** one true all-history table of confirmed weight +
-   composition measures by persisted semantic measurement identity, with
-   source/derived distinctions and one chart aligned over global dates. Respect
-   separate incompatible BIA method ranges; don't connect method boundaries
-   or infer missing values.
-3. **#376 last available:** the default **everyday reading** should show last
-   eligible stored observation and exact source date/age when today is missing,
-   alongside explicit missing-today and refresh/clone status. An explicitly
-   requested date/window is not silently replaced. Two providers with
-   unequal actual dates do not acquire a numerical paired delta.
-4. **#294 Comments:** make **Комментарии** a primary navigation section; keep
-   existing append-only Context v0 with one user-facing *city/IANA time-zone
-   selection*. Generate and persist correct event-date UTC offset internally,
-   validate DST ambiguity/gaps; date-only stays date-only. No separate
-   mandatory UTC text entry in the ordinary form.
-5. **#347 / #380:** readable source choices and missingness first; trailing
-   365-day, calendar-year and eventually all-history Statistics require a
-   separate bounded accepted source/coverage/performance contract and are
-   not part of frozen `7/30` B1. Supported values only. **#377 Steps** needs
-   exact source/typed ingestion and display; **#319 calories/BMR** needs
-   producer/units/active-vs-total meaning. No placeholder numeric data.
-6. **#305 Data:** show saved last-eligible date/age and clone snapshot origin
-   separately from Garmin/Google last refresh failure/reauth/disabled states.
-   One useful action/provider and expandable stream detail; don't erase
-   saved history or run providers to improve a badge.
-7. **#379 A+** is a full-app *style audit* to split into narrow existing-token
-   fixes for forms/tables and navigation after file ownership is assigned.
-   **#378 Activity** is Owner-requested read-only discovery of new functional
-   analytics; current #345 session detail works, and #346 duplicate cards
-   stay deferred pending product value review.
-
-No new universal health score, speculative cause/diagnosis, auto-archive of
-data, public sharing, model benchmarking or new mobile UI. #341 authenticated
-ChatGPT connection remains deferred; #348 labs, #357 stress baseline and
-weight-goal Settings are distinct later gates. Private Owner data may be
-read only under [Owner Data Workflow](OWNER_DATA_WORKFLOW.md); GitHub docs and CI
-stay synthetic/sanitized. Release, provider calls, migrations and durable
-writes require their respective authority.
+No new health score, inference, sharing, mobile scope or release/provider/write
+authority. #341 direct ChatGPT connection, #348 labs, #357 stress baseline and
+weight-goal Settings stay separately deferred. No product choices are resolved
+by this closeout.
 
 ### Owner source comparison is not canonical-source switching
 
@@ -133,7 +114,7 @@ precise time/date-only, correction and method rules.
 - Native scores remain native. Accepted Training includes Status, daily/chronic load, ACWR, Load Focus, Readiness/Recovery and activity Effect/load. Acquisition date is not necessarily provider source date.
 - Associated device/activity recorder is not metric-producer proof. Recovery Time units and VO2/max metrics stay unavailable without accepted evidence.
 - Normal Owner refresh includes bounded Training sync with the same auth/client.
-- Only evidenced `tennis_v2` renders as Теннис; codes/formulas stay unchanged. #319 owns new calorie/max-HR/dual-effect evidence and units; requested cards do not prove availability.
+- Only evidenced `tennis_v2` renders as Теннис; codes/formulas stay unchanged. #319 max-HR/anaerobic B1 is complete; calories still require authoritative meaning/coverage evidence, not requested cards.
 - Maintenance #98 updated python-garminconnect 0.3.12 → 0.3.15; #99 hardened Google auth/sync tests. Both are complete, not new semantic dependencies.
 
 ### Google Health / R04
@@ -211,7 +192,7 @@ initial missed pre-BEGIN cache case required independent review/remediation.
 - Dense selected Google HR uses civil-day partitioned resumable staging/bounded transient retries; instant/interval identity is path-free, with retained legacy observations.
 - Provider operations and cutoff-bounded stale-run recovery share the runtime lock; no fabricated success/checkpoint reset. #132's no-stale/no-duplicate outcome is dated, not perpetual.
 - Owner code/Ops is separate from GitHub main and Worker trees. Merges never auto-deploy.
-- New routine Context capture needs explicit durable-profile rollout; UAT comments do not automatically become Stable history.
+- Comments navigation/timezone is in the daytime installed rollout; durable save/edit/persistence Owner UAT remains separate. UAT comments do not automatically become Stable history.
 
 #### Owner refresh / collection-policy operational status
 
@@ -227,7 +208,7 @@ re-enabling does not authorize broad backfill.
 - #147/#191/#193 are complete provider-call-free shared projections; vocabulary fresh | quiet | stale | unavailable | unknown | not_requested.
 - Attempt/success, evidence time, coverage/checkpoints and configuration/request state remain distinct.
 - Daily due/grace is versioned; activities use proven inventory; voluntary Weight is non-alert by default. Unknown chronology does not become healthy; optional metrics do not fail a healthy provider.
-- #305 diagnostics/import presentation is integrated. Its old 15-second timeout was real; newer clone endpoint and human screen returned results. That proves request progress, not recovered collection or full Data acceptance.
+- #305 compact provider/action/stream presentation is integrated; eligible metric value/date/age and clone age are still missing. Successful freshness reads do not prove provider recovery or full Data acceptance.
 - #295 per-source indexed Google freshness reads are integrated with preserved facts. Latest clone /brief still takes 12–18 seconds; no arbitrary cache or deadline increase is authorized.
 - P1 #342 diagnoses missing Google sleep/scores, provider failure and clone-vs-live state; #340 owns the stored RHR surface exclusion. Weekly HRV remained missing in the inspected window; Google daily values cannot substitute it.
 

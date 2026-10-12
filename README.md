@@ -32,51 +32,25 @@ R04 release lineage:
 
 The final R04 owner gate proved the populated private runtime remained healthy at Alembic `0010_google_typed_normalization`, with WAL/FK enabled, `quick_check=ok` and zero foreign-key violations. This is historical R04 evidence, not the current migration-head claim.
 
-## Current focus — 2026-10-11 Owner UAT and controlled Stable handoff
+## Current focus — 2026-10-12 night engineering closeout
 
-Latest accepted **product** (before a docs-only checkpoint):
-[`main fa36dc5b6402fe6e6e166091002faf4af1ec0993`](https://github.com/LTstripes/Health-Check/commit/fa36dc5b6402fe6e6e166091002faf4af1ec0993).
-[Separate post-main CI 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091)
-**SUCCESS attempt 1**, all mandatory Linux/Windows/quality/final checks.
-GitHub merges and docs commits do not deploy into Stable.
+Accepted product is [`main 8100b7ae7051af181a6bf3151ce3bc3e1d4c4151`](https://github.com/LTstripes/Health-Check/commit/8100b7ae7051af181a6bf3151ce3bc3e1d4c4151),
+with [post-main CI 38319794454](https://github.com/LTstripes/Health-Check/actions/runs/38319794454)
+SUCCESS. PRs #407–#411 integrated Google GET-401 recovery, readable dates and
+session duration/km, compact Data freshness, completed-Moscow-day Garmin Steps
+and provider-first Statistics presentation. Exact receipts and remaining scope
+are in the [current Wiki](docs/PROJECT_WIKI.md#current-canonical-state).
 
-Now engineered and merged: one full-history Weight+composition view #375,
-normal Google sleep-source resolution #342/#343, dated RHR reader and first
-Overview consumer #376, more readable Statistics source labels #347,
-bounded trailing365/calendar-year/YTD Statistics #380, and **saved Garmin**
-daily Steps projection/read-only window/Statistics display #377
-(PRs #389–#391). Already delivered #344 Overview graph polish and #345
-saved-session Activity detail must **not** be relaunched. #319 calories/BMR
-remain meaning-blocked; Google Steps are not yet acquired.
-
-The Owner ran the new UI against an **isolated 2026-10-08 saved-data clone**,
-not current Stable: routes and tested process/profile identity PASS, fresh full
-DB integrity UNVERIFIED. Observed `/brief` first/repeat 23.098/9.470 seconds
-with uncontrolled cache; the responsiveness gate remains open. Human
-[#330 UAT is PARTIAL](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066).
-Old copied Garmin reauth/Google failures do not establish current provider
-health, and successful CI does not imply current data collection.
-
-Owner requests recorded without duplicate implementation: #392 exact Google
-Steps acquisition/storage contract; #395 attach the already accepted Garmin
-offline daily Steps projector to routine successful persisted acquisition;
-#393 source/day-correct period-mean RHR instead of verbose card; #394 truthful
-Body Battery daily-max vs saved snapshot semantics; #379 human Weight table
-precision/dates; #347 provider-first source selection; #294 primary Comments
-navigation/one IANA zone chooser; #305 concise saved-value versus refresh state.
-#380 all-history remains separate; #345 conceptual redesign deferred.
-
-See the [2026-10-11 Owner UAT checkpoint](docs/OWNER_UAT_CHECKPOINT_2026-10-11.md),
-[current backlog](docs/ROADMAP.md#current-backlog),
-[Current Execution History](docs/EXECUTION_HISTORY_CURRENT.md),
-[Owner UI](docs/OWNER_UI_SHELL.md) and
-[Owner Machine Layout](docs/OWNER_MACHINE_LAYOUT.md).
-A controlled Stable update is now worth planning, **not already executed**:
-Owner-local backup+verify+restored-clone rehearsal, runtime/process locks,
-rollback readiness and a separately assigned Codex deployment operation
-must precede any durable-profile migration/start. No unauthorized provider
-refresh, typed replay, private data write or scheduler change follows
-from this documentation reconciliation.
+Installed Stable remains `aca4b8f65eb276dddb3ae5de718a734afd19f369`, confirmed by
+the 2026-10-12 daytime rollout receipt; the night PRs are not deployed there.
+Their Owner UAT is pending; Google recovery has only synthetic validation.
+Completed #395 wiring, Comments navigation/timezone and session drilldown must
+not be reassigned. Data still lacks eligible metric value/date/age and clone age;
+#347 general per-metric discovery/autoselection is outstanding. #393 awaits Owner
+decisions; #319 calories remain evidence-blocked, with max-HR/anaerobic B1 done.
+See [remaining deltas](docs/ROADMAP.md#current-backlog) and
+[Owner operations](docs/OWNER_REFRESH.md#local-assignment-and-deployment-state).
+GitHub/docs updates do not deploy or authorize provider/runtime changes.
 
 ## Architecture in one minute
 
