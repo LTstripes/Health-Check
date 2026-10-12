@@ -141,8 +141,8 @@ function Test-Exit255LifecycleTranscript {
 
     # Exact, case-sensitive English grammar (one output item = one whole line):
     # transcript := (SUCCESS | ERROR Reason)+, with at least one ERROR.
-    # One optional exact empty item is allowed only after Reason immediately
-    # before the final root SUCCESS (root is OwnedProcessIds[0]). Retain it raw.
+    # One optional exact empty item is allowed only after Reason, followed by
+    # zero or one non-root SUCCESS and final root SUCCESS. Retain it raw.
     # PID/parent := [1-9][0-9]*. No other blanks, trimming or embedded CR/LF.
     # Each owned PID has exactly one record; no other PID may have a record.
     $successPattern = '\ASUCCESS: The process with PID ([1-9][0-9]*) \(child process of PID ([1-9][0-9]*)\) has been terminated\.\z'
@@ -171,8 +171,15 @@ function Test-Exit255LifecycleTranscript {
             $index += 2
             if ($index -lt $OutputLines.Count -and $OutputLines[$index] -is [string] -and
                 $OutputLines[$index].Length -eq 0) {
-                if ($index + 2 -ne $OutputLines.Count -or $OutputLines[$index + 1] -isnot [string]) { return $false }
-                $rootSuccess = [regex]::Match($OutputLines[$index + 1], $successPattern)
+                $suffixCount = $OutputLines.Count - $index
+                if ($suffixCount -notin @(2, 3)) { return $false }
+                if ($suffixCount -eq 3) {
+                    if ($OutputLines[$index + 1] -isnot [string]) { return $false }
+                    $siblingSuccess = [regex]::Match($OutputLines[$index + 1], $successPattern)
+                    if (-not $siblingSuccess.Success -or $siblingSuccess.Groups[1].Value -ceq [string]$OwnedProcessIds[0]) { return $false }
+                }
+                if ($OutputLines[-1] -isnot [string]) { return $false }
+                $rootSuccess = [regex]::Match($OutputLines[-1], $successPattern)
                 if (-not $rootSuccess.Success -or $rootSuccess.Groups[1].Value -cne [string]$OwnedProcessIds[0]) { return $false }
                 $index++
             }

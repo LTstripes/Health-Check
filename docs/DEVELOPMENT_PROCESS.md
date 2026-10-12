@@ -268,6 +268,13 @@ instance of the task.` for a captured owned PID, and every captured identity is
 absent or proven reused by a successful query with a trustworthy different
 CreationTime, and the native reported PID set equals the captured tree. The
 exact English transcript grammar and complete line consumption remain mandatory.
+One exact zero-length string may follow the accepted ERROR/Reason pair only
+when the suffix is final root SUCCESS, or one unique captured non-root SUCCESS
+then final root SUCCESS. Both parsers retain the raw items and reject whitespace
+or Unicode lookalikes, extra separators, later ERROR records, multiple sibling
+suffixes, missing/duplicate/foreign PIDs and a nonfinal root in that suffix.
+The no-separator grammar is unchanged. This bounded #403 extension does not
+waive failed historical runs, missing DPAPI or exact-attempt evidence gates.
 Post-termination observations classify each captured root/child independently
 as absent, same-identity-alive, reused, or unknown. Reuse evidence retains the
 captured and observed UTC DateTime ticks plus observed PID/name/command line

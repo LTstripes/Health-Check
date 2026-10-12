@@ -1,4 +1,4 @@
-"""Focused #243 full-artifact regressions invoked by the Windows process suite.
+"""Focused #243/#403 full-artifact regressions invoked by the Windows process suite.
 
 The filename deliberately stays outside pytest lane discovery: #246 owns that
 manifest and workflow. Reuse the existing synthetic artifact builder read-only.
@@ -89,20 +89,40 @@ class TranscriptEvidenceTests(unittest.TestCase):
     def test_shared_transcript_matrix(self):
         for case in MATRIX["cases"]:
             with self.subTest(case=case["name"]):
+                separator = case.get("separator_index", 9)
+                if case["accepted"] and "separator_index" in case:
+                    self.assertIsInstance(case["output"][separator], str)
+                    self.assertEqual(len(case["output"][separator]), 0)
                 if "separator_codepoint" in case:
-                    self.assertIsInstance(case["output"][9], str)
-                    self.assertEqual(len(case["output"][9]), 1)
-                    self.assertEqual(ord(case["output"][9]), case["separator_codepoint"])
+                    self.assertIsInstance(case["output"][separator], str)
+                    self.assertEqual(len(case["output"][separator]), 1)
+                    self.assertEqual(ord(case["output"][separator]), case["separator_codepoint"])
                     self.assertFalse(case["accepted"])
                 self.validate_case(case["output"], case["accepted"])
                 if "separator_codepoint" in case:
                     print(f"Python Unicode U+{case['separator_codepoint']:04X}: length=1 rejected")
 
     def test_separator_preserves_lifecycle_and_final_evidence(self):
-        transcript = MATRIX["cases"][0]["output"]
+        for name in ("retained_shape", "observed_one_sibling_suffix"):
+            with self.subTest(transcript=name):
+                transcript = next(
+                    case["output"] for case in MATRIX["cases"] if case["name"] == name
+                )
+                self.check_lifecycle_and_final_evidence(transcript)
+
+    def check_lifecycle_and_final_evidence(self, transcript):
         for field in ("post_termination_observations", "final_process_observations"):
-            for target in (0, 8):
-                for mode in ("alive", "query_error", "invalid_time", "same_time_changed", "reuse"):
+            for target in (0, 2, 3, 8):
+                for mode in (
+                    "alive",
+                    "query_error",
+                    "invalid_time",
+                    "missing_time",
+                    "same_time_changed",
+                    "missing_command",
+                    "reuse",
+                    "foreign_pid",
+                ):
                     with self.subTest(field=field, target=target, mode=mode):
 
                         def mutate(evidence, cleanup):
@@ -116,6 +136,12 @@ class TranscriptEvidenceTests(unittest.TestCase):
                             elif mode == "invalid_time":
                                 record["ObservedIdentity"]["CreationTime"] = "invalid"
                                 record["Classification"] = "reused"
+                            elif mode == "missing_time":
+                                record["ObservedIdentity"].pop("CreationTime")
+                            elif mode == "missing_command":
+                                record["ObservedIdentity"]["CommandLine"] = ""
+                            elif mode == "foreign_pid":
+                                record["ObservedIdentity"]["Id"] = 999
                             elif mode == "same_time_changed":
                                 record["ObservedIdentity"]["Name"] = "changed.exe"
                                 record["Classification"] = "reused"
@@ -126,6 +152,26 @@ class TranscriptEvidenceTests(unittest.TestCase):
                                 record["Classification"] = "reused"
 
                         self.validate_case(transcript, mode == "reuse", mutate)
+
+            self.validate_case(transcript, False, lambda e, c: c[field].pop())
+            self.validate_case(
+                transcript, False, lambda e, c: c[field].__setitem__(8, copy.deepcopy(c[field][0]))
+            )
+
+        def root_reuse_child_survives(evidence, cleanup):
+            for field in ("post_termination_observations", "final_process_observations"):
+                root = cleanup[field][0]
+                identity = cleanup["owned_process_identities"][0]
+                root["ObservedIdentity"].update(identity, Exists=True)
+                root["ObservedIdentity"]["CreationTime"] = str(int(identity["CreationTime"]) + 1)
+                root["Classification"] = "reused"
+                child = cleanup[field][8]
+                child["ObservedIdentity"].update(
+                    cleanup["owned_process_identities"][8], Exists=True
+                )
+                child["Classification"] = "same-identity-alive"
+
+        self.validate_case(transcript, False, root_reuse_child_survives)
 
         for code in (1, 5, 254, 256, -1):
             with self.subTest(exit_code=code):
