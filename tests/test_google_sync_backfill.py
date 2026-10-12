@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import sqlite3
@@ -1369,6 +1370,538 @@ def test_auth_service_constructor_still_accepts_seeded_tokens(tmp_path) -> None:
     assert report.attempts[0].coverage_status == "confirmed_empty"
 
 
+class RecoveryTransport(FakeGoogleHealthTransport):
+    """Fake OAuth plus data; record bearer versions, never credential values."""
+
+    def __init__(self, oauth_responses=()) -> None:
+        super().__init__()
+        self.oauth_responses = list(oauth_responses)
+        self.oauth_calls = 0
+        self.bearer_versions: list[int] = []
+
+    def request(self, method, url, **kwargs):
+        from healthcheck.google.auth import GOOGLE_TOKEN_ENDPOINT
+
+        if url == GOOGLE_TOKEN_ENDPOINT:
+            assert method == "POST" and kwargs["form"]["grant_type"] == "refresh_token"
+            self.oauth_calls += 1
+            if self.oauth_responses:
+                result = self.oauth_responses.pop(0)
+                if isinstance(result, Exception):
+                    raise result
+                return result
+            return GoogleHttpResponse(200, json.dumps({
+                "access_token": f"{SYNTHETIC_ACCESS}-{self.oauth_calls}",
+                "token_type": "Bearer",
+                # Deliberately omitted scope must retain the existing grant.
+            }).encode())
+        bearer = kwargs["headers"]["Authorization"]
+        version = next((i for i in range(1, 4) if bearer == f"Bearer {SYNTHETIC_ACCESS}-{i}"), 0)
+        self.bearer_versions.append(version)
+        return super().request(method, url, **kwargs)
+
+
+def _recovery_sync(tmp_path, transport, *, scopes=ALLOWED_SCOPES, **kwargs):
+    settings, paths = _runtime(tmp_path)
+    auth = GoogleAuthService(
+        settings, transport=transport,
+        protector=GoogleLocalKeyFileProtection(paths.root / "google/auth/.google_protection_key"),
+        client_credentials=GoogleClientCredentials("synthetic-client", SYNTHETIC_SECRET),
+    )
+    auth._write_tokens(GoogleTokenSet(
+        SYNTHETIC_ACCESS, SYNTHETIC_REFRESH, "Bearer", 3600, " ".join(sorted(scopes))
+    ))
+    sync = GoogleHealthSync(settings, auth_service=auth, sleeper=lambda _seconds: None, **kwargs)
+    return settings, sync, auth
+
+
+def test_cached_access_can_succeed_without_claiming_refresh(tmp_path) -> None:
+    transport = RecoveryTransport([GoogleHttpResponse(503, b'{"error":"canary-oauth-secret"}')])
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, sync, _auth = _recovery_sync(tmp_path, transport)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.auth.token_health is GoogleTokenHealth.CACHED_UNVERIFIED
+    assert not report.auth.refresh_succeeded
+    assert report.auth.error == GoogleSafeError("authentication", "token_exchange_failed", 503)
+    assert transport.oauth_calls == 1 and transport.bearer_versions == [0]
+    assert report.auth_recovery["startup_refresh_attempts"] == 1
+    assert report.auth_recovery["recovery_refresh_attempts"] == 0
+
+
+def test_scope_storage_failure_preserves_first_startup_refresh_error(tmp_path, monkeypatch):
+    transport = RecoveryTransport([GoogleHttpResponse(503, b'{"error":"oauth-canary"}')])
+    _settings, sync, auth = _recovery_sync(tmp_path, transport)
+    original = auth._read_tokens
+    reads = 0
+
+    def read():
+        nonlocal reads
+        reads += 1
+        if reads == 3:
+            raise PermissionError("storage-canary")
+        return original()
+
+    monkeypatch.setattr(auth, "_read_tokens", read)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.status is GoogleSyncStatus.FAILED and report.request_count == 0
+    assert transport.oauth_calls == 1
+    assert report.auth.error.error_code == "storage_permission"
+    assert report.auth_recovery["startup_error"]["error_code"] == "token_exchange_failed"
+    assert report.auth_recovery["startup_error"]["http_status"] == 503
+    assert "storage-canary" not in report.to_json() + repr(report)
+
+
+@pytest.mark.parametrize("io_error", [errno.ENOSPC, errno.EIO])
+@pytest.mark.parametrize("phase", ["startup", "recovery"])
+@pytest.mark.parametrize("boundary", ["tokens", "atomic_write"])
+def test_token_store_io_failure_stops_without_cached_fallback_or_replay(
+    tmp_path, monkeypatch, caplog, io_error, phase, boundary
+):
+    import healthcheck.google.auth as google_auth
+
+    transport = RecoveryTransport()
+    settings, sync, auth = _recovery_sync(tmp_path, transport)
+    if phase == "recovery":
+        transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", {"dataPoints": []})
+    writes = 0
+    original = auth._write_tokens if boundary == "tokens" else google_auth._atomic_write_text
+
+    def failing_write(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        if phase == "startup" or writes == 2:
+            raise OSError(io_error, "synthetic-storage-canary", "secret-path-canary")
+        return original(*args, **kwargs)
+
+    if boundary == "tokens":
+        monkeypatch.setattr(auth, "_write_tokens", failing_write)
+    else:
+        monkeypatch.setattr(google_auth, "_atomic_write_text", failing_write)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.status is GoogleSyncStatus.FAILED
+    assert report.auth.status is GoogleAuthStatus.FAILED
+    assert report.auth.error == GoogleSafeError("storage", "storage_write_failed")
+    assert report.auth.refresh_attempted and not report.auth.refresh_succeeded
+    expected_requests = 0 if phase == "startup" else 1
+    assert report.request_count == expected_requests
+    assert len(transport.health_calls()) == expected_requests
+    assert transport.oauth_calls == (1 if phase == "startup" else 2)
+    assert report.auth_recovery["startup_refresh_attempts"] == 1
+    if phase == "startup":
+        assert report.auth_recovery["startup_error"] == report.auth.error.as_dict()
+        assert report.auth_recovery["recovery_refresh_attempts"] == 0
+    else:
+        assert report.auth_recovery["recovery_error"] == report.auth.error.as_dict()
+        assert report.auth_recovery["first_data_error"]["http_status"] == 401
+        assert report.auth_recovery["recovery_refresh_attempts"] == 1
+        assert report.attempts[0].page_count == 0
+        assert report.attempts[1].status is GoogleSyncStatus.NOT_RUN
+    persisted_token = auth._read_tokens().access_token
+    assert persisted_token == SYNTHETIC_ACCESS + ("" if phase == "startup" else "-1")
+    public = report.to_json() + repr(report) + caplog.text
+    assert all(canary not in public for canary in (
+        "synthetic-storage-canary", "secret-path-canary", SYNTHETIC_ACCESS, SYNTHETIC_REFRESH
+    ))
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(GoogleRawPayload)) == 0
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 0
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("io_error", [errno.ENOSPC, errno.EIO])
+def test_oauth_transport_oserror_remains_provider_failure_with_truthful_cached_fallback(
+    tmp_path, io_error
+):
+    transport = RecoveryTransport([OSError(io_error, "provider-secret-canary")])
+    _settings, sync, _auth = _recovery_sync(tmp_path, transport)
+    transport.queue("heart-rate", {"dataPoints": []})
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert report.status is GoogleSyncStatus.SUCCEEDED and report.request_count == 1
+    assert report.auth.error == GoogleSafeError("provider", "provider_error")
+    assert report.auth.token_health is GoogleTokenHealth.CACHED_UNVERIFIED
+    assert not report.auth.refresh_succeeded and transport.oauth_calls == 1
+    assert "provider-secret-canary" not in report.to_json() + repr(report)
+
+
+@pytest.mark.parametrize("mode,family", [("list", None), ("reconcile", FAMILY_GOOGLE_WEARABLES)])
+def test_get401_verified_refresh_replays_exact_page_and_carries_bearer(tmp_path, mode, family):
+    transport = RecoveryTransport([GoogleHttpResponse(503, b'{"error":"startup-canary"}')])
+    transport.queue("heart-rate", {"nextPageToken": "cursor-canary"}, operation=mode)
+    transport.queue("heart-rate", 401, page_token="cursor-canary", operation=mode)
+    point = _hr_point(name="hr-recovered", bpm="71")
+    if mode == "reconcile":
+        point.pop("dataSource")
+        point["dataPointName"] = point.pop("name")
+    transport.queue("heart-rate", {"dataPoints": [point]},
+                    page_token="cursor-canary", operation=mode)
+    transport.queue("daily-resting-heart-rate", {"dataPoints": []}, operation=mode)
+    settings, sync, _auth = _recovery_sync(tmp_path, transport)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "daily_resting_hr"],
+                      query_mode=mode, data_source_family=family)
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.request_count == 4 and transport.oauth_calls == 2
+    assert report.attempts[0].page_count == 2 and report.attempts[0].request_count == 3
+    assert transport.bearer_versions == [0, 0, 2, 2]
+    calls = transport.health_calls()
+    assert calls[1] == calls[2] and calls[1]["method"] == "GET"
+    assert report.auth.refresh_succeeded and report.auth.access_verified
+    assert report.auth_recovery["startup_error"]["error_code"] == "token_exchange_failed"
+    assert report.auth_recovery["first_data_error"]["http_status"] == 401
+    assert report.auth_recovery["recovery_refresh_attempts"] == 1
+    assert all(word not in report.to_json() + repr(report) for word in
+               ("startup-canary", "cursor-canary", SYNTHETIC_ACCESS, SYNTHETIC_REFRESH))
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 1
+            assert all(
+                b"startup-canary" not in body for body in _artifact_bodies(settings, session)
+            )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("later_page", [False, True])
+def test_repeated401_aborts_run_with_later_streams_not_run(tmp_path, later_page) -> None:
+    transport = RecoveryTransport()
+    transport.queue("heart-rate", 401)
+    if later_page:
+        transport.queue("heart-rate", {"nextPageToken": "later-canary"})
+        transport.queue("heart-rate", 401, page_token="later-canary")
+    else:
+        transport.queue("heart-rate", 401)
+    _settings, sync, _auth = _recovery_sync(tmp_path, transport)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.status is GoogleSyncStatus.REAUTH_REQUIRED
+    assert report.abort_reason == "reauth_required" and transport.oauth_calls == 2
+    assert report.request_count == (3 if later_page else 2)
+    assert report.attempts[1].status is GoogleSyncStatus.NOT_RUN
+    assert report.auth_recovery["recovery_refresh_attempts"] == 1
+
+
+@pytest.mark.parametrize("response,code,status", [
+    (GoogleHttpResponse(400, b'{"error":"invalid_grant","detail":"oauth-canary"}'),
+     "invalid_grant", GoogleSyncStatus.REAUTH_REQUIRED),
+    (GoogleHttpResponse(503, b'{"error":"oauth-canary"}'),
+     "token_exchange_failed", GoogleSyncStatus.FAILED),
+    (GoogleHttpResponse(200, b'{"access_token":null,"secret":"oauth-canary"}'),
+     "token_response_invalid", GoogleSyncStatus.FAILED),
+    (GoogleHttpResponse(200, b'oauth-canary'), "token_response_invalid", GoogleSyncStatus.FAILED),
+    (GoogleHttpResponse(200, b'{"access_token":"oauth-canary\\r\\nheader"}'),
+     "token_response_invalid", GoogleSyncStatus.FAILED),
+    (GoogleHttpResponse(200, b'{"access_token":"oauth-canary","token_type":"wrong"}'),
+     "token_response_invalid", GoogleSyncStatus.FAILED),
+    (GoogleHttpResponse(302, b'{"access_token":"oauth-canary"}'),
+     "token_exchange_failed", GoogleSyncStatus.FAILED),
+    (TimeoutError("oauth-canary https://token.invalid/?secret=oauth-canary"),
+     "provider_unavailable", GoogleSyncStatus.FAILED),
+])
+def test_recovery_failure_no_fallback_ingestion_or_later_streams(
+    tmp_path, caplog, response, code, status
+) -> None:
+    transport = RecoveryTransport()
+    settings, sync, _auth = _recovery_sync(tmp_path, transport)
+    # First startup succeeds; only the explicit recovery receives this response.
+    original_request = transport.request
+
+    def request(method, url, **kwargs):
+        if transport.oauth_calls == 1 and url.endswith("/token"):
+            transport.oauth_responses.append(response)
+        return original_request(method, url, **kwargs)
+
+    transport.request = request
+    transport.queue_raw("heart-rate", b'{"error":"data-auth-canary"}', status=401)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.status is status and report.request_count == 1 and transport.oauth_calls == 2
+    assert report.attempts[0].error.error_code == code
+    assert report.attempts[0].page_count == 0
+    assert report.attempts[1].status is GoogleSyncStatus.NOT_RUN
+    assert report.auth_recovery["first_data_error"]["http_status"] == 401
+    assert report.auth_recovery["recovery_error"]["error_code"] == code
+    text = report.to_json() + repr(report) + caplog.text
+    assert "oauth-canary" not in text and "data-auth-canary" not in text
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(GoogleRawPayload)) == 0
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 0
+            state = session.scalar(select(SyncStreamState))
+            assert state.watermark is None
+            assert json.loads(state.cursor)["page_token"] is None
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("mode,status", [("list", 403), ("rollUp", 401),
+                                       ("dailyRollUp", 401), ("list", 400)])
+def test_no_recovery_for403_post_or_non_auth_errors(tmp_path, mode, status) -> None:
+    transport = RecoveryTransport()
+    transport.queue("heart-rate", status, operation=mode)
+    _settings, sync, _auth = _recovery_sync(tmp_path, transport)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"], query_mode=mode)
+    assert report.request_count == 1 and transport.oauth_calls == 1
+    assert report.auth_recovery["recovery_refresh_attempts"] == 0
+
+
+@pytest.mark.parametrize("prior_statuses,budget,refreshes", [
+    ([], 1, 1), ([503], 2, 1), ([503], 3, 2), ([503, 503], 10, 1)
+])
+def test_recovery_shares_request_and_transient_attempt_budgets(
+    tmp_path, prior_statuses, budget, refreshes
+) -> None:
+    transport = RecoveryTransport()
+    sleeps = []
+    for status in prior_statuses:
+        transport.queue("heart-rate", status)
+    transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, sync, _auth = _recovery_sync(tmp_path, transport, max_provider_requests=budget)
+    sync.sleeper = sleeps.append
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert transport.oauth_calls == refreshes
+    assert report.request_count <= budget
+    assert report.attempts[0].request_count == len(prior_statuses) + (2 if refreshes == 2 else 1)
+    assert sleeps == list(RETRY_BACKOFF_SECONDS[:len(prior_statuses)])
+    assert report.attempts[0].page_count == (1 if refreshes == 2 else 0)
+
+
+def test_recovery_failure_storage_and_unverified_loader_are_terminal(tmp_path, monkeypatch):
+    transport = RecoveryTransport()
+    _settings, sync, auth = _recovery_sync(tmp_path, transport)
+    transport.queue("heart-rate", 401)
+    original = auth.load_access_token
+
+    def load(**kwargs):
+        if not kwargs.get("allow_cached_fallback", True):
+            # Deliberately auth.ok cached token: never proof of refresh success.
+            return SYNTHETIC_ACCESS, _auth_result()
+        return original(**kwargs)
+
+    monkeypatch.setattr(auth, "load_access_token", load)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.status is GoogleSyncStatus.FAILED and report.request_count == 1
+    assert report.attempts[0].error.error_code == "refresh_unverified"
+    assert report.attempts[1].status is GoogleSyncStatus.NOT_RUN
+
+
+def test_recovery_preserves_partial_scopes_and_limits_next_stream(tmp_path):
+    transport = RecoveryTransport()
+    transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", {"dataPoints": []})
+    _settings, sync, _auth = _recovery_sync(tmp_path, transport, scopes=frozenset({SCOPE_METRICS}))
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.auth.missing_scope_count == 1 and report.auth.refresh_succeeded
+    assert report.attempts[1].status is GoogleSyncStatus.SCOPE_REQUIRED
+    assert report.request_count == 2 and transport.oauth_calls == 2
+
+
+def test_historical_chunks_share_auth_recovery_allowance(tmp_path):
+    transport = RecoveryTransport()
+    transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", {"dataPoints": []})
+    transport.queue("heart-rate", 401)
+    settings, _sync_service, auth = _recovery_sync(tmp_path, transport)
+    report = GoogleHistoricalBackfill(settings, auth_service=auth, transport=transport).run(
+        start="2099-01-01", end="2099-01-03", streams=["heart_rate"], chunk_days=1
+    )
+    assert report.status is GoogleSyncStatus.REAUTH_REQUIRED and report.request_count == 3
+    assert transport.oauth_calls == 2 and transport.bearer_versions == [1, 2, 2]
+    assert report.attempts[2].status is GoogleSyncStatus.NOT_RUN
+    assert report.auth_recovery["startup_refresh_attempts"] == 1
+    assert report.auth_recovery["recovery_refresh_attempts"] == 1
+
+
+@pytest.mark.parametrize("failure", ["storage", "missing_refresh", "scope_lost"])
+def test_protected_recovery_failure_stops_without_replay(tmp_path, monkeypatch, failure):
+    transport = RecoveryTransport()
+    _settings, sync, auth = _recovery_sync(tmp_path, transport)
+    original = auth.load_access_token
+
+    def load(**kwargs):
+        if not kwargs.get("allow_cached_fallback", True):
+            if failure == "storage":
+                def fail_write(_tokens):
+                    raise PermissionError("protected-secret-canary")
+                monkeypatch.setattr(auth, "_write_tokens", fail_write)
+            elif failure == "missing_refresh":
+                tokens = auth._read_tokens()
+                tokens.refresh_token = None
+                auth._write_tokens(tokens)
+            else:
+                transport.oauth_responses.append(GoogleHttpResponse(200, json.dumps({
+                    "access_token": SYNTHETIC_ACCESS + "-2", "scope": DEFAULT_SCOPE_ORDER[0]
+                }).encode()))
+        return original(**kwargs)
+
+    monkeypatch.setattr(auth, "load_access_token", load)
+    transport.queue("heart-rate", 401)
+    report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate", "sleep"])
+    assert report.request_count == 1 and report.status is GoogleSyncStatus.FAILED
+    assert report.attempts[1].status is GoogleSyncStatus.NOT_RUN
+    expected = {"storage": "storage_permission", "missing_refresh": "refresh_token_missing",
+                "scope_lost": "scope_required"}
+    assert report.attempts[0].error.error_code == expected[failure]
+    assert "protected-secret-canary" not in report.to_json() + repr(report)
+
+
+def test_resumed_get401_keeps_cursor_identity_and_exact_rerun_is_idempotent(tmp_path):
+    transport = RecoveryTransport()
+    transport.queue("heart-rate", {
+        "dataPoints": [_hr_point(name="resume-a", bpm="61")], "nextPageToken": "resume-canary"
+    })
+    settings, sync, _auth = _recovery_sync(tmp_path, transport, max_provider_requests=1)
+    first = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert first.status is GoogleSyncStatus.PARTIAL and first.attempts[0].page_count == 1
+    transport.queue("heart-rate", 401, page_token="resume-canary")
+    transport.queue("heart-rate", {"dataPoints": [_hr_point(name="resume-b", bpm="62")]},
+                    page_token="resume-canary")
+    sync.max_provider_requests = 3
+    second = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert second.status is GoogleSyncStatus.SUCCEEDED and second.request_count == 2
+    calls = transport.health_calls()
+    assert calls[1] == calls[2] and calls[1]["has_page_token"]
+    assert second.attempts[0].page_count == 1 and second.attempts[0].record_count == 1
+    third = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert third.status is GoogleSyncStatus.SUCCEEDED and third.request_count == 0
+    assert len(transport.health_calls()) == 3
+    assert "resume-canary" not in first.to_json() + second.to_json()
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 2
+            assert session.scalar(select(func.count()).select_from(GooglePayloadObservation)) == 2
+            state = session.scalar(select(SyncStreamState))
+            assert state.cursor is None and state.watermark is not None
+    finally:
+        engine.dispose()
+
+
+def test_failed401_refresh_preserves_accepted_projection_then_success_converges(tmp_path):
+    transport = RecoveryTransport()
+    settings, sync, _auth = _recovery_sync(tmp_path, transport, run_kind=GoogleRunKind.REFRESH)
+    accepted = {"dataPoints": [_hr_point(name="accepted", bpm="61")]}
+    transport.queue("heart-rate", accepted)
+    first = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(select(SyncStreamState))
+            accepted_state = state.watermark, state.last_success_at
+            record = session.scalar(select(GoogleSourceRecord))
+            accepted_id = record.id, record.record_identity_key
+    finally:
+        engine.dispose()
+    transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", 401)
+    failed = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+    assert failed.status is GoogleSyncStatus.REAUTH_REQUIRED
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(select(SyncStreamState))
+            assert (state.watermark, state.last_success_at) == accepted_state
+            record = session.scalar(select(GoogleSourceRecord))
+            assert (record.id, record.record_identity_key) == accepted_id
+            assert session.scalar(select(func.count()).select_from(GoogleRawPayload)) == 1
+    finally:
+        engine.dispose()
+    for _ in range(2):
+        transport.queue("heart-rate", 401)
+        transport.queue("heart-rate", accepted)
+        report = sync.run(start=AS_OF, end=AS_OF, streams=["heart_rate"])
+        assert report.status is GoogleSyncStatus.SUCCEEDED and report.request_count == 2
+    assert first.status is GoogleSyncStatus.SUCCEEDED
+    assert failed.status is GoogleSyncStatus.REAUTH_REQUIRED
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            record = session.scalar(select(GoogleSourceRecord))
+            assert (record.id, record.record_identity_key) == accepted_id
+            assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 1
+    finally:
+        engine.dispose()
+
+
+def test_hr_continuation_keeps_one_startup_and_one_recovery(tmp_path, monkeypatch):
+    import healthcheck.google.sync as google_sync
+
+    monkeypatch.setattr(google_sync, "MAX_PAGES_PER_FETCH", 1)
+    transport = RecoveryTransport()
+    settings, _sync_service, auth = _recovery_sync(tmp_path, transport)
+    transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", {"nextPageToken": "continuation-canary"})
+    # A resumed REFRESH revalidates its head before following the saved cursor.
+    transport.queue("heart-rate", 401)
+    with _owner_heart_rate_day_refresh(
+        settings, day=date(2099, 1, 2), auth_service=auth,
+        query_mode=None, data_source_family=None, phase_timing=None,
+    ) as refresh:
+        first = refresh()
+        second = refresh()
+        third = refresh()
+    assert first.status is GoogleSyncStatus.PARTIAL and first.request_count == 2
+    assert second.status is GoogleSyncStatus.REAUTH_REQUIRED and second.request_count == 1
+    assert third.status is GoogleSyncStatus.REAUTH_REQUIRED and third.request_count == 0
+    assert transport.oauth_calls == 2 and transport.bearer_versions == [1, 2, 2]
+    assert second.auth_recovery["startup_refresh_attempts"] == 1
+    assert second.auth_recovery["recovery_refresh_attempts"] == 1
+    assert "continuation-canary" not in second.to_json()
+
+
+def test_normal_refresh_consumer_stops_hr_days_after_recovery_failure(tmp_path):
+    from healthcheck.owner_refresh import _run_normal_google_refresh
+
+    transport = RecoveryTransport()
+    settings, _sync_service, auth = _recovery_sync(tmp_path, transport)
+    original = transport.request
+
+    def request(method, url, **kwargs):
+        if transport.oauth_calls == 1 and url.endswith("/token"):
+            transport.oauth_responses.append(GoogleHttpResponse(503, b'{"error":"oauth-canary"}'))
+        return original(method, url, **kwargs)
+
+    transport.request = request
+    transport.queue("sleep", 401)
+    report = _run_normal_google_refresh(
+        settings, auth_service=auth, start="2099-01-01", end=AS_OF,
+        streams=["sleep", "heart_rate"], query_mode=None, data_source_family=None,
+    )
+    assert report.status is GoogleSyncStatus.FAILED and report.request_count == 1
+    assert report.abort_reason == "auth_recovery_failed"
+    assert transport.oauth_calls == 2
+    assert [item.status for item in report.attempts if item.stream == "heart_rate"] == [
+        GoogleSyncStatus.NOT_RUN, GoogleSyncStatus.NOT_RUN
+    ]
+    assert report.auth_recovery["startup_refresh_attempts"] == 1
+    assert "oauth-canary" not in report.to_json()
+
+
+def test_normal_refresh_days_share_recovery_without_rewriting_earlier_success(tmp_path):
+    from healthcheck.owner_refresh import _run_normal_google_refresh
+
+    transport = RecoveryTransport()
+    settings, _sync_service, auth = _recovery_sync(tmp_path, transport)
+    transport.queue("heart-rate", 401)
+    transport.queue("heart-rate", {"dataPoints": []})
+    transport.queue("heart-rate", 401)
+    report = _run_normal_google_refresh(
+        settings, auth_service=auth, start="2099-01-01", end="2099-01-03",
+        streams=["heart_rate"], query_mode=None, data_source_family=None,
+    )
+    assert report.status is GoogleSyncStatus.REAUTH_REQUIRED and report.request_count == 3
+    assert transport.oauth_calls == 2 and transport.bearer_versions == [1, 2, 2]
+    assert [attempt.status for attempt in report.attempts] == [
+        GoogleSyncStatus.EMPTY, GoogleSyncStatus.REAUTH_REQUIRED, GoogleSyncStatus.NOT_RUN
+    ]
+    assert report.auth_recovery["startup_refresh_attempts"] == 1
+    assert report.auth_recovery["recovery_refresh_attempts"] == 1
+
+
 SOURCE_A = "users/me/dataSources/raw:com.google.heart_rate.bpm:fitbit:AAA"
 SOURCE_B = "users/me/dataSources/raw:com.google.heart_rate.bpm:pixel:BBB"
 
@@ -1778,7 +2311,11 @@ def test_owner_hr_day_context_cleans_up_on_continuation_and_setup_errors(
     transport = FakeGoogleHealthTransport()
     settings, _ = _sync(tmp_path, transport)
     paths = prepare_runtime(settings)
-    auth = SimpleNamespace(transport=transport)
+    auth = SimpleNamespace(
+        transport=transport, token_health=_auth_result,
+        load_access_token=lambda **_kwargs: (SYNTHETIC_ACCESS, _auth_result()),
+        _read_tokens=lambda: SimpleNamespace(granted_scopes=lambda: ALLOWED_SCOPES),
+    )
     disposals = 0
     original_engine = google_sync.create_sqlite_engine
 

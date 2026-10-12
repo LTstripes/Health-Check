@@ -196,7 +196,8 @@ def _patch_providers(monkeypatch, owner_refresh, *, garmin_cls=_FakeGarminSync, 
 def _patch_hr_context(monkeypatch, owner_refresh):
     @contextmanager
     def fake_context(
-        settings, *, day, auth_service, query_mode, data_source_family, phase_timing
+        settings, *, day, auth_service, query_mode, data_source_family, phase_timing,
+        _auth_context=None,
     ):
         def refresh():
             return owner_refresh.run_google_refresh(

@@ -200,6 +200,19 @@ class GoogleHistoricalBackfill:
         abort_reason: str | None = None
         last_report: GoogleSyncReport | None = None
         remaining_budget = self.max_provider_requests
+        engine = GoogleHealthSync(
+            self.settings,
+            auth_service=self.auth_service,
+            transport=self.transport,
+            auth_result=self.auth_result,
+            access_token=self.access_token,
+            granted_scopes=self.granted_scopes,
+            sleeper=self.sleeper,
+            max_provider_requests=remaining_budget,
+            run_kind=GoogleRunKind.HISTORICAL,
+        )
+        # All chunks share one startup and one GET-401 recovery allowance.
+        engine._auth_context = engine._new_auth_context()
         for chunk in chunks:
             if abort_reason is not None or remaining_budget < 1:
                 if remaining_budget < 1 and abort_reason != "reauth_required":
@@ -223,17 +236,7 @@ class GoogleHistoricalBackfill:
                 continue
             chunk_start = date.fromisoformat(chunk.start)
             chunk_end = date.fromisoformat(chunk.end)
-            engine = GoogleHealthSync(
-                self.settings,
-                auth_service=self.auth_service,
-                transport=self.transport,
-                auth_result=self.auth_result,
-                access_token=self.access_token,
-                granted_scopes=self.granted_scopes,
-                sleeper=self.sleeper,
-                max_provider_requests=remaining_budget,
-                run_kind=GoogleRunKind.HISTORICAL,
-            )
+            engine.max_provider_requests = remaining_budget
             report = engine.run_window(
                 start=chunk_start,
                 end_exclusive=inclusive_to_exclusive_end(chunk_end),
@@ -246,8 +249,8 @@ class GoogleHistoricalBackfill:
             request_count += report.request_count
             remaining_budget = max(0, remaining_budget - report.request_count)
             attempts.extend(report.attempts)
-            if report.abort_reason == "reauth_required":
-                abort_reason = "reauth_required"
+            if report.abort_reason is not None:
+                abort_reason = report.abort_reason
                 continue
             bounded_resume = next(
                 (
@@ -281,6 +284,7 @@ class GoogleHistoricalBackfill:
             attempts=tuple(attempts),
             abort_reason=abort_reason,
             skipped_complete_count=skipped,
+            auth_recovery=engine._auth_context.diagnostics(),
         )
 
 

@@ -334,7 +334,8 @@ def test_05_token_refresh_success_and_invalid_grant_become_sanitized_health(
     refreshed = service.refresh_access_token()
     assert refreshed.access_token.endswith("-refreshed")
     health = service.token_health()
-    assert health.token_health in {GoogleTokenHealth.VALID, GoogleTokenHealth.PARTIAL_SCOPES}
+    assert health.token_health is GoogleTokenHealth.CACHED_UNVERIFIED
+    assert not health.access_verified
     assert SYNTHETIC_REFRESH not in json.dumps(health.as_dict())
 
     transport.refresh_mode = "invalid_grant"
@@ -345,6 +346,77 @@ def test_05_token_refresh_success_and_invalid_grant_become_sanitized_health(
     assert result.token_health is GoogleTokenHealth.INVALID_GRANT
     assert result.error is not None
     assert result.error.error_code == "invalid_grant"
+
+
+def test_cached_fallback_keeps_refresh_failure_and_unverified_provenance(tmp_path) -> None:
+    transport = FakeTransport()
+    service = make_service(tmp_path, transport)
+    _seed_tokens(service)
+    transport._token_response = lambda _form: GoogleHttpResponse(
+        503, json.dumps({"error": SYNTHETIC_SECRET, "detail": SYNTHETIC_REFRESH}).encode()
+    )
+    access, result = service.load_access_token()
+    assert access == SYNTHETIC_ACCESS
+    assert result.ok and result.token_health is GoogleTokenHealth.CACHED_UNVERIFIED
+    assert result.refresh_attempted and not result.refresh_succeeded and not result.access_verified
+    assert result.error.as_dict() == {
+        "error_class": "authentication", "error_code": "token_exchange_failed", "http_status": 503
+    }
+    serialized = json.dumps(result.as_dict()) + repr(result)
+    assert SYNTHETIC_SECRET not in serialized and SYNTHETIC_REFRESH not in serialized
+    access, strict = service.load_access_token(allow_cached_fallback=False)
+    assert access == "" and not strict.ok and strict.error == result.error
+
+
+def test_omitted_refresh_scope_preserves_partial_consent(tmp_path) -> None:
+    transport = FakeTransport()
+    service = make_service(tmp_path, transport)
+    _seed_tokens(service, scopes=SCOPE_SLEEP)
+    transport._token_response = lambda _form: GoogleHttpResponse(
+        200, json.dumps({"access_token": SYNTHETIC_ACCESS + "-new"}).encode()
+    )
+    _access, result = service.load_access_token(allow_cached_fallback=False)
+    assert result.refresh_succeeded and result.access_verified
+    assert result.token_health is GoogleTokenHealth.PARTIAL_SCOPES
+    assert result.missing_scope_count == 1
+    assert service._read_tokens().granted_scopes() == frozenset({SCOPE_SLEEP})
+
+
+@pytest.mark.parametrize("payload", [
+    {"access_token": ""}, {"access_token": SYNTHETIC_ACCESS, "scope": ""},
+    {"access_token": SYNTHETIC_ACCESS, "token_type": "wrong"},
+])
+def test_malformed_startup_refresh_is_terminal_without_cached_fallback(tmp_path, payload):
+    transport = FakeTransport()
+    service = make_service(tmp_path, transport)
+    _seed_tokens(service)
+    transport._token_response = lambda _form: GoogleHttpResponse(200, json.dumps(payload).encode())
+    access, result = service.load_access_token()
+    assert access == "" and not result.ok and not result.refresh_succeeded
+    assert result.error.error_code == "token_response_invalid"
+
+
+@pytest.mark.parametrize("failure", ["storage", "protection", "corrupt", "missing"])
+def test_startup_refresh_storage_failures_never_fall_back(tmp_path, monkeypatch, failure) -> None:
+    from healthcheck.google.protection import GoogleCredentialProtectionUnavailable
+
+    service = make_service(tmp_path, FakeTransport())
+    _seed_tokens(service)
+    errors = {
+        "storage": PermissionError(SYNTHETIC_SECRET),
+        "protection": GoogleCredentialProtectionUnavailable(SYNTHETIC_SECRET),
+        "corrupt": GoogleCredentialCorruptError(SYNTHETIC_SECRET),
+        "missing": FileNotFoundError(SYNTHETIC_SECRET),
+    }
+
+    def fail(_tokens):
+        raise errors[failure]
+
+    monkeypatch.setattr(service, "refresh_access_token", fail)
+    access, result = service.load_access_token()
+    assert access == "" and not result.ok
+    assert result.refresh_attempted and not result.refresh_succeeded
+    assert SYNTHETIC_SECRET not in repr(result) + json.dumps(result.as_dict())
 
 
 def test_06_force_reauth_does_not_silently_reuse_stale_token_state(tmp_path: Path) -> None:
