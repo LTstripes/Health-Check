@@ -63,6 +63,7 @@ const identity = () => {
       const text = `\n  Synthetic ${width} ё 日本語\n<script>window.contextXss=true</script>  `;
       await field('event_date').fill('2099-01-02');
       await field('original_text').fill(text);
+      await page.screenshot({ path: path.join(evidence, `date-only-${width}.png`), fullPage: true });
       await field('event_time').fill('19:30');
       // Missing zone is a server validation error; escaped draft/key must survive.
       const operation = await field('operation_id').inputValue();
@@ -75,7 +76,6 @@ const identity = () => {
       await field('event_time').fill('');
       assert.equal(await page.locator('#context-zone').isVisible(), false);
       assert.equal(await page.locator('#context-form').evaluate(el => new FormData(el).has('timezone_name')), false);
-      await page.screenshot({ path: path.join(evidence, `date-only-${width}.png`), fullPage: true });
       const beforeDouble = contextPosts;
       await Promise.all([page.waitForURL(/\/context\/[0-9a-f-]+\?saved=/),
         page.locator('#context-form').evaluate(form => { form.requestSubmit(); form.requestSubmit(); })]);

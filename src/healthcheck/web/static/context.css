@@ -2,7 +2,8 @@
 .context-page textarea { width: 100%; resize: vertical; font: inherit; padding: 12px; background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 4px; }
 .context-page label { display: grid; gap: 4px; margin: 8px 0; min-width: 0; }
 .context-page input, .context-page select { width: 100%; min-width: 0; }
-.context-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.context-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: end; }
+#context-form .context-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .context-page [hidden] { display: none; }
 .context-actions { display: flex; gap: 16px; margin-top: 16px; }
 .context-note { border-bottom: 1px solid var(--line); padding: 12px 0; overflow-wrap: anywhere; }
