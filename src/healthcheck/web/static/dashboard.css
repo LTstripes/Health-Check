@@ -414,6 +414,10 @@ main, .legal { max-width: var(--owner-content-width); }
 .statistics-source-headings { margin: 24px 0; padding: 18px 0; border-block: 1px solid var(--line); }
 .statistics-source-headings h2 { font-family: var(--owner-heading-font); font-size: 1.75rem; font-weight: 400; }
 .statistics-source-headings p { margin: 4px 0; }
+.statistics-source-choice label { display: grid; gap: 6px; margin: 12px 0; }
+.statistics-source-choice select { width: 100%; min-width: 0; }
+.statistics-source-choice ul { padding-left: 20px; font-size: .875rem; }
+.statistics-source-warning { color: var(--attention-ink); font-weight: 600; }
 .statistics-metric { padding: 22px 0; border-bottom: 1px solid var(--line); }
 .statistics-metric > h2 { font-weight: 600; }
 .statistics-metric h3 { color: var(--muted); margin: 8px 0; }

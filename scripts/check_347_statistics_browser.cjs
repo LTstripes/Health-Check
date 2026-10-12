@@ -8,6 +8,7 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const fixtures = process.env.HEALTHCHECK_STATISTICS_FIXTURES_DIR;
 const evidence = process.env.HEALTHCHECK_BROWSER_EVIDENCE_DIR;
@@ -44,6 +45,20 @@ const base = 'http://127.0.0.1:8120';
         assert.equal((await page.goto(`${base}/statistics?days=7&end_date=2099-01-08`)).status(), 200);
         assert.equal(await page.getByRole('link', { name: 'Статистика', exact: true }).getAttribute('aria-current'), 'page');
         assert.equal(await page.locator('.statistics-metric').count(), 6);
+        assert.equal(await page.locator('.statistics-controls [name$="_source_id"]').count(), 0);
+        assert.equal(await page.locator('.statistics-source-choice').count(), 2);
+        assert.equal(await page.locator('.statistics-source-choice[open]').count(), scenario === 'ambiguous' ? 2 : 0);
+        assert.equal(await page.locator('[data-source-attention]').count(), scenario === 'ambiguous' ? 2 : 0);
+        const formData = await page.locator('#statistics-controls').evaluate(form =>
+          [...new FormData(form).keys()]);
+        assert.ok(formData.includes('garmin_source_id') && formData.includes('google_source_id'));
+        if (scenario === 'ambiguous') {
+          const detail = page.locator('.statistics-source-choice').first();
+          await detail.locator('summary').press('Enter');
+          assert.equal(await detail.getAttribute('open'), null);
+          assert.equal(await page.locator('[data-source-attention]').first().isVisible(), true);
+          await detail.locator('summary').press('Enter');
+        }
         for (const metric of await page.locator('.statistics-metric').all()) {
           const left = metric.locator('article[data-statistics-side="left"]');
           const right = metric.locator('article[data-statistics-side="right"]');
@@ -103,6 +118,7 @@ const base = 'http://127.0.0.1:8120';
         await page.screenshot({ path: path.join(evidence, `${scenario}-${width}.png`), fullPage: true });
         for (const details of await page.locator('.statistics-details').all()) {
           const summary = details.locator('summary');
+          if (await details.getAttribute('open') !== null) await summary.press('Enter');
           await summary.focus(); await page.keyboard.press('Enter');
           assert.equal(await details.getAttribute('open'), '');
           assert.equal(await summary.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
@@ -123,7 +139,7 @@ const base = 'http://127.0.0.1:8120';
         assert.equal(await period.inputValue(), '30');
         await page.getByRole('button', { name: 'Показать', exact: true }).focus();
         await Promise.all([page.waitForURL(/period=30/), page.keyboard.press('Enter')]);
-        assert.match(await page.locator('.statistics-window').innerText(), /2098-12-10 — 2099-01-08 · 30 дней/);
+        assert.match(await page.locator('.statistics-window').innerText(), /10 декабря 2098 — 8 января 2099 · 30 дней/);
         if (scenario === 'ambiguous') {
           for (const provider of ['Garmin', 'Google']) {
             const selector = page.getByLabel(`${provider}: источник`, { exact: true });
@@ -141,7 +157,7 @@ const base = 'http://127.0.0.1:8120';
             await page.locator(`[name="${provider}_source_id"]`).selectOption(id);
           }
           const ids = await Promise.all(['garmin', 'google'].map(p => page.locator(`[name="${p}_source_id"]`).inputValue()));
-          await page.getByRole('button', { name: 'Показать', exact: true }).focus();
+          await page.getByRole('button', { name: 'Применить источники', exact: true }).first().focus();
           await Promise.all([page.waitForURL(url => url.searchParams.get('google_source_id') === ids[1]), page.keyboard.press('Enter')]);
           for (const [index, provider] of ['garmin', 'google'].entries()) assert.equal(await page.locator(`[name="${provider}_source_id"]`).inputValue(), ids[index]);
           await page.reload();
@@ -155,7 +171,7 @@ const base = 'http://127.0.0.1:8120';
           await Promise.all([page.waitForURL(url => url.searchParams.get('period') === '7' && url.searchParams.get('google_source_id') === ids[1]), page.keyboard.press('Enter')]);
           await page.reload();
           for (const [index, provider] of ['garmin', 'google'].entries()) assert.equal(await page.locator(`[name="${provider}_source_id"]`).inputValue(), ids[index]);
-          assert.match(await page.locator('.statistics-window').innerText(), /2099-01-02 — 2099-01-08 · 7 дней/);
+          assert.match(await page.locator('.statistics-window').innerText(), /2 января 2099 — 8 января 2099 · 7 дней/);
           assert.equal((await headline('sleep_duration_asleep_seconds').innerText()).trim(), '8 ч 0 мин');
           assert.match(await sleep.locator('article').nth(1).innerText(), /Недоступно/);
         }
@@ -183,11 +199,12 @@ const base = 'http://127.0.0.1:8120';
           const options = await selector.locator('option').allTextContents();
           assert.equal(new Set(options).size, options.length);
           for (const provider of ['garmin', 'google']) {
+            const detail = page.locator('.statistics-source-headings details').nth(provider === 'garmin' ? 0 : 1);
+            if (await detail.getAttribute('open') !== null) await detail.locator('summary').press('Enter');
             const ids = await page.locator(`[name="${provider}_source_id"] option`).evaluateAll(
               elements => elements.map(el => el.value).filter(Boolean));
             const primary = await page.locator('main').innerText();
             for (const id of ids) assert.ok(!primary.includes(id), 'UUID leaked outside collapsed details');
-            const detail = page.locator('.statistics-source-headings details').nth(provider === 'garmin' ? 0 : 1);
             await detail.locator('summary').focus(); await page.keyboard.press('Enter');
             const text = await detail.innerText();
             for (const id of ids) assert.ok(text.includes(id), 'Exact identity absent from disclosure');
@@ -254,7 +271,10 @@ const base = 'http://127.0.0.1:8120';
     assert.deepEqual(errors, []); assert.deepEqual(external, []);
     const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim();
-    fs.writeFileSync(path.join(evidence, 'statistics-browser.json'), JSON.stringify({ sha, dirty, browser: browser.version(), mode: 'offline-real-route-html', checks, errors, external }, null, 2));
+    const pngs = fs.readdirSync(evidence).filter(file => file.endsWith('.png')).map(file => ({
+      file, sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(evidence, file))).digest('hex'),
+    }));
+    fs.writeFileSync(path.join(evidence, 'statistics-browser.json'), JSON.stringify({ sha, dirty, browser: browser.version(), mode: 'offline-real-route-html', checks, errors, external, pngs }, null, 2));
     console.log(JSON.stringify({ sha, dirty: Boolean(dirty), cases: checks.length, errors, external }));
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

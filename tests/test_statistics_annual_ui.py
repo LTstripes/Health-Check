@@ -127,6 +127,14 @@ def test_incomplete_rendering_preserves_unknown_and_independent_cells(
     if cap == "MAX_PERIOD_SOURCES":
         assert f'value="{source_id}" selected' in response.text
         assert "Выбранный источник: поиск не завершён" in response.text
+    header = response.text.split('<header data-statistics-side="left">', 1)[1].split(
+        "</header>", 1,
+    )[0]
+    assert 'data-source-attention' in header
+    assert 'class="statistics-details statistics-source-choice" open' in header
+    assert "Полнота и доступность неизвестны" in header
+    if cap == "MAX_PERIOD_SOURCES":
+        assert f'value="{source_id}" selected' in header
     else:
         # Activity has two rows; sleep has seven, so both exceed this cap.
         assert parser.values[SLEEP_CODE, "left"].strip() == "Недоступно"

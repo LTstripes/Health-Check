@@ -281,6 +281,20 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
     assert "Не собирается" in cells["activity_session_count", "right"]
     assert "Числовая разница недоступна" in response.text
     assert "Шаги за завершённые дни" in response.text
+    # Presentation only: two provider choices stay associated with the period
+    # form even when their native details elements are collapsed.
+    controls = response.text.split('<form id="statistics-controls"', 1)[1].split("</form>", 1)[0]
+    assert "_source_id" not in controls
+    assert response.text.count('class="statistics-details statistics-source-choice"') == 2
+    for provider, side in zip(("garmin", "google"), packet["sides"], strict=True):
+        assert f'form="statistics-controls" name="{provider}_source_id"' in response.text
+        header = response.text.split(f'<header data-statistics-side="{side["position"]}">', 1)[1]
+        header = header.split("</header>", 1)[0]
+        opening = header.split('<details class="statistics-details statistics-source-choice"', 1)[1]
+        assert (" open" in opening.split(">", 1)[0]) == (case == "ambiguous")
+        assert ('data-source-attention' in header) == (case == "ambiguous")
+        for source in side["available_sources"]:
+            assert source["source_id"] in opening
     if case == "ambiguous":
         assert "Выбери источник" in cells[SLEEP_CODE, "left"]
         assert "Выбери источник" in cells[SLEEP_CODE, "right"]
