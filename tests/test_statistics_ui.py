@@ -280,7 +280,7 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
                 assert f"{reason['reason_code']}: {reason['count']}" in text
     assert "Не собирается" in cells["activity_session_count", "right"]
     assert "Числовая разница недоступна" in response.text
-    assert "Шаги Garmin по датам" in response.text
+    assert "Шаги за завершённые дни" in response.text
     if case == "ambiguous":
         assert "Выбери источник" in cells[SLEEP_CODE, "left"]
         assert "Выбери источник" in cells[SLEEP_CODE, "right"]
