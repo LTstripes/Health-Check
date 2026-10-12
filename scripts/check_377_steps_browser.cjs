@@ -55,6 +55,10 @@ const base = 'http://127.0.0.1:8120';
       const geometry=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth+1,
         navRows:new Set([...document.querySelector('.owner-nav').children].map(el=>el.offsetTop)).size}));
       assert.equal(geometry.overflow,false);assert.equal(geometry.navRows,1);
+      await table.evaluate(el=>{
+        const row=el.querySelector('[data-steps-date="2099-01-02"]');
+        el.scrollTop+=row.getBoundingClientRect().top-el.getBoundingClientRect().top-60;
+      });
       const png=path.join(evidence,`steps-completed-${width}.png`);
       await section.screenshot({path:png});pngs.push({path:png,sha256:digest(png),width});
       // Preserve source/end-date controls across keyboard submission and period changes.

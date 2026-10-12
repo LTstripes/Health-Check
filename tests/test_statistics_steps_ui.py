@@ -202,3 +202,21 @@ def test_reader_failure_keeps_html_error_contract(statistics_ui, monkeypatch):
     response = client.get("/statistics")
     assert response.status_code == 500 and 'role="alert"' in response.text
     assert "synthetic Steps failure" not in response.text
+
+
+def test_browser_period_captures_share_one_exact_source(statistics_ui):
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    for period in ("7", "30"):
+        response = client.get(
+            "/statistics",
+            params={
+                "period": period,
+                "end_date": "2099-01-10",
+                "calendar_year": 2099,
+                "garmin_source_id": source_id,
+            },
+        )
+        assert response.status_code == 200
+        assert source_id in steps_html(response)
+        export(response, f"completed-{period}")
