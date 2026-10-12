@@ -182,9 +182,9 @@
     }
     node.innerHTML =
       "<p>" +
-      escapeHtml(item.earlier_date) +
+      escapeHtml(readableDate(item.earlier_date)) +
       " → " +
-      escapeHtml(item.later_date) +
+      escapeHtml(readableDate(item.later_date)) +
       " (" +
       item.days_apart +
       " дней)</p>" +
@@ -449,7 +449,7 @@
   function showObservation(point, detailNode) {
     const node = detailNode || document.getElementById('observation-detail');
     if (!node) return;
-    let html = '<h3>Наблюдение · ' + escapeHtml(point.date) + '</h3><p>Вес ' + fmt(point.value, 1) + ' кг (источник)</p>';
+    let html = '<h3>Наблюдение · ' + escapeHtml(readableDate(point.date)) + '</h3><p>Вес ' + fmt(point.value, 1) + ' кг (источник)</p>';
     if (point.method) html += '<p>' + escapeHtml(point.method) + '</p>';
     const items = point.composition || [];
     if (!items.length) html += '<p class="muted">Состав тела для этого наблюдения недоступен. Это не означает ноль.</p>';
@@ -634,10 +634,10 @@
       circle.setAttribute("data-evidence-id", item.id || "");
       circle.setAttribute("tabindex", "0");
       circle.setAttribute('role', 'button');
-      circle.setAttribute('aria-label', item.date + ' · ' + fmt(item.value, 1) + (unit || ' кг') + (item.method ? ' · ' + item.method : '') + ' · показать наблюдение');
+      circle.setAttribute('aria-label', readableDate(item.date) + ' · ' + fmt(item.value, 1) + (unit || ' кг') + (item.method ? ' · ' + item.method : '') + ' · показать наблюдение');
       circle.setAttribute('aria-controls', detailId || 'observation-detail');
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      title.textContent = item.date + " · " + fmt(item.value, 1) + (unit || " кг");
+      title.textContent = readableDate(item.date) + " · " + fmt(item.value, 1) + (unit || " кг");
       circle.appendChild(title);
       if (onClick) {
         circle.addEventListener('focus', function () { onClick(item); });
@@ -744,7 +744,7 @@
           " " +
           (row.getAttribute("data-unit") || "") +
           " на " +
-          (row.getAttribute("data-date") || "неизвестная дата") +
+          (row.getAttribute("data-date") ? window.healthcheckOwnerDate(row.getAttribute("data-date")) : "неизвестная дата") +
           (row.getAttribute("data-committed") === "true" ? " (уже подтверждено, повтор)" : " (будет подтверждено)")
         );
       });

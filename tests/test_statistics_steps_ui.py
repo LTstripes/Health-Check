@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
 from healthcheck.garmin.observed_steps_read import read_observed_steps_window
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+from healthcheck.web.owner_presentation import owner_date
 from test_garmin_observed_steps import (
     ABSENT,
     DAY,
@@ -107,7 +108,8 @@ def test_steps_reader_uses_exact_period_and_preserves_result(statistics_ui, monk
         "start_date": result.start_date,
         "end_date": result.end_date,
     }
-    assert f"{result.start_date} — {result.end_date}" in steps_html(response)
+    assert (f"{owner_date(result.start_date)} — {owner_date(result.end_date)}"
+            in steps_html(response))
     parser = StepsParser(response.text)
     assert parser.states == {str(cell.calendar_date): cell.state for cell in result.cells}
     assert parser.values == {

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from healthcheck.analytics import period_summary_read as bounded
 from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
 from healthcheck.db.models import GarminSource, GoogleSource
+from healthcheck.web.owner_presentation import owner_date
 from healthcheck.web.statistics import format_statistics_value
 from test_sleep_account_cohort import _garmin, _google
 from test_statistics_ui import (
@@ -76,7 +77,7 @@ def test_annual_route_preserves_packet(statistics_ui, monkeypatch, period, start
     assert {k: v for k, v in packet.items() if k != "evaluated_at"} == {
         k: v for k, v in expected.items() if k != "evaluated_at"
     }
-    assert f'{start} — {end} · {count} дней' in response.text
+    assert f'{owner_date(start)} — {owner_date(end)} · {count} дней' in response.text
     assert f'value="{period}" selected' in response.text
     assert 'value="2096-02-29"' in response.text
     parser = MetricParser(response.text)
@@ -186,9 +187,9 @@ def test_annual_selection_is_explicit_bounded_and_retained(statistics_ui, monkey
 
 @pytest.mark.parametrize("params,bounds", [
     ({"period": "calendar_year", "calendar_year": 2095, "end_date": "2096-02-29"},
-     "2095-01-01 — 2095-12-31 · 365 дней"),
+     "1 января 2095 — 31 декабря 2095 · 365 дней"),
     ({"period": "year_to_date", "end_date": "2096-01-01", "calendar_year": 2095},
-     "2096-01-01 — 2096-01-01 · 1 дней"),
+     "1 января 2096 — 1 января 2096 · 1 дней"),
 ])
 def test_calendar_and_ytd_controls_use_only_applicable_bounds(statistics_ui, params, bounds):
     session, paths, client = statistics_ui

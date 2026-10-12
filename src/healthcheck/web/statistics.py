@@ -1,7 +1,6 @@
 """Desktop presentation of the accepted read-only source-period packet (#347 B2)."""
 
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -13,6 +12,7 @@ from healthcheck.analytics.sleep_source_view import read_source_sleep_range
 from healthcheck.db.engine import session_scope
 from healthcheck.garmin.observed_steps_read import read_observed_steps_window
 from healthcheck.web.common import database_unavailable, request_engine
+from healthcheck.web.owner_presentation import owner_date, owner_distance, owner_duration
 from healthcheck.web.pages import _persist_error, render_error
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 from healthcheck.web.sleep_timeline import build_sleep_timeline, read_sleep_source_inventory
@@ -20,6 +20,7 @@ from healthcheck.web.sleep_view import source_sleep_label
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.filters["owner_date"] = owner_date
 METRIC_LABELS = {
     "sleep_duration_asleep_seconds": "Средняя длительность сна",
     "activity_session_count": "Сохранённые активности",
@@ -56,29 +57,11 @@ def format_statistics_value(code: str, value: int | float | None) -> str:
     """Format accepted nonnegative scalars for headlines only; never mutate the packet."""
     if value is None:
         return "Недоступно"
-    number = Decimal(str(value))
     if code in {"sleep_duration_asleep_seconds", "tennis_duration_seconds"}:
-        seconds = number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if number > 0 and seconds == 0:
-            return "<0,01 с"
-        hours, remainder = divmod(seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        parts = []
-        if hours:
-            parts.append(f"{int(hours)} ч")
-        if hours or minutes or not seconds:
-            parts.append(f"{int(minutes)} мин")
-        if seconds:
-            text = format(seconds, "f").rstrip("0").rstrip(".").replace(".", ",")
-            parts.append(f"{text} с")
-        return " ".join(parts)
+        return owner_duration(value)
     if code == "cycling_distance_meters":
-        km = (number / 1000).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if number > 0 and km == 0:
-            return "<0,01 км"
-        text = format(km, "f").rstrip("0").rstrip(".").replace(".", ",")
-        return f"{text} км"
-    return f"{int(number)} сессий"
+        return owner_distance(value)
+    return f"{int(value)} сессий"
 
 
 @router.get("/statistics")

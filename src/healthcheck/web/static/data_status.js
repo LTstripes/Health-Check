@@ -90,7 +90,7 @@
       ["Последние данные", facts.latest_evidence_local_date || facts.latest_evidence_utc]
     ].forEach(([label, value]) => {
       const row = node("div");
-      row.append(node("dt", label), node("dd", value || "Неизвестно"));
+      row.append(node("dt", label), node("dd", value ? window.healthcheckOwnerDate(value, true) : "Неизвестно"));
       list.append(row);
     });
     return list;
@@ -216,7 +216,7 @@
       const payload = validate(await response.json());
       failure = "check_failed";
       render(payload);
-      clock.textContent = "Проверено (UTC): " + payload.evaluated_at_utc + ". Локальная дата оценки: " + payload.evaluation_local_date + ".";
+      clock.textContent = "Проверено (UTC): " + window.healthcheckOwnerDate(payload.evaluated_at_utc, true) + ". Локальная дата оценки: " + window.healthcheckOwnerDate(payload.evaluation_local_date) + ".";
       feedback.replaceChildren(chip(ownerState(payload.owner)));
     } catch (_) {
       if (controller.signal.aborted) failure = "timeout";

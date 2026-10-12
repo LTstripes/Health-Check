@@ -22,18 +22,24 @@
   {% if packet.sessions %}
   <div class="table-scroll" tabindex="0" role="region" aria-label="Сессии Garmin по локальным датам">
     <table>
-      <thead><tr><th>Локальная дата</th><th>Вид</th><th>Длительность, с</th><th>Дистанция, м</th><th>Сохранённая сессия</th></tr></thead>
+      <thead><tr><th>Локальная дата</th><th>Вид</th><th>Длительность</th><th>Дистанция, км</th><th>Сохранённая сессия</th></tr></thead>
       <tbody>{% for item in packet.sessions %}<tr data-session-record="{{ item.record_id }}">
         <td>{{ item.source_local_date|owner_date }}</td>
         <td>{{ 'Теннис' if item.activity_type in ['tennis', 'tennis_v2'] else 'Велотренировка' if item.activity_type == 'cycling' else item.activity_type or 'Вид не указан' }}</td>
         {% for code, unit in [('duration_seconds', 'seconds'), ('distance_meters', 'meters')] %}
-        {% set metric = item.metrics[code] %}<td data-session-metric="{{ code }}" data-metric-state="{{ metric.state }}">{% if metric.displayable and metric.unit == unit %}{{ metric.value }}{% elif metric.state == 'missing' %}Поле отсутствует{% elif metric.state == 'null' %}Источник передал null{% elif metric.state == 'invalid' or not metric.displayable %}Некорректное значение{% else %}Единица недоступна{% if metric.unit %} ({{ metric.unit }}){% endif %}{% endif %}</td>
+        {% set metric = item.metrics[code] %}<td data-session-metric="{{ code }}" data-metric-state="{{ metric.state }}">{% if metric.displayable and metric.unit == unit %}{{ metric.value|owner_duration if code == "duration_seconds" else metric.value|owner_distance }}{% elif metric.state == 'missing' %}Поле отсутствует{% elif metric.state == 'null' %}Источник передал null{% elif metric.state == 'invalid' or not metric.displayable %}Некорректное значение{% else %}Единица недоступна{% if metric.unit %} ({{ metric.unit }}){% endif %}{% endif %}</td>
         {% endfor %}
         <td><a href="{{ item.detail_href }}">Открыть сессию {{ loop.index }}</a>{% if item.record_status == 'partial' %}<small> · частичная запись</small>{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table>
   </div>
   {% endif %}
+  {% if packet.sessions %}<details class="statistics-details"><summary>Точные значения сессий</summary>
+    {% for item in packet.sessions %}<p>Запись {{ item.record_id }} · дата {{ item.source_local_date }}:</p><dl>
+      {% for code in ['duration_seconds', 'distance_meters'] %}{% set metric = item.metrics[code] %}
+      <dt>{{ code }}</dt><dd>{{ metric.value if metric.value is not none else 'Недоступно' }} · {{ metric.unit or 'Единица недоступна' }} · {{ metric.state }}</dd>{% endfor %}
+    </dl>{% endfor %}
+  </details>{% endif %}
   <details class="statistics-details"><summary>Выбранный источник и пределы поиска</summary><p>Garmin: {{ packet.source_id }}. {{ packet.start_date }} — {{ packet.end_date }}. {{ packet.metric_code }}. Входные записи: не более {{ packet.candidate_cap }} с проверкой дополнительной записи. {{ packet.reason or 'Поиск сохранённых записей завершён.' }}</p></details>
 </section>
 {% endblock %}

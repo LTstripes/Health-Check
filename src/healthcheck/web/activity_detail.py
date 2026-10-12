@@ -21,12 +21,20 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.db.engine import session_scope
 from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
-from healthcheck.web.owner_presentation import owner_date, owner_number
+from healthcheck.web.owner_presentation import (
+    owner_date,
+    owner_distance,
+    owner_duration,
+    owner_number,
+)
 from healthcheck.web.pages import _persist_error, render_error
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
-templates.env.filters.update(owner_date=owner_date, owner_number=owner_number)
+templates.env.filters.update(
+    owner_date=owner_date, owner_number=owner_number,
+    owner_duration=owner_duration, owner_distance=owner_distance,
+)
 
 _SESSION_NOT_FOUND_CODES = frozenset(
     {

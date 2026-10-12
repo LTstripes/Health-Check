@@ -273,3 +273,30 @@ questions. New candidates' unperformed private gates remain UNVERIFIED. The stat
 reference approval was a design choice, not automatic acceptance of every later
 implementation. Historical #189 and #305–#309 checks/failures are retained in their
 issue/PR records. #295 was reopened for new latency evidence; #298 remains not planned.
+
+## Date and session-value presentation (#379 / #378 candidate)
+
+The 2026-10-12 presentation candidate uses the existing Russian human-date style
+for Comments list/detail/revision history, Statistics period/Steps labels, Overview
+point titles, Weight current date, import-review dates and Data chronology. Native
+form values, API fields, data attributes and technical evidence retain ISO values.
+The shared JS helper validates Gregorian days/leap years, clock fields and numeric
+offset bounds before display. Absent values show «Дата не указана»; supplied invalid
+values show «Некорректная дата/время», without normalizing or converting the source string.
+Comments keep event-local date/time, explicit offset, IANA zone when saved and
+minute/second/fraction precision. Automatically recorded time is labelled separately
+in UTC; it is never substituted for event time. Date-only never acquires midnight.
+
+Statistics saved-session rows and Activity detail display native seconds as hours,
+minutes and residual seconds, and native metres as kilometres. They reuse the
+Statistics headline rounding (half-up to 0.01 second / 0.01 km); positive values
+below display precision read `<0,01 с` / `<0,01 км`, while true zero stays zero.
+Extreme values of at least a billion hours or kilometres use an explicitly
+approximate, three-significant-digit scientific label (≈… × 10^… ч / км), keeping
+primary text bounded. Formatting has its own magnitude-sized Decimal context;
+exact native values and units remain in technical disclosure. Missing, invalid,
+wrong-unit and partial states retain their existing meanings.
+
+This describes a candidate on baseline `aca4b8f65eb276dddb3ae5de718a734afd19f369`,
+not an integrated main or Stable release. Independent acceptance, integration,
+rollout and real Owner UAT are pending. Steps availability is a separate diagnosis.

@@ -26,7 +26,7 @@
       <dd>
         {% if payload.current.available %}
           {{ '%.1f'|format(payload.current.value_kg) }} кг
-          <span class="muted">на {{ payload.current.observed_date }} (источник)</span>
+          <span class="muted">на {{ payload.current.observed_date|owner_date }} (источник)</span>
         {% else %}
           {{ owner_ui.state_chip(weight_owner_state(payload.current.available, payload.current.reason)) }}
           <span class="muted">{{ weight_owner_reason(payload.current.reason) }} Это не означает ноль.</span>
@@ -114,6 +114,7 @@
     <div><dt>Состав тела</dt><dd><code>{{ payload.summary.latest_composition.algorithm }}</code> · <code>{{ payload.summary.latest_composition.reason or 'none' }}</code></dd></div>
     <div><dt>Похожий вес</dt><dd><code>{{ payload.summary.similar_weight.reason or 'none' }}</code></dd></div>
     <div><dt>Канонический расчёт</dt><dd><code>{{ payload.canonical.run_id or payload.canonical.reason or 'none' }}</code> · выборок: {{ payload.canonical.selection_count }} · <code>{{ payload.canonical.warning or payload.canonical.latest_attempt_status or 'none' }}</code>{% if payload.canonical.failure_reason %} · <code>{{ payload.canonical.failure_reason }}</code>{% endif %}</dd></div>
+    <div><dt>Точная дата текущего измерения</dt><dd>{{ payload.current.observed_date or "Дата не указана" }}</dd></div>
     <div><dt>Текущее измерение</dt><dd><code>{{ payload.current.reason or 'none' }}</code></dd></div>
   </dl>
   <h3>Исключения</h3>

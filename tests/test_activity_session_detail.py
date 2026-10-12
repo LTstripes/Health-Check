@@ -158,9 +158,7 @@ def test_detail_route_binds_source_cards_and_exact_evidence(tmp_path):
         assert f'href="/garmin?garmin_source_id={source}#activity-journal"' in page.text
 
         duration = _card(page.text, "duration_seconds")
-        assert 'data-owner-state="present">3901.5</span>' in duration
-        assert 'activity-metric-unit">с</span>' in duration
-        assert "1 ч 5 мин 1.5 с" in duration
+        assert 'data-owner-state="present">1 ч 5 мин 1,5 с</span>' in duration
         average = _card(page.text, "heart_rate_bpm")
         assert 'data-owner-state="present">110.0</span>' in average
         assert 'activity-metric-unit">уд/мин</span>' in average
@@ -211,7 +209,7 @@ def test_detail_route_omits_typed_extras_without_saved_evidence(tmp_path):
         assert page.status_code == 200
         # Zero distance and zero load are present zeros, not missing.
         assert (
-            'data-owner-state="present">0.0</span>' in _card(page.text, "distance_meters")
+            'data-owner-state="present">0 км</span>' in _card(page.text, "distance_meters")
         )
         assert (
             'data-owner-state="present">0.0</span>' in _card(page.text, "acute_training_load")

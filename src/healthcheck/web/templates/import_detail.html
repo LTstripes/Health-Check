@@ -86,13 +86,13 @@
           <dl class="provenance-list temporal-evidence">
             <div>
               <dt>Date</dt>
-              <dd>{{ candidate.effective_date or 'unknown / not evidenced' }}</dd>
+              <dd>{{ candidate.effective_date|owner_date if candidate.effective_date else 'unknown / not evidenced' }}</dd>
             </div>
             <div>
               <dt>Time</dt>
               <dd>
                 {% if candidate.effective_timestamp %}
-                  {{ candidate.effective_timestamp }}
+                  {{ candidate.effective_timestamp|owner_date("source") }}
                 {% elif candidate.temporal_precision == 'date' %}
                   not evidenced (date-only)
                 {% else %}
@@ -105,6 +105,7 @@
               <dd>{{ candidate.temporal_precision or 'unknown / not evidenced' }}</dd>
             </div>
           </dl>
+          <details class="owner-details"><summary>Точные даты источника</summary><p>{{ candidate.effective_date or 'unknown / not evidenced' }} · {{ candidate.effective_timestamp or 'unknown / not evidenced' }} · {{ candidate.temporal_precision or 'unknown / not evidenced' }}</p></details>
         </td>
         <td>{{ {'pending': 'Ожидает проверки', 'confirmed': 'Подтверждено', 'rejected': 'Отклонено'}.get(candidate.user_decision, 'Решение неизвестно') }}</td>
         <td>
