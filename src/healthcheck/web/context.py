@@ -23,6 +23,13 @@ from healthcheck.context.service import ContextRevisionView, TemporalValue
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import ContextEventHead, ContextEventRevision
 from healthcheck.web.common import request_engine
+from healthcheck.web.context_time import (
+    fold_choices,
+    occurrences,
+    resolve_timestamp,
+    source_parts,
+    zone_choices,
+)
 from healthcheck.web.pages import templates
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
@@ -32,11 +39,11 @@ FORM_FIELDS = frozenset(
         "original_text",
         "event_date",
         "event_time",
-        "offset",
         "timezone_name",
+        "occurrence",
         "end_date",
         "end_time",
-        "end_offset",
+        "end_occurrence",
         "operation_id",
         "expected_revision_id",
     }
@@ -44,9 +51,10 @@ FORM_FIELDS = frozenset(
 MAX_FORM_BYTES = 64 * 1024
 LIST_LIMIT = 50
 ERRORS = {
-    422: "Проверь текст (1–4000 символов), даты и время. Для времени укажи UTC-смещение; "
-    "часовой пояс IANA должен ему соответствовать. Границы интервала должны иметь "
-    "одинаковую точность. Несуществующее время не принимается.",
+    422: "Проверь текст (1–4000 символов), даты и время. Для времени выбери город / "
+    "часовой пояс. Несуществующее время и историческое смещение с секундами не принимаются. "
+    "Если время повторяется, выбери вхождение отдельно для каждой границы. "
+    "Границы интервала должны иметь одинаковую точность. Черновик сохранён ниже.",
     409: "Запись уже изменена или ключ повтора использован для другого ввода. "
     "Черновик сохранён ниже. Открой актуальную запись и сравни изменения перед повтором.",
     404: "Запись не найдена.",
@@ -55,6 +63,8 @@ ERRORS = {
 
 
 def _render(request: Request, *, status: int = 200, **context):
+    form = context.get("form") or {}
+    context.update(zones=zone_choices(), folds=fold_choices(form))
     response = templates.TemplateResponse(
         request, "context.html", {"page": "context", **context}, status_code=status
     )
@@ -76,23 +86,24 @@ def _identifier(value: str) -> str:
 def _temporal(form: dict[str, str]) -> TemporalValue:
     start_date = form.get("event_date", "")
     clock = form.get("event_time", "")
-    offset = form.get("offset", "")
     zone = form.get("timezone_name", "") or None
     end_date = form.get("end_date", "")
     end_clock = form.get("end_time", "")
-    end_offset = form.get("end_offset", "")
+    occurrence = form.get("occurrence", "")
+    end_occurrence = form.get("end_occurrence", "")
     if not clock:
-        if offset or zone or end_clock or end_offset:
+        if zone or end_clock or occurrence or end_occurrence:
             raise ContextValidationError("date only must not carry time context")
         return parse_interval(start_date, end_date) if end_date else parse_date_only(start_date)
-    if not offset:
-        raise ContextValidationError("explicit offset required")
-    start = f"{start_date}T{clock}{offset}"
+    if not zone:
+        raise ContextValidationError("explicit zone required for changed time")
+    start = resolve_timestamp(start_date, clock, zone, occurrence)
     if end_date:
-        if not end_clock or not end_offset:
+        if not end_clock:
             raise ContextValidationError("complete interval endpoint required")
-        return parse_interval(start, f"{end_date}T{end_clock}{end_offset}", timezone_name=zone)
-    if end_clock or end_offset:
+        end = resolve_timestamp(end_date, end_clock, zone, end_occurrence)
+        return parse_interval(start, end, timezone_name=zone)
+    if end_clock or end_occurrence:
         raise ContextValidationError("end date required")
     return parse_timestamp(start, timezone_name=zone)
 
@@ -110,14 +121,39 @@ def _form_for(view: ContextRevisionView) -> dict[str, str]:
         ("end_", value.end_source_timestamp),
     ):
         if timestamp:
-            clock = timestamp.split("T", 1)[1]
-            offset = "Z" if clock.endswith("Z") else clock[-6:]
-            form["event_time" if not prefix else "end_time"] = clock[: -len(offset)]
-            form["offset" if not prefix else "end_offset"] = offset
+            day, clock, offset = source_parts(timestamp)
+            form["event_time" if not prefix else "end_time"] = clock
+            if value.start_timezone:
+                try:
+                    choices = occurrences(day, clock, value.start_timezone)
+                    if len(choices) == 2:
+                        form[prefix + "occurrence"] = next(
+                            key for key, candidate in choices if candidate == offset
+                        )
+                except (ContextValidationError, StopIteration):
+                    pass  # Unchanged edits retain the authoritative original, never guess.
     if value.end_local_date:
         form["end_date"] = value.end_local_date.isoformat()
     form["timezone_name"] = value.start_timezone or ""
+    if value.start_source_timestamp and not value.start_timezone:
+        form["legacy_time"] = value.start_source_timestamp
     return form
+
+
+def _unchanged_time(form: dict[str, str], original: ContextRevisionView) -> bool:
+    saved = _form_for(original)
+    return all(
+        form.get(key, "") == saved.get(key, "")
+        for key in (
+            "event_date",
+            "event_time",
+            "end_date",
+            "end_time",
+            "timezone_name",
+            "occurrence",
+            "end_occurrence",
+        )
+    )
 
 
 def _view(service: ContextService, event_id: str) -> ContextRevisionView | None:
@@ -227,7 +263,6 @@ async def _save(request: Request, event_id: str | None = None):
     form = None
     try:
         form = await _read_form(request)
-        temporal = _temporal(form)
         operation_id = form.get("operation_id", "")
         with session_scope(request_engine(request)) as session:
             # Serialize optimistic head check + service write, including simultaneous retries.
@@ -246,6 +281,15 @@ async def _save(request: Request, event_id: str | None = None):
                         return _render(request, status=404, error=ERRORS[404], form=form)
                     if current.revision_id != form.get("expected_revision_id"):
                         raise ContextConflictError("stale editor")
+                # Bind preservation to the submitted editor revision, even on an old retry.
+                expected = session.get(
+                    ContextEventRevision, _identifier(form.get("expected_revision_id", ""))
+                )
+                if expected is None or expected.event_id != event_id:
+                    raise ContextConflictError("invalid editor revision")
+                temporal = (
+                    None if _unchanged_time(form, service._view(expected)) else _temporal(form)
+                )
                 result = service.revise(
                     event_id,
                     text=form.get("original_text", ""),
@@ -256,7 +300,7 @@ async def _save(request: Request, event_id: str | None = None):
             else:
                 result = service.add(
                     text=form.get("original_text", ""),
-                    temporal=temporal,
+                    temporal=_temporal(form),
                     capture_source="dashboard",
                     operation_id=operation_id,
                 )

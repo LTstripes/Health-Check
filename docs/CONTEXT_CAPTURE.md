@@ -75,19 +75,35 @@ the submitted note.
 
 ## Portal adapter — #294 Stage A
 
-The loopback portal exposes `/context` through a secondary **Комментарии / Контекст**
-link in the existing desktop shell. It adds, lists and revises through Context v0;
+The loopback portal exposes `/context` through the primary **Комментарии** tab
+in the existing desktop shell. It adds, lists and revises through Context v0;
 no new schema, weight-goal settings, providers or migrations are introduced.
 
 - The form preserves original Unicode text and shows an editable event date.
-  Optional time accepts `HH:MM`, seconds or fractional seconds with an explicit
-  `Z`/numeric UTC offset. An optional IANA zone validates that clock/offset.
-  Ambiguous DST times require the caller to select an offset; nonexistent times
-  fail validation. Date-only input carries no clock/offset/zone. Optional interval
-  endpoints have the same precision and their own explicit offsets.
-- **Сейчас** explicitly populates browser-local date, minute, offset and IANA zone.
+  Optional local time accepts `HH:MM`, seconds or fractional seconds. One
+  human-labelled city/IANA selector supplies the zone; the server resolves each
+  event-date clock separately, then validates the exact offset-bearing timestamp
+  with the unchanged `parse_timestamp` / `parse_interval` contracts. City labels
+  always include the IANA key to distinguish ambiguous names.
+- DST gaps fail closed with the draft and operation key retained. Repeated clocks
+  show an explicit first/second occurrence choice with its actual offset, separately
+  for each ambiguous interval endpoint. A changed endpoint/zone clears its previous
+  choice. Intervals keep equal precision and strict UTC ordering under v0.
+  Date-only input hides/disables the zone, submits no zone/occurrence, and never
+  fabricates midnight or UTC. Without JavaScript, entering time first shows the
+  selector on validation readback; no temporal guess is made.
+- **Сейчас** explicitly populates browser-local date/minute and proposes the browser
+  IANA zone for review; it performs no location lookup or proof of the user's city.
   The initial visible date uses the host calendar; it can be changed before saving.
   Event time/precision and automatic recorded-at UTC are displayed separately.
+- An edit whose event fields match its authoritative expected revision omits the
+  temporal argument to `revise`. This retains source spelling (`Z` / numeric zero,
+  seconds and fractional trailing zeros), precision, UTC, offsets, IANA absence and
+  tags exactly, including on old retries after the head advances. Offset-only legacy
+  records show their original time and have no invented city/zone; changing their
+  time requires an explicit IANA choice. Historical second-level offsets are never
+  rounded: unchanged records are retained, while newly resolved clocks unsupported
+  by v0 fail validation. The service/schema semantics remain unchanged.
 - POST/303/GET reads the committed current revision from storage. A hidden operation
   key supports identical retries and a submitting guard prevents double clicks.
   An older operation retry shows the latest current version with a notice and history
