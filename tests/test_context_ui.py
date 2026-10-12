@@ -388,10 +388,11 @@ def test_dashboard_service_preserves_tags_and_reserved_source_stays_closed(ui):
             )
 
 
-def test_default_date_visible_secondary_navigation(ui):
+def test_default_date_visible_primary_navigation(ui):
     client, _, _ = ui
     response = client.get("/context")
     assert FormParser(response.text).values["event_date"] == date.today().isoformat()
     assert 'aria-label="Основные разделы"' in response.text
-    assert response.text.count('href="/context"') >= 1
+    assert response.text.count('href="/context"') == 1
+    assert 'href="/context" class="active" aria-current="page">Комментарии</a>' in response.text
     assert "Текст сохраняется без перефразирования" in response.text

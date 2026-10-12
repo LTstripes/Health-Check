@@ -6,10 +6,11 @@
   'sleep': ('Сон', '/sleep', 'Сравнение сна'),
   'activity': ('Активность', '/garmin', 'Тренировки и восстановление'),
   'statistics': ('Статистика', '/statistics', 'Независимые источники за период'),
-  'data': ('Данные', '/imports', 'Проверка импорта')
+  'data': ('Данные', '/imports', 'Проверка импорта'),
+  'context': ('Комментарии', '/context', 'Комментарии / Контекст')
 } %}
-{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data'} %}
-{% set path_sections = {'/brief': 'overview', '/': 'weight', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data'} %}
+{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context'} %}
+{% set path_sections = {'/brief': 'overview', '/': 'weight', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data', '/context': 'context'} %}
 {% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
 <html lang="ru">
@@ -33,14 +34,13 @@
   <main id="owner-main" tabindex="-1">
     <header class="owner-page-header">
       <h1>{{ 'Комментарии / Контекст' if page|default('') == 'context' else (sections[section][0] if section else 'Health-Check') }}</h1>
-      <p><small><a href="/context"{% if page|default('') == 'context' %} aria-current="page"{% endif %}>Комментарии / Контекст</a></small></p>
       {% if section == 'sleep' %}
       <nav class="preset-links sleep-source-switch" aria-label="Источники сна">
         {% for key, label in [('timeline', 'Динамика'), ('garmin', 'Garmin'), ('google', 'Google'), ('compare', 'Сравнить')] %}
         <a class="button-link{% if sleep_view|default('timeline') == key %} selected{% endif %}" href="/sleep?view={{ key }}{% if key == 'timeline' and sleep_timeline_days is defined %}&amp;days={{ sleep_timeline_days }}{% endif %}{% if wake_date|default(none) %}&amp;wake_date={{ wake_date }}{% endif %}&amp;vitals_window={{ google_vitals_window_days|default(30) }}{% if selection is defined and selection.status == 'selected' %}&amp;garmin_source_id={{ selection.selected_source_id|urlencode }}{% elif request.query_params.get('garmin_source_id') %}&amp;garmin_source_id={{ request.query_params.get('garmin_source_id')|urlencode }}{% endif %}"{% if sleep_view|default('timeline') == key %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
       </nav>
-      {% elif section and section != 'overview' %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
+      {% elif section and section not in ['overview', 'context'] %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
     </header>
     {# Existing English page bodies stay explicitly English until their stage translates them. #}
     {% if section == 'data' and request.url.path != '/imports' %}

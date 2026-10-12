@@ -81,6 +81,7 @@ code, .provenance, .garmin-table td.code {
   border-bottom-color: var(--accent);
   text-decoration: none;
 }
+.owner-nav a:focus-visible { outline-offset: -3px; }
 
 main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 .legal { max-width: 1100px; margin: 0 auto 32px; padding: 0 16px; color: var(--muted); font-size: 0.9rem; }
