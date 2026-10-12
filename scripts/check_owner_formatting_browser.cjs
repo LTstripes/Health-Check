@@ -150,11 +150,11 @@ assert.equal(identity.candidate, candidate);
         await route.fulfill({response, json: payload});
       });
       await page.getByRole('button', {name: 'Проверить состояние', exact: true}).click();
-      await page.waitForFunction(() => document.querySelector('#data-clock').textContent.includes('Дата не указана'));
+      await page.waitForFunction(() => document.querySelector('#data-clock').textContent.includes('Некорректная дата/время'));
       const chronology = await page.locator('.data-chronology').allTextContents();
       assert.ok(chronology.length > 0);
       for (const text of chronology) {
-        assert.ok(text.includes('Дата не указана'));
+        assert.ok(text.includes('Некорректная дата/время'));
         assert.ok(!text.includes('30 февраля') && !text.includes('0 января') && !text.includes('25:61'));
       }
       const rawPre = page.locator('#data-results pre');

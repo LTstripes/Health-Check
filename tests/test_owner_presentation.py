@@ -219,6 +219,8 @@ def test_javascript_civil_validation_and_python_parity():
         if not case["pythonParity"]:
             continue
         expected = owner_date(case["value"], "source" if case["sourcePrecision"] else None)
+        if expected == "Дата не указана" and case["value"] is not None and case["value"] != "":
+            expected = "Некорректная дата/время"
         actual = re.sub(r" UTC([+-]\d{2}):(\d{2})$", r" UTC\1\2", case["actual"])
         # Existing JS labels retain four-digit years; Python labels use numeric years.
         actual = re.sub(r" (\d{4})(?=,|$)", lambda m: " " + str(int(m[1])), actual)

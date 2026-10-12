@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const unavailable = 'Дата не указана';
+const missing = 'Дата не указана';
+const invalidLabel = 'Некорректная дата/время';
 const valid = [
   ['2026-01-02', '2 января 2026'],
   ['2024-02-29', '29 февраля 2024'],
@@ -46,7 +47,7 @@ const invalid = [
 ];
 const cases = valid.map(([value, expected, sourcePrecision = false]) =>
   ({ value, expected, sourcePrecision, pythonParity: true })).concat(invalid.flatMap(value => [false, true].map(sourcePrecision => ({
-    value, expected: unavailable, sourcePrecision,
+    value, expected: value === null || value === '' ? missing : invalidLabel, sourcePrecision,
     // Python fromisoformat accepts compact dates/offset overflow; 3.12 also accepts a dangling dot.
     // this presentation contract requires literal YYYY-MM-DD and strict civil fields.
     pythonParity: typeof value !== 'number' && !['20260102', '2026-01-02T00:00:00+00:60', '2026-01-02T00:00:00-00:99',
@@ -72,8 +73,8 @@ function run() {
     assert.equal(JSON.stringify(test.value), before);
     return {...test, actual};
   });
-  assert.equal(helper(undefined), unavailable);
-  assert.equal(helper({toString: () => '2026-01-02'}), unavailable);
+  assert.equal(helper(undefined), missing);
+  assert.equal(helper({toString: () => '2026-01-02'}), invalidLabel);
   return {cases: results, extraInvalidInputs: 2, dateConversion: false};
 }
 module.exports = {cases, run};
