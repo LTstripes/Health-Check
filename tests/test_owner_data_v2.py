@@ -10,6 +10,28 @@ from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtra
 from test_dashboard_ui import _canonical_snapshot, _confirm_all_pending, _ui, _upload_batch
 
 
+def test_data_provider_summary_synthetic_dom(tmp_path):
+    import json
+    import subprocess
+    from pathlib import Path
+
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        packet = client.get("/api/source-freshness", params={
+            "evaluated_at_utc": "2099-01-01T12:00:00Z",
+            "evaluation_local_date": "2099-01-01",
+        }).json()
+        html = client.get("/imports").text
+        assert "не проверяет подключение к ним сейчас" in html
+        assert "дата снимка профиля здесь не определяется" in html
+    repo = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["node", str(repo / "scripts/check_data_status.cjs")], cwd=repo,
+        input=json.dumps(packet), capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    assert result.stdout.startswith("PASS:")
+
+
 def test_pending_candidates_precede_newer_completed_history_without_writes(tmp_path):
     app, _settings, paths = _ui(tmp_path)
     with TestClient(

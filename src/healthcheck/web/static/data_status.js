@@ -86,8 +86,9 @@
     const facts = item.facts;
     const list = node("dl", undefined, "data-chronology");
     [
-      ["Последнее успешное обновление (UTC)", facts.last_successful_refresh_utc],
-      ["Последние данные", facts.latest_evidence_local_date || facts.latest_evidence_utc]
+      ["Дата сохранённых данных", facts.latest_evidence_local_date || facts.latest_evidence_utc],
+      ["Последняя попытка обновления", facts.last_relevant_attempt_utc],
+      ["Последнее успешное обновление", facts.last_successful_refresh_utc]
     ].forEach(([label, value]) => {
       const row = node("div");
       row.append(node("dt", label), node("dd", value ? window.healthcheckOwnerDate(value, true) : "Неизвестно"));
@@ -102,6 +103,38 @@
     element.append(node("p", reasons[item.reason_code] || "Состояние требует проверки технических сведений."));
     element.append(chronology(item));
     return element;
+  }
+  function providerChronology(items) {
+    const list = node("dl", undefined, "data-chronology");
+    // This endpoint exposes chronology, not latest eligible metric values or clone age.
+    // Do not substitute a refresh timestamp for a saved observation date.
+    const dated = items.filter(item => item.facts.latest_evidence_local_date || item.facts.latest_evidence_utc);
+    const knownDates = items.map(item => item.facts.latest_evidence_local_date).filter(Boolean).sort();
+    const attempts = items.map(item => item.facts.last_relevant_attempt_utc).filter(Boolean)
+      .sort((a, b) => Date.parse(a) - Date.parse(b));
+    let dateText = "Неизвестны";
+    if (knownDates.length) dateText = window.healthcheckOwnerDate(knownDates[0]) +
+      (knownDates[0] !== knownDates[knownDates.length - 1] ? " — " + window.healthcheckOwnerDate(knownDates[knownDates.length - 1]) : "");
+    else if (dated.length) dateText = "Есть временные отметки; см. потоки";
+    if (knownDates.length && dated.length > knownDates.length) dateText += "; другие временные отметки — в потоках";
+    [
+      ["Даты сохранённых данных по потокам", dateText + (dated.length < items.length ? "; без даты: " + (items.length - dated.length) : "")],
+      ["Последняя сохранённая попытка обновления", attempts.length ? window.healthcheckOwnerDate(attempts[attempts.length - 1], true) : "Неизвестна"]
+    ].forEach(([label, value]) => {
+      const row = node("div");
+      row.append(node("dt", label), node("dd", value));
+      list.append(row);
+    });
+    return list;
+  }
+  function providerAction(items) {
+    const actionable = items.filter(item => item.actionable);
+    if (!actionable.length) return node("p", "По правилам обязательных потоков действий нет. Подробности и дополнительные потоки — ниже.", "muted");
+    const codes = new Set(actionable.map(item => item.reason_code));
+    const instructions = [...codes].map(code => actions[code] ||
+      "Проверь сведения о данных в последнем отчёте локального сбора.");
+    // One provider action, with each distinct instruction retained once.
+    return node("p", [...new Set(instructions)].join(" "), "data-actions uncertainty-note");
   }
   function validate(payload) {
     // A missing/partial response must not masquerade as a successful check.
@@ -138,21 +171,6 @@
     if (!["valid", "absent"].includes(policy.status)) {
       host.append(node("p", "Настройки сбора недоступны или некорректны. Состояния ниже не подтверждают действующие настройки; проверь локальный файл настроек сбора.", "uncertainty-note"));
     }
-    const actionable = payload.components.filter(item => item.actionable);
-    const actionSection = node("section");
-    actionSection.append(node("h3", "Что требует внимания"));
-    if (actionable.length) {
-      const list = node("ul", undefined, "data-actions uncertainty-note");
-      actionable.forEach(item => {
-        const provider = item.scope_key.startsWith("garmin:") ? "Garmin" : "Google";
-        list.append(node("li", provider + " · " + scopeLabels[item.scope_key] + ": " +
-          (actions[item.reason_code] || "Проверь сведения о данных в последнем отчёте локального сбора.")));
-      });
-      actionSection.append(list);
-    } else {
-      actionSection.append(node("p", "По правилам свежести обязательных потоков действий нет. Это не подтверждает полноту всей истории или наличие всех дополнительных данных."));
-    }
-    host.append(actionSection);
     const grid = node("div", undefined, "grid data-source-grid");
     [ ["garmin", "Garmin"], ["google", "Google"], ["weight", "Подтверждённые измерения веса"] ].forEach(([provider, label]) => {
       const items = payload.components.filter(item => item.provider === provider);
@@ -160,21 +178,28 @@
       card.dataset.provider = provider;
       card.append(node("h3", label));
       const summary = provider === "weight" ? items[0] : payload.providers[provider];
-      card.append(chip(ownerState(summary)));
+      const status = chip(ownerState(summary));
+      if (provider !== "weight" && summary.state === "unavailable") status.textContent = "Обновление или подключение требует внимания";
+      card.append(node("p", provider === "weight" ? "Сохранённые измерения" : "Свежесть обязательных потоков"), status);
       if (summary.state === "stale") card.append(node("p", "Данные устарели; актуальное состояние по ним не подтверждено.", "uncertainty-note"));
-      if (provider !== "weight") card.append(node("p", "Общее состояние относится к обязательным потокам.", "muted"));
-      const list = node("ul", undefined, "data-streams");
-      items.filter(item => item.role === "required" || provider === "weight").forEach(item => list.append(stream(item)));
-      card.append(list);
-      const optional = items.filter(item => item.role === "optional" && provider !== "weight");
-      if (optional.length) {
-        const extra = details("Дополнительные потоки: " + optional.length);
-        extra.append(node("p", "Их состояние не меняет общий статус обязательных потоков.", "muted"));
-        const extraList = node("ul", undefined, "data-streams");
-        optional.forEach(item => extraList.append(stream(item)));
-        extra.append(extraList);
-        card.append(extra);
+      if (provider !== "weight") {
+        card.append(providerChronology(items), providerAction(items));
+        const streamStates = {fresh: "актуальны", quiet: "пауза / пустое окно", stale: "устарели",
+          unavailable: "обновление / доступ недоступны", unknown: "не определены", not_requested: "не запрашивались"};
+        const counts = Object.keys(streamStates).map(state => {
+          const count = items.filter(item => item.state === state).length;
+          return count ? streamStates[state] + ": " + count : null;
+        }).filter(Boolean);
+        card.append(node("p", "Потоки — " + counts.join(" · "), "muted"));
       }
+      const list = node("ul", undefined, "data-streams");
+      items.forEach(item => list.append(stream(item)));
+      if (provider !== "weight") {
+        const extra = details("Состояние и даты потоков: " + items.length);
+        extra.append(node("p", "Дополнительные потоки не меняют общий вывод обязательных потоков. Ошибки обновления не означают, что сохранённая история отсутствует.", "muted"));
+        extra.append(list);
+        card.append(extra);
+      } else card.append(list);
       grid.append(card);
     });
     host.append(grid);
@@ -217,7 +242,7 @@
       failure = "check_failed";
       render(payload);
       clock.textContent = "Проверено (UTC): " + window.healthcheckOwnerDate(payload.evaluated_at_utc, true) + ". Локальная дата оценки: " + window.healthcheckOwnerDate(payload.evaluation_local_date) + ".";
-      feedback.replaceChildren(chip(ownerState(payload.owner)));
+      feedback.replaceChildren(node("p", "Проверка сохранённых состояний завершена. Даты данных и обновления показаны отдельно."));
     } catch (_) {
       if (controller.signal.aborted) failure = "timeout";
       host.replaceChildren();

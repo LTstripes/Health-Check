@@ -23,7 +23,8 @@
     <h2 id="sources-heading">Источники и свежесть данных</h2>
     <button type="button" id="data-refresh" hidden>Проверить состояние</button>
   </div>
-  <p class="muted">Состояние по сохранённым данным. Проверка не запускает сбор у Garmin или Google.</p>
+  <p class="muted">Состояние по сохранённым данным и отчётам обновления. Проверка не запускает сбор у Garmin или Google и не проверяет подключение к ним сейчас.</p>
+  <p class="muted">Ошибка обновления не отменяет сохранённую историю. Даты ниже относятся к данным потоков и попыткам обновления; дата снимка профиля здесь не определяется. Последние значения и история: <a href="/sleep">сон</a>, <a href="/">вес</a>, <a href="/garmin">активность</a>.</p>
   <p id="data-clock" class="muted"></p>
   <div id="data-feedback" role="status" aria-live="polite">{{ owner_ui.state_chip('not_requested') }} Для проверки состояния нужен JavaScript.</div>
   <div id="data-results" aria-busy="false"></div>
