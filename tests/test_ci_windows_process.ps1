@@ -281,10 +281,15 @@ foreach ($id in 102..108) {
     $identityById[$id] = [pscustomobject]@{ Id = $id; Name = "python.exe"; CommandLine = "synthetic child $id"; CreationTime = "637134336010000000" }
 }
 foreach ($case in $matrix.cases) {
+    $separator = if ($null -ne $case.separator_index) { [int]$case.separator_index } else { 9 }
+    if ($case.accepted -and $null -ne $case.separator_index) {
+        Assert-True ($case.output[$separator] -is [string]) "accepted separator must be an actual string"
+        Assert-Equal 0 $case.output[$separator].Length "accepted separator must have Length == 0"
+    }
     if ($null -ne $case.separator_codepoint) {
-        Assert-True ($case.output[9] -is [string]) "Unicode separator must be a string"
-        Assert-Equal 1 $case.output[9].Length "Unicode negative must be nonempty"
-        Assert-Equal $case.separator_codepoint ([int][char]$case.output[9][0]) "Unicode separator code point"
+        Assert-True ($case.output[$separator] -is [string]) "Unicode separator must be a string"
+        Assert-Equal 1 $case.output[$separator].Length "Unicode negative must be nonempty"
+        Assert-Equal $case.separator_codepoint ([int][char]$case.output[$separator][0]) "Unicode separator code point"
         Assert-Equal $false $case.accepted "Unicode separator must be a negative case"
     }
     $identityMissing = $false
@@ -301,29 +306,44 @@ foreach ($case in $matrix.cases) {
         Write-Output ("PowerShell Unicode U+{0:X4}: length=1 rejected" -f [int]$case.separator_codepoint)
     }
 }
-$taskkillTranscriptOverride = @($matrix.cases[0].output)
-foreach ($mode in @("alive", "query_error", "reuse")) {
+foreach ($case in $matrix.cases | Where-Object { $_.name -in @("retained_shape", "observed_one_sibling_suffix") }) {
+    $taskkillTranscriptOverride = @($case.output)
+    foreach ($targetId in @(100, 102, 103, 108)) {
+        foreach ($mode in $identityCases) {
+            $identityMissing = $false
+            $postModeById = @{ $targetId = $mode }
+            $postQueriedIds = @()
+            $taskkillCalls = @()
+            $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+            Assert-Equal ($mode -eq "reuse") ($result.Outcome -eq "exited-during-termination") "separator preserves identity contract ($($case.name)/$targetId/$mode)"
+            Assert-Equal 1 $taskkillCalls.Count "separator identity checks issue one kill"
+            Assert-Equal "100" $taskkillCalls[0] "separator identity checks retain root ownership"
+            Assert-Equal 9 @($result.PostTerminationObservations).Count "separator checks all captured identities"
+            foreach ($id in 100..108) { Assert-True ($postQueriedIds -contains $id) "separator independently queries PID $id" }
+        }
+    }
     $identityMissing = $false
-    $postModeById = @{ 108 = $mode }
+    $postModeById = @{ 100 = "reuse"; 108 = "alive" }
     $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
-    Assert-Equal ($mode -eq "reuse") ($result.Outcome -eq "exited-during-termination") "retained separator preserves child identity contract ($mode)"
-}
-$postModeById = @{}
-foreach ($code in @(1, 5, 254, 256, -1)) {
-    $identityMissing = $false
-    $taskkillExitCode = $code
-    $taskkillCalls = @()
-    $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
-    Assert-True (@($result.Errors).Count -gt 0) "other nonzero code $code fails even with accepted transcript and absent tree"
-    Assert-Equal "failed" $result.Outcome "other nonzero code cannot be waived"
-    Assert-True $result.LifecycleDiagnosticVerified "exact transcript cannot waive another nonzero code"
-    Assert-Equal 1 $taskkillCalls.Count "other nonzero code uses one kill"
+    Assert-True (@($result.Errors).Count -gt 0) "root reuse cannot hide surviving child with separator"
+    $postModeById = @{}
+    foreach ($code in @(1, 5, 254, 256, -1)) {
+        $identityMissing = $false
+        $taskkillExitCode = $code
+        $taskkillCalls = @()
+        $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+        Assert-True (@($result.Errors).Count -gt 0) "other nonzero code $code fails even with accepted transcript and absent tree"
+        Assert-Equal "failed" $result.Outcome "other nonzero code cannot be waived"
+        Assert-True $result.LifecycleDiagnosticVerified "exact transcript cannot waive another nonzero code"
+        Assert-Equal 1 $taskkillCalls.Count "other nonzero code uses one kill"
+    }
+    $taskkillExitCode = 255
 }
 $taskkillExitCode = 255
 $taskkillTranscriptOverride = $null
 $identityMissing = $false
 foreach ($id in 102..108) { $identityById.Remove($id) }
-Write-Output "Windows retained separator regressions PASS ($($matrix.cases.Count) transcripts + 3 child identity cases + 5 nonzero codes)"
+Write-Output "Windows retained separator regressions PASS ($($matrix.cases.Count) transcripts + 66 identity cases + 10 nonzero codes)"
 $exitDuringTermination = $false
 $taskkillExitCode = 0
 
