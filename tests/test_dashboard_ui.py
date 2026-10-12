@@ -1063,6 +1063,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         ("/garmin", "Активность"),
         ("/statistics", "Статистика"),
         ("/imports", "Данные"),
+        ("/context", "Комментарии"),
     ]
     expected_modes = {
         "Обзор": None,
@@ -1071,6 +1072,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         "Активность": "Тренировки и восстановление",
         "Статистика": "Независимые источники за период",
         "Данные": "Проверка импорта",
+        "Комментарии": None,
     }
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
@@ -1082,7 +1084,9 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             parsed = _OwnerShellParser(response.text)
             assert [(attrs["href"], text) for attrs, text in parsed.links] == expected
             assert [text for attrs, text in parsed.links if attrs.get("aria-current")] == [section]
-            assert parsed.headings == [section]
+            assert parsed.headings == [
+                "Комментарии / Контекст" if section == "Комментарии" else section
+            ]
             assert 'href="#owner-main"' in response.text
             assert 'id="owner-main" tabindex="-1"' in response.text
             assert parsed.details and all("open" not in attrs for attrs in parsed.details)
@@ -1104,7 +1108,10 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
                 selected = "Сравнить" if path == "/agreement" else "Динамика"
                 assert f'aria-current="page">{selected}</a>' in switch
             # The thematic pages are Russian; legacy import detail stays English.
-            if section in ("Обзор", "Вес", "Сон", "Активность", "Статистика") or path == "/imports":
+            if (
+                section in ("Обзор", "Вес", "Сон", "Активность", "Статистика", "Комментарии")
+                or path == "/imports"
+            ):
                 assert 'class="owner-page-content" lang="en"' not in response.text
             else:
                 assert 'class="owner-page-content" lang="en"' in response.text

@@ -9,7 +9,7 @@ const evidence = process.env.HEALTHCHECK_BROWSER_EVIDENCE_DIR;
 assert.match(base || '', /^http:\/\/127\.0\.0\.1:\d+$/);
 assert.ok(evidence);
 (async () => {
-  const browser = await chromium.launch({ headless: true,
+  const browser = await chromium.launch({ headless: process.env.HEALTHCHECK_BROWSER_HEADED !== '1',
     ...(process.env.HEALTHCHECK_BROWSER_EXECUTABLE ?
       { executablePath: process.env.HEALTHCHECK_BROWSER_EXECUTABLE } : {}) });
   const checks = [], errors = [], external = [];
@@ -29,6 +29,30 @@ assert.ok(evidence);
         if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/context')) contextPosts++;
       });
       assert.equal((await page.goto(`${base}/context`)).status(), 200);
+      // The shared primary tab is unique and follows the native link Tab order.
+      for (const route of ['/brief', '/', '/sleep', '/garmin', '/statistics', '/imports', '/context']) {
+        assert.equal((await page.goto(`${base}${route}`)).status(), 200);
+        assert.equal(await page.locator('a[href="/context"]').count(), 1);
+        const nav = page.locator('.owner-nav a');
+        assert.equal(await nav.count(), 7);
+        assert.equal(await nav.last().innerText(), 'Комментарии');
+        assert.equal(await page.locator('.owner-nav [aria-current="page"]').getAttribute('href'), route);
+        assert.equal(await page.locator('.owner-page-header a[href="/context"]').count(), 0);
+      }
+      await page.goto(`${base}/imports`);
+      await page.locator('.owner-nav a[href="/imports"]').focus();
+      await page.keyboard.press('Tab');
+      assert.equal(await page.locator('.owner-nav a[href="/context"]').evaluate(el => el === document.activeElement), true);
+      const focus = await page.locator('.owner-nav a[href="/context"]').evaluate(el => {
+        const s = getComputedStyle(el); return { style: s.outlineStyle, width: s.outlineWidth };
+      });
+      assert.equal(focus.style, 'solid'); assert.ok(parseFloat(focus.width) >= 2.5, 'visible outline after desktop scale rounding');
+      await page.screenshot({ path: path.join(evidence, `nav-focus-${width}.png`), fullPage: true });
+      await Promise.all([page.waitForURL('**/context'), page.keyboard.press('Enter')]);
+      assert.equal(await page.locator('.owner-nav a.active[aria-current="page"]').innerText(), 'Комментарии');
+      await page.locator('.owner-nav a[href="/context"]').focus();
+      await page.keyboard.press('Shift+Tab');
+      assert.equal(await page.locator('.owner-nav a[href="/imports"]').evaluate(el => el === document.activeElement), true);
       const field = name => page.locator(`#context-form [name="${name}"]`);
       const text = `\n  Synthetic ${width} ё 日本語\n<script>window.contextXss=true</script>  `;
       await field('event_date').fill('2099-01-02');
@@ -46,6 +70,7 @@ assert.ok(evidence);
       await Promise.all([page.waitForURL(/\/context\/[0-9a-f-]+\?saved=/),
         page.locator('#context-form').evaluate(form => { form.requestSubmit(); form.requestSubmit(); })]);
       assert.equal(contextPosts - beforeDouble, 1);
+      assert.equal(await page.locator('.owner-nav a.active[aria-current="page"]').innerText(), 'Комментарии');
       const eventUrl = page.url().split('?')[0];
       assert.match(await page.getByRole('status').first().innerText(), /Сохранено/);
       assert.equal(await page.locator('.context-text').first().textContent(), text);
@@ -101,7 +126,7 @@ assert.ok(evidence);
       for (const c of geometry.controls) assert.ok(c.left >= 0 && c.right <= width + 1 && c.height >= 44);
       await page.screenshot({ path: path.join(evidence, `context-${width}.png`), fullPage: true });
       checks.push({ width, geometry, create: true, revise: true, validation: true,
-        history: true, reload: true, stale: true, keyboard: true, doubleSubmit: true, now: true, xss: false });
+        primaryNavigation: true, visibleFocus: true, tabEnterShiftTab: true, history: true, reload: true, stale: true, keyboard: true, doubleSubmit: true, now: true, xss: false });
       await page.close();
     }
     assert.deepEqual(errors, []); assert.deepEqual(external, []);
