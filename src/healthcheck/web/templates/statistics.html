@@ -5,7 +5,7 @@
 {%- endmacro %}
 {% block content %}
 <section class="statistics-page" aria-label="Статистика по источникам">
-  <form class="statistics-controls" method="get" action="/statistics" autocomplete="off">
+  <form id="statistics-controls" class="statistics-controls" method="get" action="/statistics" autocomplete="off">
     <label>Период
       <select name="period" aria-label="Период" aria-describedby="statistics-period-help">
         {% for value, label in period_labels.items() %}<option value="{{ value }}"{% if selected_period == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -13,17 +13,6 @@
     </label>
     <label>По дату включительно <input type="date" name="end_date" value="{{ control_end_date }}" required></label>
     <label>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
-    {% for side in packet.sides %}
-    {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
-    {% set control_source_id = selected_garmin_source_id if side.position == 'left' else (side.source_identity.source_id if side.source_identity else side.requested_source_id|default(none)) %}
-    <label>{{ provider }}: источник
-      <select name="{{ 'garmin' if side.position == 'left' else 'google' }}_source_id" aria-label="{{ provider }}: источник">
-        {% if side.state == 'search_incomplete' and side.requested_source_id and control_source_id %}<option value="{{ side.requested_source_id }}" selected>Выбранный источник: поиск не завершён</option>{% endif %}
-        <option value=""{% if not control_source_id %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
-        {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if control_source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
-      </select>
-    </label>
-    {% endfor %}
     <button type="submit">Показать</button>
   </form>
   <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выберите точный источник.</p>
@@ -32,18 +21,32 @@
   <p class="muted">Два независимых источника. Значения относятся к сохранённым записям; пропуски не означают ноль. Актуальность сейчас неизвестна.</p>
   <div class="statistics-pair statistics-source-headings">
     {% for side in packet.sides %}
+    {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
+    {% set control_source_id = selected_garmin_source_id if side.position == 'left' else (side.source_identity.source_id if side.source_identity else side.requested_source_id|default(none)) %}
+    {% set incomplete = side.state == 'search_incomplete' or side.metrics.values()|selectattr('state', 'equalto', 'search_incomplete')|list %}
+    {% set selection_required = side.state == 'selection_required' or (side.position == 'left' and steps.reason == 'source_selection_required') %}
     <header data-statistics-side="{{ side.position }}">
-      <h2>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h2>
+      <h2>{{ provider }}</h2>
       <p>{{ identity(side.source_identity) if side.source_identity else state_labels[side.state] }}</p>
       <small>{{ side.requested_dates.start_date|owner_date }} — {{ side.requested_dates.end_date|owner_date }}</small>
-      {% if side.available_sources %}
-      <details class="statistics-details">
-        <summary>Точные источники · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+      {% if incomplete or selection_required %}
+      <p class="statistics-source-warning" role="status" data-source-attention>{{ 'Поиск сохранённых данных не завершён. Полнота и доступность неизвестны.' if incomplete else 'Нужен явный выбор источника. Данные источников не объединяются.' }}</p>
+      {% endif %}
+      <details class="statistics-details statistics-source-choice"{% if incomplete or selection_required %} open{% endif %}>
+        <summary>Источник и подробности · {{ provider }}{% if selection_required %} · выберите источник{% elif incomplete %} · поиск не завершён{% endif %}</summary>
+        <p class="muted">Выбор точного источника сохраняется для выбранного периода. Список источников не подтверждает наличие каждой метрики.</p>
+        <label>{{ provider }}: источник
+          <select form="statistics-controls" name="{{ 'garmin' if side.position == 'left' else 'google' }}_source_id" aria-label="{{ provider }}: источник">
+            {% if side.state == 'search_incomplete' and side.requested_source_id and control_source_id %}<option value="{{ side.requested_source_id }}" selected>Выбранный источник: поиск не завершён</option>{% endif %}
+            <option value=""{% if not control_source_id %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
+            {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if control_source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
+          </select>
+        </label>
+        <button form="statistics-controls" type="submit">Применить источники</button>
         <ul>{% for source in side.available_sources %}
           <li>{{ identity(source) }}: {{ source.source_id }} · {{ source.source_kind }} · {{ source.source_instance_id }} · {{ source.device_attribution_basis }} · {{ 'Устройство атрибутировано' if source.device_attributed else 'Без атрибуции устройства' }}</li>
         {% endfor %}</ul>
       </details>
-      {% endif %}
     </header>
     {% endfor %}
   </div>

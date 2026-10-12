@@ -40,7 +40,7 @@ assert.ok(fixtures && evidence);
         assert.deepEqual(await period.locator('option').evaluateAll(els => els.map(el => el.value)),
           ['7', '30', 'trailing365', 'calendar_year', 'year_to_date']);
         assert.equal(await period.inputValue(), 'calendar_year');
-        assert.match(await page.locator('.statistics-window').innerText(), new RegExp(`${year}-01-01 — ${year}-12-31`));
+        assert.match(await page.locator('.statistics-window').innerText(), new RegExp(`1 января ${year} — 31 декабря ${year}`));
         if (year === 2096) assert.match(await page.locator('.statistics-window').innerText(), /366 дней/);
         if (scenario !== 'incomplete') assert.equal(await page.locator('[name="end_date"]').inputValue(), end);
         const sleep = page.locator('[data-statistics-metric="sleep_duration_asleep_seconds"]');
@@ -49,6 +49,13 @@ assert.ok(fixtures && evidence);
           scenario === 'zero' ? '0 мин' : ['sparse', 'incomplete'].includes(scenario) ? '8 ч 0 мин' : 'Недоступно');
         assert.equal(await page.locator('.statistics-comparison').filter({ hasText: 'Google − Garmin:' }).count(), 0);
         if (scenario === 'incomplete') {
+          const sourceHeader = page.locator('.statistics-source-headings header').first();
+          assert.equal(await sourceHeader.locator('[data-source-attention]').isVisible(), true);
+          assert.equal(await sourceHeader.locator('.statistics-source-choice').getAttribute('open'), '');
+          assert.match(await sourceHeader.innerText(), /Полнота и доступность неизвестны/);
+          await sourceHeader.locator('.statistics-source-choice summary').press('Enter');
+          assert.equal(await sourceHeader.locator('[data-source-attention]').isVisible(), true);
+          await sourceHeader.locator('.statistics-source-choice summary').press('Enter');
           const activity = page.locator('[data-statistics-metric="activity_session_count"] article').first();
           assert.match(await activity.innerText(), /Официальный итог и знаменатель недоступны/);
           await activity.locator('summary').click();
