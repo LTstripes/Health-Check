@@ -188,3 +188,15 @@ def test_session_formatter_does_not_promote_ineligible_values(statistics_ui, cas
     expected = {"missing": "Поле отсутствует", "invalid": "Некорректное значение",
                 "unit": "Единица недоступна"}[case]
     assert expected in cell[1]
+
+
+def test_overview_gap_titles_reuse_human_dates(ui):
+    from scripts.serve_owner_formatting_fixture import seed_format_weight
+
+    client, _, _ = ui
+    seed_format_weight(client)
+    response = client.get("/brief")
+    assert response.status_code == 200
+    titles = re.findall(r"<title[^>]*>(.*?)</title>", response.text)
+    assert any(title.startswith("Нет наблюдений:") for title in titles)
+    assert all(not re.search(r"\d{4}-\d{2}-\d{2}", title) for title in titles)

@@ -12,7 +12,7 @@
     {% if figure.points | selectattr("value", "ne", none) | list %}<text x="0" y="20">{{ overview_number(figure.high / 3600 if kind == 'sleep' else figure.high) }} {{ unit }}</text>
     <text x="0" y="104">{{ overview_number(figure.low / 3600 if kind == 'sleep' else figure.low) }}</text>{% else %}<text x="38" y="64">Нет пригодных значений</text>{% endif %}
     {% endif %}
-    {% for gap in figure.gaps %}<path class="overview-gap" d="M{{ gap.x }} {{ 144 if kind == 'weight' else 111 }}h{{ gap.width }}"><title>Нет наблюдений: {{ gap.start }} — {{ gap.end }}</title></path>{% endfor %}
+    {% for gap in figure.gaps %}<path class="overview-gap" d="M{{ gap.x }} {{ 144 if kind == 'weight' else 111 }}h{{ gap.width }}"><title>Нет наблюдений: {{ gap.start|owner_date }} — {{ gap.end|owner_date }}</title></path>{% endfor %}
     {% if kind == 'weight' %}{% for line in figure.observed_segments %}<line class="overview-weight-connector{% if line.gap %} overview-weight-connector-gap{% endif %}" x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"><title>{{ line.start | owner_date }} — {{ line.end | owner_date }}{% if line.gap %}: между измерениями есть дни без наблюдений{% endif %}</title></line>{% endfor %}{% endif %}
     {% for line in figure.segments %}<line class="overview-trend" x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"/>{% endfor %}
     {% for point in figure.points %}
