@@ -91,6 +91,8 @@ def statistics(
     garmin_source_id: str | None = Query(default=None),
     google_source_id: str | None = Query(default=None),
 ):
+    from healthcheck.web.activity_period import statistics_session_links
+
     try:
         selected_period = period or str(days if days is not None else 7)
         if period is not None and days is not None:
@@ -173,6 +175,10 @@ def statistics(
             "state_labels": STATE_LABELS,
             "format_value": format_statistics_value,
             "source_labels": statistics_source_labels(packet),
+            "session_links": statistics_session_links(
+                packet, period=selected_period, calendar_year=selected_year,
+                control_end_date=evaluated_date.isoformat(),
+            ),
         },
         headers={"Cache-Control": "no-store"},
     )

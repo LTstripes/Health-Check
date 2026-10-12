@@ -66,6 +66,7 @@
           {% else %}{{ format_value(code, value) }}{% endif %}
         </div>
         <p>{{ state_labels[cell.state] }}</p>
+        {% if side.position == 'left' and code in session_links %}<p><a href="{{ session_links[code] }}" data-session-drilldown="{{ code }}">Сессии за выбранный период</a></p>{% endif %}
         {% if incomplete %}
         <p class="statistics-denominator">Официальный итог и знаменатель недоступны: поиск сохранённых данных не завершён.</p>
         <p class="muted">Число наблюдений, пропуски и полнота сбора неизвестны. Это не подтверждённое отсутствие данных.</p>
