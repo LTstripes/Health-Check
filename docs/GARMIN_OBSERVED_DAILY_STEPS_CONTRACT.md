@@ -5,8 +5,10 @@ Contract: `garmin-observed-daily-steps-v1`, following the
 
 `SavedDailyStepsRepository.project_day` is an explicit offline service over
 already saved Garmin `daily_health` JSON observations whose source filename is
-exactly `daily_summary.json`. It has no provider, sync, CLI, UI or analytics
-entry point. The caller selects one existing source and one calendar date,
+exactly `daily_summary.json`. #395/[PR #398](https://github.com/LTstripes/Health-Check/pull/398)
+now wires this service after successful persisted routine Garmin acquisition;
+the service itself makes no provider call and GET never projects/writes.
+The caller selects one existing source and one calendar date,
 supplies the saved artifact store, and owns the database transaction. This slice
 does not run a historical replay or alter collection policy.
 The session must have no pending ORM changes; flushed writes may be used. A
@@ -67,7 +69,8 @@ cards and Calories/Energy are outside this contract.
 per exact civil date in an explicitly selected Garmin source/window. It never
 calls `project_day`, opens saved bytes, materializes records, commits, selects an
 automatic source, seeks a latest value, or aggregates days. The caller owns the
-read snapshot. Statistics presents these daily cells after explicit source selection.
+read snapshot. This v1 window remains available; Statistics now uses the separate completed-day
+view below, without rewriting this reader or its history.
 
 Windows contain 1–366 inclusive calendar days; larger/reversed windows and
 missing source selection are rejected. The independent reader contract is
@@ -97,3 +100,32 @@ uses `source_not_found`. Coverage, device, timezone and finality remain unknown.
 Persisted provenance references and contract versions are retained; the reader
 does not re-verify artifact bytes or attest completeness of unsaved/unprojected
 history. No schema, replay, collection, ledger or migration contract changes.
+
+## Completed-day read-only view (#377 / PR #410)
+
+[Integrated amendment receipt](https://github.com/LTstripes/Health-Check/issues/377#issuecomment-6133714095)
+governs the separate Statistics view. It selects one exact Garmin source/account
+and the latest proved acquisition by `GarminPayloadObservation.received_at`,
+at or after the returned calendar day's end boundary under explicit
+`Europe/Moscow` display policy. The first-original `received_at` is not used for
+selection. Current/future
+days are excluded; the default rolling Steps window ends yesterday, preserving
+explicit historical bounds and other Statistics summaries.
+
+Verified original bytes/hash and exact source/run/artifact/event/batch links are
+required; successful acquisition only, with reprocess excluded and
+partial/failed/running/missing evidence unproven. Identical original bytes
+reacquired later can count; a later lower correction wins. Equal-time divergent
+values remain ambiguous; latest missing/null/invalid/unproven never falls back
+to an older count. Sole-source automatic selection requires complete bounded
+range evidence; otherwise show honest choice/unavailable. No pooling or totals.
+
+This is a new read-only projection, not a rewrite of v1 distinct-count ambiguity,
+originals, materialized history, ingestion or schema. Candidate/provenance/byte
+bounds and complete tie-group search fail closed as `search_incomplete`, never
+absence/zero. The 5-second elapsed guard is **cooperative**, not a hard SQL,
+lock or I/O deadline: source discovery may scan/sort before SQL returns and then
+fail closed on elapsed excess. Real-database latency is **UNVERIFIED**.
+Moscow is a display policy, not proof of Garmin timezone, coverage, wear or final
+day total; later corrections remain possible. Owner UAT and installed rollout
+of #410 are pending; no historical replay is authorized by this contract.

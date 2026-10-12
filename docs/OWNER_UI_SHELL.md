@@ -28,12 +28,16 @@ implementation/CI and local evidence live in [Current History](EXECUTION_HISTORY
 | Статистика | `/statistics` | Garmin/Google 7/30, trailing365, calendar-year/YTD; saved Garmin daily Steps; all-history and Google Steps pending |
 | Активность | `/garmin#activity-journal` | Five recent saved sessions, full existing history disclosure and five-column A/B comparison |
 | Активность, secondary mode | `/garmin#training-recovery` | Garmin dated snapshots, period series and exploratory lagged associations |
-| Данные | `/imports` | Persisted freshness/actions plus upload/review queue; batch details under `/imports/{id}` |
+| Данные | `/imports` | Compact provider freshness/actions with stream details; upload/review queue and `/imports/{id}` |
+| Комментарии | `/context` | Revisioned Context with primary navigation and city/IANA timezone chooser |
 
 The brand opens Overview at `/brief`; the legacy root remains Weight. Existing
 API/query/import contracts are not redefined by navigation. The Data queue describes
 its bounded recent-batch inventory, not an exhaustive count of all history.
-The implemented `/context` page is presently a secondary link; **Owner-approved next UI** promotes **Комментарии** to a discoverable primary navigation item, retaining the same revisioned route. Statistics `/statistics` already implements 7/30 and bounded 365/calendar-year/YTD; all-history and meaningful provider-first source defaults remain follow-ups.
+The `/context` primary navigation and city/IANA chooser are delivered. Statistics
+also includes saved-session drilldown; completed navigation/timezone/drilldown
+must not be reassigned. Provider-first presentation is integrated, while general
+per-metric eligible-source discovery/autoselection remains open.
 
 ## One A+ visual and language system
 
@@ -137,28 +141,14 @@ that copied Garmin/Google collection errors have been recovered. Activity clears
 prior evidence on submissions and rejects late completions. One usable Garmin
 source needs no redundant selector; multiple identities require explicit selection.
 
-## Accepted engineering and Owner UAT decisions — 2026-10-11
+## Accepted engineering and Owner UAT state — 2026-10-12
 
-Latest accepted **product** before these documentation edits:
-[`main fa36dc5b…`](https://github.com/LTstripes/Health-Check/commit/fa36dc5b6402fe6e6e166091002faf4af1ec0993);
-[post-main CI 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091)
-SUCCESS attempt 1. It includes #343 eligible Google Sleep, #345 Activity
-session detail, #344 Overview connectors/Sleep ticks, #375 Weight all-history,
-#376 latest eligible RHR, #347 readable Statistics sources, #380 365/calendar
-year/YTD and #377 Garmin typed Steps saved projection/window/Statistics UI.
-Do not relaunch completed functionality.
-
-The latest [Owner UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066)
-used the accepted code with a verified *as-of-2026-10-08 disposable clone of
-real saved data*, not a refreshed Stable profile. A+ direction positively
-received, but **Owner UAT PARTIAL**: Weight table exposes binary float
-tails/ISO row dates, Statistics has five technical Google identities,
-Overview RHR is too verbose and Body Battery is last snapshot rather than a
-certified day maximum; Data repeats copied reauth/refresh warnings and
-Comments is a small link on every heading. Fresh full clone integrity is
-UNVERIFIED; first/repeat `/brief` 23.098/9.470s with uncontrolled cache.
-See [UAT checkpoint and exact issue owners](OWNER_UAT_CHECKPOINT_2026-10-11.md).
-The product deltas below are **not automatically shipped** by this decision.
+Accepted product `8100b7ae7051af181a6bf3151ce3bc3e1d4c4151` includes the
+night date/unit, compact Data, completed-day Steps and provider-first presentation
+slices, with post-main SUCCESS. [Current Wiki](PROJECT_WIKI.md#current-canonical-state)
+owns the receipt index and exact installed Stable SHA `aca4b8f…`. Night screens
+are not yet deployed there; their Owner UAT remains pending. Prior Oct-11 clone
+feedback stays historical/PARTIAL, not a reason to reassign delivered UI.
 
 ### Historical evidence and dates versus today's data
 
@@ -193,46 +183,41 @@ The **already delivered** 7/30 Sleep chart, source-only role/ambiguity/missing
 states, native Garmin score detail and secondary Compare stay. Normal Owner
 display should have the two conceptual providers **Garmin and Google**.
 A Google Fitbit data source and Google family-aggregate are internal saved
-identities; require an evidence-backed default/exact eligible overlap decision
-under [#342](https://github.com/LTstripes/Health-Check/issues/342) before
-reducing visible source lines. Neither a guessed Fitbit preference nor an
+identities; the accepted Sleep-only default/exact eligible overlap decision
+under [#342](https://github.com/LTstripes/Health-Check/issues/342) is delivered.
+Neither a guessed Fitbit preference nor an
 implicit family/device pool is acceptable. Advanced display retains every
 exact identity and original evidence; no R05/canonical switch.
 
-Statistics already supports source-specific **7/30, trailing 365,
-calendar-year and year-to-date** windows; all-history is still a separately
-bounded #380 scope. Human source labels were delivered under #347, but
-five exact Google identities and empty entries remain **Owner UAT friction**.
-Follow-up [#347](https://github.com/LTstripes/Health-Check/issues/347)
-must offer normal Garmin/Google provider choices and evidence-backed exact
-metric-specific defaults/advanced selection without source pooling. The
-[#342](https://github.com/LTstripes/Health-Check/issues/342)
-`google-wearables` family preference is valid for **Sleep only**, never
-applied automatically to all Google physiology or Steps.
+Statistics supports source-specific **7/30, trailing 365, calendar-year and
+year-to-date** windows; all-history remains separately bounded #380 work.
+#411 keeps Garmin/Google visible and exact selectors/provenance in native
+details, with ambiguity/incomplete warnings visible when closed. General
+per-metric eligible-source discovery/autoselection is not implemented; a source
+inventory is not proof of metric availability. #342's `google-wearables`
+preference remains **Sleep only**, not all physiology/Steps.
 
-**Garmin observed daily Steps #377** are already typed over saved
-`calendarDate/totalSteps` and visible in Statistics through an exact-source,
-bounded read-only reader. Normal successful Garmin post-save projector wiring
-is #395 and full historical UAT-clone projection remains a separate authorized
-operation; Google Steps acquisition/type evidence is #392. Never turn missing
-or `projection_unavailable` into zero. **Calories #319** remain blocked by
-energy/BMR meaning. Source-specific per-period averages (RHR #393) and Body
-Battery day max vs last-snapshot (#394) require acceptance before changing
-existing values; provenance/error detail remains accessible.
+#377/#410 Steps display is a new read-only latest-proved-acquisition projection
+after the Europe/Moscow day end, excluding current/future days. Reacquired
+identical bytes count, later lower corrections win, ties/latest missing stay
+honest; v1/history are unchanged. It is not Garmin finality. The cooperative
+5-second guard is not a hard SQL/lock/I/O deadline; real latency is unmeasured.
+See [Steps contract](GARMIN_OBSERVED_DAILY_STEPS_CONTRACT.md). #395 routine
+post-save wiring is delivered; historical projection/replay and Google Steps
+#392 remain separate. #319 calories are evidence-blocked; max-HR/anaerobic B1
+is done. #393 requires Owner decisions on minimum days/coverage, rounding and
+windows >400 days; #394 Body Battery meaning is separately gated.
 
 ### Data, Comments and common style
 
-- Data keeps saved-measurement date/age apart from provider **refresh**
-  success/failed/reauth and snapshot origin; copy of old failed sync does not
-  establish present-day upstream failure. One concise provider action and
-  expandable per-stream details; [#305](https://github.com/LTstripes/Health-Check/issues/305).
-- The Owner wants **Комментарии** in the **primary navigation**. The current
-  `/context` CRUD is delivered but too hidden; primary form should use one
-  **human city/IANA timezone selector** with local event date/optional time.
-  Store the derived exact UTC offset and zone as before; no required UTC
-  textbox in routine UI. Date-only has no timezone/midnight instant; DST
-  ambiguous/nonexistent times need strict validation, explicit disambiguation
-  only when actually needed. [#294](https://github.com/LTstripes/Health-Check/issues/294).
+- #409 Data has one compact provider status/action and keyboard-accessible
+  stream details. Saved stream-evidence chronology and refresh attempts remain
+  separate; eligible metric value/date/age and clone age are NOT implemented.
+  #305/#376 adapter work remains, without provider calls from freshness reads.
+- Comments primary navigation and city/IANA timezone chooser are delivered.
+  Date-only/DST/offset/revision semantics remain; actual durable save/edit and
+  timezone persistence still need Owner UAT. Do not reassign the UI slice.
+
 - Maintain one A+ system throughout the app; Data/Context/Activity/Weight/
   Statistics tables and forms need proportionate shared typography,
   spacing, controls and readable source labels. [#379](https://github.com/LTstripes/Health-Check/issues/379)
@@ -274,9 +259,9 @@ reference approval was a design choice, not automatic acceptance of every later
 implementation. Historical #189 and #305–#309 checks/failures are retained in their
 issue/PR records. #295 was reopened for new latency evidence; #298 remains not planned.
 
-## Date and session-value presentation (#379 / #378 candidate)
+## Date and session-value presentation (#379 / #378, PR #408 merged)
 
-The 2026-10-12 presentation candidate uses the existing Russian human-date style
+The integrated 2026-10-12 presentation uses the existing Russian human-date style
 for Comments list/detail/revision history, Statistics period/Steps labels, Overview
 point titles, Weight current date, import-review dates and Data chronology. Native
 form values, API fields, data attributes and technical evidence retain ISO values.
@@ -297,6 +282,8 @@ primary text bounded. Formatting has its own magnitude-sized Decimal context;
 exact native values and units remain in technical disclosure. Missing, invalid,
 wrong-unit and partial states retain their existing meanings.
 
-This describes a candidate on baseline `aca4b8f65eb276dddb3ae5de718a734afd19f369`,
-not an integrated main or Stable release. Independent acceptance, integration,
-rollout and real Owner UAT are pending. Steps availability is a separate diagnosis.
+[PR #408](https://github.com/LTstripes/Health-Check/pull/408) is independently
+accepted and merged with post-main SUCCESS; [date receipt](https://github.com/LTstripes/Health-Check/issues/379#issuecomment-6132044382)
+and [duration/km receipt](https://github.com/LTstripes/Health-Check/issues/378#issuecomment-6132046243)
+retain the bounded scope. Stable rollout and real Owner UAT for this slice are
+pending; #379/#378 umbrella issues remain OPEN. Steps availability is separate.

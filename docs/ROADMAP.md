@@ -4,65 +4,44 @@ The roadmap is organized as usable vertical releases. Each release must work loc
 
 Future ideas not committed to a task live in [Backlog Ideas](BACKLOG_IDEAS.md). Issues own detailed contracts; this document owns sequence and dependencies, not another copy of every Worker prompt.
 
-## Current state — 2026-10-11 (latest Owner visual UAT)
-Canonical accepted **product** before this docs-only closeout:
-`main fa36dc5b6402fe6e6e166091002faf4af1ec0993`, with exact
-[post-main CI 38164560091](https://github.com/LTstripes/Health-Check/actions/runs/38164560091)
-**SUCCESS, attempt 1** (quality, 3 Linux lanes, Windows, final checks).
-Subsequent docs-only commits do not constitute a new product release.
+## Current state — 2026-10-12 night closeout
 
-The completed A+ wave (#343/#345/#344/#347/#295) must not be relaunched.
-New accepted code since that wave includes #375 full saved Weight+composition history
-[PR #382](https://github.com/LTstripes/Health-Check/pull/382),
-#376 last-eligible saved RHR reader and first Overview consumer
-[PRs #383/#385](https://github.com/LTstripes/Health-Check/issues/376#issuecomment-6109039836),
-#343 sole eligible Google sleep selection [PR #384](https://github.com/LTstripes/Health-Check/pull/384),
-#347 readable Statistics labels [PR #386](https://github.com/LTstripes/Health-Check/pull/386),
-#380 bounded 365/calendar-year/YTD backend+UI
-[PRs #387/#388](https://github.com/LTstripes/Health-Check/issues/380),
-and #377 Garmin saved daily Steps projection, bounded reader and Statistics UI
-[PRs #389/#390/#391](https://github.com/LTstripes/Health-Check/issues/377).
-Steps have **no** automatic accepted Google acquisition or assured normal-refresh
-materialization (#392/#395). Full all-history Statistics is a distinct future gate;
-#319 calories remain BLOCKED.
+Canonical accepted product is `main 8100b7ae7051af181a6bf3151ce3bc3e1d4c4151`;
+[post-main CI 38319794454](https://github.com/LTstripes/Health-Check/actions/runs/38319794454)
+SUCCESS. PRs #407–#411 and their exact receipts are indexed once in the
+[current Wiki](PROJECT_WIKI.md#current-canonical-state).
+Installed Stable is the daytime rollout `aca4b8f65eb276dddb3ae5de718a734afd19f369`,
+not the night product SHA. Night rollout and Owner UAT remain pending.
 
-The Owner's control checkout was locally fast-forwarded to that accepted SHA
-and a current UI was run against an **isolated as-of-2026-10-08 real-data clone**.
-Reported loopback routes HTTP 200 and code/profile/process identity PASS; startup
-migration was UAT-only. First/repeat `/brief` observations: 23.098s / 9.470s,
-uncontrolled cache, **not** performance acceptance. Fresh full-clone DB
-integrity remains UNVERIFIED. Human [UAT #330](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6113161066)
-remains **PARTIAL**. Historical copied Garmin reauth/Google failures are
-not proof of current live provider availability. Stable was not changed.
-
-**Detailed sanitized eight-point UAT and guarded Stable release handoff:**
-[Owner UAT checkpoint](OWNER_UAT_CHECKPOINT_2026-10-11.md).
-Issue contracts remain authoritative and active implementations require one
-explicitly assigned Worker; a docs merge is not Stable deployment.
+Do not relaunch delivered #375 history, #376 RHR foundation, #380 bounded long
+windows, #395 refresh wiring, Comments navigation/timezone, saved-session detail
+or Statistics drilldown. #319 max-HR/anaerobic B1 is done; calories are blocked.
+The Oct-11 clone checkpoint remains historical UAT evidence, not a current
+provider/Stable/performance pass. No assignment or deployment follows from docs.
 
 <a id="current-backlog"></a>
 <a id="current-backlog--2026-10-03"></a>
 <a id="current-backlog--2026-10-06"></a>
 
-## Current backlog — 2026-10-11 (post #391)
+## Current backlog — 2026-10-12 (post #411)
 
 The right column records **next delta**; open issue does not mean delivered stages
 need to be repeated. None of these rows launches a Worker, provider call or Stable write.
 
 | Owning issue(s) | Exact next product/evidence slice | Status and dependency |
 | --- | --- | --- |
-| **#395 + #377 — Garmin daily Steps** | Contract then wire accepted offline projector after successful *saved* Garmin daily-summary refresh; independently keep honest read-only calendarDate cells and a safe unique-source normal default | #377 PRs #389–#391 MERGED; older UAT clone not auto-projected; no Stable replay/refresh without Owner authority |
+| **#377 — Garmin daily Steps** | Owner UAT of completed-day view and actual latency; retain latest proved post-day acquisition, honest ties/missingness and v1/history | #395 wiring CLOSED/PR #398 delivered; #410 merged. Cooperative elapsed guard is not a hard SQL deadline or final-day guarantee |
 | **#392 — Google daily Steps** | Prove exact eligible Google endpoint/type/scopes, units, interval vs daily/count and overlapping sources; then small typed acquisition and stored evidence | No current Google steps production stream; C3 source proof first; no Garmin→Google copy |
-| **#393 — Overview resting pulse mean** | Accept mean over distinct eligible source/days in the *exact chosen period*, then replace verbose card with compact mean/count and disclosed coverage | #376 last-eligible reader/first card already MERGED, not to be reimplemented |
+| **#393 — Overview resting pulse mean** | Owner decision on minimum eligible days/coverage, precision/rounding and custom windows >400 days, then separately authorize implementation | [Stage A research ACCEPT; Stage B PARKED](https://github.com/LTstripes/Health-Check/issues/393#issuecomment-6115459995); #376 reader/card already merged |
 | **#394 — Body Battery interpretation** | Prove direct daily max or honestly distinct saved-sample maximum; never relabel latest snapshot as day peak | Current UI is latest saved snapshot; C3 source meaning gate before UI |
-| **#379 — A+ Weight table first** | Human civil dates, sensible numeric display precision, compact method/source; exact raw values and all rows still in disclosure | #375 one all-history table/chart already MERGED; **only polish**, no weight formula/identity changes |
-| **#347 + #342 — Statistics sources** | Garmin/Google provider-first Owner UI; exact eligible source per metric/window, meaningful labels/advanced ambiguity and no pooling | Five Google stored IDs are not five providers; #342 Google *sleep-only* default does not determine physiology/steps |
-| **#294 — Comments** | One primary nav tab (remove repeated small page-heading links); human IANA city selector with exact DST/offset persistence | Context Stage A CRUD already merged; Stage B weight-goal Settings deferred |
-| **#305 + #376 — Data and dated evidence** | Saved as-of values/date/age separately from cloned refresh/reauth and upstream state; one readable action per provider | Current Data screenshot is a historical clone; never call providers from a freshness read |
+| **#379 — A+ style umbrella** | Remaining scoped style/Owner acceptance only; preserve exact raw values and rows in disclosure | Weight numeric polish and #408 readable dates delivered; do not repeat #375 history or formatting slice |
+| **#347 + #342 — Statistics sources** | General per-metric eligible-source discovery/autoselection under its own contract, no pooling | #411 provider-first presentation merged; metadata inventory is not metric eligibility; Sleep-only #342 default remains separate |
+| **#294 — Comments** | Durable-profile save/edit/timezone-persistence Owner UAT; Stage B weight-goal Settings deferred | Primary navigation and city/IANA chooser delivered; no repeat UI assignment |
+| **#305 + #376 — Data and dated evidence** | Eligible saved metric value/date/age and clone snapshot age adapters | #409 compact status/action and stream disclosure merged; generic evidence dates are not eligible metric dates; #305 stays OPEN |
 | **#380 — Statistics history** | 365/CY/YTD already integrated; separately bound all-history request and eligible coverage before implementation | Do not repeat accepted 365/year backend/UI; calories blocked |
 | **#319 — Energy/calories** | One authoritative field unit/category/interval/inclusion + separately authorized saved-coverage proof | BLOCKED; existing max-HR/anaerobic B1 already merged; no active+resting addition |
-| **#378 / #345 — Activity** | Owner-led functional discovery, only then selected changes | #345 detail+Activity A/B merged, design expansion on hold; do not start speculative UI |
-| **#330 — Owner operations** | Bounded Stable backup/restore/migration rehearsal and controlled accepted-code rollout; then explicit human UAT | Never deploy from docs alone, switch running code mid-refresh, or equate CI with live provider success |
+| **#378 / #345 — Activity** | Remaining Owner-led functional discovery and acceptance; no speculative redesign | Detail/A-B and Statistics session drilldown delivered; #408 duration/km follow-up merged |
+| **#330 — Owner operations** | Separately authorized night-code rollout and human UAT, including Google #406 live verification | Daytime Stable rollout receipt proves aca4b8f; #407–#411 not installed. Synthetic Google fix is not live recovery |
 | **#357 / #348 — later** | Baseline/laboratory evidence research on separate Owner direction | Deferred, no unverified health inference |
 
 ### Design and data rules for the next wave
@@ -186,20 +165,22 @@ Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #18
 
 ### Source freshness / data quality
 
-#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics and #295 indexed Google/request-local Overview reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility was repaired via #340/#353. #376 will separate latest eligible saved evidence from refresh age. Keep request performance, collection health, data completeness and human acceptance separate.
+#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics/compact presentation and #295 indexed Google/request-local Overview reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility was repaired via #340/#353; #376 latest eligible RHR reader/Overview consumer is delivered, while broader eligible metric value/date/age and clone-age adapters remain open. Keep request performance, collection health, data completeness and human acceptance separate.
 
 ### Hardware/private Owner gates
 
-#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is not planned; screenshots remain the Weight workflow. New Context routine use requires an explicit durable-profile rollout after its UI is accepted.
+#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is not planned; screenshots remain the Weight workflow. Comments navigation/city-IANA UI is included in the daytime installed Stable `aca4b8f…`; durable save/edit/timezone-persistence Owner UAT remains separate. See the [rollout receipt attribution](PROJECT_WIKI.md#current-canonical-state).
 
 ### Owner UI
 
-The A+ visual system and desktop-only scope are approved. Six accepted primary
-sections are Обзор / Вес / Сон / Активность / Статистика / Данные. Current
-`/context` is a shipped secondary entry awaiting durable Owner UAT; approved
-#294 follow-up promotes `Комментарии` to primary navigation. Statistics 7/30
-is shipped; long periods, readable Google source choices and new fields are
-separately planned. See [Owner UI](OWNER_UI_SHELL.md) for current vs requested.
+The A+ visual system and desktop-only scope are approved. Seven primary sections
+are Обзор / Вес / Сон / Активность / Статистика / Данные / Комментарии.
+`/context` primary navigation and city/IANA timezone input are delivered;
+durable save/edit/persistence Owner UAT remains separate. Statistics 7/30,
+trailing365, calendar-year/YTD, readable source labels and provider-first
+presentation are integrated. General per-metric eligible-source discovery,
+all-history and unsupported new fields remain separately gated. See
+[Owner UI](OWNER_UI_SHELL.md) for delivered surfaces and remaining limits.
 
 ## Engineering maintenance — CI feedback/reliability closeout
 

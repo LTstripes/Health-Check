@@ -13,6 +13,29 @@ Earlier indexes also remain:
 - [Reliability/correction history through 2026-10-01](EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md).
 - [Verbose historical engineering log](EXECUTION_HISTORY.md).
 
+## 2026-10-12 — daytime rollout and night engineering closeout
+
+Night product `main 8100b7ae7051af181a6bf3151ce3bc3e1d4c4151`,
+[post-main 38319794454](https://github.com/LTstripes/Health-Check/actions/runs/38319794454)
+SUCCESS, attempt 1: PR #407 Google401 repair; #408 dates/duration/km;
+#409 compact Data; #410 completed-Moscow-day Steps; #411 provider-first
+presentation. [Wiki receipt index](PROJECT_WIKI.md#current-canonical-state)
+links all six reread issue closeouts instead of copying full evidence here.
+Independent acceptance/integration are complete for these bounded slices;
+their Stable rollout and Owner UAT are not. Google verification is synthetic;
+Data metric value/date/age/clone age and #347 general discovery remain missing.
+Steps v1/history are preserved; cooperative elapsed guard is not hard latency
+proof or Garmin finality.
+
+Read-only `D:\HealthCheck\ops\stable-rollout-20261012-task14\rollout-result.json`
+separately confirms daytime installed `aca4b8f65eb276dddb3ae5de718a734afd19f369`,
+PASS at 17:58 +03:00; old #397 does not establish that SHA. This closeout did
+not read DBs/keys or change Stable. #395 wiring, navigation/timezone and session
+drilldown were delivered earlier and must not be re-assigned. #393 Stage B
+awaits Owner minimum-days/coverage, rounding and >400-day-window decisions;
+#319 calories remain evidence-blocked, max-HR/anaerobic B1 complete. No new
+product choices are made; dated historical entries below remain unchanged.
+
 ## 2026-10-11 — Steps/Statistics engineering and second Owner UAT checkpoint
 
 Accepted product baseline immediately before this docs-only reconciliation:

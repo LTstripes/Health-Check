@@ -13,6 +13,12 @@ Under the established-runtime overlap lock the command runs:
 
 Normal Google stream selection does not turn off Garmin, Garmin Training or fixed wearables sleep. Overall success requires required substeps to converge as succeeded/empty under their contracts. Preserve partial/failed/reauth and actual freshness honestly.
 
+#395/PR #398 wires the accepted Garmin v1 Steps projector only after successful
+persisted routine daily-summary acquisition, preserving exact source/calendarDate,
+conflicts, bounds and transaction ownership. This is delivered wiring, not a new
+refresh/replay assignment. The separate #410 completed-day display is read-only
+and never projects from GET; it does not certify a final Garmin total.
+
 When selected in list mode, high-frequency `heart_rate` is split into civil days, newest first, with individual checkpoint/staging epochs. Each day may use at most two bounded continuation calls after the initial operation; head-page revalidation and 40-page/80-request per-call limits remain. Aggregate counters can exceed one call's limit. A final attempt entry is not a count of all continuation operations. Nonconverged days remain resumable/unknown and stop older-day work.
 
 #206/#207 reduced local promotion/setup work; #212 added narrowly classified bounded transport retries. They did not make refresh a new-records-only operation. The accepted routine horizon is seven days; it deliberately rechecks prior data for corrections. Do not shrink it or skip a selected stream silently to make a run look faster.
@@ -49,7 +55,18 @@ The historical Google HR gap is intentionally not a backfill target while disabl
 | Private operational logs | `D:\HealthCheck\stable\logs\owner-refresh-*.log` |
 | Task name | `Health-Check owner refresh` |
 
-These are operational assignments, not Worker development locations. New agent tasks use the separate roots documented in [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md). Never use reset/clean as routine setup. GitHub merges do not deploy automatically. The Owner operation checkout was last read back clean at `0339088c52dcefac93bb372a3a460c12cc4b6152` after #256 deployment; later GitHub changes still require their own safe local fast-forward.
+These are operational assignments, not Worker development locations. New agent tasks use the separate roots documented in [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md). Never use reset/clean as routine setup. GitHub merges do not deploy automatically. The read-only local `D:\HealthCheck\ops\stable-rollout-20261012-task14\rollout-result.json`
+confirms the daytime 2026-10-12 installed code `aca4b8f65eb276dddb3ae5de718a734afd19f369`
+(PASS; completed 17:58 +03:00), with scheduler/wrapper unchanged and Google HR
+flag absent. Old #397 does not prove this SHA. Accepted night main is `8100b7a…`;
+PRs #407–#411 are not deployed there. No DB/key was read for this docs check.
+
+Google #406/PR #407 GET-401 recovery is merged and synthetic-verified only;
+installed Stable live verification and the original refresh-failure cause/expiry
+remain unproven. The fix permits one eligible GET retry after verified successful
+token refresh, preserving scope ceilings, budgets/cursors and fail-closed stops;
+it does not authorize a provider call. New-screen Owner UAT remains pending.
+See [current receipts](PROJECT_WIKI.md#current-canonical-state).
 
 Before an explicit safe code update verify accepted target SHA, clean local state and idle relevant Owner processes, including refresh and application processes using that checkout. Do not switch/pull mid-run. This closeout does not itself modify the task, wrapper, checkout or Stable data.
 
