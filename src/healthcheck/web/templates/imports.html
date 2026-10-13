@@ -18,6 +18,18 @@
   </table>
 </div>
 {% endmacro %}
+<section class="card" aria-labelledby="saved-rhr-heading" id="saved-rhr">
+  <div class="section-heading">
+    <h2 id="saved-rhr-heading">Сохранённый пульс в покое</h2>
+    <button type="button" id="saved-rhr-refresh" hidden>Перечитать значения</button>
+  </div>
+  <p class="muted">Последнее пригодное измерение каждого источника. Исходная дата и возраст указаны отдельно от попыток обновления. Сохранённое число не подтверждает успешную синхронизацию.</p>
+  <p class="muted">Возраст снимка профиля неизвестен; правило «слишком старое» не настроено. Другие метрики пока не включены.</p>
+  <p id="saved-rhr-clock" class="muted"></p>
+  <div id="saved-rhr-feedback" role="status" aria-live="polite"></div>
+  <div id="saved-rhr-results" aria-busy="false"></div>
+  <noscript><p>Для чтения сохранённых значений нужен JavaScript. Очередь импорта доступна ниже.</p></noscript>
+</section>
 <section class="card" aria-labelledby="sources-heading" id="data-status">
   <div class="section-heading">
     <h2 id="sources-heading">Источники и свежесть данных</h2>

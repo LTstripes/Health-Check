@@ -1,3 +1,178 @@
+/* Independent #376 Data consumer. No eligibility or age policy in the UI. */
+(function () {
+  "use strict";
+  const host = document.getElementById("saved-rhr-results");
+  if (!host) return;
+  const button = document.getElementById("saved-rhr-refresh");
+  const feedback = document.getElementById("saved-rhr-feedback");
+  const clock = document.getElementById("saved-rhr-clock");
+  const selected = {garmin_connect: "", google_health: ""};
+  const inventory = {garmin_connect: new Map(), google_health: new Map()};
+  const metrics = {garmin_connect: "resting_heart_rate_bpm", google_health: "daily_resting_heart_rate_bpm"};
+  const labels = {exact: "Измерение за дату оценки", last_eligible: "Последнее пригодное измерение",
+    no_eligible_in_search: "Пригодное измерение в проверенной истории не найдено",
+    search_incomplete: "Поиск не завершён: достигнут предел чтения",
+    never_collected: "Сбор не выполнялся (подтверждено)", ambiguous: "Неоднозначные данные",
+    unavailable: "Сохранённое значение не определено"};
+  let generation = 0, controller, focusAfter;
+  function node(tag, text) {
+    const item = document.createElement(tag);
+    if (text !== undefined) item.textContent = text;
+    return item;
+  }
+  function disclosure(title, value) {
+    const item = node("details");
+    item.className = "owner-details";
+    item.append(node("summary", title));
+    const pre = node("pre", JSON.stringify(value, null, 2));
+    pre.className = "provenance";
+    item.append(pre);
+    return item;
+  }
+  function validate(payload, params) {
+    const civil = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (!payload || payload.mode !== "default_latest" || !civil(payload.evaluation_local_date) ||
+        payload.evaluation_local_date !== params.get("evaluation_local_date") ||
+        Date.parse(payload.evaluated_at_utc) !== Date.parse(params.get("evaluated_at_utc")) ||
+        !Array.isArray(payload.items) || payload.items.length !== 2 || !payload.collection_policy) throw Error("invalid_response");
+    const found = new Set();
+    for (const dto of payload.items) {
+      const q = dto.query, p = q && q.provider_code;
+      if (!Object.hasOwn(metrics, p) || found.has(p) || dto.contract_version !== "r376-saved-rhr-read-v1" ||
+          q.metric_code !== metrics[p] || q.mode !== "default_latest" ||
+          q.requested_start_date !== payload.evaluation_local_date || q.requested_end_date !== payload.evaluation_local_date ||
+          q.evaluation_local_date !== payload.evaluation_local_date ||
+          Date.parse(q.evaluated_at_utc) !== Date.parse(payload.evaluated_at_utc) ||
+          (q.source_id || "") !== selected[p] || !Object.hasOwn(labels, dto.state) ||
+          !Array.isArray(dto.available_sources) || !Array.isArray(dto.newer_exclusions) ||
+          dto.available_sources.length > 32 || !dto.search || !dto.refresh ||
+          dto.search.date_group_cap !== 32 || dto.search.candidate_record_cap !== 256 ||
+          !dto.metric_identity || dto.metric_identity.metric_code !== metrics[p] || dto.metric_identity.unit !== "bpm") throw Error("invalid_response");
+      const ids = new Set();
+      for (const identity of dto.available_sources) {
+        if (!identity || identity.provider_code !== p || typeof identity.source_id !== "string" ||
+            !identity.source_id || ids.has(identity.source_id)) throw Error("invalid_response");
+        ids.add(identity.source_id);
+      }
+      if (dto.source_identity && (dto.source_identity.provider_code !== p || !ids.has(dto.source_identity.source_id) ||
+          (selected[p] && dto.source_identity.source_id !== selected[p]))) throw Error("invalid_response");
+      const observation = dto.observation;
+      if (["exact", "last_eligible"].includes(dto.state) !== Boolean(observation) ||
+          (observation && (!dto.source_identity || !Number.isFinite(observation.value) || observation.unit !== "bpm" ||
+          !civil(observation.source_local_date) || !Number.isInteger(observation.observation_age_days) || observation.observation_age_days < 0 ||
+          (Date.parse(payload.evaluation_local_date) - Date.parse(observation.source_local_date)) / 86400000 !== observation.observation_age_days))) throw Error("invalid_response");
+      found.add(p);
+    }
+    return payload;
+  }
+  function render(payload) {
+    const grid = node("div");
+    grid.className = "grid data-source-grid";
+    for (const dto of payload.items) {
+      const p = dto.query.provider_code, name = p === "garmin_connect" ? "Garmin" : "Google";
+      for (const identity of dto.available_sources) inventory[p].set(identity.source_id, identity);
+      const card = node("section");
+      card.className = "card data-source-card";
+      card.setAttribute("style", "min-width:0;overflow-wrap:anywhere");
+      card.dataset.savedProvider = p;
+      card.append(node("h3", name + " · пульс в покое"));
+      const label = node("label", "Источник " + name + ": ");
+      const select = node("select");
+      select.id = "saved-source-" + p;
+      select.setAttribute("style", "width:100%;max-width:100%");
+      label.htmlFor = select.id;
+      const empty = node("option", "Без override — требуется единственный источник");
+      empty.value = "";
+      select.append(empty);
+      for (const identity of inventory[p].values()) {
+        const option = node("option", [identity.device_model, identity.source_kind, identity.source_instance_id, identity.source_id].filter(Boolean).join(" · "));
+        option.value = identity.source_id;
+        select.append(option);
+      }
+      select.value = selected[p];
+      select.addEventListener("change", () => { selected[p] = select.value; refresh(); });
+      card.append(label, select);
+      if (dto.reason === "source_inventory_cap" || (selected[p] && !inventory[p].has(selected[p]))) {
+        const form = node("form"), input = node("input"), apply = node("button", "Выбрать ID");
+        input.type = "text"; input.value = selected[p]; input.required = true;
+        input.setAttribute("aria-label", "Явный ID источника " + name);
+        apply.type = "submit";
+        form.append(input, apply);
+        form.addEventListener("submit", event => { event.preventDefault(); selected[p] = input.value.trim(); refresh(); });
+        card.append(node("p", "Список источников ограничен. Можно указать точный ID без автоматического выбора."), form);
+      }
+      card.append(node("p", labels[dto.state]));
+      if (dto.reason === "source_selection_required") card.append(node("p", "Выберите источник явно. Значения разных identities не объединяются."));
+      if (dto.reason === "saved_value_read_failed") card.append(node("p", "Ошибка чтения; это не отсутствие измерений."));
+      if (dto.reason === "source_not_found") card.append(node("p", "Источник не найден; наличие других измерений не определено."));
+      if (dto.observation) {
+        const value = dto.observation;
+        card.append(node("p", value.value + " " + value.unit),
+          node("p", "Исходная дата: " + value.source_local_date + ". Возраст: " + value.observation_age_days + " дн. относительно " + payload.evaluation_local_date + "."),
+          node("p", "Источник: " + dto.source_identity.source_instance_id + " · " + dto.source_identity.source_id));
+        if (value.record_status === "partial") card.append(node("p", "Запись частичная; пригодность этого RHR подтверждена reader. Полнота остальных данных неизвестна."));
+      }
+      if (dto.newer_exclusions.length) {
+        const extra = node("details"); extra.className = "owner-details";
+        extra.append(node("summary", "Исключённые записи: " + dto.newer_exclusions.length));
+        for (const exclusion of dto.newer_exclusions) extra.append(node("p", (exclusion.source_local_date || "Дата не определена") + " · " + exclusion.reason));
+        card.append(extra);
+      }
+      if (!dto.search.complete) card.append(node("p", "Полная группа/история не подтверждена: " + (dto.search.reason || "unknown") + (dto.search.incomplete_group_date ? " · " + dto.search.incomplete_group_date : "")));
+      const scope = p === "garmin_connect" ? "garmin:resting_heart_rate" : "google:daily_resting_hr";
+      const disabled = payload.collection_policy.status === "valid" && payload.collection_policy.disabled_streams.includes(scope);
+      card.append(node("p", "Обновление потока: " + (disabled ? "Сбор отключён" : ({reauth_required: "Нужен повторный вход", disabled: "Сбор отключён", failed: "Ошибка обновления"}[dto.refresh.terminal_status] || dto.refresh.terminal_status || "Не определено"))),
+        node("p", "Последняя попытка: " + (dto.refresh.last_attempt_utc || "неизвестно") + ". Последнее успешное обновление: " + (dto.refresh.last_successful_refresh_utc || "неизвестно") + "."),
+        node("p", "Полнота сбора: неизвестна. Происхождение и возраст снимка: неизвестны. Правило возраста: не настроено."),
+        disclosure("Точные значения и provenance", dto));
+      grid.append(card);
+    }
+    host.replaceChildren(grid);
+    if (focusAfter) document.getElementById(focusAfter)?.focus();
+  }
+  async function refresh() {
+    const mine = ++generation;
+    focusAfter = document.activeElement?.id?.startsWith("saved-source-") ? document.activeElement.id : null;
+    if (controller) controller.abort();
+    controller = new AbortController();
+    const active = controller;
+    const timeout = setTimeout(() => active.abort(), 15000);
+    host.setAttribute("aria-busy", "true");
+    host.replaceChildren(); clock.textContent = "";
+    feedback.textContent = "Читаем сохранённые измерения…";
+    delete feedback.dataset.failureCode;
+    let failure = "network_error";
+    try {
+      const now = new Date(), localDate = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+      const params = new URLSearchParams({evaluated_at_utc: now.toISOString(), evaluation_local_date: localDate});
+      for (const [provider, id] of Object.entries(selected)) if (id) params.set(provider === "garmin_connect" ? "garmin_source_id" : "google_source_id", id);
+      const response = await fetch("/api/imports/saved-rhr?" + params, {signal: active.signal, cache: "no-store", headers: {Accept: "application/json"}});
+      if (mine !== generation) return;
+      if (!response.ok) { failure = response.status === 422 ? "invalid_request" : response.status === 503 ? "database_unavailable" : "endpoint_error"; throw Error(failure); }
+      failure = "invalid_response";
+      const body = await response.json();
+      if (mine !== generation) return;
+      if (active.signal.aborted) throw Error("timeout");
+      const payload = validate(body, params);
+      failure = "render_failed";
+      render(payload);
+      clock.textContent = "Дата оценки возраста: " + payload.evaluation_local_date + ". Чтение (UTC): " + payload.evaluated_at_utc + ". Режим: default_latest.";
+      feedback.textContent = "Сохранённые значения прочитаны. Состояние обновления показано отдельно.";
+    } catch (_) {
+      if (mine !== generation) return;
+      if (active.signal.aborted) failure = "timeout";
+      host.replaceChildren(); clock.textContent = "";
+      feedback.dataset.failureCode = failure;
+      feedback.textContent = "Не удалось прочитать сохранённые значения (" + failure + "). Это не подтверждает отсутствие измерений. Можно повторить чтение.";
+    } finally {
+      clearTimeout(timeout);
+      if (mine === generation) host.setAttribute("aria-busy", "false");
+    }
+  }
+  button.hidden = false;
+  button.addEventListener("click", refresh);
+  refresh();
+})();
 /* Owner presentation of source-freshness-v1. No thresholds or provider calls here. */
 (function () {
   "use strict";
