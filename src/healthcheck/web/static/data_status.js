@@ -85,13 +85,20 @@
       empty.value = "";
       select.append(empty);
       for (const identity of inventory[p].values()) {
-        const option = node("option", [identity.device_model, identity.source_kind, identity.source_instance_id, identity.source_id].filter(Boolean).join(" · "));
+        const device = identity.device_attributed && identity.device_model ? identity.device_model : "Устройство не подтверждено";
+        const option = node("option", [device, identity.source_kind, identity.source_instance_id, identity.source_id].filter(Boolean).join(" · "));
         option.value = identity.source_id;
         select.append(option);
       }
       select.value = selected[p];
       select.addEventListener("change", () => { selected[p] = select.value; refresh(); });
       card.append(label, select);
+      if (selected[p]) {
+        const clear = node("button", "Сбросить выбор источника");
+        clear.type = "button";
+        clear.addEventListener("click", () => { selected[p] = ""; refresh(); });
+        card.append(clear);
+      }
       if (dto.reason === "source_inventory_cap" || (selected[p] && !inventory[p].has(selected[p]))) {
         const form = node("form"), input = node("input"), apply = node("button", "Выбрать ID");
         input.type = "text"; input.value = selected[p]; input.required = true;
