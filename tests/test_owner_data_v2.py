@@ -200,6 +200,21 @@ def test_data_saved_rhr_inventory_cap_and_read_failure(data_saved, monkeypatch):
     assert "synthetic-secret" not in str(body) and "private-path" not in str(body)
 
 
+def test_data_saved_rhr_production_script_synthetic_dom(tmp_path):
+    import json
+    import subprocess
+    from pathlib import Path
+
+    app, _, _ = _ui(tmp_path)
+    packet = _saved_get(app).json()
+    repo = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["node", str(repo / "scripts/check_data_saved_rhr.cjs")], cwd=repo,
+        input=json.dumps(packet), capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    assert result.stdout.startswith("PASS:")
+
+
 def test_data_provider_summary_synthetic_dom(tmp_path):
     import json
     import subprocess
