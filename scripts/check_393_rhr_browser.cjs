@@ -26,9 +26,9 @@ assert.ok(evidence);
       return route.continue();
     });
     page.on('pageerror', error => errors.push(error.message));
-    async function screenshot(locator, name) {
+    async function screenshot(locator, name, options = {}) {
       const file = path.join(evidence, name);
-      await locator.screenshot({ path: file });
+      await locator.screenshot({ path: file, ...options });
       images.push({ file: name, sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') });
     }
     for (const width of [1024, 1440]) {
@@ -79,7 +79,8 @@ assert.ok(evidence);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
         if (name === 'half') {
           assert.match(await disclosure.innerText(), /56.5 уд\/мин; точное значение 113 \/ 2/);
-          await screenshot(card, `details-${width}.png`);
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await screenshot(page, `details-${width}.png`, { fullPage: true });
         }
         await disclosure.locator('summary').focus(); await page.keyboard.press('Space');
         assert.equal(await disclosure.getAttribute('open'), null);
