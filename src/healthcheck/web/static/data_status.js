@@ -128,6 +128,9 @@
       if (!dto.search.complete) card.append(node("p", "Полная группа/история не подтверждена: " + (dto.search.reason || "unknown") + (dto.search.incomplete_group_date ? " · " + dto.search.incomplete_group_date : "")));
       const scope = p === "garmin_connect" ? "garmin:resting_heart_rate" : "google:daily_resting_hr";
       const disabled = payload.collection_policy.status === "valid" && payload.collection_policy.disabled_streams.includes(scope);
+      if (p === "google_health" && payload.collection_policy.status === "valid" && payload.collection_policy.disabled_streams.includes("google:heart_rate")) {
+        card.append(node("p", "Отдельный поток «Пульс» отключён. Это не статус сбора пульса в покое (RHR)."));
+      }
       card.append(node("p", "Обновление потока: " + (disabled ? "Сбор отключён" : ({reauth_required: "Нужен повторный вход", disabled: "Сбор отключён", failed: "Ошибка обновления"}[dto.refresh.terminal_status] || dto.refresh.terminal_status || "Не определено"))),
         node("p", "Последняя попытка: " + (dto.refresh.last_attempt_utc || "неизвестно") + ". Последнее успешное обновление: " + (dto.refresh.last_successful_refresh_utc || "неизвестно") + "."),
         node("p", "Полнота сбора: неизвестна. Происхождение и возраст снимка: неизвестны. Правило возраста: не настроено."),

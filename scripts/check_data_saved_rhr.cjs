@@ -20,7 +20,7 @@ function fixture(params, mode = 'saved') {
   const result = structuredClone(packet);
   result.evaluated_at_utc = params.get('evaluated_at_utc');
   result.evaluation_local_date = params.get('evaluation_local_date');
-  result.collection_policy = {status: 'valid', disabled_streams: ['google:daily_resting_hr']};
+  result.collection_policy = {status: 'valid', disabled_streams: ['google:heart_rate']};
   for (const [index, dto] of result.items.entries()) {
     const source = {source_id: 'source-' + index, provider_code: dto.query.provider_code,
       source_instance_id: 'synthetic-' + index, source_kind: 'synthetic', device_model: null, device_code: null, device_attributed: false};
@@ -65,7 +65,7 @@ function setup(mode = 'saved') {
   const current = setup(); await current.finish(0);
   const text = current.elements['saved-rhr-results'].textContent;
   assert.match(text, /0 bpm/); assert.match(text, /59 bpm/); assert.match(text, /Возраст: 3 дн/);
-  assert.match(text, /Нужен повторный вход/); assert.match(text, /Сбор отключён/);
+  assert.match(text, /Нужен повторный вход/); assert.match(text, /Отдельный поток «Пульс» отключён/);
   assert.match(text, /ambiguous_same_date_records/); assert.match(text, /synthetic-raw/);
   assert.match(text, /Запись частичная/); assert.match(text, /правило возраста: не настроено/i);
   assert.equal(current.requests[0].options.cache, 'no-store');

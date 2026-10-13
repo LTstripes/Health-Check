@@ -20,6 +20,7 @@ def data_schema(tmp_path_factory):
 @pytest.fixture
 def data_ui(tmp_path, data_schema):
     import sqlite3
+    from contextlib import closing
 
     from healthcheck.config import Settings
     from healthcheck.runtime import prepare_runtime
@@ -27,8 +28,8 @@ def data_ui(tmp_path, data_schema):
 
     settings = Settings(data_dir=tmp_path / "runtime")
     paths = prepare_runtime(settings)
-    with sqlite3.connect(f"file:{data_schema.as_posix()}?mode=ro", uri=True) as source:
-        with sqlite3.connect(paths.database) as target:
+    with closing(sqlite3.connect(f"file:{data_schema.as_posix()}?mode=ro", uri=True)) as source:
+        with closing(sqlite3.connect(paths.database)) as target:
             source.backup(target)
     app, _ = create_ui_app(settings)
     return app, settings, paths
@@ -111,9 +112,7 @@ def test_saved_rhr_data_route_keeps_exact_reader_dto(data_saved, scenario):
     session.commit()
     expected = read_saved_rhr(session, _query(stored, source_id=None)).as_dict()
     if scenario == "disabled":
-        set_collection_policy(settings, stream="garmin:resting_heart_rate"
-                              if source.provider_code == "garmin_connect"
-                              else "google:daily_resting_hr", state="off")
+        set_collection_policy(settings, stream="google:heart_rate", state="off")
     from hashlib import sha256
     before = sha256(paths.database.read_bytes()).hexdigest()
     response = _saved_get(app)
@@ -132,7 +131,7 @@ def test_saved_rhr_data_route_keeps_exact_reader_dto(data_saved, scenario):
     if scenario == "reauth":
         assert dto["refresh"]["terminal_status"] == "reauth_required"
     if scenario == "disabled":
-        assert body["collection_policy"]["disabled_streams"]
+        assert body["collection_policy"]["disabled_streams"] == ["google:heart_rate"]
 
 
 @pytest.mark.parametrize("data_saved", ["google_health"], indirect=True)

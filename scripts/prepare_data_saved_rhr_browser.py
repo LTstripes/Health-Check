@@ -57,7 +57,7 @@ def main():
                 provider_id=garmin.provider_id, stream_code="resting_heart_rate",
                 last_attempt_at=NOW, diagnostic_status="reauth_required",
             ))
-        set_collection_policy(settings, stream="google:daily_resting_hr", state="off")
+        set_collection_policy(settings, stream="google:heart_rate", state="off")
         params = {"evaluated_at_utc": NOW.isoformat(), "evaluation_local_date": DAY.isoformat()}
         with TestClient(app, base_url="http://127.0.0.1:8120") as client:
             (output / "imports.html").write_text(client.get("/imports").text, encoding="utf-8")
