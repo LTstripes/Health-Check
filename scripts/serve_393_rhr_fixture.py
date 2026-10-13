@@ -5,6 +5,7 @@ import os
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
+from types import FunctionType
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,9 +42,11 @@ def main():
             return date.fromisoformat(value)
 
     pages.datetime = period_brief_query.datetime = FrozenDatetime
-    pages.date = FrozenDate
     port = int(os.environ.get("HEALTHCHECK_UI_PORT", "8193"))
     app, _, paths = _ui(runtime, ui_port=port)
+    pages._brief_period = FunctionType(
+        pages._brief_period.__code__, dict(pages._brief_period.__globals__, date=FrozenDate),
+    )
     seed_overview_v2(paths)
     engine = create_sqlite_engine(paths)
     with session_scope(engine) as session:
