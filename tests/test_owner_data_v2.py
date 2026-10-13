@@ -11,8 +11,31 @@ from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtra
 from test_dashboard_ui import _canonical_snapshot, _confirm_all_pending, _ui, _upload_batch
 
 
+@pytest.fixture(scope="module")
+def data_schema(tmp_path_factory):
+    # Migrate once, then give every scenario its own disposable synthetic DB.
+    return _ui(tmp_path_factory.mktemp("data-rhr-schema"))[2].database
+
+
 @pytest.fixture
-def data_saved(tmp_path, request):
+def data_ui(tmp_path, data_schema):
+    import sqlite3
+
+    from healthcheck.config import Settings
+    from healthcheck.runtime import prepare_runtime
+    from healthcheck.web.ui_app import create_ui_app
+
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = prepare_runtime(settings)
+    with sqlite3.connect(f"file:{data_schema.as_posix()}?mode=ro", uri=True) as source:
+        with sqlite3.connect(paths.database) as target:
+            source.backup(target)
+    app, _ = create_ui_app(settings)
+    return app, settings, paths
+
+
+@pytest.fixture
+def data_saved(data_ui, request):
     from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
     from healthcheck.google.storage import ContentAddressedGooglePayloadStore
     from test_saved_values import (
@@ -22,7 +45,7 @@ def data_saved(tmp_path, request):
         _fitbit_identity,
     )
 
-    app, settings, paths = _ui(tmp_path)
+    app, settings, paths = data_ui
     engine = create_sqlite_engine(paths)
     with session_scope(engine) as session:
         garmin = GarminSourceRepository(session).get_or_create(GARMIN_IDENTITY)
@@ -147,8 +170,8 @@ def test_data_saved_rhr_requires_explicit_identity_and_keeps_provider_dates(data
     assert unknown["reason"] == crossed["reason"] == "source_not_found"
 
 
-def test_data_saved_rhr_invalid_clock_and_missing_db_are_safe(tmp_path):
-    app, _, paths = _ui(tmp_path)
+def test_data_saved_rhr_invalid_clock_and_missing_db_are_safe(data_ui):
+    app, _, paths = data_ui
     assert _saved_get(app, evaluated_at_utc="2099-01-03T12:00:00").status_code == 422
     assert _saved_get(app, google_source_id=" ").status_code == 422
     paths.database.unlink()
@@ -156,11 +179,11 @@ def test_data_saved_rhr_invalid_clock_and_missing_db_are_safe(tmp_path):
     assert response.status_code == 503 and response.json() == {"code": "database_unavailable"}
 
 
-def test_data_saved_rhr_reuses_one_physical_read_only_snapshot(tmp_path, monkeypatch):
+def test_data_saved_rhr_reuses_one_physical_read_only_snapshot(data_ui, monkeypatch):
     from sqlalchemy import text
 
     from healthcheck.web import imports
-    app, _, _ = _ui(tmp_path)
+    app, _, _ = data_ui
     reader = imports.read_saved_rhr
     connections = []
 
@@ -200,12 +223,12 @@ def test_data_saved_rhr_inventory_cap_and_read_failure(data_saved, monkeypatch):
     assert "synthetic-secret" not in str(body) and "private-path" not in str(body)
 
 
-def test_data_saved_rhr_production_script_synthetic_dom(tmp_path):
+def test_data_saved_rhr_production_script_synthetic_dom(data_ui):
     import json
     import subprocess
     from pathlib import Path
 
-    app, _, _ = _ui(tmp_path)
+    app, _, _ = data_ui
     packet = _saved_get(app).json()
     repo = Path(__file__).resolve().parents[1]
     result = subprocess.run(
