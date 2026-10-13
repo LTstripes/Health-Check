@@ -20,6 +20,9 @@
     if (text !== undefined) item.textContent = text;
     return item;
   }
+  function displayDate(value) {
+    return window.healthcheckOwnerDate(value);
+  }
   function disclosure(title, value) {
     const item = node("details");
     item.className = "owner-details";
@@ -115,24 +118,24 @@
       if (dto.observation) {
         const value = dto.observation;
         card.append(node("p", value.value + " " + value.unit),
-          node("p", "Исходная дата: " + value.source_local_date + ". Возраст: " + value.observation_age_days + " дн. относительно " + payload.evaluation_local_date + "."),
+          node("p", "Исходная дата: " + displayDate(value.source_local_date) + ". Возраст: " + value.observation_age_days + " дн. относительно " + displayDate(payload.evaluation_local_date) + "."),
           node("p", "Источник: " + dto.source_identity.source_instance_id + " · " + dto.source_identity.source_id));
         if (value.record_status === "partial") card.append(node("p", "Запись частичная; пригодность этого RHR подтверждена reader. Полнота остальных данных неизвестна."));
       }
       if (dto.newer_exclusions.length) {
         const extra = node("details"); extra.className = "owner-details";
         extra.append(node("summary", "Исключённые записи: " + dto.newer_exclusions.length));
-        for (const exclusion of dto.newer_exclusions) extra.append(node("p", (exclusion.source_local_date || "Дата не определена") + " · " + exclusion.reason));
+        for (const exclusion of dto.newer_exclusions) extra.append(node("p", displayDate(exclusion.source_local_date) + " · " + exclusion.reason));
         card.append(extra);
       }
-      if (!dto.search.complete) card.append(node("p", "Полная группа/история не подтверждена: " + (dto.search.reason || "unknown") + (dto.search.incomplete_group_date ? " · " + dto.search.incomplete_group_date : "")));
+      if (!dto.search.complete) card.append(node("p", "Полная группа/история не подтверждена: " + (dto.search.reason || "unknown") + (dto.search.incomplete_group_date ? " · " + displayDate(dto.search.incomplete_group_date) : "")));
       const scope = p === "garmin_connect" ? "garmin:resting_heart_rate" : "google:daily_resting_hr";
       const disabled = payload.collection_policy.status === "valid" && payload.collection_policy.disabled_streams.includes(scope);
       if (p === "google_health" && payload.collection_policy.status === "valid" && payload.collection_policy.disabled_streams.includes("google:heart_rate")) {
         card.append(node("p", "Отдельный поток «Пульс» отключён. Это не статус сбора пульса в покое (RHR)."));
       }
       card.append(node("p", "Обновление потока: " + (disabled ? "Сбор отключён" : ({reauth_required: "Нужен повторный вход", disabled: "Сбор отключён", failed: "Ошибка обновления"}[dto.refresh.terminal_status] || dto.refresh.terminal_status || "Не определено"))),
-        node("p", "Последняя попытка: " + (dto.refresh.last_attempt_utc || "неизвестно") + ". Последнее успешное обновление: " + (dto.refresh.last_successful_refresh_utc || "неизвестно") + "."),
+        node("p", "Последняя попытка: " + displayDate(dto.refresh.last_attempt_utc) + ". Последнее успешное обновление: " + displayDate(dto.refresh.last_successful_refresh_utc) + "."),
         node("p", "Полнота сбора: неизвестна. Происхождение и возраст снимка: неизвестны. Правило возраста: не настроено."),
         disclosure("Точные значения и provenance", dto));
       grid.append(card);
@@ -166,7 +169,7 @@
       const payload = validate(body, params);
       failure = "render_failed";
       render(payload);
-      clock.textContent = "Дата оценки возраста: " + payload.evaluation_local_date + ". Чтение (UTC): " + payload.evaluated_at_utc + ". Режим: default_latest.";
+      clock.textContent = "Дата оценки возраста: " + displayDate(payload.evaluation_local_date) + ". Чтение (UTC): " + displayDate(payload.evaluated_at_utc) + ". Режим: default_latest.";
       feedback.textContent = "Сохранённые значения прочитаны. Состояние обновления показано отдельно.";
     } catch (_) {
       if (mine !== generation) return;

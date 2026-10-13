@@ -57,6 +57,15 @@ const base = 'http://127.0.0.1:8120';
       return route.fulfill({status: 404, body: ''});
     });
     fs.mkdirSync(evidence, {recursive: true});
+    async function capture(width, scenario) {
+      const file = path.join(evidence, `data-saved-rhr-${scenario}-${width}.png`);
+      await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.evaluate(() => window.scrollY), 0);
+      await page.screenshot({path: file, fullPage: true});
+      receipts.push({file, width, scenario, before_keyboard: true, scroll_y: 0,
+        sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')});
+    }
     for (const width of [1024, 1440]) {
       await page.setViewportSize({width, height: 1000});
       for (const scenario of ['saved', 'ambiguous', 'cap', 'error']) {
@@ -65,6 +74,7 @@ const base = 'http://127.0.0.1:8120';
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
         assert.equal(await page.locator('#import-queue').count(), 1);
         assert.equal(await page.locator('#data-refresh').isVisible(), true);
+        await capture(width, scenario); // initial state, before keyboard selection changes it
         if (scenario === 'error') {
           assert.equal(await page.locator('#saved-rhr-feedback').getAttribute('data-failure-code'), 'database_unavailable');
           assert.doesNotMatch(await page.locator('#saved-rhr-feedback').textContent(), /synthetic-secret/);
@@ -76,6 +86,15 @@ const base = 'http://127.0.0.1:8120';
               const card = page.locator(`[data-saved-provider="${dto.query.provider_code}"]`);
               assert.match(await card.textContent(), new RegExp(dto.observation.value + ' bpm'));
               assert.ok((await card.textContent()).includes(dto.observation.source_local_date));
+              const visible = (await card.locator(':scope > p').allTextContents()).join(' ');
+              const formatted = await page.evaluate(dto => ({
+                observation: window.healthcheckOwnerDate(dto.observation.source_local_date),
+                evaluation: window.healthcheckOwnerDate(dto.query.evaluation_local_date),
+                attempt: window.healthcheckOwnerDate(dto.refresh.last_attempt_utc),
+                success: window.healthcheckOwnerDate(dto.refresh.last_successful_refresh_utc),
+              }), dto);
+              for (const value of Object.values(formatted)) assert.ok(visible.includes(value));
+              assert.doesNotMatch(visible, /\d{4}-\d{2}-\d{2}/);
               assert.ok((await card.textContent()).includes('Возраст: ' + dto.observation.observation_age_days + ' дн.'));
               const details = card.locator('details').filter({hasText: 'Точные значения и provenance'});
               assert.equal(await details.getAttribute('open'), null);
@@ -94,9 +113,6 @@ const base = 'http://127.0.0.1:8120';
           }
           if (scenario === 'cap') assert.match(await page.locator('#saved-rhr-results').textContent(), /candidate_group_cap/);
         }
-        const file = path.join(evidence, `data-saved-rhr-${scenario}-${width}.png`);
-        await page.screenshot({path: file, fullPage: true});
-        receipts.push({file, width, scenario, sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')});
       }
     }
     mode = 'held'; await page.locator('#saved-rhr-refresh').click();
