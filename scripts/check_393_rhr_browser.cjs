@@ -36,6 +36,7 @@ assert.ok(evidence);
       for (const [name, start, end, state, value, n, N] of [
         ['default', null, null, 'observed', 59, 4, 30],
         ['half', '2099-01-02', '2099-01-04', 'observed', 57, 2, 3],
+        ['recurring', '2099-01-04', '2099-01-07', 'observed', 61, 3, 4],
         ['single', '2099-01-04', '2099-01-04', 'observed', 61, 1, 1],
         ['zero', '2098-12-02', '2098-12-02', 'observed', 0, 1, 1],
         ['missing', '2099-01-10', '2099-01-10', 'no_eligible_in_period', null, 0, 1],

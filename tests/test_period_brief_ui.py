@@ -157,7 +157,16 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
 
     assert page.status_code == 200
     assert '<select name="garmin_source_id">' not in page.text
-    primary = _visible_text(page.text.split("Технические детали", 1)[0])
+    # #393 adds source provenance inside its own collapsed disclosure. The
+    # primary text check must exclude that disclosure's hidden contents.
+    disclosure = '<details class="owner-details" data-rhr-evidence>'
+    assert disclosure in page.text
+    primary_html = page.text
+    while disclosure in primary_html:
+        before, remaining = primary_html.split(disclosure, 1)
+        _hidden, after = remaining.split("</details>", 1)
+        primary_html = before + after
+    primary = _visible_text(primary_html.split("Технические детали", 1)[0])
     technical = _visible_text(page.text.split("Технические детали", 1)[1])
     assert "Garmin Connect · Vivoactive 5" in primary
     assert source_id not in primary
@@ -170,6 +179,8 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
 def test_393_existing_rhr_card_uses_real_period_reader_and_keeps_period_packet(
     tmp_path, monkeypatch, kind,
 ):
+    from types import FunctionType
+
     from sqlalchemy import select
 
     from healthcheck.db.models import GoogleSourceRecord
@@ -191,9 +202,13 @@ def test_393_existing_rhr_card_uses_real_period_reader_and_keeps_period_packet(
             return date.fromisoformat(value)
 
     monkeypatch.setattr(pages, "datetime", FrozenDatetime)
-    monkeypatch.setattr(pages, "date", FrozenDate)
     monkeypatch.setattr(period_brief_query, "datetime", FrozenDatetime)
     app, settings, paths = create_fixture(tmp_path)
+    # Freeze only the production period resolver's clock. FastAPI resolves
+    # other date-typed route annotations lazily from module globals.
+    monkeypatch.setattr(pages, "_brief_period", FunctionType(
+        pages._brief_period.__code__, dict(pages._brief_period.__globals__, date=FrozenDate),
+    ))
     seed_overview_v2(paths)
     engine = create_sqlite_engine(paths)
     try:
