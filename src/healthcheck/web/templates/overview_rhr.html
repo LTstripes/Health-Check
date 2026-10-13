@@ -1,39 +1,38 @@
 <div data-overview-rhr data-rhr-mode="{{ overview.rhr.mode }}">
-  <p class="overview-source">{% if overview.rhr.mode == 'default_latest' %}Последнее допустимое наблюдение каждого источника на сегодня. Эта карточка ищет сохранённое значение отдельно от итогов периода.{% else %}Последнее допустимое наблюдение внутри выбранного периода; даты периода сохранены.{% endif %}</p>
   {% set reasons = {
-    'source_not_found': 'Источник не сохранён или выбранный источник не найден.',
-    'source_selection_required': 'Несколько источников: выбери один. Значения не объединены.',
+    'source_not_found': 'Источник не выбран или сохранённый источник не найден.',
+    'source_selection_required': 'Несколько источников: выбери один.',
     'source_inventory_cap': 'Поиск источников достиг лимита; полный список не подтверждён.',
-    'search_work_cap': 'Поиск достиг лимита работы; последнее допустимое значение не установлено.',
-    'candidate_group_cap': 'Группа одной даты превышает лимит; значение из части группы не выбрано.',
+    'period_record_cap': 'Поиск периода достиг лимита записей. Среднее недоступно.',
+    'candidate_group_cap': 'Группа одного дня превышает лимит. Среднее недоступно.',
     'saved_value_read_failed': 'Не удалось прочитать сохранённые наблюдения.',
-    'ambiguous_same_date_records': 'Несколько текущих записей одной даты; значение не выбрано.',
-    'multiple_current_records_same_date': 'Несколько текущих записей одной даты; значение не выбрано.',
+    'ambiguous_same_date_records': 'Несколько текущих записей одного дня; день исключён.',
     'metric_missing': 'Источник не передал показатель.',
     'metric_null': 'Источник передал пустое значение.',
-    'metric_invalid': 'Значение непригодно.',
-    'metric_row_missing': 'Запись показателя отсутствует.',
+    'metric_invalid': 'Значение некорректно.',
+    'metric_row_missing': 'Строка показателя отсутствует.',
+    'metric_value_invalid': 'Число некорректно.',
+    'metric_unit_mismatch': 'Единица измерения не соответствует уд/мин.',
     'future_chronology': 'Хронология наблюдения находится в будущем.',
-    'ineligible_temporal_coordinate': 'Дата наблюдения неизвестна.'
+    'ineligible_temporal_coordinate': 'Дата наблюдения неизвестна; к периоду не отнесено.',
+    'no_saved_observation': 'Нет пригодного сохранённого наблюдения.',
+    'narrow_period_to_400_days': 'Сузь период до 400 календарных дней включительно.'
   } %}
   {% for item in overview.rhr['items'] %}
-    {% set dto = item.dto %}{% set point = dto.observation %}{% set source = dto.source_identity %}
+    {% set dto = item.dto %}{% set point = dto.last_observation %}{% set source = dto.source_identity %}
     <div data-rhr-provider="{{ item.label }}" data-rhr-state="{{ dto.state }}">
-      <p class="overview-source">{{ item.source_labels.get(source.source_id, item.label) if source else item.label }}{% if source and not source.device_attributed %} · устройство не подтверждено{% endif %}</p>
-      {% if point %}
-        <strong>{{ overview_number(point.value) }} уд/мин</strong>
-        <p>Наблюдение {{ point.source_local_date | owner_date }} · {{ point.observation_age_days }} дней назад.</p>
-        {% if dto.state == 'last_eligible' %}<p>Сегодня нет допустимого наблюдения. Показано последнее допустимое со своей датой.</p>{% endif %}
-        {% if point.is_zero %}<p>Источник передал явный ноль.</p>{% endif %}
-        {% if point.record_status == 'partial' %}<p>Запись источника частичная.</p>{% endif %}
-      {% elif dto.state == 'search_incomplete' %}<p>Поиск не завершён. {{ reasons.get(dto.reason, dto.reason) }}</p>
-      {% elif dto.state == 'never_collected' %}<p>Никогда не собиралось — подтверждено фактом для выбранного источника и показателя.</p>
-      {% elif dto.state == 'ambiguous' %}<p>{{ reasons.get(dto.reason, 'Неоднозначные наблюдения; единое значение не выбрано.') }}</p>
-      {% elif dto.state == 'no_eligible_in_search' %}<p>Нет допустимого наблюдения в границах поиска. Это не подтверждает, что показатель никогда не собирался.</p>
-      {% else %}<p>{{ reasons.get(dto.reason, 'Наблюдение недоступно.') }}</p>{% endif %}
+      {% if dto.mean_display is not none %}
+        <strong>Средний пульс в покое · {{ dto.mean_display }} уд/мин</strong>
+        <p class="overview-source">{{ item.source_labels.get(source.source_id, item.label) if source else item.label }} · по {{ dto.eligible_day_count }} из {{ dto.requested_day_count }} дней{% if dto.eligible_day_count == 1 %} · одно наблюдение{% endif %}</p>
+      {% else %}
+        <p class="overview-source">{{ item.source_labels.get(source.source_id, item.label) if source else item.label }}{% if dto.eligible_day_count is not none %} · по {{ dto.eligible_day_count }} из {{ dto.requested_day_count }} дней{% endif %}</p>
+        {% if dto.state == 'no_eligible_in_period' %}<p>Нет пригодных наблюдений в выбранном периоде.</p>
+        {% elif dto.state == 'search_incomplete' %}<p>Поиск не завершён. {{ reasons.get(dto.reason, dto.reason) }}</p>
+        {% else %}<p>{{ reasons.get(dto.reason, 'Среднее недоступно.') }}</p>{% endif %}
+      {% endif %}
       {% if dto.reason == 'source_selection_required' %}
         <form method="get" action="/brief" class="owner-controls">
-          {% if overview.rhr.mode == 'explicit_period' %}<input type="hidden" name="start_date" value="{{ brief.period.start_date }}"><input type="hidden" name="end_date" value="{{ brief.period.end_date }}">{% endif %}
+          <input type="hidden" name="start_date" value="{{ brief.period.start_date }}"><input type="hidden" name="end_date" value="{{ brief.period.end_date }}">
           {% if item.label == 'Google' and source_selection.selected_source_id %}<input type="hidden" name="garmin_source_id" value="{{ source_selection.selected_source_id }}">{% endif %}
           {% if item.label == 'Garmin' and overview.rhr.google_source_id %}<input type="hidden" name="google_rhr_source_id" value="{{ overview.rhr.google_source_id }}">{% endif %}
           <label>Источник {{ item.label }} <select name="{{ 'google_rhr_source_id' if item.label == 'Google' else 'garmin_source_id' }}" required>
@@ -42,20 +41,21 @@
           </select></label><button type="submit">Показать</button>
         </form>
       {% endif %}
-      {% if dto.newer_exclusions %}
-        <details class="owner-details"><summary>Пропущенные записи: {{ dto.newer_exclusions | length }}</summary>
-          {% for exclusion in dto.newer_exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}{% if exclusion.candidate_count is not none %} · записей {{ exclusion.candidate_count }}{% endif %}</p>{% endfor %}
-        </details>
-      {% endif %}
-      <p class="muted">Сохранённое число не подтверждает успешное обновление или полноту покрытия.</p>
-      {% if dto.refresh.terminal_status %}<p>Обновление потока провайдера: {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'failed': 'ошибка обновления'}.get(dto.refresh.terminal_status, dto.refresh.terminal_status) }}.</p>{% endif %}
-      {% for fact in item.freshness %}<p>Свежесть потока провайдера: {{ {'fresh': 'свежие данные', 'quiet': 'нет новых событий', 'stale': 'данные устарели', 'unavailable': 'недоступна', 'unknown': 'неизвестна', 'not_requested': 'не запрашивалось'}.get(fact.state, 'неизвестна') }} · {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'refresh_overdue': 'проверьте обновление', 'disabled': 'сбор отключён', 'not_requested': 'сбор не запрашивался', 'never_observed': 'свидетельства свежести отсутствуют', 'coverage_unknown': 'покрытие неизвестно', 'future_chronology': 'хронология обновления в будущем', 'acquisition_incomplete': 'сбор неполный', 'evidence_current': 'есть текущие свидетельства'}.get(fact.reason_code, 'причина указана в технических деталях') }}.</p>{% endfor %}
-      <details class="owner-details" data-rhr-evidence><summary>Дата, поиск и происхождение</summary>
-        <p>Проверено: {{ dto.query.evaluation_local_date | owner_date }}. Полнота покрытия: {{ 'неизвестна' if dto.acquisition_coverage_state == 'unknown' else dto.acquisition_coverage_state }}. Происхождение копии: {{ 'неизвестно' if dto.origin_state == 'unknown' else dto.origin_state }}; дата снимка: {{ dto.snapshot_as_of or 'неизвестна' }}.</p>
-        <p>Возраст копии: неизвестен.</p>
-        <p>Границы поиска: {{ dto.search.start_date or 'без нижней даты' }} → {{ dto.search.end_date }}. Поиск {{ 'завершён' if dto.search.complete else 'не завершён' }}; проверено групп {{ dto.search.groups_examined }}, записей {{ dto.search.records_examined }}. Лимиты: {{ dto.search.date_group_cap }} групп, {{ dto.search.candidate_record_cap }} записей.</p>
+      <details class="owner-details" data-rhr-evidence><summary>Наблюдения и подробности · {{ item.label }}</summary>
+        <p>Среднее сохранённых наблюдений не доказывает типичный пульс или полноту ношения устройства. Дни без пригодных значений не заменяются нулём; источники не объединяются.</p>
+        <p>Выбранный период: {{ dto.query.requested_start_date | owner_date }} — {{ dto.query.requested_end_date | owner_date }} · {{ dto.requested_day_count }} календарных дней. Даты сохранены по источнику.</p>
+        {% if dto.mean_exact %}<p>Среднее до округления: {{ dto.mean_exact.decimal }} уд/мин; точное значение {{ dto.mean_exact.numerator }} / {{ dto.mean_exact.denominator }} уд/мин. Округляется только итоговое среднее до целого, .5 вверх.</p>{% endif %}
+        {% if point %}<p>Последнее пригодное сохранённое наблюдение: {{ overview_number(point.value) }} уд/мин · {{ point.source_local_date | owner_date }} · {{ point.observation_age_days }} дней назад.</p>{% endif %}
+        {% if source %}<p>Источник: {{ source.source_id }} · {{ source.source_kind }} · {{ 'устройство подтверждено' if source.device_attributed else 'устройство не подтверждено' }}.</p>{% endif %}
+        <p>Проверено: {{ dto.query.evaluation_local_date | owner_date }}. Покрытие сбора: неизвестно. Происхождение клона: неизвестно; дата снимка: {{ dto.snapshot_as_of or 'неизвестна' }}.</p>
+        <p>Поиск {{ 'завершён для всего периода' if dto.search.complete else 'не завершён' }}; проверено групп {{ dto.search.groups_examined }}, записей {{ dto.search.records_examined }}. Лимиты: {{ dto.search.candidate_record_cap }} записей за период, {{ dto.search.per_day_record_cap }} на день.</p>
         {% if dto.search.incomplete_group_date %}<p>Неполная группа: {{ dto.search.incomplete_group_date | owner_date }}.</p>{% endif %}
-        <p>Последняя попытка обновления потока: {{ dto.refresh.last_attempt_utc or 'неизвестна' }}. Последнее успешное обновление: {{ dto.refresh.last_successful_refresh_utc or 'неизвестно' }}.</p>
+        {% if dto.excluded_day_count is not none %}<p>Исключено дней: {{ dto.excluded_day_count }}.</p>{% endif %}
+        {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}{% if exclusion.candidate_count is not none %} · записей {{ exclusion.candidate_count }}{% endif %}</p>{% endfor %}
+        {% for observation in dto.observations %}<p>{{ observation.source_local_date | owner_date }}: {{ overview_number(observation.value) }} уд/мин{% if observation.is_zero %} · источник передал явный ноль{% endif %}{% if observation.record_status == 'partial' %} · запись источника частичная{% endif %} · {{ observation.record_id }}.</p>{% endfor %}
+        <p>Последняя попытка обновления потока: {{ dto.refresh.last_attempt_utc or 'неизвестна' }}. Последнее успешное обновление: {{ dto.refresh.last_successful_refresh_utc or 'неизвестно' }}. Сохранённое число не подтверждает успешное обновление или полноту сбора.</p>
+        {% if dto.refresh.terminal_status %}<p>Состояние потока провайдера: {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'failed': 'ошибка обновления', 'succeeded': 'обновление завершено'}.get(dto.refresh.terminal_status, dto.refresh.terminal_status) }}.</p>{% endif %}
+        {% for fact in item.freshness %}<p>Свежесть потока провайдера: {{ {'fresh': 'свежие данные', 'quiet': 'нет новых событий', 'stale': 'давно не обновлялся', 'unavailable': 'недоступна', 'unknown': 'неизвестна', 'not_requested': 'не запрашивалась'}.get(fact.state, 'неизвестна') }} · {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'refresh_overdue': 'просрочено обновление', 'disabled': 'сбор отключён', 'not_requested': 'сбор не запрашивался', 'never_observed': 'свидетельства свежести отсутствуют', 'coverage_unknown': 'покрытие неизвестно', 'future_chronology': 'хронология обновления в будущем', 'acquisition_incomplete': 'сбор неполный', 'evidence_current': 'есть текущие свидетельства'}.get(fact.reason_code, 'причина указана в технических деталях') }}.</p>{% endfor %}
       </details>
     </div>
   {% endfor %}

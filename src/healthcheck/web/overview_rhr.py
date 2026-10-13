@@ -1,8 +1,4 @@
-"""One existing Overview observation card over the accepted #376 reader.
-
-The period packet and the other cards are untouched. No collection proof is
-invented here: empty searches retain the reader's state and coverage stays unknown.
-"""
+"""Existing Overview RHR card over the #393 complete saved-period reader."""
 
 from datetime import date, datetime
 from typing import Any
@@ -10,7 +6,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import GoogleSource
-from healthcheck.saved_values import GARMIN_RHR, GOOGLE_RHR, SavedValueQuery, read_saved_rhr
+from healthcheck.saved_rhr_period import SavedRhrPeriodQuery, read_saved_rhr_period
+from healthcheck.saved_values import GARMIN_RHR, GOOGLE_RHR
 from healthcheck.web.sleep_view import google_vital_source_label
 
 
@@ -20,20 +17,19 @@ def read_overview_rhr(
     garmin_source_id: str | None, google_source_id: str | None = None,
     freshness: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Keep exact source identity and clocks; only a declared default card seeks back."""
-    mode = "explicit_period" if explicit_period else "default_latest"
+    """Both default and explicit cards use the exact selected Overview period."""
+    mode = "explicit_period"
     items = []
     for provider, metric, source_id, label, scope in (
         ("garmin_connect", GARMIN_RHR, garmin_source_id, "Garmin", "garmin:resting_heart_rate"),
         ("google_health", GOOGLE_RHR, google_source_id, "Google", "google:daily_resting_hr"),
     ):
-        result = read_saved_rhr(session, SavedValueQuery(
+        result = read_saved_rhr_period(session, SavedRhrPeriodQuery(
             provider_code=provider, metric_code=metric, source_id=source_id,
-            requested_start_date=start if explicit_period else evaluation_local_date,
-            requested_end_date=end if explicit_period else evaluation_local_date,
-            mode=mode, evaluated_at_utc=evaluated_at_utc,
+            requested_start_date=start, requested_end_date=end,
+            evaluated_at_utc=evaluated_at_utc,
             evaluation_local_date=evaluation_local_date,
-        )).as_dict()
+        ))
         source_labels = {}
         for identity in result["available_sources"]:
             if provider == "google_health":
