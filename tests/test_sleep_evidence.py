@@ -324,6 +324,13 @@ def test_whitelist_nested_future_fields_never_exported(profile, monkeypatch):
     monkeypatch.setattr(evidence, "read_source_sleep_range", nested_scalar)
     with pytest.raises(EvidenceError, match="unsupported_evidence_value"):
         read(profile)
+    def nested_count(*a, **kw):
+        packet = injected(*a, **kw)
+        packet["wake_date_missing_by_source"][kw["source_id"]] = {"token": "SECRET"}
+        return packet
+    monkeypatch.setattr(evidence, "read_source_sleep_range", nested_count)
+    with pytest.raises(EvidenceError, match="unsupported_evidence_value"):
+        read(profile)
 
 
 def test_snapshot_correction_consistency_across_separate_writer(profile, monkeypatch):

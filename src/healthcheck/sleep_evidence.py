@@ -225,7 +225,7 @@ def _assemble(
         missing = packet["wake_date_missing_by_source"]
         projected["wake_date_missing_by_source"] = (
             None if missing is None else (
-                {identity: missing[identity]} if identity in missing else {}
+                {identity: _project(missing[identity], True)} if identity in missing else {}
             )
         )
         sections[provider] = {
