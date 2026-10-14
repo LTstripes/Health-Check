@@ -111,6 +111,33 @@ Garmin payloads map into typed scalar, sleep, activity, and series entities. A l
 
 Training Phase B stores native status, load-balance, readiness and activity-list training fields through the immutable Garmin payload/observation and typed-record spine. `garmin-training-sync --start YYYY-MM-DD --end YYYY-MM-DD` is an explicit bounded acquisition of at most 14 readiness days and one Training Status response requested at the end date. Training Status `mostRecent` is **not** historical backfill: typed records use only provider source dates, and undated load-balance structures remain undated. The requested date lives in a separate acquisition row linked to the immutable observation. Multiple Readiness timestamps remain separate records. Device keys/IDs express association and activity listing `deviceId` expresses recorder association; neither proves metric producer identity. Ordinary `garmin-sync` retains its previous provider request set; activity Training Load and Training Effect are acquired only through its existing activity listing path. Missing, null, zero and invalid values remain separate field states. Training read access is a private deterministic service contract; owner presentation and live verification are separate gates.
 
+Overview Body Battery (#394) reads the selected Garmin source's current typed
+`intraday` / `body_battery` samples whose record path is
+`payload.bodyBatteryValuesArray[index]` and metric path is
+`payload.bodyBatteryValuesArray`. `garmin/sync.py` also synthesizes a scalar
+`bodyBattery` alias from the last series member; that alias is not an additional
+measurement. Existing `bodyBattery` / `bodyBatteryLevel` scalar rows cannot prove
+direct versus adapted origin from their saved field path, so their eligibility
+remains explicitly unknown. This reader neither reprocesses raw data nor changes
+ingestion. Values require the Body Battery capability, `value` state, `points`,
+a usable record and a finite level in [0, 100]; explicit zero remains a value.
+Future chronology and unknown temporal precision are excluded. Conflicting or
+indistinguishable current sample coordinates exclude the day, including equal
+numbers; date-only samples cannot resolve a multiple-sample collision. Replay and
+correction selection remain the existing persistence/currentness contract.
+
+Each eligible saved `source_local_date` contributes its maximum among eligible
+measurements once. The 7-day and 30-day inclusive windows end at the selected
+period's end; the selected-period mean uses its entire unchanged window. Means
+weight eligible days equally and retain exact rational arithmetic. Presentation
+uses the existing format of up to two decimals, without #393 integer rounding or
+its 400-day limit. Missing days are counted, never zero-filled. The read is bounded
+to 100,000 candidate records per window and 10,000 per day; exceeding either cap
+or a read failure returns no mean, maxima or denominator from a partial search.
+These are maxima of saved measurements, not provider-final full-day peaks or
+morning values. Acquisition completeness, wear coverage and legacy eligibility
+remain unknown; saved values do not establish refresh success or medical meaning.
+
 ### Google Fitbit / Google Health
 
 R04 targets Google Health API v4 (`health.googleapis.com`) only. The legacy Fitbit Web API has a September 2026 turn-down milestone; no legacy Fitbit Web API implementation. Accepted external contract: #81 adjudication (`5643609852`); repository-side correction: #82 (`5643533712`, `5643611744`).

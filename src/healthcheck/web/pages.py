@@ -38,6 +38,7 @@ from healthcheck.source_freshness_consumer import read_consumer_freshness_projec
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
+from healthcheck.web.overview_body_battery import read_overview_body_battery
 from healthcheck.web.overview_charts import read_overview_charts
 from healthcheck.web.overview_rhr import read_overview_rhr
 from healthcheck.web.overview_view import overview_number, read_overview_values
@@ -1060,6 +1061,12 @@ def period_brief_page(
                 selected_id=source_selection.get("selected_source_id"),
             )
             evaluated_at = datetime.now(UTC)
+            overview["body_battery"] = read_overview_body_battery(
+                session, start=start, end=end,
+                garmin_source_id=source_selection.get("selected_source_id"),
+                evaluated_at_utc=evaluated_at,
+                evaluation_local_date=evaluated_at.astimezone().date(),
+            )
             overview["rhr"] = read_overview_rhr(
                 session, start=start, end=end,
                 explicit_period=any(value is not None for value in (preset, start_date, end_date)),

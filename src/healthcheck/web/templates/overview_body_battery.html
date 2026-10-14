@@ -1,0 +1,48 @@
+{% set bb = overview.body_battery %}
+{% set selected = bb.selected %}
+{% set reasons = {
+  'source_not_selected': 'Источник Garmin не выбран.',
+  'source_not_found': 'Сохранённый источник Garmin не найден.',
+  'saved_value_read_failed': 'Не удалось прочитать сохранённые измерения.',
+  'period_record_cap': 'Достигнут лимит записей периода; среднее недоступно.',
+  'candidate_group_cap': 'Достигнут лимит записей одного дня; среднее недоступно.',
+  'legacy_or_alias_eligibility_unknown': 'Скалярный снимок или производный псевдоним: пригодность для максимума не подтверждена.',
+  'ambiguous_sample_coordinates': 'Время сохранённых измерений неоднозначно; день исключён.',
+  'unknown_date': 'Дата источника неизвестна; к периоду не отнесено.',
+  'unknown_temporal_precision': 'Точность времени неизвестна.',
+  'future_chronology': 'Хронология наблюдения находится в будущем.',
+  'metric_row_missing': 'Строка показателя отсутствует.',
+  'metric_missing': 'Источник не передал показатель.',
+  'metric_null': 'Источник передал пустое значение.',
+  'metric_invalid': 'Значение непригодно.',
+  'metric_value_invalid': 'Число непригодно.',
+  'metric_unit_mismatch': 'Единица измерения не соответствует баллам.',
+  'metric_identity_mismatch': 'Идентичность показателя не подтверждена.',
+  'record_invalid': 'Запись источника непригодна.'
+} %}
+<div data-overview-body-battery data-bb-state="{{ selected.state }}">
+  <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>
+  {% if selected.latest_maximum %}
+    <strong>Максимум за сохранённый день · {{ overview_number(selected.latest_maximum.value) }} баллы</strong>
+    <p class="muted">{{ selected.latest_maximum.source_local_date | owner_date }}</p>
+  {% endif %}
+  <p class="overview-source">Максимум среди пригодных сохранённых измерений; полнота суток неизвестна.</p>
+  {% for item in bb['items'] %}{% set dto = item.dto %}
+    <div data-bb-window="{{ item.key }}" data-bb-window-state="{{ dto.state }}">
+      <p>{{ item.label }} · {% if dto.mean_display is not none %}<strong>среднее максимумов {{ dto.mean_display }} баллы</strong>{% elif dto.state == 'no_eligible_in_period' %}нет пригодных измерений{% elif dto.state == 'search_incomplete' %}поиск не завершён{% else %}среднее недоступно{% endif %}</p>
+      <p class="overview-source">{{ dto.start_date | owner_date }} — {{ dto.end_date | owner_date }}{% if dto.eligible_day_count is not none %} · {{ dto.eligible_day_count }} из {{ dto.requested_day_count }} дней · без пригодного максимума: {{ dto.missing_day_count }}{% endif %}</p>
+      {% if dto.reason %}<p class="muted">{{ reasons.get(dto.reason, dto.reason) }}</p>{% endif %}
+    </div>
+  {% endfor %}
+  <details class="owner-details" data-bb-evidence><summary>Измерения и подробности · Body Battery</summary>
+    <p>Сначала максимум пригодных сохранённых измерений каждого дня, затем среднее с равным весом дней. Пропуски не заменяются нулём. Это не подтверждённый итог Garmin за полные сутки и не утреннее значение.</p>
+    <p>Окна 7 и 30 дней заканчиваются последним днём выбранного периода. Используется сохранённая дата источника; часовой пояс не додумывается. Обновление и полнота сбора не подтверждаются сохранёнными числами.</p>
+    {% for item in bb['items'] %}{% set dto = item.dto %}
+      <h4>{{ item.label }}</h4>
+      <p>Поиск {{ 'завершён' if dto.search.complete else 'не завершён' }} · записей {{ dto.search.records_examined }} · групп {{ dto.search.groups_examined }}. Лимиты: {{ dto.search.candidate_record_cap }} записей периода, {{ dto.search.per_day_record_cap }} за день.</p>
+      {% if dto.mean_exact %}<p>Точное среднее: {{ dto.mean_exact.numerator }} / {{ dto.mean_exact.denominator }} баллы. Для показа используется обычный формат до двух знаков.</p>{% endif %}
+      {% for point in dto.daily_maxima %}<p>{{ point.source_local_date | owner_date }}: {{ overview_number(point.value) }} баллы · пригодных измерений {{ point.eligible_sample_count }}{% if point.is_zero %} · явный ноль{% endif %}.</p>{% endfor %}
+      {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}</p>{% endfor %}
+    {% endfor %}
+  </details>
+</div>
