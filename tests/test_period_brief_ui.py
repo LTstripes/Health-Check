@@ -157,7 +157,16 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
 
     assert page.status_code == 200
     assert '<select name="garmin_source_id">' not in page.text
-    primary = _visible_text(page.text.split("Технические детали", 1)[0])
+    # #393 adds source provenance inside its own collapsed disclosure. The
+    # primary text check must exclude that disclosure's hidden contents.
+    disclosure = '<details class="owner-details" data-rhr-evidence>'
+    assert disclosure in page.text
+    primary_html = page.text
+    while disclosure in primary_html:
+        before, remaining = primary_html.split(disclosure, 1)
+        _hidden, after = remaining.split("</details>", 1)
+        primary_html = before + after
+    primary = _visible_text(primary_html.split("Технические детали", 1)[0])
     technical = _visible_text(page.text.split("Технические детали", 1)[1])
     assert "Garmin Connect · Vivoactive 5" in primary
     assert source_id not in primary
@@ -167,9 +176,11 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
 
 
 @pytest.mark.parametrize("kind", ["default", "preset", "day", "window", "wrong_source"])
-def test_376_existing_rhr_card_uses_real_reader_and_keeps_period_packet(
+def test_393_existing_rhr_card_uses_real_period_reader_and_keeps_period_packet(
     tmp_path, monkeypatch, kind,
 ):
+    from types import FunctionType
+
     from sqlalchemy import select
 
     from healthcheck.db.models import GoogleSourceRecord
@@ -181,9 +192,23 @@ def test_376_existing_rhr_card_uses_real_reader_and_keeps_period_packet(
         def now(cls, tz=None):
             return cls(2099, 1, 10, 12, tzinfo=UTC).astimezone(tz)
 
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return date(2099, 1, 10)
+
+        @classmethod
+        def fromisoformat(cls, value):
+            return date.fromisoformat(value)
+
     monkeypatch.setattr(pages, "datetime", FrozenDatetime)
     monkeypatch.setattr(period_brief_query, "datetime", FrozenDatetime)
     app, settings, paths = create_fixture(tmp_path)
+    # Freeze only the production period resolver's clock. FastAPI resolves
+    # other date-typed route annotations lazily from module globals.
+    monkeypatch.setattr(pages, "_brief_period", FunctionType(
+        pages._brief_period.__code__, dict(pages._brief_period.__globals__, date=FrozenDate),
+    ))
     seed_overview_v2(paths)
     engine = create_sqlite_engine(paths)
     try:
@@ -202,25 +227,24 @@ def test_376_existing_rhr_card_uses_real_reader_and_keeps_period_packet(
             response = client.get("/brief", params=params)
         assert response.status_code == 200
         rhr = response.context["overview"]["rhr"]
-        expected_mode = (
-            "explicit_period" if kind in {"preset", "day", "window"} else "default_latest"
-        )
-        assert rhr["mode"] == expected_mode
-        assert response.text.count("data-overview-rhr ") == 1  # existing card only
+        assert rhr["mode"] == "explicit_period"
+        assert response.text.count("data-overview-rhr ") == 1
         dto = rhr["items"][0]["dto"]
-        if expected_mode == "default_latest":
-            assert dto["state"] == "last_eligible" and dto["observation"]["value"] == 52
-            assert dto["observation"]["source_local_date"] == "2099-01-02"
-            assert dto["observation"]["observation_age_days"] == 8
-            assert "Сегодня нет допустимого наблюдения" in response.text
+        if kind in {"default", "wrong_source"}:
+            assert dto["state"] == "observed" and dto["mean_display"] == 52
+            assert dto["last_observation"]["source_local_date"] == "2099-01-02"
+            assert dto["last_observation"]["observation_age_days"] == 8
+            assert "по 1 из 30 дней" in response.text and "одно наблюдение" in response.text
         else:
-            assert dto["state"] == "no_eligible_in_search" and dto["observation"] is None
-            assert dto["search"]["start_date"] == response.context["brief"]["period"]["start_date"]
-            assert dto["search"]["end_date"] == response.context["brief"]["period"]["end_date"]
+            assert dto["state"] == "no_eligible_in_period" and dto["mean_display"] is None
+        assert dto["query"]["requested_start_date"] == (
+            response.context["brief"]["period"]["start_date"])
+        assert dto["query"]["requested_end_date"] == (
+            response.context["brief"]["period"]["end_date"])
         google = rhr["items"][1]["dto"]
         assert google["query"]["source_id"] == params["google_rhr_source_id"]
         if kind == "wrong_source":
-            assert google["reason"] == "source_not_found" and google["observation"] is None
+            assert google["reason"] == "source_not_found" and google["mean_display"] is None
         else:
             # Preset links retain the selected exact identity.
             assert f"google_rhr_source_id={google_id}" in response.text
