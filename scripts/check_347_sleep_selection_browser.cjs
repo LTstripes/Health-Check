@@ -41,7 +41,8 @@ const periods = ['7', '30', 'trailing365', 'calendar_year', 'year_to_date'];
         for (const period of periods) {
           await page.locator('[name="period"]').selectOption(period);
           await page.getByRole('button', { name: 'Показать', exact: true }).focus();
-          await Promise.all([page.waitForURL(url => url.searchParams.get('period') === period),
+          await Promise.all([page.waitForURL(url => url.searchParams.get('period') === period &&
+            url.searchParams.has('google_sleep_source_id')),
             page.keyboard.press('Enter')]);
           for (const field of ['garmin_source_id', 'google_source_id', 'garmin_sleep_source_id', 'google_sleep_source_id']) {
             assert.equal(await page.locator(`[name="${field}"]`).inputValue(), '');
