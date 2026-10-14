@@ -149,7 +149,14 @@ def test_five_google_identities_use_generic_sleep_eligibility(statistics_ui, per
     export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
     if export:
         Path(export).mkdir(parents=True, exist_ok=True)
-        (Path(export) / f"sleep-five-{period}.html").write_text(response.text, encoding="utf-8")
+        # Native navigation uses one inventory across every exported window.
+        for window in ("7", "30", "trailing365", "calendar_year", "year_to_date"):
+            rendered = client.get("/statistics", params={
+                "period": window, "end_date": str(END), "calendar_year": END.year,
+            })
+            assert rendered.status_code == 200
+            assert family_id in MetricParser(rendered.text).details[SLEEP_CODE, "right"]
+            (Path(export) / f"sleep-five-{window}.html").write_text(rendered.text, encoding="utf-8")
 
 
 def test_sleep_form_only_retains_human_overrides_and_window_expansion(statistics_ui):
