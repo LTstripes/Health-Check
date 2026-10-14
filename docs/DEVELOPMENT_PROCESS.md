@@ -288,7 +288,22 @@ or missing CreationTime, unknown queries and surviving captured children fail.
 Root reuse does not
 stop checks of captured children or authorize traversal from the reused PID.
 These observations do not provide process-handle/object-bound guarantees.
-Unrecognized/localized diagnostics and other exit codes fail. Both ports must
+Native exit 128 has a separate bounded exception for the retained transcript in
+failed [PR #415 run 38544069167, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38544069167).
+It requires exactly 13 raw string items: six SUCCESS records, two distinct captured
+uv launcher ERROR/exact English Reason/zero-length-item groups, and final root
+SUCCESS. Exactly nine unique captured PIDs must be covered. The reported parent
+edges and captured roles match the observed two-branch shape: UI/ingest Python
+child chains, the ingest launcher console child, root console child, ingest then UI
+launcher errors, and the pwsh root. Both captured uv command lines must end in the
+exact respective `run python -m healthcheck.cli serve --app ingest`/`ui` commands,
+with quoted uv.exe paths. Names constrain this exception; the coherent ownership
+snapshot and full identities remain the ownership proof. Parent text is a shape
+constraint, not additional process-handle or captured-parent proof. All existing
+post/final CreationTime, query, survivor and identity guards remain mandatory.
+This exception does not extend the exit-255 grammar or normalize any output item.
+All other 128 shapes, unrecognized/localized diagnostics and other nonzero exit
+codes fail. Both ports must
 also be closed and the external synthetic runtime removed. No second kill or
 process-name-wide operation is used. A root absent before the ownership
 snapshot is unproven and fails. Artifact schema 3 requires this lifecycle
@@ -296,6 +311,13 @@ evidence, both termination and final observations for every captured PID, and
 rejects all identity-change entries. Historical artifacts that
 discarded native output cannot retrospectively prove this diagnostic or be
 waived under the new contract.
+
+The source artifact 11883313457 ZIP SHA256 is
+`b1ca2d7f6d0cf008ac53b77dfecbed13dcb528fd6013ea735ca37fb65924e37b`.
+Its native scheduling/exit-code and blank-item capture causes remain unproven;
+the failed attempt stays FAILURE and its unreached DPAPI remains absent. Recognition
+is demonstrated by synthetic replay; a new complete exact-attempt gate including
+DPAPI is required for a candidate. No native kill reproduction is implied.
 
 Use one full remote candidate gate after frozen code stabilizes, then the exact
 post-integration and post-main gates owned by the Integrator. Run a full local

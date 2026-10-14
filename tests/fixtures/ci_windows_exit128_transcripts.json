@@ -1,0 +1,2794 @@
+{
+  "note": "Synthetic PID-aliased exact run38544069167 attempt1/artifact11883313457 shape; ZIP SHA256 b1ca2d7f6d0cf008ac53b77dfecbed13dcb528fd6013ea735ca37fb65924e37b. Native code128 and item capture cause remain unproven; failed attempt and absent DPAPI stay failed/unverified. Output changes use zero-based [start,end) slices, applied from last to first.",
+  "owned": [
+    {
+      "Id": 100,
+      "Name": "pwsh.exe",
+      "CommandLine": "synthetic captured 100",
+      "CreationTime": "637134336000000000"
+    },
+    {
+      "Id": 101,
+      "Name": "conhost.exe",
+      "CommandLine": "synthetic captured 101",
+      "CreationTime": "637134336010000000"
+    },
+    {
+      "Id": 102,
+      "Name": "uv.exe",
+      "CommandLine": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ingest",
+      "CreationTime": "637134336010000000"
+    },
+    {
+      "Id": 103,
+      "Name": "uv.exe",
+      "CommandLine": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ui",
+      "CreationTime": "637134336010000000"
+    },
+    {
+      "Id": 104,
+      "Name": "conhost.exe",
+      "CommandLine": "synthetic captured 104",
+      "CreationTime": "637134336010000000"
+    },
+    {
+      "Id": 105,
+      "Name": "python.exe",
+      "CommandLine": "synthetic captured 105",
+      "CreationTime": "637134336010000000"
+    },
+    {
+      "Id": 106,
+      "Name": "python.exe",
+      "CommandLine": "synthetic captured 106",
+      "CreationTime": "637134336010000000"
+    },
+    {
+      "Id": 107,
+      "Name": "python.exe",
+      "CommandLine": "synthetic captured 107",
+      "CreationTime": "637134336010000000"
+    },
+    {
+      "Id": 108,
+      "Name": "python.exe",
+      "CommandLine": "synthetic captured 108",
+      "CreationTime": "637134336010000000"
+    }
+  ],
+  "output": [
+    "SUCCESS: The process with PID 108 (child process of PID 106) has been terminated.",
+    "SUCCESS: The process with PID 107 (child process of PID 105) has been terminated.",
+    "SUCCESS: The process with PID 104 (child process of PID 102) has been terminated.",
+    "SUCCESS: The process with PID 106 (child process of PID 103) has been terminated.",
+    "SUCCESS: The process with PID 105 (child process of PID 102) has been terminated.",
+    "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.",
+    "ERROR: The process with PID 102 (child process of PID 100) could not be terminated.",
+    "Reason: There is no running instance of the task.",
+    "",
+    "ERROR: The process with PID 103 (child process of PID 100) could not be terminated.",
+    "Reason: There is no running instance of the task.",
+    "",
+    "SUCCESS: The process with PID 100 (child process of PID 99) has been terminated."
+  ],
+  "parents": {
+    "108": 106,
+    "107": 105,
+    "104": 102,
+    "106": 103,
+    "105": 102,
+    "101": 100,
+    "102": 100,
+    "103": 100,
+    "100": 99
+  },
+  "cases": [
+    {
+      "name": "observed_pid_aliased",
+      "accepted": true
+    },
+    {
+      "name": "missing_item_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 0,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 108 (child process of PID 106) has been terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 108 (child process of PID 106) has been terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 108 (child process of PID 106) has been terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 108 (child process of PID 106) has been terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 1,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 107 (child process of PID 105) has been terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 107 (child process of PID 105) has been terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 107 (child process of PID 105) has been terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 107 (child process of PID 105) has been terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 2,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 104 (child process of PID 102) has been terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 104 (child process of PID 102) has been terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 104 (child process of PID 102) has been terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 104 (child process of PID 102) has been terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 3,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 106 (child process of PID 103) has been terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 106 (child process of PID 103) has been terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 106 (child process of PID 103) has been terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 106 (child process of PID 103) has been terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 4,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 105 (child process of PID 102) has been terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 105 (child process of PID 102) has been terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 105 (child process of PID 102) has been terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 105 (child process of PID 102) has been terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 5,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 6,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 102 (child process of PID 100) could not be terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 102 (child process of PID 100) could not be terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 102 (child process of PID 100) could not be terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 102 (child process of PID 100) could not be terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 7,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "Reason: There is no running instance of the task. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "Reason: There is no running instance of the task.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "Reason: There is no running instance of the task.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "Reason: There is no running instance of the task.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 9,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            " "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 9,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 103 (child process of PID 100) could not be terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 103 (child process of PID 100) could not be terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 103 (child process of PID 100) could not be terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 103 (child process of PID 100) could not be terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 10,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "Reason: There is no running instance of the task. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "Reason: There is no running instance of the task.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "Reason: There is no running instance of the task.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "Reason: There is no running instance of the task.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 12,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            " "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing_item_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "extra_item_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 12,
+          "items": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_space_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 100 (child process of PID 99) has been terminated. "
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_cr_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 100 (child process of PID 99) has been terminated.\r"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_lf_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 100 (child process of PID 99) has been terminated.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trailing_zwsp_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 100 (child process of PID 99) has been terminated.​"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_null_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_bool_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_int_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_tab_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "\t"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_nul_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "\u0000"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_shy_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "­"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_cgj_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "͏"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_bom_8",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "﻿"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_null_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_bool_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_int_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_tab_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "\t"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_nul_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "\u0000"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_shy_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "­"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_cgj_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "͏"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "separator_bom_11",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 11,
+          "end": 12,
+          "items": [
+            "﻿"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_access_denied_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "Reason: Access is denied."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_case_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "reason: There is no running instance of the task."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_missing_period_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "Reason: There is no running instance of the task"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_localized_7",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 7,
+          "end": 8,
+          "items": [
+            "Причина: нет запущенного экземпляра."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_access_denied_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "Reason: Access is denied."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_case_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "reason: There is no running instance of the task."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_missing_period_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "Reason: There is no running instance of the task"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reason_localized_10",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 10,
+          "end": 11,
+          "items": [
+            "Причина: нет запущенного экземпляра."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 999 (child process of PID 106) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 0 (child process of PID 106) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 0108 (child process of PID 106) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 108 (child process of PID 999) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "success: the process with pid 108 (child process of pid 106) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_0",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 1,
+          "items": [
+            "SUCCESS: The process with PID 107 (child process of PID 106) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 999 (child process of PID 105) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 0 (child process of PID 105) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 0107 (child process of PID 105) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 107 (child process of PID 999) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "success: the process with pid 107 (child process of pid 105) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_1",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 1,
+          "end": 2,
+          "items": [
+            "SUCCESS: The process with PID 104 (child process of PID 105) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 999 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 0 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 0104 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 104 (child process of PID 999) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "success: the process with pid 104 (child process of pid 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_2",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 2,
+          "end": 3,
+          "items": [
+            "SUCCESS: The process with PID 106 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 999 (child process of PID 103) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 0 (child process of PID 103) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 0106 (child process of PID 103) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 106 (child process of PID 999) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "success: the process with pid 106 (child process of pid 103) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_3",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 3,
+          "end": 4,
+          "items": [
+            "SUCCESS: The process with PID 105 (child process of PID 103) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 999 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 0 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 0105 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 105 (child process of PID 999) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "success: the process with pid 105 (child process of pid 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_4",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 4,
+          "end": 5,
+          "items": [
+            "SUCCESS: The process with PID 101 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 999 (child process of PID 100) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 0 (child process of PID 100) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 0101 (child process of PID 100) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 101 (child process of PID 999) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "success: the process with pid 101 (child process of pid 100) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_5",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 102 (child process of PID 100) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 999 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 0 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 0102 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 102 (child process of PID 999) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "error: the process with pid 102 (child process of pid 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_6",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 7,
+          "items": [
+            "ERROR: The process with PID 103 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 999 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 0 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 0103 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 103 (child process of PID 999) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "error: the process with pid 103 (child process of pid 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_9",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 9,
+          "end": 10,
+          "items": [
+            "ERROR: The process with PID 100 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foreign_pid_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 999 (child process of PID 99) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_pid_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 0 (child process of PID 99) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leading_zero_pid_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 0100 (child process of PID 99) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_parent_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 100 (child process of PID 102) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "record_case_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "success: the process with pid 100 (child process of pid 99) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate_pid_12",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 108 (child process of PID 99) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "swap_error_launchers",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 6,
+          "end": 6,
+          "items": [
+            "ERROR: The process with PID 103 (child process of PID 100) could not be terminated.",
+            "Reason: There is no running instance of the task.",
+            ""
+          ]
+        },
+        {
+          "start": 9,
+          "end": 12,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "swap_python_branches",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 0,
+          "end": 0,
+          "items": [
+            "SUCCESS: The process with PID 107 (child process of PID 105) has been terminated."
+          ]
+        },
+        {
+          "start": 1,
+          "end": 2,
+          "items": []
+        }
+      ]
+    },
+    {
+      "name": "root_nonfinal",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 5,
+          "end": 6,
+          "items": [
+            "SUCCESS: The process with PID 100 (child process of PID 99) has been terminated."
+          ]
+        },
+        {
+          "start": 12,
+          "end": 13,
+          "items": [
+            "SUCCESS: The process with PID 101 (child process of PID 100) has been terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "extra_error",
+      "accepted": false,
+      "output_changes": [
+        {
+          "start": 8,
+          "end": 9,
+          "items": [
+            "ERROR: The process with PID 102 (child process of PID 100) could not be terminated."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "captured_name_0",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 0,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_0",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 0,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_0",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 0,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_0",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 0,
+          "field": "Name",
+          "value": "pwsh.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_1",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 1,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_1",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 1,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_1",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 1,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_1",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 1,
+          "field": "Name",
+          "value": "conhost.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "Name",
+          "value": "uv.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "Name",
+          "value": "uv.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_4",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 4,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_4",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 4,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_4",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 4,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_4",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 4,
+          "field": "Name",
+          "value": "conhost.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_5",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 5,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_5",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 5,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_5",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 5,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_5",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 5,
+          "field": "Name",
+          "value": "python.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_6",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 6,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_6",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 6,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_6",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 6,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_6",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 6,
+          "field": "Name",
+          "value": "python.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_7",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 7,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_7",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 7,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_7",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 7,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_7",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 7,
+          "field": "Name",
+          "value": "python.exe​"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_8",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 8,
+          "field": "Name",
+          "value": "unrelated.exe"
+        }
+      ]
+    },
+    {
+      "name": "captured_empty_command_8",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 8,
+          "field": "CommandLine",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "captured_time_8",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 8,
+          "field": "CreationTime",
+          "value": "invalid"
+        }
+      ]
+    },
+    {
+      "name": "captured_name_zwsp_8",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 8,
+          "field": "Name",
+          "value": "python.exe​"
+        }
+      ]
+    },
+    {
+      "name": "launcher_suffix_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ingest --extra"
+        }
+      ]
+    },
+    {
+      "name": "launcher_lf_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ingest\n"
+        }
+      ]
+    },
+    {
+      "name": "launcher_zwsp_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ingest​"
+        }
+      ]
+    },
+    {
+      "name": "launcher_wrong_app_2",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 2,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ui"
+        }
+      ]
+    },
+    {
+      "name": "launcher_suffix_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ui --extra"
+        }
+      ]
+    },
+    {
+      "name": "launcher_lf_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ui\n"
+        }
+      ]
+    },
+    {
+      "name": "launcher_zwsp_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ui​"
+        }
+      ]
+    },
+    {
+      "name": "launcher_wrong_app_3",
+      "accepted": false,
+      "identity_updates": [
+        {
+          "index": 3,
+          "field": "CommandLine",
+          "value": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ingest"
+        }
+      ]
+    },
+    {
+      "name": "noncontiguous_pid_aliases",
+      "accepted": true,
+      "output": [
+        "SUCCESS: The process with PID 767 (child process of PID 753) has been terminated.",
+        "SUCCESS: The process with PID 760 (child process of PID 746) has been terminated.",
+        "SUCCESS: The process with PID 739 (child process of PID 725) has been terminated.",
+        "SUCCESS: The process with PID 753 (child process of PID 732) has been terminated.",
+        "SUCCESS: The process with PID 746 (child process of PID 725) has been terminated.",
+        "SUCCESS: The process with PID 718 (child process of PID 711) has been terminated.",
+        "ERROR: The process with PID 725 (child process of PID 711) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "ERROR: The process with PID 732 (child process of PID 711) could not be terminated.",
+        "Reason: There is no running instance of the task.",
+        "",
+        "SUCCESS: The process with PID 711 (child process of PID 704) has been terminated."
+      ],
+      "owned": [
+        {
+          "Id": 711,
+          "Name": "pwsh.exe",
+          "CommandLine": "synthetic captured 100",
+          "CreationTime": "637134336000000000"
+        },
+        {
+          "Id": 718,
+          "Name": "conhost.exe",
+          "CommandLine": "synthetic captured 101",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 725,
+          "Name": "uv.exe",
+          "CommandLine": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ingest",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 732,
+          "Name": "uv.exe",
+          "CommandLine": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ui",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 739,
+          "Name": "conhost.exe",
+          "CommandLine": "synthetic captured 104",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 746,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 105",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 753,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 106",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 760,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 107",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 767,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 108",
+          "CreationTime": "637134336010000000"
+        }
+      ],
+      "parents": {
+        "767": 753,
+        "760": 746,
+        "739": 725,
+        "753": 732,
+        "746": 725,
+        "718": 711,
+        "725": 711,
+        "732": 711,
+        "711": 704
+      }
+    },
+    {
+      "name": "nonroot_capture_order",
+      "accepted": true,
+      "owned": [
+        {
+          "Id": 100,
+          "Name": "pwsh.exe",
+          "CommandLine": "synthetic captured 100",
+          "CreationTime": "637134336000000000"
+        },
+        {
+          "Id": 108,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 108",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 107,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 107",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 106,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 106",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 105,
+          "Name": "python.exe",
+          "CommandLine": "synthetic captured 105",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 104,
+          "Name": "conhost.exe",
+          "CommandLine": "synthetic captured 104",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 103,
+          "Name": "uv.exe",
+          "CommandLine": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ui",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 102,
+          "Name": "uv.exe",
+          "CommandLine": "\"C:\\synthetic\\uv.exe\" run python -m healthcheck.cli serve --app ingest",
+          "CreationTime": "637134336010000000"
+        },
+        {
+          "Id": 101,
+          "Name": "conhost.exe",
+          "CommandLine": "synthetic captured 101",
+          "CreationTime": "637134336010000000"
+        }
+      ]
+    }
+  ]
+}
