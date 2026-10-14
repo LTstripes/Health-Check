@@ -127,8 +127,8 @@ numbers; date-only samples cannot resolve a multiple-sample collision. Replay an
 correction selection remain the existing persistence/currentness contract.
 
 Each eligible saved `source_local_date` contributes its maximum among eligible
-measurements once. The 7-day and 30-day inclusive windows end at the selected
-period's end; the selected-period mean uses its entire unchanged window. Means
+measurements once. Existing Overview 7-day/30-day controls and custom periods
+all use the entire unchanged selected window for the period mean. Means
 weight eligible days equally and retain exact rational arithmetic. Presentation
 uses the existing format of up to two decimals, without #393 integer rounding or
 its 400-day limit. Missing days are counted, never zero-filled. The read is bounded

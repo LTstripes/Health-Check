@@ -25,6 +25,7 @@ assert.ok(evidence);
       await page.setViewportSize({ width, height: 1000 });
       for (const [name, start, end, expected] of [
         ['selected', '2099-01-25', '2099-01-31', '40'],
+        ['month', '2099-01-02', '2099-01-31', '36'],
         ['one-day', '2099-01-31', '2099-01-31', '90'],
         ['zero', '2099-01-25', '2099-01-25', '0'],
         ['empty', '2099-02-02', '2099-02-05', null],
@@ -39,11 +40,11 @@ assert.ok(evidence);
           assert.match(await selected.innerText(), /нет пригодных измерений/);
         } else assert.match(await selected.innerText(), new RegExp(`среднее максимумов ${expected} баллы`));
         if (end === '2099-01-31') {
-          assert.match(await card.locator('[data-bb-window="7"]').innerText(), /среднее максимумов 40 баллы/);
-          assert.match(await card.locator('[data-bb-window="30"]').innerText(), /среднее максимумов 36 баллы/);
-          assert.match(await card.locator('[data-bb-window="30"]').innerText(), /5 из 30 дней/);
-          assert.match(await card.locator('[data-bb-window="30"]').innerText(), /без пригодного максимума: 25/);
           assert.match(await card.innerText(), /31 января 2099/);
+        }
+        if (name === 'month') {
+          assert.match(await selected.innerText(), /5 из 30 дней/);
+          assert.match(await selected.innerText(), /без пригодного максимума: 25/);
         }
         assert.match(await card.innerText(), /полнота суток неизвестна/);
         assert.doesNotMatch(await card.innerText(), /99 баллы/);
@@ -74,6 +75,14 @@ assert.ok(evidence);
         assert.equal(await details.getAttribute('open'), null);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
         checks.push({ width, name, expected, geometry, keyboard: 'Enter/Space and focus outline passed' });
+      }
+      for (const [preset, expected] of [['7', '40'], ['30', '36']]) {
+        assert.equal((await page.goto(base + '/brief')).status(), 200);
+        await page.locator(`a[href^="/brief?preset=${preset}"]`).click();
+        const selected = page.locator('[data-bb-window="selected"]');
+        assert.match(await selected.innerText(), new RegExp(`среднее максимумов ${expected} баллы`));
+        assert.match(await selected.innerText(), new RegExp(`из ${preset} дней`));
+        checks.push({ width, name: `preset-${preset}`, expected, selectedPeriod: true });
       }
     }
     assert.deepEqual(errors, []); assert.deepEqual(external, []);

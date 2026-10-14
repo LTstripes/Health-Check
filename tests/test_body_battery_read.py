@@ -140,18 +140,21 @@ def test_inclusive_windows_use_saved_dates_without_calendar_cap(stored, days):
     assert result["daily_maxima"][0]["source_local_date"] == start.isoformat()
 
 
-def test_overview_three_windows_anchor_to_selected_end_and_existing_format(stored):
+@pytest.mark.parametrize("days,display,count", [(1, "60.12", 1), (7, "60.12", 2),
+                                              (30, "37.56", 4)])
+def test_overview_selected_window_and_existing_format(stored, days, display, count):
     for offset, value in [(0, 60.125), (6, 60.125), (7, 20), (29, 10), (30, 100)]:
         seed_battery(*stored, day=DAY - timedelta(days=offset), values=(value,))
     q = query(stored)
-    result = read_overview_body_battery(stored[0], start=DAY, end=DAY,
+    result = read_overview_body_battery(stored[0], start=DAY - timedelta(days=days - 1), end=DAY,
         garmin_source_id=q.source_id, evaluated_at_utc=NOW, evaluation_local_date=DAY)
-    selected, week, month = [item["dto"] for item in result["items"]]
-    assert selected["mean_display"] == "60.12"  # Existing two-place format; no integer rounding.
-    assert week["mean_exact"]["numerator"] == "481"
-    assert week["mean_exact"]["denominator"] == "8" and week["eligible_day_count"] == 2
-    assert month["eligible_day_count"] == 4 and month["mean_display"] == "37.56"
-    assert [item["requested_day_count"] for item in (selected, week, month)] == [1, 7, 30]
+    selected = result["selected"]
+    assert selected["mean_display"] == display  # Existing format; no integer rounding.
+    assert selected["eligible_day_count"] == count
+    assert selected["requested_day_count"] == days
+    if days in {1, 7}:
+        assert selected["mean_exact"]["numerator"] == "481"
+        assert selected["mean_exact"]["denominator"] == "8"
 
 
 def test_source_local_date_is_not_utc_date_or_display_timezone(stored):

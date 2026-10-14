@@ -31,6 +31,22 @@ def main():
             return cls(2099, 1, 31, 23, tzinfo=UTC).astimezone(tz)
 
     pages.datetime = SyntheticDatetime
+    real_period = pages._brief_period
+
+    def synthetic_period(*, preset, start_date, end_date):
+        # Inject only the fixture's "today" for existing preset controls, keeping
+        # civil-date/Pydantic types and the production period parser unchanged.
+        if preset is not None or start_date is None and end_date is None:
+            key = preset or "30"
+            if key in {"7", "30", "90"} and start_date is None and end_date is None:
+                end = date(2099, 1, 31)
+                start = end - timedelta(days=int(key) - 1)
+                lower, upper, _ = real_period(preset=None, start_date=start.isoformat(),
+                                             end_date=end.isoformat())
+                return lower, upper, key
+        return real_period(preset=preset, start_date=start_date, end_date=end_date)
+
+    pages._brief_period = synthetic_period
     port = int(os.environ.get("HEALTHCHECK_UI_PORT", "8194"))
     app, _, paths = _ui(runtime, ui_port=port)
     seed_overview_a_plus(paths)
