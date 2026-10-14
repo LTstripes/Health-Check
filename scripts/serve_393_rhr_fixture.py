@@ -58,6 +58,8 @@ def main():
         for day, value in [("2098-12-02", 0), ("2099-01-04", 61), ("2099-01-05", 58),
                            ("2099-01-07", 63), ("2099-01-09", 62), ("2099-01-10", None),
                            ("2099-01-20", 60)]:
+            if os.environ.get("HEALTHCHECK_RHR_SIGNED_FIXTURE") == "1":
+                value = {"2099-01-04": -1, "2099-01-05": -2}.get(day, value)
             payload = {"calendarDate": day, "restingHeartRate": value}
             repository.persist_result(
                 normalize_garmin_payload(payload, stream="daily_health",

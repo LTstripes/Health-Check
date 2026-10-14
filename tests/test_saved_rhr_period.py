@@ -66,6 +66,10 @@ def test_exact_period_reads_all_distinct_days_beyond_latest_reader_caps(stored, 
     ([60.4, 60.6], 61, "121", "2"), ([60.1, 60.2, 60.3], 60, "301", "5"),
     ([0], 0, "0", "1"), ([61.5], 62, "123", "2"),
     ([0, 61], 31, "61", "2"), ([60, 60, 61], 60, "181", "3"),
+    ([-1.5], -2, "-3", "2"), ([-0.5], -1, "-1", "2"),
+    ([-1.49], -1, "-149", "100"), ([-1.51], -2, "-151", "100"),
+    ([-1.49, -1.5], -1, "-299", "200"), ([-0.4, -0.6], -1, "-1", "2"),
+    ([1.5], 2, "3", "2"),
 ])
 def test_final_only_rounding_exact_fraction_and_sparse_denominator(
     stored, values, display, numerator, denominator,
@@ -81,6 +85,20 @@ def test_final_only_rounding_exact_fraction_and_sparse_denominator(
     assert result["excluded_day_count"] == 7 - len(values)
     assert result["acquisition_coverage_state"] == "unknown"
     assert result["origin_state"] == "unknown" and result["snapshot_as_of"] is None
+
+
+def test_negative_tie_is_reachable_from_saved_observation(stored):
+    record, metric = _seed(stored, value=-1.5)
+    assert metric.state == "value" and metric.value_number == -1.5
+    latest = _read(stored)
+    assert latest.state == "exact" and latest.observation.record_id == record.id
+    assert latest.observation.value == -1.5
+    result = _period(stored, days=1)
+    assert result["state"] == "observed" and result["eligible_day_count"] == 1
+    assert result["observations"][0]["value"] == -1.5
+    assert result["mean_exact"]["numerator"] == "-3"
+    assert result["mean_exact"]["denominator"] == "2"
+    assert result["mean_display"] == -2
 
 
 @pytest.mark.parametrize("case", [

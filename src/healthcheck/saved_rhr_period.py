@@ -180,8 +180,10 @@ def _read_period(session, query, result):
             decimal = str(Decimal(mean.numerator) / Decimal(mean.denominator))
         exact = {"numerator": str(mean.numerator), "denominator": str(mean.denominator),
                  "decimal": decimal}
-        # Floor(x + 1/2), including exact half ties; round only the final mean.
-        display = (2 * mean.numerator + mean.denominator) // (2 * mean.denominator)
+        # Exact ROUND_HALF_UP: round the final mean's magnitude once, then
+        # restore its sign so half ties go away from zero on either side.
+        magnitude = (2 * abs(mean.numerator) + mean.denominator) // (2 * mean.denominator)
+        display = -magnitude if mean.numerator < 0 else magnitude
     return dict(result, state="observed" if count else "no_eligible_in_period",
                 eligible_day_count=count, excluded_day_count=result["requested_day_count"] - count,
                 mean_exact=exact, mean_display=display,
