@@ -23,7 +23,9 @@ MATRIX = json.loads(
     (Path(__file__).parent / "fixtures" / "ci_windows_exit255_transcripts.json").read_text()
 )
 EXIT128 = json.loads(
-    (Path(__file__).parent / "fixtures" / "ci_windows_exit128_transcripts.json").read_text()
+    (Path(__file__).parent / "fixtures" / "ci_windows_exit128_transcripts.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 
