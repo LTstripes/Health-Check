@@ -34,9 +34,11 @@
 <section class="overview-secondary" aria-label="Дополнительные показатели Garmin">
   {% for code, unit in [('resting_heart_rate_bpm', 'уд/мин'), ('hrv_weekly_average_ms', 'мс'), ('stress_daily_average', 'баллы'), ('body_battery', 'баллы')] %}
   {% set cell = overview.garmin.get(code) %}
-  <article><h3>{{ cell.label if cell else {'resting_heart_rate_bpm': 'Пульс в покое', 'hrv_weekly_average_ms': 'HRV · среднее за неделю', 'stress_daily_average': 'Стресс Garmin · среднее за день', 'body_battery': 'Body Battery Garmin · последний снимок'}[code] }}</h3>
+  <article><h3>{{ cell.label if cell else {'resting_heart_rate_bpm': 'Пульс в покое', 'hrv_weekly_average_ms': 'HRV · среднее за неделю', 'stress_daily_average': 'Стресс Garmin · среднее за день', 'body_battery': 'Body Battery Garmin'}[code] }}</h3>
     {% if code == 'resting_heart_rate_bpm' %}
     {% include 'overview_rhr.html' %}
+    {% elif code == 'body_battery' %}
+    {% include 'overview_body_battery.html' %}
     {% else %}
     <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>
     {{ garmin_cell(code, unit) }}
@@ -75,9 +77,9 @@
 </section>
 
 <section class="card" data-overview-garmin-only>
-  <h2>Стресс, Body Battery и тренировки Garmin</h2>
+  <h2>Стресс и тренировки Garmin</h2>
   <div class="brief-grid">
-    {% for code, label in [('stress_daily_average', 'Стресс Garmin · среднее за день'), ('body_battery', 'Body Battery Garmin · последний снимок')] %}
+    {% for code, label in [('stress_daily_average', 'Стресс Garmin · среднее за день')] %}
       <section><h3>{{ label }}</h3>{{ garmin_cell(code, 'баллы') }}</section>
     {% endfor %}
   </div>

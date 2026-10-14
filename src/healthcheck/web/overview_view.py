@@ -5,6 +5,7 @@ labelled; colliding Garmin snapshots never become one guessed value.
 """
 
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -31,11 +32,10 @@ GARMIN_OVERVIEW_METRICS = (
     ("spo2_daily_average", "spo2", "%", "Кислород · среднее за день"),
     ("respiration_bpm", "respiration", "breaths/min", "Дыхание · снимок источника"),
     ("stress_daily_average", "stress", "points", "Стресс Garmin · среднее за день"),
-    ("body_battery", "body_battery", "points", "Body Battery Garmin · последний снимок"),
 )
 
 
-def overview_number(value: int | float) -> str:
+def overview_number(value: int | float | Decimal) -> str:
     """At most two decimals for display; never alter the source value."""
     text = f"{value:.2f}".rstrip("0").rstrip(".")
     return "0" if text == "-0" else text
