@@ -41,6 +41,7 @@ from healthcheck.garmin.analytic_contract import (
     coerce_selected_number,
     stable_manifest_hash,
 )
+from healthcheck.garmin.normalization import _UTC_OFFSET_PATHS, _parse_source_offset
 from healthcheck.garmin.persistence import build_garmin_observation_key
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.read_snapshot import ensure_read_snapshot
@@ -87,6 +88,45 @@ def _day_end(day: date, zone: ZoneInfo) -> datetime | None:
         if instant.astimezone(zone).replace(tzinfo=None) == wall:
             candidates.append(instant)
     return max(candidates) if candidates else None
+
+
+def _source_clock_reason(record, original, zone):
+    """Reconcile only supplied clock evidence, at its instant (including DST)."""
+    offsets = [
+        _parse_source_offset(key, original[key]) for key in _UTC_OFFSET_PATHS if key in original
+    ]
+    if any(offset is None for offset in offsets):
+        return "source_timezone_offset_unproven"
+    if record.source_utc_offset_minutes is not None:
+        offsets.append(record.source_utc_offset_minutes)
+    if len(set(offsets)) > 1:
+        return "source_timezone_conflict"
+    offset = offsets[0] if offsets else None
+    instant = restore_stored_utc(record.source_timestamp_utc)
+    if instant is not None and offset is not None:
+        if instant.astimezone(zone).utcoffset() != timedelta(minutes=offset):
+            return "source_timezone_conflict"
+    if record.local_wall_time:
+        try:
+            wall = datetime.fromisoformat(record.local_wall_time)
+        except ValueError:
+            return "source_local_clock_unproven"
+        if wall.tzinfo is not None:
+            return "source_local_clock_unproven"
+        if instant is not None:
+            if instant.astimezone(zone).replace(tzinfo=None) != wall:
+                return "source_timezone_conflict"
+        else:
+            candidates = [wall.replace(tzinfo=zone, fold=fold) for fold in (0, 1)]
+            if not any(
+                candidate.astimezone(UTC).astimezone(zone).replace(tzinfo=None) == wall
+                and (offset is None or candidate.utcoffset() == timedelta(minutes=offset))
+                for candidate in candidates
+            ):
+                return "source_timezone_conflict"
+    elif instant is None and offset is not None:
+        return "source_timezone_offset_unproven"
+    return None
 
 
 def _ordinary_acquisition(session, source, record, raw, obs, artifact, evaluated_at):
@@ -150,9 +190,12 @@ def _ordinary_acquisition(session, source, record, raw, obs, artifact, evaluated
             "source_filename",
         )
     }
-    for name in ("source_window_start_utc", "source_window_end_utc"):
-        fields[name] = restore_stored_utc(getattr(obs, name))
-    expected_key = build_garmin_observation_key(content_hash=raw.content_hash, **fields)
+    try:
+        for name in ("source_window_start_utc", "source_window_end_utc"):
+            fields[name] = restore_stored_utc(getattr(obs, name))
+        expected_key = build_garmin_observation_key(content_hash=raw.content_hash, **fields)
+    except ValueError:
+        return "acquisition_identity_mismatch"
     if obs.observation_key != expected_key:
         return "acquisition_identity_mismatch"
     if (
@@ -279,6 +322,9 @@ def _proof(session, source, point, frozen, store, evaluated_at):
         zone = ZoneInfo(zones[0])
     except (ZoneInfoNotFoundError, ValueError):
         return failed("confirmed_source_timezone_invalid")
+    reason = _source_clock_reason(record, original, zone)
+    if reason:
+        return failed(reason)
     day = date.fromisoformat(point["analytic_date"])
     boundary = _day_end(day, zone)
     if boundary is None:

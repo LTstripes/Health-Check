@@ -4,8 +4,9 @@ import copy
 import json
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 from sqlalchemy import insert, select
@@ -77,7 +78,11 @@ def acquire(
     if zone is not None:
         payload["timeZoneId"] = zone
     payload.update(extra or {})
-    at = at or datetime.combine(day + timedelta(days=1), time(), ZoneInfo("Europe/Moscow"))
+    try:
+        fixture_zone = ZoneInfo(zone) if zone is not None else ZoneInfo("Europe/Moscow")
+    except ZoneInfoNotFoundError:
+        fixture_zone = ZoneInfo("Europe/Moscow")
+    at = at or datetime.combine(day + timedelta(days=1), time(), fixture_zone)
     at = at.astimezone(UTC)
     identity = GarminSourceIdentity(
         source_kind="provider",
@@ -302,6 +307,74 @@ def test_unknown_or_conflicting_timezone_preserves_current(database, zone, extra
     assert result["comparison"]["reason"] == reason
 
 
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize("clock", ["contradictory_stamp", "contradictory_offset", "coherent"])
+def test_named_zone_must_agree_with_referenced_local_clock(database, scope, clock):
+    saved, history = seed(database, zone="Asia/Tokyo")
+    day = D if scope == "current" else history[0].records[0].source_local_date
+    value = 13 if scope == "current" else 0
+    extra = {"startTimeLocal": f"{day}T00:00:00+09:00"}
+    if clock == "contradictory_stamp":
+        extra["startTimeLocal"] = f"{day}T00:00:00-05:00"
+    elif clock == "contradictory_offset":
+        extra["sourceUtcOffsetMinutes"] = -300
+    acquire(
+        database,
+        day,
+        value,
+        zone="Asia/Tokyo",
+        extra=extra,
+        at=datetime.combine(day, time(16), UTC),
+    )
+    result = read(database, saved.source.id)
+    assert result["current"]["value"] == 13
+    if clock == "coherent":
+        assert result["comparison"]["status"] == "available"
+    else:
+        assert result["comparison"]["reason"] == "source_timezone_conflict"
+        assert result["comparison"]["delta_points"] is None
+
+
+def test_source_offset_is_checked_at_stamp_not_next_midnight():
+    record = SimpleNamespace(
+        source_utc_offset_minutes=-300,
+        source_timestamp_utc=datetime(2026, 3, 8, 5, tzinfo=UTC),
+        local_wall_time="2026-03-08T00:00:00",
+    )
+    assert adapter._source_clock_reason(record, {}, ZoneInfo("America/New_York")) is None
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+def test_malformed_selected_observation_window_withholds_without_throwing(database, scope):
+    _paths, _engine, session, _store = database
+    saved, history = seed(database)
+    target = saved if scope == "current" else history[0]
+    obs = target.observation
+    event = session.get(IngestEvent, obs.ingest_event_id)
+    new_key, new_event_id = "malformed-window-" + uuid4().hex, str(uuid4())
+    event_values = {c.name: getattr(event, c.name) for c in IngestEvent.__table__.columns}
+    event_values.update(
+        id=new_event_id,
+        deduplication_key=uuid4().hex,
+        semantic_fingerprint=f"garmin-observation:{new_key}",
+    )
+    session.execute(insert(IngestEvent).values(**event_values))
+    values = {c.name: getattr(obs, c.name) for c in GarminPayloadObservation.__table__.columns}
+    values.update(
+        id=str(uuid4()),
+        observation_key=new_key,
+        ingest_event_id=new_event_id,
+        source_window_end_utc=obs.source_window_start_utc,
+    )
+    session.execute(insert(GarminPayloadObservation).values(**values))
+    target.records[0].ingest_event_id = new_event_id
+    session.commit()
+    result = read(database, saved.source.id)
+    assert result["current"]["value"] == 13
+    assert result["comparison"]["reason"] == "acquisition_identity_mismatch"
+    assert result["comparison"]["delta_points"] is None
+
+
 @pytest.mark.parametrize("seconds,available", [(-1, False), (0, True), (1, True)])
 def test_actual_acquisition_boundary_not_host_day(database, seconds, available):
     boundary = datetime(2099, 1, 29, 21, tzinfo=UTC)
@@ -359,7 +432,7 @@ def test_exact_selected_provenance_not_success_label_alone(database, tamper):
         # Keep immutable originals. An extra conflicting observation makes the
         # selected event's provenance ambiguous, which R03 must reject.
         values = {c.name: getattr(obs, c.name) for c in GarminPayloadObservation.__table__.columns}
-        values.update(id=str(uuid4()), observation_key="conflicting-selected-event")
+        values.update(id=str(uuid4()), observation_key="conflicting-selected-event-provenance")
         session.execute(insert(GarminPayloadObservation).values(**values))
     else:
         artifact = session.get(RawArtifact, saved.raw_payload.raw_artifact_id)
