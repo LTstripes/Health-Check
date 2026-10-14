@@ -54,6 +54,7 @@
       "tests/test_period_summary.py",
       "tests/test_period_summary_annual.py",
       "tests/test_sleep_agreement_statistics.py",
+      "tests/test_sleep_evidence.py",
       "tests/test_sleep_google_vitals_ui.py",
       "tests/test_sleep_metrics.py",
       "tests/test_sleep_owner_ui.py",
@@ -91,7 +92,8 @@
       "tests/test_profile_backup.py",
       "tests/test_offsite_backup.py",
       "tests/test_ui_host_origin_guard.py",
-      "tests/test_saved_values.py"
+      "tests/test_saved_values.py",
+      "tests/test_saved_rhr_period.py"
     ]
   },
   "allowed_skips": [

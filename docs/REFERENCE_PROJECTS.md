@@ -260,6 +260,21 @@ VitaSync remains conceptually useful for encrypted-token, hashed-key, streaming/
 
 `garmin_ai` remains useful as a reference for raw-first/FIT fallback, Windows scheduling/packaging, Telegram, and explicit read-vs-write human-in-the-loop ideas. No root license was present at the reviewed SHA, so no code may be copied. Its model-computes-from-raw MCP posture also conflicts with Health-Check's deterministic analytics boundary.
 
+## Google weekly report — Overview inspiration (2026-10-13)
+
+**REFERENCE ONLY / PRODUCT IDEA.** Source: an Owner-provided weekly-report screenshot, reviewed privately. Preserve only its presentation ideas here; do not publish the screenshot or personal measurements. This is a commercial-product layout reference, not a code donor or provider/API authority.
+
+Owner wants to consider a similar compact summary inside the existing **Обзор (Overview)** tab. No new application section or implementation launch is requested.
+
+Ideas for later design review:
+- One clearly dated, completed week with a comparable previous-week delta; use one explicit reporting calendar/day policy and preserve each metric's accepted date/window meaning.
+- Readable headline values, a compact daily strip and quieter supporting metrics. Keep source, units, eligible-day/night coverage and meaningful freshness visible; put detailed provenance on demand.
+- Bring Garmin and Google evidence into one view while retaining separate source identities. Do not pool competing measurements, sum overlapping activity/steps/energy, or silently change canonical-source rules.
+- Use only supported saved metrics and accepted aggregations. Missing is not zero; partial coverage and incomparable weeks must remain explicit. Provider email totals are reference examples, not proof of aligned daily data or complete collection.
+- Optionally add one or two short factual observations with dated user context when relevant. Treat this as a design idea, with no causal, medical or readiness-score claims.
+
+Metric selection, calculations and implementation remain separate reviewed decisions. This note creates no new collection, connection, export, delivery schedule or feature commitment.
+
 ## Cross-project adversarial regression catalogue
 
 The 2026-09-12 refresh adds these reusable failure classes to the watch list. Encode them only in an owning implementation task whose data shape actually makes the regression meaningful:

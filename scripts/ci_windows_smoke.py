@@ -226,6 +226,60 @@ def _validate_exit_255_transcript(output: list[str], owned_ids: list[int]) -> No
     _require(error_count > 0 and reported == expected, failure)
 
 
+def _validate_exit_128_transcript(output: list[str], owned: list[dict[str, Any]]) -> None:
+    """Only the retained run38544069167 shape with PID aliases; mirror PowerShell.
+
+    Six SUCCESS, two ERROR/exact Reason/empty groups, final root SUCCESS.
+    All nine captured roles and reported edges must match. No normalization.
+    """
+    failure = "native exit 128 lacks the exact captured lifecycle transcript"
+    _require(len(output) == 13 and len(owned) == 9, failure)
+    _require(all(isinstance(line, str) for line in output), failure)
+    reason = "Reason: There is no running instance of the task."
+    _require(output[7] == output[10] == reason and output[8] == output[11] == "", failure)
+    success = (
+        r"SUCCESS: The process with PID ([1-9][0-9]*) "
+        r"\(child process of PID ([1-9][0-9]*)\) has been terminated\."
+    )
+    error = (
+        r"ERROR: The process with PID ([1-9][0-9]*) "
+        r"\(child process of PID ([1-9][0-9]*)\) could not be terminated\."
+    )
+    records = []
+    for index in (0, 1, 2, 3, 4, 5, 6, 9, 12):
+        match = re.fullmatch(error if index in (6, 9) else success, output[index])
+        _require(match is not None, failure)
+        assert match is not None
+        records.append((int(match[1]), int(match[2])))
+    captured = {identity["Id"]: identity for identity in owned}
+    ids = [pid for pid, _ in records]
+    _require(len(captured) == len(set(ids)) == 9 and set(ids) == set(captured), failure)
+    names = (
+        "python.exe",
+        "python.exe",
+        "conhost.exe",
+        "python.exe",
+        "python.exe",
+        "conhost.exe",
+        "uv.exe",
+        "uv.exe",
+        "pwsh.exe",
+    )
+    _require(
+        all(captured[pid]["Name"] == name for pid, name in zip(ids, names, strict=True)), failure
+    )
+    root = owned[0]["Id"]
+    _require(ids[8] == root and records[8][1] not in captured, failure)
+    parents = (ids[3], ids[4], ids[6], ids[7], ids[6], root, root, root)
+    _require(all(records[i][1] == parent for i, parent in enumerate(parents)), failure)
+    # Coherent capture remains the ownership proof; names only bound this shape.
+    launcher = r'"[^"\r\n]+\\uv\.exe" run python -m healthcheck\.cli serve --app '
+    for index, app in ((6, "ingest"), (7, "ui")):
+        _require(
+            re.fullmatch(launcher + app, captured[ids[index]]["CommandLine"]) is not None, failure
+        )
+
+
 def _trustworthy_creation_time(value: Any) -> bool:
     # Mirror Test-PostTerminationCreationTime: canonical positive UTC DateTime ticks.
     return (
@@ -334,12 +388,15 @@ def _validate_termination(cleanup: dict[str, Any]) -> None:
         _require(outcome == "terminated", "native success classification mismatch")
     else:
         _require(
-            code == 255
+            code in (128, 255)
             and outcome == "exited-during-termination"
             and cleanup.get("lifecycle_diagnostic_verified") is True,
             "native termination failure lacks verified lifecycle evidence",
         )
-        _validate_exit_255_transcript(output, ids)
+        if code == 128:
+            _validate_exit_128_transcript(output, owned)
+        else:
+            _validate_exit_255_transcript(output, ids)
 
 
 def validate_windows_smoke_artifact(

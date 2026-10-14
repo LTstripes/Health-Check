@@ -68,6 +68,7 @@
 .overview-secondary article + article { border-left: 1px solid var(--line); }
 .overview-secondary h3 { margin: 0 0 8px; font-size: .8125rem; }
 .overview-secondary strong { display: block; font: 1.7rem var(--owner-heading-font); margin: 8px 0; }
+.overview-secondary [data-overview-rhr] strong { font-size: 1.125rem; line-height: 1.4; }
 .overview-secondary .muted { font-size: .75rem; margin: 4px 0; }
 .overview-a-plus .status-chip { font-size: .6875rem; }
 .overview-all-sources, .overview-a-plus .brief-limitations, .overview-a-plus .brief-sleep { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0; margin: 8px 0; }

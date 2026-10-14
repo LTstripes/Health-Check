@@ -1101,7 +1101,7 @@ def period_brief_page(
             "source_selection": source_selection,
             "selected_preset": selected_preset,
             "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"])
-            or any(item["dto"]["observation"] is not None for item in overview["rhr"]["items"])
+            or any(item["dto"]["last_observation"] is not None for item in overview["rhr"]["items"])
             or any(cell["value"] is not None for cell in overview["garmin"].values())
             or any(
                 cell["latest"] is not None

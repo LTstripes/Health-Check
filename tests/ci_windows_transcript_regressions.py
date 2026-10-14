@@ -22,12 +22,27 @@ from test_ci_workflow import (
 MATRIX = json.loads(
     (Path(__file__).parent / "fixtures" / "ci_windows_exit255_transcripts.json").read_text()
 )
+EXIT128 = json.loads(
+    (Path(__file__).parent / "fixtures" / "ci_windows_exit128_transcripts.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+def exit128_case(case):
+    output = copy.deepcopy(case.get("output", EXIT128["output"]))
+    for change in reversed(case.get("output_changes", [])):
+        output[change["start"] : change["end"]] = change["items"]
+    owned = copy.deepcopy(case.get("owned", EXIT128["owned"]))
+    for change in case.get("identity_updates", []):
+        owned[change["index"]][change["field"]] = change["value"]
+    return output, owned
 
 
 class TranscriptEvidenceTests(unittest.TestCase):
     checks = 0
 
-    def validate_case(self, transcript, accepted, mutation=None):
+    def validate_case(self, transcript, accepted, mutation=None, *, native_code=255, owned=None):
         with tempfile.TemporaryDirectory(prefix="healthcheck-exit255-") as temporary:
             root, head, tree = _windows_smoke_fixture(Path(temporary))
             artifact = root / "ci-windows-smoke-123-1"
@@ -45,11 +60,36 @@ class TranscriptEvidenceTests(unittest.TestCase):
             # Map sanitized matrix PIDs 100..108 to the fixture's 202..210.
             output = [
                 re.sub(r"(?<=PID )10[0-8]\b", lambda m: str(int(m[0]) + 102), line)
+                if isinstance(line, str)
+                else line
                 for line in transcript
             ]
+            if owned is not None:
+                captured = copy.deepcopy(owned)
+                aliases = {identity["Id"]: 202 + index for index, identity in enumerate(captured)}
+                output = [
+                    re.sub(
+                        r"(?<=PID )\d+",
+                        lambda m: (
+                            str(aliases.get(int(m[0]), int(m[0])))
+                            if m[0] == str(int(m[0]))
+                            else m[0]
+                        ),
+                        line,
+                    )
+                    if isinstance(line, str)
+                    else line
+                    for line in transcript
+                ]
+                for identity in captured:
+                    identity["Id"] = aliases[identity["Id"]]
+                cleanup["owned_process_identities"] = captured
+                cleanup["root_name"] = captured[0]["Name"]
+                cleanup["root_command_line"] = captured[0]["CommandLine"]
+                cleanup["root_creation_time"] = captured[0]["CreationTime"]
             cleanup.update(
                 termination_outcome="exited-during-termination",
-                taskkill_exit_code=255,
+                taskkill_exit_code=native_code,
                 lifecycle_diagnostic_verified=True,
                 taskkill_output=output,
             )
@@ -110,7 +150,21 @@ class TranscriptEvidenceTests(unittest.TestCase):
                 )
                 self.check_lifecycle_and_final_evidence(transcript)
 
-    def check_lifecycle_and_final_evidence(self, transcript):
+    def test_exit128_shared_matrix(self):
+        for case in EXIT128["cases"]:
+            with self.subTest(exit128=case["name"]):
+                transcript, owned = exit128_case(case)
+                self.validate_case(transcript, case["accepted"], native_code=128, owned=owned)
+
+    def test_exit128_preserves_lifecycle_and_final_evidence(self):
+        self.check_lifecycle_and_final_evidence(
+            EXIT128["output"], native_code=128, owned=EXIT128["owned"]
+        )
+
+    def check_lifecycle_and_final_evidence(self, transcript, *, native_code=255, owned=None):
+        def validate(transcript, accepted, mutation=None):
+            self.validate_case(transcript, accepted, mutation, native_code=native_code, owned=owned)
+
         for field in ("post_termination_observations", "final_process_observations"):
             for target in (0, 2, 3, 8):
                 for mode in (
@@ -151,10 +205,10 @@ class TranscriptEvidenceTests(unittest.TestCase):
                                 )
                                 record["Classification"] = "reused"
 
-                        self.validate_case(transcript, mode == "reuse", mutate)
+                        validate(transcript, mode == "reuse", mutate)
 
-            self.validate_case(transcript, False, lambda e, c: c[field].pop())
-            self.validate_case(
+            validate(transcript, False, lambda e, c: c[field].pop())
+            validate(
                 transcript, False, lambda e, c: c[field].__setitem__(8, copy.deepcopy(c[field][0]))
             )
 
@@ -171,13 +225,11 @@ class TranscriptEvidenceTests(unittest.TestCase):
                 )
                 child["Classification"] = "same-identity-alive"
 
-        self.validate_case(transcript, False, root_reuse_child_survives)
+        validate(transcript, False, root_reuse_child_survives)
 
-        for code in (1, 5, 254, 256, -1):
+        for code in (1, 5, 127, 129, 254, 256, -1, 255 if native_code == 128 else 128):
             with self.subTest(exit_code=code):
-                self.validate_case(
-                    transcript, False, lambda e, c: c.update(taskkill_exit_code=code)
-                )
+                validate(transcript, False, lambda e, c: c.update(taskkill_exit_code=code))
         for field, value in (
             ("termination_issued", False),
             ("root_already_exited", True),
@@ -186,16 +238,15 @@ class TranscriptEvidenceTests(unittest.TestCase):
             ("remaining_owned_process_ids", [210]),
         ):
             with self.subTest(field=field):
-                self.validate_case(transcript, False, lambda e, c: c.update({field: value}))
-        self.validate_case(
+                validate(transcript, False, lambda e, c: c.update({field: value}))
+        validate(
             transcript,
             False,
             lambda e, c: c["ports_closed"].update(ui=False),
         )
-        self.validate_case(
-            transcript, False, lambda e, c: e["scenarios"][1]["runtime"].update(removed=False)
-        )
-        self.validate_case(transcript, False, lambda e, c: e.update(dpapi=None))
+        validate(transcript, False, lambda e, c: e["scenarios"][1]["runtime"].update(removed=False))
+        validate(transcript, False, lambda e, c: e.update(dpapi=None))
+        validate(transcript, False, lambda e, c: c["ports_closed"].update(ingest=False))
 
 
 if __name__ == "__main__":

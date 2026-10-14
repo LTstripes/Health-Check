@@ -28,6 +28,7 @@ from healthcheck.google.contracts import GoogleQueryContext, GoogleQueryMode
 from healthcheck.google.persistence import GooglePersistenceRepository, GoogleSourceRepository
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.runtime import prepare_runtime
+from healthcheck.saved_rhr_period import SavedRhrPeriodQuery, read_saved_rhr_period
 from healthcheck.saved_values import (
     GARMIN_RHR,
     GOOGLE_RHR,
@@ -146,11 +147,12 @@ def _read(stored, **kwargs):
     return read_saved_rhr(session, _query(stored, **kwargs))
 
 
-def _card(stored, *, explicit=False, start=DAY, end=DAY, freshness=None):
+def _card(stored, *, explicit=False, start=None, end=DAY, freshness=None):
     session, _, source, _ = stored
     session.flush()
     result = read_overview_rhr(
-        session, start=start, end=end, explicit_period=explicit,
+        session, start=start or (DAY if explicit else DAY - timedelta(days=29)),
+        end=end, explicit_period=explicit,
         evaluated_at_utc=NOW, evaluation_local_date=DAY,
         garmin_source_id=source.id if source.provider_code == "garmin_connect" else None,
         google_source_id=source.id if source.provider_code == "google_health" else None,
@@ -185,23 +187,28 @@ def test_overview_card_preserves_reader_states_and_complete_evidence(stored, sce
     explicit = scenario == "period"
     item = _card(stored, explicit=explicit)
     dto = item["dto"]
-    expected = _read(stored, mode="explicit_period" if explicit else "default_latest").as_dict()
-    assert dto == expected  # no lossy projection or client-side winner/age computation
+    query = _query(stored)
+    expected = read_saved_rhr_period(stored[0], SavedRhrPeriodQuery(
+        query.provider_code, query.metric_code, DAY if explicit else DAY - timedelta(days=29),
+        DAY, NOW, DAY, source_id=query.source_id,
+    ))
+    assert dto == expected  # no lossy projection or client-side arithmetic
     assert dto["origin_state"] == "unknown" and dto["snapshot_as_of"] is None
     assert dto["acquisition_coverage_state"] == "unknown"
     if scenario in {"empty", "period", "future"}:
-        assert dto["state"] == "no_eligible_in_search" and dto["observation"] is None
-        assert dto["collection_evidence_ref"] is None
+        assert dto["state"] == "no_eligible_in_period" and dto["mean_display"] is None
     elif scenario in {"old", "missing", "null", "invalid", "collision", "retired"}:
-        assert dto["state"] == "last_eligible"
-        assert dto["observation"]["observation_age_days"] == 3
+        assert dto["state"] == "observed"
+        assert dto["last_observation"]["observation_age_days"] == 3
         if scenario == "collision":
-            assert dto["newer_exclusions"][0]["candidate_count"] == 2
-            assert len(dto["newer_exclusions"][0]["record_ids"]) == 2
+            conflict = next(item for item in dto["exclusions"]
+                            if item["reason"] == "ambiguous_same_date_records")
+            assert conflict["candidate_count"] == 2 and len(conflict["record_ids"]) == 2
     else:
-        assert dto["state"] == "exact"
-        assert dto["observation"]["value"] == (0 if scenario == "zero" else
-                                               59 if scenario == "correction" else 61)
+        assert dto["state"] == "observed"
+        assert dto["last_observation"]["value"] == (0 if scenario == "zero" else
+                                                    59 if scenario == "correction" else 61)
+        assert dto["eligible_day_count"] == 2
 
 
 def test_overview_card_uses_default_work_cap_and_does_not_select_a_prefix(stored):
@@ -213,9 +220,9 @@ def test_overview_card_uses_default_work_cap_and_does_not_select_a_prefix(stored
             duplicate.record_identity_key = f"synthetic-card-distinct-{index}"
         stored[0].flush()
     dto = _card(stored)["dto"]
-    assert dto["state"] == "search_incomplete" and dto["observation"] is None
+    assert dto["state"] == "search_incomplete" and dto["mean_display"] is None
     assert dto["reason"] == "candidate_group_cap"
-    assert not dto["search"]["complete"] and dto["newer_exclusions"] == []
+    assert not dto["search"]["complete"] and dto["observations"] == []
 
 
 @pytest.mark.parametrize("state,reason", [
@@ -233,8 +240,8 @@ def test_overview_card_keeps_saved_number_and_independent_freshness(stored, stat
     }]}
     item = _card(stored, freshness=projection)
     assert item["freshness"] == [fact]
-    assert item["dto"]["observation"]["value"] == 61
-    assert item["dto"]["state"] == "last_eligible"
+    assert item["dto"]["last_observation"]["value"] == 61
+    assert item["dto"]["state"] == "observed"
     assert projection["optional_details"][0] == fact
 
 

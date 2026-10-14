@@ -41,6 +41,7 @@ $postQueriedIds = @()
 $postModeQueryCountById = @{}
 $taskkillDiagnosticMode = "lifecycle"
 $taskkillTranscriptOverride = $null
+$parentById = @{}
 function Get-CimInstance {
     param([string]$ClassName, [string]$Filter, [object]$ErrorAction)
     if ($queryFailure -or ($postQueryFailure -and $identityMissing)) { throw "synthetic CIM identity query failure" }
@@ -63,7 +64,7 @@ function Get-CimInstance {
         if ($null -eq $value) { continue }
         [pscustomobject]@{
             ProcessId = $id
-            ParentProcessId = if ($id -eq 100) { 1 } else { 100 }
+            ParentProcessId = if ($parentById.ContainsKey($id)) { $parentById[$id] } elseif ($id -eq $capturedRoot.Id) { 1 } else { $capturedRoot.Id }
             Name = if ($mode -in @("same_time_name", "reuse")) { "unrelated.exe" } else { $value.Name }
             CommandLine = if ($mode -eq "same_time_command") { "changed command" } elseif ($mode -in @("missing_command", "transient_missing_command")) { "" } else { $value.CommandLine }
             CreationDate = if ($mode -eq "missing_time") { $null } elseif ($mode -eq "malformed_time") { "invalid date" } else {
@@ -344,6 +345,92 @@ $taskkillTranscriptOverride = $null
 $identityMissing = $false
 foreach ($id in 102..108) { $identityById.Remove($id) }
 Write-Output "Windows retained separator regressions PASS ($($matrix.cases.Count) transcripts + 66 identity cases + 10 nonzero codes)"
+
+# New native128 shape has a separate matrix; old exit255 inputs remain unchanged.
+$exit128 = Get-Content (Join-Path $PSScriptRoot "fixtures\ci_windows_exit128_transcripts.json") -Raw | ConvertFrom-Json
+function Set-Exit128SyntheticCase {
+    param([object]$Case)
+    $script:identityById = @{}
+    $owned = if ($null -ne $Case.owned) { $Case.owned } else { $exit128.owned }
+    foreach ($identity in $owned) {
+        $script:identityById[[int]$identity.Id] = $identity | Select-Object *
+    }
+    foreach ($change in @($Case.identity_updates)) {
+        if ($null -ne $change) {
+            $script:identityById[[int]$owned[$change.index].Id].($change.field) = $change.value
+        }
+    }
+    $script:exit128Owned = @($owned | ForEach-Object { $script:identityById[[int]$_.Id] })
+    $script:capturedRoot = $script:identityById[[int]$owned[0].Id]
+    $parents = if ($null -ne $Case.parents) { $Case.parents } else { $exit128.parents }
+    $script:parentById = @{}
+    foreach ($property in $parents.PSObject.Properties) { $script:parentById[[int]$property.Name] = [int]$property.Value }
+    $items = [Collections.Generic.List[object]]::new()
+    $output = if ($null -ne $Case.output) { $Case.output } else { $exit128.output }
+    foreach ($item in $output) { $items.Add($item) }
+    $changes = @($Case.output_changes)
+    for ($index = $changes.Count - 1; $index -ge 0; $index--) {
+        $change = $changes[$index]
+        if ($null -eq $change) { continue }
+        $items.RemoveRange([int]$change.start, [int]($change.end - $change.start))
+        $items.InsertRange([int]$change.start, [object[]]@($change.items))
+    }
+    $script:taskkillTranscriptOverride = $items.ToArray()
+    $script:identityMissing = $false
+    $script:postModeById = @{}
+    $script:postQueriedIds = @()
+    $script:taskkillCalls = @()
+    $script:taskkillExitCode = 128
+    $script:exitDuringTermination = $true
+}
+foreach ($case in $exit128.cases) {
+    Set-Exit128SyntheticCase $case
+    Assert-Equal $case.accepted (Test-Exit128LifecycleTranscript $taskkillTranscriptOverride $exit128Owned) "exit128 direct parser case $($case.name)"
+    # Native capture already converts emitted items to strings. Exercise malformed
+    # artifact types at the pure parser boundary, without normalizing test inputs.
+    if (@($taskkillTranscriptOverride | Where-Object { $_ -isnot [string] }).Count -gt 0) { continue }
+    $before = $taskkillTranscriptOverride | ConvertTo-Json -Compress
+    $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    $accepted = $result.Outcome -eq "exited-during-termination" -and @($result.Errors).Count -eq 0
+    Assert-Equal $case.accepted $accepted "exit128 case $($case.name)"
+    if ($result.TerminationIssued) {
+        Assert-True ([string]::Equals($before, ($result.TaskkillOutput | ConvertTo-Json -Compress), [StringComparison]::Ordinal)) "exit128 raw items retained when issued"
+    }
+    Assert-True ($taskkillCalls.Count -le 1) "exit128 cannot issue a second kill"
+    if ($case.accepted) {
+        Assert-Equal 1 $taskkillCalls.Count "accepted128 issues one verified-root kill"
+        Assert-Equal 9 @($result.PostTerminationObservations).Count "accepted128 observes every captured identity"
+    }
+}
+$identity128Checks = 0
+foreach ($targetId in 100..108) {
+    foreach ($mode in $identityCases) {
+        Set-Exit128SyntheticCase $exit128.cases[0]
+        $postModeById = @{ $targetId = $mode }
+        $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+        Assert-Equal ($mode -eq "reuse") ($result.Outcome -eq "exited-during-termination") "exit128 preserves identity boundary ($targetId/$mode)"
+        Assert-Equal 1 $taskkillCalls.Count "exit128 identity check uses one root kill"
+        foreach ($id in 100..108) { Assert-True ($postQueriedIds -contains $id) "exit128 independently queries PID $id" }
+        $identity128Checks++
+    }
+}
+foreach ($code in @(1, 5, 127, 129, 254, 255, 256, -1)) {
+    Set-Exit128SyntheticCase $exit128.cases[0]
+    $taskkillExitCode = $code
+    $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+    Assert-Equal "failed" $result.Outcome "two-separator shape cannot waive another nonzero code $code"
+}
+Set-Exit128SyntheticCase $exit128.cases[0]
+$postModeById = @{ 100 = "reuse"; 108 = "alive" }
+$result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+Assert-Equal "failed" $result.Outcome "exit128 root reuse cannot hide a surviving child"
+Write-Output "Windows exit128 regressions PASS ($($exit128.cases.Count) shared cases, $identity128Checks per-identity cases, 8 other nonzero codes)"
+$identityById = @{ 100 = [pscustomobject]@{ Id = 100; Name = "pwsh.exe"; CommandLine = "start.ps1 -DataDir root"; CreationTime = "637134336000000000" } }
+$capturedRoot = $identityById[100]
+$parentById = @{}
+$postModeById = @{}
+$taskkillTranscriptOverride = $null
+$identityMissing = $false
 $exitDuringTermination = $false
 $taskkillExitCode = 0
 
