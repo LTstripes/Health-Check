@@ -126,6 +126,39 @@ missing or mismatched provenance. Selected input freezes scalars and, for
 collection-valued metrics such as `sleep_stages`, the canonical stage-interval
 collection used by the calculation.
 
+## Selected-day stress adapter (#357, backend only)
+
+`GarminQueryService.stress_baseline` requires an explicit source, selected date D
+and aware evaluation instant. In one physical read snapshot it calls R03 for
+`[D,D]` and `[D-28,D-1]`. At least 21 distinct eligible historical dates are
+required; this product gate is not a clinical threshold. It copies R03's frozen
+median and Type-7 P25/P75, and computes only current minus historical median in
+points. No percentile/trend/robust-z interpretation is added.
+
+All participating daily means must retain exact source, `avgStressLevel`, stored
+unit/attribution and compatible method evidence. The stress-specific equivalence
+of normalization v1/v2 is pinned to #319 commit
+`4a7bc96d7940c2e5161a210de2c179641bfa2aa6`: daily stress parsing, calendar meaning
+and metric coverage did not change. Unknown versions are not assumed compatible.
+Record-wide partial parse status can concern unrelated sibling fields and does
+not downgrade stress. Participating metric-specific partial or incompatible
+evidence withholds the entire comparison, without subset percentile recomputation.
+
+Completion requires the referenced ordinary `garmin_incremental` or
+`garmin_historical` successful acquisition of `stress.json`, its exact committed
+observation/event/batch provenance, and receipt at/after the source-day end.
+Only the referenced original JSON is read, bounded to 1 MiB per participant
+(at most 29); its genuine `calendarDate`, daily mean and unambiguous IANA timezone
+must agree with the selected evidence. Host timezone, requested window, mutable
+coverage, raw deduplication receipt, and later reprocess timestamps are not proof.
+Absent date/timezone/acquisition proof retains the saved current value with a
+specific unavailable comparison reason. A skipped midnight is unproven; an
+ambiguous midnight uses the later valid boundary. No acquisition/intraday
+completeness, hardware continuity, health grade or causal claim is made.
+
+This slice does not expose a route or choose a UI surface. Source selection, actual
+Owner coverage and future UI acceptance remain separate.
+
 ## Non-goals
 
 - LLM mathematics or free-form SQL analytics;

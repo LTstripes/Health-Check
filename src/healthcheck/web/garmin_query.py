@@ -9,7 +9,7 @@ provider.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -39,6 +39,7 @@ from healthcheck.analytics.garmin_lagged_associations import (
     analyze_garmin_lagged_associations,
     metric_eligible_for_lagged_association,
 )
+from healthcheck.analytics.stress_baseline import read_stress_baseline
 from healthcheck.config import Settings
 from healthcheck.db.models import GarminProjectionStatus, GarminSource, GarminSourceRecord
 from healthcheck.db.repositories import restore_stored_utc
@@ -47,6 +48,7 @@ from healthcheck.garmin.analytic_contract import (
     AnalyticInputAssemblyError,
     AnalyticMetricDefinition,
 )
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.garmin_training_overview import (
     DEFAULT_RECENT_ACTIVITIES,
     MAX_RECENT_ACTIVITIES,
@@ -408,6 +410,22 @@ class GarminQueryService:
         except Exception as exc:  # noqa: BLE001 - mapped to sanitized client errors
             raise _map_domain_error(exc) from exc
         return self._present_scalar_result(result.as_dict())
+
+    def stress_baseline(
+        self,
+        *,
+        garmin_source_id: str | None,
+        selected_date: date,
+        evaluated_at: datetime,
+    ) -> dict[str, Any]:
+        """Backend-only selected-day comparison; no default date/source or UI wiring."""
+        return read_stress_baseline(
+            self.session,
+            garmin_source_id=garmin_source_id,
+            selected_date=selected_date,
+            evaluated_at=evaluated_at,
+            payload_store=ContentAddressedGarminPayloadStore(self.settings.data_dir / "artifacts"),
+        )
 
     def activity_comparison(
         self,
