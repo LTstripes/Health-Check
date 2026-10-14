@@ -63,6 +63,11 @@ def main():
             seed_battery(session, store, values=(90, 10, 20), identity=identity,
                          scalar=99, received=datetime(2099, 2, 1, tzinfo=UTC)
                          + timedelta(minutes=1))
+            # R02 accepts finite numeric levels without a product range rule.
+            seed_battery(session, store, day=date(2098, 12, 30), values=(-5, -10),
+                         identity=identity)
+            seed_battery(session, store, day=date(2098, 12, 31), values=(101, 102.5),
+                         identity=identity)
     finally:
         engine.dispose()
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()

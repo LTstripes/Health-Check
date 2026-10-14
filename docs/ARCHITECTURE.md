@@ -120,7 +120,8 @@ measurement. Existing `bodyBattery` / `bodyBatteryLevel` scalar rows cannot prov
 direct versus adapted origin from their saved field path, so their eligibility
 remains explicitly unknown. This reader neither reprocesses raw data nor changes
 ingestion. Values require the Body Battery capability, `value` state, `points`,
-a usable record and a finite level in [0, 100]; explicit zero remains a value.
+a usable record and a finite numeric value, preserving the existing R02 finite
+contract without introducing a product range; explicit zero remains a value.
 Future chronology and unknown temporal precision are excluded. Conflicting or
 indistinguishable current sample coordinates exclude the day, including equal
 numbers; date-only samples cannot resolve a multiple-sample collision. Replay and

@@ -29,7 +29,8 @@ assert.ok(evidence);
         ['one-day', '2099-01-31', '2099-01-31', '90'],
         ['zero', '2099-01-25', '2099-01-25', '0'],
         ['empty', '2099-02-02', '2099-02-05', null],
-        ['long', '2097-01-01', '2099-01-31', '36'],
+        ['long', '2097-01-01', '2099-01-31', '39.64'],
+        ['finite', '2098-12-30', '2098-12-31', '48.75'],
       ]) {
         assert.equal((await page.goto(`${base}/brief?start_date=${start}&end_date=${end}`)).status(), 200);
         const card = page.locator('[data-overview-body-battery]');
@@ -45,6 +46,10 @@ assert.ok(evidence);
         if (name === 'month') {
           assert.match(await selected.innerText(), /5 из 30 дней/);
           assert.match(await selected.innerText(), /без пригодного максимума: 25/);
+        }
+        if (name === 'finite') {
+          assert.match(await card.innerText(), /102.5 баллы/);
+          assert.match(await selected.innerText(), /2 из 2 дней/);
         }
         assert.match(await card.innerText(), /полнота суток неизвестна/);
         assert.doesNotMatch(await card.innerText(), /99 баллы/);
@@ -66,6 +71,10 @@ assert.ok(evidence);
         assert.equal(await details.locator('summary').evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
         assert.match(await details.innerText(), /равным весом дней/);
         if (name === 'zero') assert.match(await details.innerText(), /явный ноль/);
+        if (name === 'finite') {
+          assert.match(await details.innerText(), /-5 баллы/);
+          assert.match(await details.innerText(), /195 \/ 4/);
+        }
         if (name === 'selected') {
           assert.match(await details.innerText(), /120 \/ 3|40 \/ 1/);
           assert.match(await details.innerText(), /Скалярный снимок или производный псевдоним/);

@@ -166,7 +166,7 @@ def test_source_local_date_is_not_utc_date_or_display_timezone(stored):
 
 
 @pytest.mark.parametrize("case", ["missing", "null", "invalid", "bad_unit", "nonfinite",
-    "bad_text", "out_of_range", "invalid_record", "unknown_time", "future", "retired",
+    "bad_text", "invalid_record", "unknown_time", "future", "retired",
     "wrong_capability", "wrong_stream", "wrong_surface", "no_metric", "undated", "bad_local",
     "offset_local"])
 def test_ineligible_samples_are_not_zero_and_have_evidence(stored, case):
@@ -182,8 +182,6 @@ def test_ineligible_samples_are_not_zero_and_have_evidence(stored, case):
         stored[0].execute(text("UPDATE garmin_record_metrics SET value_number='bad' WHERE id=:id"),
                           {"id": metric.id})
         stored[0].expire(metric)
-    elif case == "out_of_range":
-        metric.value_number = 101
     elif case == "invalid_record":
         record.record_status = "invalid"
     elif case == "unknown_time":
@@ -371,3 +369,22 @@ def test_fractional_daily_maxima_preserve_exact_sum(stored):
     mean = Fraction(301, 5)
     assert result["mean_exact"]["numerator"] == str(mean.numerator)
     assert result["mean_exact"]["denominator"] == str(mean.denominator)
+
+
+@pytest.mark.parametrize("value", [-10.5, 101, 1_000_000])
+def test_production_finite_contract_has_no_invented_product_range(stored, value):
+    seed_battery(*stored, values=(value, value - 1))
+    record, metric = sample(stored)
+    assert metric.state == "value" and metric.value_number == value
+    result = read(stored)
+    assert result["latest_maximum"]["value"] == value
+    assert result["latest_maximum"]["eligible_sample_count"] == 2
+    assert result["latest_maximum"]["evidence"][0]["record_id"] == record.id
+    assert result["eligible_day_count"] == 1 and result["missing_day_count"] == 6
+    mean = Fraction(str(value))
+    assert result["mean_exact"]["numerator"] == str(mean.numerator)
+    assert result["mean_exact"]["denominator"] == str(mean.denominator)
+    dto = read_overview_body_battery(stored[0], start=DAY, end=DAY,
+        garmin_source_id=record.garmin_source_id, evaluated_at_utc=NOW,
+        evaluation_local_date=DAY)["selected"]
+    assert dto["mean_display"] == str(value)

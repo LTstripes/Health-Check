@@ -186,8 +186,7 @@ def _project_day(day, group, query):
             else "metric_unit_mismatch" if metric.unit != "points"
             else "record_invalid" if record.record_status not in {"ok", "partial"}
             else "metric_value_invalid" if isinstance(number, bool)
-            or not isinstance(number, (int, float)) or not isfinite(number)
-            or not 0 <= number <= 100 else None
+            or not isinstance(number, (int, float)) or not isfinite(number) else None
         )
         if reason:
             exclusions.append({"source_local_date": day.isoformat(), "reason": reason,
