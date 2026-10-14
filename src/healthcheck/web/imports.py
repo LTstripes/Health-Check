@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -11,15 +12,85 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from healthcheck.collection_policy import (
+    collection_policy_path,
+    project_collection_policy_resolution,
+    resolve_collection_policy,
+)
 from healthcheck.db.engine import session_scope
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
+from healthcheck.saved_values import GARMIN_RHR, GOOGLE_RHR, SavedValueQuery, read_saved_rhr
 from healthcheck.web.common import request_engine
+from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 router = APIRouter()
+
+
+@router.get("/api/imports/saved-rhr")
+def saved_rhr(
+    request: Request,
+    evaluated_at_utc: datetime,
+    evaluation_local_date: date,
+    garmin_source_id: str | None = None,
+    google_source_id: str | None = None,
+) -> JSONResponse:
+    """Two bounded default-latest reads in one physical read-only snapshot.
+
+    No source preference is borrowed from Sleep. The reader owns eligibility,
+    identity ambiguity, exclusion groups and caps; its complete DTO is retained.
+    """
+    queries = [SavedValueQuery(
+        provider_code=provider, metric_code=metric, source_id=source_id,
+        requested_start_date=evaluation_local_date, requested_end_date=evaluation_local_date,
+        evaluated_at_utc=evaluated_at_utc, evaluation_local_date=evaluation_local_date,
+        mode="default_latest",
+    ) for provider, metric, source_id in (
+        ("garmin_connect", GARMIN_RHR, garmin_source_id),
+        ("google_health", GOOGLE_RHR, google_source_id),
+    )]
+    try:
+        for query in queries:
+            query.validate()
+    except ValueError:
+        return JSONResponse(status_code=422, content={"code": "invalid_request"})
+    paths = request.app.state.runtime_paths
+    if not paths.database.is_file():
+        return JSONResponse(status_code=503, content={"code": "database_unavailable"})
+    policy = resolve_collection_policy(collection_policy_path(paths))
+
+    def connect():
+        connection = sqlite3.connect(f"file:{paths.database.as_posix()}?mode=ro", uri=True)
+        connection.execute("PRAGMA query_only=ON")
+        return connection
+
+    engine = create_engine("sqlite://", creator=connect)
+    try:
+        with Session(engine, autoflush=False) as session:
+            ensure_read_snapshot(session)
+            items = [read_saved_rhr(session, query).as_dict() for query in queries]
+        return JSONResponse(content={
+            "mode": "default_latest",
+            "evaluated_at_utc": evaluated_at_utc.isoformat(),
+            "evaluation_local_date": evaluation_local_date.isoformat(),
+            "items": items,
+            "collection_policy": {
+                **project_collection_policy_resolution(policy),
+                "disabled_streams": (
+                    list(policy.snapshot.disabled_streams) if policy.snapshot else None
+                ),
+            },
+        }, headers={"Cache-Control": "no-store"})
+    except (SQLAlchemyError, sqlite3.Error):
+        return JSONResponse(status_code=503, content={"code": "database_unavailable"})
+    finally:
+        engine.dispose()
 
 
 class CandidateEditBody(BaseModel):
