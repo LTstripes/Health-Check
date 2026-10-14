@@ -605,3 +605,235 @@ def test_metric_read_does_not_leak_other_streams(google_database):
         session, metric_code=RHR, start_date=date(2099, 1, 2), end_date=date(2099, 1, 2)
     )
     assert result.sources == ()
+
+
+@pytest.mark.parametrize("metric_code", [HRV, RHR, SPO2, RR])
+@pytest.mark.parametrize("bounds", [(1, 5), (2, 2), (3, 4), (8, 9)])
+def test_295_source_seeks_match_frozen_reader_for_mixed_evidence(
+    google_database,
+    metric_code,
+    bounds,
+):
+    """Compare complete ordered DTOs, including candidates and source metadata."""
+    import random
+
+    from scripts.google_daily_vitals_read_reference import read_google_daily_vitals_reference
+
+    from healthcheck.web.read_snapshot import ensure_read_snapshot
+
+    _paths, session, store = google_database
+    rng = random.Random(295)
+    identities = [_fitbit_identity(platform="synthetic-other-platform"), _family_identity()]
+    # Deliberately unordered dates and source/query identities. The accepted
+    # reader does not prefer list/reconcile, family, platform or record status.
+    for index in range(36):
+        precision = rng.choice(
+            (
+                GoogleTemporalPrecision.DATE,
+                GoogleTemporalPrecision.LOCAL,
+                GoogleTemporalPrecision.UNKNOWN,
+            )
+        )
+        day = date(2099, 1, rng.randint(1, 5)) if index % 11 else None
+        state = rng.choice(tuple(GoogleMetricState))
+        outcome = _persist(
+            session,
+            store,
+            _daily_record(
+                metric_code=metric_code,
+                local_date=day,
+                value=0 if index % 3 else 41,
+                state=state,
+                unit="wrong" if index % 7 == 0 else None,
+                precision=precision,
+                local_wall_time=f"2099-01-01T08:{index:02d}:00"
+                if precision is GoogleTemporalPrecision.LOCAL
+                else None,
+                external_record_id=f"mixed-{index}",
+                status=rng.choice(tuple(GooglePayloadStatus)),
+            ),
+            identity=identities[index % 2],
+            query=_query(
+                rng.choice((GoogleQueryMode.LIST, GoogleQueryMode.RECONCILE)),
+                rng.choice((None, FAMILY_GOOGLE_WEARABLES, FAMILY_GOOGLE_SOURCES))
+                if index % 2 == 0
+                else FAMILY_GOOGLE_WEARABLES,
+            ),
+        )
+        if index % 9 == 0:
+            record = session.get(GoogleSourceRecord, outcome.records[0].id)
+            record.projection_status = "retired"
+            record.retired_at = datetime(2099, 1, 6, tzinfo=UTC)
+            record.retire_reason = "synthetic correction"
+    # Retain a real eligible zero and a same-day list/reconcile ambiguity.
+    for index, day in enumerate((1, 3, 3)):
+        _persist(
+            session,
+            store,
+            _daily_record(
+                metric_code=metric_code,
+                local_date=date(2099, 1, day),
+                value=0,
+                external_record_id=f"eligible-{index}",
+            ),
+            query=_query(GoogleQueryMode.RECONCILE if index == 2 else GoogleQueryMode.LIST),
+        )
+    session.commit()
+    ensure_read_snapshot(session)
+    kwargs = dict(
+        metric_code=metric_code,
+        start_date=date(2099, 1, bounds[0]),
+        end_date=date(2099, 1, bounds[1]),
+    )
+    assert read_google_daily_vitals(session, **kwargs).as_dict() == (
+        read_google_daily_vitals_reference(session, **kwargs).as_dict()
+    )
+
+
+def test_295_source_seeks_do_not_cap_inventory_and_observe_correction(google_database):
+    from scripts.google_daily_vitals_read_reference import read_google_daily_vitals_reference
+    from sqlalchemy import select
+
+    from healthcheck.db.models import GoogleRecordMetric, GoogleSource
+
+    _paths, session, store = google_database
+    first = _persist(
+        session,
+        store,
+        _daily_record(
+            metric_code=HRV,
+            local_date=date(2098, 12, 1),
+            value=40,
+        ),
+    )
+    source = session.scalar(select(GoogleSource))
+    # All inventory IDs participate; no new discovery/work cap may exclude a
+    # source after 400 identities (the calendar bound is not a source bound).
+    template = {
+        column.name: getattr(source, column.name) for column in GoogleSource.__table__.columns
+    }
+    for index in range(405):
+        row = dict(
+            template,
+            id=f"synthetic-inventory-{index:04d}",
+            source_instance_id=f"synthetic-inventory-{index:04d}",
+        )
+        session.add(GoogleSource(**row))
+    session.flush()
+    first = _persist(
+        session,
+        store,
+        _daily_record(
+            metric_code=HRV,
+            local_date=date(2099, 1, 2),
+            value=40,
+        ),
+        identity=_fitbit_identity(source_instance_id="synthetic-inventory-0404"),
+    )
+    first_record = session.get(GoogleSourceRecord, first.records[0].id)
+    session.commit()
+    kwargs = dict(metric_code=HRV, start_date=date(2099, 1, 2), end_date=date(2099, 1, 2))
+    before = read_google_daily_vitals(session, **kwargs)
+    assert before.as_dict() == read_google_daily_vitals_reference(session, **kwargs).as_dict()
+    assert [item.source_id for item in before.sources] == ["synthetic-inventory-0404"]
+    # Same connection, next read must observe current/retired evidence, with no
+    # request/global cache. Missing metric rows retain their accepted state.
+    first_record.projection_status = "retired"
+    first_record.retired_at = datetime(2099, 1, 4, tzinfo=UTC)
+    first_record.retire_reason = "synthetic correction"
+    _persist(
+        session,
+        store,
+        _daily_record(
+            metric_code=HRV,
+            local_date=date(2099, 1, 2),
+            value=42,
+            external_record_id="replacement",
+        ),
+    )
+    session.commit()
+    corrected = read_google_daily_vitals(session, **kwargs)
+    assert corrected.as_dict() == read_google_daily_vitals_reference(session, **kwargs).as_dict()
+    assert corrected.sources[0].latest.value == 42
+    replacement = session.scalar(
+        select(GoogleSourceRecord).where(
+            GoogleSourceRecord.projection_status == "current",
+            GoogleSourceRecord.source_local_date == date(2099, 1, 2),
+        )
+    )
+    session.query(GoogleRecordMetric).filter(
+        GoogleRecordMetric.record_id == replacement.id,
+    ).delete()
+    session.commit()
+    missing = read_google_daily_vitals(session, **kwargs)
+    assert missing.as_dict() == read_google_daily_vitals_reference(session, **kwargs).as_dict()
+    assert missing.sources[0].latest is None
+
+
+def test_295_source_seeks_match_window_validation(google_database):
+    from scripts.google_daily_vitals_read_reference import read_google_daily_vitals_reference
+
+    _paths, session, _store = google_database
+    for reader in (read_google_daily_vitals, read_google_daily_vitals_reference):
+        for metric, start, end in (
+            (HRV, date(2099, 1, 3), date(2099, 1, 2)),
+            (HRV, date(2099, 1, 1), date(2100, 3, 1)),
+            ("unsupported", date(2099, 1, 1), date(2099, 1, 2)),
+        ):
+            with pytest.raises(ValueError):
+                reader(session, metric_code=metric, start_date=start, end_date=end)
+
+
+@pytest.mark.parametrize("route", ["brief", "sleep"])
+@pytest.mark.parametrize("days", [7, 30])
+def test_295_source_seeks_preserve_consumer_html_packet_and_evidence(
+    tmp_path, monkeypatch, route, days
+):
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+    from scripts.google_daily_vitals_read_reference import read_google_daily_vitals_reference
+
+    from healthcheck.web import overview_view, pages, period_brief_query
+    from test_garmin_query_dashboard import _ui
+    from test_period_brief_ui import seed_overview_v2
+
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2099, 1, 3, 12, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FixedClock)
+    monkeypatch.setattr(period_brief_query, "datetime", FixedClock)
+    app, _settings, paths = _ui(tmp_path)
+    seed_overview_v2(paths)
+    params = (
+        {
+            "start_date": (date(2099, 1, 2) - timedelta(days=days - 1)).isoformat(),
+            "end_date": "2099-01-02",
+        }
+        if route == "brief"
+        else {"wake_date": "2099-01-02", "vitals_window": str(days), "view": "google"}
+    )
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        actual = client.get(f"/{route}", params=params)
+        with (
+            patch.object(
+                overview_view, "read_google_daily_vitals", read_google_daily_vitals_reference
+            ),
+            patch.object(pages, "read_google_daily_vitals", read_google_daily_vitals_reference),
+        ):
+            reference = client.get(f"/{route}", params=params)
+    assert actual.status_code == reference.status_code == 200
+    assert actual.text == reference.text
+    keys = (
+        ("packet", "brief", "charts", "overview", "source_selection")
+        if route == "brief"
+        else (
+            "google_vitals",
+            "google_vitals_technical",
+        )
+    )
+    for key in keys:
+        assert actual.context[key] == reference.context[key]

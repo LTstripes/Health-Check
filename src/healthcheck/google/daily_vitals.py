@@ -284,6 +284,10 @@ def read_google_daily_vitals(
         session.scalars(
             select(GoogleSourceRecord)
             .where(
+                # Enumerate every persisted source ID so SQLite can seek the
+                # existing source/stream/date index. The FK makes this set
+                # exhaustive; no provider, device, family or source preference.
+                GoogleSourceRecord.google_source_id.in_(select(GoogleSource.id)),
                 GoogleSourceRecord.stream_code == definition.stream_code,
                 GoogleSourceRecord.projection_status == _CURRENT,
                 GoogleSourceRecord.temporal_precision == _DATE_PRECISION,
