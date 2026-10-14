@@ -149,8 +149,12 @@ Completion requires the referenced ordinary `garmin_incremental` or
 observation/event/batch provenance, and receipt at/after the source-day end.
 Only the referenced original JSON is read, bounded to 1 MiB per participant
 (at most 29); its genuine `calendarDate`, daily mean and unambiguous IANA timezone
-must agree with the selected evidence. Any provided local clock/offset must agree with the named
-timezone at its own instant, respecting DST. Malformed observation identity fails
+must agree with the selected evidence. Source-clock checks reconcile normalized
+clock evidence and supplied offsets with the named timezone, respecting DST.
+They do not require every optional raw clock field to survive normalization:
+malformed optional `startTimeLocal` may normalize away without invalidating an
+independently valid `calendarDate`, unambiguous timezone and post-boundary
+acquisition. Malformed observation identity fails
 closed. Host timezone, requested window, mutable coverage, raw deduplication receipt,
 and later reprocess timestamps are not proof.
 Absent date/timezone/acquisition proof retains the saved current value with a
