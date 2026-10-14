@@ -13,6 +13,24 @@ Earlier indexes also remain:
 - [Reliability/correction history through 2026-10-01](EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md).
 - [Verbose historical engineering log](EXECUTION_HISTORY.md).
 
+## 2026-10-14 — saved-data product integration closeout
+
+Accepted product [`a27aa46b844ab944ce012513dd9a86d26919c07f`](https://github.com/LTstripes/Health-Check/commit/a27aa46b844ab944ce012513dd9a86d26919c07f),
+[post-main CI 38598439243](https://github.com/LTstripes/Health-Check/actions/runs/38598439243)
+SUCCESS, attempt 1: 3656 exact nodeids reconciled and actual Windows/DPAPI evidence PASS. The [current Wiki index](PROJECT_WIKI.md#current-canonical-state)
+links accepted PRs #413–#418 and their bounded outcomes; detailed source, visual,
+CI and integration evidence stays in those PRs/issues.
+
+#418's first [hygiene failure](https://github.com/LTstripes/Health-Check/actions/runs/38581013534)
+stays failed; tracked PNGs were removed without weakening the guard. #415's
+[Windows failure](https://github.com/LTstripes/Health-Check/actions/runs/38544069167)
+and absent DPAPI evidence are not retrospectively waived by #417 or later green
+runs. The native scheduling cause remains unproven.
+
+Stable remains separately `aca4b8f65eb276dddb3ae5de718a734afd19f369`;
+no deployment, private/provider operation or Owner UAT occurred in this closeout.
+Earlier dated history below is retained and is not a current queue instruction.
+
 ## 2026-10-12 — daytime rollout and night engineering closeout
 
 Night product `main 8100b7ae7051af181a6bf3151ce3bc3e1d4c4151`,
