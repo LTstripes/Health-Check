@@ -42,8 +42,11 @@ $postModeQueryCountById = @{}
 $taskkillDiagnosticMode = "lifecycle"
 $taskkillTranscriptOverride = $null
 $parentById = @{}
+$snapshotCreationById = @{}
+$cimQueries = @()
 function Get-CimInstance {
     param([string]$ClassName, [string]$Filter, [object]$ErrorAction)
+    $script:cimQueries += [string]$Filter
     if ($queryFailure -or ($postQueryFailure -and $identityMissing)) { throw "synthetic CIM identity query failure" }
     $ids = @($identityById.Keys)
     if ($Filter -match "^ProcessId=(\d+)$") { $ids = @([int]$Matches[1]) }
@@ -67,7 +70,7 @@ function Get-CimInstance {
             ParentProcessId = if ($parentById.ContainsKey($id)) { $parentById[$id] } elseif ($id -eq $capturedRoot.Id) { 1 } else { $capturedRoot.Id }
             Name = if ($mode -in @("same_time_name", "reuse")) { "unrelated.exe" } else { $value.Name }
             CommandLine = if ($mode -eq "same_time_command") { "changed command" } elseif ($mode -in @("missing_command", "transient_missing_command")) { "" } else { $value.CommandLine }
-            CreationDate = if ($mode -eq "missing_time") { $null } elseif ($mode -eq "malformed_time") { "invalid date" } else {
+            CreationDate = if (-not $Filter -and $snapshotCreationById.ContainsKey($id)) { $snapshotCreationById[$id] } elseif ($mode -eq "missing_time") { $null } elseif ($mode -eq "malformed_time") { "invalid date" } else {
                 [DateTime]::new([long]$value.CreationTime, [DateTimeKind]::Utc).AddSeconds($(if (($identityMissing -and $changedChild) -or $mode -eq "reuse") { 1 } else { 0 }))
             }
         }
@@ -105,7 +108,86 @@ Assert-Equal 1 @($taskkillCalls).Count "verified root tree must use one native t
 Assert-Equal "100" $taskkillCalls[0] "native termination must target the verified root PID"
 Assert-True $successfulTermination.TerminationIssued "verified root tree termination must be recorded"
 Assert-Equal 0 @($successfulTermination.Errors).Count "successful root tree termination must have no errors"
+Assert-Equal $null $successfulTermination.OwnershipSnapshotDiagnostic "valid tree has no failure diagnostic"
 $identityMissing = $false
+
+# Both refusals must retain only the offending edge from the same snapshot,
+# including a deeper edge. Filtered child requery would see a valid timestamp.
+foreach ($deep in @($false, $true)) {
+    foreach ($reason in @("child_creation_missing", "child_predates_parent")) {
+        $identityById[101] = [pscustomobject]@{ Id = 101; Name = "python.exe"; CommandLine = "synthetic child"; CreationTime = "637134336010000000" }
+        $identityById[102] = [pscustomobject]@{ Id = 102; Name = "python.exe"; CommandLine = "synthetic grandchild"; CreationTime = "637134336020000000" }
+        $parentById = @{ 102 = 101 }
+        $childId = if ($deep) { 102 } else { 101 }
+        $parentId = if ($deep) { 101 } else { 100 }
+        $olderTicks = ([long]$identityById[$parentId].CreationTime - 1).ToString()
+        $snapshotCreationById = @{ $childId = if ($reason -eq "child_creation_missing") { $null } else { [DateTime]::new([long]$olderTicks, [DateTimeKind]::Utc) } }
+        $taskkillCalls = @()
+        $cimQueries = @()
+        $result = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+        Assert-Equal "failed" $result.Outcome "snapshot refusal remains failed ($deep/$reason)"
+        Assert-True (-not $result.TerminationIssued) "snapshot refusal cannot issue termination"
+        Assert-Equal 0 $taskkillCalls.Count "snapshot refusal has zero native calls"
+        Assert-Equal 0 @($result.OwnedProcessIdentities).Count "partial traversal cannot promote ownership"
+        Assert-Equal 0 @($result.PostTerminationObservations).Count "no post-termination proof is invented"
+        Assert-Equal $null $result.TaskkillExitCode "no native exit code is invented"
+        Assert-Equal 0 @($result.TaskkillOutput).Count "no native transcript is invented"
+        Assert-Equal 1 @($result.Errors).Count "original refusal remains the only error"
+        Assert-Equal "ambiguous descendant ownership (reused parent PID)" $result.Errors[0] "original refusal retained"
+        Assert-Equal 2 $cimQueries.Count "only initial root query and one snapshot; no diagnostic requery"
+        Assert-Equal "ProcessId=100" $cimQueries[0] "initial query targets captured root"
+        Assert-Equal "" $cimQueries[1] "one coherent snapshot"
+        $json = $result.OwnershipSnapshotDiagnostic | ConvertTo-Json -Depth 8 -Compress
+        $diagnostic = $json | ConvertFrom-Json
+        Assert-Equal $reason $diagnostic.Reason "distinct snapshot reason retained"
+        Assert-Equal 100 $diagnostic.CapturedRoot.Id "captured root PID retained"
+        Assert-Equal $capturedRoot.CreationTime $diagnostic.CapturedRoot.CreationTime "captured root ticks retained"
+        Assert-Equal $parentId $diagnostic.Parent.Id "offending parent PID retained"
+        Assert-Equal $(if ($deep) { 100 } else { 1 }) $diagnostic.Parent.ParentProcessId "parent edge retained"
+        Assert-Equal $identityById[$parentId].CreationTime $diagnostic.Parent.CreationTime "same snapshot parent ticks retained"
+        Assert-Equal $childId $diagnostic.Child.Id "offending child PID retained"
+        Assert-Equal $parentId $diagnostic.Child.ParentProcessId "child edge retained"
+        Assert-Equal ($reason -ne "child_creation_missing") $diagnostic.Child.CreationTimePresent "child timestamp presence retained"
+        Assert-Equal ($reason -ne "child_creation_missing") $diagnostic.Child.CreationTimeValid "child timestamp validity retained"
+        Assert-Equal $(if ($reason -eq "child_creation_missing") { $null } else { $olderTicks }) $diagnostic.Child.CreationTime "no invented or requeried child time"
+        Assert-Equal $(if ($reason -eq "child_creation_missing") { "missing" } else { "valid" }) $diagnostic.Child.CreationTimeState "child timestamp classification"
+        foreach ($record in @($diagnostic.CapturedRoot, $diagnostic.Parent, $diagnostic.Child)) {
+            Assert-True ($record.IdPresent -and $record.IdValid) "diagnostic ID flags retained"
+        }
+        foreach ($record in @($diagnostic.CapturedRoot, $diagnostic.Parent)) {
+            Assert-True ($record.CreationTimePresent -and $record.CreationTimeValid) "parent/root timestamp flags retained"
+        }
+        foreach ($record in @($diagnostic.Parent, $diagnostic.Child)) {
+            Assert-True ($record.ParentProcessIdPresent -and $record.ParentProcessIdValid) "parent edge flags retained"
+        }
+        Assert-Equal "CapturedRoot,Child,Parent,Reason" (($diagnostic.PSObject.Properties.Name | Sort-Object) -join ',') "diagnostic contains only one edge and root"
+        Assert-True ($json -notmatch 'Name|CommandLine|synthetic child|synthetic grandchild') "diagnostic contains no process text"
+    }
+}
+$snapshotCreationById = @{ 102 = 0 }
+$taskkillCalls = @()
+$cimQueries = @()
+$invalidTimeRefusal = Invoke-RootProcessTreeTermination $capturedRoot -PostTimeoutSeconds 0
+Assert-Equal "failed" $invalidTimeRefusal.Outcome "failed diagnostic conversion cannot waive refusal"
+Assert-Equal 0 $taskkillCalls.Count "failed diagnostic conversion has zero native calls"
+Assert-True (-not $invalidTimeRefusal.TerminationIssued) "invalid time cannot authorize termination"
+Assert-Equal 0 @($invalidTimeRefusal.OwnedProcessIdentities).Count "invalid time cannot promote ownership"
+Assert-Equal 2 $cimQueries.Count "failed conversion cannot requery"
+Assert-Equal "ambiguous descendant ownership (reused parent PID)" $invalidTimeRefusal.Errors[0] "failed diagnostic conversion preserves original refusal"
+Assert-Equal "child_creation_missing" $invalidTimeRefusal.OwnershipSnapshotDiagnostic.Reason "false-valued invalid time preserves guard reason"
+Assert-Equal "invalid" $invalidTimeRefusal.OwnershipSnapshotDiagnostic.Child.CreationTimeState "failed conversion retains invalid classification"
+Assert-Equal $null $invalidTimeRefusal.OwnershipSnapshotDiagnostic.Child.CreationTime "failed conversion retains unavailable ticks"
+$invalidDiagnostic = Get-OwnershipDiagnosticIdentity ([pscustomobject]@{ ProcessId = "invalid"; ParentProcessId = $null; CreationDate = "invalid date" })
+Assert-True ($invalidDiagnostic.IdPresent -and -not $invalidDiagnostic.IdValid) "invalid diagnostic ID stays unavailable"
+Assert-True (-not $invalidDiagnostic.ParentProcessIdPresent -and -not $invalidDiagnostic.ParentProcessIdValid) "missing diagnostic parent ID stays unavailable"
+Assert-True ($invalidDiagnostic.CreationTimePresent -and -not $invalidDiagnostic.CreationTimeValid) "failed timestamp conversion is invalid"
+Assert-Equal "invalid" $invalidDiagnostic.CreationTimeState "conversion failure classification retained"
+Assert-Equal $null $invalidDiagnostic.CreationTime "conversion failure cannot invent ticks"
+$snapshotCreationById = @{}
+$parentById = @{}
+$identityById.Remove(101)
+$identityById.Remove(102)
+Write-Output "Windows ownership snapshot refusal regressions PASS (5 same-snapshot cases, invalid conversion)"
 
 $taskkillCalls = @()
 $identityById[100] = [pscustomobject]@{ Id = 100; Name = "unrelated.exe"; CommandLine = "reused" }

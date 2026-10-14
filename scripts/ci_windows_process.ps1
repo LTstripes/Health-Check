@@ -99,6 +99,41 @@ function Assert-ExternalRuntimePath {
     return $resolvedRuntime
 }
 
+function Get-OwnershipDiagnosticIdentity {
+    param([object]$Row, [switch]$CapturedRoot)
+
+    # Failure context only: whitelist scalar IDs/ticks, never retain a CIM row.
+    $idField = if ($CapturedRoot) { "Id" } else { "ProcessId" }
+    $timeField = if ($CapturedRoot) { "CreationTime" } else { "CreationDate" }
+    $id = ConvertTo-ProcessId $Row.$idField
+    $parentId = ConvertTo-ProcessId $Row.ParentProcessId
+    $timePresent = $null -ne $Row.$timeField
+    $ticks = $null
+    if ($timePresent) {
+        try {
+            $candidate = if ($CapturedRoot) { $Row.$timeField } else {
+                $Row.$timeField.ToUniversalTime().Ticks.ToString()
+            }
+            if (Test-PostTerminationCreationTime $candidate) { $ticks = $candidate }
+        } catch { } # Invalid/unavailable conversion must not replace the refusal.
+    }
+    $result = [ordered]@{
+        Id = $id
+        IdPresent = $null -ne $Row.$idField
+        IdValid = $null -ne $id
+        CreationTime = $ticks
+        CreationTimePresent = $timePresent
+        CreationTimeValid = $null -ne $ticks
+        CreationTimeState = if (-not $timePresent) { "missing" } elseif ($null -eq $ticks) { "invalid" } else { "valid" }
+    }
+    if (-not $CapturedRoot) {
+        $result.ParentProcessId = $parentId
+        $result.ParentProcessIdPresent = $null -ne $Row.ParentProcessId
+        $result.ParentProcessIdValid = $null -ne $parentId
+    }
+    return [pscustomobject]$result
+}
+
 function Get-OwnedProcessTree {
     param([object]$CapturedIdentity)
 
@@ -128,7 +163,16 @@ function Get-OwnedProcessTree {
         $children = @($snapshot | Where-Object { $_.ParentProcessId -eq $row.ProcessId })
         foreach ($child in $children) {
             if (-not $child.CreationDate -or $child.CreationDate -lt $row.CreationDate) {
-                throw "ambiguous descendant ownership (reused parent PID)"
+                $refusal = [InvalidOperationException]::new("ambiguous descendant ownership (reused parent PID)")
+                try {
+                    $refusal.Data["OwnershipSnapshotDiagnostic"] = [pscustomobject]@{
+                        Reason = if (-not $child.CreationDate) { "child_creation_missing" } else { "child_predates_parent" }
+                        CapturedRoot = Get-OwnershipDiagnosticIdentity $CapturedIdentity -CapturedRoot
+                        Parent = Get-OwnershipDiagnosticIdentity $row
+                        Child = Get-OwnershipDiagnosticIdentity $child
+                    }
+                } catch { } # Diagnostic failure never changes the original refusal.
+                throw $refusal
             }
         }
         $pending += $children
@@ -311,6 +355,7 @@ function Invoke-RootProcessTreeTermination {
     $taskkillOutput = @()
     $lifecycleDiagnostic = $false
     $outcome = "failed"
+    $ownershipSnapshotDiagnostic = $null
     if (-not (Test-CapturedProcessIdentity $CapturedIdentity)) {
         $errors += "captured root identity is incomplete"
     } else {
@@ -367,11 +412,12 @@ function Invoke-RootProcessTreeTermination {
                     $errors += "root process-tree termination failed with exit code $taskkillExit"
                 }
             } catch {
+                $ownershipSnapshotDiagnostic = $_.Exception.Data["OwnershipSnapshotDiagnostic"]
                 $errors += $_.Exception.Message
             }
         }
     }
-    return [pscustomobject]@{
+    $result = [pscustomobject]@{
         TerminationIssued = $terminationIssued
         RootAlreadyExited = $rootAlreadyExited
         Outcome = $outcome
@@ -384,6 +430,10 @@ function Invoke-RootProcessTreeTermination {
         IdentityChangedProcessIds = @($identityChanged)
         Errors = @($errors)
     }
+    if ($null -ne $ownershipSnapshotDiagnostic) {
+        $result | Add-Member -NotePropertyName OwnershipSnapshotDiagnostic -NotePropertyValue $ownershipSnapshotDiagnostic
+    }
+    return $result
 }
 
 function Get-LoopbackPortEvidence {

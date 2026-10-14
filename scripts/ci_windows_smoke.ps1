@@ -222,6 +222,9 @@ function Invoke-SmokeScenario {
             $cleanup.remaining_owned_process_ids += @($termination.RemainingOwnedProcessIds)
             $cleanup.identity_changed_process_ids = @($termination.IdentityChangedProcessIds)
             $cleanup.errors += @($termination.Errors)
+            if ($null -ne $termination.OwnershipSnapshotDiagnostic) {
+                $cleanup.ownership_snapshot_diagnostic = $termination.OwnershipSnapshotDiagnostic
+            }
             Start-Sleep -Milliseconds 300
             foreach ($identity in $termination.OwnedProcessIdentities) {
                 $observation = Get-PostTerminationProcessObservation $identity
