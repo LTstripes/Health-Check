@@ -190,6 +190,54 @@ function Test-Exit255LifecycleTranscript {
     return ($errorCount -gt 0 -and $reported.SetEquals($expected))
 }
 
+function Test-Exit128LifecycleTranscript {
+    param([object[]]$OutputLines, [object[]]$OwnedProcessIdentities)
+
+    # Only the retained run38544069167 shape, with PID aliases. Do not trim or
+    # extend exit255's grammar: six SUCCESS, two ERROR/Reason/empty groups,
+    # final root SUCCESS. Captured roles and every reported edge must match.
+    if ($OutputLines.Count -ne 13 -or $OwnedProcessIdentities.Count -ne 9) { return $false }
+    foreach ($line in $OutputLines) { if ($line -isnot [string]) { return $false } }
+    $reason = "Reason: There is no running instance of the task."
+    if (-not [string]::Equals($OutputLines[7], $reason, [StringComparison]::Ordinal) -or
+        -not [string]::Equals($OutputLines[10], $reason, [StringComparison]::Ordinal) -or
+        $OutputLines[8].Length -ne 0 -or $OutputLines[11].Length -ne 0) { return $false }
+    $successPattern = '\ASUCCESS: The process with PID ([1-9][0-9]*) \(child process of PID ([1-9][0-9]*)\) has been terminated\.\z'
+    $errorPattern = '\AERROR: The process with PID ([1-9][0-9]*) \(child process of PID ([1-9][0-9]*)\) could not be terminated\.\z'
+    $records = @()
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 9, 12)) {
+        $pattern = if ($index -in @(6, 9)) { $errorPattern } else { $successPattern }
+        $match = [regex]::Match($OutputLines[$index], $pattern)
+        if (-not $match.Success) { return $false }
+        $records += [pscustomobject]@{ Id = $match.Groups[1].Value; Parent = $match.Groups[2].Value }
+    }
+    $owned = @{}
+    foreach ($identity in $OwnedProcessIdentities) {
+        if (-not (Test-CapturedProcessIdentity $identity)) { return $false }
+        $key = [string]$identity.Id
+        if ($owned.ContainsKey($key)) { return $false }
+        $owned[$key] = $identity
+    }
+    $reported = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $names = @("python.exe", "python.exe", "conhost.exe", "python.exe", "python.exe", "conhost.exe", "uv.exe", "uv.exe", "pwsh.exe")
+    for ($index = 0; $index -lt $records.Count; $index++) {
+        $id = $records[$index].Id
+        if (-not $owned.ContainsKey($id) -or -not $reported.Add($id) -or
+            -not [string]::Equals([string]$owned[$id].Name, $names[$index], [StringComparison]::Ordinal)) { return $false }
+    }
+    $root = [string]$OwnedProcessIdentities[0].Id
+    if ($records[8].Id -cne $root -or $owned.ContainsKey($records[8].Parent)) { return $false }
+    $parents = @($records[3].Id, $records[4].Id, $records[6].Id, $records[7].Id, $records[6].Id, $root, $root, $root)
+    for ($index = 0; $index -lt $parents.Count; $index++) {
+        if ($records[$index].Parent -cne $parents[$index]) { return $false }
+    }
+    # Names constrain this exception's shape; coherent capture, not a name,
+    # remains the ownership proof. Keep quoted native launcher command lines.
+    $launcherPattern = '\A"[^"\r\n]+\\uv\.exe" run python -m healthcheck\.cli serve --app '
+    return ([regex]::IsMatch([string]$owned[$records[6].Id].CommandLine, $launcherPattern + 'ingest\z') -and
+        [regex]::IsMatch([string]$owned[$records[7].Id].CommandLine, $launcherPattern + 'ui\z'))
+}
+
 function Test-PostTerminationCreationTime {
     param([object]$Value)
 
@@ -285,7 +333,11 @@ function Invoke-RootProcessTreeTermination {
                 $terminationIssued = $true # issued, not a claim of native success
                 $taskkillOutput = @(& taskkill.exe /PID ([string]$CapturedIdentity.Id) /T /F 2>&1 | ForEach-Object { [string]$_ })
                 $taskkillExit = $LASTEXITCODE
-                $lifecycleDiagnostic = Test-Exit255LifecycleTranscript $taskkillOutput @($owned.Id)
+                $lifecycleDiagnostic = if ($taskkillExit -eq 128) {
+                    Test-Exit128LifecycleTranscript $taskkillOutput $owned
+                } else {
+                    Test-Exit255LifecycleTranscript $taskkillOutput @($owned.Id)
+                }
                 $deadline = [DateTime]::UtcNow.AddSeconds($PostTimeoutSeconds)
                 do {
                     $remaining = @()
@@ -307,7 +359,7 @@ function Invoke-RootProcessTreeTermination {
                 if ($identityChanged.Count -gt 0) { $errors += "owned process identity changed during termination" }
                 if ($taskkillExit -eq 0 -and $errors.Count -eq 0) {
                     $outcome = "terminated"
-                } elseif ($taskkillExit -eq 255 -and $errors.Count -eq 0 -and $lifecycleDiagnostic) {
+                } elseif ($taskkillExit -in @(128, 255) -and $errors.Count -eq 0 -and $lifecycleDiagnostic) {
                     # Reconcile only absent or CreationTime-proven replaced identities. Ports/runtime
                     # are separate mandatory caller postconditions. No second kill.
                     $outcome = "exited-during-termination"
