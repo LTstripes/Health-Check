@@ -46,7 +46,7 @@ assert.ok(fixtures && evidence);
         const sleep = page.locator('[data-statistics-metric="sleep_duration_asleep_seconds"]');
         const left = sleep.locator('article').first();
         assert.equal((await left.locator('.statistics-value').innerText()).trim(),
-          scenario === 'zero' ? '0 мин' : ['sparse', 'incomplete'].includes(scenario) ? '8 ч 0 мин' : 'Недоступно');
+          scenario === 'zero' ? '0 мин' : ['sparse', 'incomplete', 'ambiguous'].includes(scenario) ? '8 ч 0 мин' : 'Недоступно');
         assert.equal(await page.locator('.statistics-comparison').filter({ hasText: 'Google − Garmin:' }).count(), 0);
         if (scenario === 'incomplete') {
           const sourceHeader = page.locator('.statistics-source-headings header').first();

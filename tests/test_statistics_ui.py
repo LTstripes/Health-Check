@@ -78,7 +78,9 @@ def test_google_sleep_default_is_exact_and_window_bound(statistics_ui, case, day
         assert expected["aggregation"]["denominator"] in parser.details[SLEEP_CODE, "right"]
     else:
         assert parser.values[SLEEP_CODE, "right"].strip() == "Недоступно"
-        assert "Выбери источник" in text
+        assert ("Выбери источник" in text) == (case in {"eligible", "conflict"})
+        if case not in {"eligible", "conflict"}:
+            assert "Нет допустимых значений" in text
     assert "Не собирается" in parser.cells["activity_session_count", "right"]
     export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
     if export:
@@ -93,6 +95,107 @@ def test_readable_labels_disambiguate_same_model_exact_sources():
     })
     assert labels == {"uuid-1": "Garmin · Same Watch · источник 1",
                       "uuid-2": "Garmin · Same Watch · источник 2"}
+
+
+class SourceFormParser(HTMLParser):
+    def __init__(self, text):
+        super().__init__()
+        self.selected = {}
+        self.name = None
+        self.feed(text)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "select":
+            self.name = attrs.get("name")
+        if tag == "option" and "selected" in attrs and self.name:
+            self.selected[self.name] = attrs.get("value", "")
+
+    def handle_endtag(self, tag):
+        if tag == "select":
+            self.name = None
+
+
+@pytest.mark.parametrize("period", ["7", "30", "trailing365", "calendar_year", "year_to_date"])
+def test_five_google_identities_use_generic_sleep_eligibility(statistics_ui, period):
+    from test_sleep_timeline_ui import _seed_normal_google
+
+    session, paths, client = statistics_ui
+    family_id, excluded_id = _seed_normal_google(paths)
+    excluded = session.get(GoogleSource, excluded_id)
+    session.add(GoogleSource(
+        provider_id=excluded.provider_id, acquisition_source_id=excluded.acquisition_source_id,
+        source_kind="data_source", provider_code=excluded.provider_code,
+        source_instance_id="synthetic-physiology-only", device_attributed=False,
+        source_contract_version=excluded.source_contract_version,
+    ))
+    session.commit()
+    assert len(list(session.scalars(select(GoogleSource)))) == 5
+    response = client.get("/statistics", params={
+        "period": period, "end_date": str(END), "calendar_year": END.year,
+    })
+    assert response.status_code == 200
+    parser = MetricParser(response.text)
+    assert family_id in parser.details[SLEEP_CODE, "right"]
+    assert "unique_eligible_source" in parser.details[SLEEP_CODE, "right"]
+    assert "google_nap_only" in parser.details[SLEEP_CODE, "right"]
+    assert "Не собирается" in parser.cells["activity_session_count", "right"]
+    form = SourceFormParser(response.text)
+    assert {key: form.selected[key] for key in (
+        "garmin_source_id", "google_source_id", "garmin_sleep_source_id", "google_sleep_source_id",
+    )} == dict.fromkeys((
+        "garmin_source_id", "google_source_id", "garmin_sleep_source_id", "google_sleep_source_id",
+    ), "")
+    export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
+    if export:
+        Path(export).mkdir(parents=True, exist_ok=True)
+        (Path(export) / f"sleep-five-{period}.html").write_text(response.text, encoding="utf-8")
+
+
+def test_sleep_form_only_retains_human_overrides_and_window_expansion(statistics_ui):
+    session, paths, client = statistics_ui
+    window_end = END + timedelta(days=31)
+    _google(session, paths, window_end, source="synthetic-week", minutes="60")
+    week = session.scalar(select(GoogleSource))
+    _google(session, paths, window_end - timedelta(days=20),
+            source="synthetic-month", minutes="120")
+    month = session.scalar(select(GoogleSource).where(GoogleSource.id != week.id))
+    session.commit()
+    for period in ("7", "30", "trailing365", "calendar_year", "year_to_date"):
+        params = {"period": period, "end_date": str(window_end), "calendar_year": window_end.year}
+        automatic = client.get("/statistics", params=params)
+        assert automatic.status_code == 200
+        form = SourceFormParser(automatic.text)
+        assert form.selected["google_source_id"] == form.selected["google_sleep_source_id"] == ""
+        cell_text = MetricParser(automatic.text).cells[SLEEP_CODE, "right"]
+        if period == "7":
+            assert "1 ч 0 мин" in cell_text
+            assert "Выберите источник сна." not in cell_text
+        else:
+            assert "Выберите источник сна." in cell_text
+        for explicit in (
+            {"google_sleep_source_id": week.id},
+            {"google_source_id": week.id},
+            {"google_source_id": week.id, "google_sleep_source_id": month.id},
+        ):
+            chosen = client.get("/statistics", params={**params, **explicit})
+            assert chosen.status_code == 200
+            state = SourceFormParser(chosen.text).selected
+            assert state["google_source_id"] == explicit.get("google_source_id", "")
+            assert state["google_sleep_source_id"] == explicit.get("google_sleep_source_id", "")
+            actual_source = explicit.get("google_sleep_source_id", week.id)
+            assert actual_source in MetricParser(chosen.text).details[SLEEP_CODE, "right"]
+        export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
+        if export:
+            root = Path(export)
+            root.mkdir(parents=True, exist_ok=True)
+            (root / f"sleep-window-{period}.html").write_text(automatic.text, encoding="utf-8")
+            explicit = client.get(
+                "/statistics", params={**params, "google_sleep_source_id": week.id},
+            )
+            (root / f"sleep-explicit-{period}.html").write_text(explicit.text, encoding="utf-8")
+    invalid = client.get("/statistics", params={"google_sleep_source_id": "foreign"})
+    assert invalid.status_code == 400
 
 
 class MetricParser(HTMLParser):
@@ -218,7 +321,9 @@ def statistics_ui(projection_database, monkeypatch):
 def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
     session, paths, client = statistics_ui
     seed(session, paths, case)
-    packet = PeriodSummaryService(session).build(end_date=END, days=days)
+    packet = PeriodSummaryService(session).build(
+        end_date=END, days=days, sleep_source_selection=True,
+    )
     original_build = PeriodSummaryService.build
     rendered_packets = []
 
@@ -266,7 +371,9 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
             assert f"{value if value is not None else 'Недоступно'} / " in details
             numerator = cell["aggregation"]["numerator"]
             assert f"/ {numerator if numerator is not None else 'Недоступно'}" in details
-            if cell["state"] in {"source_missing", "selection_required", "not_collected"}:
+            if cell["state"] in {"source_missing", "selection_required", "not_collected"} or (
+                code == SLEEP_CODE and cell["source_identity"] is None
+            ):
                 assert "Наблюдения и знаменатель не оценены" in text
                 assert "Допустимо: 0" not in text
                 assert "без наблюдений" not in text
@@ -296,7 +403,7 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
         for source in side["available_sources"]:
             assert source["source_id"] in opening
     if case == "ambiguous":
-        assert "Выбери источник" in cells[SLEEP_CODE, "left"]
+        assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
         assert "Выбери источник" in cells[SLEEP_CODE, "right"]
     export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
     if export:

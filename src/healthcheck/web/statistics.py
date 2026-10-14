@@ -9,7 +9,6 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.analytics.period_summary import PeriodSummaryService
-from healthcheck.analytics.sleep_source_view import read_source_sleep_range
 from healthcheck.db.engine import session_scope
 from healthcheck.garmin.completed_steps_read import DISPLAY_ZONE, read_completed_steps_window
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
@@ -17,7 +16,6 @@ from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.owner_presentation import owner_date, owner_distance, owner_duration
 from healthcheck.web.pages import _persist_error, render_error
 from healthcheck.web.read_snapshot import ensure_read_snapshot
-from healthcheck.web.sleep_timeline import build_sleep_timeline, read_sleep_source_inventory
 from healthcheck.web.sleep_view import source_sleep_label
 
 router = APIRouter()
@@ -79,6 +77,8 @@ def statistics(
     end_date: date | None = Query(default=None),
     garmin_source_id: str | None = Query(default=None),
     google_source_id: str | None = Query(default=None),
+    garmin_sleep_source_id: str | None = Query(default=None),
+    google_sleep_source_id: str | None = Query(default=None),
 ):
     from healthcheck.web.activity_period import statistics_session_links
 
@@ -98,26 +98,13 @@ def statistics(
             raise ValueError("unsupported period")
         with session_scope(request_engine(request)) as session:
             ensure_read_snapshot(session)
-            selected_google = google_source_id or None
-            if selected_google is None and selected_period in {"7", "30"}:
-                inventory = read_sleep_source_inventory(session)
-                if len(inventory["sources"]) > 1 and not inventory["truncated"]:
-                    timeline = build_sleep_timeline(
-                        {"google": read_source_sleep_range(
-                            session, provider="google", wake_date=evaluated_date,
-                            days=int(selected_period),
-                        )},
-                        days=int(selected_period), end_date=evaluated_date,
-                        google_inventory=inventory,
-                    )
-                    selection = timeline["google_selection"]
-                    # Reuse #343's exact-source rule, only for the approved sleep family.
-                    if selection["status"] == "sole_google_wearables":
-                        selected_google = selection["selected_source_id"]
             packet = PeriodSummaryService(session).build(
                 **window,
                 garmin_source_id=garmin_source_id or None,
-                google_source_id=selected_google,
+                google_source_id=google_source_id or None,
+                sleep_source_selection=True,
+                garmin_sleep_source_id=garmin_sleep_source_id or None,
+                google_sleep_source_id=google_sleep_source_id or None,
             )
             steps_now = steps_evaluation_instant()
             steps_start = date.fromisoformat(packet["requested_window"]["start_date"])
@@ -159,6 +146,11 @@ def statistics(
             "steps": steps,
             "steps_state_labels": STEPS_STATE_LABELS,
             "selected_garmin_source_id": garmin_source_id or None,
+            "selected_google_source_id": google_source_id or None,
+            "selected_sleep_source_ids": {
+                "left": garmin_sleep_source_id or None,
+                "right": google_sleep_source_id or None,
+            },
             "selected_period": selected_period,
             "selected_year": selected_year,
             "control_end_date": evaluated_date.isoformat(),
@@ -171,6 +163,9 @@ def statistics(
             "state_labels": STATE_LABELS,
             "format_value": format_statistics_value,
             "source_labels": statistics_source_labels(packet),
+            "sleep_source_choices": {
+                side["position"]: statistics_source_choices(side) for side in packet["sides"]
+            },
             "session_links": statistics_session_links(
                 packet, period=selected_period, calendar_year=selected_year,
                 control_end_date=evaluated_date.isoformat(),
@@ -180,17 +175,30 @@ def statistics(
     )
 
 
+def statistics_source_choices(side: dict) -> list[dict]:
+    sources = {s["source_id"]: s for s in side["available_sources"]}
+    sleep = side.get("metrics", {}).get("sleep_duration_asleep_seconds", {})
+    for option in sleep.get("source_selection", {}).get("options", []):
+        source = option["source_identity"]
+        sources[source["source_id"]] = source
+    if sleep.get("source_identity"):
+        source = sleep["source_identity"]
+        sources[source["source_id"]] = source
+    return list(sources.values())
+
+
 def statistics_source_labels(packet: dict) -> dict[str, str]:
     """Readable labels, disambiguated without exposing opaque IDs in primary UI."""
     labels = {}
     for side in packet["sides"]:
         provider = "garmin" if side["position"] == "left" else "google"
-        for index, source in enumerate(side["available_sources"], 1):
+        sources = statistics_source_choices(side)
+        for index, source in enumerate(sources, 1):
             # B1 identities omit optional Google metadata; no inference from UUIDs.
             label = source_sleep_label(
                 dict(data_source_name=None, platform=None, **source), provider,
             )
             labels[source["source_id"]] = (
-                f"{label} · источник {index}" if len(side["available_sources"]) > 1 else label
+                f"{label} · источник {index}" if len(sources) > 1 else label
             )
     return labels

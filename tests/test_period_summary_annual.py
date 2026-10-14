@@ -34,6 +34,257 @@ END = date(2096, 12, 31)
 START = date(2096, 1, 1)
 
 
+def sleep_selection_window(period, end=END):
+    if period in {"7", "30"}:
+        return {"days": int(period), "end_date": end}
+    if period == "calendar_year":
+        return {"period_type": period, "calendar_year": end.year}
+    return {"period_type": period, "end_date": end}
+
+
+@pytest.mark.parametrize("period", ["7", "30", "trailing365", "calendar_year", "year_to_date"])
+@pytest.mark.parametrize("case", ["zero", "partial", "two_sources", "ambiguous_competitor"])
+def test_sleep_metric_selection_uses_window_eligibility(projection_database, period, case):
+    session, paths = projection_database
+    _garmin(session, paths, END)
+    _activity(session, paths, day=END)
+    _google(session, paths, END, minutes="0" if case == "zero" else "60")
+    selected = session.scalar(select(GoogleSource))
+    _google(session, paths, END, source="synthetic-nap-only", nap="true")
+    _google(session, paths, START - timedelta(days=1), source="synthetic-outside")
+    if case in {"two_sources", "ambiguous_competitor"}:
+        _google(session, paths, END, source="synthetic-competitor", name="main-one",
+                main="true", nap="false")
+    if case == "ambiguous_competitor":
+        _google(session, paths, END, source="synthetic-competitor", name="main-two",
+                main="true", nap="false")
+        record = session.scalar(select(GoogleSourceRecord).where(
+            GoogleSourceRecord.external_record_id == "main-two",
+        ))
+        metric = session.scalar(select(GoogleRecordMetric).where(
+            GoogleRecordMetric.record_id == record.id,
+            GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep",
+        ))
+        metric.state, metric.value_number, metric.value_text = "null", None, None
+    if case == "partial":
+        session.scalar(select(GoogleSourceRecord).where(
+            GoogleSourceRecord.google_source_id == selected.id,
+        )).record_status = "partial"
+    session.commit()
+    window = sleep_selection_window(period)
+    legacy = PeriodSummaryService(session).build(**window)
+    packet = PeriodSummaryService(session).build(**window, sleep_source_selection=True)
+    for old, new in zip(legacy["sides"], packet["sides"], strict=True):
+        assert old["source_identity"] == new["source_identity"]
+        assert {k: v for k, v in old["metrics"].items() if k != SLEEP_CODE} == {
+            k: v for k, v in new["metrics"].items() if k != SLEEP_CODE
+        }
+    garmin = cell(packet)
+    assert garmin["aggregation"]["value"] == 28800, garmin
+    assert packet["sides"][0]["source_identity"] is None
+    assert garmin["source_identity"]["source_id"]
+    google = cell(packet, side=1)
+    assert google["source_selection"]["search"]["complete"]
+    if case in {"two_sources", "ambiguous_competitor"}:
+        assert google["state"] == "selection_required"
+        assert google["source_identity"] is None
+        assert google["aggregation"]["value"] is None
+        assert google["aggregation"]["eligible_count"] is None
+        if case == "ambiguous_competitor":
+            assert any(o["ambiguous_record_count"] == 2
+                       for o in google["source_selection"]["options"])
+    else:
+        assert google["source_selection"]["state"] == "unique_eligible_source"
+        assert google["source_identity"]["source_id"] == selected.id
+        assert google["aggregation"]["value"] == (0 if case == "zero" else 3600)
+        assert google["aggregation"]["eligible_count"] == 1
+        assert google["availability_counts"]["zero"] == int(case == "zero")
+        assert google["availability_counts"]["uncertain"] == 1
+        stored = session.scalar(select(GoogleSourceRecord).where(
+            GoogleSourceRecord.google_source_id == selected.id,
+        ))
+        assert google["availability_counts"]["partial"] == int(stored.record_status == "partial")
+        assert not google["coverage"]["complete"]
+    assert packet["deltas"][SLEEP_CODE]["value"] is None
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("cap", ["MAX_PERIOD_RECORDS", "MAX_NIGHT_RECORDS"])
+def test_short_sleep_overflow_suppresses_whole_mean_only(
+    projection_database, monkeypatch, days, cap,
+):
+    session, paths = projection_database
+    _activity(session, paths, day=END)
+    _garmin(session, paths, END)
+    _google(session, paths, END, name="first", main="true", nap="false")
+    _google(session, paths, END if cap == "MAX_NIGHT_RECORDS" else END - timedelta(days=1),
+            name="second", main="true", nap="false")
+    session.commit()
+    legacy = PeriodSummaryService(session).build(end_date=END, days=days)
+    monkeypatch.setattr(bounded, cap, 1)
+    packet = PeriodSummaryService(session).build(
+        end_date=END, days=days, sleep_source_selection=True,
+    )
+    incomplete = cell(packet, side=1)
+    assert_incomplete(incomplete, "night_group_limit_exceeded" if cap == "MAX_NIGHT_RECORDS"
+                      else "candidate_record_limit_exceeded")
+    assert incomplete["source_selection"]["selected_source_id"] is None
+    assert cell(packet)["aggregation"]["value"] == 28800
+    assert cell(packet, "activity_session_count") == cell(legacy, "activity_session_count")
+
+
+@pytest.mark.parametrize("period", ["7", "calendar_year"])
+@pytest.mark.parametrize("cap", ["MAX_PERIOD_SOURCES", "MAX_PERIOD_RECORDS", "MAX_NIGHT_RECORDS"])
+def test_explicit_sleep_is_independent_of_unrelated_candidate_limits(
+    projection_database, monkeypatch, period, cap,
+):
+    session, paths = projection_database
+    _google(session, paths, END, source="synthetic-selected", minutes="0")
+    selected = session.scalar(select(GoogleSource))
+    _google(session, paths, END, source="synthetic-other", name="other-one")
+    _google(session, paths, END, source="synthetic-other", name="other-two")
+    session.commit()
+    monkeypatch.setattr(bounded, cap, 1)
+    window = sleep_selection_window(period)
+    auto = PeriodSummaryService(session).build(**window, sleep_source_selection=True)
+    assert cell(auto, side=1)["state"] == "search_incomplete"
+    explicit = PeriodSummaryService(session).build(
+        **window, sleep_source_selection=True, google_sleep_source_id=selected.id,
+    )
+    result = cell(explicit, side=1)
+    assert result["aggregation"]["value"] == 0
+    assert result["source_identity"]["source_id"] == selected.id
+    assert result["source_selection"]["mode"] == "explicit"
+    assert result["source_selection"]["search"] == {
+        "complete": True, "reason": None, "scope": "exact_source",
+    }
+
+
+def test_sleep_override_precedence_and_empty_source_never_fall_back(projection_database):
+    session, paths = projection_database
+    _google(session, paths, END, source="synthetic-usable", minutes="60")
+    usable = session.scalar(select(GoogleSource))
+    _google(session, paths, START - timedelta(days=1), source="synthetic-empty")
+    empty = session.scalar(select(GoogleSource).where(GoogleSource.id != usable.id))
+    session.commit()
+    packet = PeriodSummaryService(session).build(
+        end_date=END, days=7, sleep_source_selection=True,
+        google_source_id=usable.id, google_sleep_source_id=empty.id,
+    )
+    result = cell(packet, side=1)
+    assert result["source_identity"]["source_id"] == empty.id
+    assert result["source_selection"]["requested_source_id"] == empty.id
+    assert result["state"] == "no_eligible_values"
+    assert result["aggregation"]["value"] is None
+    assert result["aggregation"]["eligible_count"] == 0
+    assert packet["sides"][1]["source_identity"]["source_id"] == usable.id
+    auto = PeriodSummaryService(session).build(
+        end_date=END, days=7, sleep_source_selection=True,
+        google_source_id="", google_sleep_source_id="",
+    )
+    assert cell(auto, side=1)["source_identity"]["source_id"] == usable.id
+    assert cell(auto, side=1)["source_selection"]["mode"] == "auto"
+    with pytest.raises(ValueError, match="unknown selected Sleep"):
+        PeriodSummaryService(session).build(
+            end_date=END, days=7, sleep_source_selection=True, google_sleep_source_id="foreign",
+        )
+
+
+def test_selected_sleep_inputs_are_read_once_and_keep_correction_history(
+    projection_database, monkeypatch,
+):
+    session, paths = projection_database
+    _google(session, paths, END, name="old", minutes="60")
+    _google(session, paths, END, name="corrected", minutes="120")
+    _google(session, paths, END, source="synthetic-nap", nap="true")
+    old = session.scalar(select(GoogleSourceRecord).where(
+        GoogleSourceRecord.external_record_id == "old",
+    ))
+    old.projection_status, old.retire_reason = "retired", "superseded_logical_session"
+    old.retired_at = datetime(2097, 1, 1, tzinfo=UTC)
+    session.commit()
+    original = PeriodSummaryService._sleep
+    read_ids = []
+
+    def capture(service, source, *args, **kwargs):
+        read_ids.append(source.id)
+        return original(service, source, *args, **kwargs)
+
+    monkeypatch.setattr(PeriodSummaryService, "_sleep", capture)
+    packet = PeriodSummaryService(session).build(
+        end_date=END, days=7, sleep_source_selection=True,
+    )
+    result = cell(packet, side=1)
+    assert len(read_ids) == len(set(read_ids)) == 2
+    assert result["aggregation"]["value"] == 7200
+    assert result["aggregation"]["eligible_count"] == 1
+    assert result["availability_counts"]["retired"] == 1
+    assert result["snapshot_evidence"]["retirement_reason_counts"] == {
+        "superseded_logical_session": 1,
+    }
+
+
+@pytest.mark.parametrize("case", ["missing", "null", "invalid", "wrong_unit", "missing_wake"])
+def test_unusable_sleep_source_does_not_borrow_another_metric_or_date(projection_database, case):
+    session, paths = projection_database
+    _google(session, paths, END, source="synthetic-unusable", name="unusable", minutes="60")
+    record = session.scalar(select(GoogleSourceRecord))
+    if case == "missing_wake":
+        session.get(GoogleSleepRecord, record.id).wake_date = None
+        record.source_local_date = END
+    else:
+        metric = session.scalar(select(GoogleRecordMetric).where(
+            GoogleRecordMetric.record_id == record.id,
+            GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep",
+        ))
+        if case == "wrong_unit":
+            metric.unit = "seconds"
+        else:
+            metric.state, metric.value_text, metric.value_number = case, None, None
+    _google(session, paths, END, source="synthetic-usable", minutes="120")
+    usable = session.scalar(select(GoogleSource).where(GoogleSource.id != record.google_source_id))
+    session.commit()
+    packet = PeriodSummaryService(session).build(
+        end_date=END, days=7, sleep_source_selection=True,
+    )
+    result = cell(packet, side=1)
+    assert result["source_identity"]["source_id"] == usable.id
+    assert result["aggregation"]["value"] == 7200
+    option = next(o for o in result["source_selection"]["options"]
+                  if o["source_identity"]["source_id"] == record.google_source_id)
+    assert option["eligible_count"] == 0 and option["exclusions"]
+
+
+def test_sleep_discovery_timeout_blocks_auto_and_cleans_shared_guard(
+    projection_database, monkeypatch,
+):
+    session, paths = projection_database
+    _garmin(session, paths, END)
+    _google(session, paths, END, source="synthetic-one")
+    _google(session, paths, END, source="synthetic-two")
+    session.commit()
+    clock = [0.0]
+    monkeypatch.setattr(bounded, "monotonic", lambda: clock[0])
+    original = PeriodSummaryService._sleep
+
+    def expire(service, source, *args, **kwargs):
+        if isinstance(source, GoogleSource):
+            clock[0] = 3.0
+        return original(service, source, *args, **kwargs)
+
+    monkeypatch.setattr(PeriodSummaryService, "_sleep", expire)
+    driver = session.connection().connection.driver_connection
+    busy = driver.execute("PRAGMA busy_timeout").fetchone()[0]
+    packet = PeriodSummaryService(session).build(
+        end_date=END, days=7, sleep_source_selection=True,
+    )
+    assert cell(packet)["aggregation"]["value"] == 28800
+    assert_incomplete(cell(packet, side=1), "time_budget_exceeded")
+    assert cell(packet, side=1)["source_selection"]["selected_source_id"] is None
+    assert driver.execute("PRAGMA busy_timeout").fetchone()[0] == busy
+    assert driver.execute("SELECT 1").fetchone()[0] == 1
+
+
 def annual(session, **kwargs):
     return PeriodSummaryService(session).build(
         period_type="calendar_year", calendar_year=2096, **kwargs

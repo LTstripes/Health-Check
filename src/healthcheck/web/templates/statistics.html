@@ -22,12 +22,12 @@
   <div class="statistics-pair statistics-source-headings">
     {% for side in packet.sides %}
     {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
-    {% set control_source_id = selected_garmin_source_id if side.position == 'left' else (side.source_identity.source_id if side.source_identity else side.requested_source_id|default(none)) %}
+    {% set control_source_id = selected_garmin_source_id if side.position == 'left' else selected_google_source_id %}
     {% set incomplete = side.state == 'search_incomplete' or side.metrics.values()|selectattr('state', 'equalto', 'search_incomplete')|list %}
-    {% set selection_required = side.state == 'selection_required' or (side.position == 'left' and steps.reason == 'source_selection_required') %}
+    {% set selection_required = side.metrics.values()|selectattr('state', 'equalto', 'selection_required')|list or (side.position == 'left' and steps.reason == 'source_selection_required') %}
     <header data-statistics-side="{{ side.position }}">
       <h2>{{ provider }}</h2>
-      <p>{{ identity(side.source_identity) if side.source_identity else state_labels[side.state] }}</p>
+      <p>{{ identity(side.source_identity) if side.source_identity else 'Источники указаны у показателей' if side.state == 'selection_required' and not selection_required else state_labels[side.state] }}</p>
       <small>{{ side.requested_dates.start_date|owner_date }} — {{ side.requested_dates.end_date|owner_date }}</small>
       {% if incomplete or selection_required %}
       <p class="statistics-source-warning" role="status" data-source-attention>{{ 'Поиск сохранённых данных не завершён. Полнота и доступность неизвестны.' if incomplete else 'Нужен явный выбор источника. Данные источников не объединяются.' }}</p>
@@ -57,11 +57,18 @@
     <div class="statistics-pair">
       {% for side in packet.sides %}
       {% set cell = side.metrics[code] %}
+      {% set cell_source = cell.source_identity if cell.source_identity is defined else side.source_identity %}
       {% set value = cell.aggregation.value %}
       {% set incomplete = cell.state == 'search_incomplete' %}
-      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] %}
+      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] or (cell.source_selection is defined and cell_source is none) %}
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
+        {% if cell.source_selection is defined %}
+        <p data-sleep-source>{{ identity(cell_source) if cell_source else state_labels[cell.state] }}</p>
+        {% if cell.state in ['selection_required', 'search_incomplete'] %}
+        <p class="statistics-source-warning" role="status" data-sleep-source-attention>{{ 'Выберите источник сна.' if cell.state == 'selection_required' else 'Поиск сна не завершён.' }}</p>
+        {% endif %}
+        {% endif %}
         <div class="statistics-value">
           {% if value is none %}<span>Недоступно</span>
           {% elif value is mapping %}
@@ -82,9 +89,27 @@
         {% endif %}
         <details class="statistics-details">
           <summary>Покрытие и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+          {% if cell.source_selection is defined %}
+          {% set explicit_sleep = selected_sleep_source_ids[side.position] %}
+          <label>{{ 'Garmin' if side.position == 'left' else 'Google' }}: источник сна
+            <select form="statistics-controls" name="{{ 'garmin' if side.position == 'left' else 'google' }}_sleep_source_id" aria-label="{{ 'Garmin' if side.position == 'left' else 'Google' }}: источник сна">
+              <option value=""{% if not explicit_sleep %} selected{% endif %}>{{ 'Источник выбран выше' if cell.source_selection.mode == 'explicit' and not explicit_sleep else 'Автоматически для периода' }}</option>
+              {% if explicit_sleep %}<option value="{{ explicit_sleep }}" selected>{{ identity(cell_source) if cell_source else 'Выбранный источник' }}</option>{% endif %}
+              {% for source in sleep_source_choices[side.position] %}
+              {% if source.source_id != explicit_sleep %}<option value="{{ source.source_id }}">{{ identity(source) }}</option>{% endif %}
+              {% endfor %}
+            </select>
+          </label>
+          <button form="statistics-controls" type="submit">Применить источник сна</button>
+          {% endif %}
           <dl>
             {% if cell.search is defined %}<dt>Поиск сохранённых данных</dt><dd>{{ 'Завершён в выбранном периоде; это не подтверждает полноту сбора или покрытие устройства.' if cell.search.complete else 'Не завершён: ' ~ cell.search.reason }}</dd>{% endif %}
-            <dt>Источник / поле</dt><dd>{{ side.source_identity.source_id if side.source_identity else state_labels[side.state] }} / {{ cell.source_metric_code }}</dd>
+            <dt>Источник / поле</dt><dd>{{ cell_source.source_id if cell_source else state_labels[cell.state] }} / {{ cell.source_metric_code }}</dd>
+            {% if cell.source_selection is defined %}
+            <dt>Выбор источника сна</dt><dd>{{ cell.source_selection.mode }} · {{ cell.source_selection.search.scope }} · {{ cell.source_selection.state }}</dd>
+            {% if cell_source %}<dt>Точная идентичность сна</dt><dd>{{ cell_source.source_kind }} · {{ cell_source.source_instance_id }} · {{ cell_source.device_attribution_basis }}</dd>{% endif %}
+            <dt>Кандидаты в периоде</dt><dd>{% for option in cell.source_selection.options %}{{ identity(option.source_identity) }}: {{ option.source_identity.source_id }} · допустимых ночей {{ option.eligible_count }}; неоднозначных записей {{ option.ambiguous_record_count }}{% for reason in option.exclusions %}; {{ reason.reason_code }}: {{ reason.count }}{% endfor %}{% if not loop.last %}<br>{% endif %}{% else %}Нет завершённой оценки кандидатов.{% endfor %}</dd>
+            {% endif %}
             <dt>Единицы и преобразование</dt><dd>{{ cell.source_unit }} → {{ cell.unit }} · {{ cell.conversion }}</dd>
             <dt>Точное значение / числитель</dt><dd>{{ value if value is not none else 'Недоступно' }} / {{ cell.aggregation.numerator if cell.aggregation.numerator is not none else 'Недоступно' }} · {{ cell.unit }}</dd>
             {% if incomplete %}
