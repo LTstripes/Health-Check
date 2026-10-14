@@ -142,6 +142,57 @@ class TranscriptEvidenceTests(unittest.TestCase):
                 if "separator_codepoint" in case:
                     print(f"Python Unicode U+{case['separator_codepoint']:04X}: length=1 rejected")
 
+    def test_ownership_snapshot_diagnostic_cannot_waive_failed_capture(self):
+        for reason in ("child_creation_missing", "child_predates_parent"):
+            with self.subTest(reason=reason):
+
+                def failed_capture(evidence, cleanup):
+                    def identity(pid, ticks, parent=None):
+                        record = dict(
+                            Id=pid,
+                            IdPresent=True,
+                            IdValid=True,
+                            CreationTime=ticks,
+                            CreationTimePresent=ticks is not None,
+                            CreationTimeValid=ticks is not None,
+                            CreationTimeState="valid" if ticks is not None else "missing",
+                        )
+                        if parent is not None:
+                            record.update(
+                                ParentProcessId=parent,
+                                ParentProcessIdPresent=True,
+                                ParentProcessIdValid=True,
+                            )
+                        return record
+
+                    cleanup.update(
+                        termination_issued=False,
+                        termination_outcome="failed",
+                        taskkill_exit_code=None,
+                        taskkill_output=[],
+                        lifecycle_diagnostic_verified=False,
+                        owned_process_identities=[],
+                        post_termination_observations=[],
+                        final_process_observations=[],
+                        errors=["ambiguous descendant ownership (reused parent PID)"],
+                        ownership_snapshot_diagnostic=dict(
+                            Reason=reason,
+                            CapturedRoot=identity(202, "637134336000000000"),
+                            Parent=identity(203, "637134336010000000", 202),
+                            Child=identity(
+                                204,
+                                None
+                                if reason == "child_creation_missing"
+                                else "637134336009999999",
+                                203,
+                            ),
+                        ),
+                    )
+
+                # Keep all other fixture evidence successful: even optimistic
+                # enclosing status cannot make this failed capture acceptable.
+                self.validate_case(MATRIX["cases"][0]["output"], False, failed_capture)
+
     def test_separator_preserves_lifecycle_and_final_evidence(self):
         for name in ("retained_shape", "observed_one_sibling_suffix"):
             with self.subTest(transcript=name):
