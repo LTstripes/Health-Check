@@ -81,6 +81,9 @@ const base = 'http://127.0.0.1:8120';
         } else if (scenario === 'zero') {
           assert.equal((await headline('sleep_duration_asleep_seconds').innerText()).trim(), '0 мин');
           assert.equal((await headline('tennis_duration_seconds').innerText()).trim(), '0 мин');
+        } else if (scenario === 'ambiguous') {
+          assert.equal((await sleep.locator('.statistics-value').nth(0).innerText()).trim(), '8 ч 0 мин');
+          assert.equal((await sleep.locator('.statistics-value').nth(1).innerText()).trim(), 'Недоступно');
         } else {
           assert.equal(await sleep.getByText('Недоступно', { exact: true }).count(), 2);
         }
@@ -195,7 +198,7 @@ const base = 'http://127.0.0.1:8120';
           await page.goto(`${base}/statistics`);
           const selector = page.locator('[name="google_source_id"]');
           const selected = await selector.inputValue();
-          assert.equal(Boolean(selected), ['sole', 'explicit_missing', 'zero'].includes(scenario));
+          assert.equal(Boolean(selected), scenario === 'explicit_missing');
           const options = await selector.locator('option').allTextContents();
           assert.equal(new Set(options).size, options.length);
           for (const provider of ['garmin', 'google']) {

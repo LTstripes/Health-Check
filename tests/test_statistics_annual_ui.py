@@ -56,12 +56,15 @@ def test_annual_route_preserves_packet(statistics_ui, monkeypatch, period, start
         {"period_type": period, "calendar_year": 2096} if period == "calendar_year" else
         {"period_type": period, "end_date": date(2096, 2, 29)}
     )
-    expected = PeriodSummaryService(session).build(**kwargs)
+    expected = PeriodSummaryService(session).build(**kwargs, sleep_source_selection=True)
     original = PeriodSummaryService.build
     captured = []
 
     def capture(service, **selection):
-        assert selection == dict(kwargs, garmin_source_id=None, google_source_id=None)
+        assert selection == dict(
+            kwargs, garmin_source_id=None, google_source_id=None,
+            sleep_source_selection=True, garmin_sleep_source_id=None, google_sleep_source_id=None,
+        )
         packet = original(service, **selection)
         captured.append((packet, deepcopy(packet)))
         return packet
@@ -160,14 +163,13 @@ def test_annual_selection_is_explicit_bounded_and_retained(statistics_ui, monkey
     def forbidden(*args, **kwargs):
         raise AssertionError("unbounded legacy source scan")
 
-    monkeypatch.setattr("healthcheck.web.statistics.read_sleep_source_inventory", forbidden)
-    monkeypatch.setattr("healthcheck.web.statistics.read_source_sleep_range", forbidden)
+    monkeypatch.setattr("healthcheck.analytics.period_summary.read_source_sleep_night", forbidden)
     garmin = session.scalar(select(GarminSource).where(GarminSource.device_attributed.is_(True)))
     google = session.scalar(select(GoogleSource))
     for period in ("trailing365", "calendar_year", "year_to_date"):
         params = {"period": period, "calendar_year": 2099, "end_date": "2099-01-08"}
         response = client.get("/statistics", params=params)
-        assert "Выбери источник" in MetricParser(response.text).cells[SLEEP_CODE, "left"]
+        assert "8 ч 0 мин" in MetricParser(response.text).cells[SLEEP_CODE, "left"]
         export(response, f"ambiguous-{period}")
         params.update(garmin_source_id=garmin.id, google_source_id=google.id)
         response = client.get("/statistics", params=params)

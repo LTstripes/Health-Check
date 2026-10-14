@@ -178,20 +178,49 @@ class PeriodSummaryService:
         calendar_year: int | None = None,
         garmin_source_id: str | None = None,
         google_source_id: str | None = None,
+        sleep_source_selection: bool = False,
+        garmin_sleep_source_id: str | None = None,
+        google_sleep_source_id: str | None = None,
     ) -> dict[str, Any]:
         """Explicit annual periods; omission never enables last-available fallback.
 
         calendar_year requires only a selected year (no competing end/days).
         year_to_date and trailing365 require an explicit civil end date.
-        Legacy 7/30 packets and their validation remain unchanged.
+        Legacy packets remain unchanged unless Sleep selection is requested.
+        That opt-in applies the existing bounded loader to Sleep in every window;
+        metric overrides precede provider overrides and never change other cells.
         """
         start, end, count, kind = _window(end_date, days, period_type, calendar_year)
+        if not sleep_source_selection and (garmin_sleep_source_id or google_sleep_source_id):
+            raise ValueError("Sleep overrides require metric source selection")
         if kind is None:
-            return self._build(start, end, count, garmin_source_id, google_source_id)
+            packet = self._build(
+                start, end, count, garmin_source_id, google_source_id,
+                read_sleep=not sleep_source_selection,
+            )
+            if sleep_source_selection:
+                with bounded.PeriodReadBudget(self.session) as budget:
+                    self._read = budget
+                    try:
+                        self._select_sleep(
+                            packet, start, end, garmin_sleep_source_id or garmin_source_id,
+                            google_sleep_source_id or google_source_id,
+                        )
+                    finally:
+                        self._read = None
+            return packet
         with bounded.PeriodReadBudget(self.session) as budget:
             self._read = budget
             try:
-                packet = self._build(start, end, count, garmin_source_id, google_source_id)
+                packet = self._build(
+                    start, end, count, garmin_source_id, google_source_id,
+                    read_sleep=not sleep_source_selection,
+                )
+                if sleep_source_selection:
+                    self._select_sleep(
+                        packet, start, end, garmin_sleep_source_id or garmin_source_id,
+                        google_sleep_source_id or google_source_id,
+                    )
                 packet["contract_version"] = "source-period-summary-v2"
                 packet["requested_window"]["period_type"] = kind
                 packet["read_limits"] = bounded.read_limits()
@@ -204,6 +233,124 @@ class PeriodSummaryService:
             return self._read.rows(query, cap, reason, scalar=scalar)
         result = self.session.execute(query)
         return list(result.scalars() if scalar else result)
+
+    def _select_sleep(self, packet, start, end, garmin_selected, google_selected):
+        """Display selection only, bounded in one snapshot for all existing windows.
+
+        Metadata is not metric availability. An ambiguous source/date competes
+        even without a usable scalar. Explicit reads do not enumerate candidates.
+        The existing per-source/surface caps and shared deadline apply to 7/30
+        too: overflow suppresses the entire Sleep mean, never just its suffix.
+        """
+        days = (end - start).days + 1
+        for side, model, requested in zip(
+            packet["sides"], (GarminSource, GoogleSource),
+            (garmin_selected, google_selected), strict=True,
+        ):
+            requested = requested or None
+            selection = {
+                "version": "sleep-window-selection-v1",
+                "mode": "explicit" if requested else "auto",
+                "requested_source_id": requested,
+                "selected_source_id": None,
+                "state": "no_eligible_values",
+                "options": [],
+            }
+            chosen = None
+            source = None
+            try:
+                if requested:
+                    exact = self._rows(
+                        select(model).where(model.id == requested),
+                        bounded.MAX_METADATA_ROWS, "ancillary_row_limit_exceeded",
+                    )
+                    source = exact[0] if exact else None
+                    if source is None or source.provider_code != side["provider_code"]:
+                        raise ValueError("unknown selected Sleep source")
+                    sources = [source]
+                else:
+                    sources = self._rows(
+                        select(model).where(model.provider_code == side["provider_code"])
+                        .order_by(model.id),
+                        bounded.MAX_PERIOD_SOURCES, "source_inventory_limit_exceeded",
+                    )
+                candidates = []
+                for source in sources:
+                    cell = self._sleep(source, start, end, selection=True)
+                    self._read.check()
+                    ambiguous = sum(
+                        item["count"] for item in cell["exclusions"]
+                        if item["reason_code"].startswith("ambiguous_")
+                    )
+                    selection["options"].append({
+                        "source_identity": _identity(source),
+                        "eligible_count": cell["aggregation"]["eligible_count"],
+                        "ambiguous_record_count": ambiguous,
+                        "effective_dates": cell["effective_dates"],
+                        "exclusions": cell["exclusions"],
+                    })
+                    if requested or cell["aggregation"]["eligible_count"] or ambiguous:
+                        candidates.append((source, cell))
+                if requested:
+                    chosen = candidates[0]
+                    selection["state"] = "explicit"
+                elif len(candidates) == 1 and candidates[0][1]["aggregation"]["eligible_count"]:
+                    chosen = candidates[0]
+                    selection["state"] = "unique_eligible_source"
+                else:
+                    state = (
+                        "selection_required" if candidates
+                        else "no_eligible_values" if sources else "source_missing"
+                    )
+                    selection["state"] = state
+                    cell = self._incomplete(SLEEP_CODE, days, state)
+                    cell["state"] = state
+                    cell["coverage"] = _coverage_unknown(days)
+                cell["search"] = {"complete": True, "reason": None}
+            except bounded.IncompletePeriodRead as exc:
+                cell = self._incomplete(SLEEP_CODE, days, str(exc))
+                selection["state"] = "search_incomplete"
+            if chosen:
+                source, cell = chosen
+                cell["search"] = {"complete": True, "reason": None}
+                selection["selected_source_id"] = source.id
+                cell["source_identity"] = _identity(source)
+            else:
+                cell["source_identity"] = None
+            # A failed explicit read still retains its requested identity, while
+            # authoritative values/counts remain unknown.
+            if requested and cell["state"] == "search_incomplete":
+                cell["source_identity"] = _identity(source) if source else None
+                selection["selected_source_id"] = requested
+            selection["search"] = {
+                **cell["search"], "scope": "exact_source" if requested else "all_sources",
+            }
+            cell["source_selection"] = selection
+            self._sleep_fields(cell, side["provider_code"], start, days)
+            side["metrics"][SLEEP_CODE] = cell
+        packet["deltas"][SLEEP_CODE] = self._delta(
+            packet["sides"][0]["metrics"][SLEEP_CODE],
+            packet["sides"][1]["metrics"][SLEEP_CODE],
+        )
+        packet["sleep_selection_read_limits"] = bounded.read_limits()
+
+    @staticmethod
+    def _sleep_fields(cell, provider, start, days):
+        unevaluated = cell["source_identity"] is None or cell["state"] in {
+            "search_incomplete", "selection_required", "source_missing",
+        }
+        observed_dates = set(cell["observed_calendar_dates"] or [])
+        cell["missing_dates"] = None if unevaluated else [
+            day.isoformat() for offset in range(days)
+            if (day := start + timedelta(days=offset)).isoformat() not in observed_dates
+        ]
+        cell["missing_day_count"] = None if unevaluated else len(cell["missing_dates"])
+        google = provider == "google_health"
+        cell["source_metric_code"] = (
+            "sleep_summary_minutes_asleep" if google else "sleep_duration_seconds"
+        )
+        cell["source_unit"] = "min" if google else "seconds"
+        cell["conversion"] = "minutes_times_60_v1" if google else "identity_v1"
 
     def _incomplete(self, metric, days, reason):
         cell = _cell(
@@ -234,7 +381,7 @@ class PeriodSummaryService:
         except bounded.IncompletePeriodRead as exc:
             result[metric] = self._incomplete(metric, days, str(exc))
 
-    def _build(self, start, end_date, days, garmin_source_id, google_source_id):
+    def _build(self, start, end_date, days, garmin_source_id, google_source_id, *, read_sleep=True):
         ensure_read_snapshot(self.session)
         sides = []
         for position, provider, model, selected in (
@@ -304,10 +451,11 @@ class PeriodSummaryService:
                                 if m != SLEEP_CODE
                             }
                         )
-                try:
-                    side["metrics"][SLEEP_CODE] = self._sleep(source, start, end_date)
-                except bounded.IncompletePeriodRead as exc:
-                    side["metrics"][SLEEP_CODE] = self._incomplete(SLEEP_CODE, days, str(exc))
+                if read_sleep:
+                    try:
+                        side["metrics"][SLEEP_CODE] = self._sleep(source, start, end_date)
+                    except bounded.IncompletePeriodRead as exc:
+                        side["metrics"][SLEEP_CODE] = self._incomplete(SLEEP_CODE, days, str(exc))
             if incomplete is not None:
                 side["state"] = "search_incomplete"
                 for metric in METRICS:
@@ -371,7 +519,9 @@ class PeriodSummaryService:
             },
         }
 
-    def _coverage(self, source, start: date, end: date, surface: str) -> dict[str, Any]:
+    def _coverage(
+        self, source, start: date, end: date, surface: str, *, bounded_identity=False,
+    ) -> dict[str, Any]:
         days = (end - start).days + 1
         google = isinstance(source, GoogleSource)
         # Google sync currently stores provider/query-family coverage without
@@ -393,12 +543,21 @@ class PeriodSummaryService:
         # An acquisition identity shared by multiple actual sources is not a
         # source-specific completeness proof, even after explicit selection.
         model = GoogleSource if google else GarminSource
-        siblings = self._rows(
-            select(model.id).where(model.acquisition_source_id == source.acquisition_source_id),
-            bounded.MAX_PERIOD_SOURCES,
-            "source_inventory_limit_exceeded",
+        identity_query = select(model.id).where(
+            model.acquisition_source_id == source.acquisition_source_id,
         )
-        if not rows or len(siblings) != 1:
+        if bounded_identity:
+            # Two identities already disprove source-specific coverage. A scoped
+            # explicit Sleep read must not enumerate unrelated candidate sources.
+            siblings = self._rows(
+                select(func.count()).select_from(identity_query.limit(2).subquery()),
+                bounded.MAX_METADATA_ROWS, "ancillary_row_limit_exceeded",
+            )[0]
+        else:
+            siblings = len(self._rows(
+                identity_query, bounded.MAX_PERIOD_SOURCES, "source_inventory_limit_exceeded",
+            ))
+        if not rows or siblings != 1:
             return _coverage_unknown(days)
         summary = calculate_coverage(
             start,
@@ -582,7 +741,7 @@ class PeriodSummaryService:
                 result[code] = cell
         return result
 
-    def _sleep(self, source, start: date, end: date) -> dict[str, Any]:
+    def _sleep(self, source, start: date, end: date, *, selection=False) -> dict[str, Any]:
         google = isinstance(source, GoogleSource)
         provider = "google" if google else "garmin"
         model, typed, column = (
@@ -690,7 +849,7 @@ class PeriodSummaryService:
             history_reasons=history,
         )
         result["coverage"] = self._observed_coverage(
-            self._coverage(source, start, end, "sleep"), observed_dates
+            self._coverage(source, start, end, "sleep", bounded_identity=selection), observed_dates
         )
         result["snapshot_evidence"] = self._snapshot_evidence(
             [r for r, _wake in records], google=google
