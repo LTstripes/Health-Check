@@ -122,7 +122,10 @@ remains explicitly unknown. This reader neither reprocesses raw data nor changes
 ingestion. Values require the Body Battery capability, `value` state, `points`,
 a usable record and a finite numeric value, preserving the existing R02 finite
 contract without introducing a product range; explicit zero remains a value.
-Future chronology and unknown temporal precision are excluded. Conflicting or
+Future UTC timestamps and unknown temporal precision are excluded. Source civil
+dates are never compared with the host's calendar date or converted to UTC dates.
+Date-only observations stay civil dates with unknown UTC chronology; no midnight
+instant or host timezone is invented. Conflicting or
 indistinguishable current sample coordinates exclude the day, including equal
 numbers; date-only samples cannot resolve a multiple-sample collision. Replay and
 correction selection remain the existing persistence/currentness contract.

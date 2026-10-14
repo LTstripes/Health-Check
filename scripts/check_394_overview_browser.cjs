@@ -28,9 +28,12 @@ assert.ok(evidence);
         ['month', '2099-01-02', '2099-01-31', '36'],
         ['one-day', '2099-01-31', '2099-01-31', '90'],
         ['zero', '2099-01-25', '2099-01-25', '0'],
-        ['empty', '2099-02-02', '2099-02-05', null],
+        ['empty', '2099-02-04', '2099-02-05', null],
         ['long', '2097-01-01', '2099-01-31', '39.64'],
         ['finite', '2098-12-30', '2098-12-31', '48.75'],
+        ['source-zone', '2099-02-01', '2099-02-01', '80'],
+        ['source-zone-window', '2099-01-31', '2099-02-01', '85'],
+        ['date-only', '2099-02-02', '2099-02-02', '70'],
       ]) {
         assert.equal((await page.goto(`${base}/brief?start_date=${start}&end_date=${end}`)).status(), 200);
         const card = page.locator('[data-overview-body-battery]');
@@ -50,6 +53,16 @@ assert.ok(evidence);
         if (name === 'finite') {
           assert.match(await card.innerText(), /102.5 баллы/);
           assert.match(await selected.innerText(), /2 из 2 дней/);
+        }
+        if (name === 'source-zone') {
+          assert.match(await card.innerText(), /1 февраля 2099/);
+          assert.match(await selected.innerText(), /1 из 1 дней/);
+          assert.doesNotMatch(await card.innerText(), /100 баллы/);
+        }
+        if (name === 'source-zone-window') assert.match(await selected.innerText(), /2 из 2 дней/);
+        if (name === 'date-only') {
+          assert.match(await card.innerText(), /2 февраля 2099/);
+          assert.match(await selected.innerText(), /1 из 1 дней/);
         }
         assert.match(await card.innerText(), /полнота суток неизвестна/);
         assert.doesNotMatch(await card.innerText(), /99 баллы/);
@@ -75,6 +88,8 @@ assert.ok(evidence);
           assert.match(await details.innerText(), /-5 баллы/);
           assert.match(await details.innerText(), /195 \/ 4/);
         }
+        if (name === 'source-zone') assert.match(await details.innerText(), /Хронология наблюдения находится в будущем/);
+        if (name === 'date-only') assert.match(await details.innerText(), /дата без времени; UTC-хронология неизвестна/);
         if (name === 'selected') {
           assert.match(await details.innerText(), /120 \/ 3|40 \/ 1/);
           assert.match(await details.innerText(), /Скалярный снимок или производный псевдоним/);

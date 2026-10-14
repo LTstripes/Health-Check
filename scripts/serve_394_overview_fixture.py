@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,8 +16,10 @@ def main():
         raise ValueError("Use a fresh external hc394-* synthetic directory")
     sys.path.insert(0, str(ROOT / "tests"))
     import uvicorn
+    from sqlalchemy import select
 
     from healthcheck.db.engine import create_sqlite_engine, session_scope
+    from healthcheck.db.models import GarminSourceRecord
     from healthcheck.garmin.normalization import garmin_source_identity
     from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
     from healthcheck.web import pages
@@ -28,7 +30,7 @@ def main():
     class SyntheticDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
-            return cls(2099, 1, 31, 23, tzinfo=UTC).astimezone(tz)
+            return cls(2099, 1, 31, 20, tzinfo=UTC).astimezone(tz)
 
     pages.datetime = SyntheticDatetime
     real_period = pages._brief_period
@@ -68,13 +70,28 @@ def main():
                          identity=identity)
             seed_battery(session, store, day=date(2098, 12, 31), values=(101, 102.5),
                          identity=identity)
+            local_zone = timezone(timedelta(hours=5))
+            seed_battery(session, store, day=date(2099, 2, 1), values=(80, 100), stamps=(
+                datetime(2099, 2, 1, 0, tzinfo=local_zone),
+                datetime(2099, 2, 1, 2, tzinfo=local_zone),
+            ), identity=identity)
+            # Saved date-only contract, without deriving a midnight UTC instant.
+            seed_battery(session, store, day=date(2099, 2, 2), values=(70,), identity=identity)
+            date_only = session.scalar(select(GarminSourceRecord).where(
+                GarminSourceRecord.source_local_date == date(2099, 2, 2),
+                GarminSourceRecord.source_path.like("payload.bodyBatteryValuesArray[%]"),
+            ))
+            date_only.temporal_precision, date_only.source_timestamp_utc = "date", None
+            date_only.local_wall_time = date_only.source_local_timestamp = None
+            date_only.source_utc_offset_minutes = None
+            date_only.source_local_field = date_only.source_utc_field = None
     finally:
         engine.dispose()
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     (runtime / "fixture-identity.json").write_text(json.dumps({
         "sha": sha, "pid": os.getpid(), "executable": sys.executable,
         "profile": str(paths.root), "synthetic": True, "endpoint": f"http://127.0.0.1:{port}",
-        "evaluation_clock": "2099-01-31T23:00:00+00:00",
+        "evaluation_clock": "2099-01-31T20:00:00+00:00",
         "created_at_utc": datetime.now(UTC).isoformat(),
         "process_start": subprocess.check_output(
             ["ps", "-p", str(os.getpid()), "-o", "lstart="], text=True).strip(),

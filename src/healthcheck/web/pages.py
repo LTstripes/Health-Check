@@ -1065,7 +1065,6 @@ def period_brief_page(
                 session, start=start, end=end,
                 garmin_source_id=source_selection.get("selected_source_id"),
                 evaluated_at_utc=evaluated_at,
-                evaluation_local_date=evaluated_at.astimezone().date(),
             )
             overview["rhr"] = read_overview_rhr(
                 session, start=start, end=end,

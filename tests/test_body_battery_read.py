@@ -1,7 +1,7 @@
 """Synthetic #394 production persistence, weighting and fail-closed reads."""
 
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from fractions import Fraction
 from uuid import uuid4
 
@@ -80,7 +80,7 @@ def query(stored, *, start=DAY - timedelta(days=6), end=DAY, source_id=None, **k
     session, _ = stored
     session.flush()
     source_id = source_id or session.scalar(select(GarminSourceRecord.garmin_source_id))
-    return BodyBatteryQuery(start, end, source_id, NOW, DAY, **kwargs)
+    return BodyBatteryQuery(start, end, source_id, NOW, **kwargs)
 
 
 def read(stored, **kwargs):
@@ -147,7 +147,7 @@ def test_overview_selected_window_and_existing_format(stored, days, display, cou
         seed_battery(*stored, day=DAY - timedelta(days=offset), values=(value,))
     q = query(stored)
     result = read_overview_body_battery(stored[0], start=DAY - timedelta(days=days - 1), end=DAY,
-        garmin_source_id=q.source_id, evaluated_at_utc=NOW, evaluation_local_date=DAY)
+        garmin_source_id=q.source_id, evaluated_at_utc=NOW)
     selected = result["selected"]
     assert selected["mean_display"] == display  # Existing format; no integer rounding.
     assert selected["eligible_day_count"] == count
@@ -339,7 +339,7 @@ def test_read_failure_and_no_writes_or_pending_writer_state(stored, monkeypatch)
     record.record_status = "partial"
     with pytest.raises(InvalidRequestError, match="pending"):
         read_body_battery_period(
-            stored[0], BodyBatteryQuery(DAY, DAY, record.garmin_source_id, NOW, DAY))
+            stored[0], BodyBatteryQuery(DAY, DAY, record.garmin_source_id, NOW))
     stored[0].flush()
     project = module._project_day
     projected = []
@@ -385,6 +385,67 @@ def test_production_finite_contract_has_no_invented_product_range(stored, value)
     assert result["mean_exact"]["numerator"] == str(mean.numerator)
     assert result["mean_exact"]["denominator"] == str(mean.denominator)
     dto = read_overview_body_battery(stored[0], start=DAY, end=DAY,
-        garmin_source_id=record.garmin_source_id, evaluated_at_utc=NOW,
-        evaluation_local_date=DAY)["selected"]
+        garmin_source_id=record.garmin_source_id, evaluated_at_utc=NOW)["selected"]
     assert dto["mean_display"] == str(value)
+
+
+@pytest.mark.parametrize("evaluation_hour,eligible", [(18, False), (20, True)])
+def test_source_calendar_ahead_of_utc_host_uses_only_actual_utc_chronology(
+    stored, evaluation_hour, eligible,
+):
+    source_day = date(2099, 2, 1)
+    local_stamp = datetime(2099, 2, 1, 0, tzinfo=timezone(timedelta(hours=5)))
+    records = seed_battery(*stored, day=source_day, values=(80,), stamps=(local_stamp,))
+    q = replace(query(stored, start=source_day, end=source_day),
+                evaluated_at_utc=datetime(2099, 1, 31, evaluation_hour, tzinfo=UTC))
+    result = read_body_battery_period(stored[0], q)
+    assert result["search"]["complete"]
+    assert result["eligible_day_count"] == int(eligible)
+    if eligible:
+        point = result["latest_maximum"]
+        assert point["source_local_date"] == "2099-02-01"
+        assert point["value"] == 80
+        assert point["evidence"][0]["source_timestamp_utc"] == "2099-01-31T19:00:00+00:00"
+        assert result["mean_exact"]["numerator"] == "80"
+        assert result["mean_exact"]["denominator"] == "1"
+        assert result["missing_day_count"] == 0
+        dto = read_overview_body_battery(stored[0], start=source_day, end=source_day,
+            garmin_source_id=records[0].garmin_source_id,
+            evaluated_at_utc=q.evaluated_at_utc)["selected"]
+        assert dto["mean_display"] == "80" and dto["eligible_day_count"] == 1
+    else:
+        assert result["mean_exact"] is None
+        assert any(item["reason"] == "future_chronology" for item in result["exclusions"])
+
+
+def test_date_only_preserves_source_date_without_invented_utc_or_host_day_guard(stored):
+    source_day = date(2099, 2, 1)
+    seed_battery(*stored, day=source_day, values=(80,))
+    record, _ = sample(stored, source_day)
+    record.temporal_precision, record.source_timestamp_utc = "date", None
+    record.local_wall_time = record.source_local_timestamp = None
+    record.source_utc_offset_minutes = None
+    record.source_local_field = record.source_utc_field = None
+    q = replace(query(stored, start=source_day, end=source_day),
+                evaluated_at_utc=datetime(2099, 1, 31, 20, tzinfo=UTC))
+    result = read_body_battery_period(stored[0], q)
+    assert result["eligible_day_count"] == 1 and result["mean_exact"]["numerator"] == "80"
+    point = result["latest_maximum"]
+    assert point["source_local_date"] == "2099-02-01"
+    assert point["evidence"][0]["temporal_precision"] == "date"
+    assert point["evidence"][0]["source_timestamp_utc"] is None
+
+
+def test_future_utc_sample_does_not_replace_already_measured_source_day_maximum(stored):
+    source_day = date(2099, 2, 1)
+    seed_battery(*stored, day=source_day, values=(80, 100), stamps=(
+        datetime(2099, 1, 31, 19, tzinfo=UTC), datetime(2099, 1, 31, 21, tzinfo=UTC),
+    ))
+    q = replace(query(stored, start=source_day, end=source_day),
+                evaluated_at_utc=datetime(2099, 1, 31, 20, tzinfo=UTC))
+    result = read_body_battery_period(stored[0], q)
+    assert result["latest_maximum"]["value"] == 80
+    assert result["latest_maximum"]["source_local_date"] == "2099-02-01"
+    assert result["latest_maximum"]["eligible_sample_count"] == 1
+    assert result["mean_exact"]["numerator"] == "80" and result["eligible_day_count"] == 1
+    assert any(item["reason"] == "future_chronology" for item in result["exclusions"])

@@ -38,7 +38,7 @@
       {% set dto = selected %}
       <p>Поиск {{ 'завершён' if dto.search.complete else 'не завершён' }} · записей {{ dto.search.records_examined }} · групп {{ dto.search.groups_examined }}. Лимиты: {{ dto.search.candidate_record_cap }} записей периода, {{ dto.search.per_day_record_cap }} за день.</p>
       {% if dto.mean_exact %}<p>Точное среднее: {{ dto.mean_exact.numerator }} / {{ dto.mean_exact.denominator }} баллы. Для показа используется обычный формат до двух знаков.</p>{% endif %}
-      {% for point in dto.daily_maxima %}<p>{{ point.source_local_date | owner_date }}: {{ overview_number(point.value) }} баллы · пригодных измерений {{ point.eligible_sample_count }}{% if point.is_zero %} · явный ноль{% endif %}.</p>{% endfor %}
+      {% for point in dto.daily_maxima %}<p>{{ point.source_local_date | owner_date }}: {{ overview_number(point.value) }} баллы · пригодных измерений {{ point.eligible_sample_count }}{% if point.is_zero %} · явный ноль{% endif %}{% if point.evidence | selectattr('temporal_precision', 'equalto', 'date') | list %} · дата без времени; UTC-хронология неизвестна{% endif %}.</p>{% endfor %}
       {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}</p>{% endfor %}
   </details>
 </div>

@@ -34,12 +34,11 @@ class BodyBatteryQuery:
     end_date: date
     source_id: str | None
     evaluated_at_utc: datetime
-    evaluation_local_date: date
     max_candidate_records: int = MAX_PERIOD_RECORDS
     max_records_per_day: int = MAX_RECORDS_PER_DAY
 
     def validate(self):
-        for day in (self.start_date, self.end_date, self.evaluation_local_date):
+        for day in (self.start_date, self.end_date):
             if type(day) is not date:
                 raise ValueError("Body Battery dates must be civil dates")
         if self.end_date < self.start_date:
@@ -178,9 +177,9 @@ def _project_day(day, group, query):
         stamp = restore_stored_utc(record.source_timestamp_utc)
         number = metric.value_number
         reason = (
-            "future_chronology" if day > query.evaluation_local_date or (
-                stamp is not None and stamp > query.evaluated_at_utc.astimezone(UTC)
-            ) else "unknown_temporal_precision" if record.temporal_precision == "unknown"
+            "future_chronology" if stamp is not None
+            and stamp > query.evaluated_at_utc.astimezone(UTC)
+            else "unknown_temporal_precision" if record.temporal_precision == "unknown"
             or record.temporal_precision != "date" and coordinate is None
             else f"metric_{metric.state}" if metric.state != "value"
             else "metric_unit_mismatch" if metric.unit != "points"
@@ -202,6 +201,7 @@ def _project_day(day, group, query):
             "evidence": [{"record_id": record.id, "metric_row_id": metric.id,
                           "raw_payload_id": record.raw_payload_id,
                           "field_path": metric.field_path, "source_path": record.source_path,
+                          "temporal_precision": record.temporal_precision,
                           "source_timestamp_utc": restore_stored_utc(record.source_timestamp_utc)
                           .isoformat() if record.source_timestamp_utc else None,
                           "record_status": record.record_status,
