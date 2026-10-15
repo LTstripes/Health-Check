@@ -6,7 +6,31 @@ proof. Do not use an older status paragraph as an instruction to repeat complete
 
 <a id="current-canonical-state"></a>
 
-## Current canonical state — 2026-10-14 product closeout
+## Current canonical state - 2026-10-15 #357 backend follow-up
+
+The accepted source-only stress adapter ([PR #425](https://github.com/LTstripes/Health-Check/pull/425))
+and its versioned applicability correction ([PR #426](https://github.com/LTstripes/Health-Check/pull/426))
+are integrated in [`main 023b3e1adf78cf46d1437c76b002206c6f9a4991`](https://github.com/LTstripes/Health-Check/commit/023b3e1adf78cf46d1437c76b002206c6f9a4991).
+The exact post-main evidence is [CI 38701739186, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38701739186).
+[Independent ACCEPT and integration receipt](https://github.com/LTstripes/Health-Check/pull/426#issuecomment-6187257557)
+bind the reviewed candidate and pre-merge gates; [#357](https://github.com/LTstripes/Health-Check/issues/357)
+owns the current task status. This is a bounded #357 update, not a new global product audit.
+
+R03 rule v2 distinguishes positively proven foreign-surface missing placeholders
+from daily stress mean candidates before date ambiguity resolution. Its separate
+applicability audit and frozen inputs remain hashed; the compatible adapter reads
+current and preceding history in one snapshot without subset recomputation.
+Genuine missing/null/invalid, unknown or conflicting provenance, unexpected
+nonmissing and genuine duplicate rows retain fail-closed per-date semantics.
+Source/date, method/unit, caps/partial, original timezone and ordinary acquisition
+guards remain; absent timezone proof preserves current value but blocks comparison.
+
+Only code and synthetic evidence are accepted. #357 remains OPEN: UI/surface,
+actual Owner coverage and Owner UAT are held/unverified. No Stable/Owner runtime
+or data, provider operation, rollout or future Moscow timezone policy is included.
+Earlier dated checkpoints below retain their original scope and evidence.
+
+## Previous canonical checkpoint - 2026-10-14 product closeout
 
 Accepted product: [`main a27aa46b844ab944ce012513dd9a86d26919c07f`](https://github.com/LTstripes/Health-Check/commit/a27aa46b844ab944ce012513dd9a86d26919c07f).
 [Exact post-main CI 38598439243](https://github.com/LTstripes/Health-Check/actions/runs/38598439243)
