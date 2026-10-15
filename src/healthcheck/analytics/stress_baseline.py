@@ -149,19 +149,26 @@ def _policy_clock_reason(record, original, day, zone):
         return "source_calendar_date_conflict"
     instants = {restore_stored_utc(record.source_timestamp_utc)} - {None}
     walls = {record.local_wall_time} - {None, ""}
-    if any(instant.astimezone(zone).date() != day for instant in instants) or any(
-        datetime.fromisoformat(wall).date() != day for wall in walls
-    ):
-        return "source_calendar_date_conflict"
+    try:
+        if any(instant.astimezone(zone).date() != day for instant in instants) or any(
+            datetime.fromisoformat(wall).date() != day for wall in walls
+        ):
+            return "source_calendar_date_conflict"
+    except (OverflowError, ValueError):
+        return "source_local_clock_unproven"
     for key in dict.fromkeys((*_COMMON_TIME_PATHS, *_PAIRED_UTC_TIME_PATHS)):
         if key not in original:
             continue
-        temporal = parse_garmin_time(original[key], source_field=key)
+        try:
+            temporal = parse_garmin_time(original[key], source_field=key)
+            instant = temporal.measured_at_utc
+            local_instant = instant.astimezone(zone) if instant is not None else None
+        except (OverflowError, ValueError):
+            return "source_local_clock_unproven"
         if temporal.precision.value == "unknown":
             return "source_local_clock_unproven"
-        instant = temporal.measured_at_utc
         if instant is not None:
-            if instant.astimezone(zone).date() != day:
+            if local_instant.date() != day:
                 return "source_calendar_date_conflict"
             instants.add(instant)
         elif temporal.local_date != day:
@@ -172,17 +179,41 @@ def _policy_clock_reason(record, original, day, zone):
                 return "source_calendar_date_conflict"
             walls.add(wall.isoformat())
             offset = temporal.source_utc_offset_minutes
-            if offset is not None and instant is not None and instant.astimezone(
-                zone
-            ).utcoffset() != timedelta(minutes=offset):
+            if offset is not None and local_instant is not None and (
+                local_instant.utcoffset() != timedelta(minutes=offset)
+            ):
                 return "source_timezone_conflict"
     if len(instants) > 1 or len(walls) > 1:
         return "source_timezone_conflict"
-    if instants and walls:
-        if next(iter(instants)).astimezone(zone).replace(tzinfo=None) != datetime.fromisoformat(
-            next(iter(walls))
-        ):
+    if walls:
+        wall = datetime.fromisoformat(next(iter(walls)))
+        offsets = {
+            _parse_source_offset(key, original[key]) for key in _UTC_OFFSET_PATHS if key in original
+        }
+        if record.source_utc_offset_minutes is not None:
+            offsets.add(record.source_utc_offset_minutes)
+        if None in offsets:
+            return "source_timezone_offset_unproven"
+        if len(offsets) > 1:
             return "source_timezone_conflict"
+        offset = next(iter(offsets), None)
+        candidates = set()
+        try:
+            for fold in (0, 1):
+                candidate = wall.replace(tzinfo=zone, fold=fold).astimezone(UTC)
+                local = candidate.astimezone(zone)
+                if local.replace(tzinfo=None) == wall and (
+                    offset is None or local.utcoffset() == timedelta(minutes=offset)
+                ):
+                    candidates.add(candidate)
+        except (OverflowError, ValueError):
+            return "source_local_clock_unproven"
+        if instants:
+            candidates.intersection_update(instants)
+        if not candidates:
+            return "source_timezone_conflict"
+        if len(candidates) > 1:
+            return "source_local_clock_ambiguous"
     return None
 
 

@@ -228,6 +228,13 @@ must be valid and compatible with the original date and Moscow zone, including
 fields normalizer selection did not retain. Unlike strict v2, malformed optional
 raw clock evidence cannot be ignored by the opt-in policy. An absent clock is
 allowed; an incompatible or malformed clock/date is not.
+Every supplied naive wall clock must round-trip through the selected ZoneInfo
+zone, even if normalization selected another date-only field and retained no
+wall/instant. A DST gap fails; a repeated wall time requires a unique valid
+instant supported by supplied UTC/offset evidence. No first-fold default is
+used. Temporal conversion overflow also withholds the comparison rather than
+escaping the reader as an exception. These checks do not persist an inferred
+timestamp or source zone.
 
 For each participating date, `ZoneInfo("Europe/Moscow")` determines the next
 Moscow midnight boundary. The ordinary successful acquisition and exact

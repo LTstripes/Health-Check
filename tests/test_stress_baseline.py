@@ -1265,3 +1265,159 @@ def test_policy_moscow_historical_fold_checks_offset_at_exact_instant(database, 
     # Historical Moscow midnight used +04:00, not today's fixed +03:00.
     historical = next(p for p in result["proofs"] if p["analytic_date"] == "2014-09-28")
     assert historical["completion_boundary_utc"] == "2014-09-28T20:00:00+00:00"
+
+
+def seed_clock_evidence(database, clock_day, extra, *, scope="current", zone=None):
+    selected_day = clock_day if scope == "current" else clock_day + timedelta(days=28)
+    target = None
+    for i in range(22):
+        day = selected_day - timedelta(days=28 - i)
+        saved = acquire(database, day, i, zone=zone, extra=extra if day == clock_day else None)
+        if day == clock_day:
+            target = saved
+    current = acquire(
+        database, selected_day, 13, zone=zone, extra=extra if scope == "current" else None
+    )
+    return current, current if scope == "current" else target, selected_day
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize("zone", [None, "Europe/Moscow"])
+@pytest.mark.parametrize(
+    "clock_day,wall,reason",
+    [
+        (date(2011, 3, 27), "02:30:00", "source_timezone_conflict"),
+        (date(2014, 10, 26), "01:30:00", "source_local_clock_ambiguous"),
+        (date(2014, 10, 27), "01:30:00", None),
+    ],
+)
+def test_policy_unselected_naive_clock_round_trips_and_requires_unique_fold(
+    database, scope, zone, clock_day, wall, reason
+):
+    current, target, selected_day = seed_clock_evidence(
+        database,
+        clock_day,
+        {"startTimeGMT": str(clock_day), "timestamp": f"{clock_day}T{wall}"},
+        scope=scope,
+        zone=zone,
+    )
+    assert target.records[0].source_timestamp_utc is None
+    assert target.records[0].local_wall_time is None
+    now = datetime.combine(selected_day + timedelta(days=3), time(), UTC)
+    strict = read(database, current.source.id, day=selected_day, now=now)
+    assert strict["contract_version"] == "garmin-daily-stress-personal-baseline-v2"
+    assert strict["comparison"]["status"] == ("available" if zone else "method_dependent")
+    result = policy_read(database, current.source.id, day=selected_day, now=now)
+    assert result["evidence"] == strict["evidence"]
+    assert result["current"]["value"] == 13
+    assert result["history"]["observed_nonpartial_days"] == 22
+    assert result["comparison"]["reason"] == reason
+    if reason:
+        assert result["comparison"]["status"] == "method_dependent"
+        assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
+        assert result["history"]["eligible_days"] == (21 if scope == "history" else 22)
+    else:
+        assert result["comparison"]["status"] == "available"
+        assert result["comparison"]["delta_points"] == 2.5
+    assert target.records[0].source_timestamp_utc is None
+    assert target.records[0].local_wall_time is None
+
+
+@pytest.mark.parametrize("zone", [None, "Europe/Moscow"])
+@pytest.mark.parametrize(
+    "utc_clock,reason",
+    [
+        ("2014-10-25T21:30:00Z", None),
+        ("2014-10-25T22:30:00Z", None),
+        ("2014-10-25T23:30:00Z", "source_timezone_conflict"),
+    ],
+)
+def test_policy_unselected_naive_fold_requires_coherent_utc_witness(
+    database, zone, utc_clock, reason
+):
+    clock_day = date(2014, 10, 26)
+    current, target, selected_day = seed_clock_evidence(
+        database,
+        clock_day,
+        {
+            "startTimeGMT": str(clock_day),
+            "startTimeUTC": utc_clock,
+            "timestamp": f"{clock_day}T01:30:00",
+        },
+        zone=zone,
+    )
+    assert target.records[0].source_timestamp_utc is None
+    assert target.records[0].local_wall_time is None
+    result = policy_read(
+        database,
+        current.source.id,
+        day=selected_day,
+        now=datetime.combine(selected_day + timedelta(days=3), time(), UTC),
+    )
+    assert result["comparison"]["reason"] == reason
+    assert result["comparison"]["status"] == ("method_dependent" if reason else "available")
+    assert result["proofs"][0]["source_timezone"] == zone
+    assert target.records[0].source_timestamp_utc is None  # Raw proof never rewrites storage.
+
+
+@pytest.mark.parametrize("zone", [None, "Europe/Moscow"])
+@pytest.mark.parametrize(
+    "offset,reason",
+    [
+        (None, "source_local_clock_ambiguous"),
+        (180, None),
+        (240, None),
+        (0, "source_timezone_conflict"),
+    ],
+)
+def test_policy_normalized_naive_fold_requires_coherent_offset_witness(
+    database, zone, offset, reason
+):
+    clock_day = date(2014, 10, 26)
+    extra = {"startTimeLocal": f"{clock_day}T01:30:00"}
+    if offset is not None:
+        extra["sourceUtcOffsetMinutes"] = offset
+    current, target, selected_day = seed_clock_evidence(database, clock_day, extra, zone=zone)
+    assert target.records[0].source_timestamp_utc is None
+    assert target.records[0].local_wall_time == f"{clock_day}T01:30:00"
+    result = policy_read(
+        database,
+        current.source.id,
+        day=selected_day,
+        now=datetime.combine(selected_day + timedelta(days=3), time(), UTC),
+    )
+    assert result["comparison"]["reason"] == reason
+    assert result["comparison"]["status"] == ("method_dependent" if reason else "available")
+    assert target.records[0].source_timestamp_utc is None
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize(
+    "bad_clock",
+    [
+        "0001-01-01T00:00:00+01:00",
+        "9999-12-31T23:59:59Z",
+        "9999-12-31T23:59:59-01:00",
+    ],
+)
+def test_policy_unselected_clock_conversion_overflow_withholds_whole_comparison(
+    database, scope, bad_clock
+):
+    current, target, selected_day = seed_clock_evidence(
+        database,
+        D,
+        {"startTimeLocal": f"{D}T00:00:00+03:00", "timestamp": bad_clock},
+        scope=scope,
+    )
+    assert target.records[0].source_timestamp_utc is not None
+    result = policy_read(
+        database,
+        current.source.id,
+        day=selected_day,
+        now=datetime.combine(selected_day + timedelta(days=3), time(), UTC),
+    )
+    assert result["current"]["value"] == 13
+    assert result["comparison"]["reason"] == "source_local_clock_unproven"
+    assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
+    assert result["history"]["observed_nonpartial_days"] == 22
+    assert result["history"]["eligible_days"] == (21 if scope == "history" else 22)
