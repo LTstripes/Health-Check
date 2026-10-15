@@ -16,7 +16,17 @@ from typing import Any
 from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.orm import Session
 
-from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+from healthcheck.db.models import (
+    GarminPayloadObservation,
+    GarminRawPayload,
+    GarminRecordMetric,
+    GarminSource,
+    GarminSourceRecord,
+    IngestBatch,
+    IngestEvent,
+    Provider,
+)
+from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.analytic_contract import (
     ANALYTIC_METRIC_REGISTRY,
     AggregateKind,
@@ -28,10 +38,15 @@ from healthcheck.garmin.analytic_contract import (
     get_analytic_metric_definition,
     stable_manifest_hash,
 )
-from healthcheck.garmin.persistence import PROJECTION_CURRENT
+from healthcheck.garmin.normalization import stable_garmin_collection_key
+from healthcheck.garmin.persistence import PROJECTION_CURRENT, build_garmin_observation_key
 
 R03_01_ALGORITHM = "r03-01-garmin-scalar-baselines-v1"
 R03_01_RULE_VERSION = "r03-01-v1"
+R03_01_STRESS_RULE_VERSION = "r03-01-v2"
+STRESS_APPLICABILITY_VERSION = "r03-01-stress-daily-mean-applicability-v1"
+# Only these inspected intraday surfaces cannot supply the daily stress mean.
+_NON_STRESS_SURFACES = frozenset({"heart_rate", "body_battery", "spo2", "respiration"})
 R03_01_QUANTILE_METHOD = "type7_linear_interpolation"
 R03_01_PERCENTILE_METHOD = "personal_window_midrank_v1"
 R03_01_TREND_METHOD = "theil_sen_median_pairwise_per_day_v1"
@@ -171,9 +186,10 @@ class GarminSeriesQuery:
     start_date: date
     end_date: date
     garmin_source_id: str
+    selection_version: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        body = {
             "metric_code": self.metric_code,
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
@@ -181,6 +197,9 @@ class GarminSeriesQuery:
             "max_calendar_days": MAX_SERIES_CALENDAR_DAYS,
             "max_selected_points": MAX_SERIES_SELECTED_POINTS,
         }
+        if self.selection_version is not None:
+            body["selection_version"] = self.selection_version
+        return body
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,9 +408,10 @@ class GarminScalarSeriesResult:
     deviation: RobustDeviationResult
     frozen_inputs: tuple[dict[str, Any], ...]
     result_hash: str
+    applicability: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        body = {
             "algorithm": self.algorithm,
             "rule_version": self.rule_version,
             "query": self.query.as_dict(),
@@ -405,6 +425,9 @@ class GarminScalarSeriesResult:
             "frozen_inputs": [dict(item) for item in self.frozen_inputs],
             "result_hash": self.result_hash,
         }
+        if self.applicability is not None:
+            body["applicability"] = self.applicability
+        return body
 
 
 def _validate_query(query: GarminSeriesQuery) -> AnalyticMetricDefinition:
@@ -666,6 +689,121 @@ def _hash_result_body(body: Mapping[str, Any]) -> str:
     return stable_manifest_hash(body)
 
 
+def _proven_non_candidate(session: Session, dto: AnalyticInputDTO) -> dict[str, Any] | None:
+    """Prove a normalizer placeholder on a different persisted daily surface.
+
+    Filename or a missing state alone is insufficient. Unknown/conflicting
+    evidence stays in daily ambiguity resolution; no value-based winner exists.
+    This proof uses persisted provenance only, not additional raw-file scans.
+    """
+    record = session.get(GarminSourceRecord, dto.evidence.record_id)
+    metric = session.get(GarminRecordMetric, dto.evidence.metric_row_id)
+    raw = session.get(GarminRawPayload, dto.evidence.raw_payload_id)
+    obs = session.get(GarminPayloadObservation, dto.evidence.observation_id)
+    if record is None or metric is None or raw is None or obs is None:
+        return None
+    source = session.get(GarminSource, record.garmin_source_id)
+    provider = session.get(Provider, source.provider_id) if source else None
+    event = session.get(IngestEvent, obs.ingest_event_id) if obs.ingest_event_id else None
+    batch = session.get(IngestBatch, event.ingest_batch_id) if event else None
+    if (
+        source is None
+        or source.source_kind != "provider"
+        or provider is None
+        or provider.code != "garmin_connect"
+        or source.provider_code != "garmin_connect"
+        or record.surface_code not in _NON_STRESS_SURFACES
+        or record.projection_status != PROJECTION_CURRENT
+        or record.stream_code != "intraday"
+        or record.source_local_date is None
+        or not record.source_path
+        or metric.metric_code != "stress_daily_average"
+        or metric.capability_code != "stress"
+        or metric.state != "missing"
+        or metric.value_number is not None
+        or metric.value_text is not None
+        or metric.collection_json is not None
+        or metric.reason is not None
+        or metric.unit != "points"
+        or metric.field_path != f"{record.source_path}.avgStressLevel"
+        or metric.record_id != record.id
+        or bool(metric.source_device_attributed) != bool(source.device_attributed)
+        or record.normalization_contract_version
+        not in {"r02-garmin-normalization-contract-v1", "r02-garmin-normalization-contract-v2"}
+        or record.normalization_contract_version != obs.normalization_contract_version
+        or record.reconciliation_contract_version != "r02-garmin-collection-reconciliation-v1"
+        or record.reconciliation_contract_version != obs.reconciliation_contract_version
+        or record.raw_payload_id != raw.id
+        or raw.garmin_source_id != source.id
+        or obs.garmin_source_id != source.id
+        or obs.garmin_raw_payload_id != raw.id
+        or obs.raw_artifact_id != raw.raw_artifact_id
+        or raw.stream_code != "intraday"
+        or obs.stream_code != "intraday"
+        or raw.payload_format != "json"
+        or obs.payload_format != "json"
+        or obs.source_filename != f"{record.surface_code}.json"
+        or record.ingest_event_id is None
+        or record.ingest_event_id != obs.ingest_event_id
+        or event is None
+        or batch is None
+        or event.acquisition_source_id != source.acquisition_source_id
+        or event.raw_artifact_id != raw.raw_artifact_id
+        or event.provider_stream != "intraday"
+        or event.semantic_fingerprint != f"garmin-observation:{obs.observation_key}"
+        or event.status != "committed"
+        or batch.status != "committed"
+        or batch.acquisition_source_id != source.acquisition_source_id
+        or batch.batch_kind != "provider_sync"
+        or batch.parser_name != "garmin-normalization"
+        or batch.parser_version != obs.normalization_contract_version
+    ):
+        return None
+    fields = {
+        name: getattr(obs, name)
+        for name in (
+            "garmin_source_id",
+            "stream_code",
+            "payload_format",
+            "source_contract_version",
+            "normalization_contract_version",
+            "fixture_id",
+            "parse_status",
+            "record_count",
+            "diagnostics_json",
+            "unknown_fields_json",
+            "sync_run_id",
+            "source_filename",
+        )
+    }
+    try:
+        for name in ("source_window_start_utc", "source_window_end_utc"):
+            fields[name] = restore_stored_utc(getattr(obs, name))
+        key = build_garmin_observation_key(content_hash=raw.content_hash, **fields)
+        collection_key = stable_garmin_collection_key(
+            source.source_instance_id,
+            "intraday",
+            surface=record.surface_code,
+            window_start=record.source_local_date,
+            window_end=record.source_local_date,
+        )
+    except (TypeError, ValueError):
+        return None
+    if obs.observation_key != key or record.collection_key != collection_key:
+        return None
+    return {
+        "reason": "proven_non_candidate_surface_placeholder",
+        "input_manifest_hash": dto.manifest_hash,
+        "evidence": dto.evidence.as_dict(),
+        "analytic_date": dto.temporal.analytic_date if dto.temporal else None,
+        "surface_code": record.surface_code,
+        "collection_key": record.collection_key,
+        "source_filename": obs.source_filename,
+        "ingest_event_id": event.id,
+        "ingest_batch_id": batch.id,
+    }
+
+
 def compute_garmin_scalar_series(
     session: Session,
     *,
@@ -673,6 +811,7 @@ def compute_garmin_scalar_series(
     start_date: date,
     end_date: date,
     garmin_source_id: str,
+    selection_version: str | None = None,
 ) -> GarminScalarSeriesResult:
     """Build a bounded deterministic scalar series + personal baseline summary.
 
@@ -680,11 +819,22 @@ def compute_garmin_scalar_series(
     ``build_analytic_input_from_storage`` (#55). Provenance failures fail closed.
     """
 
+    stress_applicability = metric_code.strip() == "stress_daily_average" and (
+        selection_version != R03_01_RULE_VERSION
+    )
+    if selection_version not in {None, R03_01_RULE_VERSION, STRESS_APPLICABILITY_VERSION} or (
+        selection_version == STRESS_APPLICABILITY_VERSION and not stress_applicability
+    ):
+        raise GarminScalarAnalyticsError(
+            "unknown_selection_version", "unsupported selection version"
+        )
+    rule_version = R03_01_STRESS_RULE_VERSION if stress_applicability else R03_01_RULE_VERSION
     query = GarminSeriesQuery(
         metric_code=metric_code.strip(),
         start_date=start_date,
         end_date=end_date,
         garmin_source_id=garmin_source_id.strip(),
+        selection_version=STRESS_APPLICABILITY_VERSION if stress_applicability else None,
     )
     definition = _validate_query(query)
 
@@ -716,6 +866,7 @@ def compute_garmin_scalar_series(
     points: list[GarminSeriesPoint] = []
     exclusions: list[SeriesExclusion] = []
     frozen_by_hash: dict[str, dict[str, Any]] = {}
+    non_candidates: list[dict[str, Any]] = []
 
     for dto in assembled:
         temporal = dto.temporal
@@ -752,6 +903,12 @@ def compute_garmin_scalar_series(
         if not _analytic_date_in_window(analytic_date, query):
             # Outside-window dates from the broad UTC probe stay out of the series.
             continue
+        if stress_applicability:
+            audit = _proven_non_candidate(session, dto)
+            if audit is not None:
+                non_candidates.append(audit)
+                frozen_by_hash[dto.manifest_hash] = dto.as_dict()
+                continue
         windowed.append(dto)
 
     # Daily-aggregate ambiguity: multiple current rows for same analytic date.
@@ -890,7 +1047,7 @@ def compute_garmin_scalar_series(
 
     body = {
         "algorithm": R03_01_ALGORITHM,
-        "rule_version": R03_01_RULE_VERSION,
+        "rule_version": rule_version,
         "query": query.as_dict(),
         "metric_definition": definition.as_dict(),
         "points": [item.as_dict() for item in points],
@@ -901,10 +1058,19 @@ def compute_garmin_scalar_series(
         "deviation": deviation.as_dict(),
         "frozen_inputs": frozen_inputs,
     }
+    applicability = None
+    if stress_applicability:
+        applicability = {
+            "version": STRESS_APPLICABILITY_VERSION,
+            "fetched_row_count": len(rows),
+            "non_candidate_count": len(non_candidates),
+            "non_candidates": non_candidates,
+        }
+        body["applicability"] = applicability
     result_hash = _hash_result_body(body)
     return GarminScalarSeriesResult(
         algorithm=R03_01_ALGORITHM,
-        rule_version=R03_01_RULE_VERSION,
+        rule_version=rule_version,
         query=query,
         metric_definition=definition,
         points=tuple(points),
@@ -915,6 +1081,7 @@ def compute_garmin_scalar_series(
         deviation=deviation,
         frozen_inputs=tuple(frozen_inputs),
         result_hash=result_hash,
+        applicability=applicability,
     )
 
 
@@ -930,6 +1097,7 @@ def analyze_garmin_metric_series(
         start_date=query.start_date,
         end_date=query.end_date,
         garmin_source_id=query.garmin_source_id,
+        selection_version=query.selection_version,
     )
 
 
@@ -944,6 +1112,8 @@ __all__ = [
     "R03_01_PERCENTILE_METHOD",
     "R03_01_QUANTILE_METHOD",
     "R03_01_RULE_VERSION",
+    "R03_01_STRESS_RULE_VERSION",
+    "STRESS_APPLICABILITY_VERSION",
     "R03_01_TREND_METHOD",
     "ROBUST_Z_SCALE",
     "TREND_MIN_DISTINCT_DATES",

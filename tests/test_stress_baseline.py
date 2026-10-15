@@ -13,12 +13,20 @@ from sqlalchemy import insert, select
 from sqlalchemy.exc import InvalidRequestError
 
 from healthcheck.analytics import stress_baseline as adapter
-from healthcheck.analytics.garmin_baselines import GarminSeriesPointCapError
+from healthcheck.analytics.garmin_baselines import (
+    R03_01_RULE_VERSION,
+    R03_01_STRESS_RULE_VERSION,
+    STRESS_APPLICABILITY_VERSION,
+    GarminSeriesPointCapError,
+    GarminSeriesQuery,
+    analyze_garmin_metric_series,
+)
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import (
     GarminPayloadObservation,
     GarminRecordMetric,
+    GarminSourceRecord,
     IngestBatch,
     IngestEvent,
     Provider,
@@ -26,8 +34,9 @@ from healthcheck.db.models import (
     SyncRun,
 )
 from healthcheck.db.repositories import repositories_for
+from healthcheck.garmin.analytic_contract import stable_manifest_hash
 from healthcheck.garmin.normalization import GarminSourceIdentity, normalize_garmin_payload
-from healthcheck.garmin.persistence import GarminPersistenceRepository
+from healthcheck.garmin.persistence import GarminCollectionScope, GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web.garmin_query import GarminQueryService
@@ -70,6 +79,7 @@ def acquire(
     filename="stress.json",
     record_id=None,
     original=None,
+    surface=None,
 ):
     _paths, _engine, session, store = database
     payload = {"calendarDate": day.isoformat(), "recordId": record_id or f"stress-{day}"}
@@ -106,6 +116,16 @@ def acquire(
         source_filename=filename,
         source_window_start_utc=datetime.combine(day, time(), UTC),
         source_window_end_utc=datetime.combine(day + timedelta(days=1), time(), UTC),
+        collection_scope=GarminCollectionScope(
+            surface=surface,
+            stream="intraday",
+            kind="day_series",
+            window_start=day,
+            window_end=day,
+            complete=True,
+        )
+        if surface
+        else None,
     )
     repos.sync.finish_run(run.id, status=status)
     run.completed_at = at + timedelta(seconds=1) if status != "running" else None
@@ -619,3 +639,295 @@ def test_dirty_session_rejected_before_any_read(database):
 def test_explicit_civil_date_and_aware_evaluation_required(database, day, now):
     with pytest.raises(ValueError):
         read(database, None, day=day, now=now)
+
+
+FOREIGN_SURFACES = {
+    "heart_rate": {"heartRate": 70},
+    "body_battery": {"bodyBattery": 50},
+    "spo2": {"averageSpO2": 98},
+    "respiration": {"respiration": 14},
+}
+
+
+def foreign_placeholders(database, day, *, value=ABSENT):
+    return [
+        acquire(
+            database,
+            day,
+            value,
+            surface=surface,
+            filename=f"{surface}.json",
+            record_id=f"{surface}-{day}",
+            extra=extra,
+        )
+        for surface, extra in FOREIGN_SURFACES.items()
+    ]
+
+
+def scalar(database, source_id, first=D, last=D, selection_version=None):
+    return analyze_garmin_metric_series(
+        database[2],
+        GarminSeriesQuery(
+            adapter.METRIC_CODE,
+            first,
+            last,
+            source_id,
+            selection_version=selection_version,
+        ),
+    )
+
+
+@pytest.mark.parametrize("zone", ["Asia/Tokyo", None])
+def test_real_reader_one_mean_plus_four_placeholders_on_29_dates(database, zone, monkeypatch):
+    saved, _history = seed(database, n=28, zone=zone)
+    for i in range(29):
+        foreign_placeholders(database, D - timedelta(days=i))
+    current = scalar(database, saved.source.id)
+    assert [p.value for p in current.points] == [13]
+    assert current.rule_version == R03_01_STRESS_RULE_VERSION
+    assert current.applicability["non_candidate_count"] == 4
+    assert current.applicability["fetched_row_count"] == 5
+    assert len(current.frozen_inputs) == 5
+    history = scalar(database, saved.source.id, D - timedelta(days=28), D - timedelta(days=1))
+    assert len(history.points) == history.baseline.count == 28
+    assert history.applicability["non_candidate_count"] == 112
+    assert len(history.frozen_inputs) == 140
+    frozen = copy.deepcopy(history.as_dict())
+    assert stable_manifest_hash({k: v for k, v in frozen.items() if k != "result_hash"}) == (
+        history.result_hash
+    )
+    assert history == scalar(
+        database, saved.source.id, D - timedelta(days=28), D - timedelta(days=1)
+    )
+    assert {a["surface_code"] for a in current.applicability["non_candidates"]} == (
+        set(FOREIGN_SURFACES)
+    )
+    legacy = scalar(database, saved.source.id, selection_version=R03_01_RULE_VERSION)
+    assert legacy.rule_version == R03_01_RULE_VERSION
+    assert legacy.applicability is None
+    assert len(legacy.points) == legacy.availability.excluded_count == 5
+    assert not legacy.baseline.available
+    assert legacy.result_hash != current.result_hash
+    assert "selection_version" not in legacy.query.as_dict()
+    calls, originals = [], []
+    real, read_original = (
+        adapter.analyze_garmin_metric_series,
+        ContentAddressedGarminPayloadStore.read,
+    )
+
+    def query(session, query):
+        calls.append((query.start_date, query.end_date))
+        return real(session, query)
+
+    def original(self, path, **kwargs):
+        originals.append(path)
+        return read_original(self, path, **kwargs)
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", query)
+    monkeypatch.setattr(ContentAddressedGarminPayloadStore, "read", original)
+    result = read(database, saved.source.id)
+    assert calls == [(D, D), (D - timedelta(days=28), D - timedelta(days=1))]
+    assert len(originals) == 29
+    assert result["current"]["value"] == 13
+    assert result["comparison"]["status"] == ("available" if zone else "method_dependent")
+    assert result["comparison"]["reason"] == (None if zone else "confirmed_source_timezone_missing")
+    if zone:
+        assert result["comparison"]["median"] == history.baseline.median == 13.5
+        assert result["comparison"]["p25"] == history.baseline.p25 == 6.75
+        assert result["comparison"]["p75"] == history.baseline.p75 == 20.25
+        assert result["comparison"]["delta_points"] == -0.5
+    else:
+        assert result["comparison"]["delta_points"] is None
+    assert result["evidence"]["history"]["result_hash"] == history.result_hash
+    assert history.as_dict() == frozen
+
+
+@pytest.mark.parametrize("n", [0, 20, 21])
+def test_placeholders_never_inflate_observed_dates_or_21_day_gate(database, n):
+    saved, _history = seed(database, n=n, current=0)
+    for i in range(29):
+        foreign_placeholders(database, D - timedelta(days=i))
+    result = read(database, saved.source.id)
+    assert result["current"]["status"] == "zero"
+    assert result["current"]["value"] == 0
+    assert result["history"]["observed_nonpartial_days"] == result["history"]["eligible_days"] == n
+    assert len(result["history"]["unobserved_dates"]) == 28 - n
+    assert result["comparison"]["reason"] == (None if n >= 21 else "insufficient_eligible_history")
+    assert result["evidence"]["history"]["availability"]["candidate_count"] == n
+    assert result["evidence"]["history"]["applicability"]["non_candidate_count"] == 112
+
+
+@pytest.mark.parametrize("value,status", [(ABSENT, "missing"), (None, "null"), (True, "invalid")])
+def test_genuine_absence_survives_applicability(database, value, status):
+    saved = acquire(database, D, value, surface="stress")
+    foreign_placeholders(database, D)
+    series = scalar(database, saved.source.id)
+    assert len(series.points) == 1
+    assert series.points[0].status == status
+    assert series.availability.candidate_count == 1
+    assert not series.baseline.available
+    result = read(database, saved.source.id)
+    assert result["current"]["status"] == status
+    assert result["comparison"]["reason"] == "selected_day_not_uniquely_usable"
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize("value", [13, 99, ABSENT, None, True])
+def test_genuine_duplicate_candidates_stay_ambiguous_with_placeholders(database, scope, value):
+    saved, _history = seed(database, n=22)
+    day = D if scope == "current" else D - timedelta(days=28)
+    foreign_placeholders(database, day)
+    acquire(database, day, value, record_id=f"genuine-duplicate-{day}", surface="stress")
+    series = scalar(database, saved.source.id, day, day)
+    assert len(series.points) == series.availability.excluded_count == 2
+    assert {p.exclusion_reason for p in series.points} == {"ambiguous_daily_aggregate"}
+    assert not series.baseline.available
+    result = read(database, saved.source.id)
+    if scope == "current":
+        assert result["comparison"]["reason"] == "selected_day_not_uniquely_usable"
+        assert result["current"]["value"] is None
+    else:
+        assert result["history"]["eligible_days"] == 21
+        assert result["evidence"]["history"]["availability"]["excluded_count"] == 2
+        assert result["comparison"]["median"] == 11
+
+
+def test_only_proven_non_candidates_have_empty_series_and_audit(database):
+    saved = foreign_placeholders(database, D)[0]
+    series = scalar(database, saved.source.id)
+    assert series.points == ()
+    assert series.availability.candidate_count == series.availability.missing_count == 0
+    assert series.applicability["non_candidate_count"] == len(series.frozen_inputs) == 4
+    assert not series.baseline.available
+    assert (
+        read(database, saved.source.id)["comparison"]["reason"]
+        == "selected_day_not_uniquely_usable"
+    )
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "no_surface",
+        "unknown_surface",
+        "collection",
+        "filename",
+        "field",
+        "version",
+        "event",
+        "null",
+        "invalid",
+        "value",
+        "equal_value",
+        "conflicting_observation",
+    ],
+)
+def test_unproven_or_unexpected_foreign_rows_remain_candidates(database, scope, change):
+    saved, _history = seed(database, n=22)
+    session = database[2]
+    day = D if scope == "current" else D - timedelta(days=28)
+    values = {"null": None, "invalid": True, "value": 99, "equal_value": 13}
+    foreign = foreign_placeholders(database, day, value=values.get(change, ABSENT))[0]
+    row, record = metric(session, foreign), foreign.records[0]
+    if change == "no_surface":
+        record.surface_code = None
+    elif change == "unknown_surface":
+        record.surface_code = "unreviewed"
+    elif change == "collection":
+        record.collection_key = "conflicting-collection"
+    elif change == "filename":
+        # A genuine, internally consistent stress acquisition conflicts with
+        # the foreign surface. A filename alone cannot authorize exclusion.
+        foreign = acquire(
+            database,
+            day,
+            ABSENT,
+            surface="heart_rate",
+            filename="stress.json",
+            record_id=f"heart_rate-{day}",
+            extra={"heartRate": 70},
+            at=datetime(2099, 1, 31, tzinfo=UTC),
+        )
+    elif change == "field":
+        row.field_path = "payload.unreviewed.avgStressLevel"
+    elif change == "version":
+        record.normalization_contract_version = "unknown"
+    elif change == "event":
+        session.get(IngestEvent, foreign.observation.ingest_event_id).semantic_fingerprint = "bad"
+    elif change == "conflicting_observation":
+        obs = foreign.observation
+        fields = {c.name: getattr(obs, c.name) for c in GarminPayloadObservation.__table__.columns}
+        fields.update(id=str(uuid4()), observation_key="conflicting-selected-event-provenance")
+        session.execute(insert(GarminPayloadObservation).values(**fields))
+    session.commit()
+    result = read(database, saved.source.id)
+    if change == "conflicting_observation":
+        assert result["comparison"]["status"] != "available"
+    else:
+        series = scalar(database, saved.source.id, day, day)
+        assert series.availability.excluded_count >= 2
+        assert not series.baseline.available
+        assert series.applicability["non_candidate_count"] == (0 if change in values else 3)
+        if scope == "current":
+            assert result["comparison"]["reason"] == "selected_day_not_uniquely_usable"
+        else:
+            assert result["history"]["eligible_days"] == 21
+
+
+def test_real_fetched_row_cap_applies_before_non_candidate_exclusion(database, monkeypatch):
+    from healthcheck.analytics import garmin_baselines
+
+    saved, _history = seed(database, n=21)
+    for i in range(29):
+        foreign_placeholders(database, D - timedelta(days=i))
+    monkeypatch.setattr(garmin_baselines, "MAX_SERIES_SELECTED_POINTS", 100)
+    result = read(database, saved.source.id)
+    assert result["current"]["value"] == 13
+    assert result["comparison"]["reason"] == "selected_points_exceed_max"
+    assert result["comparison"]["delta_points"] is None
+
+
+def test_adapter_rejects_legacy_selection_with_saved_current(database, monkeypatch):
+    saved, _history = seed(database)
+
+    def legacy(session, query):
+        return analyze_garmin_metric_series(
+            session, replace(query, selection_version=R03_01_RULE_VERSION)
+        )
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", legacy)
+    result = read(database, saved.source.id)
+    assert result["current"]["value"] == 13
+    assert result["comparison"]["reason"] == "r03_method_incompatible"
+    assert result["comparison"]["delta_points"] is None
+    assert STRESS_APPLICABILITY_VERSION not in json.dumps(result)
+
+
+def test_retired_foreign_projection_is_not_selected_or_audited(database):
+    saved, _history = seed(database)
+    foreign = foreign_placeholders(database, D)[0]
+    record = database[2].get(GarminSourceRecord, foreign.records[0].id)
+    record.projection_status, record.retired_at = "retired", NOW
+    record.retire_reason = "authoritative_collection_replacement"
+    database[2].commit()
+    series = scalar(database, saved.source.id)
+    assert len(series.points) == 1
+    assert series.applicability["non_candidate_count"] == 3
+    assert series.applicability["fetched_row_count"] == 4
+
+
+@pytest.mark.parametrize("value,status", [(ABSENT, "missing"), (None, "null"), (True, "invalid")])
+def test_genuine_history_absence_keeps_status_and_is_not_non_candidate(database, value, status):
+    saved, _history = seed(database, n=22)
+    day = D - timedelta(days=28)
+    acquire(database, day, value, surface="stress", at=datetime(2099, 1, 31, tzinfo=UTC))
+    foreign_placeholders(database, day)
+    series = scalar(database, saved.source.id, day, day)
+    assert len(series.points) == 1
+    assert series.points[0].status == status
+    assert series.applicability["non_candidate_count"] == 4
+    result = read(database, saved.source.id)
+    assert result["history"]["eligible_days"] == 21
+    assert result["evidence"]["history"]["availability"][f"{status}_count"] == 1
+    assert result["comparison"]["median"] == 11

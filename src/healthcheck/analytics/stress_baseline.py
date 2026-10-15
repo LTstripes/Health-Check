@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session
 from healthcheck.analytics.garmin_baselines import (
     R03_01_ALGORITHM,
     R03_01_QUANTILE_METHOD,
-    R03_01_RULE_VERSION,
+    R03_01_STRESS_RULE_VERSION,
+    STRESS_APPLICABILITY_VERSION,
     GarminScalarAnalyticsError,
     GarminSeriesQuery,
     analyze_garmin_metric_series,
@@ -46,7 +47,7 @@ from healthcheck.garmin.persistence import build_garmin_observation_key
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
-CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v1"
+CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v2"
 METRIC_CODE = "stress_daily_average"
 MIN_HISTORY_DAYS = 21
 MAX_ARTIFACT_BYTES = 1024 * 1024
@@ -425,7 +426,11 @@ def read_stress_baseline(
     for name, first, last in (("current", selected_date, selected_date), ("history", start, end)):
         try:
             result = analyze_garmin_metric_series(
-                session, GarminSeriesQuery(METRIC_CODE, first, last, source.id)
+                session,
+                GarminSeriesQuery(
+                    METRIC_CODE, first, last, source.id,
+                    selection_version=STRESS_APPLICABILITY_VERSION,
+                ),
             ).as_dict()
         except (GarminScalarAnalyticsError, AnalyticInputAssemblyError, ValueError) as exc:
             return finish(getattr(exc, "reason_code", "r03_evidence_assembly_failed"))
@@ -438,9 +443,11 @@ def read_stress_baseline(
                 "metric_definition",
                 "points",
                 "availability",
+                "applicability",
                 "frozen_inputs",
                 "result_hash",
             )
+            if key in result
         }
         if name == "current":
             current = result
@@ -473,7 +480,9 @@ def read_stress_baseline(
         return finish("selected_day_not_uniquely_usable")
     if any(
         r["algorithm"] != R03_01_ALGORITHM
-        or r["rule_version"] != R03_01_RULE_VERSION
+        or r["rule_version"] != R03_01_STRESS_RULE_VERSION
+        or r.get("applicability", {}).get("version") != STRESS_APPLICABILITY_VERSION
+        or r["query"].get("selection_version") != STRESS_APPLICABILITY_VERSION
         or r["baseline"]["quantile_method"] != R03_01_QUANTILE_METHOD
         for r in (current, history)
     ):

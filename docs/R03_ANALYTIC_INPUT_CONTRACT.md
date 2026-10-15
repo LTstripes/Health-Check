@@ -128,6 +128,37 @@ collection used by the calculation.
 
 ## Selected-day stress adapter (#357, backend only)
 
+R03 daily stress selection uses rule `r03-01-v2` and explicit
+`r03-01-stress-daily-mean-applicability-v1` selection semantics. Before daily
+ambiguity resolution, only a proven normalizer-created **missing** daily-mean
+placeholder on `heart_rate`, `body_battery`, `spo2` or `respiration` may be a
+non-candidate. Proof requires agreement of persisted intraday surface and
+source/day collection key, exact missing scalar path/state/unit/attribution,
+reviewed normalization/reconciliation versions, and the selected raw/observation
+and committed normalization event/batch chain. The observation identity is
+recomputed, including its matching `<surface>.json` filename; filename or missing
+state alone is insufficient. No additional raw originals are scanned for this
+classification. Missing or conflicting provenance remains a candidate (or fails
+input assembly), so it cannot resolve ambiguity in favor of another value.
+
+Genuine stress missing/null/invalid, unexpected nonmissing foreign rows and all
+genuine duplicates, including equal values, retain the existing fail-closed
+per-date semantics. No first-usable or value-based selection is performed.
+Non-candidates are absent from points, availability counts and statistics; the
+separate `applicability` audit retains their frozen input/evidence references,
+surface/collection/observation/event identities and counts. Both this audit and
+all frozen inputs are bound into the result hash. The fetched-row cap applies
+**before** applicability; non-candidates do not make an over-cap query admissible.
+
+Explicit `selection_version="r03-01-v1"` requests the legacy strict selection,
+with its original serialization and hash semantics. Other scalar metrics retain
+v1. Existing frozen results are never reinterpreted. The compatible stress
+adapter contract is `garmin-daily-stress-personal-baseline-v2`; it requires the
+new R03 rule/selection version in both current and history, and copies the
+applicability audit. It never filters R03 participants or recomputes a narrower
+baseline. Its date, timezone and ordinary acquisition proof remains unchanged:
+no Owner timezone policy or implicit Moscow fallback is introduced.
+
 `GarminQueryService.stress_baseline` requires an explicit source, selected date D
 and aware evaluation instant. In one physical read snapshot it calls R03 for
 `[D,D]` and `[D-28,D-1]`. At least 21 distinct eligible historical dates are

@@ -15,7 +15,7 @@ from healthcheck.analytics.garmin_baselines import (
     MAX_SERIES_CALENDAR_DAYS,
     MAX_SERIES_SELECTED_POINTS,
     R03_01_ALGORITHM,
-    R03_01_RULE_VERSION,
+    R03_01_STRESS_RULE_VERSION,
     GarminScalarAnalyticsError,
     GarminSeriesPointCapError,
     GarminSeriesWindowError,
@@ -123,7 +123,6 @@ def _source_id(session) -> str:
     return row.garmin_source_id
 
 
-
 def _persist_stress_samples(session, store, *, day: str, count: int) -> str:
     """Persist ``count`` distinct stress_sample rows inside one calendar day."""
 
@@ -150,6 +149,7 @@ def _persist_stress_samples(session, store, *, day: str, count: int) -> str:
     session.commit()
     assert source_id is not None
     return source_id
+
 
 def test_type7_quantiles_and_midrank_percentile_with_ties() -> None:
     values = [1.0, 2.0, 2.0, 3.0, 10.0]
@@ -221,7 +221,7 @@ def test_stable_hash_and_no_aggregate_substitution(baselines_database) -> None:
     assert first.result_hash == second.result_hash
     assert first.as_dict()["result_hash"] == first.result_hash
     assert first.algorithm == R03_01_ALGORITHM
-    assert first.rule_version == R03_01_RULE_VERSION
+    assert first.rule_version == R03_01_STRESS_RULE_VERSION
     assert [point.value for point in first.points] == [10, 20, 30, 40, 50]
     assert [point.analytic_date for point in first.points] == [
         "2099-04-01",
@@ -645,6 +645,7 @@ def test_trailing_spo2_not_substituted_for_daily(baselines_database) -> None:
     assert daily.points[0].value is None
     assert trailing.points[0].status == "usable"
     assert trailing.points[0].value == 97
+
 
 def test_selected_point_cap_constant_is_documented_v1_bound() -> None:
     assert MAX_SERIES_SELECTED_POINTS == 2000
