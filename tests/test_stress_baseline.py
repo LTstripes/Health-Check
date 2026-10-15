@@ -44,6 +44,7 @@ from healthcheck.web.garmin_query import GarminQueryService
 D = date(2099, 1, 29)
 NOW = datetime(2099, 2, 1, tzinfo=UTC)
 ABSENT = object()
+MOSCOW_POLICY = adapter.MOSCOW_ANALYSIS_DAY_POLICY
 
 
 @pytest.fixture
@@ -139,12 +140,13 @@ def seed(database, *, n=21, current=13, current_at=None, **kwargs):
     return current, history
 
 
-def read(database, source_id, *, day=D, now=NOW):
+def read(database, source_id, *, day=D, now=NOW, analysis_day_policy=None):
     paths, _engine, session, _store = database
     return GarminQueryService(session, Settings(data_dir=paths.root)).stress_baseline(
         garmin_source_id=source_id,
         selected_date=day,
         evaluated_at=now,
+        analysis_day_policy=analysis_day_policy,
     )
 
 
@@ -254,7 +256,10 @@ def test_ambiguous_daily_group_is_never_a_value_winner(database, scope):
 
 
 @pytest.mark.parametrize("scope", ["current", "history"])
-def test_participating_metric_partial_blocks_without_subset_recompute(database, monkeypatch, scope):
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+def test_participating_metric_partial_blocks_without_subset_recompute(
+    database, monkeypatch, scope, analysis_day_policy
+):
     saved, _history = seed(database, n=22)
     real = adapter.analyze_garmin_metric_series
 
@@ -267,7 +272,7 @@ def test_participating_metric_partial_blocks_without_subset_recompute(database, 
         return result
 
     monkeypatch.setattr(adapter, "analyze_garmin_metric_series", partial)
-    result = read(database, saved.source.id)
+    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
     assert result["comparison"]["reason"] == "participating_metric_partial"
     assert result["comparison"]["status"] == "method_dependent"
     assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
@@ -276,7 +281,10 @@ def test_participating_metric_partial_blocks_without_subset_recompute(database, 
 
 @pytest.mark.parametrize("scope", ["current", "history"])
 @pytest.mark.parametrize("change", ["unit", "field", "attribution", "version", "date"])
-def test_one_incompatible_participant_withholds_whole_frozen_sample(database, scope, change):
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+def test_one_incompatible_participant_withholds_whole_frozen_sample(
+    database, scope, change, analysis_day_policy
+):
     _paths, _engine, session, _store = database
     saved, history = seed(database, n=22)
     target = saved if scope == "current" else history[0]
@@ -293,7 +301,7 @@ def test_one_incompatible_participant_withholds_whole_frozen_sample(database, sc
         # Still in history bounds but not the original returned calendarDate.
         target.records[0].source_local_date = D - timedelta(days=1)
     session.commit()
-    result = read(database, saved.source.id)
+    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
     assert result["comparison"]["status"] == (
         "unavailable" if change == "date" and scope == "current" else "method_dependent"
     )
@@ -415,8 +423,9 @@ def test_actual_acquisition_boundary_not_host_day(database, seconds, available):
         ("garmin_incremental", "succeeded", "spo2.json", "acquisition_provenance_mismatch"),
     ],
 )
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
 def test_late_replay_or_unproven_acquisition_is_not_completion(
-    database, kind, status, filename, reason
+    database, kind, status, filename, reason, analysis_day_policy
 ):
     saved, _history = seed(database)
     acquire(
@@ -428,7 +437,7 @@ def test_late_replay_or_unproven_acquisition_is_not_completion(
         filename=filename,
         at=datetime(2099, 1, 31, tzinfo=UTC),
     )
-    result = read(database, saved.source.id)
+    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
     assert result["comparison"]["reason"] == reason
     assert result["current"]["value"] == 13
 
@@ -436,7 +445,8 @@ def test_late_replay_or_unproven_acquisition_is_not_completion(
 @pytest.mark.parametrize(
     "tamper", ["event", "batch", "run_provider", "observation_key", "artifact"]
 )
-def test_exact_selected_provenance_not_success_label_alone(database, tamper):
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+def test_exact_selected_provenance_not_success_label_alone(database, tamper, analysis_day_policy):
     _paths, _engine, session, store = database
     saved, _history = seed(database)
     obs = saved.observation
@@ -459,7 +469,7 @@ def test_exact_selected_provenance_not_success_label_alone(database, tamper):
         artifact_path = store.artifacts_root / artifact.relative_storage_path
         artifact_path.write_bytes(b"{}")
     session.commit()
-    result = read(database, saved.source.id)
+    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
     assert result["comparison"]["status"] == (
         "unavailable" if tamper == "observation_key" else "method_dependent"
     )
@@ -610,7 +620,10 @@ def test_work_is_two_bounded_r03_reads_and_only_referenced_originals(database, m
     assert store.artifacts_root.is_dir()
 
 
-def test_point_cap_failure_keeps_current_and_never_returns_truncated_delta(database, monkeypatch):
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+def test_point_cap_failure_keeps_current_and_never_returns_truncated_delta(
+    database, monkeypatch, analysis_day_policy
+):
     saved, _history = seed(database)
     real = adapter.analyze_garmin_metric_series
 
@@ -620,7 +633,7 @@ def test_point_cap_failure_keeps_current_and_never_returns_truncated_delta(datab
         return real(session, query)
 
     monkeypatch.setattr(adapter, "analyze_garmin_metric_series", capped)
-    result = read(database, saved.source.id)
+    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
     assert result["current"]["value"] == 13
     assert result["comparison"]["reason"] == "selected_points_exceed_max"
     assert result["comparison"]["delta_points"] is None
@@ -931,3 +944,303 @@ def test_genuine_history_absence_keeps_status_and_is_not_non_candidate(database,
     assert result["history"]["eligible_days"] == 21
     assert result["evidence"]["history"]["availability"][f"{status}_count"] == 1
     assert result["comparison"]["median"] == 11
+
+
+def policy_read(database, source_id, **kwargs):
+    return read(database, source_id, analysis_day_policy=MOSCOW_POLICY, **kwargs)
+
+
+def test_policy_is_explicit_versioned_and_preserves_real_reader_evidence(database, monkeypatch):
+    saved, _history = seed(database, zone=None, n=28)
+    for i in range(29):
+        foreign_placeholders(database, D - timedelta(days=i))
+    strict = read(database, saved.source.id)
+    assert strict["contract_version"] == "garmin-daily-stress-personal-baseline-v2"
+    assert "analysis_day_policy" not in strict
+    assert strict["comparison"]["reason"] == "confirmed_source_timezone_missing"
+    calls = []
+    real = adapter.analyze_garmin_metric_series
+
+    def query(session, query):
+        calls.append(query)
+        return real(session, query)
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", query)
+    result = policy_read(database, saved.source.id)
+    assert [(q.start_date, q.end_date) for q in calls] == [
+        (D, D),
+        (D - timedelta(days=28), D - timedelta(days=1)),
+    ]
+    assert database[2].connection().connection.driver_connection.in_transaction
+    assert result["contract_version"] == "garmin-daily-stress-personal-baseline-v3"
+    assert result["analysis_day_policy"] == {
+        "version": MOSCOW_POLICY,
+        "analysis_timezone": "Europe/Moscow",
+        "date_semantics": "original_garmin_calendarDate_not_rebucketed",
+    }
+    assert result["evidence"] == strict["evidence"]
+    assert result["evidence"]["history"]["applicability"]["non_candidate_count"] == 112
+    assert result["comparison"]["status"] == "available"
+    assert result["comparison"]["median"] == 13.5
+    assert result["comparison"]["p25"] == 6.75
+    assert result["comparison"]["p75"] == 20.25
+    assert result["comparison"]["delta_points"] == -0.5
+    assert result["result_hash"] != strict["result_hash"]
+    for proof in result["proofs"]:
+        assert proof["analysis_day_policy"] == MOSCOW_POLICY
+        assert proof["analysis_timezone"] == "Europe/Moscow"
+        assert proof["source_timezone"] is None
+        assert proof["source_timezone_status"] == "unproven"
+    assert saved.records[0].source_timezone is None
+    assert result == policy_read(database, saved.source.id)
+    assert strict == read(database, saved.source.id, analysis_day_policy=None)
+    body = {k: v for k, v in result.items() if k != "result_hash"}
+    assert stable_manifest_hash(body) == result["result_hash"]
+    for path, value in [
+        (("analysis_day_policy", "version"), "unreviewed-v2"),
+        (("analysis_day_policy", "analysis_timezone"), "Asia/Tokyo"),
+        (("proofs", 0, "analysis_day_policy"), "unreviewed-v2"),
+        (("proofs", 0, "source_timezone"), "Europe/Moscow"),
+    ]:
+        changed = copy.deepcopy(body)
+        target = changed
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        assert stable_manifest_hash(changed) != result["result_hash"]
+
+
+@pytest.mark.parametrize("policy", ["", "Europe/Moscow", "v2", "auto", True, {}, 1])
+def test_unsupported_policy_never_defaults_or_reads(database, monkeypatch, policy):
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid policy reached R03")
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", unexpected)
+    with pytest.raises(ValueError, match="unsupported analysis_day_policy"):
+        read(database, None, analysis_day_policy=policy)
+
+
+@pytest.mark.parametrize("current_zone", [None, "Europe/Moscow"])
+def test_policy_allows_mixed_unknown_and_confirmed_moscow_without_fabricating_zone(
+    database, current_zone
+):
+    saved, history = seed(database, zone=None)
+    acquire(database, D, 13, zone=current_zone, at=datetime(2099, 1, 31, tzinfo=UTC))
+    day = history[0].records[0].source_local_date
+    acquire(database, day, 0, zone="Europe/Moscow", at=datetime(2099, 1, 31, tzinfo=UTC))
+    result = policy_read(database, saved.source.id)
+    assert result["comparison"]["status"] == "available"
+    assert {p["source_timezone"] for p in result["proofs"]} == {None, "Europe/Moscow"}
+    assert {p["source_timezone_status"] for p in result["proofs"]} == {"unproven", "confirmed"}
+    assert result["current"]["date"] == D.isoformat()
+    assert result["comparison"]["delta_points"] == 3
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize("seconds", [-1, 0, 1])
+def test_policy_requires_real_receipt_at_moscow_midnight(database, scope, seconds):
+    day = D if scope == "current" else D - timedelta(days=28)
+    boundary = datetime.combine(day + timedelta(days=1), time(), ZoneInfo("Europe/Moscow"))
+    receipt = boundary + timedelta(seconds=seconds)
+    for i in range(22):
+        history_day = D - timedelta(days=28 - i)
+        acquire(database, history_day, i, zone=None, at=receipt if history_day == day else None)
+    saved = acquire(database, D, 13, zone=None, at=receipt if scope == "current" else None)
+    result = policy_read(database, saved.source.id)
+    proof = next(p for p in result["proofs"] if p["analytic_date"] == day.isoformat())
+    assert proof["completion_boundary_utc"] == boundary.astimezone(UTC).isoformat()
+    assert (
+        proof["acquired_at"] == (boundary + timedelta(seconds=seconds)).astimezone(UTC).isoformat()
+    )
+    assert result["current"]["value"] == 13
+    if seconds < 0:
+        assert result["comparison"]["reason"] == "acquisition_before_analysis_day_end"
+        assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
+        if scope == "history":
+            assert result["history"]["eligible_days"] == 21  # Still no subset recomputation.
+    else:
+        assert result["comparison"]["status"] == "available"
+
+
+def test_policy_late_evaluation_and_replay_do_not_rescue_preboundary_receipt(database):
+    boundary = datetime.combine(D + timedelta(days=1), time(), ZoneInfo("Europe/Moscow"))
+    saved, _history = seed(database, zone=None, current_at=boundary - timedelta(seconds=1))
+    assert policy_read(database, saved.source.id)["comparison"]["reason"] == (
+        "acquisition_before_analysis_day_end"
+    )
+    later = policy_read(database, saved.source.id, now=NOW + timedelta(days=300))
+    assert later["comparison"]["reason"] == "acquisition_before_analysis_day_end"
+    replay = acquire(database, D, 13, zone=None, kind="garmin_reprocess", at=NOW)
+    assert replay.raw_payload.id == saved.raw_payload.id
+    result = policy_read(database, saved.source.id, now=NOW + timedelta(days=300))
+    assert result["comparison"]["reason"] == "ordinary_acquisition_unproven"
+    assert result["comparison"]["delta_points"] is None
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize(
+    "extra,reason",
+    [
+        ({"timeZoneId": None}, "confirmed_source_timezone_invalid"),
+        ({"timeZoneId": ""}, "confirmed_source_timezone_invalid"),
+        ({"timeZoneId": []}, "confirmed_source_timezone_invalid"),
+        ({"timeZoneId": "not-a-zone"}, "confirmed_source_timezone_invalid"),
+        ({"timeZoneId": "Europe/Moscow", "zone": "Asia/Tokyo"}, "source_timezone_conflict"),
+        ({"timeZoneId": "Asia/Tokyo"}, "source_timezone_incompatible_with_analysis_policy"),
+        ({"timeZoneId": "Etc/GMT-3"}, "source_timezone_incompatible_with_analysis_policy"),
+        ({"startTimeLocal": "broken"}, "source_local_clock_unproven"),
+        ({"startTimeGMT": None}, "source_local_clock_unproven"),
+        ({"startTimeLocal": f"{D}T00:00:00-05:00"}, "source_timezone_conflict"),
+        ({"utcOffsetMinutes": "broken"}, "source_timezone_offset_unproven"),
+        ({"date": "not-a-date"}, "source_calendar_date_conflict"),
+        ({"date": "2098-12-31"}, "source_calendar_date_conflict"),
+    ],
+)
+def test_policy_bad_zone_clock_or_date_blocks_whole_comparison(database, scope, extra, reason):
+    saved, history = seed(database, n=22, zone=None)
+    day = D if scope == "current" else history[0].records[0].source_local_date
+    acquire(
+        database,
+        day,
+        13 if scope == "current" else 0,
+        zone=None,
+        extra=extra,
+        at=datetime(2099, 1, 31, tzinfo=UTC),
+    )
+    result = policy_read(database, saved.source.id)
+    assert result["current"]["value"] == 13
+    assert result["comparison"]["reason"] == reason
+    assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
+    assert result["evidence"]["history"]["availability"]["usable_count"] == 22
+    assert result["evidence"]["history"]["availability"]["zero_count"] == 1
+    assert result["history"]["observed_nonpartial_days"] == 22
+    assert result["history"]["eligible_days"] == (21 if scope == "history" else 22)
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize(
+    "extra,reason",
+    [
+        ({"startTimeGMT": "2099-01-29T00:00:01Z"}, "source_timezone_conflict"),
+        ({"startTimeUTC": "invalid"}, "source_local_clock_unproven"),
+        ({"timestamp": "invalid"}, "source_local_clock_unproven"),
+        ({"startTimeGMT": "2099-01-30T00:00:00Z"}, "source_timezone_conflict"),
+    ],
+)
+def test_policy_checks_even_unselected_raw_clocks(database, scope, extra, reason):
+    saved, history = seed(database, zone=None, n=22)
+    day = D if scope == "current" else history[0].records[0].source_local_date
+    # Use the same relative clock pattern in both current and historical dates.
+    extra = {
+        k: v.replace(str(D), str(day)).replace("2099-01-30", str(day + timedelta(days=1)))
+        for k, v in extra.items()
+    }
+    acquire(
+        database,
+        day,
+        13 if scope == "current" else 0,
+        zone=None,
+        extra={"startTimeLocal": f"{day}T03:00:00+03:00", **extra},
+        at=datetime(2099, 1, 31, tzinfo=UTC),
+    )
+    result = policy_read(database, saved.source.id)
+    assert result["comparison"]["reason"] == reason
+    assert result["comparison"]["delta_points"] is None
+
+
+@pytest.mark.parametrize("n", [20, 21])
+def test_policy_21_day_gate_zero_and_frozen_history(database, n):
+    saved, _history = seed(database, zone=None, n=n, current=0)
+    before = copy.deepcopy(policy_read(database, saved.source.id))
+    assert before["current"]["status"] == "zero"
+    assert before["history"]["eligible_days"] == n
+    assert before["comparison"]["reason"] == (None if n == 21 else "insufficient_eligible_history")
+    acquire(database, D, 99, zone=None, at=datetime(2099, 1, 31, tzinfo=UTC))
+    after = policy_read(database, saved.source.id)
+    assert before["evidence"]["history"] == after["evidence"]["history"]
+    assert before["result_hash"] != after["result_hash"]
+    if n == 21:
+        assert before["comparison"]["delta_points"] == -10
+        assert after["comparison"]["delta_points"] == 89
+
+
+@pytest.mark.parametrize("scope", ["current", "history"])
+@pytest.mark.parametrize("change", ["zone", "wall_date", "utc_date", "started", "completed"])
+def test_policy_persisted_zone_clock_and_chronology_remain_fail_closed(database, scope, change):
+    saved, history = seed(database, zone=None, n=22)
+    target = saved if scope == "current" else history[0]
+    session = database[2]
+    record = target.records[0]
+    if change == "zone":
+        record.source_timezone = "Europe/Moscow"  # Not supported by the original.
+    elif change == "wall_date":
+        record.local_wall_time = "2098-12-31T00:00:00"
+    elif change == "utc_date":
+        record.source_timestamp_utc = datetime(2098, 12, 31, tzinfo=UTC)
+    else:
+        run = session.get(SyncRun, target.observation.sync_run_id)
+        if change == "started":
+            run.started_at = target.observation.received_at + timedelta(seconds=1)
+        else:
+            run.completed_at = target.observation.received_at - timedelta(seconds=1)
+    session.commit()
+    result = policy_read(database, saved.source.id)
+    assert result["current"]["value"] == (
+        None if change == "utc_date" and scope == "current" else 13
+    )
+    assert result["comparison"]["reason"] == (
+        "source_timezone_conflict"
+        if change == "zone"
+        else "r03_evidence_assembly_failed"
+        if change == "utc_date"
+        else "source_calendar_date_conflict"
+        if change == "wall_date"
+        else "acquisition_chronology_unproven"
+    )
+    assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
+
+
+@pytest.mark.parametrize("zone", [None, "Europe/Moscow"])
+@pytest.mark.parametrize("clock", ["local", "utc", "paired"])
+def test_policy_accepts_coherent_clock_without_rewriting_source_evidence(database, zone, clock):
+    saved, _history = seed(database, zone=zone)
+    extra = {}
+    if clock in {"local", "paired"}:
+        extra["startTimeLocal"] = f"{D}T00:00:00+03:00"
+    if clock in {"utc", "paired"}:
+        extra["startTimeGMT"] = "2099-01-28T21:00:00Z"
+    target = acquire(database, D, 13, zone=zone, extra=extra, at=NOW - timedelta(seconds=5))
+    database[2].refresh(target.records[0])  # Compare persisted SQLite values on both sides.
+    before = (
+        target.records[0].source_timestamp_utc,
+        target.records[0].local_wall_time,
+        target.records[0].source_timezone,
+        target.records[0].source_local_date,
+    )
+    result = policy_read(database, saved.source.id)
+    assert result["comparison"]["status"] == "available"
+    assert result["proofs"][0]["source_timezone"] == zone
+    assert result["current"]["date"] == D.isoformat()
+    assert result["current"]["value"] == 13
+    assert before == (
+        target.records[0].source_timestamp_utc,
+        target.records[0].local_wall_time,
+        target.records[0].source_timezone,
+        target.records[0].source_local_date,
+    )
+
+
+@pytest.mark.parametrize("value,status", [(None, "null"), (ABSENT, "missing"), (True, "invalid")])
+def test_policy_does_not_promote_absent_or_invalid_means(database, value, status):
+    saved, _history = seed(database, zone=None, current=value)
+    result = policy_read(database, saved.source.id)
+    assert result["current"]["status"] == status
+    assert result["current"]["value"] is None
+    assert result["comparison"]["reason"] == "selected_day_not_uniquely_usable"
+
+
+def test_policy_future_receipt_is_not_completion(database):
+    saved, _history = seed(database, zone=None)
+    result = policy_read(database, saved.source.id, now=datetime(2099, 1, 29, 20, tzinfo=UTC))
+    assert result["comparison"]["reason"] == "acquisition_chronology_unproven"
+    assert result["current"]["value"] == 13

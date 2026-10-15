@@ -42,12 +42,21 @@ from healthcheck.garmin.analytic_contract import (
     coerce_selected_number,
     stable_manifest_hash,
 )
-from healthcheck.garmin.normalization import _UTC_OFFSET_PATHS, _parse_source_offset
+from healthcheck.garmin.normalization import (
+    _COMMON_TIME_PATHS,
+    _PAIRED_UTC_TIME_PATHS,
+    _UTC_OFFSET_PATHS,
+    _parse_source_offset,
+    parse_garmin_time,
+)
 from healthcheck.garmin.persistence import build_garmin_observation_key
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v2"
+POLICY_CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v3"
+MOSCOW_ANALYSIS_DAY_POLICY = "owner-selected-europe-moscow-analysis-day-v1"
+_ANALYSIS_ZONE = "Europe/Moscow"
 METRIC_CODE = "stress_daily_average"
 MIN_HISTORY_DAYS = 21
 MAX_ARTIFACT_BYTES = 1024 * 1024
@@ -127,6 +136,53 @@ def _source_clock_reason(record, original, zone):
                 return "source_timezone_conflict"
     elif instant is None and offset is not None:
         return "source_timezone_offset_unproven"
+    return None
+
+
+def _policy_clock_reason(record, original, day, zone):
+    """Validate every supplied clock, including fields normalization did not select.
+
+    The analysis zone checks compatibility only; it never attests a source zone
+    or changes the source date, timestamps or daily mean.
+    """
+    if "date" in original and original["date"] != day.isoformat():
+        return "source_calendar_date_conflict"
+    instants = {restore_stored_utc(record.source_timestamp_utc)} - {None}
+    walls = {record.local_wall_time} - {None, ""}
+    if any(instant.astimezone(zone).date() != day for instant in instants) or any(
+        datetime.fromisoformat(wall).date() != day for wall in walls
+    ):
+        return "source_calendar_date_conflict"
+    for key in dict.fromkeys((*_COMMON_TIME_PATHS, *_PAIRED_UTC_TIME_PATHS)):
+        if key not in original:
+            continue
+        temporal = parse_garmin_time(original[key], source_field=key)
+        if temporal.precision.value == "unknown":
+            return "source_local_clock_unproven"
+        instant = temporal.measured_at_utc
+        if instant is not None:
+            if instant.astimezone(zone).date() != day:
+                return "source_calendar_date_conflict"
+            instants.add(instant)
+        elif temporal.local_date != day:
+            return "source_calendar_date_conflict"
+        if temporal.local_wall_time:
+            wall = datetime.fromisoformat(temporal.local_wall_time)
+            if wall.date() != day:
+                return "source_calendar_date_conflict"
+            walls.add(wall.isoformat())
+            offset = temporal.source_utc_offset_minutes
+            if offset is not None and wall.replace(tzinfo=zone).utcoffset() != timedelta(
+                minutes=offset
+            ):
+                return "source_timezone_conflict"
+    if len(instants) > 1 or len(walls) > 1:
+        return "source_timezone_conflict"
+    if instants and walls:
+        if next(iter(instants)).astimezone(zone).replace(tzinfo=None) != datetime.fromisoformat(
+            next(iter(walls))
+        ):
+            return "source_timezone_conflict"
     return None
 
 
@@ -217,7 +273,7 @@ def _ordinary_acquisition(session, source, record, raw, obs, artifact, evaluated
     return None
 
 
-def _proof(session, source, point, frozen, store, evaluated_at):
+def _proof(session, source, point, frozen, store, evaluated_at, analysis_day_policy=None):
     evidence = frozen["evidence"]
     record = session.get(GarminSourceRecord, evidence["record_id"])
     metric = session.get(GarminRecordMetric, evidence["metric_row_id"])
@@ -233,6 +289,13 @@ def _proof(session, source, point, frozen, store, evaluated_at):
         "observation_id": evidence["observation_id"],
         "reason": None,
     }
+    if analysis_day_policy is not None:
+        proof.update(
+            analysis_day_policy=analysis_day_policy,
+            analysis_timezone=_ANALYSIS_ZONE,
+            source_timezone=None,
+            source_timezone_status="unproven",
+        )
 
     def failed(reason):
         return {**proof, "reason": reason}
@@ -315,30 +378,57 @@ def _proof(session, source, point, frozen, store, evaluated_at):
     if value is None or value != point["value"] or value != selected["value"]:
         return failed("original_stress_value_mismatch")
     zones = [original[key] for key in _TIMEZONE_FIELDS if key in original]
-    if not zones or any(not isinstance(zone, str) or not zone for zone in zones):
-        return failed("confirmed_source_timezone_missing")
-    if len(set(zones)) != 1 or (record.source_timezone and record.source_timezone != zones[0]):
-        return failed("source_timezone_conflict")
-    try:
-        zone = ZoneInfo(zones[0])
-    except (ZoneInfoNotFoundError, ValueError):
-        return failed("confirmed_source_timezone_invalid")
+    if analysis_day_policy is None:
+        if not zones or any(not isinstance(zone, str) or not zone for zone in zones):
+            return failed("confirmed_source_timezone_missing")
+        if len(set(zones)) != 1 or (record.source_timezone and record.source_timezone != zones[0]):
+            return failed("source_timezone_conflict")
+        try:
+            zone = ZoneInfo(zones[0])
+        except (ZoneInfoNotFoundError, ValueError):
+            return failed("confirmed_source_timezone_invalid")
+    else:
+        if any(not isinstance(zone, str) or not zone for zone in zones):
+            return failed("confirmed_source_timezone_invalid")
+        if len(set(zones)) > 1:
+            return failed("source_timezone_conflict")
+        source_zone = zones[0] if zones else None
+        if record.source_timezone is not None and record.source_timezone != source_zone:
+            return failed("source_timezone_conflict")
+        if source_zone is not None:
+            try:
+                ZoneInfo(source_zone)
+            except (ZoneInfoNotFoundError, ValueError):
+                return failed("confirmed_source_timezone_invalid")
+            proof.update(source_timezone=source_zone, source_timezone_status="confirmed")
+            if source_zone != _ANALYSIS_ZONE:
+                return failed("source_timezone_incompatible_with_analysis_policy")
+        zone = ZoneInfo(_ANALYSIS_ZONE)
     reason = _source_clock_reason(record, original, zone)
     if reason:
         return failed(reason)
     day = date.fromisoformat(point["analytic_date"])
+    if analysis_day_policy is not None:
+        reason = _policy_clock_reason(record, original, day, zone)
+        if reason:
+            return failed(reason)
     boundary = _day_end(day, zone)
     if boundary is None:
         return failed("source_day_end_unproven")
     received = restore_stored_utc(obs.received_at)
     proof.update(
-        source_timezone=zone.key,
         completion_boundary_utc=boundary.isoformat(),
         acquired_at=received.isoformat(),
         sync_run_id=obs.sync_run_id,
     )
+    if analysis_day_policy is None:
+        proof["source_timezone"] = zone.key
     if received < boundary or evaluated_at < boundary:
-        return failed("acquisition_before_source_day_end")
+        return failed(
+            "acquisition_before_analysis_day_end"
+            if analysis_day_policy is not None
+            else "acquisition_before_source_day_end"
+        )
     return proof
 
 
@@ -349,13 +439,18 @@ def read_stress_baseline(
     selected_date: date,
     evaluated_at: datetime,
     payload_store: ContentAddressedGarminPayloadStore,
+    analysis_day_policy: str | None = None,
 ) -> dict[str, Any]:
     """Return a source-specific frozen comparison, or current value plus reasons.
 
     Caller supplies an aware evaluation instant; host date/timezone is never a
     source-calendar attestation. All selected R03 participants must be proven;
     excluding a failed participant and recomputing a smaller sample is forbidden.
+    Only explicit versioned opt-in selects the Owner's Moscow completion policy;
+    the default retains the strict v2 source-zone contract and serialization.
     """
+    if analysis_day_policy is not None and analysis_day_policy != MOSCOW_ANALYSIS_DAY_POLICY:
+        raise ValueError("unsupported analysis_day_policy")
     if type(selected_date) is not date or selected_date < date.min + timedelta(days=28):
         raise ValueError("selected_date must allow the preceding 28 civil dates")
     if not isinstance(evaluated_at, datetime) or evaluated_at.utcoffset() is None:
@@ -369,7 +464,9 @@ def read_stress_baseline(
     ensure_read_snapshot(session)
     source = session.get(GarminSource, garmin_source_id) if garmin_source_id else None
     body: dict[str, Any] = {
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": (
+            POLICY_CONTRACT_VERSION if analysis_day_policy is not None else CONTRACT_VERSION
+        ),
         "metric_code": METRIC_CODE,
         "selected_date": selected_date.isoformat(),
         "evaluated_at": evaluated_at.isoformat(),
@@ -402,6 +499,12 @@ def read_stress_baseline(
         "proofs": [],
         "coverage_semantics": "saved_daily_observations_not_intraday_or_acquisition_completeness",
     }
+    if analysis_day_policy is not None:
+        body["analysis_day_policy"] = {
+            "version": analysis_day_policy,
+            "analysis_timezone": _ANALYSIS_ZONE,
+            "date_semantics": "original_garmin_calendarDate_not_rebucketed",
+        }
 
     def finish(reason=None, status="unavailable"):
         body["comparison"].update(status=status, reason=reason)
@@ -495,7 +598,9 @@ def read_stress_baseline(
         item = frozen.get(point["input_manifest_hash"])
         if item is None:
             return finish("frozen_input_missing", "method_dependent")
-        proof = _proof(session, source, point, item, payload_store, evaluated_at)
+        proof = _proof(
+            session, source, point, item, payload_store, evaluated_at, analysis_day_policy
+        )
         proof["scope"] = name
         body["proofs"].append(proof)
         if name == "history" and proof["reason"] is None:
@@ -508,7 +613,7 @@ def read_stress_baseline(
     failures = [p for p in body["proofs"] if p["reason"] is not None]
     if failures:
         return finish(failures[0]["reason"], "method_dependent")
-    if len({p["source_timezone"] for p in body["proofs"]}) > 1:
+    if analysis_day_policy is None and len({p["source_timezone"] for p in body["proofs"]}) > 1:
         return finish("participating_source_timezone_changed", "method_dependent")
     if len(observed) < MIN_HISTORY_DAYS:
         return finish("insufficient_eligible_history")
