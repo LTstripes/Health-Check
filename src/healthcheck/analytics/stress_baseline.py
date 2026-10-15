@@ -585,6 +585,10 @@ def read_stress_baseline(
                     selection_version=STRESS_APPLICABILITY_VERSION,
                 ),
             ).as_dict()
+        except OverflowError:
+            if comparison_method is None:
+                raise
+            return finish("r03_statistics_nonfinite", "method_dependent")
         except (GarminScalarAnalyticsError, AnalyticInputAssemblyError, ValueError) as exc:
             return finish(getattr(exc, "reason_code", "r03_evidence_assembly_failed"))
         body["evidence"][name] = {

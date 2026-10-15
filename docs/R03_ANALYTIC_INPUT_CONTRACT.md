@@ -270,8 +270,11 @@ distinct dates out of 28. No participants are filtered and no subset is recomput
 mean; `direction` is `above`, `below` or `equal` relative to the mean. Reference
 and delta must be finite, otherwise the whole comparison is `method_dependent`
 with `frozen_baseline_mean_nonfinite` or `comparison_delta_nonfinite`, preserving
-current value and evidence. `median`, P25 and P75 remain R03's original statistics;
-the median is never relabeled as a mean.
+current value and evidence. An R03 statistics overflow before a frozen result is
+returned withholds v4 comparison as `r03_statistics_nonfinite`, retaining any
+already-read current evidence; no replacement mean or smaller sample is computed.
+The legacy exception path is unchanged. `median`, P25 and P75 remain R03's
+original statistics; the median is never relabeled as a mean.
 
 The v4 body/hash binds `comparison_method` and the day policy explicitly:
 `confirmed-source-timezone-day-v1` for the unchanged strict default, or the

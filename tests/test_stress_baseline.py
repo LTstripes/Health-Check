@@ -657,6 +657,24 @@ def test_mean_nonfinite_delta_is_withheld(database, monkeypatch):
     assert result["comparison"]["mean"] is result["comparison"]["delta_points"] is None
 
 
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+def test_mean_real_r03_fmean_overflow_preserves_current(database, analysis_day_policy):
+    for i in range(21):
+        acquire(database, D - timedelta(days=28 - i), 1e308)
+    saved = acquire(database, D, 0)
+    result = read(
+        database, saved.source.id, analysis_day_policy=analysis_day_policy, comparison_method=MEAN
+    )
+    assert result["comparison"]["status"] == "method_dependent"
+    assert result["comparison"]["reason"] == "r03_statistics_nonfinite"
+    assert result["comparison"]["mean"] is result["comparison"]["delta_points"] is None
+    assert result["current"]["value"] == 0
+    assert "current" in result["evidence"]
+    # This extension must not reinterpret the omitted-option legacy path.
+    with pytest.raises(OverflowError):
+        read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+
+
 @pytest.mark.parametrize("method", ["", "mean", "median", "arithmetic-mean-v2", True, {}, 1])
 def test_unsupported_comparison_never_defaults_or_reads(database, monkeypatch, method):
     def unexpected(*args, **kwargs):
