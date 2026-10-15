@@ -196,6 +196,59 @@ completeness, hardware continuity, health grade or causal claim is made.
 This slice does not expose a route or choose a UI surface. Source selection, actual
 Owner coverage and future UI acceptance remain separate.
 
+### Explicit Owner-selected Moscow analysis-day policy (#357)
+
+Owner decision 2026-10-15: Moscow time is acceptable, including rare travel.
+`GarminQueryService.stress_baseline(..., analysis_day_policy=
+"owner-selected-europe-moscow-analysis-day-v1")` explicitly opts into adapter
+`garmin-daily-stress-personal-baseline-v3`. Omitting the argument or supplying
+`None` retains strict adapter v2, including its body/hash semantics and required
+source-zone proof. Other policy values are rejected; host/browser timezone,
+settings and source selection never implicitly enable this policy. R03
+`r03-01-v2` and its applicability selection remain unchanged.
+
+The policy selects **Europe/Moscow as the analysis completion zone**, separately
+from the source zone. Garmin `calendarDate`, original timestamps and daily means
+remain unchanged: these are Garmin's saved daily values with their original
+dates, **not means recalculated over Moscow civil days**. D and `[D-28,D-1]`
+continue to refer to those original dates. Policy version, analysis zone and date
+meaning are bound into the adapter result hash; participant proofs also bind
+the policy version and analysis zone. The embedded R03 evidence/hashes remain
+source evidence, without rewritten temporal fields.
+
+This first policy supports an absent source zone (`source_timezone: null`,
+`source_timezone_status: unproven`) and an original confirmed `Europe/Moscow`
+zone. Unknown and confirmed Moscow participants may coexist. The policy never
+turns an analysis-zone selection into source-zone or completion proof. Present
+null/empty/non-string/invalid zones, conflicting zone fields or persisted zone
+evidence, and any confirmed other IANA zone withhold the **whole** comparison.
+No incompatible participant is dropped and no subset baseline is recomputed.
+All supplied recognized clock fields, offsets and alternate `date` evidence
+must be valid and compatible with the original date and Moscow zone, including
+fields normalizer selection did not retain. Unlike strict v2, malformed optional
+raw clock evidence cannot be ignored by the opt-in policy. An absent clock is
+allowed; an incompatible or malformed clock/date is not.
+Every supplied naive wall clock must round-trip through the selected ZoneInfo
+zone, even if normalization selected another date-only field and retained no
+wall/instant. A DST gap fails; a repeated wall time requires a unique valid
+instant supported by supplied UTC/offset evidence. No first-fold default is
+used. Temporal conversion overflow also withholds the comparison rather than
+escaping the reader as an exception. These checks do not persist an inferred
+timestamp or source zone.
+
+For each participating date, `ZoneInfo("Europe/Moscow")` determines the next
+Moscow midnight boundary. The ordinary successful acquisition and exact
+observation/event/batch/artifact chain described above remain mandatory, with
+`started <= received <= completed <= evaluated` and **received >= boundary**.
+Equality at midnight is admissible; one second before is not. Late evaluation,
+reprocess/replay, projection time and raw deduplication time cannot rescue a
+pre-boundary observation receipt. This establishes completion under the selected
+policy only; it does not attest the source zone or complete intraday acquisition.
+
+Every existing source/method/unit/zero/null/partial/21-of-28/cap/snapshot guard
+continues to apply. This is a backend-only, synthetic-tested policy extension;
+it adds no ingestion/schema/provider/UI/runtime operation or default policy.
+
 ## Non-goals
 
 - LLM mathematics or free-form SQL analytics;

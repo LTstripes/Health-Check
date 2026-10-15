@@ -417,6 +417,7 @@ class GarminQueryService:
         garmin_source_id: str | None,
         selected_date: date,
         evaluated_at: datetime,
+        analysis_day_policy: str | None = None,
     ) -> dict[str, Any]:
         """Backend-only selected-day comparison; no default date/source or UI wiring."""
         return read_stress_baseline(
@@ -424,6 +425,7 @@ class GarminQueryService:
             garmin_source_id=garmin_source_id,
             selected_date=selected_date,
             evaluated_at=evaluated_at,
+            analysis_day_policy=analysis_day_policy,
             payload_store=ContentAddressedGarminPayloadStore(self.settings.data_dir / "artifacts"),
         )
 
