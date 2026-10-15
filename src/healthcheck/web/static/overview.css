@@ -71,6 +71,8 @@
 .overview-secondary [data-overview-rhr] strong { font-size: 1.125rem; line-height: 1.4; }
 .overview-secondary [data-overview-body-battery] strong { font-size: 1.125rem; line-height: 1.4; }
 .overview-secondary [data-bb-window] strong { display: inline; font-size: 1rem; }
+.overview-secondary [data-overview-stress] strong { font-size: 1.125rem; line-height: 1.4; }
+.overview-secondary [data-stress-mean] strong { display: inline; font-size: .875rem; }
 .overview-secondary .muted { font-size: .75rem; margin: 4px 0; }
 .overview-a-plus .status-chip { font-size: .6875rem; }
 .overview-all-sources, .overview-a-plus .brief-limitations, .overview-a-plus .brief-sleep { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0; margin: 8px 0; }

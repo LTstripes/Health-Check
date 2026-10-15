@@ -1,0 +1,16 @@
+{% set stress = overview.stress %}
+<div data-overview-stress data-stress-state="{{ stress.comparison_state }}">
+  <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>
+  {{ garmin_cell('stress_daily_average', 'балл.') }}
+  <p class="overview-source">Дата окончания выбранного периода «Обзора».</p>
+  {% if stress.mean_display is not none %}
+  <p data-stress-mean>Среднее предыдущих 28 дней · <strong>{{ stress.mean_display }} балл.</strong></p>
+  <p data-stress-delta>{{ stress.delta_text }}</p>
+  {% else %}
+  <p data-stress-unavailable>Сравнение недоступно. {{ stress.reason }}</p>
+  {% endif %}
+  {% if stress.history_start %}
+  <p class="overview-source" data-stress-history>{{ stress.history_start | owner_date }} — {{ stress.history_end | owner_date }}{% if stress.observed_days is not none %} · сохранённых дневных значений: {{ stress.observed_days }} из 28 дней{% endif %}.</p>
+  {% endif %}
+  <p class="overview-source">История не зависит от длины периода «Обзора». Окончание суток для сравнения — по Москве.</p>
+</div>

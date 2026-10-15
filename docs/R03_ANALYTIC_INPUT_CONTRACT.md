@@ -283,8 +283,33 @@ explicitly selected. Mean selection never enables Moscow implicitly. Embedded
 R03 evidence and hashes remain unchanged, as do original source/date/time and
 acquisition proofs, bounded two-query/single-snapshot reads and caps. This adds
 no R03 algorithm, schema, provider, runtime, UI or date-selection changes.
-The earlier real-copy applicability audit covered median mode only; mean-mode
-real-copy verification and Owner UAT remain separate from synthetic evidence.
+The earlier real-copy applicability audit covered median mode only. The later
+[bounded mean-mode receipt](https://github.com/LTstripes/Health-Check/issues/357#issuecomment-6194781870)
+proves one completed-day control available and a different fixed D blocked by
+early acquisition on the same isolated snapshot. It does not establish universal
+coverage; missing days were not present in those inspected windows. Owner UAT
+remains separate from synthetic evidence.
+
+### Overview selected-day presentation (#357)
+
+The existing **Стресс Garmin · среднее за день** card explicitly requests v4
+arithmetic mean and the Owner-selected Moscow policy. D is the end date of the
+existing Overview period controls, displayed as **Выбранная дата**; the page does
+not search for a more convenient day. Its comparison history is always
+`[D-28,D-1]`, independently of the Overview start date or 7/30/90-day length.
+The saved current daily value, frozen historical mean and signed difference are
+presented without a clinical good/bad interpretation. Formatting happens after
+the reader's finite, unrounded comparison; a nonzero difference below 0.01 is
+described as less than 0.01 rather than equal.
+
+Unavailable comparisons show a short reason and retain any usable current value.
+Missing, null, invalid or ambiguous D never falls back to the latest older value,
+including the second stress cell in the existing collapsed source disclosure.
+The adapter still owns all source, method, unit, partial, provenance, clock,
+completion, 21/28 and bounded-read gates. The card adds neither a new technical
+disclosure nor raw R03 proof output; existing technical evidence is unchanged.
+This candidate UI slice requires independent review and Owner UAT before rollout;
+it changes no provider, stored data, date-selection controls or Stable runtime.
 
 ## Non-goals
 

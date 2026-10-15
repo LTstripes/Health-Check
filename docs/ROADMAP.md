@@ -18,12 +18,14 @@ dates/values are preserved. The
 [current Wiki receipt](PROJECT_WIKI.md#current-canonical-state) binds accepted
 code, review, exact post-main CI and the retained clock-proof limitation.
 
-#357 remains OPEN for a separately authorized single UI surface and proof of
-mean-mode saved coverage/readiness on a real copy, followed by Owner UAT. The
-earlier real-copy applicability check covered median mode only. Backend
-availability does not prove actual 21/28 coverage or authorize Stable/provider
-operations, rollout, automatic opt-in or additional technical panels. The older
-checkpoint and unrelated backlog rows retain their dated scope.
+#357 remains OPEN. The [bounded mean-mode real-copy receipt](https://github.com/LTstripes/Health-Check/issues/357#issuecomment-6194781870)
+verified one available control and one early-acquisition block on a fixed isolated
+snapshot, without universal coverage or observed missing-day proof. The authorized
+single-card Overview candidate uses the existing period end as D and independent
+previous-28-day history; independent review and Owner UAT remain pending. The
+earlier real-copy applicability check covered median mode only. These receipts
+do not authorize Stable/provider operations, rollout or extra technical panels.
+The older checkpoint and unrelated backlog rows retain their dated scope.
 
 ## Previous checkpoint - 2026-10-12 night closeout
 
@@ -63,7 +65,7 @@ need to be repeated. None of these rows launches a Worker, provider call or Stab
 | **#319 — Energy/calories** | One authoritative field unit/category/interval/inclusion + separately authorized saved-coverage proof | BLOCKED; existing max-HR/anaerobic B1 already merged; no active+resting addition |
 | **#378 / #345 — Activity** | Remaining Owner-led functional discovery and acceptance; no speculative redesign | Detail/A-B and Statistics session drilldown delivered; #408 duration/km follow-up merged |
 | **#330 — Owner operations** | Separately authorized night-code rollout and human UAT, including Google #406 live verification | Daytime Stable rollout receipt proves aca4b8f; #407–#411 not installed. Synthetic Google fix is not live recovery |
-| **#357 - personal stress baseline** | Verify mean-mode real-copy coverage/readiness and separately authorize one UI surface, then Owner UAT; preserve original Garmin dates/values and explicit policy/source proof | Backend #425/#426, opt-in Moscow policy #428 and arithmetic-mean v4 #430 integrated; legacy v2/v3 retained, mean real-copy/UI/UAT OPEN, no rollout |
+| **#357 - personal stress baseline** | Independent review of authorized Overview mean/Moscow card candidate, then Owner UAT; preserve fixed D, original Garmin values and explicit policy/source proof | Backend #425/#426/#428/#430 integrated; bounded mean real-copy GO/BLOCKED recorded, UI review/UAT OPEN, no rollout |
 | **#348 - later** | Laboratory evidence research on separate Owner direction | Deferred, no unverified health inference |
 
 ### Design and data rules for the next wave

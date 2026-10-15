@@ -25,12 +25,18 @@ remain unchanged; Moscow still requires its explicit day-policy opt-in. The
 [versioned contract](R03_ANALYTIC_INPUT_CONTRACT.md#explicit-arithmetic-mean-comparison-357)
 owns the detailed finite/overflow, provenance, completion and coverage guards.
 
-[#357](https://github.com/LTstripes/Health-Check/issues/357) remains OPEN for
-mean-mode real-copy coverage/readiness verification, a separately authorized
-single UI surface and Owner UAT. The
+The [bounded mean-mode real-copy receipt](https://github.com/LTstripes/Health-Check/issues/357#issuecomment-6194781870)
+subsequently verified one completed-day control as available and another fixed D
+as blocked by early acquisition on one isolated snapshot. It did not establish
+universal coverage or missing-day behavior. The authorized UI candidate connects
+the existing Overview daily-stress card to explicit v4/Moscow comparison for the
+end date of the selected period, with independent preceding-28-day history and
+short unavailable reasons. Independent review and Owner UAT remain pending;
+the UI candidate is not yet accepted or rolled out. [#357](https://github.com/LTstripes/Health-Check/issues/357)
+remains OPEN. The
 [earlier real-copy applicability check](https://github.com/LTstripes/Health-Check/issues/357#issuecomment-6191881424)
 was **median-mode only** and is not mean-mode verification. No Stable/Owner
-runtime or data, provider operation, UI or rollout was changed. GitHub integration
+runtime or data, provider operation or rollout was changed. GitHub integration
 does not update the Owner's local runtime. Earlier checkpoints retain their
 dated scope and evidence.
 
