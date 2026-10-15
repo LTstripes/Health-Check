@@ -14,7 +14,7 @@ from healthcheck.analytics.garmin_activity_comparison import (
 )
 from healthcheck.analytics.garmin_baselines import (
     R03_01_ALGORITHM,
-    R03_01_RULE_VERSION,
+    R03_01_STRESS_RULE_VERSION,
     compute_garmin_scalar_series,
 )
 from healthcheck.analytics.garmin_lagged_associations import (
@@ -226,7 +226,7 @@ def test_single_source_scalar_delegates_r03_01_and_preserves_hash(tmp_path):
                 end_date=date(2099, 1, 8),
             )
             assert via_service["algorithm"] == R03_01_ALGORITHM
-            assert via_service["rule_version"] == R03_01_RULE_VERSION
+            assert via_service["rule_version"] == R03_01_STRESS_RULE_VERSION
             assert via_service["result_hash"] == direct.result_hash
             assert via_service["metric_definition"]["metric_code"] == "stress_daily_average"
             assert via_service["garmin_source_id"] == source_id
