@@ -6,13 +6,20 @@ Future ideas not committed to a task live in [Backlog Ideas](BACKLOG_IDEAS.md). 
 
 ## Current #357 follow-up - 2026-10-15
 
-The source-only daily stress comparison and versioned applicability correction
-are integrated ([PR #425](https://github.com/LTstripes/Health-Check/pull/425),
-[PR #426](https://github.com/LTstripes/Health-Check/pull/426)); the
-[current Wiki receipt](PROJECT_WIKI.md#current-canonical-state) binds their code
-and CI evidence. #357 remains OPEN for a separately authorized UI surface and
-actual Owner coverage/UAT. No Stable rollout or future Moscow policy follows.
-The older checkpoint and unrelated backlog rows below retain their dated scope.
+The source-only daily stress adapter and applicability correction are integrated
+([PR #425](https://github.com/LTstripes/Health-Check/pull/425),
+[PR #426](https://github.com/LTstripes/Health-Check/pull/426));
+[PR #428](https://github.com/LTstripes/Health-Check/pull/428) adds the explicit
+Owner-selected Moscow analysis-day policy in backend adapter v3. Strict v2 remains
+the default, and original Garmin dates/values are preserved. The
+[current Wiki receipt](PROJECT_WIKI.md#current-canonical-state) binds accepted
+code, review, CI and the conservative clock-proof limitation.
+
+#357 remains OPEN for a separately authorized single UI surface and proof of
+actual saved coverage/readiness on a real copy, followed by Owner UAT. Backend
+availability does not prove actual 21/28 coverage or authorize Stable/provider
+operations, rollout, automatic opt-in or additional technical panels. The older
+checkpoint and unrelated backlog rows retain their dated scope.
 
 ## Previous checkpoint - 2026-10-12 night closeout
 
@@ -52,7 +59,7 @@ need to be repeated. None of these rows launches a Worker, provider call or Stab
 | **#319 — Energy/calories** | One authoritative field unit/category/interval/inclusion + separately authorized saved-coverage proof | BLOCKED; existing max-HR/anaerobic B1 already merged; no active+resting addition |
 | **#378 / #345 — Activity** | Remaining Owner-led functional discovery and acceptance; no speculative redesign | Detail/A-B and Statistics session drilldown delivered; #408 duration/km follow-up merged |
 | **#330 — Owner operations** | Separately authorized night-code rollout and human UAT, including Google #406 live verification | Daytime Stable rollout receipt proves aca4b8f; #407–#411 not installed. Synthetic Google fix is not live recovery |
-| **#357 - personal stress baseline** | Separately authorize a single UI surface and prove actual Owner coverage/UAT; retain the source-specific completed-date contract | Backend adapter #425 and versioned applicability #426 integrated; UI HELD, no rollout or new timezone policy |
+| **#357 - personal stress baseline** | Separately authorize one UI surface and verify actual coverage/readiness on a real copy, then Owner UAT; retain original Garmin dates/values and explicit policy/source proof | Backend #425/#426 and opt-in Moscow policy #428 integrated; strict v2 default retained, UI/real-copy verification OPEN, no rollout |
 | **#348 - later** | Laboratory evidence research on separate Owner direction | Deferred, no unverified health inference |
 
 ### Design and data rules for the next wave

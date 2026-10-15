@@ -6,7 +6,42 @@ proof. Do not use an older status paragraph as an instruction to repeat complete
 
 <a id="current-canonical-state"></a>
 
-## Current canonical state - 2026-10-15 #357 backend follow-up
+## Current canonical state - 2026-10-15 #357 Moscow analysis-day policy
+
+The backend-only explicit Moscow analysis-day policy is integrated in
+[PR #428](https://github.com/LTstripes/Health-Check/pull/428). Its code checkpoint
+is [`main 9340def7aef61e5e96f610b25422836b5f501085`](https://github.com/LTstripes/Health-Check/commit/9340def7aef61e5e96f610b25422836b5f501085);
+[exact post-main CI 38720989149, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38720989149)
+is SUCCESS. [Independent ACCEPT relayed by parent and integration receipt](https://github.com/LTstripes/Health-Check/pull/428#issuecomment-6190237162)
+bind candidate `f48a824a7e354e5686eb5edfe632fdb6b2e8c359` on base
+`be92a019b4c8d8b0ed2b9fa91308f6cabacbee3b` and its exact pre-merge gates.
+[#357](https://github.com/LTstripes/Health-Check/issues/357) owns the current task
+status. This is a bounded backend update, not a new global product/runtime audit.
+
+Adapter v3 requires explicit opt-in to
+`owner-selected-europe-moscow-analysis-day-v1`; omitted policy retains strict
+adapter v2. Garmin calendarDate, timestamps and saved daily means remain original
+source evidence, without Moscow-day reaggregation. The selected analysis zone and
+nullable/unproven source zone stay distinct. Completion still needs ordinary
+successful acquisition with receipt at/after the next ZoneInfo Moscow midnight;
+replay or late evaluation cannot rescue an earlier receipt. The source/method,
+21-of-28, frozen median/Type-7, partial/cap and two-query snapshot guards remain.
+
+All supplied clocks are checked, including raw fields normalization did not
+select: DST gaps, unresolved folds and conversion overflow fail closed. Both
+folds remain supported with coherent UTC/offset evidence. Conservative limitation:
+selected date-only plus unselected naive clock/standalone offset can remain
+unavailable when normalized clock proof is absent; no inferred instant or source
+zone is persisted to rescue it. The [versioned backend contract](R03_ANALYTIC_INPUT_CONTRACT.md#explicit-owner-selected-moscow-analysis-day-policy-357)
+retains the detailed meaning.
+
+Only code and synthetic evidence are accepted. #357 remains OPEN for separately
+authorized UI/surface and real-copy saved-coverage/readiness verification, then
+Owner UAT. No Stable/Owner runtime or data, provider operation, rollout or extra
+technical panel was changed. GitHub integration does not update the Owner's local
+runtime. Earlier dated checkpoints retain their original scope and evidence.
+
+## Previous #357 applicability checkpoint - 2026-10-15
 
 The accepted source-only stress adapter ([PR #425](https://github.com/LTstripes/Health-Check/pull/425))
 and its versioned applicability correction ([PR #426](https://github.com/LTstripes/Health-Check/pull/426))
