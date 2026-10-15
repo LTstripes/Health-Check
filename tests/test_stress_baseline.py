@@ -1244,3 +1244,23 @@ def test_policy_future_receipt_is_not_completion(database):
     result = policy_read(database, saved.source.id, now=datetime(2099, 1, 29, 20, tzinfo=UTC))
     assert result["comparison"]["reason"] == "acquisition_chronology_unproven"
     assert result["current"]["value"] == 13
+
+
+@pytest.mark.parametrize("offset", ["+04:00", "+03:00"])
+def test_policy_moscow_historical_fold_checks_offset_at_exact_instant(database, offset):
+    day = date(2014, 10, 26)
+    for i in range(21):
+        acquire(database, day - timedelta(days=28 - i), i, zone=None)
+    saved = acquire(
+        database,
+        day,
+        13,
+        zone="Europe/Moscow",
+        extra={"startTimeLocal": f"{day}T01:30:00{offset}"},
+    )
+    result = policy_read(database, saved.source.id, day=day, now=datetime(2014, 10, 28, tzinfo=UTC))
+    assert result["comparison"]["status"] == "available"
+    assert result["comparison"]["delta_points"] == 3
+    assert result["proofs"][0]["completion_boundary_utc"] == "2014-10-26T21:00:00+00:00"
+    # Historical Moscow midnight used +04:00, not today's fixed +03:00.
+    assert result["proofs"][1]["completion_boundary_utc"] == "2014-09-29T20:00:00+00:00"

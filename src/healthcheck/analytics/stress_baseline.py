@@ -172,9 +172,9 @@ def _policy_clock_reason(record, original, day, zone):
                 return "source_calendar_date_conflict"
             walls.add(wall.isoformat())
             offset = temporal.source_utc_offset_minutes
-            if offset is not None and wall.replace(tzinfo=zone).utcoffset() != timedelta(
-                minutes=offset
-            ):
+            if offset is not None and instant is not None and instant.astimezone(
+                zone
+            ).utcoffset() != timedelta(minutes=offset):
                 return "source_timezone_conflict"
     if len(instants) > 1 or len(walls) > 1:
         return "source_timezone_conflict"
