@@ -6,7 +6,35 @@ proof. Do not use an older status paragraph as an instruction to repeat complete
 
 <a id="current-canonical-state"></a>
 
-## Current canonical state - 2026-10-15 #357 Moscow analysis-day policy
+## Current canonical state - 2026-10-15 #357 arithmetic-mean comparison
+
+The backend-only arithmetic-mean option is accepted and integrated in
+[PR #430](https://github.com/LTstripes/Health-Check/pull/430), at
+[`main 72fe2572be734c26fe7c1e713725ecfc77f3b26c`](https://github.com/LTstripes/Health-Check/commit/72fe2572be734c26fe7c1e713725ecfc77f3b26c).
+[Exact post-main CI 38743920025, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38743920025)
+is SUCCESS: 4118 exact nodeids, 4115 passed and three expected Linux skips,
+Windows/DPAPI PASS. Complete same-attempt artifacts were locally revalidated;
+merge parents and tree match the accepted candidate. The PR records independent
+semantic/code ACCEPT for `cea623cc15a0a59f3acbc3bcdf56419138947a21` against
+`86f572df98727c237d8025f967f5336a36e8f580` and its exact pre-merge gates.
+
+Explicit `comparison_method="arithmetic-mean-v1"` selects adapter v4 and frozen
+R03 `baseline.mean`, with equal weight per eligible saved daily value and signed,
+unrounded current-minus-mean delta. The omitted-option v2/v3 bodies and hashes
+remain unchanged; Moscow still requires its explicit day-policy opt-in. The
+[versioned contract](R03_ANALYTIC_INPUT_CONTRACT.md#explicit-arithmetic-mean-comparison-357)
+owns the detailed finite/overflow, provenance, completion and coverage guards.
+
+[#357](https://github.com/LTstripes/Health-Check/issues/357) remains OPEN for
+mean-mode real-copy coverage/readiness verification, a separately authorized
+single UI surface and Owner UAT. The
+[earlier real-copy applicability check](https://github.com/LTstripes/Health-Check/issues/357#issuecomment-6191881424)
+was **median-mode only** and is not mean-mode verification. No Stable/Owner
+runtime or data, provider operation, UI or rollout was changed. GitHub integration
+does not update the Owner's local runtime. Earlier checkpoints retain their
+dated scope and evidence.
+
+## Previous #357 Moscow analysis-day checkpoint - 2026-10-15
 
 The backend-only explicit Moscow analysis-day policy is integrated in
 [PR #428](https://github.com/LTstripes/Health-Check/pull/428). Its code checkpoint
