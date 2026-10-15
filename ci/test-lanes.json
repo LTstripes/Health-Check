@@ -9,6 +9,7 @@
       "tests/test_garmin_analytic_contract.py",
       "tests/test_garmin_auth.py",
       "tests/test_garmin_baselines_trends.py",
+      "tests/test_stress_baseline.py",
       "tests/test_garmin_capabilities.py",
       "tests/test_garmin_collection_reconciliation.py",
       "tests/test_garmin_completed_steps.py",
