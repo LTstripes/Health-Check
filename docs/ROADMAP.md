@@ -4,7 +4,17 @@ The roadmap is organized as usable vertical releases. Each release must work loc
 
 Future ideas not committed to a task live in [Backlog Ideas](BACKLOG_IDEAS.md). Issues own detailed contracts; this document owns sequence and dependencies, not another copy of every Worker prompt.
 
-## Current state — 2026-10-12 night closeout
+## Current #357 follow-up - 2026-10-15
+
+The source-only daily stress comparison and versioned applicability correction
+are integrated ([PR #425](https://github.com/LTstripes/Health-Check/pull/425),
+[PR #426](https://github.com/LTstripes/Health-Check/pull/426)); the
+[current Wiki receipt](PROJECT_WIKI.md#current-canonical-state) binds their code
+and CI evidence. #357 remains OPEN for a separately authorized UI surface and
+actual Owner coverage/UAT. No Stable rollout or future Moscow policy follows.
+The older checkpoint and unrelated backlog rows below retain their dated scope.
+
+## Previous checkpoint - 2026-10-12 night closeout
 
 Canonical accepted product is `main 8100b7ae7051af181a6bf3151ce3bc3e1d4c4151`;
 [post-main CI 38319794454](https://github.com/LTstripes/Health-Check/actions/runs/38319794454)
@@ -42,7 +52,8 @@ need to be repeated. None of these rows launches a Worker, provider call or Stab
 | **#319 — Energy/calories** | One authoritative field unit/category/interval/inclusion + separately authorized saved-coverage proof | BLOCKED; existing max-HR/anaerobic B1 already merged; no active+resting addition |
 | **#378 / #345 — Activity** | Remaining Owner-led functional discovery and acceptance; no speculative redesign | Detail/A-B and Statistics session drilldown delivered; #408 duration/km follow-up merged |
 | **#330 — Owner operations** | Separately authorized night-code rollout and human UAT, including Google #406 live verification | Daytime Stable rollout receipt proves aca4b8f; #407–#411 not installed. Synthetic Google fix is not live recovery |
-| **#357 / #348 — later** | Baseline/laboratory evidence research on separate Owner direction | Deferred, no unverified health inference |
+| **#357 - personal stress baseline** | Separately authorize a single UI surface and prove actual Owner coverage/UAT; retain the source-specific completed-date contract | Backend adapter #425 and versioned applicability #426 integrated; UI HELD, no rollout or new timezone policy |
+| **#348 - later** | Laboratory evidence research on separate Owner direction | Deferred, no unverified health inference |
 
 ### Design and data rules for the next wave
 
