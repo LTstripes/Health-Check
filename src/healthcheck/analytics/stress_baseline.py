@@ -1,7 +1,7 @@
 """#357: one saved Garmin daily stress mean versus its preceding 28 dates.
 
 R03 owns selection and statistics. This adapter only proves comparability and
-completion for the referenced evidence, then subtracts the historical median.
+completion for the referenced evidence, then subtracts the selected frozen center.
 No record-wide parse-status gate: unrelated sibling metrics may be partial.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -55,6 +56,9 @@ from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v2"
 POLICY_CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v3"
+MEAN_CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v4"
+ARITHMETIC_MEAN_COMPARISON = "arithmetic-mean-v1"
+STRICT_ANALYSIS_DAY_POLICY = "confirmed-source-timezone-day-v1"
 MOSCOW_ANALYSIS_DAY_POLICY = "owner-selected-europe-moscow-analysis-day-v1"
 _ANALYSIS_ZONE = "Europe/Moscow"
 METRIC_CODE = "stress_daily_average"
@@ -471,6 +475,7 @@ def read_stress_baseline(
     evaluated_at: datetime,
     payload_store: ContentAddressedGarminPayloadStore,
     analysis_day_policy: str | None = None,
+    comparison_method: str | None = None,
 ) -> dict[str, Any]:
     """Return a source-specific frozen comparison, or current value plus reasons.
 
@@ -479,7 +484,11 @@ def read_stress_baseline(
     excluding a failed participant and recomputing a smaller sample is forbidden.
     Only explicit versioned opt-in selects the Owner's Moscow completion policy;
     the default retains the strict v2 source-zone contract and serialization.
+    Explicit arithmetic-mean-v1 selects v4 and the frozen R03 baseline.mean;
+    omitted/None comparison_method preserves legacy v2/v3 bodies and hashes.
     """
+    if comparison_method is not None and comparison_method != ARITHMETIC_MEAN_COMPARISON:
+        raise ValueError("unsupported comparison_method")
     if analysis_day_policy is not None and analysis_day_policy != MOSCOW_ANALYSIS_DAY_POLICY:
         raise ValueError("unsupported analysis_day_policy")
     if type(selected_date) is not date or selected_date < date.min + timedelta(days=28):
@@ -496,7 +505,9 @@ def read_stress_baseline(
     source = session.get(GarminSource, garmin_source_id) if garmin_source_id else None
     body: dict[str, Any] = {
         "contract_version": (
-            POLICY_CONTRACT_VERSION if analysis_day_policy is not None else CONTRACT_VERSION
+            MEAN_CONTRACT_VERSION
+            if comparison_method is not None
+            else POLICY_CONTRACT_VERSION if analysis_day_policy is not None else CONTRACT_VERSION
         ),
         "metric_code": METRIC_CODE,
         "selected_date": selected_date.isoformat(),
@@ -536,6 +547,14 @@ def read_stress_baseline(
             "analysis_timezone": _ANALYSIS_ZONE,
             "date_semantics": "original_garmin_calendarDate_not_rebucketed",
         }
+    if comparison_method is not None:
+        body["comparison_method"] = comparison_method
+        body["comparison"]["mean"] = None
+        if analysis_day_policy is None:
+            body["analysis_day_policy"] = {
+                "version": STRICT_ANALYSIS_DAY_POLICY,
+                "date_semantics": "original_garmin_calendarDate_not_rebucketed",
+            }
 
     def finish(reason=None, status="unavailable"):
         body["comparison"].update(status=status, reason=reason)
@@ -651,7 +670,16 @@ def read_stress_baseline(
     baseline = history["baseline"]
     if not baseline["available"] or baseline["count"] != len(observed):
         return finish("frozen_baseline_sample_mismatch", "method_dependent")
-    delta = float(body["current"]["value"]) - baseline["median"]
+    reference = baseline["median"]
+    if comparison_method is not None:
+        reference = coerce_selected_number(baseline["mean"])
+        if reference is None or not math.isfinite(reference):
+            return finish("frozen_baseline_mean_nonfinite", "method_dependent")
+    delta = float(body["current"]["value"]) - reference
+    if comparison_method is not None:
+        if not math.isfinite(delta):
+            return finish("comparison_delta_nonfinite", "method_dependent")
+        body["comparison"]["mean"] = reference
     body["comparison"].update(
         median=baseline["median"],
         p25=baseline["p25"],

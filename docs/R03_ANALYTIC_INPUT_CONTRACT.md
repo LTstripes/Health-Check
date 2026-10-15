@@ -249,6 +249,40 @@ Every existing source/method/unit/zero/null/partial/21-of-28/cap/snapshot guard
 continues to apply. This is a backend-only, synthetic-tested policy extension;
 it adds no ingestion/schema/provider/UI/runtime operation or default policy.
 
+### Explicit arithmetic-mean comparison (#357)
+
+Owner decision 2026-10-15: compare with the arithmetic mean. Both
+`read_stress_baseline` and `GarminQueryService.stress_baseline` accept explicit
+`comparison_method="arithmetic-mean-v1"`, selecting adapter
+`garmin-daily-stress-personal-baseline-v4`. Omitted/`None` retains the original
+v2 strict or explicitly selected v3 Moscow median-mode body and result hash.
+Unknown comparison methods are rejected before any snapshot/read.
+
+After **all** existing participant, applicability, method, unit, provenance,
+acquisition, completion, partial, coverage and frozen sample-count gates pass,
+v4 copies R03's frozen `baseline.mean` (computed by `statistics.fmean`) into
+`comparison.mean`. Each eligible historical daily value has equal weight,
+regardless of intraday sample count; missing dates/values never become zero.
+The original dates `[D-28,D-1]` exclude D and still require at least 21 eligible
+distinct dates out of 28. No participants are filtered and no subset is recomputed.
+
+`delta_points` is the unrounded signed current daily value minus that frozen
+mean; `direction` is `above`, `below` or `equal` relative to the mean. Reference
+and delta must be finite, otherwise the whole comparison is `method_dependent`
+with `frozen_baseline_mean_nonfinite` or `comparison_delta_nonfinite`, preserving
+current value and evidence. `median`, P25 and P75 remain R03's original statistics;
+the median is never relabeled as a mean.
+
+The v4 body/hash binds `comparison_method` and the day policy explicitly:
+`confirmed-source-timezone-day-v1` for the unchanged strict default, or the
+existing `owner-selected-europe-moscow-analysis-day-v1` metadata only when
+explicitly selected. Mean selection never enables Moscow implicitly. Embedded
+R03 evidence and hashes remain unchanged, as do original source/date/time and
+acquisition proofs, bounded two-query/single-snapshot reads and caps. This adds
+no R03 algorithm, schema, provider, runtime, UI or date-selection changes.
+The earlier real-copy applicability audit covered median mode only; mean-mode
+real-copy verification and Owner UAT remain separate from synthetic evidence.
+
 ## Non-goals
 
 - LLM mathematics or free-form SQL analytics;

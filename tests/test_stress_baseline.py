@@ -2,6 +2,7 @@
 
 import copy
 import json
+import statistics
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from types import SimpleNamespace
@@ -45,6 +46,7 @@ D = date(2099, 1, 29)
 NOW = datetime(2099, 2, 1, tzinfo=UTC)
 ABSENT = object()
 MOSCOW_POLICY = adapter.MOSCOW_ANALYSIS_DAY_POLICY
+MEAN = adapter.ARITHMETIC_MEAN_COMPARISON
 
 
 @pytest.fixture
@@ -140,13 +142,14 @@ def seed(database, *, n=21, current=13, current_at=None, **kwargs):
     return current, history
 
 
-def read(database, source_id, *, day=D, now=NOW, analysis_day_policy=None):
+def read(database, source_id, *, day=D, now=NOW, analysis_day_policy=None, comparison_method=None):
     paths, _engine, session, _store = database
     return GarminQueryService(session, Settings(data_dir=paths.root)).stress_baseline(
         garmin_source_id=source_id,
         selected_date=day,
         evaluated_at=now,
         analysis_day_policy=analysis_day_policy,
+        comparison_method=comparison_method,
     )
 
 
@@ -257,8 +260,9 @@ def test_ambiguous_daily_group_is_never_a_value_winner(database, scope):
 
 @pytest.mark.parametrize("scope", ["current", "history"])
 @pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
 def test_participating_metric_partial_blocks_without_subset_recompute(
-    database, monkeypatch, scope, analysis_day_policy
+    comparison_method, database, monkeypatch, scope, analysis_day_policy
 ):
     saved, _history = seed(database, n=22)
     real = adapter.analyze_garmin_metric_series
@@ -272,7 +276,12 @@ def test_participating_metric_partial_blocks_without_subset_recompute(
         return result
 
     monkeypatch.setattr(adapter, "analyze_garmin_metric_series", partial)
-    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+    result = read(
+        database,
+        saved.source.id,
+        analysis_day_policy=analysis_day_policy,
+        comparison_method=comparison_method,
+    )
     assert result["comparison"]["reason"] == "participating_metric_partial"
     assert result["comparison"]["status"] == "method_dependent"
     assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
@@ -282,8 +291,9 @@ def test_participating_metric_partial_blocks_without_subset_recompute(
 @pytest.mark.parametrize("scope", ["current", "history"])
 @pytest.mark.parametrize("change", ["unit", "field", "attribution", "version", "date"])
 @pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
 def test_one_incompatible_participant_withholds_whole_frozen_sample(
-    database, scope, change, analysis_day_policy
+    comparison_method, database, scope, change, analysis_day_policy
 ):
     _paths, _engine, session, _store = database
     saved, history = seed(database, n=22)
@@ -301,7 +311,12 @@ def test_one_incompatible_participant_withholds_whole_frozen_sample(
         # Still in history bounds but not the original returned calendarDate.
         target.records[0].source_local_date = D - timedelta(days=1)
     session.commit()
-    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+    result = read(
+        database,
+        saved.source.id,
+        analysis_day_policy=analysis_day_policy,
+        comparison_method=comparison_method,
+    )
     assert result["comparison"]["status"] == (
         "unavailable" if change == "date" and scope == "current" else "method_dependent"
     )
@@ -424,8 +439,9 @@ def test_actual_acquisition_boundary_not_host_day(database, seconds, available):
     ],
 )
 @pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
 def test_late_replay_or_unproven_acquisition_is_not_completion(
-    database, kind, status, filename, reason, analysis_day_policy
+    comparison_method, database, kind, status, filename, reason, analysis_day_policy
 ):
     saved, _history = seed(database)
     acquire(
@@ -437,7 +453,12 @@ def test_late_replay_or_unproven_acquisition_is_not_completion(
         filename=filename,
         at=datetime(2099, 1, 31, tzinfo=UTC),
     )
-    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+    result = read(
+        database,
+        saved.source.id,
+        analysis_day_policy=analysis_day_policy,
+        comparison_method=comparison_method,
+    )
     assert result["comparison"]["reason"] == reason
     assert result["current"]["value"] == 13
 
@@ -446,7 +467,10 @@ def test_late_replay_or_unproven_acquisition_is_not_completion(
     "tamper", ["event", "batch", "run_provider", "observation_key", "artifact"]
 )
 @pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
-def test_exact_selected_provenance_not_success_label_alone(database, tamper, analysis_day_policy):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_exact_selected_provenance_not_success_label_alone(
+    comparison_method, database, tamper, analysis_day_policy
+):
     _paths, _engine, session, store = database
     saved, _history = seed(database)
     obs = saved.observation
@@ -469,7 +493,12 @@ def test_exact_selected_provenance_not_success_label_alone(database, tamper, ana
         artifact_path = store.artifacts_root / artifact.relative_storage_path
         artifact_path.write_bytes(b"{}")
     session.commit()
-    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+    result = read(
+        database,
+        saved.source.id,
+        analysis_day_policy=analysis_day_policy,
+        comparison_method=comparison_method,
+    )
     assert result["comparison"]["status"] == (
         "unavailable" if tamper == "observation_key" else "method_dependent"
     )
@@ -492,6 +521,191 @@ def test_no_mean_substitution_and_flat_history_mad_zero(database):
         at=datetime(2099, 1, 31, tzinfo=UTC),
     )
     assert read(database, saved.source.id)["current"]["status"] == "missing"
+
+
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+@pytest.mark.parametrize(
+    "current,delta,direction", [(0, -1, "below"), (1, 0, "equal"), (2, 1, "above")]
+)
+def test_explicit_mean_differs_from_median_and_weights_daily_values_equally(
+    database, monkeypatch, analysis_day_policy, current, delta, direction
+):
+    # Unequal intraday sample counts must not weight the saved daily averages.
+    values = [0] * 20 + [21]
+    for i, value in enumerate(values):
+        acquire(
+            database,
+            D - timedelta(days=28 - i),
+            value,
+            extra={"stressValuesArray": [[j, value] for j in range(1 if i < 20 else 50)]},
+        )
+    saved = acquire(database, D, current)
+    legacy = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+    calls = []
+    real = adapter.analyze_garmin_metric_series
+
+    def capture(session, query):
+        result = real(session, query)
+        calls.append(result.as_dict())
+        return result
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", capture)
+    result = read(
+        database, saved.source.id, analysis_day_policy=analysis_day_policy, comparison_method=MEAN
+    )
+    assert result["contract_version"] == adapter.MEAN_CONTRACT_VERSION
+    assert result["comparison_method"] == MEAN
+    assert result["comparison"] == {
+        **legacy["comparison"],
+        "mean": statistics.fmean(values),
+        "delta_points": delta,
+        "direction": direction,
+    }
+    assert result["comparison"]["median"] == 0
+    assert result["comparison"]["mean"] == calls[1]["baseline"]["mean"] == 1
+    assert calls[1]["baseline"]["count"] == 21
+    assert result["evidence"] == legacy["evidence"]
+    assert result["proofs"] == legacy["proofs"]
+    assert result["history"] == legacy["history"]
+    assert len(calls) == 2
+    assert result["result_hash"] != legacy["result_hash"]
+    body = {k: v for k, v in result.items() if k != "result_hash"}
+    assert stable_manifest_hash(body) == result["result_hash"]
+    for key, value in [("comparison_method", "median-v1"), ("analysis_day_policy", None)]:
+        assert stable_manifest_hash({**body, key: value}) != result["result_hash"]
+    assert result["analysis_day_policy"]["version"] == (
+        analysis_day_policy or adapter.STRICT_ANALYSIS_DAY_POLICY
+    )
+
+
+@pytest.mark.parametrize("n", [20, 21, 28])
+def test_mean_coverage_excludes_d_and_missing_never_becomes_zero(database, n):
+    for i in range(28):
+        acquire(database, D - timedelta(days=28 - i), 7 if i < n else ABSENT)
+    saved = acquire(database, D, 0)
+    before = read(database, saved.source.id, comparison_method=MEAN)
+    assert before["history"]["eligible_days"] == n
+    assert before["history"]["denominator"] == 28
+    if n == 20:
+        assert before["comparison"]["reason"] == "insufficient_eligible_history"
+        assert before["comparison"]["mean"] is before["comparison"]["delta_points"] is None
+    else:
+        assert before["comparison"]["mean"] == 7
+        assert before["comparison"]["delta_points"] == -7
+    acquire(database, D, 99, at=NOW - timedelta(days=1))
+    after = read(database, saved.source.id, comparison_method=MEAN)
+    assert after["evidence"]["history"] == before["evidence"]["history"]
+    assert after["comparison"]["mean"] == before["comparison"]["mean"]
+
+
+@pytest.mark.parametrize("historical,current", [(0, 0), (10 / 21, 0.7)])
+def test_mean_zero_and_fractional_values_are_not_rounded(database, historical, current):
+    values = [0] * 20 + [historical * 21]
+    for i, value in enumerate(values):
+        acquire(database, D - timedelta(days=28 - i), value)
+    saved = acquire(database, D, current)
+    result = read(database, saved.source.id, comparison_method=MEAN)
+    assert result["comparison"]["mean"] == statistics.fmean(values)
+    assert result["comparison"]["delta_points"] == current - statistics.fmean(values)
+    assert result["comparison"]["direction"] == ("equal" if current == 0 else "above")
+
+
+@pytest.mark.parametrize("mean", [None, True, "10", float("nan"), float("inf"), -float("inf")])
+def test_mean_rejects_invalid_frozen_reference(database, monkeypatch, mean):
+    saved, _history = seed(database)
+    real = adapter.analyze_garmin_metric_series
+
+    def invalid_mean(session, query):
+        result = real(session, query)
+        return replace(result, baseline=replace(result.baseline, mean=mean))
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", invalid_mean)
+    result = read(database, saved.source.id, comparison_method=MEAN)
+    assert result["comparison"]["reason"] == "frozen_baseline_mean_nonfinite"
+    assert result["comparison"]["status"] == "method_dependent"
+    assert result["comparison"]["mean"] is result["comparison"]["delta_points"] is None
+    assert len(result["proofs"]) == 22
+    assert result["current"]["value"] == 13
+
+
+@pytest.mark.parametrize("bad_count", [20, 22])
+def test_mean_never_recomputes_mismatched_frozen_sample(database, monkeypatch, bad_count):
+    saved, _history = seed(database)
+    real = adapter.analyze_garmin_metric_series
+
+    def mismatch(session, query):
+        result = real(session, query)
+        return replace(result, baseline=replace(result.baseline, count=bad_count))
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", mismatch)
+    result = read(database, saved.source.id, comparison_method=MEAN)
+    assert result["comparison"]["reason"] == "frozen_baseline_sample_mismatch"
+    assert result["comparison"]["mean"] is result["comparison"]["delta_points"] is None
+
+
+def test_mean_nonfinite_delta_is_withheld(database, monkeypatch):
+    saved, _history = seed(database, current=1e308)
+    real = adapter.analyze_garmin_metric_series
+
+    def extreme_mean(session, query):
+        result = real(session, query)
+        return replace(result, baseline=replace(result.baseline, mean=-1e308))
+
+    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", extreme_mean)
+    result = read(database, saved.source.id, comparison_method=MEAN)
+    assert result["comparison"]["reason"] == "comparison_delta_nonfinite"
+    assert result["comparison"]["mean"] is result["comparison"]["delta_points"] is None
+
+
+@pytest.mark.parametrize("method", ["", "mean", "median", "arithmetic-mean-v2", True, {}, 1])
+def test_unsupported_comparison_never_defaults_or_reads(database, monkeypatch, method):
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid comparison method reached snapshot")
+
+    monkeypatch.setattr(adapter, "ensure_read_snapshot", unexpected)
+    with pytest.raises(ValueError, match="unsupported comparison_method"):
+        read(database, None, comparison_method=method)
+
+
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+def test_mean_does_not_enable_moscow_and_preserves_applicability(database, analysis_day_policy):
+    saved, _history = seed(database, n=28, zone=None)
+    for i in range(29):
+        foreign_placeholders(database, D - timedelta(days=i))
+    legacy = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+    result = read(
+        database, saved.source.id, analysis_day_policy=analysis_day_policy, comparison_method=MEAN
+    )
+    assert result["evidence"] == legacy["evidence"]
+    assert result["evidence"]["history"]["applicability"]["non_candidate_count"] == 112
+    assert result["comparison"]["status"] == legacy["comparison"]["status"]
+    if analysis_day_policy is None:
+        assert result["comparison"]["reason"] == "confirmed_source_timezone_missing"
+        assert result["comparison"]["mean"] is result["comparison"]["delta_points"] is None
+    else:
+        assert result["comparison"]["mean"] == 13.5
+        assert result["comparison"]["delta_points"] == -0.5
+
+
+@pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+def test_comparison_omission_and_none_have_identical_legacy_bodies(database, analysis_day_policy):
+    saved, _history = seed(database)
+    paths, _engine, session, store = database
+    kwargs = dict(
+        garmin_source_id=saved.source.id,
+        selected_date=D,
+        evaluated_at=NOW,
+        analysis_day_policy=analysis_day_policy,
+    )
+    legacy = adapter.read_stress_baseline(session, payload_store=store, **kwargs)
+    service = GarminQueryService(session, Settings(data_dir=paths.root))
+    assert legacy == service.stress_baseline(**kwargs)
+    assert legacy == service.stress_baseline(**kwargs, comparison_method=None)
+    assert "comparison_method" not in legacy
+    assert "mean" not in legacy["comparison"]
+    assert legacy["contract_version"] == (
+        adapter.CONTRACT_VERSION if analysis_day_policy is None else adapter.POLICY_CONTRACT_VERSION
+    )
 
 
 @pytest.mark.parametrize(
@@ -531,7 +745,10 @@ def test_later_evaluation_does_not_make_an_early_receipt_complete(database):
     assert result["comparison"]["reason"] == "acquisition_before_source_day_end"
 
 
-def test_one_snapshot_across_both_r03_reads_and_evidence_checks(database, monkeypatch):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_one_snapshot_across_both_r03_reads_and_evidence_checks(
+    comparison_method, database, monkeypatch
+):
     _paths, engine, session, _store = database
     saved, history = seed(database)
     row_id = metric(session, history[0]).id
@@ -549,13 +766,13 @@ def test_one_snapshot_across_both_r03_reads_and_evidence_checks(database, monkey
         return result
 
     monkeypatch.setattr(adapter, "analyze_garmin_metric_series", read_then_write)
-    before = read(database, saved.source.id)
+    before = read(database, saved.source.id, comparison_method=comparison_method)
     assert commits == [True]
     assert before["comparison"]["status"] == "available"
     assert before["comparison"]["median"] == 10
     session.rollback()
     monkeypatch.setattr(adapter, "analyze_garmin_metric_series", real)
-    after = read(database, saved.source.id)
+    after = read(database, saved.source.id, comparison_method=comparison_method)
     assert after["comparison"]["reason"] == "original_stress_value_mismatch"
 
 
@@ -589,7 +806,10 @@ def test_future_receipt_and_run_finish_do_not_prove_current_completion(database)
     assert result["comparison"]["reason"] == "acquisition_chronology_unproven"
 
 
-def test_work_is_two_bounded_r03_reads_and_only_referenced_originals(database, monkeypatch):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_work_is_two_bounded_r03_reads_and_only_referenced_originals(
+    comparison_method, database, monkeypatch
+):
     saved, _history = seed(database)
     _paths, _engine, session, store = database
     acquire(database, D, 999, account="unselected", extra={"timeZoneId": "bad"})
@@ -609,7 +829,7 @@ def test_work_is_two_bounded_r03_reads_and_only_referenced_originals(database, m
 
     monkeypatch.setattr(adapter, "analyze_garmin_metric_series", query)
     monkeypatch.setattr(ContentAddressedGarminPayloadStore, "read", read_original)
-    result = read(database, saved.source.id)
+    result = read(database, saved.source.id, comparison_method=comparison_method)
     assert result["comparison"]["status"] == "available"
     assert [(q.start_date, q.end_date) for q in calls] == [
         (D, D),
@@ -621,8 +841,9 @@ def test_work_is_two_bounded_r03_reads_and_only_referenced_originals(database, m
 
 
 @pytest.mark.parametrize("analysis_day_policy", [None, MOSCOW_POLICY])
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
 def test_point_cap_failure_keeps_current_and_never_returns_truncated_delta(
-    database, monkeypatch, analysis_day_policy
+    comparison_method, database, monkeypatch, analysis_day_policy
 ):
     saved, _history = seed(database)
     real = adapter.analyze_garmin_metric_series
@@ -633,7 +854,12 @@ def test_point_cap_failure_keeps_current_and_never_returns_truncated_delta(
         return real(session, query)
 
     monkeypatch.setattr(adapter, "analyze_garmin_metric_series", capped)
-    result = read(database, saved.source.id, analysis_day_policy=analysis_day_policy)
+    result = read(
+        database,
+        saved.source.id,
+        analysis_day_policy=analysis_day_policy,
+        comparison_method=comparison_method,
+    )
     assert result["current"]["value"] == 13
     assert result["comparison"]["reason"] == "selected_points_exceed_max"
     assert result["comparison"]["delta_points"] is None
@@ -786,7 +1012,10 @@ def test_genuine_absence_survives_applicability(database, value, status):
 
 @pytest.mark.parametrize("scope", ["current", "history"])
 @pytest.mark.parametrize("value", [13, 99, ABSENT, None, True])
-def test_genuine_duplicate_candidates_stay_ambiguous_with_placeholders(database, scope, value):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_genuine_duplicate_candidates_stay_ambiguous_with_placeholders(
+    comparison_method, database, scope, value
+):
     saved, _history = seed(database, n=22)
     day = D if scope == "current" else D - timedelta(days=28)
     foreign_placeholders(database, day)
@@ -795,7 +1024,7 @@ def test_genuine_duplicate_candidates_stay_ambiguous_with_placeholders(database,
     assert len(series.points) == series.availability.excluded_count == 2
     assert {p.exclusion_reason for p in series.points} == {"ambiguous_daily_aggregate"}
     assert not series.baseline.available
-    result = read(database, saved.source.id)
+    result = read(database, saved.source.id, comparison_method=comparison_method)
     if scope == "current":
         assert result["comparison"]["reason"] == "selected_day_not_uniquely_usable"
         assert result["current"]["value"] is None
@@ -1038,7 +1267,10 @@ def test_policy_allows_mixed_unknown_and_confirmed_moscow_without_fabricating_zo
 
 @pytest.mark.parametrize("scope", ["current", "history"])
 @pytest.mark.parametrize("seconds", [-1, 0, 1])
-def test_policy_requires_real_receipt_at_moscow_midnight(database, scope, seconds):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_policy_requires_real_receipt_at_moscow_midnight(
+    comparison_method, database, scope, seconds
+):
     day = D if scope == "current" else D - timedelta(days=28)
     boundary = datetime.combine(day + timedelta(days=1), time(), ZoneInfo("Europe/Moscow"))
     receipt = boundary + timedelta(seconds=seconds)
@@ -1046,7 +1278,7 @@ def test_policy_requires_real_receipt_at_moscow_midnight(database, scope, second
         history_day = D - timedelta(days=28 - i)
         acquire(database, history_day, i, zone=None, at=receipt if history_day == day else None)
     saved = acquire(database, D, 13, zone=None, at=receipt if scope == "current" else None)
-    result = policy_read(database, saved.source.id)
+    result = policy_read(database, saved.source.id, comparison_method=comparison_method)
     proof = next(p for p in result["proofs"] if p["analytic_date"] == day.isoformat())
     assert proof["completion_boundary_utc"] == boundary.astimezone(UTC).isoformat()
     assert (
@@ -1096,7 +1328,10 @@ def test_policy_late_evaluation_and_replay_do_not_rescue_preboundary_receipt(dat
         ({"date": "2098-12-31"}, "source_calendar_date_conflict"),
     ],
 )
-def test_policy_bad_zone_clock_or_date_blocks_whole_comparison(database, scope, extra, reason):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_policy_bad_zone_clock_or_date_blocks_whole_comparison(
+    comparison_method, database, scope, extra, reason
+):
     saved, history = seed(database, n=22, zone=None)
     day = D if scope == "current" else history[0].records[0].source_local_date
     acquire(
@@ -1107,7 +1342,7 @@ def test_policy_bad_zone_clock_or_date_blocks_whole_comparison(database, scope, 
         extra=extra,
         at=datetime(2099, 1, 31, tzinfo=UTC),
     )
-    result = policy_read(database, saved.source.id)
+    result = policy_read(database, saved.source.id, comparison_method=comparison_method)
     assert result["current"]["value"] == 13
     assert result["comparison"]["reason"] == reason
     assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
@@ -1127,7 +1362,10 @@ def test_policy_bad_zone_clock_or_date_blocks_whole_comparison(database, scope, 
         ({"startTimeGMT": "2099-01-30T00:00:00Z"}, "source_timezone_conflict"),
     ],
 )
-def test_policy_checks_even_unselected_raw_clocks(database, scope, extra, reason):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_policy_checks_even_unselected_raw_clocks(
+    comparison_method, database, scope, extra, reason
+):
     saved, history = seed(database, zone=None, n=22)
     day = D if scope == "current" else history[0].records[0].source_local_date
     # Use the same relative clock pattern in both current and historical dates.
@@ -1143,7 +1381,7 @@ def test_policy_checks_even_unselected_raw_clocks(database, scope, extra, reason
         extra={"startTimeLocal": f"{day}T03:00:00+03:00", **extra},
         at=datetime(2099, 1, 31, tzinfo=UTC),
     )
-    result = policy_read(database, saved.source.id)
+    result = policy_read(database, saved.source.id, comparison_method=comparison_method)
     assert result["comparison"]["reason"] == reason
     assert result["comparison"]["delta_points"] is None
 
@@ -1166,7 +1404,10 @@ def test_policy_21_day_gate_zero_and_frozen_history(database, n):
 
 @pytest.mark.parametrize("scope", ["current", "history"])
 @pytest.mark.parametrize("change", ["zone", "wall_date", "utc_date", "started", "completed"])
-def test_policy_persisted_zone_clock_and_chronology_remain_fail_closed(database, scope, change):
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
+def test_policy_persisted_zone_clock_and_chronology_remain_fail_closed(
+    comparison_method, database, scope, change
+):
     saved, history = seed(database, zone=None, n=22)
     target = saved if scope == "current" else history[0]
     session = database[2]
@@ -1184,7 +1425,7 @@ def test_policy_persisted_zone_clock_and_chronology_remain_fail_closed(database,
         else:
             run.completed_at = target.observation.received_at - timedelta(seconds=1)
     session.commit()
-    result = policy_read(database, saved.source.id)
+    result = policy_read(database, saved.source.id, comparison_method=comparison_method)
     assert result["current"]["value"] == (
         None if change == "utc_date" and scope == "current" else 13
     )
@@ -1400,8 +1641,9 @@ def test_policy_normalized_naive_fold_requires_coherent_offset_witness(
         "9999-12-31T23:59:59-01:00",
     ],
 )
+@pytest.mark.parametrize("comparison_method", [None, MEAN])
 def test_policy_unselected_clock_conversion_overflow_withholds_whole_comparison(
-    database, scope, bad_clock
+    comparison_method, database, scope, bad_clock
 ):
     current, target, selected_day = seed_clock_evidence(
         database,
@@ -1415,6 +1657,7 @@ def test_policy_unselected_clock_conversion_overflow_withholds_whole_comparison(
         current.source.id,
         day=selected_day,
         now=datetime.combine(selected_day + timedelta(days=3), time(), UTC),
+        comparison_method=comparison_method,
     )
     assert result["current"]["value"] == 13
     assert result["comparison"]["reason"] == "source_local_clock_unproven"
