@@ -41,6 +41,7 @@ from healthcheck.web.imports import _batch_payload
 from healthcheck.web.overview_body_battery import read_overview_body_battery
 from healthcheck.web.overview_charts import read_overview_charts
 from healthcheck.web.overview_rhr import read_overview_rhr
+from healthcheck.web.overview_stress import read_overview_stress
 from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import owner_date, owner_number
 from healthcheck.web.period_brief_query import PeriodBriefService
@@ -1061,6 +1062,11 @@ def period_brief_page(
                 selected_id=source_selection.get("selected_source_id"),
             )
             evaluated_at = datetime.now(UTC)
+            overview["stress"] = read_overview_stress(
+                session, request.app.state.settings, selected_date=end,
+                garmin_source_id=source_selection.get("selected_source_id"),
+                evaluated_at_utc=evaluated_at,
+            )
             overview["body_battery"] = read_overview_body_battery(
                 session, start=start, end=end,
                 garmin_source_id=source_selection.get("selected_source_id"),
