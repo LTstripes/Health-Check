@@ -1263,4 +1263,5 @@ def test_policy_moscow_historical_fold_checks_offset_at_exact_instant(database, 
     assert result["comparison"]["delta_points"] == 3
     assert result["proofs"][0]["completion_boundary_utc"] == "2014-10-26T21:00:00+00:00"
     # Historical Moscow midnight used +04:00, not today's fixed +03:00.
-    assert result["proofs"][1]["completion_boundary_utc"] == "2014-09-29T20:00:00+00:00"
+    historical = next(p for p in result["proofs"] if p["analytic_date"] == "2014-09-28")
+    assert historical["completion_boundary_utc"] == "2014-09-28T20:00:00+00:00"
