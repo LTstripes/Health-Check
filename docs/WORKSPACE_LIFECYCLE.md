@@ -15,7 +15,7 @@ topology, expected origin and physical root/GitDir identities. Clones with depen
 worktrees and all linked worktrees are preserved **before fetch**: v1 does not
 coordinate ownership of the entire shared Git Common cohort.
 
-All writers must `Check` their active claim before work, `Pause` when paused,
+All writers must `CheckActive` their bound active claim before work, `Pause` when paused,
 `Resume` before any further writes or verification, and `Complete` only after
 delivery when no more work is intended. A paused task retains ownership. Complete
 requires the same owner and current ClaimId, a bound clone and a clean, private-free
@@ -27,7 +27,9 @@ janitor; completing a locally committed unpublished branch cannot permit deletio
 changes generation and ClaimId and clears completion. Save its returned ClaimId.
 Active `Check` itself does not grant ownership to a second task; never share a token
 or adopt another task's owner identity. `Check` reports the recorded state; writing
-is permitted only when it is **active**, with the current token. There is no v1
+is permitted only when it is **active**, with the current token. `CheckActive`
+rejects unbound, paused and completed records. The worker consumer below deliberately
+does not expose diagnostic `Check`. There is no v1
 ownership-transfer/adoption operation; use a fresh unique task clone for a new owner.
 
 The lifecycle and janitor use one project mutex through their entire transaction.
@@ -45,32 +47,85 @@ helper may only create a fresh unique **unmanaged** clone and record its owner o
 it must never resume/reuse an enrolled path. Such fallback clones remain ineligible
 for automatic cleanup. Existing fallback markers are not migrated automatically.
 
-## CLI
+## Worker checkout workflow
 
-Use the accepted installed script, with its matching native helper. `$task` below
-is a new sanitized immediate child of an already configured client root; `$owner`
-is the unique chat/task identity (ASCII letters/digits, dot, underscore, hyphen,
-maximum 80 characters). Do not use Stable, Test, staging, recovery or backups.
+The existing Codex, Hermes and Grok adapters use this one workflow when the task
+explicitly selects **managed lifecycle v1**. OpenCode or other executors reading
+the shared Owner workflow use the same entrypoint. The task assignment supplies
+the accepted installed `$janitor`, configured client root/new `$task` child,
+unique `$taskOwner`, official origin, pinned `$baseline`, `$branch` and delivery scope.
+Owner identifiers use ASCII letters/digits, dot, underscore, hyphen (maximum 80).
+These are task inputs, not new machine configuration or an executable launcher.
+Do not use Stable, Test, staging, recovery or backups.
+
+Dot-source the accepted installed script with its matching native helper, under
+the existing PowerShell authorization policy. `Invoke-WorkerLifecycle` is the
+worker consumer in that script: each operation acquires the existing project
+mutex and either returns one claim object or throws. This avoids treating a stale
+native `$LASTEXITCODE`, a JSON string or diagnostic Check as authorization to write.
+If loading is denied by AuthorizationManager, stop and report that exact failure;
+do not use ExecutionPolicy Bypass, Unblock-File, alternate hosts or evaluation of
+the script text to evade it. Do not load a disposable checkout as the production helper.
 
 ```powershell
-$claim = & $janitor -Operation Create -Workspace $task -Owner $owner | ConvertFrom-Json
-git clone $officialOrigin $task
+$ErrorActionPreference = 'Stop'
+. $janitor
+$claim = Invoke-WorkerLifecycle -Action Create -Workspace $task -Owner $taskOwner
+# Retain owner/path/Claim/generation in the existing task checkpoint now.
+git clone -- $officialOrigin $task
 if ($LASTEXITCODE -ne 0) { throw 'clone failed; retain active claim for recovery' }
-& $janitor -Operation Bind -Workspace $task -Owner $owner -ClaimId $claim.Claim
-& $janitor -Operation Check -Workspace $task -Owner $owner -ClaimId $claim.Claim
-# Work only after successful Bind/Check with state active; commit/publish separately.
-& $janitor -Operation Pause -Workspace $task -Owner $owner -ClaimId $claim.Claim
-$claim = & $janitor -Operation Resume -Workspace $task -Owner $owner -ClaimId $claim.Claim | ConvertFrom-Json
-# After delivery and no further writes:
-& $janitor -Operation Complete -Workspace $task -Owner $owner -ClaimId $claim.Claim
-# Scan is default. Apply remains the only deletion switch, for separately authorized use.
-& $janitor -RetentionDays 7
+$claim = Invoke-WorkerLifecycle -Action Bind -Workspace $task -Owner $taskOwner -ClaimId $claim.Claim
+$claim = Invoke-WorkerLifecycle -Action CheckActive -Workspace $task -Owner $taskOwner -ClaimId $claim.Claim
+git -C $task switch -c $branch $baseline
+if ($LASTEXITCODE -ne 0) { throw 'task branch/baseline setup failed' }
+# CheckActive again before each bounded edit/test/commit/publication phase.
+# Perform only the assigned work and its separately authorized delivery.
+$claim = Invoke-WorkerLifecycle -Action Pause -Workspace $task -Owner $taskOwner -ClaimId $claim.Claim
+# On continuation, use the same owner and the current checkpoint Claim:
+$claim = Invoke-WorkerLifecycle -Action Resume -Workspace $task -Owner $taskOwner -ClaimId $claim.Claim
+# Persist the NEW Claim/generation before continuing. The old Claim must fail.
+$claim = Invoke-WorkerLifecycle -Action CheckActive -Workspace $task -Owner $taskOwner -ClaimId $claim.Claim
+# Commit/publish only as authorized, retain the delivered SHA/resource receipt.
+# Complete AFTER delivery exists and no further writes are intended:
+$claim = Invoke-WorkerLifecycle -Action Complete -Workspace $task -Owner $taskOwner -ClaimId $claim.Claim
 ```
 
-Check every command's success/exit status before continuing; do not treat empty JSON
-or a rejected operation as a claim. Do not install from or execute a disposable
-clone as a production scheduler action. Finance derives roots from the accepted
-installation directory; running its source script in a checkout is not an Ops install.
+This is a sequence of explicit phase boundaries, not a script to run unattended
+from start to finish. Do not Complete in a `finally` block, on failure, or merely
+because a chat turn ended. If the client disappears before Pause, active remains
+durable and preserves the checkout. Review fixes after Complete require Resume,
+the new Claim, then CheckActive before edits. Missing/stale task checkpoint or
+unknown ownership means preserve, never borrow another task's token or identity.
+The checkpoint is a resume receipt, not cleanup authority; the external registry
+remains authoritative. A local-only delivery can Complete but remains protected
+by the janitor's independent unpublished-history guard.
+
+A short task prompt can select this workflow without a new launcher:
+
+```text
+Worker: <repo / issue / accepted note>, baseline <SHA>, target <branch>.
+Use a NEW task clone under <configured client root>, branch <task branch>.
+Lifecycle: managed v1, accepted helper <Ops script>, owner <unique task identity>.
+Follow WORKSPACE_LIFECYCLE.md#worker-checkout-workflow through Invoke-WorkerLifecycle.
+Keep current Claim/generation in the task checkpoint; require CheckActive before work.
+Delivery: <local-only or explicitly allowed branch/PR>. Complete after delivery.
+Do not enroll an existing platform checkout or operate on runtime/Owner folders.
+```
+
+There is no platform task-created/paused/resumed/completed hook in this API. The
+executor must execute the boundary calls in its task/checkout workflow; a prompt
+cannot intercept a platform event. A platform-created checkout already exists,
+so Create refuses it. Keep it unmanaged, or use a separate fresh authorized clone
+for managed work; never claim automatic enrollment or move an active checkout.
+Existing worktrees stay outside managed v1. Client root/helper-path selection and
+adoption of these prompts remain explicit setup/rollout steps; this change does
+not edit app configuration, install Ops, register tasks or activate scheduling.
+
+The standalone CLI retains diagnostic `Check` and also accepts `CheckActive`.
+Diagnostic success alone is never a write guard. Scan is the default; real scan
+or Apply is a separate authorized operation, not a worker completion hook. Finance
+derives roots from the accepted installation directory, so source execution inside
+a disposable checkout is not an Ops install.
 
 ## Persistent format and failure handling
 

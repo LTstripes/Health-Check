@@ -19,7 +19,7 @@ param(
         'D:\HealthCheck\workspaces\grok', 'D:\HealthCheck\workspaces\hermes'),
     [int]$RetentionDays = 7,
     [switch]$Apply,
-    [ValidateSet('Scan','Create','Bind','Check','Pause','Resume','Complete')][string]$Operation='Scan',
+    [ValidateSet('Scan','Create','Bind','Check','CheckActive','Pause','Resume','Complete')][string]$Operation='Scan',
     [string]$Workspace,
     [string]$Owner,
     [string]$ClaimId
@@ -366,6 +366,10 @@ function Invoke-WorkspaceLifecycle([string]$Action, [string]$Path, [string]$Owne
         Assert-LifecycleIdentity $path $record
         switch ($Action) {
             'Check' { }
+            'CheckActive' {
+                Assert-LifecycleIdentity $path $record -Bound
+                if ($record.State -cne 'active') { throw 'lifecycle-not-active' }
+            }
             'Bind' {
                 if ($record.State -ne 'active' -or $record.GitId -ne '-') { throw 'lifecycle-transition-rejected' }
                 $state=Get-JanitorGitState $path $guard
@@ -415,6 +419,22 @@ function Invoke-WorkspaceLock([scriptblock]$Body) {
     } finally { $script:WorkspaceMutexHeld=$false; if ($held) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
 }
 
+function Invoke-WorkerLifecycle {
+    <# Worker-facing consumer API. Dot-source the accepted installed pair first.
+       Explicit checkout workflow, not a platform task event hook.
+       Returns one claim object, or throws; does not launch an agent/runtime. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('Create','Bind','CheckActive','Pause','Resume','Complete')][string]$Action,
+        [Parameter(Mandatory=$true)][string]$Workspace,
+        [Parameter(Mandatory=$true)][string]$Owner,
+        [string]$ClaimId=''
+    )
+    if ($Action -ne 'Create' -and $ClaimId -cnotmatch '^[a-f0-9]{32}$') { throw 'lifecycle-owner-or-claim-mismatch' }
+    Initialize-JanitorNative
+    Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle $Action $Workspace $Owner $ClaimId }
+}
 function New-JanitorRecord([string]$Path) {
     return [pscustomobject]@{ Task=[IO.Path]::GetFileName($Path); Path=$Path; AgeDays=$null; Git='unknown'; HiddenProcessCommandLines=$null; Result='PRESERVE'; Reason='check-unknown' }
 }

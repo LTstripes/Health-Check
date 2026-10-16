@@ -1,6 +1,7 @@
 # Self-contained Windows PowerShell 5.1 synthetic regression; no Owner roots/data.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$taskOwner='synthetic-worker' # Task input supplied BEFORE dot-sourcing the accepted helper.
 . (Join-Path $PSScriptRoot '..\scripts\cleanup-workspaces.ps1')
 Initialize-JanitorNative
 $script:RealGit = ${function:Invoke-JanitorGit}
@@ -494,7 +495,7 @@ if($Mode -eq 'resume') {
             if($mode -eq 'resume') {
                 Reject { Invoke-WorkspaceLock { Invoke-JanitorTask $target 7 $true ([datetime]::UtcNow) } } 'Resume owns mutex: janitor cannot enter' 'workspace-busy'
             } else {
-                Reject { Life 'Resume' $target $token } 'janitor owns mutex: Resume cannot enter' 'workspace-busy'
+                Reject { Invoke-WorkerLifecycle -Action Resume -Workspace $target -Owner 'synthetic' -ClaimId $token } 'janitor owns mutex: worker Resume cannot enter' 'workspace-busy'
             }
         } finally {
             [IO.File]::WriteAllText($release,'release')
@@ -506,7 +507,7 @@ if($Mode -eq 'resume') {
         else {
             # Child crashed after durable deleting, before any unlink. Acquisition
             # handles abandoned mutex, but must not clear the retirement record.
-            Reject { Life 'Resume' $target $token } 'abandoned mutex does not erase deleting state' 'lifecycle-retired'
+            Reject { Invoke-WorkerLifecycle -Action Resume -Workspace $target -Owner 'synthetic' -ClaimId $token } 'worker Resume preserves deleting after abandoned mutex' 'lifecycle-retired'
             Assert ((Claim $target).State -eq 'deleting') 'durable crash retirement retained'
             NoFetch $target 'lifecycle-not-completed'
         }
@@ -516,6 +517,48 @@ if($Mode -eq 'resume') {
         [void](Check $forbidden 'root-rejected' $true)
     }
     Assert ([IO.File]::Exists((Join-Path $seed 'file.txt')) -and [IO.Directory]::Exists($outside)) 'zero deletions outside approved immediate children'
+
+    # End-to-end consumer used by the worker task/checkout workflow. No new launcher
+    # and no mocked lifecycle operations: the accepted script was dot-sourced above.
+    $workerTask=Join-Path $script:Client 'worker-consumer'
+    Assert ($taskOwner -ceq 'synthetic-worker') 'documented task owner survives dot-source parameter binding'
+    $workerOwner=$taskOwner
+    $workerClaim=Invoke-WorkerLifecycle -Action Create -Workspace $workerTask -Owner $workerOwner
+    Assert ($workerClaim.State -ceq 'active' -and $workerClaim.GitId -ceq '-') 'worker Create owns a fresh unbound clone destination'
+    Reject { Invoke-WorkerLifecycle -Action CheckActive -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim } 'worker cannot write through unbound active check' 'lifecycle-unbound'
+    [void](Git $script:Temp @('clone','--no-hardlinks','--quiet',$script:Remote,$workerTask))
+    [void](Git $workerTask @('remote','set-url','origin',$script:ExpectedOrigin))
+    $script:RemoteFor[$workerTask]=$script:Remote
+    $workerClaim=Invoke-WorkerLifecycle -Action Bind -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim
+    $global:LASTEXITCODE=73 # Deliberately stale native status must not authorize/reject a worker call.
+    $workerClaim=Invoke-WorkerLifecycle -Action CheckActive -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim
+    Assert ($workerClaim.State -ceq 'active' -and $global:LASTEXITCODE -eq 73) 'worker receives a typed active object independently of native exit status'
+    [void](Git $workerTask @('switch','-c','synthetic-worker-delivery'))
+    Commit $workerTask 'synthetic-worker-delivered'
+    $workerClaim=Invoke-WorkerLifecycle -Action CheckActive -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim
+    [void](Git $workerTask @('push',$script:Remote,'HEAD:refs/heads/main'))
+    $deliveredHead=Git $workerTask @('rev-parse','HEAD')
+    $workerReceipt=Join-Path $script:Temp 'worker-delivery-checkpoint.json'
+    [IO.File]::WriteAllText($workerReceipt,([ordered]@{head=$deliveredHead;claim=$workerClaim.Claim;generation=$workerClaim.Generation}|ConvertTo-Json))
+    $deliveredUtc=[datetime]::UtcNow
+    $workerClaim=Invoke-WorkerLifecycle -Action Pause -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim
+    $workerOldClaim=$workerClaim.Claim
+    Reject { Invoke-WorkerLifecycle -Action CheckActive -Workspace $workerTask -Owner $workerOwner -ClaimId $workerOldClaim } 'paused diagnostic success is not worker authorization' 'lifecycle-not-active'
+    $diagnostic=Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle 'Check' $workerTask $workerOwner $workerOldClaim }
+    Assert ($diagnostic.State -ceq 'paused') 'diagnostic Check remains distinct from worker guard'
+    $workerClaim=Invoke-WorkerLifecycle -Action Resume -Workspace $workerTask -Owner $workerOwner -ClaimId $workerOldClaim
+    Assert ($workerClaim.Claim -cne $workerOldClaim -and $workerClaim.Generation -ceq '2') 'worker Resume returns a new Claim and generation'
+    [IO.File]::WriteAllText($workerReceipt,([ordered]@{head=$deliveredHead;claim=$workerClaim.Claim;generation=$workerClaim.Generation}|ConvertTo-Json))
+    $resumedReceipt=[IO.File]::ReadAllText($workerReceipt)|ConvertFrom-Json
+    Reject { Invoke-WorkerLifecycle -Action CheckActive -Workspace $workerTask -Owner $workerOwner -ClaimId $workerOldClaim } 'worker old checkpoint cannot authorize continuation' 'lifecycle-owner-or-claim-mismatch'
+    $workerClaim=Invoke-WorkerLifecycle -Action CheckActive -Workspace $workerTask -Owner $workerOwner -ClaimId $resumedReceipt.claim
+    NoFetch $workerTask 'lifecycle-not-completed'
+    $workerClaim=Invoke-WorkerLifecycle -Action Complete -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim
+    Assert ($workerClaim.State -ceq 'completed' -and $workerClaim.Head -ceq $deliveredHead -and [long]$workerClaim.Completed -ge $deliveredUtc.Ticks) 'worker Complete follows actual synthetic delivery and records its exact HEAD'
+    Reject { Invoke-WorkerLifecycle -Action CheckActive -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim } 'completed claim cannot authorize worker edits' 'lifecycle-not-active'
+    Reject { Invoke-WorkerLifecycle -Action Check -Workspace $workerTask -Owner $workerOwner -ClaimId $workerClaim.Claim } 'worker API deliberately excludes diagnostic Check'
+    [void](Check $workerTask 'younger-than-retention')
+    Assert ([IO.Directory]::Exists($workerTask)) 'consumer E2E performs no cleanup Apply'
 
     # Bounded sanitized report and production runner dry-run, with synthetic fixed roots.
     Old $clean

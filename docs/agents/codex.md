@@ -15,3 +15,14 @@ Only an explicit request activates [Agent orchestration](../AGENT_ORCHESTRATION.
 ## Local helpers
 
 Load only a relevant procedure skill; keep implicit delivery-loop invocation disabled and avoid duplicate active skills. Skills may add mechanics, not weaken policy. Concrete model IDs/effort/local paths stay in local configuration; return the technical [completion report](../../AGENTS.md#completion-reporting).
+
+## Managed Owner-local task checkout
+
+When the task explicitly selects managed lifecycle v1, use the executable
+`Invoke-WorkerLifecycle` consumer in the accepted installed helper and follow
+[worker checkout workflow](../WORKSPACE_LIFECYCLE.md#worker-checkout-workflow).
+The assignment supplies the helper path, client root, new child and unique owner;
+retain the current Claim/generation in the existing task checkpoint. Require
+CheckActive before work, Pause/Resume explicitly, and Complete after delivery.
+This does not hook platform task events or enroll an already-created checkout.
+Without configured/accepted support, use only the shared fresh-unmanaged fallback.
