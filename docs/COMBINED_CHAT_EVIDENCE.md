@@ -34,12 +34,17 @@ packet = read_combined_evidence(
 Exactly 7 or 30 inclusive local calendar dates ending at the explicit date;
 underflow, `date.max`, bool days and oversized/invalid limits fail. Requested and
 effective bounds are equal, without clipping or fallback. Activity requires one
-explicit Garmin source. Sleep requires at least one provider, with one explicit
-Garmin and/or Google source. The Garmin choices can coincide or differ; they
-are separate explicit selections and never pooled. All IDs are validated for
-existence and provider in the shared snapshot before either domain reader runs.
-No inventory or automatic source selection is exposed. Existing empty sources
-remain valid empty stored evidence; an unavailable selected ID fails the request.
+explicit Garmin source. Sleep requires at least one provider: an explicit Garmin
+source and/or a Google exact source ID or `sleep_google_auto_select=True`.
+An exact Google Sleep ID takes precedence over automatic selection. The Garmin
+choices can coincide or differ; they are separate explicit selections and never
+pooled. All explicitly requested IDs are validated for existence and provider in
+the shared snapshot before either domain reader runs. Explicit-source requests
+expose no unrelated inventory and never fall back to another source. Google opt-in
+uses the bounded [Sleep selection contract](METRIC_SOURCE_SELECTION.md); competing
+series or incomplete discovery remain labelled outcomes without a selected source.
+Existing empty exact sources remain valid empty stored evidence; an unavailable
+explicitly selected ID fails the request.
 
 The top level contains version/provenance, generated/evaluation clocks, explicit
 profile assertion/privacy, exact request and selected sources, snapshot/limits,
