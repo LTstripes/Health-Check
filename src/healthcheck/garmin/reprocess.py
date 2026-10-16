@@ -536,8 +536,14 @@ def _legacy_hrv_row(session, source_id, identity):
 
 
 def _legacy_hrv_day(session, store, legacy, identity):
+    return _hrv_raw_day(session, store, legacy.raw_payload_id, legacy.garmin_source_id, identity)
+
+
+def _hrv_raw_day(session, store, raw_id, source_id, identity, *, expected_artifact_id=None):
     original = json.loads(
-        _verified_hrv_bytes(session, store, legacy.raw_payload_id, legacy.garmin_source_id),
+        _verified_hrv_bytes(
+            session, store, raw_id, source_id, expected_artifact_id=expected_artifact_id,
+        ),
         object_pairs_hook=_unique_hrv_keys,
     )
     old_result = normalize_garmin_payload(
@@ -724,6 +730,20 @@ def _window_already_current(
             if legacy is not None:
                 legacy_day = _legacy_hrv_day(session, store, legacy, identity)
                 if legacy_day is not None and local_start <= legacy_day <= local_end:
+                    projected = restore_stored_utc(legacy.projection_observed_at) or (
+                        restore_stored_utc(legacy.last_seen_at)
+                    )
+                    received = restore_stored_utc(observation.received_at)
+                    if projected is not None and received is not None and received < projected:
+                        incoming_day = _hrv_raw_day(
+                            session, store, observation.garmin_raw_payload_id, source.id, identity,
+                            expected_artifact_id=observation.raw_artifact_id,
+                        )
+                        if incoming_day == legacy_day:
+                            # The newer legacy original already proves this exact day.
+                            # Do not expose an older value or consume every resume cap
+                            # before the newer overlapping acquisition can be applied.
+                            return True
                     # A newer ordinary acquisition may already have restored the day,
                     # while its old undated identity still needs an atomic transition.
                     return False

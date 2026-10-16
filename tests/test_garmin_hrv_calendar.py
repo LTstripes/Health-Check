@@ -68,7 +68,16 @@ def saved(tmp_path):
 
 
 def persist(
-    saved, day=DAY, value=31, *, at=RECEIPT, legacy=False, source=None, body=None, encoded=None
+    saved,
+    day=DAY,
+    value=31,
+    *,
+    at=RECEIPT,
+    legacy=False,
+    source=None,
+    body=None,
+    encoded=None,
+    window_start=None,
 ):
     _, factory, store = saved
     source = source or identity()
@@ -101,7 +110,7 @@ def persist(
             stream_code="daily_health",
             received_at=at,
             source_filename="hrv_status.json",
-            source_window_start_utc=datetime.combine(day, datetime.min.time(), UTC),
+            source_window_start_utc=datetime.combine(window_start or day, datetime.min.time(), UTC),
             source_window_end_utc=datetime.combine(
                 day + timedelta(days=1), datetime.min.time(), UTC
             ),
@@ -309,6 +318,24 @@ def test_new_dated_sync_does_not_hide_pending_legacy_transition(saved):
         ).processed_count
         == 0
     )
+
+
+def test_older_overlapping_window_cannot_restore_a_stale_legacy_day(saved):
+    # Same returned day, two acquisition-window identities. A cap must not
+    # expose the older value before the newer legacy day can be recovered.
+    persist(saved, value=21, legacy=True, window_start=DAY - timedelta(days=1))
+    persist(saved, value=43, legacy=True, at=RECEIPT + timedelta(hours=1))
+    report = run_garmin_reprocess(
+        saved[0],
+        start=DAY,
+        end=DAY,
+        streams=["hrv_status"],
+        max_observations=1,
+    )
+    assert report.remaining_observation_count == 0
+    assert projection(saved)[0][3] == 43
+    assert projection(saved)[0][1] == DAY
+    assert len(projection(saved)) == 1
 
 
 def test_identity_replacement_rolls_back_atomically(saved, monkeypatch):

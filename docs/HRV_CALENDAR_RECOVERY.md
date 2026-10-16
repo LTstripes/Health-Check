@@ -31,6 +31,10 @@ committed dated replacement. Source/surface, versions, integrity and non-stale
 chronology must match. Replacement and retirement share one transaction. A
 legacy row belonging to another day stays untouched. Missing/invalid/unknown
 coverage cannot supersede it; unresolved evidence stays excluded, not guessed.
+An older overlapping acquisition whose own verified bytes prove that same day
+cannot expose a stale dated value ahead of the newer legacy observation or
+consume every bounded-resume slot. Acquisition-window equality alone is not
+evidence that two HRV summaries describe the same day.
 
 ## Separately authorized operator procedure
 
