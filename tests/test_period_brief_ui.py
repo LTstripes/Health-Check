@@ -40,6 +40,19 @@ def _visible_text(html: str) -> str:
     return " ".join(parser.parts)
 
 
+@pytest.fixture
+def completed_overview_clock(monkeypatch):
+    """Make synthetic 2099 periods historical for the completed-day UI."""
+    from healthcheck.web import pages
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2099, 1, 10, 12, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
+
+
 def _ui(tmp_path):
     settings = Settings(data_dir=tmp_path / "runtime")
     paths = prepare_runtime(settings)
@@ -1223,7 +1236,7 @@ def test_a_plus_coordinates_use_calendar_gaps_and_unchanged_trend():
     assert [p['trend'] for p in points] == [75, 74.9, 74.8]
 
 
-def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path):
+def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path, completed_overview_clock):
     from copy import deepcopy
 
     from healthcheck.db.engine import session_scope
@@ -1254,7 +1267,7 @@ def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path):
         assert page.context['charts']['sleep_error'] is False
         later = client.get('/brief?start_date=2099-01-01&end_date=2099-01-09')
         assert later.status_code == 200
-        assert 'href="/sleep?wake_date=2099-01-07' in later.text
+        assert 'href="/sleep?wake_date=2099-01-09' in later.text
         css = client.get('/static/overview.css').text
         assert '.overview-trend { stroke: var(--series-2)' in css
         assert '.overview-observed { fill: var(--series-1)' in css
@@ -1580,8 +1593,12 @@ def test_295_route_reuse_matches_control_packet_charts_html_and_read_counts(
             expected = 0 if mode in {"empty", "multiple"} or (
                 mode == "baseline_error" and metric == "sleep_duration_seconds"
             ) else 1
-            assert calls[metric] == expected
-            assert before_calls[metric] == expected * 2
+            # The Overview mean reads its full window when the packet baseline
+            # is shorter, or when only that independent baseline is unavailable.
+            extra = int(metric == "sleep_duration_seconds" and mode not in {"empty", "multiple"}
+                        and (days > 180 or mode == "baseline_error"))
+            assert calls[metric] == expected + extra
+            assert before_calls[metric] == expected * 2 + extra
         assert len(sql) < before_sql
         print(f"295 {days}d/{mode}: SQL {before_sql}->{len(sql)}; "
               f"reads {dict(before_calls)}->{dict(calls)}")
@@ -1662,7 +1679,9 @@ def test_344_observed_connectors_preserve_dates_gaps_and_ewma():
     assert chart['gaps'][0]['end'] == '2099-01-04'
 
 
-def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(tmp_path):
+def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(
+    tmp_path, completed_overview_clock,
+):
     from healthcheck.web.overview_charts import dated_chart
     from test_dashboard_ui import _ui as create_fixture
 
@@ -1689,4 +1708,4 @@ def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(tmp_path):
         assert ('Сохранённые значения не подтверждают обновление.'
                 in fragment.split('</summary>', 1)[1])
         assert 'href="/imports#data-status"' in fragment.split('</details>', 1)[1]
-    assert 'Пробуждение 7 января 2099' in page.text
+    assert '5 ч 27 мин 30 с' in page.text

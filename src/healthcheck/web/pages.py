@@ -38,10 +38,9 @@ from healthcheck.source_freshness_consumer import read_consumer_freshness_projec
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
-from healthcheck.web.overview_body_battery import read_overview_body_battery
 from healthcheck.web.overview_charts import read_overview_charts
+from healthcheck.web.overview_completed import read_completed_overview
 from healthcheck.web.overview_rhr import read_overview_rhr
-from healthcheck.web.overview_stress import read_overview_stress
 from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import owner_date, owner_number
 from healthcheck.web.period_brief_query import PeriodBriefService
@@ -1062,16 +1061,6 @@ def period_brief_page(
                 selected_id=source_selection.get("selected_source_id"),
             )
             evaluated_at = datetime.now(UTC)
-            overview["stress"] = read_overview_stress(
-                session, request.app.state.settings, selected_date=end,
-                garmin_source_id=source_selection.get("selected_source_id"),
-                evaluated_at_utc=evaluated_at,
-            )
-            overview["body_battery"] = read_overview_body_battery(
-                session, start=start, end=end,
-                garmin_source_id=source_selection.get("selected_source_id"),
-                evaluated_at_utc=evaluated_at,
-            )
             overview["rhr"] = read_overview_rhr(
                 session, start=start, end=end,
                 explicit_period=any(value is not None for value in (preset, start_date, end_date)),
@@ -1087,6 +1076,12 @@ def period_brief_page(
                 brief_inputs=brief_inputs,
                 selected_id=source_selection.get("selected_source_id"),
             )
+            overview.update(read_completed_overview(
+                session, request.app.state.settings, start=start, end=end,
+                preset=selected_preset, source_id=source_selection.get("selected_source_id"),
+                evaluated_at=evaluated_at,
+                sleep_series=charts["technical"]["sleep"].get("sleep_duration_seconds"),
+            ))
     except GarminQueryError as exc:
         return render_error(
             request, code=exc.code, message=exc.message, status_code=exc.status_code
@@ -1113,6 +1108,10 @@ def period_brief_page(
             "source_selection": source_selection,
             "selected_preset": selected_preset,
             "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"])
+            or overview["period_sleep"]["mean_value"] is not None
+            or overview["period_stress"]["mean_value"] is not None
+            or bool(overview["body_battery"]["selected"]
+                    and overview["body_battery"]["selected"]["mean_display"] is not None)
             or any(item["dto"]["last_observation"] is not None for item in overview["rhr"]["items"])
             or any(cell["value"] is not None for cell in overview["garmin"].values())
             or any(

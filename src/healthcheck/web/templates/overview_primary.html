@@ -37,6 +37,7 @@
 </details>
 {% endmacro %}
 
+{% from 'overview_period_chart.html' import period_chart, period_range with context %}
 <section class="brief-overview" aria-labelledby="brief-overview-heading">
   <h2 id="brief-overview-heading" class="overview-section-label">Главное за период</h2>
   <ul class="brief-overview-list">
@@ -45,8 +46,9 @@
       <div class="overview-metric-heading"><h3><a href="{{ url }}">{{ name }}</a></h3>
       <details class="overview-info"><summary aria-label="Как читать {{ name }}">ⓘ</summary><div>
         {% if kind == 'weight' %}<p>Последнее подтверждённое измерение. На графике дневные медианы и действующий тренд EWMA с периодом полураспада 21 день. Пропущенные даты не соединяются.</p>
-        {% elif kind == 'sleep' %}<p>Последняя пригодная ночь Garmin по дате пробуждения. Балл провайдера показан отдельно со своей датой. Несколько значений одной даты не объединяются.</p>
+        {% elif kind == 'sleep' %}<p>Средняя длительность пригодных ночей Garmin за завершённые дни по Москве. Дата ночи — существующая дата пробуждения источника. Пропуски не считаются нулями; несколько значений одной даты не объединяются. Среднее округляется до секунды только для показа.</p>
         {% else %}<p>Число сохранённых занятий, а не вся физическая активность. Ноль показывается только при подтверждённом покрытии всего периода. Иначе день без записи неизвестен.</p>{% endif %}
+        {% if kind == 'sleep' %}{{ freshness_note('garmin:sleep') }}{% endif %}
         {% for fact in brief_primary_facts(section) %}<p><strong>{{ brief_owner_fact(fact.code) }}</strong>: {{ value_text(fact) }}{% if fact.observed_date %} · {{ fact.observed_date | owner_date }}{% endif %}{% if fact.reason and fact.availability != 'present' %} {{ brief_owner_reason(fact.reason) }}{% endif %}</p>{% endfor %}
       </div></details></div>
       {% if kind == 'weight' %}
@@ -57,17 +59,18 @@
         <p class="overview-qualifier">{{ charts.weight.points | length }} дней с измерениями.{% if not charts.weight_trend.available %} Недостаточно пригодных данных для тренда.{% endif %}</p>
         {{ chart(charts.weight, kind, 'Измерения веса', 'кг') }}
       {% elif kind == 'sleep' %}
-        {% set last = charts.sleep_latest.sleep_duration_seconds %}{% set score = charts.sleep_latest.sleep_score %}
-        <p class="overview-value">{{ metric_value('sleep_duration_seconds', last.value) if last else '—' }}</p>
-        <p class="overview-source">Ночи Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}{% if last %}<br>Пробуждение {{ last.date | owner_date }}{% endif %}</p>
-        {% if last %}{{ owner_ui.state_chip(last.state, false) }}{% else %}{{ owner_ui.state_chip(sleep.state, false) }}<p>Нет пригодной длительности в окне сна.</p>{% endif %}
-        <p class="overview-qualifier">Балл Garmin: {% if score %}{{ overview_number(score.value) }} · {{ score.date | owner_date }}{% if score.state == 'partial' %} · частичная запись{% endif %}{% else %}нет пригодной оценки{% endif %}.</p>
-        {% if charts.sleep_limited %}<p class="overview-warning">Окно сна: {{ charts.sleep.start | owner_date }} → {{ charts.sleep.end | owner_date }}. Ранние даты не входят в действующее окно расчёта.</p>{% endif %}
-        {% if charts.sleep_error %}<p class="overview-warning">Историю сна не удалось прочитать полностью.</p>{% endif %}
-        {% if charts.sleep_newer_unusable %}<p class="overview-warning">Есть более новая дата без однозначного пригодного значения; показана последняя пригодная ночь.</p>{% endif %}
-        {{ freshness_note('garmin:sleep') }}
-        {{ chart(charts.sleep, kind, 'История сна', 'ч') }}
-        <a class="overview-detail-link" href="/sleep?wake_date={{ last.date if last else charts.sleep.end }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">Ночь и детали сна →</a>
+        {% set period_sleep = overview.period_sleep %}
+        <div data-overview-period-sleep>
+        <p class="overview-value">{{ period_sleep.duration_display or '—' }}</p>
+        <p class="overview-source">Среднее за период · Garmin</p>
+        <p class="overview-source">{{ period_range(overview.completed_window) }}</p>
+        {% if period_sleep.figure %}<p class="overview-qualifier" data-period-coverage>{{ period_sleep.eligible_days }}/{{ period_sleep.days }} ночей{% if period_sleep.partial_days %} · есть частичные{% endif %}</p>
+        {% elif period_sleep.reason == 'source_not_selected' %}<p class="overview-qualifier">Выберите источник Garmin.</p>
+        {% elif period_sleep.reason == 'range_exceeds_max' %}<p class="overview-qualifier">Период длиннее доступного окна чтения (400 дней).</p>
+        {% elif period_sleep.reason == 'read_unavailable' %}<p class="overview-qualifier">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}
+        {{ period_chart(period_sleep.figure, 'sleep', 'История сна', true) }}
+        {% if not overview.completed_window.empty %}<a class="overview-detail-link" href="/sleep?wake_date={{ overview.completed_window.end_date }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">История и детали сна →</a>{% endif %}
+        </div>
       {% else %}
         <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }} <span>сохранено</span></p>
         <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}<br>{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }}</p>

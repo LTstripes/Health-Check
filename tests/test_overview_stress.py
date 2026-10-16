@@ -216,55 +216,49 @@ def test_late_evaluation_never_upgrades_early_acquisition(database):
         assert result["reason"] == "Данные одного из дней получены до окончания суток."
 
 
-def test_route_window_is_end_date_not_latest_value_and_not_page_start(
+def test_route_mean_uses_selected_period_without_28_day_baseline(
     database,
     evaluation_clock,
     monkeypatch,
 ):
     saved, _history = seed_days(database)
     calls = []
-    real = adapter.analyze_garmin_metric_series
+    real = GarminQueryService.scalar_series
 
-    def capture(session, query):
-        calls.append(
-            (id(session), query, session.connection().connection.driver_connection.in_transaction)
-        )
-        return real(session, query)
+    def capture(self, **kwargs):
+        if kwargs["metric_code"] == "stress_daily_average":
+            calls.append((kwargs["start_date"], kwargs["end_date"],
+                self.session.connection().connection.driver_connection.in_transaction))
+        return real(self, **kwargs)
 
-    monkeypatch.setattr(adapter, "analyze_garmin_metric_series", capture)
+    monkeypatch.setattr(GarminQueryService, "scalar_series", capture)
     results = []
     for start in (D, D - timedelta(days=6), D - timedelta(days=29)):
         response = page(database, saved.source.id, start=start)
-        results.append(response.context["overview"]["stress"])
+        results.append(response.context["overview"]["period_stress"])
         text = card(response)
-        assert "Среднее предыдущих 28 дней" in text and ">1 балл.</strong>" in text
-        assert "На 1 балл. выше среднего" in text
-        assert "Выбранная дата" in text and "21 из 28 дней" in text
-        assert "<details" not in text
-    assert results[0] == results[1] == results[2]
-    assert len(calls) == 6
-    for current, history in zip(calls[::2], calls[1::2], strict=True):
-        assert current[0] == history[0] and current[2] and history[2]
-        assert (current[1].start_date, current[1].end_date) == (D, D)
-        assert (history[1].start_date, history[1].end_date) == (
-            D - timedelta(days=28),
-            D - timedelta(days=1),
-        )
+        assert "Среднее за период" in text and "data-stress-mean" in text
+        assert "data-stress-delta" not in text and "Выбранная дата" not in text
+        assert "data-stress-evidence" in text
+    assert [item["mean_display"] for item in results] == ["2", "2", "1.05"]
+    assert [item["eligible_days"] for item in results] == [1, 1, 22]
+    assert [item["days"] for item in results] == [1, 7, 30]
+    assert calls == [(start, D, True) for start in (D, D - timedelta(days=6),
+                                                  D - timedelta(days=29))]
 
 
-def test_route_missing_selected_day_is_not_replaced_in_either_card_copy(
+def test_route_missing_end_day_keeps_period_mean_and_separate_saved_snapshot(
     database,
     evaluation_clock,
 ):
     saved, _history = seed_days(database, current=ABSENT)
     response = page(database, saved.source.id, start=D - timedelta(days=28))
     text = card(response)
-    assert "За выбранную дату нет однозначного пригодного значения" in text
-    assert "data-stress-mean" not in text
-    assert "21 балл." not in text
-    disclosure = response.text.split("data-overview-garmin-only", 1)[1].split("</section>", 1)[0]
-    assert "Выбранная дата" in disclosure and "21 баллы" not in disclosure
-    assert response.context["overview"]["stress"]["current"]["date"] == D.isoformat()
+    result = response.context["overview"]["period_stress"]
+    assert result["mean_display"] == "1" and result["eligible_days"] == 21
+    assert result["days"] == 29 and "21/29 дней" in text
+    assert "data-stress-mean" in text and "Выбранная дата" not in text
+    assert response.context["overview"]["garmin"]["stress_daily_average"]["value"] == 21
 
 
 def test_route_keeps_existing_technical_data_without_dumping_comparison_evidence(
@@ -276,7 +270,10 @@ def test_route_keeps_existing_technical_data_without_dumping_comparison_evidence
     before = read_overview_values(database[2], start=D, end=D, selected_id=saved.source.id)
     assert response.context["overview"]["technical"] == before["technical"]
     assert "arithmetic-mean-v1" not in response.text
-    assert response.context["overview"]["stress"]["result_hash"] not in response.text
+    # The same scalar hash may already exist in the unchanged packet disclosure;
+    # the compact card itself must not dump that technical result.
+    assert response.context["overview"]["period_stress"]["technical"]["result_hash"] not in (
+        card(response))
     assert "Технические детали" not in card(response)
 
 
@@ -286,7 +283,7 @@ def test_route_requires_choice_with_multiple_garmin_sources(database, evaluation
     response = page(database, None)
     assert response.context["source_selection"]["status"] == "require_selection"
     assert "Выберите источник Garmin" in card(response)
-    assert response.context["overview"]["stress"]["current"]["value"] is None
+    assert response.context["overview"]["period_stress"]["mean_value"] is None
 
 
 def test_history_unrepresentable_date_stays_card_reason_not_an_invented_window(database):
