@@ -24,11 +24,21 @@
     <button type="button" id="saved-rhr-refresh" hidden>Перечитать значения</button>
   </div>
   <p class="muted">Последнее пригодное измерение каждого источника. Исходная дата и возраст указаны отдельно от попыток обновления. Сохранённое число не подтверждает успешную синхронизацию.</p>
-  <p class="muted">Возраст снимка профиля неизвестен; правило «слишком старое» не настроено. Другие метрики пока не включены.</p>
+  <p class="muted">Возраст снимка профиля неизвестен; правило «слишком старое» не настроено. Другие метрики доступны на профильных экранах.</p>
   <p id="saved-rhr-clock" class="muted"></p>
   <div id="saved-rhr-feedback" role="status" aria-live="polite"></div>
   <div id="saved-rhr-results" aria-busy="false"></div>
   <noscript><p>Для чтения сохранённых значений нужен JavaScript. Очередь импорта доступна ниже.</p></noscript>
+</section>
+<section class="card" aria-labelledby="saved-sleep-heading" id="saved-sleep">
+  <div class="section-heading">
+    <h2 id="saved-sleep-heading">Сохранённый сон</h2>
+    <button type="button" id="saved-sleep-refresh" hidden>Перечитать сон</button>
+  </div>
+  <p class="muted">Последняя пригодная длительность сна Garmin и Google. Дата — местный день пробуждения; возраст считается от неё, независимо от обновления источника.</p>
+  <div id="saved-sleep-feedback" role="status" aria-live="polite"></div>
+  <div id="saved-sleep-results" aria-busy="false"></div>
+  <noscript><p>Для чтения сохранённого сна нужен JavaScript. История доступна на <a href="/sleep">экране сна</a>.</p></noscript>
 </section>
 <section class="card" aria-labelledby="sources-heading" id="data-status">
   <div class="section-heading">
@@ -107,4 +117,4 @@
 {% endcall %}
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="/static/data_status.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/data_status.js" defer></script><script src="/static/data_saved_sleep.js" defer></script>{% endblock %}

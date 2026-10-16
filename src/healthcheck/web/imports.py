@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -26,11 +27,64 @@ from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
+from healthcheck.saved_sleep import read_saved_sleep
 from healthcheck.saved_values import GARMIN_RHR, GOOGLE_RHR, SavedValueQuery, read_saved_rhr
 from healthcheck.web.common import request_engine
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 router = APIRouter()
+
+
+@router.get("/api/imports/saved-sleep")
+def saved_sleep(
+    request: Request,
+    evaluated_at_utc: datetime,
+    evaluation_local_date: date,
+    garmin_source_id: str | None = None,
+    google_source_id: str | None = None,
+) -> JSONResponse:
+    """Default sleep values in one physical read-only, work-bounded snapshot."""
+    if evaluated_at_utc.tzinfo is None or any(
+        value is not None and not value.strip() for value in (garmin_source_id, google_source_id)
+    ):
+        return JSONResponse(status_code=422, content={"code": "invalid_request"})
+    paths = request.app.state.runtime_paths
+    if not paths.database.is_file():
+        return JSONResponse(status_code=503, content={"code": "database_unavailable"})
+
+    def connect():
+        connection = sqlite3.connect(f"file:{paths.database.as_posix()}?mode=ro", uri=True)
+        connection.execute("PRAGMA query_only=ON")
+        # Same SQL budget as the accepted saved-evidence services, below the
+        # existing Data browser's timeout. No unbounded full-history sorting.
+        remaining, deadline = 20_000, time.monotonic() + 10
+
+        def progress():
+            nonlocal remaining
+            remaining -= 1
+            return int(remaining <= 0 or time.monotonic() > deadline)
+
+        connection.set_progress_handler(progress, 1000)
+        return connection
+
+    engine = create_engine("sqlite://", creator=connect)
+    try:
+        with Session(engine, autoflush=False) as session:
+            ensure_read_snapshot(session)
+            items = [read_saved_sleep(
+                session, provider=provider, evaluation_local_date=evaluation_local_date,
+                source_id=source_id,
+            ) for provider, source_id in (
+                ("garmin", garmin_source_id), ("google", google_source_id),
+            )]
+        return JSONResponse(content={
+            "mode": "default_latest", "evaluated_at_utc": evaluated_at_utc.isoformat(),
+            "evaluation_local_date": evaluation_local_date.isoformat(), "items": items,
+        }, headers={"Cache-Control": "no-store"})
+    except (SQLAlchemyError, sqlite3.Error):
+        return JSONResponse(status_code=503, content={"code": "saved_sleep_read_unavailable"})
+    finally:
+        engine.dispose()
 
 
 @router.get("/api/imports/saved-rhr")

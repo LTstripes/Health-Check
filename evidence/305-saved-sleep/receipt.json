@@ -1,0 +1,244 @@
+{
+  "status": "PASS",
+  "mode": "offline production HTML/DTO replay; synthetic only",
+  "browser": "155.0.8059.80",
+  "inputs": [
+    {
+      "file": "src/healthcheck/saved_sleep.py",
+      "sha256": "3a0af535cb2f27edc563cc71ec44ea8106af69c2e884caba3294a7d17d852b40"
+    },
+    {
+      "file": "src/healthcheck/web/imports.py",
+      "sha256": "625c1030dfa55291bb6aa9a94df3fab2f07014aad3701d04750466d2d82aa602"
+    },
+    {
+      "file": "src/healthcheck/web/templates/imports.html",
+      "sha256": "bc2c0c595d2d1f41f6c046a80e20738e85ba506ec65bbeb15631687ce0e12d8e"
+    },
+    {
+      "file": "src/healthcheck/web/static/data_saved_sleep.js",
+      "sha256": "74b1c6a3787972e64906c3a6dea49c0d0cfe835d5e4ba071f83708c1a8ddf660"
+    },
+    {
+      "file": "scripts/prepare_data_saved_sleep_browser.py",
+      "sha256": "1a7b3be5f9f7d1e0ca230b5aff4a2f8f81f9c9b684147ab618e4507d20671622"
+    },
+    {
+      "file": "scripts/check_data_saved_sleep_browser.cjs",
+      "sha256": "df71679858305e466711b544c795e31a065c279f78c6fbf9ba4d62660ac0d82b"
+    }
+  ],
+  "fixtures": [
+    {
+      "file": "ambiguous.json",
+      "sha256": "7f636aa49857f96ee4eb2d2d339b4716be1e0bde5a4891de37e41abe06bb9558"
+    },
+    {
+      "file": "cap.json",
+      "sha256": "61e4c12114257c1d7c535130fc010eb4087706853a854d999095565d92423bc8"
+    },
+    {
+      "file": "conflict.json",
+      "sha256": "883c7b3ede7dce42318f9444697c83ffeb0ed227b287de6aa7d7d80f5b968b4d"
+    },
+    {
+      "file": "freshness.json",
+      "sha256": "3e672bd985f2e1fe61e0358fd8c092ef35277164ee6902775673b1eafffa4962"
+    },
+    {
+      "file": "imports.html",
+      "sha256": "db6b94324b8b5b8c4aebf8f49a8560e39b1b4c5e81277bef01b52dd910b2b61a"
+    },
+    {
+      "file": "saved-rhr.json",
+      "sha256": "7cac09f41721d7d40c41133de25206ba0d952736632b53daf2d45604f5d54057"
+    },
+    {
+      "file": "saved.json",
+      "sha256": "5fee112dc87a60d293897cdc0cf875cf10dd039e5f4d7f9c0553d37b95a0ffcd"
+    },
+    {
+      "file": "selected.json",
+      "sha256": "d506d3a7f63e15f364790753675537ccb64dffbe05ae53ea748dbfc2ce666ea7"
+    },
+    {
+      "file": "zero.json",
+      "sha256": "5cdf44eba21c611d3ff5c7349396a6c99a3d44db56e654f5b0a6832cf05f48fc"
+    }
+  ],
+  "images": [
+    {
+      "file": "saved-sleep-saved-1024.png",
+      "width": 1024,
+      "scenario": "saved",
+      "sha256": "7d6f170ae46065341f4f8303a2e821679344445e3565241bb7d8648fbce7df37"
+    },
+    {
+      "file": "saved-sleep-conflict-1024.png",
+      "width": 1024,
+      "scenario": "conflict",
+      "sha256": "ca788d1ef44e32b00bb3c23ce7633fa855301aa8ab5dc7fc0a64a40a6e639da9"
+    },
+    {
+      "file": "saved-sleep-zero-1024.png",
+      "width": 1024,
+      "scenario": "zero",
+      "sha256": "a5e28bd12674d25fa231173808b615043e9e06b724354a62265f4f622c10644b"
+    },
+    {
+      "file": "saved-sleep-ambiguous-1024.png",
+      "width": 1024,
+      "scenario": "ambiguous",
+      "sha256": "913c794ba494a472e43401fa2d580bbc8fe08e3c713afff684fe2f4166aa47ae"
+    },
+    {
+      "file": "saved-sleep-cap-1024.png",
+      "width": 1024,
+      "scenario": "cap",
+      "sha256": "44b5014176f97261bf0d7e0aaca7c597f0a581a6f6e916a1c467b47a086f60c0"
+    },
+    {
+      "file": "saved-sleep-error-1024.png",
+      "width": 1024,
+      "scenario": "error",
+      "sha256": "ce132aaa4555daa69be2c7d3c1560b14ef7bb06dca06e59f3a26b86105c944f6"
+    },
+    {
+      "file": "saved-sleep-saved-1440.png",
+      "width": 1440,
+      "scenario": "saved",
+      "sha256": "669c9ab9d512becbf0b2b4d45d62199413c0bfb5e38e825ffe15f760963dfdbe"
+    },
+    {
+      "file": "saved-sleep-conflict-1440.png",
+      "width": 1440,
+      "scenario": "conflict",
+      "sha256": "3e3fdbfe6c74604b014f3eef5c4afa520808ea116e7624b5b79077ecebd072e8"
+    },
+    {
+      "file": "saved-sleep-zero-1440.png",
+      "width": 1440,
+      "scenario": "zero",
+      "sha256": "f6c99d42347e4c0d2a1a57e7ff7682afce33ee282d5ff88a411cf3ff7936557c"
+    },
+    {
+      "file": "saved-sleep-ambiguous-1440.png",
+      "width": 1440,
+      "scenario": "ambiguous",
+      "sha256": "bc0536728395e24a4ecfc15ab7c56659e0673a048709d140a8de156ae8381711"
+    },
+    {
+      "file": "saved-sleep-cap-1440.png",
+      "width": 1440,
+      "scenario": "cap",
+      "sha256": "3c086a40ccf2473e4e61d4b049cd89282df812acf5edca792e4f7ebbea364ecb"
+    },
+    {
+      "file": "saved-sleep-error-1440.png",
+      "width": 1440,
+      "scenario": "error",
+      "sha256": "57ae6fbb247a14a7801071f224fb52a695f36527091b8e154bad61cd3bab7d36"
+    }
+  ],
+  "checks": [
+    {
+      "width": 1024,
+      "keyboard_source_choice": "PASS"
+    },
+    {
+      "width": 1440,
+      "keyboard_source_choice": "PASS"
+    }
+  ],
+  "external": [],
+  "errors": [],
+  "calls": [
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "saved"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "conflict"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "zero"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "ambiguous"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05&google_source_id=1242592f-f0fc-4c4d-9bb1-2bc094958ac7",
+      "method": "GET",
+      "mode": "ambiguous"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "cap"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "error"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "saved"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "conflict"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "zero"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "ambiguous"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05&google_source_id=1242592f-f0fc-4c4d-9bb1-2bc094958ac7",
+      "method": "GET",
+      "mode": "ambiguous"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "cap"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "error"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "malformed"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "held"
+    },
+    {
+      "url": "http://127.0.0.1:8120/api/imports/saved-sleep?evaluated_at_utc=2099-01-05T23%3A00%3A00.000Z&evaluation_local_date=2099-01-05",
+      "method": "GET",
+      "mode": "saved"
+    }
+  ],
+  "stale_response": "PASS",
+  "malformed": "PASS"
+}
