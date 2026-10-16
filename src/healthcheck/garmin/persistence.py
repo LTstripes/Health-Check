@@ -601,6 +601,10 @@ class GarminSourceRecordRepository:
         ):
             if row.idempotency_key in incoming:
                 continue
+            if collection_scope.surface == "hrv_status" and row.source_local_date is None:
+                # Legacy unknown-time HRV is not proven to belong to this day.
+                # Only bounded offline reprocess may supersede it after raw-day proof.
+                continue
             row.projection_status = PROJECTION_RETIRED
             row.retired_at = retired_at_utc
             row.retire_reason = RETIRE_REASON_AUTHORITATIVE

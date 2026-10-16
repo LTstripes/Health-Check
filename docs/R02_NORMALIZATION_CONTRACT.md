@@ -89,6 +89,16 @@ record; their own metric-level availability remains `missing`.
 
 ## Idempotency
 
+The HRV summary shape has a separate
+`r02-garmin-hrv-calendar-normalization-v3` output version. Its explicit
+`hrvSummary.calendarDate` is date-only, with the exact field path retained.
+All present supported calendar fields must be valid and agree; null, malformed
+or conflicting dates do not fall through to another date or sleep/start clock.
+The production `hrv_status` adapter does not project unknown-time identities.
+Other shapes retain v2 so existing stress/activity version gates are unchanged.
+See [copy-only recovery](HRV_CALENDAR_RECOVERY.md) for the separately authorized
+legacy transition. This code change does not replay real historical data.
+
 `stable_garmin_idempotency_key` emits a `garmin:v1:record:<sha256>` key when a stable source
 record id exists. The key covers only source instance, stream, and record id, so retries with
 changed formatting or a refreshed payload target the same record.

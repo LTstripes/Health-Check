@@ -116,6 +116,15 @@ An incremental watermark is not contiguous history.
 
 ## Out of scope
 
+The [HRV calendar recovery amendment](HRV_CALENDAR_RECOVERY.md) adds a narrow
+offline identity transition, not a general retirement exception. Ordinary
+absence retirement cannot assign an undated HRV row to a collection day.
+Offline reprocess may supersede the exact old undated identity only after its
+own verified original proves the same in-range day as a non-stale dated
+replacement, atomically. Other days, partial/unproven collections and original
+raw/observation evidence remain untouched. HRV uses its separate normalization
+version for reprocess eligibility; reconciliation keys and other versions stay.
+
 Scheduler/background service, Garmin analytics, FIT/GPS download, Fitbit/Google,
 a generic provider framework, owner live payloads, and destructive provenance
 rewrite.
