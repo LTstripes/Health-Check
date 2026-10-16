@@ -31,6 +31,7 @@ from healthcheck.db.models import (
 from healthcheck.runtime import prepare_runtime
 from healthcheck.sleep_evidence import SleepEvidenceRequest, read_sleep_evidence
 from test_sleep_metrics import _google_sleep_payload, _persist_garmin, _persist_google, _stage
+from test_sleep_metrics import projection_database as projection_database
 
 DAY = date(2099, 1, 2)
 CLOCK = datetime(2099, 1, 10, 12, tzinfo=UTC)
@@ -421,3 +422,121 @@ def test_missing_profile_schema_fail_without_creating_or_repairing(tmp_path):
                                 evaluated_at_utc=CLOCK, evaluation_local_date=DAY)
     assert not (tmp_path / "missing").exists()
     assert (tmp_path / "empty" / "healthcheck.db").read_bytes() == b""
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("copy_minutes", ["410", "500"])
+def test_google_auto_family_copy_excluded_by_contract_across_consumers(
+    projection_database, days, copy_minutes,
+):
+    from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
+    from healthcheck.google.contracts import (
+        FAMILY_GOOGLE_SOURCES,
+        GoogleSourceIdentity,
+        GoogleSourceKind,
+    )
+    from healthcheck.saved_sleep import read_saved_sleep
+    from test_sleep_account_cohort import _google
+    from test_sleep_source_view import _persist_identity
+
+    session, paths = projection_database
+    _google(session, paths, DAY, main="true", nap="false")
+    payload = _google_sleep_payload(name="excluded-list-copy")
+    payload["dataPoints"][0]["sleep"]["summary"]["minutesAsleep"] = copy_minutes
+    _persist_identity(session, paths, payload, GoogleSourceIdentity(
+        source_kind=GoogleSourceKind.DATA_SOURCE,
+        source_instance_id="synthetic-fitbit-list-copy", platform="fitbit",
+    ), FAMILY_GOOGLE_SOURCES)
+    session.commit()
+    summary = PeriodSummaryService(session).build(
+        end_date=DAY, days=days, sleep_source_selection=True,
+    )["sides"][1]["metrics"][SLEEP_CODE]
+    chosen = summary["source_selection"]["selected_source_id"]
+    assert summary["aggregation"]["value"] == 24600
+    assert summary["aggregation"]["eligible_count"] == 1
+    excluded = next(o for o in summary["source_selection"]["options"]
+                    if o["source_identity"]["source_id"] != chosen)
+    assert excluded["eligible_count"] == 0
+    assert {"reason_code": "google_family_excluded", "count": 1} in excluded["exclusions"]
+    saved = read_saved_sleep(session, provider="google", evaluation_local_date=DAY)
+    assert saved["source"]["source_id"] == chosen
+    assert saved["observation"]["value"] == 24600
+    call = dict(profile=paths.root, profile_kind="synthetic", evaluated_at_utc=CLOCK,
+                evaluation_local_date=CLOCK.date())
+    auto = read_sleep_evidence(**call, request=SleepEvidenceRequest(
+        DAY, days, include_context=False, google_auto_select=True))
+    explicit = read_sleep_evidence(**call, request=SleepEvidenceRequest(
+        DAY, days, google_source_id=chosen, include_context=False))
+    section = auto["sections"]["google"]
+    assert section["source_selection"] == summary["source_selection"]
+    assert section["source_range"] == explicit["sections"]["google"]["source_range"]
+    points = section["source_range"]["series"][0]["points"]
+    assert sum(p["state"] == "value" for p in points) == 1
+    assert next(p for p in points if p["state"] == "value")["wake_date"] == DAY.isoformat()
+    # Explicit selection of an excluded list remains empty; it never falls back.
+    override = read_sleep_evidence(**call, request=SleepEvidenceRequest(
+        DAY, days, google_source_id=excluded["source_identity"]["source_id"],
+        include_context=False, google_auto_select=True))
+    assert not any(p["state"] == "value" for p in
+                   override["sections"]["google"]["source_range"]["series"][0]["points"])
+
+
+@pytest.mark.parametrize("case", ["same_value", "disjoint", "ambiguous", "cap", "no_eligible"])
+def test_google_auto_evidence_and_ui_share_blocking_decision(profile, monkeypatch, case):
+    from healthcheck.analytics import period_summary_read as bounded
+    from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
+    from healthcheck.saved_sleep import read_saved_sleep
+    from test_sleep_account_cohort import _google
+
+    paths, engine, _, google_id, _ = profile
+    with session_scope(engine) as session:
+        if case == "no_eligible":
+            for row in session.scalars(select(GoogleRecordMetric).where(
+                GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep")):
+                row.state, row.value_number, row.value_text = "null", None, None
+        else:
+            _google(session, paths, DAY - timedelta(days=1 if case == "disjoint" else 0),
+                    source="synthetic-competing-sleep", name="other-one", main="true", nap="false")
+            if case == "ambiguous":
+                _google(session, paths, DAY, source="synthetic-competing-sleep", name="other-two",
+                        main="true", nap="false")
+        if case == "cap":
+            monkeypatch.setattr(bounded, "MAX_PERIOD_SOURCES", 1)
+    with session_scope(engine) as session:
+        cell = PeriodSummaryService(session).build(
+            end_date=DAY, days=7, sleep_source_selection=True,
+        )["sides"][1]["metrics"][SLEEP_CODE]
+        if case != "cap":
+            saved = read_saved_sleep(session, provider="google", evaluation_local_date=DAY)
+            assert saved["observation"] is None
+            assert saved["state"] == (
+                "no_eligible_in_search" if case == "no_eligible" else "ambiguous")
+    auto = read(profile, SleepEvidenceRequest(DAY, 7, google_auto_select=True))
+    section = auto["sections"]["google"]
+    assert section["source_selection"] == cell["source_selection"]
+    assert section["selected_source_id"] is None and section["source_range"] is None
+    assert section["source_selection"]["state"] == (
+        "search_incomplete" if case == "cap" else "no_eligible_values" if case == "no_eligible"
+        else "selection_required")
+    assert section["source_selection"]["state"] in evidence.render_sleep_evidence(auto)
+    exact = read(profile, SleepEvidenceRequest(DAY, 7, google_source_id=google_id,
+                                               google_auto_select=True))
+    assert exact["sections"]["google"]["selected_source_id"] == google_id
+
+
+def test_auto_discovery_preserves_caller_sql_guard_and_write_denial(profile):
+    from healthcheck.analytics.period_summary import read_sleep_source_selection
+
+    with chat_evidence._read_session(profile[0].root) as session:
+        driver = session.connection().connection.driver_connection
+        calls = []
+        driver.set_progress_handler(lambda: calls.append(1) or int(len(calls) > 1000), 1000)
+        cell = read_sleep_source_selection(
+            session, provider="google", start=DAY - timedelta(days=6), end=DAY)
+        assert cell["source_selection"]["selected_source_id"] == profile[3]
+        with pytest.raises(DatabaseError):
+            session.execute(text("INSERT INTO google_sources (id) VALUES ('forbidden')"))
+        with pytest.raises(DatabaseError):
+            session.execute(text("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL "
+                                 "SELECT x+1 FROM n WHERE x < 1000000) SELECT sum(x) FROM n"))
+        assert len(calls) > 1000

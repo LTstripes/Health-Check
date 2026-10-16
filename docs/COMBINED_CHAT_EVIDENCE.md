@@ -140,3 +140,11 @@ Stable operation or database write is part of this command. Missing/unmigrated
 databases fail without repair. Automated checks use external synthetic profiles
 only. Independent data/privacy review and exact-candidate CI remain separate
 from Owner export/UAT and connection verification.
+
+Google Sleep may be requested without a technical ID with
+`CombinedEvidenceRequest.sleep_google_auto_select=True` or CLI
+`--sleep-google-auto-select`. The exact Sleep override still takes precedence.
+This delegates to the same [Sleep selection contract](METRIC_SOURCE_SELECTION.md);
+Activity selection and omitted-provider behavior are unchanged. A blocked Google
+choice remains a labelled section with selection evidence and `source_range=null`,
+and is preserved in both JSON and text.

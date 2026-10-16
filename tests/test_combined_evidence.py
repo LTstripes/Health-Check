@@ -413,3 +413,33 @@ def test_module_cli_actual_process(profile, tmp_path):
     packet = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
     assert set(packet["sections"]) == {"sleep", "activity"}
     assert packet["request"]["include_context"] is False
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_combined_google_auto_is_same_sleep_packet_and_renders(profile, conflict):
+    if conflict:
+        from test_sleep_account_cohort import _google
+        with session_scope(profile[1]) as session:
+            _google(session, profile[0], DAY, source="synthetic-competitor",
+                    main="true", nap="false")
+    request = replace(profile[2], sleep_google_source_id=None, sleep_google_auto_select=True)
+    packet = read(profile, request)
+    standalone = sleep_evidence.read_sleep_evidence(
+        profile=profile[0].root, profile_kind="synthetic", request=request.domain_requests()[0],
+        evaluated_at_utc=CLOCK, evaluation_local_date=CLOCK.date())
+    assert packet["sections"]["sleep"]["providers"]["google"] == standalone["sections"]["google"]
+    assert packet["sections"]["activity"] == read(profile)["sections"]["activity"]
+    readable = evidence.render_combined_evidence(packet)
+    assert ("selection_required" if conflict else "unique_eligible_source") in readable
+
+
+def test_combined_cli_google_provider_selection_without_technical_id(profile, tmp_path):
+    output = tmp_path.parent / "auto-combined-output"
+    argv = args(profile, output)
+    index = argv.index("--sleep-google-source-id")
+    del argv[index:index + 2]
+    argv.append("--sleep-google-auto-select")
+    assert cli.main(argv) == 0
+    packet = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
+    assert packet["sections"]["sleep"]["providers"]["google"]["selected_source_id"] == (
+        profile[2].sleep_google_source_id)

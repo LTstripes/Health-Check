@@ -222,7 +222,12 @@ def test_exact_source_selection_inventory_and_no_pooling(stored, monkeypatch):
     ambiguous = _period(stored, source_id=None)
     assert selected["mean_display"] == 60
     assert selected["source_identity"]["source_id"] == stored[2].id
-    assert ambiguous["reason"] == "source_selection_required" and ambiguous["mean_display"] is None
+    if stored[2].provider_code == "google_health":
+        assert ambiguous["mean_display"] == selected["mean_display"]
+        assert ambiguous["source_selection"]["state"] == "unique_eligible_source"
+    else:
+        assert ambiguous["reason"] == "source_selection_required"
+        assert ambiguous["mean_display"] is None
     assert len(ambiguous["available_sources"]) == 2
     assert _period(stored, source_id="nonexistent")["reason"] == "source_not_found"
     monkeypatch.setattr(module, "MAX_SOURCE_IDENTITIES", 1)
@@ -308,3 +313,92 @@ def test_read_failure_after_partial_projection_never_publishes_mean(stored, monk
     assert result["reason"] == "saved_value_read_failed"
     assert result["mean_display"] is None and result["observations"] == []
     assert result["eligible_day_count"] is None and not result["search"]["complete"]
+
+
+@pytest.mark.parametrize("days", [7, 30, 365])
+def test_google_five_identities_use_only_metric_window_eligible_source(saved_engine, days):
+    from sqlalchemy.orm import Session
+
+    from healthcheck.db.models import GoogleSource
+    from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+    from healthcheck.saved_values import GOOGLE_RHR
+    from healthcheck.web.overview_rhr import read_overview_rhr
+    from test_google_daily_vitals import HRV, _daily_record, _fitbit_identity, _persist
+
+    engine, paths = saved_engine
+    with Session(engine, autoflush=False) as session:
+        store = ContentAddressedGooglePayloadStore(paths.root / "google")
+        for offset, value in ((0, 0), (2, 61)):
+            _persist(session, store, _daily_record(
+                metric_code=GOOGLE_RHR, local_date=DAY - timedelta(days=offset),
+                value=value, external_record_id=f"auto-main-{offset}",
+            ))
+        for index, code, day, value, unit in (
+            (1, HRV, DAY, 40, "ms"),
+            (2, GOOGLE_RHR, DAY - timedelta(days=days), 90, "bpm"),
+            (3, GOOGLE_RHR, DAY, 80, "ms"),
+        ):
+            identity = _fitbit_identity(source_instance_id=f"synthetic-auto-{index}")
+            _persist(session, store, _daily_record(
+                metric_code=code, local_date=day, value=value, unit=unit,
+                external_record_id=f"auto-other-{index}",
+            ), identity=identity)
+        GoogleSourceRepository(session).get_or_create(_family_identity())
+        session.flush()
+        selected = session.scalar(select(GoogleSource).where(
+            GoogleSource.source_instance_id == _fitbit_identity().source_instance_id))
+        query = SavedRhrPeriodQuery(
+            "google_health", GOOGLE_RHR, DAY - timedelta(days=days - 1), DAY, NOW, DAY)
+        auto = read_saved_rhr_period(session, query)
+        explicit = read_saved_rhr_period(session, replace(query, source_id=selected.id))
+        assert len(auto["available_sources"]) == 5
+        assert auto["source_identity"] == explicit["source_identity"]
+        for key in ("mean_exact", "mean_display", "observations", "eligible_day_count",
+                    "excluded_day_count", "requested_day_count", "exclusions", "last_observation"):
+            assert auto[key] == explicit[key]
+        assert auto["query"]["source_id"] is None
+        assert auto["eligible_day_count"] == 2 and auto["requested_day_count"] == days
+        assert auto["mean_display"] == 31
+        ui = read_overview_rhr(
+            session, start=query.requested_start_date, end=DAY, explicit_period=True,
+            evaluated_at_utc=NOW, evaluation_local_date=DAY, garmin_source_id=None,
+        )
+        assert ui["items"][1]["dto"] == auto
+        session.rollback()
+
+
+@pytest.mark.parametrize("competitor", ["same_value", "disjoint", "ambiguous", "incomplete"])
+def test_google_auto_never_pools_or_ignores_competing_or_incomplete_series(
+    saved_engine, competitor,
+):
+    from sqlalchemy.orm import Session
+
+    from healthcheck.db.models import GoogleSource
+    from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+    from healthcheck.saved_values import GOOGLE_RHR
+    from test_google_daily_vitals import _daily_record, _fitbit_identity, _persist
+
+    engine, paths = saved_engine
+    with Session(engine, autoflush=False) as session:
+        store = ContentAddressedGooglePayloadStore(paths.root / "google")
+        _persist(session, store, _daily_record(metric_code=GOOGLE_RHR, local_date=DAY, value=60))
+        exact_id = session.scalar(select(GoogleSource.id))
+        identity = _fitbit_identity(source_instance_id="synthetic-competing-rhr")
+        for index in range(2 if competitor in {"ambiguous", "incomplete"} else 1):
+            day = DAY - timedelta(days=1 if competitor == "disjoint" else index
+                                  if competitor == "incomplete" else 0)
+            _persist(session, store, _daily_record(
+                metric_code=GOOGLE_RHR, local_date=day, value=60,
+                external_record_id=f"competitor-{index}",
+            ), identity=identity)
+        query = SavedRhrPeriodQuery(
+            "google_health", GOOGLE_RHR, DAY - timedelta(days=6), DAY, NOW, DAY,
+            max_candidate_records=1 if competitor == "incomplete" else 4096,
+        )
+        auto = read_saved_rhr_period(session, query)
+        assert auto["state"] == ("search_incomplete" if competitor == "incomplete" else "ambiguous")
+        assert auto["mean_display"] is None and auto["observations"] == []
+        assert auto["eligible_day_count"] is None
+        explicit = read_saved_rhr_period(session, replace(query, source_id=exact_id))
+        assert explicit["mean_display"] == 60 and explicit["eligible_day_count"] == 1
+        session.rollback()

@@ -31,12 +31,14 @@ class CombinedEvidenceRequest:
     sleep_google_source_id: str | None = None
     include_context: bool = True
     context_limit: int = 50
+    sleep_google_auto_select: bool = False
 
     def domain_requests(self):
         return (
             sleep_evidence.SleepEvidenceRequest(
                 self.end_date, self.days, self.sleep_garmin_source_id,
-                self.sleep_google_source_id, self.include_context, self.context_limit),
+                self.sleep_google_source_id, self.include_context, self.context_limit,
+                self.sleep_google_auto_select),
             activity_evidence.ActivityEvidenceRequest(
                 self.end_date, self.days, self.activity_garmin_source_id,
                 False, self.context_limit),
@@ -170,6 +172,8 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
                     lines.append(f"{label} {code}: {_json(cell)}")
                 continue
             source_range = source["source_range"]
+            if source_range is None:
+                continue
             lines.append(f"{label} stored range: " + _json({
                 key: value for key, value in source_range.items()
                 if key not in {"days", "series"}}))
