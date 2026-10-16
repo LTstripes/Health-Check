@@ -1,16 +1,16 @@
-{% set stress = overview.stress %}
-<div data-overview-stress data-stress-state="{{ stress.comparison_state }}">
-  <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}</p>
-  {{ garmin_cell('stress_daily_average', 'балл.') }}
-  <p class="overview-source">Дата окончания выбранного периода «Обзора».</p>
-  {% if stress.mean_display is not none %}
-  <p data-stress-mean>Среднее предыдущих 28 дней · <strong>{{ stress.mean_display }} балл.</strong></p>
-  <p data-stress-delta>{{ stress.delta_text }}</p>
-  {% else %}
-  <p data-stress-unavailable>Сравнение недоступно. {{ stress.reason }}</p>
-  {% endif %}
-  {% if stress.history_start %}
-  <p class="overview-source" data-stress-history>{{ stress.history_start | owner_date }} — {{ stress.history_end | owner_date }}{% if stress.observed_days is not none %} · сохранённых дневных значений: {{ stress.observed_days }} из 28 дней{% endif %}.</p>
-  {% endif %}
-  <p class="overview-source">История не зависит от длины периода «Обзора». Окончание суток для сравнения — по Москве.</p>
+{% from 'overview_period_chart.html' import period_range with context %}
+{% set stress = overview.period_stress %}
+<div data-overview-stress data-stress-state="{{ 'available' if stress.mean_display is not none else 'unavailable' }}">
+  <p class="overview-source">Среднее за период</p>
+  {% if stress.mean_display is not none %}<strong data-stress-mean>{{ stress.mean_display }} балл.</strong>{% else %}<strong>—</strong>{% endif %}
+  <p class="overview-source">{{ period_range(overview.completed_window) }}</p>
+  {% if stress.figure %}<p class="overview-source" data-period-coverage>{{ stress.eligible_days }}/{{ stress.days }} дней{% if stress.partial_days %} · есть частичные{% endif %}</p>
+  {% elif stress.reason == 'source_not_selected' %}<p class="muted">Выберите источник Garmin.</p>
+  {% elif stress.reason == 'range_exceeds_max' %}<p class="muted">Период длиннее доступного окна чтения (400 дней).</p>
+  {% elif stress.reason == 'read_unavailable' %}<p class="muted">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}
+  <details class="owner-details" data-stress-evidence><summary>Подробнее о среднем</summary>
+    <p>Среднее пригодных дневных avgStressLevel Garmin с равным весом дней. Пропуски не считаются нулями. Завершённые дни — по Москве; даты источника сохранены. Это не сравнение с предыдущими 28 днями.</p>
+    {% if source_selection.selected_source %}<p>Источник: {{ brief_source_label(source_selection.selected_source) }}</p>{% endif %}
+    {% if stress.figure %}<div class="table-scroll" role="region" tabindex="0" aria-label="Дневные значения стресса"><table><thead><tr><th>Дата</th><th>Баллы</th><th>Состояние</th></tr></thead><tbody>{% for point in stress.figure.points %}<tr><td>{{ point.date | owner_date }}</td><td>{{ overview_number(point.value) if point.value is not none else '—' }}</td><td>{{ brief_owner_state(point.state) }}</td></tr>{% endfor %}{% for gap in stress.figure.gaps %}<tr><td>{{ gap.start | owner_date }} — {{ gap.end | owner_date }}</td><td>—</td><td>Нет наблюдений</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+  </details>
 </div>

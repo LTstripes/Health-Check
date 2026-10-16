@@ -9,7 +9,8 @@ from healthcheck.web.query import WeightQueryService
 from healthcheck.web.sleep_view import nightly_rows
 
 
-def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=False):
+def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=False,
+                include_zero=False):
     """Only coordinates: preserve dates, values, missing days and partial states.
 
     A gap is an interval without a supplied observation, never a zero. EWMA lines
@@ -21,6 +22,8 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
               if row.get(key) is not None]
     low = 0 if zero_axis or not values else min(values)
     high = max(values, default=1)
+    if include_zero:
+        low, high = min(low, 0), max(high, 0)
     if low == high:
         high = low + 1
     if weight_layout and values:
@@ -69,6 +72,8 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
                      "x": x(cursor), "width": max(2, x(end) - x(cursor))})
     figure = {"points": points, "gaps": gaps, "segments": segments, "low": low, "high": high,
               "start": start.isoformat(), "end": end.isoformat()}
+    if include_zero:
+        figure["zero_y"] = y(0)
     if weight_layout:
         figure["observed_segments"] = observed_segments
         months = ("янв", "фев", "мар", "апр", "май", "июн",
