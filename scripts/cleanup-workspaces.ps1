@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 Fail-closed cleanup of disposable Health-Check task workspaces (Windows PowerShell 5.1+).
 .DESCRIPTION
@@ -6,8 +6,9 @@ Dry-run is the default. -Apply is the only deletion switch. Roots are a fixed
 allowlist, not an arbitrary filesystem cleanup interface. Fetch updates only local
 origin tracking refs. No remote branch is deleted. Every unknown is PRESERVE.
 A bounded, overwritten JSON summary is saved to the fixed Owner Ops directory.
-Run after code acceptance from canonical main, with no concurrent workspace writers.
-Fetch is mandatory even in dry-run and updates local Git metadata. Conservatively,
+Use the matching lifecycle operations before any managed checkout writes/resume.
+Only explicitly completed enrolled standalone clones may reach fetch/deletion.
+Fetch is mandatory for completed candidates even in dry-run and updates local Git metadata. Conservatively,
 that write can postpone eligibility at a later invocation. Unknown process command
 lines, ignored non-cache files, non-cache hardlinks, SSH/alternate origin URL spellings and
 metadata outside these roots are preserved. Max 200 tasks / 25,000 entries per task.
@@ -17,7 +18,11 @@ param(
     [string[]]$Root = @('D:\HealthCheck\workspaces\codex', 'D:\HealthCheck\workspaces\opencode',
         'D:\HealthCheck\workspaces\grok', 'D:\HealthCheck\workspaces\hermes'),
     [int]$RetentionDays = 7,
-    [switch]$Apply
+    [switch]$Apply,
+    [ValidateSet('Scan','Create','Bind','Check','Pause','Resume','Complete')][string]$Operation='Scan',
+    [string]$Workspace,
+    [string]$Owner,
+    [string]$ClaimId
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -27,6 +32,8 @@ $script:ExpectedOrigin = 'https://github.com/LTstripes/Health-Check.git'
 $script:LogDirectory = 'D:\HealthCheck\ops'
 $script:EntryLimit = 25000
 $script:TaskLimit = 200
+$script:WorkspaceMutexName = 'Global\HealthCheck.WorkspaceCleanup'
+$script:WorkspaceMutexHeld = $false
 
 function Initialize-JanitorNative {
     if (-not ('HealthCheck.WorkspaceCleanup.Tree' -as [type])) {
@@ -247,6 +254,167 @@ function Test-JanitorRefs([string]$Path) {
         if ($count -ne '0') { throw 'unique-local-ref' }
     }
 }
+# Versioned cooperative lifecycle. No adoption of existing/legacy checkouts.
+# Callers must use the same mutex before writing, resuming or retiring a checkout.
+function Assert-WorkspaceLock {
+    if (-not $script:WorkspaceMutexHeld) { throw 'lifecycle-lock-required' }
+}
+function Get-LifecycleFile([string]$Path) {
+    return Join-Path $script:LogDirectory ('workspace-claim-' + [HealthCheck.WorkspaceCleanup.Tree]::StateKey($Path) + '.state')
+}
+function ConvertTo-LifecycleText($Record, [switch]$Marker) {
+    $keys = @('Format','Path','RootId','GitId','Enrollment')
+    if (-not $Marker) { $keys += @('Owner','Claim','Generation','State','Head','Completed') }
+    return (($keys | ForEach-Object { $_ + '=' + [string]$Record[$_] }) -join "`n") + "`n"
+}
+function Read-LifecycleRecord([string]$File, [switch]$Marker) {
+    # Exact ordered ASCII schema rejects duplicates, unknown fields, versions,
+    # newline injection and malformed encodings. No permissive JSON coercions.
+    $text = [HealthCheck.WorkspaceCleanup.Tree]::ReadState($File)
+    $keys = @('Format','Path','RootId','GitId','Enrollment')
+    if (-not $Marker) { $keys += @('Owner','Claim','Generation','State','Head','Completed') }
+    $lines = $text.Split([char]10)
+    if ($lines.Count -ne $keys.Count + 1 -or $lines[-1] -cne '') { throw 'lifecycle-invalid' }
+    $record = [ordered]@{}
+    for ($i=0; $i -lt $keys.Count; $i++) {
+        $prefix=$keys[$i] + '='
+        if (-not $lines[$i].StartsWith($prefix, [StringComparison]::Ordinal)) { throw 'lifecycle-invalid' }
+        $record[$keys[$i]]=$lines[$i].Substring($prefix.Length)
+    }
+    if ($record.Format -cne '1' -or $record.Path -cnotmatch '^[A-Za-z0-9+/]+={0,2}$' -or
+        $record.RootId -cnotmatch '^\d+:\d+:\d+:\d+$' -or
+        $record.GitId -cnotmatch '^(-|\d+:\d+:\d+:\d+)$' -or
+        $record.Enrollment -cnotmatch '^[a-f0-9]{32}$') { throw 'lifecycle-invalid' }
+    try {
+        $decoded=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($record.Path))
+        if ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($decoded)) -cne $record.Path) { throw 'invalid' }
+        [void](Get-JanitorPath $decoded)
+    } catch { throw 'lifecycle-invalid' }
+    if (-not $Marker) {
+        if ($record.Owner -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$' -or
+            $record.Claim -cnotmatch '^[a-f0-9]{32}$' -or $record.Generation -cnotmatch '^[1-9][0-9]{0,8}$' -or
+            $record.State -cnotmatch '^(active|paused|completed|deleting|deleted)$' -or
+            $record.Head -cnotmatch '^(-|[a-f0-9]{40}|[a-f0-9]{64})$' -or
+            $record.Completed -cnotmatch '^(-|[0-9]{18})$') { throw 'lifecycle-invalid' }
+        if ($record.State -in @('completed','deleting','deleted')) {
+            if ($record.GitId -eq '-' -or $record.Head -eq '-' -or $record.Completed -eq '-') { throw 'lifecycle-invalid' }
+            try { [void](New-Object datetime ([long]$record.Completed, [DateTimeKind]::Utc)) } catch { throw 'lifecycle-invalid' }
+        } elseif ($record.Head -ne '-' -or $record.Completed -ne '-') { throw 'lifecycle-invalid' }
+    }
+    return $record
+}
+function Write-LifecycleRecord([string]$Path, $Record, [switch]$Create) {
+    Assert-WorkspaceLock
+    [HealthCheck.WorkspaceCleanup.Tree]::WriteState((Get-LifecycleFile $Path), (ConvertTo-LifecycleText $Record), [bool]$Create)
+}
+function Get-LifecycleRecord([string]$Path) {
+    Assert-WorkspaceLock
+    $file=Get-LifecycleFile $Path
+    if (-not [IO.File]::Exists($file)) { throw 'lifecycle-unmanaged' }
+    $record=Read-LifecycleRecord $file
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Path.ToUpperInvariant()))
+    if ($record.Path -cne $encoded) { throw 'lifecycle-identity-changed' }
+    return $record
+}
+function Assert-LifecycleIdentity([string]$Path, $Record, [switch]$Bound) {
+    if ($Record.RootId -cne [HealthCheck.WorkspaceCleanup.Tree]::IdentityOf($Path)) { throw 'lifecycle-identity-changed' }
+    $git=Join-Path $Path '.git'
+    # v1 deliberately supports standalone clones only; no shared Common mutation.
+    if ([IO.File]::Exists($git)) { throw 'shared-worktree-preserved' }
+    if ($Record.GitId -ne '-') {
+        if ($Record.GitId -cne [HealthCheck.WorkspaceCleanup.Tree]::IdentityOf($git)) { throw 'lifecycle-identity-changed' }
+        $marker=Read-LifecycleRecord (Join-Path $git 'workspace-enrollment.state') -Marker
+        foreach ($key in @('Format','Path','RootId','GitId','Enrollment')) {
+            if ($marker[$key] -cne $Record[$key]) { throw 'lifecycle-identity-changed' }
+        }
+    } elseif ($Bound) { throw 'lifecycle-unbound' }
+    $legacy=Join-Path $git 'codex-owner.json'
+    if ([IO.File]::Exists($legacy) -or [IO.Directory]::Exists($legacy)) { throw 'lifecycle-legacy-metadata' }
+}
+function Assert-LifecycleComplete([string]$Path, $Record, [datetime]$Now) {
+    Assert-LifecycleIdentity $Path $Record -Bound
+    if ($Record.State -cne 'completed') { throw 'lifecycle-not-completed' }
+    if ((Get-JanitorGitText $Path @('rev-parse','HEAD')) -cne $Record.Head) { throw 'lifecycle-head-changed' }
+    $completed=New-Object datetime ([long]$Record.Completed, [DateTimeKind]::Utc)
+    if ($completed -gt $Now) { throw 'age-unknown' }
+    return ($Now - $completed).TotalDays
+}
+function Invoke-WorkspaceLifecycle([string]$Action, [string]$Path, [string]$Owner, [string]$Token) {
+    Assert-WorkspaceLock
+    $path=Assert-JanitorChild $Path
+    if ($Owner -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$') { throw 'lifecycle-owner-rejected' }
+    $guard=New-Object HealthCheck.WorkspaceCleanup.Tree($false)
+    $tree=$null
+    try {
+        $guard.PinAncestors([IO.Path]::GetDirectoryName($path))
+        $guard.PinAncestors($script:LogDirectory)
+        if ($Action -eq 'Create') {
+            if ([IO.File]::Exists((Get-LifecycleFile $path))) { throw 'lifecycle-exists' }
+            [HealthCheck.WorkspaceCleanup.Tree]::CreateFresh($path)
+            $guard.PinAncestors($path)
+            $record=[ordered]@{ Format='1'; Path=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($path.ToUpperInvariant()));
+                RootId=[HealthCheck.WorkspaceCleanup.Tree]::IdentityOf($path); GitId='-';
+                Enrollment=[guid]::NewGuid().ToString('N'); Owner=$Owner; Claim=[guid]::NewGuid().ToString('N');
+                Generation='1'; State='active'; Head='-'; Completed='-' }
+            Write-LifecycleRecord $path $record -Create
+            return [pscustomobject]$record
+        }
+        $record=Get-LifecycleRecord $path
+        if ($record.Owner -cne $Owner -or $record.Claim -cne $Token) { throw 'lifecycle-owner-or-claim-mismatch' }
+        if ($record.State -in @('deleting','deleted')) { throw 'lifecycle-retired' }
+        $guard.PinAncestors($path)
+        Assert-LifecycleIdentity $path $record
+        switch ($Action) {
+            'Check' { }
+            'Bind' {
+                if ($record.State -ne 'active' -or $record.GitId -ne '-') { throw 'lifecycle-transition-rejected' }
+                $state=Get-JanitorGitState $path $guard
+                if ($state.Kind -ne 'clone') { throw 'shared-worktree-preserved' }
+                $guard.PinAncestors($state.Common)
+                $record.GitId=[HealthCheck.WorkspaceCleanup.Tree]::IdentityOf($state.Common)
+                # Marker first: crash before registry commit leaves unbound => PRESERVE.
+                [HealthCheck.WorkspaceCleanup.Tree]::WriteState((Join-Path $state.Common 'workspace-enrollment.state'), (ConvertTo-LifecycleText $record -Marker), $true)
+                Write-LifecycleRecord $path $record
+            }
+            'Pause' {
+                if ($record.State -ne 'active') { throw 'lifecycle-transition-rejected' }
+                $record.State='paused'; Write-LifecycleRecord $path $record
+            }
+            'Resume' {
+                if ($record.State -notin @('paused','completed')) { throw 'lifecycle-transition-rejected' }
+                if ([int]$record.Generation -ge 999999999) { throw 'lifecycle-transition-rejected' }
+                $record.Generation=([int]$record.Generation + 1).ToString([Globalization.CultureInfo]::InvariantCulture)
+                $record.Claim=[guid]::NewGuid().ToString('N'); $record.State='active'; $record.Head='-'; $record.Completed='-'
+                Write-LifecycleRecord $path $record
+            }
+            'Complete' {
+                if ($record.State -ne 'active') { throw 'lifecycle-transition-rejected' }
+                Assert-LifecycleIdentity $path $record -Bound
+                $tree=New-Object HealthCheck.WorkspaceCleanup.Tree($false); $tree.Scan($path,$script:EntryLimit)
+                Test-JanitorMarkers @($tree.Entries | Where-Object { $null -eq $_.CacheRoot }) $path
+                [void](Get-JanitorGitState $path $guard)
+                [void](Get-JanitorCacheProof $tree $path); Test-JanitorMarkers $tree.Entries $path
+                Test-JanitorClean $path
+                $record.Head=Get-JanitorGitText $path @('rev-parse','HEAD')
+                $record.Completed=[datetime]::UtcNow.Ticks.ToString([Globalization.CultureInfo]::InvariantCulture)
+                $record.State='completed'; Write-LifecycleRecord $path $record
+            }
+            default { throw 'lifecycle-transition-rejected' }
+        }
+        return [pscustomobject]$record
+    } finally { if ($null -ne $tree) { $tree.Dispose() }; $guard.Dispose() }
+}
+function Invoke-WorkspaceLock([scriptblock]$Body) {
+    $mutex=New-Object Threading.Mutex($false, $script:WorkspaceMutexName)
+    $held=$false
+    try {
+        try { $held=$mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held=$true }
+        if (-not $held) { throw 'workspace-busy' }
+        $script:WorkspaceMutexHeld=$true
+        & $Body
+    } finally { $script:WorkspaceMutexHeld=$false; if ($held) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
+}
+
 function New-JanitorRecord([string]$Path) {
     return [pscustomobject]@{ Task=[IO.Path]::GetFileName($Path); Path=$Path; AgeDays=$null; Git='unknown'; HiddenProcessCommandLines=$null; Result='PRESERVE'; Reason='check-unknown' }
 }
@@ -265,6 +433,7 @@ function Assert-JanitorSnapshot($Before, $After) {
     foreach ($key in $Before.Keys) { if (-not $After.ContainsKey($key) -or $Before[$key] -ne $After[$key]) { throw 'workspace-changed' } }
 }
 function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]$Now) {
+    Assert-WorkspaceLock
     $record = New-JanitorRecord $Path
     $guard = $null; $tree = $null; $fresh = $null
     try {
@@ -275,6 +444,10 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         $tree.Scan($path, $script:EntryLimit)
         Test-JanitorMarkers @($tree.Entries | Where-Object { $null -eq $_.CacheRoot }) $path
         $state = Get-JanitorGitState $path $guard
+        if ($state.Kind -ne 'clone') { throw 'shared-worktree-preserved' }
+        $lifecycle=Get-LifecycleRecord $path
+        Assert-LifecycleIdentity $path $lifecycle -Bound
+        if ($lifecycle.State -cne 'completed') { throw 'lifecycle-not-completed' }
         $cacheProof = Get-JanitorCacheProof $tree $path
         Test-JanitorMarkers $tree.Entries $path
         $processes = Get-JanitorProcesses
@@ -282,7 +455,7 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         Test-JanitorProcess $path $processes
         $record.Git = $state.Kind
         Test-JanitorClean $path
-        $age = Get-JanitorAge $tree $path $Now
+        $age = [math]::Min((Get-JanitorAge $tree $path $Now), (Assert-LifecycleComplete $path $lifecycle $Now))
         $record.AgeDays = [math]::Round($age, 2)
         if ($age -lt $Days) { throw 'younger-than-retention' }
         $before = Get-JanitorSnapshot $tree $path
@@ -304,18 +477,14 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         Test-JanitorProcess $path $processes
         $record.Result='ELIGIBLE'; $record.Reason='clean-published-inactive'
         if (-not $Delete) { return $record }
+        # This durable tombstone precedes the first destructive operation. Resume
+        # takes this same mutex and must refuse deleting/deleted, even after a crash.
+        $lifecycle.State='deleting'; Write-LifecycleRecord $path $lifecycle
         # Print sanitized decision before the destructive operation, not raw Git diagnostics.
         Write-Information ($record | ConvertTo-Json -Compress) -InformationAction Continue
-        if ($state.Kind -eq 'worktree') {
-            # Git must own registration cleanup and enforce its clean/locked checks.
-            # Release task pins for Git's non-force removal; keep approved-root/common pins.
-            $fresh.Dispose(); $fresh=$null
-            [void](Get-JanitorGitText $state.Owner @('worktree', 'remove', '--', $path))
-            # Successful remove unregisters this worktree itself. Never broad-prune siblings.
-            $remaining = Get-JanitorGitText $state.Owner @('worktree', 'list', '--porcelain')
-            if (($remaining -split "`n") -contains ('worktree ' + $path.Replace('\','/'))) { throw 'delete-failed' }
-        } else { $fresh.Delete() }
+        $fresh.Delete()
         if ([IO.Directory]::Exists($path) -or [IO.File]::Exists($path)) { throw 'delete-failed' }
+        $lifecycle.State='deleted'; Write-LifecycleRecord $path $lifecycle
         $record.Result='REMOVED'; $record.Reason='removed'
     } catch {
         $reason = [string]$_.Exception.Message
@@ -323,6 +492,8 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
             'private-runtime-marker','generated-cache-unproven','not-task-checkout','external-git-metadata','wrong-origin','remote-rewrite-or-unknown',
             'registration-unknown','dependent-worktrees','dirty-or-untracked','submodule-unknown','unknown-ignored-material',
             'age-unknown','younger-than-retention','unique-head-commit','ancestry-unknown','unknown-local-ref','unique-local-ref',
+            'shared-worktree-preserved','lifecycle-unmanaged','lifecycle-invalid','lifecycle-identity-changed',
+            'lifecycle-unbound','lifecycle-legacy-metadata','lifecycle-not-completed','lifecycle-head-changed',
             'workspace-changed','git-check-failed','git-timeout','git-output-limit','delete-failed')
         $record.Reason = if ($known -contains $reason) { $reason } else { 'filesystem-or-check-unknown' }
         if ($record.Result -eq 'ELIGIBLE' -and $Delete) { $record.Result='ERROR'; $record.Reason='delete-failed-stop' }
@@ -339,6 +510,7 @@ function Save-JanitorReport($Report) {
     } finally { $pins.Dispose() }
 }
 function Invoke-JanitorRun([string[]]$Roots, [int]$Days=7, [switch]$Delete) {
+    Assert-WorkspaceLock
     if ($Days -lt 7) { throw 'retention-rejected' }
     $approved = @($Roots | ForEach-Object { Assert-JanitorRoot $_ } | Select-Object -Unique)
     if (-not $approved.Count) { throw 'root-rejected' }
@@ -375,18 +547,20 @@ function Invoke-JanitorRun([string[]]$Roots, [int]$Days=7, [switch]$Delete) {
     return $report
 }
 function Invoke-WorkspaceJanitor([string[]]$Roots, [int]$Days=7, [switch]$Delete) {
-    $mutex=New-Object Threading.Mutex($false, 'Global\HealthCheck.WorkspaceCleanup')
-    $held=$false
-    try {
-        try { $held=$mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held=$true }
-        if (-not $held) { throw 'janitor-already-running' }
-        return Invoke-JanitorRun $Roots $Days -Delete:$Delete
-    } finally { if ($held) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
+    Initialize-JanitorNative
+    Invoke-WorkspaceLock { Invoke-JanitorRun $Roots $Days -Delete:$Delete }
 }
 if ($MyInvocation.InvocationName -ne '.') {
     try {
-        $results = @(Invoke-WorkspaceJanitor $Root $RetentionDays -Delete:$Apply)
-        foreach ($result in $results) { if ($result -is [string]) { Write-Output $result } else { $result | ConvertTo-Json -Depth 5 } }
-        if ($results[-1].Status -ne 'complete') { exit 2 }
-    } catch { Write-Output '{"Status":"rejected","Reason":"configuration-or-log-unavailable"}'; exit 2 }
+        Initialize-JanitorNative
+        if ($Operation -ne 'Scan') {
+            if ($Apply -or $PSBoundParameters.ContainsKey('Root') -or $PSBoundParameters.ContainsKey('RetentionDays')) { throw 'invalid-operation-options' }
+            Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle $Operation $Workspace $Owner $ClaimId } | ConvertTo-Json -Depth 5
+        } else {
+            if ($Workspace -or $Owner -or $ClaimId) { throw 'invalid-operation-options' }
+            $results = @(Invoke-WorkspaceJanitor $Root $RetentionDays -Delete:$Apply)
+            foreach ($result in $results) { if ($result -is [string]) { Write-Output $result } else { $result | ConvertTo-Json -Depth 5 } }
+            if ($results[-1].Status -ne 'complete') { exit 2 }
+        }
+    } catch { Write-Output '{"Status":"rejected","Reason":"configuration-state-or-log-unavailable"}'; exit 2 }
 }

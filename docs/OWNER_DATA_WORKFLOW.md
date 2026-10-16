@@ -47,6 +47,13 @@ If occupied, use a fresh authorized checkout; read-only remote review can contin
 The helper is cooperative coordination, not an OS lock against arbitrary editors.
 If the helper is unavailable, use a freshly created uniquely named checkout and
 record its owner once; do not turn missing tooling into repeated approval requests.
+This fallback never permits resuming/reusing an enrolled checkout. Such unmanaged
+clones remain preserved by automatic cleanup. For managed standalone clones use
+the [workspace lifecycle protocol](WORKSPACE_LIFECYCLE.md): Create/Bind before work,
+Check the active claim before writing/verification, Pause while paused, Resume with
+the current owner/ClaimId before further writes, and Complete only after delivery.
+The matching helper and janitor share one mutex; loose completion/`released`
+markers and elapsed time never release ownership. Legacy workspaces are not adopted.
 
 ## Review and proportional verification
 

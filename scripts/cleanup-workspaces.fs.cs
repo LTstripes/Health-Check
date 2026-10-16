@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Security.Cryptography;
 using Microsoft.Win32.SafeHandles;
 
 namespace HealthCheck.WorkspaceCleanup {
@@ -26,6 +27,10 @@ namespace HealthCheck.WorkspaceCleanup {
         static extern uint GetFinalPathNameByHandleW(SafeFileHandle handle, StringBuilder name, uint size, uint flags);
         [DllImport("kernel32.dll", SetLastError=true)]
         static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind, ref uint flags, uint size);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        static extern bool CreateDirectoryW(string path, IntPtr security);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        static extern bool MoveFileExW(string source, string target, uint flags);
         readonly Dictionary<string, SafeFileHandle> dirs = new Dictionary<string, SafeFileHandle>(StringComparer.OrdinalIgnoreCase);
         public readonly List<Entry> Entries = new List<Entry>();
         readonly Dictionary<string, Entry> entriesByPath = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
@@ -122,6 +127,53 @@ namespace HealthCheck.WorkspaceCleanup {
                 if (e.Length > 4096) throw new IOException("metadata-limit");
                 using (var stream = new FileStream(h, FileAccess.Read))
                 using (var reader = new StreamReader(stream, Encoding.UTF8, true)) return reader.ReadToEnd().Trim();
+            }
+        }
+        // Lifecycle state is outside the deletable checkout. All callers hold the
+        // project mutex. Parent pins prevent path redirection; no ACL is changed.
+        public static string IdentityOf(string path) {
+            using (var h = Open(path, true, 0x80000000u, 3, 3)) {
+                Entry e = Inspect(path, h, true); Info i;
+                if (!GetFileInformationByHandle(h, out i)) throw new IOException("identity-unknown");
+                return e.Identity + ":" + Ticks(i.Created);
+            }
+        }
+        public static void CreateFresh(string path) {
+            if (!CreateDirectoryW(path, IntPtr.Zero)) throw new IOException("workspace-exists-or-unavailable");
+        }
+        public static string StateKey(string path) {
+            using (var hash = SHA256.Create()) {
+                return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(Full(path).ToUpperInvariant()))).Replace("-", "").ToLowerInvariant();
+            }
+        }
+        public static string ReadState(string path) {
+            using (var h = Open(path, false, 0x80000000u, 1, 3)) {
+                if (Inspect(path, h, false).Length > 8192) throw new IOException("lifecycle-invalid");
+                using (var stream = new FileStream(h, FileAccess.Read))
+                using (var reader = new StreamReader(stream, new UTF8Encoding(false, true), false)) return reader.ReadToEnd();
+            }
+        }
+        public static void WriteState(string path, string text, bool createOnly) {
+            byte[] bytes = new UTF8Encoding(false, true).GetBytes(text);
+            if (bytes.Length > 8192) throw new IOException("lifecycle-invalid");
+            using (var pins = new Tree(false)) {
+                pins.PinAncestors(System.IO.Path.GetDirectoryName(path));
+                // Reject aliases/links even though replacement itself does not follow them.
+                if (File.Exists(path) || Directory.Exists(path)) {
+                    if (createOnly) throw new IOException("lifecycle-exists");
+                    using (var h = Open(path, false, 0x80000000u, 1, 3)) Inspect(path, h, false);
+                }
+                string pending = path + ".pending-" + Guid.NewGuid().ToString("N");
+                // An interrupted pending file is never authority, and never auto-applied.
+                using (var h = Open(pending, false, 0xC0000000u, 0, 1)) {
+                    Inspect(pending, h, false);
+                    using (var stream = new FileStream(h, FileAccess.ReadWrite)) {
+                        stream.Write(bytes, 0, bytes.Length); stream.Flush(true);
+                    }
+                }
+                // Same-directory atomic rename, write-through; previous or new complete
+                // record survives a process crash. No truncate-in-place transaction.
+                if (!MoveFileExW(pending, path, (createOnly ? 0u : 1u) | 8u)) throw new IOException("lifecycle-write-failed");
             }
         }
         // Scan pins every directory. Freeze all known files and compare before marking any for deletion.

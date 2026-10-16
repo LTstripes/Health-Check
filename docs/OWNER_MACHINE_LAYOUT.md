@@ -60,15 +60,15 @@ Do not implement by switching branches in `main`. Never place real Owner health 
 
 ## Workspace lifecycle and cleanup
 
-Task workspaces are disposable after delivery. The accepted #256 janitor is deployed as Windows Scheduled Task `Health-Check workspace cleanup`:
+Task workspaces are disposable after delivery. The historical #256 deployment used Windows Scheduled Task `Health-Check workspace cleanup`:
 
 - runs **daily at 12:00 local time** with `StartWhenAvailable` and `IgnoreNew`;
 - uses `-Apply -RetentionDays 7`;
 - writes the latest bounded sanitized report to `D:\HealthCheck\ops\workspace-cleanup-latest.json`;
 - considers only immediate task children under the four canonical `workspaces\<client>` roots;
-- deletes only when the workspace is old enough, clean, belongs to the expected repository, has no unique local work/private runtime material and passes the remaining fail-closed guards.
+- used the then-accepted Git, age, process and private-material guards.
 
-This is a daily sweep with a seven-day minimum retention, not a weekly batch. A task normally becomes eligible on the first daily run after it is at least seven days old.
+This source description is not a live task read-back or authorization to register/enable it. The current source adds the [managed lifecycle contract](WORKSPACE_LIFECYCLE.md): only explicitly completed enrolled standalone clones may reach fetch/deletion. Retention is at least seven days since both completion and file/commit activity. Active, paused, legacy/unknown claims and all shared worktrees are preserved. Installing the matching helper/janitor pair and scheduling Apply require separate acceptance.
 
 The janitor must never treat `main`, `stable`, `uat`, `ops` or a path outside the four approved workspace roots as a cleanup root. Unknown, active, young, wrong-origin or otherwise ambiguous task directories are preserved.
 
