@@ -411,6 +411,142 @@ def test_expanded_range_recovers_each_originals_own_day(saved, first_day):
     assert_originals_preserved(saved, before)
 
 
+def legacy_projection(saved, source_id):
+    with saved[1]() as session:
+        row = session.scalars(
+            select(GarminSourceRecord).where(
+                GarminSourceRecord.garmin_source_id == source_id,
+                GarminSourceRecord.surface_code == "hrv_status",
+                GarminSourceRecord.source_local_date.is_(None),
+            )
+        ).one()
+        return tuple(getattr(row, col.name) for col in GarminSourceRecord.__table__.columns)
+
+
+@pytest.mark.parametrize("returned", [DAY, DAY + timedelta(days=1)])
+def test_clipped_day_converges_without_retiring_legacy_then_full_range_finishes(saved, returned):
+    end = DAY + timedelta(days=1)
+    source_id = persist(
+        saved,
+        end,
+        body=payload(returned, 21),
+        legacy=True,
+        window_start=DAY,
+    )[0]
+    before = originals(saved)
+    legacy_before = legacy_projection(saved, source_id)
+    first = apply_stored(saved, returned, returned)
+    assert first.processed_count == 1 and first.retired_count == 0
+    after_first = originals(saved)
+    for _ in range(2):
+        report = apply_stored(saved, returned, returned)
+        assert report.processed_count == report.remaining_observation_count == 0
+        assert originals(saved) == after_first
+    assert legacy_projection(saved, source_id) == legacy_before
+    assert {(r[1], r[3]) for r in projection(saved)} == {(None, 21), (returned, 21)}
+    full = apply_stored(saved, DAY, end)
+    assert full.processed_count == full.retired_count == 1
+    assert {(r[1], r[3]) for r in projection(saved)} == {(returned, 21)}
+    assert apply_stored(saved, DAY, end).processed_count == 0
+    assert_originals_preserved(saved, before)
+
+
+@pytest.mark.parametrize("returned", [DAY, DAY + timedelta(days=1)])
+@pytest.mark.parametrize("second_clipped", [False, True])
+def test_clipped_cap_one_advances_across_sources_and_later_full_transition(
+    saved,
+    returned,
+    second_clipped,
+):
+    end = DAY + timedelta(days=1)
+    first_source = persist(
+        saved,
+        end,
+        body=payload(returned, 21),
+        legacy=True,
+        window_start=DAY,
+        source=identity("clipped-first"),
+    )[0]
+    second_source = persist(
+        saved,
+        end if second_clipped else returned,
+        body=payload(returned, 43),
+        legacy=True,
+        window_start=DAY if second_clipped else returned,
+        source=identity("clipped-second"),
+        at=RECEIPT + timedelta(hours=1),
+    )[0]
+    before = originals(saved)
+    legacy_before = {sid: legacy_projection(saved, sid) for sid in (first_source, second_source)}
+    first = apply_stored(saved, returned, returned)
+    assert first.processed_count == first.remaining_observation_count == 1
+    after_first = originals(saved)
+    planned = apply_stored(saved, returned, returned, dry_run=True)
+    assert planned.remaining_observation_count == 0
+    assert originals(saved) == after_first
+    second = apply_stored(saved, returned, returned)
+    assert second.processed_count == 1 and second.remaining_observation_count == 0
+    converged = originals(saved)
+    third = apply_stored(saved, returned, returned)
+    assert third.processed_count == third.remaining_observation_count == 0
+    assert originals(saved) == converged
+    assert {(r[0], r[1], r[3]) for r in projection(saved) if r[1] is not None} == {
+        (first_source, returned, 21),
+        (second_source, returned, 43),
+    }
+    assert legacy_projection(saved, first_source) == legacy_before[first_source]
+    if second_clipped:
+        assert legacy_projection(saved, second_source) == legacy_before[second_source]
+    # A complete containing request must still finish each retained transition.
+    reports = [apply_stored(saved, DAY, end) for _ in range(3)]
+    assert reports[-1].processed_count == reports[-1].remaining_observation_count == 0
+    assert {(r[0], r[1], r[3]) for r in projection(saved)} == {
+        (first_source, returned, 21),
+        (second_source, returned, 43),
+    }
+    assert_originals_preserved(saved, before)
+
+
+@pytest.mark.parametrize("value,state", [("missing", "missing"), (None, "null"), (True, "invalid")])
+def test_unproven_coverage_does_not_starve_later_source_or_retire_legacy(saved, value, state):
+    body = payload(value=value)
+    if value == "missing":
+        del body["hrvSummary"]["weeklyAvg"]
+    first_source = persist(saved, body=body, legacy=True, source=identity("unproven"))[0]
+    second_source = persist(
+        saved,
+        value=43,
+        legacy=True,
+        source=identity("present"),
+        at=RECEIPT + timedelta(hours=1),
+    )[0]
+    before = originals(saved)
+    legacy_before = legacy_projection(saved, first_source)
+    reports = [apply_stored(saved, DAY, DAY) for _ in range(3)]
+    assert reports[0].remaining_observation_count == 1
+    assert reports[1].remaining_observation_count == 0
+    assert reports[2].processed_count == 0
+    assert legacy_projection(saved, first_source) == legacy_before
+    assert (first_source, DAY, state, None) in projection(saved)
+    assert (second_source, DAY, "value", 43) in projection(saved)
+    assert_originals_preserved(saved, before)
+
+
+@pytest.mark.parametrize("full_range", [False, True])
+def test_newer_same_day_dated_window_is_not_starved_by_old_legacy(saved, full_range):
+    end = DAY + timedelta(days=1)
+    persist(saved, end, body=payload(DAY, 21), legacy=True, window_start=DAY)
+    persist(saved, value=43, at=RECEIPT + timedelta(hours=1))
+    before = originals(saved)
+    request_end = end if full_range else DAY
+    report = apply_stored(saved, DAY, request_end)
+    assert report.processed_count == report.retired_count == 1
+    assert report.remaining_observation_count == 0
+    assert {(r[1], r[3]) for r in projection(saved)} == {(DAY, 43)}
+    assert apply_stored(saved, DAY, request_end).processed_count == 0
+    assert_originals_preserved(saved, before)
+
+
 def test_identity_replacement_rolls_back_atomically(saved, monkeypatch):
     persist(saved, legacy=True)
     original = reprocess._supersede_legacy_hrv

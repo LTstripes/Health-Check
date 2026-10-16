@@ -40,6 +40,14 @@ different day in the same acquisition window cannot consume another resume slot
 or hide a missing day. Originals outside the requested range remain eligible
 when a later request expands to include their returned day; a previous clipped
 attempt or another day's current projection is not proof of completion.
+An identical clipped replay converges after its in-range dated projection is
+current, even when the undated legacy row must remain. Only a later complete
+containing request with present coverage may force that pending transition.
+Unknown coverage likewise cannot force an impossible transition on every
+resume or starve another source. Clipping and coverage retirement guards remain
+unchanged; convergence does not assert complete recovery or resolve legacy data.
+A pending transition also respects a newer dated projection: its older original
+cannot occupy the cap ahead of the newer same-day observation that can finish it.
 
 ## Separately authorized operator procedure
 

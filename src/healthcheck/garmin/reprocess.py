@@ -539,20 +539,31 @@ def _legacy_hrv_day(session, store, legacy, identity):
     return _hrv_raw_day(session, store, legacy.raw_payload_id, legacy.garmin_source_id, identity)
 
 
-def _hrv_raw_day(session, store, raw_id, source_id, identity, *, expected_artifact_id=None):
+def _hrv_raw_evidence(session, store, raw_id, source_id, identity, *, expected_artifact_id=None):
     original = json.loads(
         _verified_hrv_bytes(
             session, store, raw_id, source_id, expected_artifact_id=expected_artifact_id,
         ),
         object_pairs_hook=_unique_hrv_keys,
     )
-    old_result = normalize_garmin_payload(
+    result = normalize_garmin_payload(
         original, stream="daily_health", source_identity=identity,
     )
-    if len(old_result.records) != 1:
+    return original, result
+
+
+def _hrv_result_day(result):
+    if len(result.records) != 1:
         return None
-    temporal = old_result.records[0].temporal
+    temporal = result.records[0].temporal
     return temporal.local_date if temporal.precision is GarminTemporalPrecision.DATE_ONLY else None
+
+
+def _hrv_raw_day(session, store, raw_id, source_id, identity, *, expected_artifact_id=None):
+    _, result = _hrv_raw_evidence(
+        session, store, raw_id, source_id, identity, expected_artifact_id=expected_artifact_id,
+    )
+    return _hrv_result_day(result)
 
 
 def _supersede_legacy_hrv(session, store, identity, outcome, result, received, start, end):
@@ -709,6 +720,9 @@ def _window_already_current(
     local_end = min((window_end - timedelta(microseconds=1)).date(), request_end)
     if local_start > local_end:
         return True
+    clipped = (local_start, local_end) != (
+        window_start.date(), (window_end - timedelta(microseconds=1)).date(),
+    )
     surface = _SURFACE_BY_FILENAME.get(observation.source_filename or "")
     if surface is None:
         return False
@@ -718,6 +732,7 @@ def _window_already_current(
     )
     with factory() as session:
         hrv_day = None
+        legacy_transition_pending = False
         if surface.code == "hrv_status":
             source = session.get(GarminSource, observation.garmin_source_id)
             if source is None:
@@ -727,10 +742,11 @@ def _window_already_current(
                 device_attributed=source.device_attributed, device_code=source.device_code,
                 device_model=source.device_model, source_instance_id=source.source_instance_id,
             )
-            hrv_day = _hrv_raw_day(
+            hrv_payload, hrv_result = _hrv_raw_evidence(
                 session, store, observation.garmin_raw_payload_id, source.id, identity,
                 expected_artifact_id=observation.raw_artifact_id,
             )
+            hrv_day = _hrv_result_day(hrv_result)
             if hrv_day is not None:
                 if not local_start <= hrv_day <= local_end:
                     return True
@@ -748,9 +764,19 @@ def _window_already_current(
                         # Do not expose an older value or consume every resume cap
                         # before the newer overlapping acquisition can be applied.
                         return True
-                    # A newer ordinary acquisition may already have restored the day,
-                    # while its old undated identity still needs an atomic transition.
-                    return False
+                    prepared = _prepare_normalization_result(
+                        surface, hrv_payload, hrv_result, day=hrv_day,
+                    )
+                    if (
+                        not clipped and _reconstruct_fetch_complete(surface, hrv_payload)
+                        and _coverage_status_for(
+                            surface, prepared, hrv_payload, day=hrv_day,
+                        ) == "present"
+                    ):
+                        # A pending transition still has to pass the dated
+                        # projection's chronology check below. Clipped/unknown
+                        # coverage cannot force an impossible transition.
+                        legacy_transition_pending = True
                 # An acquisition window may span other HRV days. Only this
                 # original's returned day can prove it is already projected.
                 local_start = local_end = hrv_day
@@ -784,6 +810,8 @@ def _window_already_current(
                 if not version_current:
                     return False
                 if observed_at is not None and (projected is None or observed_at > projected):
+                    return False
+                if legacy_transition_pending:
                     return False
             return True
         if surface.code == "hrv_status" and hrv_day is not None:
