@@ -68,6 +68,81 @@ def _saved_get(app, **override):
         return client.get("/api/imports/saved-rhr", params=params)
 
 
+def _sleep_get(app, **override):
+    params = {"evaluated_at_utc": "2099-01-05T23:00:00Z", "evaluation_local_date": "2099-01-05"}
+    params.update(override)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        return client.get("/api/imports/saved-sleep", params=params)
+
+
+def test_data_saved_sleep_exact_reader_snapshot_no_db_change(data_ui, monkeypatch):
+    from datetime import date
+    from hashlib import sha256
+
+    from sqlalchemy import text
+
+    from healthcheck.db.models import GoogleSleepRecord, SyncStreamState
+    from healthcheck.saved_sleep import read_saved_sleep
+    from healthcheck.web import imports
+    from test_sleep_metrics import _google_sleep_payload, _persist_garmin, _persist_google
+
+    app, settings, paths = data_ui
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            _persist_garmin(session, paths)
+            _persist_google(session, paths, payload=_google_sleep_payload())
+            session.scalar(select(GoogleSleepRecord)).wake_date = date(2099, 1, 1)
+        with session_scope(engine) as session:
+            expected = [read_saved_sleep(
+                session, provider=p, evaluation_local_date=date(2099, 1, 5),
+            ) for p in ("garmin", "google")]
+        # Neither credentials failure nor disabled collection removes saved sleep.
+        from healthcheck.collection_policy import set_collection_policy
+        from healthcheck.db.models import GarminSource
+        with session_scope(engine) as session:
+            source = session.scalar(select(GarminSource))
+            session.add(SyncStreamState(
+                provider_id=source.provider_id, stream_code="sleep",
+                diagnostic_status="reauth_required",
+            ))
+        set_collection_policy(settings, stream="google:heart_rate", state="off")
+    finally:
+        engine.dispose()
+    connections = []
+    reader = imports.read_saved_sleep
+    def inspect(session, **kwargs):
+        connection = session.connection().connection.driver_connection
+        assert connection.in_transaction and session.scalar(text("PRAGMA query_only")) == 1
+        connections.append(connection)
+        return reader(session, **kwargs)
+    monkeypatch.setattr(imports, "read_saved_sleep", inspect)
+    before = sha256(paths.database.read_bytes()).hexdigest()
+    response = _sleep_get(app)
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert response.json()["items"] == expected
+    assert connections[0] is connections[1] and len(connections) == 2
+    assert sha256(paths.database.read_bytes()).hexdigest() == before
+    assert [i["observation"]["observation_age_days"] for i in expected] == [3, 4]
+
+
+def test_data_saved_sleep_safe_clock_database_and_read_failure(data_ui, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    from healthcheck.web import imports
+    app, _, paths = data_ui
+    assert _sleep_get(app, evaluated_at_utc="2099-01-05T12:00:00").status_code == 422
+    assert _sleep_get(app, google_source_id=" ").status_code == 422
+    def fail(*args, **kwargs):
+        raise OperationalError("synthetic-secret", {}, Exception("private-path"))
+    monkeypatch.setattr(imports, "read_saved_sleep", fail)
+    response = _sleep_get(app)
+    assert response.status_code == 503
+    assert response.json() == {"code": "saved_sleep_read_unavailable"}
+    paths.database.unlink()
+    assert _sleep_get(app).json() == {"code": "database_unavailable"}
+
+
 @pytest.mark.parametrize("data_saved", ["garmin_connect", "google_health"], indirect=True)
 @pytest.mark.parametrize("scenario", [
     "today", "old", "zero", "missing", "null", "invalid", "ambiguous", "retired",

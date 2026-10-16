@@ -65,6 +65,173 @@ from test_sleep_owner_ui import client_for
 WAKE_DATE = date(2099, 1, 2)
 
 
+def _saved_sleep(session, provider="google", **kwargs):
+    from healthcheck.saved_sleep import read_saved_sleep
+    return read_saved_sleep(
+        session, provider=provider,
+        evaluation_local_date=kwargs.pop("evaluation_local_date", WAKE_DATE + timedelta(days=3)),
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+@pytest.mark.parametrize("scenario", [
+    "old", "today", "zero", "partial", "missing", "null", "invalid", "retired",
+    "correction", "undated", "parent_date_differs", "future", "bad_unit",
+])
+def test_saved_sleep_reuses_exact_source_point(projection_database, provider, scenario):
+    session, paths = projection_database
+    if provider == "garmin":
+        _persist_garmin(session, paths)
+        model, typed, metric_model, code = (
+            GarminSourceRecord, GarminSleepRecord, GarminRecordMetric, "sleep_duration_seconds",
+        )
+    else:
+        _persist_google(session, paths, payload=_google_sleep_payload())
+        model, typed, metric_model, code = (
+            GoogleSourceRecord, GoogleSleepRecord, GoogleRecordMetric,
+            "sleep_summary_minutes_asleep",
+        )
+    record = session.scalar(select(model))
+    night = session.scalar(select(typed))
+    metric = session.scalar(select(metric_model).where(metric_model.metric_code == code))
+    today = WAKE_DATE + timedelta(days=3)
+    if scenario == "today":
+        night.wake_date = today
+    elif scenario in {"zero", "correction"}:
+        metric.value_number = 0 if scenario == "zero" else 12
+    elif scenario == "partial":
+        record.record_status = "partial"
+    elif scenario in {"missing", "null", "invalid"}:
+        metric.state, metric.value_number, metric.value_text = scenario, None, None
+    elif scenario == "retired":
+        record.projection_status, record.retired_at = "retired", datetime(2099, 1, 3, tzinfo=UTC)
+    elif scenario == "undated":
+        night.wake_date = None
+    elif scenario == "parent_date_differs":
+        record.source_local_date = date(2000, 1, 1)
+    elif scenario == "future":
+        night.wake_date = today + timedelta(days=1)
+    elif scenario == "bad_unit":
+        metric.unit = "bpm"
+    session.commit()
+    result = _saved_sleep(session, provider)
+    assert result["snapshot_age"] == "unknown" and result["age_policy"] == "not_configured"
+    assert result["search_complete"] is True
+    if scenario in {"missing", "null", "invalid", "retired", "undated", "future", "bad_unit"}:
+        assert result["state"] == "no_eligible_in_search" and result["observation"] is None
+        if scenario == "undated":
+            assert result["newer_exclusions"] == [{"wake_date": None, "state": "undated"}]
+    else:
+        assert result["state"] == ("exact" if scenario == "today" else "last_eligible")
+        assert result["observation"]["wake_date"] == (
+            today if scenario == "today" else WAKE_DATE
+        ).isoformat()
+        assert result["observation"]["observation_age_days"] == (0 if scenario == "today" else 3)
+        packet = read_source_sleep_night(
+            session, provider=provider, wake_date=night.wake_date,
+            source_id=result["source"]["source_id"],
+        )
+        point = resolve_source_sleep_point(packet["sources"][0], provider=provider)
+        assert {k: result["observation"][k] for k in point} == point
+        assert result["observation"]["is_zero"] is (scenario == "zero")
+
+
+@pytest.mark.parametrize("newer", ["missing", "conflict", "nap", "invalid", "fallback_role"])
+def test_saved_sleep_keeps_older_history_and_newer_exclusions(projection_database, newer):
+    session, paths = projection_database
+    _persist_google(session, paths, payload=_google_sleep_payload(name="old"))
+    session.flush()
+    session.scalar(select(GoogleSleepRecord)).wake_date = WAKE_DATE - timedelta(days=300)
+    session.flush()
+    for index in range(2 if newer == "conflict" else 1):
+        payload = _google_sleep_payload(name=f"new-{index}")
+        sleep = payload["dataPoints"][0]["sleep"]
+        if newer == "missing":
+            sleep["summary"].pop("minutesAsleep")
+        elif newer == "nap":
+            sleep["metadata"]["nap"] = True
+        elif newer == "fallback_role":
+            sleep["metadata"].pop("main")
+        _persist_google(session, paths, payload=payload)
+    if newer == "invalid":
+        for record in session.scalars(select(GoogleSourceRecord).join(
+            GoogleSleepRecord, GoogleSleepRecord.record_id == GoogleSourceRecord.id,
+        ).where(GoogleSleepRecord.wake_date == WAKE_DATE)):
+            record.record_status = "invalid"
+    session.commit()
+    result = _saved_sleep(session)
+    assert result["state"] == "last_eligible"
+    if newer == "fallback_role":
+        assert result["observation"]["wake_date"] == WAKE_DATE.isoformat()
+        assert result["observation"]["role_uncertain"] is True
+    else:
+        assert result["observation"]["wake_date"] == (WAKE_DATE - timedelta(days=300)).isoformat()
+        assert result["newer_exclusions"][0]["wake_date"] == WAKE_DATE.isoformat()
+        assert result["newer_exclusions"][0]["state"] == (
+            "ambiguous" if newer == "conflict" else "missing" if newer == "missing"
+            else "unavailable"
+        )
+
+
+def test_saved_sleep_source_choice_and_caps(projection_database, monkeypatch):
+    import healthcheck.saved_sleep as module
+    session, paths = projection_database
+    for identity in ("users/me/dataSources/first", "users/me/dataSources/second"):
+        _persist_identity(
+            session, paths, _google_sleep_payload(name=identity), GoogleSourceIdentity(
+                source_kind=GoogleSourceKind.DATA_SOURCE,
+                source_instance_id=identity, platform="fitbit",
+            ),
+        )
+    session.commit()
+    result = _saved_sleep(session)
+    assert result["reason"] == "source_selection_required" and result["observation"] is None
+    first = result["available_sources"][0]["source_id"]
+    assert _saved_sleep(session, source_id=first)["observation"]["value"] == 24600
+    assert _saved_sleep(session, source_id="unknown")["reason"] == "source_not_found"
+    monkeypatch.setattr(module, "MAX_SOURCES", 1)
+    assert _saved_sleep(session)["state"] == "search_incomplete"
+    monkeypatch.setattr(module, "MAX_RECORDS", 0)
+    limited = _saved_sleep(session, source_id=first)
+    assert limited["state"] == "search_incomplete" and limited["observation"] is None
+
+
+def test_saved_sleep_group_cap_no_prefix_and_date_group_cap(projection_database, monkeypatch):
+    import healthcheck.saved_sleep as module
+    session, paths = projection_database
+    for index in range(3):
+        _persist_google(session, paths, payload=_google_sleep_payload(name=f"session-{index}"))
+    session.commit()
+    monkeypatch.setattr(module, "MAX_RECORDS", 2)
+    assert _saved_sleep(session)["state"] == "search_incomplete"
+    assert _saved_sleep(session)["observation"] is None
+    monkeypatch.setattr(module, "MAX_RECORDS", 256)
+    monkeypatch.setattr(module, "MAX_SOURCE_SLEEP_RECORDS", 2)
+    assert _saved_sleep(session)["state"] == "search_incomplete"
+    monkeypatch.setattr(module, "MAX_SOURCE_SLEEP_RECORDS", 200)
+    monkeypatch.setattr(module, "MAX_DATE_GROUPS", 0)
+    assert _saved_sleep(session)["state"] == "search_incomplete"
+
+
+def test_saved_sleep_preserves_pending_writes_and_no_raw_reads(projection_database, monkeypatch):
+    from sqlalchemy.exc import InvalidRequestError
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    session.commit()
+    def forbidden(*args, **kwargs):
+        pytest.fail("saved sleep must not open raw payloads")
+    monkeypatch.setattr(ContentAddressedGarminPayloadStore, "read", forbidden)
+    before = read_persisted_sleep_metric_projection(session).as_dict()
+    assert _saved_sleep(session, "garmin")["observation"]["value"] == 28800
+    assert read_persisted_sleep_metric_projection(session).as_dict() == before
+    record = session.scalar(select(GarminSourceRecord))
+    record.record_status = "invalid"
+    with pytest.raises(InvalidRequestError):
+        _saved_sleep(session, "garmin")
+    assert record.record_status == "invalid"
+
+
 def _read(session, provider="google", wake_date=WAKE_DATE, **kwargs):
     return read_source_sleep_night(session, provider=provider, wake_date=wake_date, **kwargs)
 
