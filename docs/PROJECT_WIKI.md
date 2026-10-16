@@ -6,7 +6,36 @@ proof. Do not use an older status paragraph as an instruction to repeat complete
 
 <a id="current-canonical-state"></a>
 
-## Current canonical state - 2026-10-15 #357 arithmetic-mean comparison
+## Current canonical state - 2026-10-16 Activity evidence and saved sleep
+
+Accepted product is
+[`main b169f839dcb36d4c98cf490f8074394fd2a4a183`](https://github.com/LTstripes/Health-Check/commit/b169f839dcb36d4c98cf490f8074394fd2a4a183).
+Both bounded slices passed independent review and their required exact-candidate
+and post-main gates; the PRs retain detailed review/provenance receipts.
+
+| Integrated slice | Delivered boundary and exact post-main proof |
+| --- | --- |
+| [PR #433](https://github.com/LTstripes/Health-Check/pull/433), #341 Activity evidence | One explicit Garmin source, exact 7/30 source-local dates, accepted session/type counts, tennis count/duration and cycling distance, optional current Context in one read-only snapshot. [Contract](ACTIVITY_CHAT_EVIDENCE.md). Main `7ff5661eb109f71051059cc75f6efe5f7eafda28`; [CI 38879195343, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38879195343) SUCCESS |
+| [PR #434](https://github.com/LTstripes/Health-Check/pull/434), #305/#376 Data saved sleep | Latest eligible saved sleep separately for exact Garmin/Google sources, true persisted local wake date and civil-day age, independent of refresh; eligibility, missing/conflicts, zero and history retained. [Contract](DATA_SAVED_SLEEP_CONTRACT.md) and [slice outcome](https://github.com/LTstripes/Health-Check/issues/305#issuecomment-6213387603). Main `b169f839dcb36d4c98cf490f8074394fd2a4a183`; [CI 38885039993, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38885039993) SUCCESS |
+
+The Sleep post-main gate reconciled 4237 exact nodeids: 4234 passed / three
+expected Linux skips; same-attempt and Windows evidence verifiers PASS, DPAPI
+one passed. Its 12 reviewed desktop PNGs at 1024/1440 are synthetic UI evidence,
+not Owner UAT. Activity engineering proof is likewise synthetic; its service
+does not add a direct assistant connection or new aggregate meanings.
+
+Installed Stable is separately `75d18763b6258900e72c4bf9e88e5fa123661025`;
+**neither #433 nor #434 is deployed there**. This documentation reconciliation
+does not inspect private profiles or change runtime/providers. Direct data
+connectivity, Owner UAT and real-profile performance remain UNVERIFIED; query
+budgets and synthetic timings are not performance acceptance. #341, #305 and
+#376 remain OPEN. Next deltas are a separately scoped connection/access decision
+for #341 and individually scoped other-metric/clone-age work for #305/#376,
+with rollout/UAT or profile measurements authorized separately. See the
+[roadmap](ROADMAP.md#current-backlog); do not repeat the delivered services or
+RHR/sleep cards. Earlier checkpoints below retain their dated scope.
+
+## Previous #357 arithmetic-mean checkpoint - 2026-10-15
 
 The backend-only arithmetic-mean option is accepted and integrated in
 [PR #430](https://github.com/LTstripes/Health-Check/pull/430), at
@@ -169,8 +198,9 @@ city/IANA timezone input are delivered in PRs #401/#402.
 method-separated selectable chart (#375); Garmin+eligible Google Sleep timeline
 with exact provenance/unknowns (#343); human Statistics source labels and
 7/30/trailing365/calendar-year/year-to-date windows (#347/#380);
-dated latest-eligible RHR Overview/Data value (#376/#415), separate eligible-day
-RHR period mean (#393/#416), and saved Body Battery daily maxima/period mean
+dated latest-eligible RHR Overview/Data value (#376/#415), latest eligible saved
+sleep in Data with source-specific wake date/age and history (#434), separate
+eligible-day RHR period mean (#393/#416), and saved Body Battery daily maxima/period mean
 (#394/#418);
 Garmin `observed_daily_steps` v1 projection/window and the separate completed-day
 Statistics read-only view (#377/#410). The latter verifies saved originals and
@@ -218,8 +248,10 @@ values stay exact in technical disclosure.
 - Deterministic Period Brief and thin API/text/CLI rendering with stable packet/hash, explicit JSON/text stdout (#248), limited-encoding compatibility (#203) and coherent compound SQLite/ORM reads (#227).
 - Shared persisted freshness (#147/#191/#193/#238), not ad-hoc UI thresholds. #295's indexed Google reads and request-local chart reuse are delivered; cold Overview on Owner clone still needs a measured follow-up despite perceived improvement.
 - Context v0 adds/lists/revises original text with explicit time precision, append-only history and idempotent requests. #294 Stage A portal, #341 Stage A versioned bounded export and #356 read-only MCP endpoint are integrated without rewriting Period Brief packet or doing LLM-side raw-series mathematics. PR #413 adds the source-specific bounded Sleep 7/30 + Context service without
-changing the existing v1/MCP contract. Direct on-demand assistant connection
-remains a separate access/security decision in #341.
+changing the existing v1/MCP contract. PR #433 adds the separate bounded
+Activity + optional Context service over accepted summaries, without changing
+Sleep, export/MCP or Period Brief semantics. Direct on-demand assistant connection
+remains unimplemented and a separate access/security decision in open #341.
 
 ### Durable Owner runtime
 
@@ -238,13 +270,15 @@ a durable Stable journal entry; explicit rollout is required before normal use.
 
 The [2026-10-11 UAT checkpoint](OWNER_UAT_CHECKPOINT_2026-10-11.md) describes
 the as-of-Oct-8 disposable clone and uncontrolled `/brief` latency, not current
-Stable or night-code UAT. The daytime rollout receipt above proves its specific
-installed SHA; it does not prove live provider recovery or acceptance of later UI.
+Stable or new-slice UAT. Historical rollout receipts retain their specific dated
+scope; the current installed-code boundary is recorded above. Neither proves
+live provider recovery, direct connectivity or acceptance of later UI.
 
 Remaining work is tracked in [the roadmap](ROADMAP.md#current-backlog): #305/#376
-eligible value/date/age for metrics beyond the delivered RHR slice and clone
-age policy; #347 per-metric eligible-source discovery/autoselection; #392 Google
-Steps evidence. #393's mean rules and #394's saved-day maxima/period means are
+eligible value/date/age for metrics beyond delivered RHR and sleep, and separate
+clone-age policy; #341 direct connection/access decisions and separately
+authorized private-profile/performance proof; #347 per-metric eligible-source
+discovery/autoselection; #392 Google Steps evidence. #393's mean rules and #394's saved-day maxima/period means are
 implemented; their Owner UAT remains pending. #319 calories are blocked by authoritative leaf/unit/category/interval,
 resting inclusion and eligible-coverage evidence, not a missing formula;
 max-HR/anaerobic B1 is complete. #379/#378 umbrella work and new-screen Owner UAT
