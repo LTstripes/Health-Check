@@ -12,8 +12,11 @@ UTC, receipt, refresh or snapshot date. Age is evaluation local date minus wake
 date in civil days. Search excludes dates after evaluation; there is no age
 threshold. Refresh and unknown snapshot age cannot invalidate saved history.
 
-No implicit choice among source identities. A user can select an exact source;
-otherwise multiple identities remain ambiguous. Search walks observed wake-date
+An explicit exact source remains authoritative. For Google, the shared
+[metric source selector](METRIC_SOURCE_SELECTION.md) evaluates each source through
+this same bounded latest reader; one eligible source is selected only after
+complete discovery. Multiple eligible/ambiguous candidates or an incomplete
+search remain blocked. Garmin source selection is unchanged. Search walks observed wake-date
 groups newest first, skipping ineligible groups while disclosing newer exclusions.
 An older eligible night is explicitly historical; no empty search proves that
 sleep was never collected. Missing/invalid/conflicting nights never become zero.

@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from healthcheck.analytics.period_summary import read_sleep_source_selection
 from healthcheck.analytics.sleep_metrics import (
     R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION,
     R05_SLEEP_METRIC_PROJECTION_RULE_VERSION,
@@ -53,6 +54,7 @@ class SleepEvidenceRequest:
     google_source_id: str | None = None
     include_context: bool = True
     context_limit: int = 50
+    google_auto_select: bool = False
 
     @property
     def start_date(self) -> date:
@@ -65,7 +67,11 @@ class SleepEvidenceRequest:
             raise EvidenceError("exact_7_or_30_days_required")
         if self.end_date == date.max or self.end_date.toordinal() < self.days:
             raise EvidenceError("range_out_of_bounds")
-        if not any(i is not None for i in (self.garmin_source_id, self.google_source_id)):
+        if type(self.google_auto_select) is not bool:
+            raise EvidenceError("invalid_source_selection")
+        if not self.google_auto_select and not any(
+            i is not None for i in (self.garmin_source_id, self.google_source_id)
+        ):
             raise EvidenceError("explicit_sleep_source_required")
         for identity in (self.garmin_source_id, self.google_source_id):
             if identity is not None and (
@@ -200,6 +206,20 @@ CONTEXT = {
 }
 
 
+SELECTION = {
+    **_fields("version mode requested_source_id selected_source_id state"),
+    "search": _fields("complete reason scope"),
+    "options": [{
+        "source_identity": _fields(
+            "source_id source_kind source_instance_id device_attributed device_attribution_basis "
+            "device_code device_model recording_method"),
+        **_fields("eligible_count ambiguous_record_count"),
+        "effective_dates": _fields("min_observed max_observed"),
+        "exclusions": [_fields("reason_code count")],
+    }],
+}
+
+
 def _assemble(
     session: Session, request: SleepEvidenceRequest, profile_kind: str,
     clock: datetime, local_date: date,
@@ -207,8 +227,12 @@ def _assemble(
     selections = {provider: identity for provider, identity in (
         ("garmin", request.garmin_source_id), ("google", request.google_source_id)
     ) if identity is not None}
-    # Validate ALL selections before invoking either bounded evidence reader.
+    if request.google_auto_select and "google" not in selections:
+        selections["google"] = None
+    # Validate ALL explicit selections before invoking either bounded evidence reader.
     for provider, identity in selections.items():
+        if identity is None:
+            continue
         model, expected_code = PROVIDERS[provider]
         source = session.get(model, identity)
         if source is None:
@@ -217,6 +241,22 @@ def _assemble(
             raise EvidenceError("selected_source_wrong_provider")
     sections: dict[str, Any] = {}
     for provider, identity in selections.items():
+        selection = None
+        if identity is None:
+            cell = read_sleep_source_selection(
+                session, provider=provider, start=request.start_date, end=request.end_date,
+            )
+            selection = _project(cell["source_selection"], SELECTION)
+            identity = selection["selected_source_id"]
+            if identity is None:
+                sections[provider] = {
+                    "selected_source_id": None, "provider_code": PROVIDERS[provider][1],
+                    "selection": "metric_window_auto", "source_selection": selection,
+                    "source_range": None,
+                    "acquisition_coverage": {"state": "unknown", "completeness": None,
+                                             "basis": "stored_presence_is_not_collection_coverage"},
+                }
+                continue
         packet = read_source_sleep_range(
             session, provider=provider, source_id=identity,
             wake_date=request.end_date, days=request.days,
@@ -235,6 +275,9 @@ def _assemble(
                                      "basis": "stored_presence_is_not_collection_coverage"},
             "source_range": projected,
         }
+        if selection is not None:
+            sections[provider]["selection"] = "metric_window_auto"
+            sections[provider]["source_selection"] = selection
     if request.include_context:
         views = ContextService(session).list(
             from_date=request.start_date, to_date=request.end_date,

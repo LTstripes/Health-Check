@@ -21,6 +21,7 @@ from healthcheck.db.models import (
     GoogleSource,
     GoogleSourceRecord,
 )
+from healthcheck.metric_source_selection import SourceCandidate, select_metric_source
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 CONTRACT_VERSION = "data-saved-sleep-v1"
@@ -71,6 +72,37 @@ def read_saved_sleep(
             "source_id": source.id, "source_instance_id": source.source_instance_id,
             "source_kind": source.source_kind, "device_model": source.device_model,
         })
+    if provider == "google" and source_id is None:
+        def read_candidate(source):
+            packet = read_saved_sleep(
+                session, provider=provider, evaluation_local_date=evaluation_local_date,
+                source_id=source.id,
+            )
+            return SourceCandidate(
+                source, packet, int(packet["observation"] is not None),
+                sum(item["state"] == "ambiguous" for item in packet["newer_exclusions"]),
+                packet["search_complete"], packet["reason"],
+            )
+
+        decision = select_metric_source(sources, read_candidate, source_cap=MAX_SOURCES)
+        selection = {"state": decision.state, "mode": "auto",
+                     "selected_source_id": decision.chosen.source.id if decision.chosen else None}
+        if decision.chosen:
+            return {**decision.chosen.payload, "requested_source_id": None,
+                    "available_sources": result["available_sources"], "source_selection": selection}
+        # Keep single-source exclusion disclosure even when no night is usable.
+        if decision.state == "no_eligible_values" and len(decision.candidates) == 1:
+            return {**decision.candidates[0].payload, "requested_source_id": None,
+                    "source_selection": selection}
+        result.update(
+            state={"selection_required": "ambiguous", "source_missing": "unavailable",
+                   "no_eligible_values": "no_eligible_in_search"}.get(
+                       decision.state, decision.state),
+            reason={"selection_required": "source_selection_required",
+                    "source_missing": "source_not_found"}.get(decision.state, decision.reason),
+            search_complete=decision.state != "search_incomplete", source_selection=selection,
+        )
+        return result
     if len(sources) != 1:
         result.update(
             state="ambiguous" if sources else "unavailable",

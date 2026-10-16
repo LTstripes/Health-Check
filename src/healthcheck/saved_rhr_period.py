@@ -5,7 +5,7 @@ refresh rules, but never average repeated latest-reader results or a read prefix
 Saved-day coverage does not prove acquisition completeness or device wear.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from healthcheck.db.models import GarminSource, GoogleSource
 from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.google.daily_vitals import GOOGLE_DAILY_VITALS_CONTRACT_VERSION
+from healthcheck.metric_source_selection import SourceCandidate, select_metric_source
 from healthcheck.saved_values import (
     MAX_SOURCE_IDENTITIES,
     SavedExclusion,
@@ -114,6 +115,38 @@ def _read_period(session, query, result):
         if len(sources) > MAX_SOURCE_IDENTITIES:
             return dict(result, state="search_incomplete", reason="source_inventory_cap")
         result = dict(result, available_sources=[asdict(_source_identity(s)) for s in sources])
+        if query.provider_code == "google_health":
+            def read_candidate(source):
+                packet = _read_period(session, replace(query, source_id=source.id), result)
+                return SourceCandidate(
+                    source, packet, packet["eligible_day_count"] or 0,
+                    sum(item["candidate_count"] or 0 for item in packet["exclusions"]
+                        if item["reason"].startswith("ambiguous_")),
+                    packet["search"]["complete"], packet["reason"],
+                )
+
+            decision = select_metric_source(
+                sources, read_candidate, source_cap=MAX_SOURCE_IDENTITIES,
+            )
+            selection = {
+                "state": decision.state, "mode": "auto",
+                "selected_source_id": decision.chosen.source.id if decision.chosen else None,
+                "search_complete": decision.state != "search_incomplete",
+            }
+            if decision.chosen:
+                return dict(decision.chosen.payload, query=result["query"],
+                            available_sources=result["available_sources"],
+                            source_selection=selection)
+            if decision.state == "no_eligible_values" and len(decision.candidates) == 1:
+                return dict(decision.candidates[0].payload, query=result["query"],
+                            source_selection=selection)
+            state = {"selection_required": "ambiguous", "source_missing": "unavailable",
+                     "no_eligible_values": "no_eligible_in_period"}.get(
+                         decision.state, decision.state)
+            reason = {"selection_required": "source_selection_required",
+                      "source_missing": "source_not_found"}.get(decision.state, decision.reason)
+            return dict(result, state=state, reason=reason, source_selection=selection,
+                        search=dict(result["search"], complete=selection["search_complete"]))
         if len(sources) != 1:
             return dict(result, state="ambiguous" if sources else "unavailable",
                         reason="source_selection_required" if sources else "source_not_found")
