@@ -50,7 +50,8 @@ def stored(battery_engine):
 
 
 def seed_battery(session, store, *, day=DAY, values=(80, 20), received=NOW,
-                 identity=IDENTITY, stamps=None, scalar=None, complete=True):
+                 identity=IDENTITY, stamps=None, scalar=None, complete=True,
+                 source_filename=None, sync_run_id=None):
     """Use exactly the production adapter/normalizer/persistence entry points."""
     if stamps is None:
         stamps = [datetime.combine(day, datetime.min.time(), tzinfo=UTC)
@@ -66,6 +67,7 @@ def seed_battery(session, store, *, day=DAY, values=(80, 20), received=NOW,
     result = _prepare_normalization_result(SURFACE, payload, result, day=day)
     persisted = GarminPersistenceRepository(session, payload_store=store).persist_result(
         result, payload=payload, received_at=received,
+        source_filename=source_filename, sync_run_id=sync_run_id,
         collection_scope=GarminCollectionScope(
             surface="body_battery", stream="intraday", kind="day_series",
             window_start=day, window_end=day, complete=complete,

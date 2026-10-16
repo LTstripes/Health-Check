@@ -1,0 +1,36 @@
+{% macro period_range(window) -%}
+{% if window.empty %}В выбранном периоде нет завершённых дней{% else %}{{ window.start_date | owner_date }} — {{ window.end_date | owner_date }}{% endif %}
+{%- endmacro %}
+
+{% macro period_chart(figure, kind, label, duration=false) %}
+{% if figure %}
+<figure class="overview-figure overview-period-figure" data-overview-chart="{{ kind }}">
+  <svg viewBox="0 0 350 150" role="img" aria-labelledby="{{ kind }}-period-title {{ kind }}-period-desc">
+    <title id="{{ kind }}-period-title">{{ label }}</title>
+    <desc id="{{ kind }}-period-desc">{{ figure.start | owner_date }} — {{ figure.end | owner_date }}. Пропуски — не ноль. Значения и состояния доступны в таблице.</desc>
+    <path class="overview-gridline" d="M38 24H322 M38 64H322 M38 104H322"/>
+    {% if figure.points | selectattr('value', 'ne', none) | list %}
+    <text x="38" y="18">{{ overview_number(figure.high / 3600 if duration else figure.high) }}{{ ' ч' if duration else '' }}</text>
+    <text x="30" y="108" text-anchor="end">{{ overview_number(figure.low / 3600 if duration else figure.low) }}</text>
+    {% else %}<text x="38" y="64">Нет пригодных значений</text>{% endif %}
+    {% for gap in figure.gaps %}<path class="overview-gap" d="M{{ gap.x }} 114h{{ gap.width }}"><title>{{ gap.start | owner_date }} — {{ gap.end | owner_date }}: нет наблюдений</title></path>{% endfor %}
+    {% for point in figure.points %}
+      {% if point.y is not none %}
+      <line class="overview-bar{% if point.state == 'partial' %} overview-partial{% endif %}" x1="{{ point.x }}" y1="104" x2="{{ point.x }}" y2="{{ point.y }}"/>
+      <circle class="overview-observed" cx="{{ point.x }}" cy="{{ point.y }}" r="3.5"><title>{{ point.date | owner_date }}: {{ metric_value('sleep_duration_seconds', point.value) if duration else overview_number(point.value) }} · {{ brief_owner_state(point.state) }}</title></circle>
+      {% else %}<path class="overview-gap" d="M{{ point.x - 2 }} 114h4"/>{% endif %}
+    {% endfor %}
+    <text x="38" y="143">{{ figure.start[8:10] }}.{{ figure.start[5:7] }}</text><text x="322" y="143" text-anchor="end">{{ figure.end[8:10] }}.{{ figure.end[5:7] }}</text>
+  </svg>
+  <figcaption>{{ 'Часы сна · дата пробуждения' if duration else 'Дневные максимумы · баллы' }}</figcaption>
+</figure>
+<details class="owner-details overview-chart-values"><summary>{{ label }} · таблица</summary>
+  <div class="table-scroll" role="region" tabindex="0" aria-label="{{ label }}: значения графика">
+    <table><thead><tr><th>Дата</th><th>{{ 'Длительность' if duration else 'Максимум, баллы' }}</th><th>Состояние</th></tr></thead><tbody>
+      {% for point in figure.points %}<tr><td>{{ point.date | owner_date }}</td><td>{{ '—' if point.value is none else (metric_value('sleep_duration_seconds', point.value) if duration else overview_number(point.value)) }}</td><td>{{ brief_owner_state(point.state) }}{% if point.ambiguous | default(false) %} · несколько записей{% endif %}</td></tr>{% endfor %}
+      {% for gap in figure.gaps %}<tr><td>{{ gap.start | owner_date }} — {{ gap.end | owner_date }}</td><td>—</td><td>Нет наблюдений</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</details>
+{% endif %}
+{% endmacro %}

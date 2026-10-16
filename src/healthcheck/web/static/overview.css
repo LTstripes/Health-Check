@@ -95,3 +95,11 @@
 .overview-freshness-details p { margin: 4px 0 8px; }
 .overview-freshness > a { display: inline-flex; align-items: center; min-height: 44px; }
 [data-overview-chart="sleep"] .overview-hour-tick { font-size: 13px; }
+
+/* Completed-period cards share readable, source-preserving dated figures. */
+.overview-period-figure text { font-size: 17px; }
+.overview-secondary .overview-period-figure { margin-top: 12px; }
+.overview-secondary .overview-chart-values { font-size: .75rem; }
+.overview-secondary .overview-chart-values table { min-width: 340px; }
+.overview-secondary [data-bb-window] > strong,
+.overview-secondary [data-stress-mean] { display: block; font-size: 1.5rem; line-height: 1.3; }

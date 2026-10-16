@@ -131,8 +131,13 @@ numbers; date-only samples cannot resolve a multiple-sample collision. Replay an
 correction selection remain the existing persistence/currentness contract.
 
 Each eligible saved `source_local_date` contributes its maximum among eligible
-measurements once. Existing Overview 7-day/30-day controls and custom periods
-all use the entire unchanged selected window for the period mean. Means
+measurements once. The Body Battery reader uses its entire supplied window unchanged.
+The Overview UI alone selects completed Moscow days for Sleep, Stress and Body
+Battery: rolling presets end yesterday in `Europe/Moscow`, retaining their day
+count; a custom window retains its start and ends at the earlier of its selected
+end and yesterday. An empty intersection shows no number. The actual card range
+is visible, and no change applies to other screens, exports, Period Brief packets
+or persisted source dates. Means
 weight eligible days equally and retain exact rational arithmetic. Presentation
 uses the existing format of up to two decimals, without #393 integer rounding or
 its 400-day limit. Missing days are counted, never zero-filled. The read is bounded
@@ -309,6 +314,22 @@ Sparse voluntary streams such as weekly weight use a configured cadence. Continu
 - `lag 0` means the same analytic date; `lag +1` means the next analytic date.
 - An exposure on evening X can align with the sleep session waking X+1 and morning HRV on X+1.
 - Travel/timezone policy remains a later feature, but retained offsets allow reprocessing.
+
+### Completed-day Overview presentation
+
+Only the Overview Sleep, Stress and Body Battery cards use the completed Moscow
+window described above. Their source dates are not relabelled or recalculated.
+Sleep averages eligible Garmin durations once per existing local wake date;
+Stress averages the eligible daily `avgStressLevel` values once per source day.
+They reuse the existing scalar-series eligibility, partial/zero and ambiguity
+rules, retain source selection, and never average repeated observations within a
+day. Both reads retain the existing 400-day / 2,000-point bounds; an incomplete
+read exposes no partial-prefix mean and a long window is not silently clipped.
+One eligible day is sufficient, with compact n/N coverage; missing days never
+become zero. Partial observations remain labelled. Sleep's final mean is rounded
+half-up to a whole second only for human duration display; Stress retains the
+existing up-to-two-decimal format. The selected-day 28-day Stress baseline reader
+remains available separately and its interpretation is unchanged.
 
 Lag direction is named in APIs and evidence packets; ambiguous `correlation(metric_a, metric_b, lag=1)` contracts are forbidden.
 

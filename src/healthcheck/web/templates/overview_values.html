@@ -1,11 +1,11 @@
 {% macro garmin_cell(code, unit) %}
-  {% set cell = overview.stress.current if code == 'stress_daily_average' else overview.garmin.get(code) %}
+  {% set cell = overview.garmin.get(code) %}
   {% if cell %}
     {% if code == 'stress_daily_average' and cell.value is none %}<p class="muted">Пригодное дневное значение недоступно.</p>{% else %}
     {{ owner_ui.state_chip(cell.state, false) }}
     {% endif %}
     {% if cell.value is not none %}<strong>{{ overview_number(cell.value) }} {{ unit }}</strong>{% endif %}
-    {% if cell.date %}<p class="muted">{% if code == 'stress_daily_average' %}Выбранная дата · {% endif %}{{ cell.date | owner_date }}</p>{% endif %}
+    {% if cell.date %}<p class="muted">{{ cell.date | owner_date }}</p>{% endif %}
     {% if cell.note %}<p class="muted">{{ cell.note }}</p>{% endif %}
   {% elif source_selection.status == 'require_selection' %}<p>Garmin: выбери источник выше.</p>
   {% else %}<p>Garmin: источник не сохранён.</p>{% endif %}
@@ -32,11 +32,11 @@
   </div>
 {% endmacro %}
 
-<p class="overview-source overview-secondary-window">Дополнительные показатели · окно Garmin {{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }}</p>
+<p class="overview-source overview-secondary-window">Дополнительные показатели · даты указаны в карточках</p>
 <section class="overview-secondary" aria-label="Дополнительные показатели Garmin">
   {% for code, unit in [('resting_heart_rate_bpm', 'уд/мин'), ('hrv_weekly_average_ms', 'мс'), ('stress_daily_average', 'баллы'), ('body_battery', 'баллы')] %}
   {% set cell = overview.garmin.get(code) %}
-  <article><h3>{{ cell.label if cell else {'resting_heart_rate_bpm': 'Пульс в покое', 'hrv_weekly_average_ms': 'HRV · среднее за неделю', 'stress_daily_average': 'Стресс Garmin · среднее за день', 'body_battery': 'Body Battery Garmin'}[code] }}</h3>
+  <article><h3>{{ 'Стресс Garmin' if code == 'stress_daily_average' else (cell.label if cell else {'resting_heart_rate_bpm': 'Пульс в покое', 'hrv_weekly_average_ms': 'HRV · среднее за неделю', 'body_battery': 'Body Battery Garmin'}[code]) }}</h3>
     {% if code == 'resting_heart_rate_bpm' %}
     {% include 'overview_rhr.html' %}
     {% elif code == 'body_battery' %}
