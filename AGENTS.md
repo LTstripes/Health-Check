@@ -71,6 +71,8 @@ Never claim tests, browser/device/provider checks, independent review or success
 
 Return one concise report: issue/status; baseline/target; branch/workspace/final SHA; change summary (diff stat when available); actual checks/results; material deviations/blockers/limitations. For local Git work include clean/dirty status and HEAD/remote read-back; state any departure from assigned branch/workspace boundaries. Omit irrelevant optional fields rather than filling N/A sections.
 
+CBM use is optional. Do not require CBM availability, a used/skipped report or index maintenance for task completion or acceptance. Check any index result against the assigned checkout; existing source-search and verification requirements remain unchanged.
+
 Model benchmarking and attribution bookkeeping were retired by the Owner in [#210](https://github.com/LTstripes/Health-Check/issues/210). Do not request or wait for model/provider labels, require a Model evidence block, or append model scores/journal entries. Older model-reporting instructions are explicitly superseded; ordinary technical evidence and review gates remain required. Never include hidden reasoning or credentials. Owner-visible health evidence follows the linked Owner-data workflow; public engineering reports do not publish private datasets.
 
 ## Durable history and decisions
