@@ -15,3 +15,14 @@ Report material effects of delegation/fallback on scope, verification or review 
 ## Client distinction
 
 Hermes does not need the Codex-local `$delivery-loop` skill. Only explicit coordination/queue authorization loads [Agent orchestration](../AGENT_ORCHESTRATION.md). Ordinary Hermes execution follows [Development Process](../DEVELOPMENT_PROCESS.md).
+
+## Managed Owner-local task checkout
+
+When the task explicitly selects managed lifecycle v1, use the executable
+`Invoke-WorkerLifecycle` consumer in the accepted installed helper and follow
+[worker checkout workflow](../WORKSPACE_LIFECYCLE.md#worker-checkout-workflow).
+The assignment supplies the helper path, client root, new child and unique owner;
+retain the current Claim/generation in the existing task checkpoint. Require
+CheckActive before work, Pause/Resume explicitly, and Complete after delivery.
+This does not hook platform task events or enroll an already-created checkout.
+Without configured/accepted support, use only the shared fresh-unmanaged fallback.
