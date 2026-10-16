@@ -42,15 +42,20 @@ requested and effective inclusive local-date ranges are identical; no clipping,
 earlier-period fallback or all-history mode exists. Evaluation clock is aware
 and UTC-normalized separately from the explicit local evaluation date.
 
-At least one provider must be selected. Each requested Garmin/Google provider
-has **one explicit exact persisted source ID**; there is no auto-selection or
-list of sources. IDs are nonempty strings within the existing 36-character
+At least one provider must be selected. Garmin requires one explicit exact
+persisted source ID. Google accepts either an exact ID or the opt-in
+`google_auto_select=True`, using the same bounded metric/window discovery as
+Statistics; an exact ID takes precedence. Omitted providers remain omitted.
+See [metric source selection](METRIC_SOURCE_SELECTION.md) for conflict, incomplete
+and no-eligible results. Existing explicit-source packets are unchanged. IDs are nonempty strings within the existing 36-character
 database identity cap. ALL selected IDs are checked in the same snapshot before
 the first `read_source_sleep_range` invocation: existence in `GarminSource` or
 `GoogleSource`, then provider code `garmin_connect` or `google_health`. Unknown,
 cross-provider and incorrect-provider selections fail without a partial package.
 An existing source without rows in the selected period remains valid empty
-stored evidence. No unrelated source inventory is returned. No Garmin/Google
+stored evidence. Explicit reads return no unrelated inventory. Automatic Google reads disclose
+only the bounded selection options, counts, dates and exclusion reasons through
+a recursive allowlist. No Garmin/Google
 pooling, canonical selection, pairing, agreement or new metric formula occurs.
 
 ## Preserved reader semantics

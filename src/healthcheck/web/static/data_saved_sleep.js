@@ -63,14 +63,19 @@
         const label = node("label", "Источник " + name + ": "), select = node("select");
         select.id = "sleep-source-" + p; label.htmlFor = select.id;
         select.style.width = "100%";
-        const empty = node("option", "Выбрать источник"); empty.value = ""; select.append(empty);
+        const empty = node("option", p === "google" ? "Автоматически по пригодным данным" : "Выбрать источник"); empty.value = ""; select.append(empty);
         for (const source of inventory[p].values()) {
           const option = node("option", (source.device_model || "Источник без модели") + " · " + source.source_instance_id);
           option.value = source.source_id; select.append(option);
         }
         select.value = selected[p];
         select.addEventListener("change", () => { selected[p] = select.value; refresh(select.id); });
-        card.append(label, select);
+        if (p === "google" && !selected[p] &&
+            item.source_selection?.state === "unique_eligible_source") {
+          const details = node("details");
+          details.append(node("summary", "Выбор источника Google"), label, select);
+          card.append(details);
+        } else card.append(label, select);
       }
       if (item.observation) {
         const value = item.observation, minutes = Math.round(Math.abs(value.value) / 60 * 100) / 100;

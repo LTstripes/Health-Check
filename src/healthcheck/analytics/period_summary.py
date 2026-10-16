@@ -34,6 +34,7 @@ from healthcheck.db.models import (
     GoogleSource,
     GoogleSourceRecord,
 )
+from healthcheck.metric_source_selection import SourceCandidate, select_metric_source
 from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
@@ -242,97 +243,100 @@ class PeriodSummaryService:
         The existing per-source/surface caps and shared deadline apply to 7/30
         too: overflow suppresses the entire Sleep mean, never just its suffix.
         """
-        days = (end - start).days + 1
         for side, model, requested in zip(
             packet["sides"], (GarminSource, GoogleSource),
             (garmin_selected, google_selected), strict=True,
         ):
-            requested = requested or None
-            selection = {
-                "version": "sleep-window-selection-v1",
-                "mode": "explicit" if requested else "auto",
-                "requested_source_id": requested,
-                "selected_source_id": None,
-                "state": "no_eligible_values",
-                "options": [],
-            }
-            chosen = None
-            source = None
-            try:
-                if requested:
-                    exact = self._rows(
-                        select(model).where(model.id == requested),
-                        bounded.MAX_METADATA_ROWS, "ancillary_row_limit_exceeded",
-                    )
-                    source = exact[0] if exact else None
-                    if source is None or source.provider_code != side["provider_code"]:
-                        raise ValueError("unknown selected Sleep source")
-                    sources = [source]
-                else:
-                    sources = self._rows(
-                        select(model).where(model.provider_code == side["provider_code"])
-                        .order_by(model.id),
-                        bounded.MAX_PERIOD_SOURCES, "source_inventory_limit_exceeded",
-                    )
-                candidates = []
-                for source in sources:
-                    cell = self._sleep(source, start, end, selection=True)
-                    self._read.check()
-                    ambiguous = sum(
-                        item["count"] for item in cell["exclusions"]
-                        if item["reason_code"].startswith("ambiguous_")
-                    )
-                    selection["options"].append({
-                        "source_identity": _identity(source),
-                        "eligible_count": cell["aggregation"]["eligible_count"],
-                        "ambiguous_record_count": ambiguous,
-                        "effective_dates": cell["effective_dates"],
-                        "exclusions": cell["exclusions"],
-                    })
-                    if requested or cell["aggregation"]["eligible_count"] or ambiguous:
-                        candidates.append((source, cell))
-                if requested:
-                    chosen = candidates[0]
-                    selection["state"] = "explicit"
-                elif len(candidates) == 1 and candidates[0][1]["aggregation"]["eligible_count"]:
-                    chosen = candidates[0]
-                    selection["state"] = "unique_eligible_source"
-                else:
-                    state = (
-                        "selection_required" if candidates
-                        else "no_eligible_values" if sources else "source_missing"
-                    )
-                    selection["state"] = state
-                    cell = self._incomplete(SLEEP_CODE, days, state)
-                    cell["state"] = state
-                    cell["coverage"] = _coverage_unknown(days)
-                cell["search"] = {"complete": True, "reason": None}
-            except bounded.IncompletePeriodRead as exc:
-                cell = self._incomplete(SLEEP_CODE, days, str(exc))
-                selection["state"] = "search_incomplete"
-            if chosen:
-                source, cell = chosen
-                cell["search"] = {"complete": True, "reason": None}
-                selection["selected_source_id"] = source.id
-                cell["source_identity"] = _identity(source)
-            else:
-                cell["source_identity"] = None
-            # A failed explicit read still retains its requested identity, while
-            # authoritative values/counts remain unknown.
-            if requested and cell["state"] == "search_incomplete":
-                cell["source_identity"] = _identity(source) if source else None
-                selection["selected_source_id"] = requested
-            selection["search"] = {
-                **cell["search"], "scope": "exact_source" if requested else "all_sources",
-            }
-            cell["source_selection"] = selection
-            self._sleep_fields(cell, side["provider_code"], start, days)
-            side["metrics"][SLEEP_CODE] = cell
+            side["metrics"][SLEEP_CODE] = self._sleep_source_cell(
+                model, side["provider_code"], start, end, requested,
+            )
         packet["deltas"][SLEEP_CODE] = self._delta(
             packet["sides"][0]["metrics"][SLEEP_CODE],
             packet["sides"][1]["metrics"][SLEEP_CODE],
         )
         packet["sleep_selection_read_limits"] = bounded.read_limits()
+
+    def _sleep_source_cell(self, model, provider_code, start, end, requested):
+        days = (end - start).days + 1
+        requested = requested or None
+        selection = {
+            "version": "sleep-window-selection-v1",
+            "mode": "explicit" if requested else "auto",
+            "requested_source_id": requested,
+            "selected_source_id": None,
+            "state": "no_eligible_values",
+            "options": [],
+        }
+        chosen = None
+        source = None
+        try:
+            if requested:
+                exact = self._rows(
+                    select(model).where(model.id == requested),
+                    bounded.MAX_METADATA_ROWS, "ancillary_row_limit_exceeded",
+                )
+                source = exact[0] if exact else None
+                if source is None or source.provider_code != provider_code:
+                    raise ValueError("unknown selected Sleep source")
+                sources = [source]
+            else:
+                sources = self._rows(
+                    select(model).where(model.provider_code == provider_code)
+                    .order_by(model.id),
+                    bounded.MAX_PERIOD_SOURCES, "source_inventory_limit_exceeded",
+                )
+            def read_candidate(source):
+                cell = self._sleep(source, start, end, selection=True)
+                self._read.check()
+                ambiguous = sum(
+                    item["count"] for item in cell["exclusions"]
+                    if item["reason_code"].startswith("ambiguous_")
+                )
+                selection["options"].append({
+                    "source_identity": _identity(source),
+                    "eligible_count": cell["aggregation"]["eligible_count"],
+                    "ambiguous_record_count": ambiguous,
+                    "effective_dates": cell["effective_dates"],
+                    "exclusions": cell["exclusions"],
+                })
+                return SourceCandidate(
+                    source, cell, cell["aggregation"]["eligible_count"], ambiguous,
+                )
+
+            decision = select_metric_source(
+                sources, read_candidate, requested=requested,
+                source_cap=bounded.MAX_PERIOD_SOURCES,
+            )
+            selection["state"] = decision.state
+            if decision.chosen:
+                chosen = (decision.chosen.source, decision.chosen.payload)
+                cell = decision.chosen.payload
+            else:
+                cell = self._incomplete(SLEEP_CODE, days, decision.state)
+                cell["state"] = decision.state
+                cell["coverage"] = _coverage_unknown(days)
+            cell["search"] = {"complete": True, "reason": None}
+        except bounded.IncompletePeriodRead as exc:
+            cell = self._incomplete(SLEEP_CODE, days, str(exc))
+            selection["state"] = "search_incomplete"
+        if chosen:
+            source, cell = chosen
+            cell["search"] = {"complete": True, "reason": None}
+            selection["selected_source_id"] = source.id
+            cell["source_identity"] = _identity(source)
+        else:
+            cell["source_identity"] = None
+        # A failed explicit read still retains its requested identity, while
+        # authoritative values/counts remain unknown.
+        if requested and cell["state"] == "search_incomplete":
+            cell["source_identity"] = _identity(source) if source else None
+            selection["selected_source_id"] = requested
+        selection["search"] = {
+            **cell["search"], "scope": "exact_source" if requested else "all_sources",
+        }
+        cell["source_selection"] = selection
+        self._sleep_fields(cell, provider_code, start, days)
+        return cell
 
     @staticmethod
     def _sleep_fields(cell, provider, start, days):
@@ -928,3 +932,22 @@ class PeriodSummaryService:
             else (right["aggregation"]["value"] - left["aggregation"]["value"]),
             "reason": reason,
         }
+
+
+def read_sleep_source_selection(session, *, provider, start, end, source_id=None):
+    """Same window discovery as Statistics, inside a caller-owned SQL guard.
+
+    Evidence callers already deny writes and bound SQL steps/time. Do not replace
+    or remove their progress handler or change their connection pragmas here.
+    """
+    if provider not in {"garmin", "google"} or not 1 <= (end - start).days + 1 <= 366:
+        raise ValueError("invalid Sleep selection window")
+    ensure_read_snapshot(session)
+    service = PeriodSummaryService(session)
+    with bounded.PeriodReadBudget(session, preserve_sql_guard=True) as budget:
+        service._read = budget
+        return service._sleep_source_cell(
+            GoogleSource if provider == "google" else GarminSource,
+            "google_health" if provider == "google" else "garmin_connect",
+            start, end, source_id,
+        )

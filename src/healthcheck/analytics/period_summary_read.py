@@ -45,17 +45,22 @@ class IncompletePeriodRead(Exception):
 
 
 class PeriodReadBudget:
-    def __init__(self, session):
+    def __init__(self, session, *, preserve_sql_guard=False):
         self.session = session
+        self.preserve_sql_guard = preserve_sql_guard
         self.deadline = monotonic() + READ_BUDGET_SECONDS
         self.driver = session.connection().connection.driver_connection
 
     def __enter__(self):
+        if self.preserve_sql_guard:
+            return self
         self.busy_timeout = self.driver.execute("PRAGMA busy_timeout").fetchone()[0]
         self.driver.set_progress_handler(lambda: int(monotonic() >= self.deadline), 1000)
         return self
 
     def __exit__(self, *exc):
+        if self.preserve_sql_guard:
+            return
         self.driver.set_progress_handler(None, 0)
         self.driver.execute(f"PRAGMA busy_timeout = {self.busy_timeout}")
 
@@ -68,7 +73,8 @@ class PeriodReadBudget:
         # SQLite VM callbacks do not run during lock waits. Bound that wait by
         # the remaining request budget too, then restore caller connection policy.
         remaining_ms = max(1, int((self.deadline - monotonic()) * 1000))
-        self.driver.execute(f"PRAGMA busy_timeout = {min(self.busy_timeout, remaining_ms)}")
+        if not self.preserve_sql_guard:
+            self.driver.execute(f"PRAGMA busy_timeout = {min(self.busy_timeout, remaining_ms)}")
         try:
             result = self.session.execute(query.limit(cap + 1))
             rows = list(result.scalars() if scalar else result)

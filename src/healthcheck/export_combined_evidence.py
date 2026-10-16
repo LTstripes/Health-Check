@@ -26,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--activity-garmin-source-id", required=True)
     parser.add_argument("--sleep-garmin-source-id")
     parser.add_argument("--sleep-google-source-id")
+    parser.add_argument("--sleep-google-auto-select", action="store_true",
+                        help="Select the unique eligible Google Sleep source in this window")
     parser.add_argument("--include-context", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--context-limit", type=int, default=50)
     parser.add_argument("--evaluation-local-date", required=True, type=date.fromisoformat,
@@ -47,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
             request=CombinedEvidenceRequest(
                 args.end_date, args.days, args.activity_garmin_source_id,
                 args.sleep_garmin_source_id, args.sleep_google_source_id,
-                args.include_context, args.context_limit),
+                args.include_context, args.context_limit, args.sleep_google_auto_select),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )
         machine = encode_combined_evidence(packet)
