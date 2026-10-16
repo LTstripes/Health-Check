@@ -717,6 +717,7 @@ def _window_already_current(
         else NORMALIZATION_CONTRACT_VERSION
     )
     with factory() as session:
+        hrv_day = None
         if surface.code == "hrv_status":
             source = session.get(GarminSource, observation.garmin_source_id)
             if source is None:
@@ -726,28 +727,34 @@ def _window_already_current(
                 device_attributed=source.device_attributed, device_code=source.device_code,
                 device_model=source.device_model, source_instance_id=source.source_instance_id,
             )
-            legacy = _legacy_hrv_row(session, source.id, identity)
-            if legacy is not None:
-                legacy_day = _legacy_hrv_day(session, store, legacy, identity)
-                if legacy_day is not None and local_start <= legacy_day <= local_end:
+            hrv_day = _hrv_raw_day(
+                session, store, observation.garmin_raw_payload_id, source.id, identity,
+                expected_artifact_id=observation.raw_artifact_id,
+            )
+            if hrv_day is not None:
+                if not local_start <= hrv_day <= local_end:
+                    return True
+                legacy = _legacy_hrv_row(session, source.id, identity)
+                if (
+                    legacy is not None
+                    and _legacy_hrv_day(session, store, legacy, identity) == hrv_day
+                ):
                     projected = restore_stored_utc(legacy.projection_observed_at) or (
                         restore_stored_utc(legacy.last_seen_at)
                     )
                     received = restore_stored_utc(observation.received_at)
                     if projected is not None and received is not None and received < projected:
-                        incoming_day = _hrv_raw_day(
-                            session, store, observation.garmin_raw_payload_id, source.id, identity,
-                            expected_artifact_id=observation.raw_artifact_id,
-                        )
-                        if incoming_day == legacy_day:
-                            # The newer legacy original already proves this exact day.
-                            # Do not expose an older value or consume every resume cap
-                            # before the newer overlapping acquisition can be applied.
-                            return True
+                        # The newer legacy original already proves this exact day.
+                        # Do not expose an older value or consume every resume cap
+                        # before the newer overlapping acquisition can be applied.
+                        return True
                     # A newer ordinary acquisition may already have restored the day,
                     # while its old undated identity still needs an atomic transition.
                     return False
-        rows = list(
+                # An acquisition window may span other HRV days. Only this
+                # original's returned day can prove it is already projected.
+                local_start = local_end = hrv_day
+        rows = [] if surface.code == "hrv_status" and hrv_day is None else list(
             session.scalars(
                 select(GarminSourceRecord).where(
                     GarminSourceRecord.garmin_source_id == observation.garmin_source_id,
@@ -779,6 +786,10 @@ def _window_already_current(
                 if observed_at is not None and (projected is None or observed_at > projected):
                     return False
             return True
+        if surface.code == "hrv_status" and hrv_day is not None:
+            # A current-version sibling records a previous range's attempt,
+            # not proof that this returned day survived that range's clipping.
+            return False
         siblings = [
             item
             for item in session.scalars(

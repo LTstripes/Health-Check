@@ -338,6 +338,79 @@ def test_older_overlapping_window_cannot_restore_a_stale_legacy_day(saved):
     assert len(projection(saved)) == 1
 
 
+def apply_stored(saved, start, end, *, cap=1, dry_run=False):
+    return reprocess.GarminCollectionReprocessor(saved[0])._run(
+        saved[1],
+        saved[2],
+        start=start,
+        end=end,
+        surfaces=(SURFACE,),
+        dry_run=dry_run,
+        cap=cap,
+    )
+
+
+def overlapping_different_days(saved):
+    later_day = DAY + timedelta(days=1)
+    # The first acquisition spans both days but returns only DAY. The
+    # collapsed legacy identity subsequently points at the later day's bytes.
+    persist(
+        saved,
+        later_day,
+        body=payload(DAY, 21),
+        legacy=True,
+        window_start=DAY,
+        at=RECEIPT,
+    )
+    persist(saved, later_day, value=43, legacy=True, at=RECEIPT + timedelta(hours=1))
+    return later_day
+
+
+def assert_originals_preserved(saved, before):
+    after = originals(saved)
+    for table, rows in before.items():
+        assert all(after[table][key] == value for key, value in rows.items())
+
+
+def test_bounded_resume_advances_between_different_returned_days(saved):
+    later_day = overlapping_different_days(saved)
+    before = originals(saved)
+    first = apply_stored(saved, DAY, later_day)
+    assert first.processed_count == 1 and first.remaining_observation_count == 1
+    assert {(r[1], r[3]) for r in projection(saved)} == {(DAY, 21), (None, 43)}
+    after_first = originals(saved)
+    # The pending legacy day must not make the already restored DAY consume
+    # the next cap. Dry-run and apply must agree about the remaining work.
+    planned = apply_stored(saved, DAY, later_day, dry_run=True)
+    assert planned.remaining_observation_count == 0
+    assert originals(saved) == after_first
+    second = apply_stored(saved, DAY, later_day)
+    assert second.processed_count == 1 and second.remaining_observation_count == 0
+    assert {(r[1], r[3]) for r in projection(saved)} == {(DAY, 21), (later_day, 43)}
+    converged = originals(saved)
+    third = apply_stored(saved, DAY, later_day)
+    assert third.processed_count == 0 and third.remaining_observation_count == 0
+    assert originals(saved) == converged
+    assert_originals_preserved(saved, before)
+
+
+@pytest.mark.parametrize("first_day", [DAY, DAY + timedelta(days=1)])
+def test_expanded_range_recovers_each_originals_own_day(saved, first_day):
+    later_day = overlapping_different_days(saved)
+    before = originals(saved)
+    first = apply_stored(saved, first_day, first_day, cap=10)
+    assert first.remaining_observation_count == 0
+    expected = {(DAY, 21), (None, 43)} if first_day == DAY else {(later_day, 43)}
+    assert {(r[1], r[3]) for r in projection(saved)} == expected
+    # A newer current row for another day, or an earlier clipped attempt,
+    # cannot stand in for the missing returned day when the range expands.
+    expanded = apply_stored(saved, DAY, later_day, cap=10)
+    assert expanded.processed_count == 1 and expanded.remaining_observation_count == 0
+    assert {(r[1], r[3]) for r in projection(saved)} == {(DAY, 21), (later_day, 43)}
+    assert apply_stored(saved, DAY, later_day, cap=10).processed_count == 0
+    assert_originals_preserved(saved, before)
+
+
 def test_identity_replacement_rolls_back_atomically(saved, monkeypatch):
     persist(saved, legacy=True)
     original = reprocess._supersede_legacy_hrv

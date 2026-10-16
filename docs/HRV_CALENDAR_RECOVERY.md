@@ -35,6 +35,11 @@ An older overlapping acquisition whose own verified bytes prove that same day
 cannot expose a stale dated value ahead of the newer legacy observation or
 consume every bounded-resume slot. Acquisition-window equality alone is not
 evidence that two HRV summaries describe the same day.
+Eligibility and resume use each original's verified returned day. A restored
+different day in the same acquisition window cannot consume another resume slot
+or hide a missing day. Originals outside the requested range remain eligible
+when a later request expands to include their returned day; a previous clipped
+attempt or another day's current projection is not proof of completion.
 
 ## Separately authorized operator procedure
 
