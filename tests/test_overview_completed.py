@@ -117,8 +117,21 @@ def test_real_readers_average_days_and_nights_not_samples_with_no_writes(databas
     assert sleep["days"] == stress["days"] == 7
     assert battery["selected"]["mean_display"] == "60"  # NOT (80+10+20+40)/4.
     assert [point["value"] for point in battery["figure"]["points"]] == [80, 40]
+    assert battery["figure"]["low"] == 0
     assert all(point["date"] < "2099-01-08" for point in sleep["figure"]["points"])
     assert result["completed_window"]["requested_end"] == "2099-01-08"
+
+
+@pytest.mark.parametrize("values", [(-10, -5), (-5, 10), (0,), (101,)])
+def test_battery_bars_keep_signed_finite_values_and_true_zero_axis(values):
+    figure = module.dated_chart([
+        {"date": f"2099-01-{index + 1:02d}", "value": value, "state": "present"}
+        for index, value in enumerate(values)
+    ], start=date(2099, 1, 1), end=date(2099, 1, 7), include_zero=True)
+    assert figure["low"] <= 0 <= figure["high"]
+    assert 24 <= figure["zero_y"] <= 104
+    assert [point["value"] for point in figure["points"]] == list(values)
+    assert all(24 <= point["y"] <= 104 for point in figure["points"])
 
 
 def test_today_only_window_has_no_fallback_or_reader_call(database, monkeypatch):

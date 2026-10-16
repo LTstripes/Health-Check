@@ -111,6 +111,6 @@ def read_completed_overview(session, settings, *, start, end, preset, source_id,
              "state": "partial" if any(item["record_status"] == "partial"
                                        for item in point["evidence"]) else "present"}
             for point in dto["daily_maxima"]
-        ], start=lower, end=upper) if dto["search"]["complete"] else None
+        ], start=lower, end=upper, include_zero=True) if dto["search"]["complete"] else None
     return {"completed_window": window, "period_sleep": sleep,
             "period_stress": stress, "body_battery": battery}

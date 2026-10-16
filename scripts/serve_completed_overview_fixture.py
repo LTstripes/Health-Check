@@ -52,6 +52,12 @@ def main():
     app, _ = create_ui_app(settings)
     paths = ["src/healthcheck/web/pages.py", "src/healthcheck/web/static/overview.css",
              "src/healthcheck/web/overview_completed.py", "tests/test_overview_completed.py",
+             "src/healthcheck/web/overview_charts.py", "src/healthcheck/web/sleep_view.py",
+             "src/healthcheck/web/overview_body_battery.py",
+             "src/healthcheck/web/garmin_query.py",
+             "src/healthcheck/garmin/body_battery_read.py",
+             "src/healthcheck/analytics/garmin_baselines.py",
+             "tests/test_stress_baseline.py", "tests/test_body_battery_read.py",
              "scripts/serve_completed_overview_fixture.py"]
     paths += [str(path.relative_to(ROOT)).replace("\\", "/")
               for path in (ROOT / "src/healthcheck/web/templates").glob("overview*.html")]
