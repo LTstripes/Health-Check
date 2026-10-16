@@ -137,6 +137,9 @@ def _read_period(session, query, result):
                 return dict(decision.chosen.payload, query=result["query"],
                             available_sources=result["available_sources"],
                             source_selection=selection)
+            if decision.state == "no_eligible_values" and len(decision.candidates) == 1:
+                return dict(decision.candidates[0].payload, query=result["query"],
+                            source_selection=selection)
             state = {"selection_required": "ambiguous", "source_missing": "unavailable",
                      "no_eligible_values": "no_eligible_in_period"}.get(
                          decision.state, decision.state)

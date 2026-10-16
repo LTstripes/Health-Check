@@ -52,7 +52,7 @@ const base = 'http://127.0.0.1:8120';
     fs.mkdirSync(evidence, {recursive: true});
     for (const width of [1024, 1440]) {
       await page.setViewportSize({width, height: 1000});
-      for (const scenario of ['saved', 'conflict', 'zero', 'ambiguous', 'cap', 'error']) {
+      for (const scenario of ['saved', 'auto', 'conflict', 'zero', 'ambiguous', 'cap', 'error']) {
         mode = scenario;
         await page.goto(base + '/imports');
         await page.waitForFunction(() => document.querySelector('#saved-sleep-results').getAttribute('aria-busy') === 'false');
@@ -62,13 +62,13 @@ const base = 'http://127.0.0.1:8120';
         const rect = await section.boundingBox();
         const nav = await page.locator('.owner-nav').boundingBox();
         assert.ok(!nav || rect.y > nav.y + nav.height, 'sleep card overlaps sticky navigation');
-        assert.equal(await section.locator('pre, details').count(), 0, 'no technical wall');
+        assert.equal(await section.locator('pre').count(), 0, 'no technical wall');
         if (scenario === 'error') {
           assert.equal(await section.locator('[role="alert"]').count(), 1);
           assert.doesNotMatch(await section.innerText(), /synthetic-secret/);
         } else {
           assert.equal(await section.locator('[data-sleep-provider]').count(), 2);
-          if (scenario === 'saved') {
+          if (scenario === 'saved' || scenario === 'auto') {
             assert.match(await section.innerText(), /8 ч 0 мин/);
             assert.match(await section.innerText(), /6 ч 50 мин/);
             for (const dto of read('saved').items) {
@@ -78,6 +78,19 @@ const base = 'http://127.0.0.1:8120';
               assert.ok((await card.innerText()).includes(`Возраст: ${dto.observation.observation_age_days} дн.`));
               assert.doesNotMatch(await card.innerText(), /\d{4}-\d{2}-\d{2}/);
             }
+          }
+          if (scenario === 'auto') {
+            const card = section.locator('[data-sleep-provider="google"]');
+            assert.equal(read('auto').items[1].available_sources.length, 5);
+            assert.equal(await card.locator('details:not([open])').count(), 1);
+            assert.equal(await card.locator('select').isVisible(), false);
+            assert.equal(await card.locator('.saved-sleep-duration').count(), 1);
+            await card.locator('summary').focus();
+            await page.keyboard.press('Enter');
+            assert.equal(await card.locator('select').isVisible(), true);
+            assert.equal(await card.locator('select').inputValue(), '');
+            await page.keyboard.press('Enter');
+            checks.push({width, automatic_google_value_without_choice: 'PASS'});
           }
           if (scenario === 'conflict') assert.match(await section.innerText(), /Более новые ночи с конфликтом/);
           if (scenario === 'zero') {
@@ -105,7 +118,8 @@ const base = 'http://127.0.0.1:8120';
           await page.keyboard.press('Enter');
           await page.waitForFunction(() => document.querySelector('#saved-sleep-results').getAttribute('aria-busy') === 'false');
           assert.equal(await page.evaluate(() => document.activeElement.id), 'sleep-source-google');
-          assert.equal(await section.locator('[data-sleep-provider="google"] .saved-sleep-duration').count(), 1);
+          assert.equal(await section.locator('[data-sleep-provider="google"] .saved-sleep-duration').count(),
+            Number(Boolean(read('selected').items[1].observation)));
           checks.push({width, keyboard_source_choice: 'PASS'});
         }
       }
@@ -124,7 +138,8 @@ const base = 'http://127.0.0.1:8120';
     assert.deepEqual(external, []); assert.deepEqual(errors, []);
     assert.ok(calls.every(call => call.method === 'GET'));
     const inputs = [
-      'src/healthcheck/saved_sleep.py', 'src/healthcheck/web/imports.py',
+      'src/healthcheck/saved_sleep.py', 'src/healthcheck/metric_source_selection.py',
+      'src/healthcheck/web/imports.py',
       'src/healthcheck/web/templates/imports.html', 'src/healthcheck/web/static/data_saved_sleep.js',
       'scripts/prepare_data_saved_sleep_browser.py', 'scripts/check_data_saved_sleep_browser.cjs',
     ].map(file => ({file, sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')}));

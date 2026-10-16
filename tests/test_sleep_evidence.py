@@ -537,6 +537,6 @@ def test_auto_discovery_preserves_caller_sql_guard_and_write_denial(profile):
         with pytest.raises(DatabaseError):
             session.execute(text("INSERT INTO google_sources (id) VALUES ('forbidden')"))
         with pytest.raises(DatabaseError):
-            session.execute(text("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL "
-                                 "SELECT x+1 FROM n WHERE x < 1000000) SELECT sum(x) FROM n"))
+            session.execute(text("SELECT count(*) FROM sqlite_master a, "
+                                 "sqlite_master b, sqlite_master c"))
         assert len(calls) > 1000

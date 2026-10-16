@@ -402,3 +402,27 @@ def test_google_auto_never_pools_or_ignores_competing_or_incomplete_series(
         explicit = read_saved_rhr_period(session, replace(query, source_id=exact_id))
         assert explicit["mean_display"] == 60 and explicit["eligible_day_count"] == 1
         session.rollback()
+
+
+def test_single_google_no_eligible_auto_preserves_exact_disclosure(saved_engine):
+    from sqlalchemy.orm import Session
+
+    from healthcheck.db.models import GoogleSource
+    from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+    from healthcheck.saved_values import GOOGLE_RHR
+    from test_google_daily_vitals import _daily_record, _persist
+
+    engine, paths = saved_engine
+    with Session(engine, autoflush=False) as session:
+        _persist(session, ContentAddressedGooglePayloadStore(paths.root / "google"),
+                 _daily_record(metric_code=GOOGLE_RHR, local_date=DAY, value=50, unit="ms"))
+        source = session.scalar(select(GoogleSource))
+        query = SavedRhrPeriodQuery("google_health", GOOGLE_RHR, DAY, DAY, NOW, DAY)
+        auto = read_saved_rhr_period(session, query)
+        explicit = read_saved_rhr_period(session, replace(query, source_id=source.id))
+        assert {k: v for k, v in auto.items() if k not in {"query", "source_selection"}} == {
+            k: v for k, v in explicit.items() if k != "query"}
+        assert auto["eligible_day_count"] == 0 and auto["excluded_day_count"] == 1
+        assert auto["search"]["records_examined"] == 1 and auto["exclusions"]
+        assert auto["source_selection"]["state"] == "no_eligible_values"
+        session.rollback()

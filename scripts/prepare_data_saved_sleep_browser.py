@@ -21,6 +21,7 @@ from healthcheck.db.models import (  # noqa: E402
     GoogleSourceRecord,
 )
 from healthcheck.google.contracts import GoogleSourceIdentity, GoogleSourceKind  # noqa: E402
+from healthcheck.google.persistence import GoogleSourceRepository  # noqa: E402
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor  # noqa: E402
 from test_dashboard_ui import _ui  # noqa: E402
 from test_sleep_metrics import _google_sleep_payload, _persist_garmin, _persist_google  # noqa: E402
@@ -61,6 +62,13 @@ def main():
                 response.raise_for_status()
                 (output / f"{name}.json").write_text(json.dumps(response.json()), encoding="utf-8")
             capture(client, "saved")
+            with session_scope(engine) as session:
+                for index in range(4):
+                    GoogleSourceRepository(session).get_or_create(GoogleSourceIdentity(
+                        source_kind=GoogleSourceKind.DATA_SOURCE,
+                        source_instance_id=f"synthetic-irrelevant-{index}", platform="fitbit",
+                    ))
+            capture(client, "auto")
             with session_scope(engine) as session:
                 for name in ("newer-main-one", "newer-main-two"):
                     _persist_google(session, paths, payload=_google_sleep_payload(name=name))
