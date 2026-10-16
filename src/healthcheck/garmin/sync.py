@@ -44,6 +44,7 @@ from healthcheck.garmin.capabilities import (
 )
 from healthcheck.garmin.contracts import is_forbidden_payload_key
 from healthcheck.garmin.normalization import (
+    HRV_CALENDAR_CONTRACT_VERSION,
     PROVIDER_SOURCE_KIND,
     GarminFieldState,
     GarminMetricDTO,
@@ -710,6 +711,15 @@ def _prepare_normalization_result(
         mapping = mapped if isinstance(mapped, Mapping) else {}
     if not isinstance(mapping, Mapping):
         mapping = {}
+    if surface.code == "hrv_status":
+        result = replace(result, contract_version=HRV_CALENDAR_CONTRACT_VERSION)
+    if surface.code == "hrv_status" and any(
+        record.temporal.precision is not GarminTemporalPrecision.DATE_ONLY
+        for record in result.records
+    ):
+        # An acquisition window or a sleep clock cannot give an HRV summary its day.
+        # Keep the raw/diagnostics, without another unknown-time current identity.
+        return replace(result, records=(), status=GarminParseStatus.PARTIAL)
     sample_records = _series_records(surface, mapping, result, day=day)
     records = [_reconcile_record(surface, item) for item in (*result.records, *sample_records)]
     status = result.status
@@ -979,6 +989,8 @@ def _coverage_status_for(
     *,
     day: date | None = None,
 ) -> str:
+    if surface.code == "hrv_status" and payload and not result.records:
+        return "unknown"
     if surface.code == "body_battery" and _is_sequence(payload):
         attribution = _classify_body_battery_payload(payload, day)
         if attribution == "empty":

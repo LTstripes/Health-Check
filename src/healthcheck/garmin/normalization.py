@@ -46,6 +46,7 @@ from healthcheck.garmin.contracts import (
 )
 
 NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v2"
+HRV_CALENDAR_CONTRACT_VERSION = "r02-garmin-hrv-calendar-normalization-v3"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 SYNTHETIC_SOURCE_KIND = "synthetic"
 PROVIDER_SOURCE_KIND = "provider"
@@ -1090,6 +1091,12 @@ def normalize_garmin_payload(
         diagnostics=tuple(diagnostics),
         unknown_fields=tuple(unknown_fields),
         fixture_id=envelope["fixture_id"],
+        contract_version=(
+            HRV_CALENDAR_CONTRACT_VERSION
+            if normalized_stream is GarminStream.DAILY_HEALTH
+            and isinstance(payload, Mapping) and "hrvSummary" in payload
+            else NORMALIZATION_CONTRACT_VERSION
+        ),
     )
 
 
@@ -1396,6 +1403,38 @@ def _parse_record_temporal(
     )
 
 
+def _parse_hrv_calendar(
+    raw: Mapping[str, Any], source_path: str
+) -> tuple[GarminTemporalDTO, list[GarminDiagnostic]]:
+    """HRV summaries belong to their explicit calendar day, not a sleep clock."""
+    paths = ("hrvSummary.calendarDate", *_CALENDAR_PATHS)
+    present = [(path, _read_path(raw, path)) for path in paths]
+    present = [(path, value) for path, value in present if value is not _MISSING]
+    if not present:
+        return GarminTemporalDTO(precision="unknown"), []
+    days = []
+    for path, value in present:
+        if not isinstance(value, str) or not _DATE_ONLY_RE.fullmatch(value):
+            day = None
+        else:
+            day = _parse_date(value)
+        if day is None:
+            return GarminTemporalDTO(precision="unknown"), [
+                _diag("hrv_calendar_date_invalid", f"{source_path}.{path}", "error")
+            ]
+        days.append(day)
+    if len(set(days)) != 1:
+        return GarminTemporalDTO(precision="unknown"), [
+            _diag("hrv_calendar_date_conflict", source_path, "error")
+        ]
+    field = f"{source_path}.{present[0][0]}"
+    return GarminTemporalDTO(
+        precision=GarminTemporalPrecision.DATE_ONLY,
+        local_date=days[0], source_field=field, local_date_source=field,
+        source_local_field=field,
+    ), []
+
+
 def _merge_paired_temporal(
     *,
     local_temporal: GarminTemporalDTO | None,
@@ -1490,7 +1529,10 @@ def _parse_record(
             _diag("record_id_shape_drift", f"{source_path}.{record_id_path}", "error")
         )
 
-    temporal, temporal_diagnostics = _parse_record_temporal(raw, source_path)
+    if stream is GarminStream.DAILY_HEALTH and "hrvSummary" in raw:
+        temporal, temporal_diagnostics = _parse_hrv_calendar(raw, source_path)
+    else:
+        temporal, temporal_diagnostics = _parse_record_temporal(raw, source_path)
     diagnostics.extend(temporal_diagnostics)
     if temporal.precision is GarminTemporalPrecision.UNKNOWN:
         diagnostics.append(_diag("missing_time", source_path, "warning"))

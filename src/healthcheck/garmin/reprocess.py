@@ -7,6 +7,7 @@ or historical checkpoints.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -20,6 +21,7 @@ from healthcheck.db.engine import create_session_factory, create_sqlite_engine, 
 from healthcheck.db.models import (
     CoverageInterval,
     GarminPayloadObservation,
+    GarminRawPayload,
     GarminSource,
     GarminSourceRecord,
     RawArtifact,
@@ -29,12 +31,17 @@ from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.garmin.capabilities import GARMIN_PROVIDER_CODE
 from healthcheck.garmin.normalization import (
+    HRV_CALENDAR_CONTRACT_VERSION,
     NORMALIZATION_CONTRACT_VERSION,
     GarminSourceIdentity,
+    GarminTemporalDTO,
+    GarminTemporalPrecision,
     normalize_garmin_payload,
+    stable_garmin_reconciliation_key,
 )
 from healthcheck.garmin.persistence import (
     PROJECTION_CURRENT,
+    PROJECTION_RETIRED,
     RECONCILIATION_CONTRACT_VERSION,
     GarminPersistenceRepository,
 )
@@ -59,6 +66,7 @@ REPROCESS_CONTRACT_VERSION = "r02-garmin-collection-reprocess-v1"
 REPROCESS_RUN_STREAM = "garmin_reprocess"
 MAX_REPROCESS_OBSERVATIONS = 140
 MAX_REPROCESS_SPAN_DAYS = 3660
+MAX_HRV_ARTIFACT_BYTES = 1024 * 1024
 _SURFACE_BY_CODE = {item.code: item for item in PRODUCTION_SYNC_SURFACES}
 _SURFACE_BY_FILENAME = {f"{item.code}.json": item for item in PRODUCTION_SYNC_SURFACES}
 
@@ -277,7 +285,7 @@ class GarminCollectionReprocessor:
         skipped_current = 0
         for observation in candidates:
             if _window_already_current(
-                factory, observation, request_start=start, request_end=end
+                factory, observation, store=store, request_start=start, request_end=end
             ):
                 skipped_current += 1
             else:
@@ -406,7 +414,13 @@ class GarminCollectionReprocessor:
                 raise RuntimeError("Garmin observation references a missing raw artifact")
             if source is None:
                 raise RuntimeError("Garmin observation references a missing source")
-            raw_bytes = store.read(artifact.relative_storage_path)
+            if surface.code == "hrv_status":
+                raw_bytes = _verified_hrv_bytes(
+                    session, store, observation.garmin_raw_payload_id,
+                    source.id, expected_artifact_id=artifact.id,
+                )
+            else:
+                raw_bytes = store.read(artifact.relative_storage_path)
             identity = GarminSourceIdentity(
                 source_kind=source.source_kind,
                 provider_code=source.provider_code,
@@ -415,7 +429,10 @@ class GarminCollectionReprocessor:
                 device_model=source.device_model,
                 source_instance_id=source.source_instance_id,
             )
-        payload = json.loads(raw_bytes.decode("utf-8"))
+        payload = (
+            json.loads(raw_bytes.decode("utf-8"), object_pairs_hook=_unique_hrv_keys)
+            if surface.code == "hrv_status" else json.loads(raw_bytes.decode("utf-8"))
+        )
         obs_start = window_start.date()
         obs_end = (window_end - timedelta(microseconds=1)).date()
         scope_start = max(obs_start, request_start)
@@ -456,8 +473,130 @@ class GarminCollectionReprocessor:
                 ),
                 allow_per_row_stale_reconciliation=True,
             )
+            if (
+                surface.code == "hrv_status" and fetch_complete
+                and coverage_status == "present" and result.records
+            ):
+                retired = _supersede_legacy_hrv(
+                    session, store, identity, outcome, result, received_at,
+                    request_start, request_end,
+                )
+                outcome = replace(outcome, retired_count=outcome.retired_count + retired)
             session.commit()
             return outcome
+
+
+def _unique_hrv_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate HRV JSON key")
+        result[key] = value
+    return result
+
+
+def _verified_hrv_bytes(session, store, raw_id, source_id, *, expected_artifact_id=None):
+    raw = session.get(GarminRawPayload, raw_id)
+    artifact = session.get(RawArtifact, raw.raw_artifact_id) if raw is not None else None
+    if (
+        raw is None or artifact is None or raw.garmin_source_id != source_id
+        or raw.stream_code != "daily_health" or raw.payload_format != "json"
+        or (expected_artifact_id is not None and artifact.id != expected_artifact_id)
+        or artifact.byte_size > MAX_HRV_ARTIFACT_BYTES
+    ):
+        raise ValueError("HRV original provenance or byte bound unproven")
+    content = store.read(artifact.relative_storage_path, max_bytes=MAX_HRV_ARTIFACT_BYTES)
+    if (
+        len(content) != artifact.byte_size or artifact.content_hash != raw.content_hash
+        or hashlib.sha256(content).hexdigest() != raw.content_hash
+    ):
+        raise ValueError("HRV original integrity mismatch")
+    return content
+
+
+def _legacy_hrv_row(session, source_id, identity):
+    old_key = stable_garmin_reconciliation_key(
+        identity, "daily_health", surface="hrv_status",
+        temporal=GarminTemporalDTO(precision="unknown"),
+    )
+    return session.scalar(select(GarminSourceRecord).where(
+        GarminSourceRecord.garmin_source_id == source_id,
+        GarminSourceRecord.idempotency_key == old_key,
+        GarminSourceRecord.surface_code == "hrv_status",
+        GarminSourceRecord.stream_code == "daily_health",
+        GarminSourceRecord.projection_status == PROJECTION_CURRENT,
+        GarminSourceRecord.source_local_date.is_(None),
+        GarminSourceRecord.source_timestamp_utc.is_(None),
+        GarminSourceRecord.temporal_precision == "unknown",
+        GarminSourceRecord.normalization_contract_version.in_([
+            "r02-garmin-normalization-contract-v1", "r02-garmin-normalization-contract-v2",
+        ]),
+        GarminSourceRecord.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION,
+    ))
+
+
+def _legacy_hrv_day(session, store, legacy, identity):
+    return _hrv_raw_day(session, store, legacy.raw_payload_id, legacy.garmin_source_id, identity)
+
+
+def _hrv_raw_evidence(session, store, raw_id, source_id, identity, *, expected_artifact_id=None):
+    original = json.loads(
+        _verified_hrv_bytes(
+            session, store, raw_id, source_id, expected_artifact_id=expected_artifact_id,
+        ),
+        object_pairs_hook=_unique_hrv_keys,
+    )
+    result = normalize_garmin_payload(
+        original, stream="daily_health", source_identity=identity,
+    )
+    return original, result
+
+
+def _hrv_result_day(result):
+    if len(result.records) != 1:
+        return None
+    temporal = result.records[0].temporal
+    return temporal.local_date if temporal.precision is GarminTemporalPrecision.DATE_ONLY else None
+
+
+def _hrv_raw_day(session, store, raw_id, source_id, identity, *, expected_artifact_id=None):
+    _, result = _hrv_raw_evidence(
+        session, store, raw_id, source_id, identity, expected_artifact_id=expected_artifact_id,
+    )
+    return _hrv_result_day(result)
+
+
+def _supersede_legacy_hrv(session, store, identity, outcome, result, received, start, end):
+    """Replace only the proven old undated singleton; never infer a day from scope."""
+    if len(result.records) != 1:
+        return 0
+    day = result.records[0].temporal.local_date
+    if day is None or not start <= day <= end or outcome.stale_ignored:
+        return 0
+    legacy = _legacy_hrv_row(session, outcome.source.id, identity)
+    if legacy is None:
+        return 0
+    projected = restore_stored_utc(legacy.projection_observed_at) or restore_stored_utc(
+        legacy.last_seen_at
+    )
+    if projected is None or received < projected:
+        return 0
+    if _legacy_hrv_day(session, store, legacy, identity) != day:
+        return 0
+    replacement = next((row for row in outcome.records if (
+        row.source_local_date == day and row.projection_status == PROJECTION_CURRENT
+        and row.normalization_contract_version == HRV_CALENDAR_CONTRACT_VERSION
+        and row.raw_payload_id == outcome.raw_payload.id
+    )), None)
+    if replacement is None:
+        return 0
+    legacy.projection_status = PROJECTION_RETIRED
+    legacy.retired_at = received
+    legacy.retire_reason = "hrv_calendar_identity_superseded_v3"
+    legacy.projection_observed_at = received
+    legacy.updated_at = received
+    session.flush()
+    return 1
 
 
 def _observation_window_key(observation: GarminPayloadObservation) -> tuple[str, str, str, str]:
@@ -569,6 +708,7 @@ def _window_already_current(
     factory,
     observation: GarminPayloadObservation,
     *,
+    store: ContentAddressedGarminPayloadStore,
     request_start: date,
     request_end: date,
 ) -> bool:
@@ -580,11 +720,67 @@ def _window_already_current(
     local_end = min((window_end - timedelta(microseconds=1)).date(), request_end)
     if local_start > local_end:
         return True
+    clipped = (local_start, local_end) != (
+        window_start.date(), (window_end - timedelta(microseconds=1)).date(),
+    )
     surface = _SURFACE_BY_FILENAME.get(observation.source_filename or "")
     if surface is None:
         return False
+    expected_normalization = (
+        HRV_CALENDAR_CONTRACT_VERSION if surface.code == "hrv_status"
+        else NORMALIZATION_CONTRACT_VERSION
+    )
     with factory() as session:
-        rows = list(
+        hrv_day = None
+        legacy_transition_pending = False
+        if surface.code == "hrv_status":
+            source = session.get(GarminSource, observation.garmin_source_id)
+            if source is None:
+                return False
+            identity = GarminSourceIdentity(
+                source_kind=source.source_kind, provider_code=source.provider_code,
+                device_attributed=source.device_attributed, device_code=source.device_code,
+                device_model=source.device_model, source_instance_id=source.source_instance_id,
+            )
+            hrv_payload, hrv_result = _hrv_raw_evidence(
+                session, store, observation.garmin_raw_payload_id, source.id, identity,
+                expected_artifact_id=observation.raw_artifact_id,
+            )
+            hrv_day = _hrv_result_day(hrv_result)
+            if hrv_day is not None:
+                if not local_start <= hrv_day <= local_end:
+                    return True
+                legacy = _legacy_hrv_row(session, source.id, identity)
+                if (
+                    legacy is not None
+                    and _legacy_hrv_day(session, store, legacy, identity) == hrv_day
+                ):
+                    projected = restore_stored_utc(legacy.projection_observed_at) or (
+                        restore_stored_utc(legacy.last_seen_at)
+                    )
+                    received = restore_stored_utc(observation.received_at)
+                    if projected is not None and received is not None and received < projected:
+                        # The newer legacy original already proves this exact day.
+                        # Do not expose an older value or consume every resume cap
+                        # before the newer overlapping acquisition can be applied.
+                        return True
+                    prepared = _prepare_normalization_result(
+                        surface, hrv_payload, hrv_result, day=hrv_day,
+                    )
+                    if (
+                        not clipped and _reconstruct_fetch_complete(surface, hrv_payload)
+                        and _coverage_status_for(
+                            surface, prepared, hrv_payload, day=hrv_day,
+                        ) == "present"
+                    ):
+                        # A pending transition still has to pass the dated
+                        # projection's chronology check below. Clipped/unknown
+                        # coverage cannot force an impossible transition.
+                        legacy_transition_pending = True
+                # An acquisition window may span other HRV days. Only this
+                # original's returned day can prove it is already projected.
+                local_start = local_end = hrv_day
+        rows = [] if surface.code == "hrv_status" and hrv_day is None else list(
             session.scalars(
                 select(GarminSourceRecord).where(
                     GarminSourceRecord.garmin_source_id == observation.garmin_source_id,
@@ -609,13 +805,19 @@ def _window_already_current(
                     continue
                 version_current = (
                     row.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
-                    and row.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
+                    and row.normalization_contract_version == expected_normalization
                 )
                 if not version_current:
                     return False
                 if observed_at is not None and (projected is None or observed_at > projected):
                     return False
+                if legacy_transition_pending:
+                    return False
             return True
+        if surface.code == "hrv_status" and hrv_day is not None:
+            # A current-version sibling records a previous range's attempt,
+            # not proof that this returned day survived that range's clipping.
+            return False
         siblings = [
             item
             for item in session.scalars(
@@ -634,7 +836,7 @@ def _window_already_current(
                 latest = item
         return (
             latest.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
-            and latest.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
+            and latest.normalization_contract_version == expected_normalization
         )
 
 
