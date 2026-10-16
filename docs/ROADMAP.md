@@ -4,7 +4,32 @@ The roadmap is organized as usable vertical releases. Each release must work loc
 
 Future ideas not committed to a task live in [Backlog Ideas](BACKLOG_IDEAS.md). Issues own detailed contracts; this document owns sequence and dependencies, not another copy of every Worker prompt.
 
-## Current #357 follow-up - 2026-10-15
+## Current #433/#434 checkpoint - 2026-10-16
+
+Accepted product is
+[`main b169f839dcb36d4c98cf490f8074394fd2a4a183`](https://github.com/LTstripes/Health-Check/commit/b169f839dcb36d4c98cf490f8074394fd2a4a183),
+with [exact post-main CI 38885039993, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38885039993)
+SUCCESS. The [current Wiki receipts](PROJECT_WIKI.md#current-canonical-state)
+bind both newly integrated slices and their independent acceptance:
+
+- **#341 / PR #433:** bounded transport-independent Activity + optional Context
+  evidence service, reusing accepted source-specific 7/30-day summary cells.
+  Direct ChatGPT connection is not implemented; #341 remains OPEN.
+- **#305/#376 / PR #434:** latest eligible saved sleep in Data, separately for
+  Garmin and Google, with persisted local wake date and civil-day age independent
+  of refresh. Source choice, eligibility, missing/conflicts and saved history
+  remain explicit. RHR is already delivered; neither slice is a new assignment.
+
+Installed Stable is separately `75d18763b6258900e72c4bf9e88e5fa123661025`.
+**#433 and #434 are not deployed there.** Their engineering acceptance and
+synthetic evidence do not establish direct data connectivity, Owner UAT or real
+profile performance. A selected rollout/UAT, private-profile measurement or
+connection requires its own authorized scope; these docs perform none of them.
+#341, #305 and #376 stay OPEN. Only their bounded status/next-delta rows below
+are reconciled here; unrelated rows and earlier checkpoints retain dated scope
+and must be checked against their owning issues before a new assignment.
+
+## Previous #357 follow-up - 2026-10-15
 
 The source-only daily stress adapter and applicability correction are integrated
 ([PR #425](https://github.com/LTstripes/Health-Check/pull/425),
@@ -60,11 +85,12 @@ need to be repeated. None of these rows launches a Worker, provider call or Stab
 | **#379 — A+ style umbrella** | Remaining scoped style/Owner acceptance only; preserve exact raw values and rows in disclosure | Weight numeric polish and #408 readable dates delivered; do not repeat #375 history or formatting slice |
 | **#347 + #342 — Statistics sources** | General per-metric eligible-source discovery/autoselection under its own contract, no pooling | #411 provider-first presentation merged; metadata inventory is not metric eligibility; Sleep-only #342 default remains separate |
 | **#294 — Comments** | Durable-profile save/edit/timezone-persistence Owner UAT; Stage B weight-goal Settings deferred | Primary navigation and city/IANA chooser delivered; no repeat UI assignment |
-| **#305 + #376 — Data and dated evidence** | Eligible saved metric value/date/age and clone snapshot age adapters | #409 compact status/action and stream disclosure merged; generic evidence dates are not eligible metric dates; #305 stays OPEN |
+| **#341 — Conversational evidence** | Separately decide access/auth/transport before direct ChatGPT connection; authorize any private-profile validation and real performance measurement independently | Sleep #413 and Activity #433 bounded services delivered; existing export/MCP retained; direct connection and Owner UAT unverified; umbrella OPEN |
+| **#305 + #376 — Data and dated evidence** | Individually scoped adapters beyond delivered RHR and sleep; separate clone snapshot age policy | #434 saved sleep delivered with true wake date/age, source eligibility and history; no refresh-age substitution or age threshold; #305/#376 OPEN |
 | **#380 — Statistics history** | 365/CY/YTD already integrated; separately bound all-history request and eligible coverage before implementation | Do not repeat accepted 365/year backend/UI; calories blocked |
 | **#319 — Energy/calories** | One authoritative field unit/category/interval/inclusion + separately authorized saved-coverage proof | BLOCKED; existing max-HR/anaerobic B1 already merged; no active+resting addition |
 | **#378 / #345 — Activity** | Remaining Owner-led functional discovery and acceptance; no speculative redesign | Detail/A-B and Statistics session drilldown delivered; #408 duration/km follow-up merged |
-| **#330 — Owner operations** | Separately authorized night-code rollout and human UAT, including Google #406 live verification | Daytime Stable rollout receipt proves aca4b8f; #407–#411 not installed. Synthetic Google fix is not live recovery |
+| **#330 — Owner operations** | Separately authorize any selected #433/#434 rollout and human UAT; Google #406 live verification remains a separate gate | Installed Stable is 75d1876; #433/#434 are not deployed. Synthetic evidence is not live recovery, direct connectivity or real-profile performance proof |
 | **#357 - personal stress baseline** | Independent review of authorized Overview mean/Moscow card candidate, then Owner UAT; preserve fixed D, original Garmin values and explicit policy/source proof | Backend #425/#426/#428/#430 integrated; bounded mean real-copy GO/BLOCKED recorded, UI review/UAT OPEN, no rollout |
 | **#348 - later** | Laboratory evidence research on separate Owner direction | Deferred, no unverified health inference |
 
@@ -189,11 +215,11 @@ Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #18
 
 ### Source freshness / data quality
 
-#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics/compact presentation and #295 indexed Google/request-local Overview reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility was repaired via #340/#353; #376 latest eligible RHR reader/Overview consumer is delivered, while broader eligible metric value/date/age and clone-age adapters remain open. Keep request performance, collection health, data completeness and human acceptance separate.
+#147/#191/#193/#238 provide shared persisted freshness and explicit collection intent. #305 request diagnostics/compact presentation and #295 indexed Google/request-local Overview reads are integrated. The observed source-freshness request completes; #342 accepted historical clone data classification but not current provider recovery. RHR surface eligibility was repaired via #340/#353; #376 latest eligible RHR reader/Overview/Data consumer is delivered. #434 adds separately sourced latest eligible saved sleep in Data with persisted wake date/civil-day age and retained history, independent of refresh. Other eligible metric value/date/age adapters and clone-age policy remain open. Keep request performance, collection health, data completeness and human acceptance separate.
 
 ### Hardware/private Owner gates
 
-#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is not planned; screenshots remain the Weight workflow. Comments navigation/city-IANA UI is included in the daytime installed Stable `aca4b8f…`; durable save/edit/timezone-persistence Owner UAT remains separate. See the [rollout receipt attribution](PROJECT_WIKI.md#current-canonical-state).
+#215 completed the first real private Context note/read-back. #148 off-site recovery is complete with a verified Google Drive ZIP and clean restore rehearsal. #153 is not planned; screenshots remain the Weight workflow. Comments navigation/city-IANA UI is delivered; durable save/edit/timezone-persistence Owner UAT remains separate. See the [current Stable boundary and dated rollout receipts](PROJECT_WIKI.md#current-canonical-state).
 
 ### Owner UI
 
@@ -216,7 +242,7 @@ all-history and unsupported new fields remain separately gated. See
 
 ## R06 — Context and read-only conversational evidence
 
-Context v0 and historical Stable proof #215 are accepted. **Portal comments #294 Stage A** and **standalone health + Context evidence #341 Stage A** are merged into GitHub main. Durable Owner UAT and first real private export remain UNVERIFIED; in-app sharing and authenticated direct ChatGPT access are future scoped steps, not shipped. Telegram remains optional; no unrestricted SQL, LLM raw-series arithmetic or provider actions. R06 as a whole is not yet declared released.
+Context v0 and historical Stable proof #215 are accepted. **Portal comments #294 Stage A** and **standalone health + Context evidence #341 Stage A** are merged into GitHub main. #413 Sleep and #433 Activity add bounded transport-independent source-specific services with optional current Context, retaining existing export/MCP and Period Brief contracts. Historical first Owner-private manual ChatGPT sharing is confirmed by the [accepted #341 decision](https://github.com/LTstripes/Health-Check/issues/341#issuecomment-6089709656); it is not UAT for these new services. New Sleep/Activity Owner UAT and real-profile performance remain UNVERIFIED; direct ChatGPT connection remains deferred and unverified, while in-app sharing requires a separate scoped decision. #341 remains OPEN and parked. Telegram remains optional; no unrestricted SQL, LLM raw-series arithmetic or provider actions. R06 as a whole is not yet declared released.
 
 ## R07 — Saved reports and delivery
 
