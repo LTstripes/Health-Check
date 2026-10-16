@@ -1,4 +1,4 @@
-﻿# Self-contained Windows PowerShell 5.1 synthetic regression; no Owner roots/data.
+# Self-contained Windows PowerShell 5.1 synthetic regression; no Owner roots/data.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot '..\scripts\cleanup-workspaces.ps1')
@@ -48,6 +48,18 @@ function Old([string]$Path) {
     $entries = @(Get-ChildItem -LiteralPath $Path -Force -Recurse) | Sort-Object { $_.FullName.Length } -Descending
     foreach ($entry in $entries) { $attributes=$entry.Attributes; if (-not $entry.PSIsContainer) { $entry.Attributes=$attributes -band (-bnot [IO.FileAttributes]::ReadOnly) }; $entry.LastWriteTimeUtc=$time; $entry.Attributes=$attributes }
     [IO.Directory]::SetLastWriteTimeUtc($Path, $time)
+    # Synthetic time travel only, never a production CLI option. Existing tests
+    # manufacture an explicitly completed old snapshot, then probe other guards.
+    if ([IO.File]::Exists((Get-LifecycleFile $Path))) {
+        Invoke-WorkspaceLock {
+            $r=Get-LifecycleRecord $Path
+            if ($r.State -eq 'completed') {
+                $r.Head=Get-JanitorGitText $Path @('rev-parse','HEAD')
+                $r.Completed=$time.Ticks.ToString()
+                Write-LifecycleRecord $Path $r
+            }
+        }
+    }
 }
 function Commit([string]$Path, [string]$Value) {
     [IO.File]::WriteAllText((Join-Path $Path 'file.txt'), $Value)
@@ -56,14 +68,17 @@ function Commit([string]$Path, [string]$Value) {
 }
 function Fixture([string]$Name) {
     $repo = Join-Path $script:Client $Name
+    $claim=Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle 'Create' $repo 'synthetic' '' }
     [void](Git $script:Temp @('clone','--no-hardlinks','--quiet',$script:Remote,$repo))
     [void](Git $repo @('remote','set-url','origin',$script:ExpectedOrigin))
     $script:RemoteFor[$repo]=$script:Remote
+    [void](Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle 'Bind' $repo 'synthetic' $claim.Claim })
+    [void](Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle 'Complete' $repo 'synthetic' $claim.Claim })
     Old $repo
     return $repo
 }
 function Check([string]$Path, [string]$Reason, [bool]$Delete=$false) {
-    $out = @(Invoke-JanitorTask $Path 7 $Delete ([datetime]::UtcNow))
+    $out = @(Invoke-WorkspaceLock { Invoke-JanitorTask $Path 7 $Delete ([datetime]::UtcNow) })
     $record=$out[-1]
     Assert ($record.Reason -eq $Reason) ("$([IO.Path]::GetFileName($Path)): expected $Reason, got $($record.Reason)")
     return $record
@@ -87,6 +102,7 @@ try {
     Assert $rejected 'retention cannot be less than seven days'
     # Test-only in-memory policy injection. No CLI/env switch in the shipped script.
     $script:ApprovedRoots=@($script:Client)
+    $script:WorkspaceMutexName='Local\WorkspaceFixture-' + [guid]::NewGuid().ToString('N')
     $env:GIT_AUTHOR_DATE = [datetime]::UtcNow.AddDays(-12).ToString('o')
     $env:GIT_COMMITTER_DATE=$env:GIT_AUTHOR_DATE
     [void](Git $script:Temp @('init','--bare','--initial-branch=main',$script:Remote))
@@ -307,20 +323,200 @@ try {
     $script:RemoteFor[$worktree]=$script:Remote
     Old $owner; Old $worktree
     [void](Check $owner 'dependent-worktrees' $true)
-    $record=Check $worktree 'removed' $true
-    Assert ($record.Git -eq 'worktree') 'linked worktree classified'
-    Assert (-not [IO.Directory]::Exists($worktree)) 'linked worktree removed'
-    $removeCalls=@($script:Calls | Where-Object { $_.Args.Count -gt 1 -and $_.Args[0] -eq 'worktree' -and $_.Args[1] -eq 'remove' })
-    Assert ($removeCalls.Count -eq 1 -and $removeCalls[0].Args -notcontains '--force' -and $removeCalls[0].Args -notcontains '-f') 'non-force Git primitive only'
-    Assert ((Git $owner @('worktree','list','--porcelain')) -notmatch 'linked-worktree') 'only removed registration retired'
+    $beforeFetch=@($script:Calls | Where-Object { $_.Args[0] -eq 'fetch' }).Count
+    [void](Check $worktree 'shared-worktree-preserved' $true)
+    Assert ([IO.Directory]::Exists($worktree)) 'linked worktree preserved'
+    Assert (@($script:Calls | Where-Object { $_.Args[0] -eq 'fetch' }).Count -eq $beforeFetch) 'unknown/active shared cohort not fetched'
+    Assert ((Git $owner @('worktree','list','--porcelain')) -match 'linked-worktree') 'registration preserved'
     $locked=Join-Path $script:Client 'locked-worktree'
     [void](Git $owner @('worktree','add','--detach',$locked,'HEAD'))
     [void](Git $owner @('worktree','lock',$locked))
     $script:RemoteFor[$locked]=$script:Remote
     Old $owner; Old $locked
-    $record=Check $locked 'delete-failed-stop' $true
-    Assert ($record.Result -eq 'ERROR' -and [IO.Directory]::Exists($locked)) 'failed Git removal preserves locked worktree'
+    [void](Check $locked 'shared-worktree-preserved' $true)
+    Assert ([IO.Directory]::Exists($locked)) 'locked worktree preserved without removal'
     [void](Git $owner @('worktree','unlock',$locked))
+    # Lifecycle regressions use production operations and the same project mutex.
+    function Life([string]$Action,[string]$Path,[string]$Token) {
+        Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle $Action $Path 'synthetic' $Token }
+    }
+    function Claim([string]$Path) { Invoke-WorkspaceLock { Get-LifecycleRecord $Path } }
+    function Reject([scriptblock]$Action,[string]$Message,[string]$Expected='') {
+        $failed=$false; try { & $Action | Out-Null } catch { $failed=$true; if ($Expected) { Assert ($_.Exception.Message -ceq $Expected) ($Message + ': exact rejection') } }
+        Assert $failed $Message
+    }
+    function NoFetch([string]$Path,[string]$Reason) {
+        $n=@($script:Calls | Where-Object { $_.Args[0] -eq 'fetch' }).Count
+        [void](Check $Path $Reason $true)
+        Assert (@($script:Calls | Where-Object { $_.Args[0] -eq 'fetch' }).Count -eq $n) 'unproven lifecycle cannot fetch'
+        Assert ([IO.Directory]::Exists($Path)) 'unproven lifecycle cannot delete'
+    }
+    $lifecycle=Fixture 'lifecycle-resume'
+    $r=Claim $lifecycle
+    Reject { Life 'Complete' $lifecycle ('0'*32) } 'wrong ClaimId cannot complete'
+    Reject { Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle 'Resume' $lifecycle 'other-owner' $r.Claim } } 'wrong owner cannot resume'
+    $resumed=Life 'Resume' $lifecycle $r.Claim
+    Assert ($resumed.Generation -eq '2' -and $resumed.Claim -ne $r.Claim -and $resumed.State -eq 'active') 'Resume-first invalidates completion and claim'
+    Reject { Life 'Complete' $lifecycle $r.Claim } 'stale generation ClaimId cannot complete'
+    NoFetch $lifecycle 'lifecycle-not-completed'
+    [void](Life 'Pause' $lifecycle $resumed.Claim)
+    NoFetch $lifecycle 'lifecycle-not-completed'
+    Reject { Life 'Complete' $lifecycle $resumed.Claim } 'paused cannot complete without resume'
+    Reject { Life 'Create' $lifecycle '' } 'Create cannot adopt a completed/paused existing path'
+    $resumed=Life 'Resume' $lifecycle $resumed.Claim
+    [void](Life 'Complete' $lifecycle $resumed.Claim)
+    [void](Check $lifecycle 'younger-than-retention' $true)
+    Old $lifecycle
+    [void](Check $lifecycle 'clean-published-inactive')
+    # No helper lock, even direct internal entry point, never grants deletion.
+    Reject { Invoke-JanitorTask $lifecycle 7 $true ([datetime]::UtcNow) } 'unlocked internal janitor rejected'
+    $changed=Fixture 'completed-head-changed'
+    Commit $changed 'new-head-after-completion'
+    NoFetch $changed 'lifecycle-head-changed'
+    $malformed=Fixture 'malformed-claim'
+    $claimFile=Get-LifecycleFile $malformed
+    $valid=[HealthCheck.WorkspaceCleanup.Tree]::ReadState($claimFile)
+    foreach ($bad in @($valid.Replace('Format=1','Format=2'), ($valid+"State=completed`n"), $valid.Replace('State=completed','State=released'), $valid.Replace('Generation=1','Generation=0'), $valid.Replace('Completed=','Unknown='))) {
+        [HealthCheck.WorkspaceCleanup.Tree]::WriteState($claimFile,$bad,$false)
+        NoFetch $malformed 'lifecycle-invalid'
+    }
+    [HealthCheck.WorkspaceCleanup.Tree]::WriteState($claimFile,$valid,$false)
+    $marker=Join-Path $malformed '.git\workspace-enrollment.state'
+    $savedMarker=[HealthCheck.WorkspaceCleanup.Tree]::ReadState($marker)
+    [HealthCheck.WorkspaceCleanup.Tree]::WriteState($marker,($savedMarker+"State=completed`n"),$false)
+    NoFetch $malformed 'lifecycle-invalid'
+    [HealthCheck.WorkspaceCleanup.Tree]::WriteState($marker,$savedMarker,$false)
+    $copied=Fixture 'copied-marker'
+    [HealthCheck.WorkspaceCleanup.Tree]::WriteState((Join-Path $copied '.git\workspace-enrollment.state'),$savedMarker,$false)
+    NoFetch $copied 'lifecycle-identity-changed'
+    $legacy=Fixture 'legacy-released'
+    [IO.File]::WriteAllText((Join-Path $legacy '.git\codex-owner.json'),'{"owner":"old","status":"released"}')
+    NoFetch $legacy 'lifecycle-legacy-metadata'
+    $legacyDirectory=Fixture 'legacy-directory-marker'
+    [void][IO.Directory]::CreateDirectory((Join-Path $legacyDirectory '.git\codex-owner.json'))
+    NoFetch $legacyDirectory 'lifecycle-legacy-metadata'
+    $canonicalClient=$script:Client
+    try { $script:Client=$script:Client.ToLowerInvariant(); $case=Fixture 'case-normalized' }
+    finally { $script:Client=$canonicalClient }
+    $caseCanonical=Join-Path $canonicalClient 'case-normalized'
+    [void](Check $caseCanonical 'clean-published-inactive')
+    Assert ((Claim $case).Path -ceq (Claim $caseCanonical).Path) 'case variants bind one physical enrollment and sweep'
+    $loose=Fixture 'marker-without-registry'
+    [IO.File]::Delete((Get-LifecycleFile $loose))
+    NoFetch $loose 'lifecycle-unmanaged'
+    Reject { Life 'Create' $loose '' } 'legacy existing path cannot be enrolled'
+    $replaced=Fixture 'replaced-gitdir'
+    $replacement=Fixture 'replacement-source'
+    Move-Item -LiteralPath (Join-Path $replaced '.git') -Destination (Join-Path $script:Temp 'old-replaced-git')
+    Move-Item -LiteralPath (Join-Path $replacement '.git') -Destination (Join-Path $replaced '.git')
+    NoFetch $replaced 'lifecycle-identity-changed'
+    $rootReplaced=Fixture 'replaced-root'
+    Move-Item -LiteralPath $rootReplaced -Destination (Join-Path $script:Temp 'old-replaced-root')
+    [void](Git $script:Temp @('clone','--no-hardlinks','--quiet',$script:Remote,$rootReplaced))
+    [void](Git $rootReplaced @('remote','set-url','origin',$script:ExpectedOrigin))
+    NoFetch $rootReplaced 'lifecycle-identity-changed'
+    $pending=Fixture 'crash-before-replace'
+    $r=Claim $pending; $r=Life 'Resume' $pending $r.Claim
+    # Interrupted temp write is never read as authority; old active state wins.
+    [IO.File]::WriteAllText(((Get-LifecycleFile $pending)+'.pending-synthetic'),'State=completed')
+    NoFetch $pending 'lifecycle-not-completed'
+    $retired=Fixture 'durable-retirement'
+    Invoke-WorkspaceLock { $r=Get-LifecycleRecord $retired; $r.State='deleting'; Write-LifecycleRecord $retired $r }
+    Reject { Life 'Resume' $retired (Claim $retired).Claim } 'crash after deleting record cannot resume'
+    [IO.File]::Delete((Join-Path $retired 'file.txt'))
+    NoFetch $retired 'lifecycle-not-completed'
+    $gone=Fixture 'tombstone'
+    $r=Claim $gone
+    [void](Check $gone 'removed' $true)
+    Assert ((Claim $gone).State -eq 'deleted') 'deleted tombstone persists outside deleted directory'
+    Reject { Life 'Resume' $gone $r.Claim } 'deleted cannot resume'
+    Reject { Life 'Create' $gone '' } 'deleted path cannot be reused'
+    # No-follow registry writes must not change an external hardlink target.
+    $linked=Fixture 'linked-registry'
+    $linkedFile=Get-LifecycleFile $linked
+    [IO.File]::Delete($linkedFile)
+    $claimSentinel=Join-Path $script:Temp 'claim-sentinel'
+    [IO.File]::WriteAllText($claimSentinel,$valid)
+    [void](New-Item -ItemType HardLink -Path $linkedFile -Target $claimSentinel)
+    Reject { [HealthCheck.WorkspaceCleanup.Tree]::WriteState($linkedFile,'bad',$false) } 'linked registry write refused'
+    Assert ([IO.File]::ReadAllText($claimSentinel) -ceq $valid) 'external registry target unchanged'
+    NoFetch $linked 'filesystem-or-check-unknown'
+    # Actual second PowerShell process and one mutex exercise both race winners.
+    $worker=Join-Path $script:Temp 'lifecycle-worker.ps1'
+    $workerText=@'
+param($Source,$Client,$Ops,$Mutex,$Target,$Token,$Remote,$Ready,$Release,$Mode)
+$ErrorActionPreference='Stop'
+. $Source
+Initialize-JanitorNative
+$script:ApprovedRoots=@($Client); $script:LogDirectory=$Ops; $script:WorkspaceMutexName=$Mutex
+function Get-JanitorProcesses { [pscustomobject]@{ Known=$true; Commands=@(); HiddenProcessCommandLines=0 } }
+$script:OriginalGit=${function:Invoke-JanitorGit}
+function Invoke-JanitorGit([string]$Path,[string[]]$Arguments) {
+    if ($Arguments[0] -eq 'fetch') { $Arguments=$Arguments.Clone(); $Arguments[4]=$Remote }
+    & $script:OriginalGit $Path $Arguments
+}
+function Rendezvous {
+    [IO.File]::WriteAllText($Ready,'ready')
+    $until=[datetime]::UtcNow.AddSeconds(15)
+    while(-not [IO.File]::Exists($Release)) { if([datetime]::UtcNow -gt $until){throw 'fixture-timeout'}; Start-Sleep -Milliseconds 20 }
+}
+if($Mode -eq 'resume') {
+    Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle 'Resume' $Target 'synthetic' $Token | Out-Null; Rendezvous }
+} else {
+    $script:OriginalWrite=${function:Write-LifecycleRecord}
+    function Write-LifecycleRecord([string]$Path,$Record,[switch]$Create) {
+        & $script:OriginalWrite $Path $Record -Create:$Create
+        if($Record.State -eq 'deleting') { Rendezvous; [Environment]::Exit(0) }
+    }
+    Invoke-WorkspaceLock { Invoke-JanitorTask $Target 7 $true ([datetime]::UtcNow) | Out-Null }
+}
+'@
+    [IO.File]::WriteAllText($worker,$workerText)
+    foreach ($mode in @('resume','janitor')) {
+        $target=Fixture ('race-'+$mode)
+        $token=(Claim $target).Claim
+        $ready=Join-Path $script:Temp ('ready-'+$mode); $release=Join-Path $script:Temp ('release-'+$mode)
+        # Keep a handle open so a child exiting while holding it is observably abandoned.
+        $observer=New-Object Threading.Mutex($false,$script:WorkspaceMutexName)
+        $start=New-Object Diagnostics.ProcessStartInfo
+        $start.FileName=(Join-Path $PSHOME 'powershell.exe'); $start.UseShellExecute=$false; $start.CreateNoWindow=$true
+        $start.RedirectStandardOutput=$true; $start.RedirectStandardError=$true
+        $source=Join-Path $PSScriptRoot '..\scripts\cleanup-workspaces.ps1'
+        $start.Arguments=(@('-NoLogo','-NoProfile','-NonInteractive','-File',$worker,$source,$script:Client,$script:LogDirectory,$script:WorkspaceMutexName,$target,$token,$script:Remote,$ready,$release,$mode) | ForEach-Object { Quote-JanitorArgument $_ }) -join ' '
+        $child=New-Object Diagnostics.Process; $child.StartInfo=$start
+        try {
+            [void]$child.Start(); $stdout=$child.StandardOutput.ReadToEndAsync(); $stderr=$child.StandardError.ReadToEndAsync()
+            $until=[datetime]::UtcNow.AddSeconds(15)
+            while(-not [IO.File]::Exists($ready)) {
+                if($child.HasExited -or [datetime]::UtcNow -gt $until) { throw ('fixture child failed '+$mode+': '+$stderr.GetAwaiter().GetResult()) }
+                Start-Sleep -Milliseconds 20
+            }
+            if($mode -eq 'resume') {
+                Reject { Invoke-WorkspaceLock { Invoke-JanitorTask $target 7 $true ([datetime]::UtcNow) } } 'Resume owns mutex: janitor cannot enter' 'workspace-busy'
+            } else {
+                Reject { Life 'Resume' $target $token } 'janitor owns mutex: Resume cannot enter' 'workspace-busy'
+            }
+        } finally {
+            [IO.File]::WriteAllText($release,'release')
+            if(-not $child.WaitForExit(20000)) { throw 'fixture child did not finish' }
+            $exit=$child.ExitCode; $child.Dispose()
+        }
+        Assert ($exit -eq 0) 'child race process exited successfully'
+        if($mode -eq 'resume') { NoFetch $target 'lifecycle-not-completed' }
+        else {
+            # Child crashed after durable deleting, before any unlink. Acquisition
+            # handles abandoned mutex, but must not clear the retirement record.
+            Reject { Life 'Resume' $target $token } 'abandoned mutex does not erase deleting state' 'lifecycle-retired'
+            Assert ((Claim $target).State -eq 'deleting') 'durable crash retirement retained'
+            NoFetch $target 'lifecycle-not-completed'
+        }
+        $observer.Dispose()
+    }
+    foreach ($forbidden in @($outside,$seed,$script:LogDirectory,(Join-Path $outside 'nested'))) {
+        [void](Check $forbidden 'root-rejected' $true)
+    }
+    Assert ([IO.File]::Exists((Join-Path $seed 'file.txt')) -and [IO.Directory]::Exists($outside)) 'zero deletions outside approved immediate children'
+
     # Bounded sanitized report and production runner dry-run, with synthetic fixed roots.
     Old $clean
     $script:CimRows=@(
