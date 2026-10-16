@@ -99,7 +99,7 @@ def test_moscow_boundary_exact_inclusive(saved_database, delta, expected):
     result = read(session, store, saved.source.id)
     assert result.cells[0].value == expected
     assert result.cells[0].completion_boundary_utc == BOUNDARY
-    assert result.contract_version == "garmin-completed-day-steps-moscow-v1"
+    assert result.contract_version == "garmin-completed-day-steps-moscow-v2"
     assert result.cells[0].timezone == result.cells[0].finality == "unknown"
 
 
