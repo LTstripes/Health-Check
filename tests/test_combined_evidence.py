@@ -29,6 +29,10 @@ from healthcheck.combined_evidence import CombinedEvidenceRequest
 from healthcheck.context import ContextService, parse_date_only
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import GarminRecordMetric, GarminSource, GarminSourceRecord
+from healthcheck.garmin.normalization import normalize_garmin_payload
+from healthcheck.garmin.persistence import GarminPersistenceRepository
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+from test_period_summary import ACTIVITY as _ACTIVITY_FIXTURE
 from test_period_summary import _activity, _coverage
 from test_sleep_evidence import CLOCK, DAY
 from test_sleep_evidence import profile as _sleep_profile
@@ -716,3 +720,350 @@ def test_cli_stdout_limited_console_keeps_exact_utf8(profile, monkeypatch, outpu
     if output_format == "json":
         rows = json.loads(payload)["sections"]["context"]["rows"]
         assert any(row["original_text"] == note for row in rows)
+
+
+def temporal(packet):
+    return packet["sections"]["activity"]["temporal_evidence"]
+
+
+def session_for(packet, activity_type=None, external_record_id=None):
+    for item in temporal(packet)["sessions"]:
+        if activity_type is not None and item["activity_type"] == activity_type:
+            return item
+        if external_record_id is not None and item["external_record_id"] == external_record_id:
+            return item
+    raise AssertionError("projected session not found")
+
+
+_TEMPORAL_KEYS = ("startTimeGMT", "startTimeLocal", "startTimeUTC", "startTime", "timestamp",
+                  "time", "timeZoneId", "sourceUtcOffsetMinutes", "calendarDate", "date")
+
+
+def _persist_temporal_activity(session, paths, *, activity_id, fields, kind="cycling", drop=()):
+    """Persist one activity through the real normalizer with chosen temporal fields."""
+    fixture = json.loads(_ACTIVITY_FIXTURE.read_text(encoding="utf-8"))
+    template = fixture["payload"]["activities"][0]
+    activity = dict(template, activityId=activity_id, activityType={"typeKey": kind})
+    for key in (*_TEMPORAL_KEYS, *drop):
+        activity.pop(key, None)
+    activity.update(fields)
+    fixture["payload"]["activities"] = [activity]
+    return GarminPersistenceRepository(
+        session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "garmin-artifacts")
+    ).persist_result(normalize_garmin_payload(fixture), payload=json.dumps(fixture).encode())
+
+
+def test_activity_temporal_presence_and_standalone_reader_unchanged(profile):
+    packet = read(profile)
+    section = temporal(packet)
+    assert section["contract_version"] == "health-chat-activity-temporal-evidence-v1"
+    assert section["state"] == "complete" and section["reason"] is None
+    assert section["date_basis"] == "persisted_source_local_date"
+    assert section["window"] == {
+        "start_date": str(DAY - timedelta(days=6)), "end_date": str(DAY),
+        "precision": "inclusive_local_date"}
+    assert section["source"]["source_id"] == profile[2].activity_garmin_source_id
+    assert section["limits"] == {"candidate_records_per_source_surface": 4096,
+                                 "projected_sessions": 200}
+    assert section["candidate_count"] == 2 and section["current_session_count"] == 2
+    assert all(item["end"] == {
+        "state": "not_persisted_in_activity_contract",
+        "reason": "no_typed_activity_end_in_this_slice", "eligible": False,
+        "timing": None} for item in section["sessions"])
+    standalone = activity_evidence.read_activity_evidence(
+        profile=profile[0].root, profile_kind="synthetic",
+        request=profile[2].domain_requests()[1],
+        evaluated_at_utc=CLOCK, evaluation_local_date=CLOCK.date())
+    assert "temporal_evidence" not in standalone["sections"]
+    assert standalone["sections"] == packet["sections"]["activity"]["providers"]
+    assert "activity temporal evidence: " in evidence.render_combined_evidence(packet)
+
+
+def test_activity_temporal_instant_utc_offsets_and_boundaries(profile):
+    with session_scope(profile[1]) as session:
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-positive",
+            fields={"startTimeLocal": "2099-01-02T00:30:00+03:00"})
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-negative",
+            fields={"startTimeLocal": "2099-01-01T23:30:00-05:00"})
+    packet = read(profile)
+    cycling = session_for(packet, external_record_id="synthetic-cycling--0")
+    start = cycling["start"]
+    assert start["state"] == "instant" and start["eligible"] is True
+    assert start["measured_at_utc"] == "2099-01-02T08:00:00+00:00"
+    assert start["source_local_date"] == "2099-01-02"
+    assert start["source_utc_offset_minutes"] is None and start["source_timezone"] is None
+    positive = session_for(packet, external_record_id="synthetic-positive")["start"]
+    assert positive["measured_at_utc"] == "2099-01-01T21:30:00+00:00"
+    assert positive["source_local_date"] == "2099-01-02"
+    assert positive["source_utc_offset_minutes"] == 180
+    negative = session_for(packet, external_record_id="synthetic-negative")["start"]
+    assert negative["measured_at_utc"] == "2099-01-02T04:30:00+00:00"
+    assert negative["source_local_date"] == "2099-01-01"
+    assert negative["source_utc_offset_minutes"] == -300
+    assert negative["source_timezone"] is None
+
+
+def test_activity_temporal_date_only_local_zone_absent_and_absent_states(profile):
+    with session_scope(profile[1]) as session:
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-date-only",
+            fields={"startTimeGMT": "2099-01-02"})
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-local",
+            fields={"startTimeLocal": "2099-01-02T08:00:00"})
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-zoned-local",
+            fields={"startTimeLocal": "2099-01-02T08:00:00",
+                    "timeZoneId": "Europe/Moscow"})
+    date_only_session = session_for(read(profile), external_record_id="synthetic-date-only")
+    date_only = date_only_session["start"]
+    assert date_only["state"] == "date_only" and date_only["eligible"] is False
+    assert date_only["source_local_date"] == "2099-01-02"
+    assert date_only_session["source_local_date"] == "2099-01-02"
+    assert date_only["measured_at_utc"] is None and date_only["zone_policy"] == "local_date_only"
+    local = session_for(read(profile), external_record_id="synthetic-local")["start"]
+    assert local["state"] == "local" and local["eligible"] is True
+    assert local["local_wall_time"] == "2099-01-02T08:00:00"
+    assert local["measured_at_utc"] is None
+    assert local["source_utc_offset_minutes"] is None and local["source_timezone"] is None
+    zoned = session_for(read(profile), external_record_id="synthetic-zoned-local")["start"]
+    assert zoned["source_timezone"] == "Europe/Moscow"
+    assert zoned["source_utc_offset_minutes"] is None
+    # A missing clock is absent, never a zero or host/Moscow zone.
+    with session_scope(profile[1]) as session:
+        row = session.scalar(select(GarminSourceRecord).where(
+            GarminSourceRecord.external_record_id == "synthetic-local"))
+        row.temporal_precision = "unknown"
+    absent_session = session_for(read(profile), external_record_id="synthetic-local")
+    absent = absent_session["start"]
+    assert absent["state"] == "absent" and absent["eligible"] is False
+    assert absent["reason"] == "no_usable_source_time"
+    assert absent["measured_at_utc"] is None and absent["source_timezone"] is None
+    assert absent["source_utc_offset_minutes"] is None
+    # The persisted local date stays visible when the start clock is absent.
+    assert absent["source_local_date"] == "2099-01-02"
+    assert absent_session["source_local_date"] == "2099-01-02"
+
+
+def test_activity_temporal_generic_clocks_are_ambiguous(profile):
+    with session_scope(profile[1]) as session:
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-timestamp",
+            fields={"timestamp": "2099-01-02T08:00:00Z"})
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-time",
+            fields={"time": "2099-01-02T08:00:00"})
+    for identity in ("synthetic-timestamp", "synthetic-time"):
+        start = session_for(read(profile), external_record_id=identity)["start"]
+        assert start["state"] == "ambiguous" and start["eligible"] is False
+        assert start["reason"] == "source_start_field_not_proven"
+        assert start["measured_at_utc"] is None and start["local_wall_time"] is None
+
+
+def test_activity_temporal_invalid_conflicting_duplicate_and_retired(profile):
+    with session_scope(profile[1]) as session:
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-conflict",
+            fields={"startTimeLocal": "2099-01-02T10:00:00+03:00",
+                    "startTimeGMT": "2099-01-02T08:00:00Z"})
+    # The real normalizer already persists the paired mismatch as partial with a
+    # typed temporal diagnostic; no scalar field pairing is assumed.
+    with session_scope(profile[1]) as session:
+        record = session.scalar(select(GarminSourceRecord).where(
+            GarminSourceRecord.external_record_id == "synthetic-conflict"))
+        assert record.record_status == "partial"
+        assert "paired_time_mismatch" in (record.diagnostics_json or "")
+    conflict_session = session_for(read(profile), external_record_id="synthetic-conflict")
+    conflict_start = conflict_session["start"]
+    assert conflict_start["state"] == "ambiguous" and conflict_start["eligible"] is False
+    assert conflict_start["reason"] == "conflicting_source_start_fields"
+    assert conflict_start["measured_at_utc"] is None
+    # The persisted local date stays visible for an ambiguous start.
+    assert conflict_start["source_local_date"] == "2099-01-02"
+    assert conflict_session["source_local_date"] == "2099-01-02"
+    # Explicit persisted invalidity masks any otherwise-proven timing.
+    with session_scope(profile[1]) as session:
+        session.scalar(select(GarminSourceRecord).where(
+            GarminSourceRecord.external_record_id == "synthetic-conflict"
+        )).record_status = "invalid"
+    invalid_start = session_for(read(profile), external_record_id="synthetic-conflict")["start"]
+    assert invalid_start["state"] == "ambiguous" and invalid_start["eligible"] is False
+    assert invalid_start["reason"] == "record_invalid"
+    with session_scope(profile[1]) as session:
+        session.scalar(select(GarminSourceRecord).where(
+            GarminSourceRecord.external_record_id == "synthetic-conflict"
+        )).record_status = "partial"
+    # Duplicate current identities never get a winning timestamp.
+    with session_scope(profile[1]) as session:
+        for row in session.scalars(select(GarminSourceRecord).where(
+                GarminSourceRecord.stream_code == "activity")):
+            row.external_record_id = "same-synthetic-activity"
+    packet = read(profile)
+    assert all(item["start"]["state"] == "ambiguous"
+               and item["start"]["reason"] == "duplicate_current_identity"
+               and item["start"]["eligible"] is False
+               for item in temporal(packet)["sessions"])
+    assert all(item["source_local_date"] is not None for item in temporal(packet)["sessions"])
+    # Retired records supply no current timing and are excluded with reasons.
+    with session_scope(profile[1]) as session:
+        rows = list(session.scalars(select(GarminSourceRecord).where(
+            GarminSourceRecord.stream_code == "activity").order_by(GarminSourceRecord.id)))
+        rows[0].projection_status = "retired"
+        rows[0].retired_at = CLOCK
+        rows[0].retire_reason = "authoritative_collection_replacement"
+        retired_id = rows[0].id
+    section = temporal(read(profile))
+    assert section["retired_exclusions"] == [
+        {"reason_code": "authoritative_collection_replacement", "count": 1}]
+    assert section["current_session_count"] == 2
+    assert all(item["record_id"] != retired_id for item in section["sessions"])
+
+
+def test_activity_temporal_partial_unrelated_metrics_keep_proven_start(profile):
+    with session_scope(profile[1]) as session:
+        # Aware generic ``startTime`` populates both paired columns with the same
+        # path; a missing unrelated metric marks the record partial.
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-aware-partial",
+            fields={"startTime": "2099-01-02T08:00:00+03:00"}, drop=("duration",))
+        # A reconcilable paired Local/GMT start stays usable even when the record
+        # is partial for an unrelated missing metric.
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-paired-partial",
+            fields={"startTimeLocal": "2099-01-02T11:00:00+03:00",
+                    "startTimeGMT": "2099-01-02T08:00:00Z"}, drop=("duration",))
+    with session_scope(profile[1]) as session:
+        rows = {row.external_record_id: row for row in session.scalars(
+            select(GarminSourceRecord).where(GarminSourceRecord.stream_code == "activity"))}
+    for identity in ("synthetic-aware-partial", "synthetic-paired-partial"):
+        assert rows[identity].record_status == "partial"
+        assert "paired_time_mismatch" not in (rows[identity].diagnostics_json or "")
+    aware_session = session_for(read(profile), external_record_id="synthetic-aware-partial")
+    aware_start = aware_session["start"]
+    assert aware_session["record_status"] == "partial"
+    assert aware_start["state"] == "instant" and aware_start["eligible"] is True
+    assert aware_start["source_field"] == aware_start["source_local_field"]
+    assert aware_start["source_field"] == aware_start["source_utc_field"]
+    assert aware_start["measured_at_utc"] == "2099-01-02T05:00:00+00:00"
+    assert aware_start["source_local_date"] == "2099-01-02"
+    paired = session_for(read(profile), external_record_id="synthetic-paired-partial")
+    paired_start = paired["start"]
+    assert paired_start["state"] == "instant" and paired_start["eligible"] is True
+    assert paired_start["measured_at_utc"] == "2099-01-02T08:00:00+00:00"
+    assert paired_start["source_local_field"] != paired_start["source_utc_field"]
+
+
+def test_activity_temporal_unreadable_diagnostics_fail_closed(profile):
+    with session_scope(profile[1]) as session:
+        _persist_temporal_activity(
+            session, profile[0], activity_id="synthetic-broken-diag",
+            fields={"startTime": "2099-01-02T08:00:00+03:00"})
+    with session_scope(profile[1]) as session:
+        session.scalar(select(GarminSourceRecord).where(
+            GarminSourceRecord.external_record_id == "synthetic-broken-diag"
+        )).diagnostics_json = "not-a-diagnostic-list"
+    start = session_for(read(profile), external_record_id="synthetic-broken-diag")["start"]
+    assert start["state"] == "ambiguous" and start["eligible"] is False
+    assert start["reason"] == "unreadable_temporal_diagnostics"
+    assert start["measured_at_utc"] is None
+    assert start["source_local_date"] == "2099-01-02"
+
+
+def test_activity_temporal_time_budget_after_rows_keeps_metrics_and_incomplete(
+        profile, monkeypatch):
+    before = cells(read(profile))
+    real_rows = activity_evidence._SnapshotActivityBudget.rows
+    real_temporal = activity_evidence._read_activity_temporal
+    state = {"in_temporal": False, "rows_done": False}
+
+    def rows_with_marker(self, query, cap, reason, *, scalar=True):
+        result = real_rows(self, query, cap, reason, scalar=scalar)
+        if state["in_temporal"]:
+            state["rows_done"] = True
+        return result
+
+    def check(self):
+        if state["in_temporal"] and state["rows_done"]:
+            raise bounded.IncompletePeriodRead("time_budget_exceeded")
+        bounded.PeriodReadBudget.check(self)
+
+    def wrapped_temporal(session, request):
+        state["in_temporal"] = True
+        try:
+            return real_temporal(session, request)
+        finally:
+            state["in_temporal"] = False
+
+    monkeypatch.setattr(activity_evidence._SnapshotActivityBudget, "rows", rows_with_marker)
+    monkeypatch.setattr(activity_evidence._SnapshotActivityBudget, "check", check)
+    monkeypatch.setattr(activity_evidence, "_read_activity_temporal", wrapped_temporal)
+    packet = read(profile)
+    section = temporal(packet)
+    # Only the timing section degrades; the five Activity cells stay unchanged.
+    assert cells(packet) == before
+    assert section["state"] == "incomplete"
+    assert section["reason"] == "time_budget_exceeded"
+    assert section["sessions"] is None
+    assert section["candidate_count"] is None and section["current_session_count"] is None
+    assert section["retired_exclusions"] is None
+
+
+def test_activity_temporal_window_and_no_end_from_duration(profile):
+    with session_scope(profile[1]) as session:
+        _activity(session, profile[0], day=DAY - timedelta(days=6), suffix="start", duration=999)
+        _activity(session, profile[0], day=DAY + timedelta(days=1), suffix="after", duration=999)
+    section = temporal(read(profile))
+    identities = {item["external_record_id"] for item in section["sessions"]}
+    assert "synthetic-cycling-start-0" in identities
+    assert "synthetic-cycling-after-0" not in identities
+    assert section["candidate_count"] == 3
+    # A persisted duration never becomes an activity end endpoint.
+    duration_record = next(item for item in section["sessions"]
+                           if item["external_record_id"] == "synthetic-cycling-start-0")
+    assert duration_record["end"]["state"] == "not_persisted_in_activity_contract"
+    assert duration_record["end"]["timing"] is None
+
+
+def test_activity_temporal_cap_overflow_no_prefix_and_metrics_unaffected(profile, monkeypatch):
+    before = cells(read(profile))
+    monkeypatch.setattr(activity_evidence, "ACTIVITY_TEMPORAL_MAX_SESSIONS", 1)
+    packet = read(profile)
+    section = temporal(packet)
+    assert section["state"] == "incomplete"
+    assert section["reason"] == "projected_current_sessions_limit_exceeded"
+    assert section["sessions"] is None and section["candidate_count"] is None
+    assert section["retired_exclusions"] is None
+    assert cells(packet) == before
+    monkeypatch.undo()
+    monkeypatch.setattr(bounded, "MAX_PERIOD_RECORDS", 0)
+    section = temporal(read(profile))
+    assert section["state"] == "incomplete"
+    assert section["reason"] == "candidate_record_limit_exceeded"
+    assert section["sessions"] is None
+
+
+def test_activity_temporal_compact_detailed_parity(profile):
+    detailed = read(profile)
+    compact = read(profile, replace(profile[2], projection="compact"))
+    assert temporal(compact) == temporal(detailed)
+    assert compact["sections"]["activity"]["temporal_evidence"]["contract_version"] == (
+        "health-chat-activity-temporal-evidence-v1")
+
+
+def test_activity_temporal_no_raw_reads_writes_or_provider_access(profile, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("temporal reader touched runtime, provider or raw body")
+    monkeypatch.setattr("healthcheck.runtime.prepare_runtime", forbidden)
+    monkeypatch.setattr("healthcheck.db.engine.migrate_database", forbidden)
+    monkeypatch.setattr(
+        "healthcheck.garmin.storage.ContentAddressedGarminPayloadStore.read", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    before = {p.relative_to(profile[0].root): p.read_bytes()
+              for p in profile[0].root.rglob("*")
+              if p.is_file() and not p.name.endswith("-shm")}
+    assert temporal(read(profile))["state"] == "complete"
+    assert {p.relative_to(profile[0].root): p.read_bytes()
+            for p in profile[0].root.rglob("*")
+            if p.is_file() and not p.name.endswith("-shm")} == before

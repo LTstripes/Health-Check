@@ -154,6 +154,8 @@ def read_combined_evidence(
                 session, sleep_request, profile_kind, clock, evaluation_local_date)
             activity = activity_evidence._assemble(
                 session, activity_request, profile_kind, clock, evaluation_local_date)
+            activity_temporal = activity_evidence._read_activity_temporal(
+                session, activity_request)
             context = sleep["sections"].pop("context", None)
             sections = {
                 "sleep": {**_domain(sleep, (
@@ -161,7 +163,8 @@ def read_combined_evidence(
                     "metric_rule_version", "limits")), "providers": sleep["sections"]},
                 "activity": {**_domain(activity, (
                     "version", "provenance_version", "reader_contract", "limits")),
-                    "providers": activity["sections"]},
+                    "providers": activity["sections"],
+                    "temporal_evidence": activity_temporal},
             }
             if context is not None:
                 sections["context"] = {
@@ -237,7 +240,10 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
     for domain in ("sleep", "activity"):
         section = packet["sections"][domain]
         lines.append(f"{domain} contracts/limits: " + _json({
-            key: value for key, value in section.items() if key != "providers"}))
+            key: value for key, value in section.items()
+            if key not in {"providers", "temporal_evidence"}}))
+        if "temporal_evidence" in section:
+            lines.append(f"{domain} temporal evidence: " + _json(section["temporal_evidence"]))
         for provider, source in section["providers"].items():
             label = f"{domain}/{provider}"
             lines.append(f"{label} source: " + _json({key: value for key, value in source.items()
