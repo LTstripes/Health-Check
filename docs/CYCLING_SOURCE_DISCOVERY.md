@@ -4,7 +4,8 @@ The #347 backend exposes `CyclingSourceDiscoveryService(session).discover(...)`
 with version `cycling-distance-source-discovery-v1`. It discovers saved exact
 Garmin sources for **one metric**, `cycling_distance_meters`, without choosing
 one. It does not change Statistics, Sleep selection, Activity evidence or CLI.
-UI wiring, independent review, integration and Owner UAT are separate steps.
+UI consumption is described below; independent integration acceptance and Owner
+UAT remain separate steps.
 
 ```python
 from datetime import date
@@ -121,3 +122,36 @@ No official total or eligible count is fabricated from a truncated search.
 The budget is cooperative and SQLite-specific, not a hard whole-response latency
 guarantee. This slice has synthetic evidence only; real-profile latency,
 provider freshness, UI selection behavior and Owner UAT remain unverified.
+
+## Statistics UI consumer
+
+`web.statistics.statistics_cycling_cell` projects discovery into the Garmin
+cycling-distance card only. With no explicit `garmin_source_id`, all five
+Statistics periods use the same explicit window and read snapshot as the page.
+Automatic selection requires a completed discovery, `unique_eligible_source`,
+exactly one usable option and no ambiguous source. Explicit zero is usable.
+Multiple usable sources or duplicate-current ambiguity show a visible selection
+request. An incomplete search suppresses the entire automatic value and its
+official counts; a successful prefix is never a default. No eligible distance
+stays unavailable, including confirmed-empty collection coverage.
+
+The selected exact source is labelled on the card. Candidate counts/exclusions
+and search completeness are disclosed separately from acquisition coverage.
+Completed cycling discovery identities also supply labels and provider selector
+options when the independently budgeted shared summary inventory is incomplete;
+this presentation union does not rewrite its cells or claim that its search completed.
+Google remains labelled `not_collected`; no cross-provider delta is introduced.
+This does not change eligibility, reducers, source records or discovery policy.
+
+The existing explicit provider override retains its current summary read and
+does not fall back to another source, even when it has no distance. Automatic
+selection does not alter the shared summary packet, Steps, Sleep, tennis or
+activity-count selection. The native form retains only human overrides, so
+period changes reevaluate automatic eligibility. A cycling session link uses
+the metric's exact source and carries an empty `origin_garmin_source_id` in
+automatic mode; its return link preserves that mode instead of creating a
+provider-wide override. Existing links without that parameter retain their
+previous explicit return behavior.
+
+Synthetic route/browser checks cover this consumer. Live Owner/provider/device
+acceptance and real-profile latency are separate, unverified gates.

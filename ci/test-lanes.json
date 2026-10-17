@@ -78,6 +78,7 @@
       "tests/test_context_ui.py",
       "tests/test_owner_presentation.py",
       "tests/test_statistics_ui.py",
+      "tests/test_statistics_cycling_ui.py",
       "tests/test_statistics_steps_ui.py",
         "tests/test_statistics_annual_ui.py",
       "tests/test_dashboard_ui.py",

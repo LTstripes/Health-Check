@@ -23,22 +23,30 @@ templates.env.filters.update(
 SPORT_LABELS = {"all": "Все виды", "cycling": "Велотренировки", "tennis": "Теннис"}
 
 
-def statistics_session_links(packet, *, period, calendar_year, control_end_date):
+def statistics_session_links(packet, *, period, calendar_year, control_end_date, cycling_cell=None):
     side = packet["sides"][0]
     source = side["source_identity"]
-    if source is None:
-        return {}
     origin = {
         "origin_period": period,
         "origin_calendar_year": calendar_year,
         "origin_end_date": control_end_date,
         "google_source_id": (packet["sides"][1]["source_identity"] or {}).get("source_id", ""),
     }
-    return {
-        code: "/statistics/sessions?"
-        + urlencode(
+    links = {}
+    for code in METRIC_LABELS:
+        if code == "sleep_duration_asleep_seconds":
+            continue
+        cell = (cycling_cell if code == "cycling_distance_meters" and cycling_cell is not None
+                else side["metrics"][code])
+        metric_source = cell.get("source_identity", source)
+        if metric_source is None or cell["state"] in {"search_incomplete", "selection_required"}:
+            continue
+        metric_origin = dict(origin)
+        if cell.get("cycling_selection", {}).get("mode") == "automatic":
+            metric_origin["origin_garmin_source_id"] = ""
+        links[code] = "/statistics/sessions?" + urlencode(
             {
-                "garmin_source_id": source["source_id"],
+                "garmin_source_id": metric_source["source_id"],
                 "start_date": packet["requested_window"]["start_date"],
                 "end_date": packet["requested_window"]["end_date"],
                 "metric_code": code,
@@ -47,13 +55,10 @@ def statistics_session_links(packet, *, period, calendar_year, control_end_date)
                 else "tennis"
                 if code.startswith("tennis_")
                 else "all",
-                **origin,
+                **metric_origin,
             }
         )
-        for code in METRIC_LABELS
-        if code != "sleep_duration_asleep_seconds"
-        and side["metrics"][code]["state"] not in {"search_incomplete", "selection_required"}
-    }
+    return links
 
 
 @router.get("/statistics/sessions")
@@ -68,6 +73,7 @@ def activity_period_page(
     origin_calendar_year: int | None = None,
     origin_end_date: date | None = None,
     google_source_id: str = "",
+    origin_garmin_source_id: str | None = None,
 ):
     if origin_period not in {"7", "30", "trailing365", "calendar_year", "year_to_date"}:
         return render_error(
@@ -100,7 +106,8 @@ def activity_period_page(
         "period": origin_period,
         "calendar_year": origin_calendar_year or end_date.year,
         "end_date": (origin_end_date or end_date).isoformat(),
-        "garmin_source_id": garmin_source_id,
+        "garmin_source_id": (garmin_source_id if origin_garmin_source_id is None
+                             else origin_garmin_source_id),
         "google_source_id": google_source_id,
     }
     context_params = {
@@ -113,6 +120,8 @@ def activity_period_page(
         "origin_end_date": origin["end_date"],
         "google_source_id": google_source_id,
     }
+    if origin_garmin_source_id is not None:
+        context_params["origin_garmin_source_id"] = origin_garmin_source_id
     for item in packet["sessions"]:
         item["detail_href"] = "/garmin/session?" + urlencode(
             {

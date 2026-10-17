@@ -90,7 +90,12 @@ def test_annual_route_preserves_packet(statistics_ui, monkeypatch, period, start
             assert parser.values[code, side["position"]].strip() == format_statistics_value(
                 code, value,
             )
-            if cell["state"] not in {"source_missing", "not_collected"}:
+            if code == "cycling_distance_meters" and side["position"] == "left" and value is None:
+                # Metadata alone no longer selects a cycling source. The shared
+                # packet is unchanged; the UI requires usable period distance.
+                assert "Наблюдения и знаменатель не оценены" in parser.cells[code, "left"]
+                assert "eligible_saved_sessions: 0" not in parser.details[code, "left"]
+            elif cell["state"] not in {"source_missing", "not_collected"}:
                 assert cell["aggregation"]["denominator"] in parser.details[code, side["position"]]
     assert "Google − Garmin:" not in response.text
     if period not in {"7", "30"} and case != "missing":

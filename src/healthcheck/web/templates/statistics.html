@@ -23,6 +23,7 @@
     {% for side in packet.sides %}
     {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
     {% set control_source_id = selected_garmin_source_id if side.position == 'left' else selected_google_source_id %}
+    {% set provider_choices = provider_source_choices[side.position] %}
     {% set incomplete = side.state == 'search_incomplete' or side.metrics.values()|selectattr('state', 'equalto', 'search_incomplete')|list %}
     {% set selection_required = side.metrics.values()|selectattr('state', 'equalto', 'selection_required')|list or (side.position == 'left' and steps.reason == 'source_selection_required') %}
     <header data-statistics-side="{{ side.position }}">
@@ -38,12 +39,12 @@
         <label>{{ provider }}: источник
           <select form="statistics-controls" name="{{ 'garmin' if side.position == 'left' else 'google' }}_source_id" aria-label="{{ provider }}: источник">
             {% if side.state == 'search_incomplete' and side.requested_source_id and control_source_id %}<option value="{{ side.requested_source_id }}" selected>Выбранный источник: поиск не завершён</option>{% endif %}
-            <option value=""{% if not control_source_id %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
-            {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if control_source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
+            <option value=""{% if not control_source_id %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if provider_choices else 'Источник отсутствует' }}</option>
+            {% for source in provider_choices %}<option value="{{ source.source_id }}"{% if control_source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
           </select>
         </label>
         <button form="statistics-controls" type="submit">Применить источники</button>
-        <ul>{% for source in side.available_sources %}
+        <ul>{% for source in provider_choices %}
           <li>{{ identity(source) }}: {{ source.source_id }} · {{ source.source_kind }} · {{ source.source_instance_id }} · {{ source.device_attribution_basis }} · {{ 'Устройство атрибутировано' if source.device_attributed else 'Без атрибуции устройства' }}</li>
         {% endfor %}</ul>
       </details>
@@ -56,13 +57,19 @@
     <h2 id="metric-{{ code }}">{{ label }}</h2>
     <div class="statistics-pair">
       {% for side in packet.sides %}
-      {% set cell = side.metrics[code] %}
+      {% set cell = cycling_cell if code == 'cycling_distance_meters' and side.position == 'left' else side.metrics[code] %}
       {% set cell_source = cell.source_identity if cell.source_identity is defined else side.source_identity %}
       {% set value = cell.aggregation.value %}
       {% set incomplete = cell.state == 'search_incomplete' %}
-      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] or (cell.source_selection is defined and cell_source is none) %}
+      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] or ((cell.source_selection is defined or cell.cycling_selection is defined) and cell_source is none) %}
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
+        {% if cell.cycling_selection is defined %}
+        <p data-cycling-source>{{ identity(cell_source) if cell_source else state_labels[cell.state] }}{% if cell_source %} · {{ 'Выбран явно' if cell.cycling_selection.mode == 'explicit' else 'Автоматически для этого периода' }}{% endif %}</p>
+        {% if cell.state in ['selection_required', 'search_incomplete'] %}
+        <p class="statistics-source-warning" role="status" data-cycling-source-attention>{{ 'Несколько пригодных источников или неоднозначные записи. Выберите Garmin-источник выше.' if cell.state == 'selection_required' else 'Поиск велодистанции не завершён; единственный пригодный источник не установлен.' }}</p>
+        {% endif %}
+        {% endif %}
         {% if cell.source_selection is defined %}
         <p data-sleep-source>{{ identity(cell_source) if cell_source else state_labels[cell.state] }}</p>
         {% if cell.state in ['selection_required', 'search_incomplete'] %}
@@ -103,6 +110,12 @@
           <button form="statistics-controls" type="submit">Применить источник сна</button>
           {% endif %}
           <dl>
+            {% if cell.cycling_selection is defined %}
+            <dt>Выбор источника велодистанции</dt><dd>{{ cell.cycling_selection.mode }} · {{ cell.cycling_selection.state }}</dd>
+            {% if cell.cycling_selection.mode == 'automatic' %}
+            <dt>Кандидаты в периоде</dt><dd>{% for option in cell.cycling_selection.options %}{{ identity(option.source_identity) }}: {{ option.source_identity.source_id }} · допустимых сессий {{ option.summary.aggregation.eligible_count }}; неоднозначных записей {{ option.eligibility.ambiguous_record_count }}{% for reason in option.summary.exclusions %}; {{ reason.reason_code }}: {{ reason.count }}{% endfor %}{% if not loop.last %}<br>{% endif %}{% else %}Нет завершённой оценки кандидатов с пригодной велодистанцией.{% endfor %}</dd>
+            {% endif %}
+            {% endif %}
             {% if cell.search is defined %}<dt>Поиск сохранённых данных</dt><dd>{{ 'Завершён в выбранном периоде; это не подтверждает полноту сбора или покрытие устройства.' if cell.search.complete else 'Не завершён: ' ~ cell.search.reason }}</dd>{% endif %}
             <dt>Источник / поле</dt><dd>{{ cell_source.source_id if cell_source else state_labels[cell.state] }} / {{ cell.source_metric_code }}</dd>
             {% if cell.source_selection is defined %}
