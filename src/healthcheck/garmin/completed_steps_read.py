@@ -3,10 +3,10 @@
 Success is a conjunction, not a run-status or parse-status shortcut: the supported
 incremental/historical path calls the daily-summary provider method successfully
 before persisting its original response (sync._fetch/_sync_surface/_persist_payload).
-A fully succeeded run, exact observation/source/provider/event/batch links and
-verified original JSON with a genuine calendarDate pin that path. Partial runs
-lack acquisition-specific success proof and remain unproven. Mutable coverage and
-stream checkpoints are deliberately not used. Immutable v1 projection is untouched.
+Exact observation/source/provider/event/batch links and verified original JSON
+pin that path. A terminal partial run additionally needs the new immutable
+daily-summary receipt; historic partials remain unproven. Succeeded legacy runs
+retain their accepted proof. Mutable coverage/checkpoints and v1 stay untouched.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from healthcheck.db.models import (
+    GarminDailySummaryAcquisitionReceipt,
     GarminPayloadObservation,
     GarminRawPayload,
     GarminSource,
@@ -32,15 +33,14 @@ from healthcheck.db.models import (
     SyncRun,
 )
 from healthcheck.db.repositories import restore_stored_utc
+from healthcheck.garmin.daily_summary_acquisition import acquisition_spine_reason, receipt_reason
 from healthcheck.garmin.observed_steps import _calendar_date, _decode, _metric
 from healthcheck.garmin.observed_steps_read import MAX_WINDOW_DAYS, StepsSourceIdentity
-from healthcheck.garmin.persistence import build_garmin_observation_key
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
-READ_CONTRACT_VERSION = "garmin-completed-day-steps-moscow-v1"
+READ_CONTRACT_VERSION = "garmin-completed-day-steps-moscow-v2"
 DISPLAY_ZONE = "Europe/Moscow"
-ACQUISITION_RUN_KINDS = frozenset({"garmin_incremental", "garmin_historical"})
 MAX_CANDIDATES = 4096
 MAX_PROVENANCE = 4096
 MAX_ARTIFACTS = 1000
@@ -66,6 +66,8 @@ class CompletedStepsEvidence:
     value: int | None
     reason: str | None
     acquisition_proven: bool
+    acquisition_proof: str | None = None
+    acquisition_receipt_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,82 +106,21 @@ class CompletedStepsWindow:
     display_zone: str = DISPLAY_ZONE
 
 
-def acquisition_reason(observation, source, raw, artifact, run, provider, event, batch):
-    """Small predicate pinned to normal persisted acquisition; raw may be older."""
-    if (
-        source is None
-        or source.provider_code != "garmin_connect"
-        or source.source_kind != "provider"
-        or provider is None
-        or provider.code != "garmin_connect"
-        or provider.id != source.provider_id
-        or raw is None
-        or raw.garmin_source_id != source.id
-        or observation.garmin_source_id != source.id
-        or raw.stream_code != "daily_health"
-        or raw.payload_format != "json"
-        or observation.stream_code != "daily_health"
-        or observation.payload_format != "json"
-        or observation.source_filename != "daily_summary.json"
-        or artifact is None
-        or raw.raw_artifact_id != artifact.id
-        or observation.raw_artifact_id != artifact.id
-        or raw.content_hash != artifact.content_hash
-    ):
-        return "provenance_mismatch"
-    if run is None or run.stream_code not in ACQUISITION_RUN_KINDS:
-        return "acquisition_run_not_evidenced"
-    if run.provider_id != source.provider_id or (
-        run.acquisition_source_id is not None
-        and run.acquisition_source_id != source.acquisition_source_id
-    ):
-        return "acquisition_run_mismatch"
-    if run.status != "succeeded" or run.completed_at is None:
+def acquisition_reason(
+    observation, source, raw, artifact, run, provider, event, batch,
+    receipt=None, original_day=None,
+):
+    """Legacy success or an exact receipt; neither can hide a contradiction."""
+    reason = acquisition_spine_reason(
+        observation, source, raw, artifact, run, provider, event, batch
+    )
+    if reason:
+        return reason
+    if run.status not in {"succeeded", "partial"} or run.completed_at is None:
         return "acquisition_success_unproven"
-    fields = {
-        name: getattr(observation, name)
-        for name in (
-            "garmin_source_id",
-            "stream_code",
-            "payload_format",
-            "source_contract_version",
-            "normalization_contract_version",
-            "fixture_id",
-            "parse_status",
-            "record_count",
-            "diagnostics_json",
-            "unknown_fields_json",
-            "source_window_start_utc",
-            "source_window_end_utc",
-            "sync_run_id",
-            "source_filename",
-        )
-    }
-    try:
-        for name in ("source_window_start_utc", "source_window_end_utc"):
-            fields[name] = restore_stored_utc(fields[name])
-        expected_key = build_garmin_observation_key(content_hash=raw.content_hash, **fields)
-    except ValueError:
-        return "acquisition_identity_mismatch"
-    if observation.observation_key != expected_key:
-        return "acquisition_identity_mismatch"
-    if (
-        event is None
-        or batch is None
-        or event.acquisition_source_id != source.acquisition_source_id
-        or event.raw_artifact_id != artifact.id
-        or event.provider_stream != "daily_health"
-        or event.semantic_fingerprint != f"garmin-observation:{expected_key}"
-        or batch.acquisition_source_id != source.acquisition_source_id
-        or batch.batch_kind != "provider_sync"
-        or batch.parser_name != "garmin-normalization"
-        or batch.parser_version != observation.normalization_contract_version
-        or event.status != "committed"
-        or batch.status != "committed"
-        or observation.fixture_id is not None
-    ):
-        return "acquisition_event_unproven"
-    return None
+    if receipt is not None:
+        return receipt_reason(receipt, observation, run, original_day)
+    return None if run.status == "succeeded" else "acquisition_success_unproven"
 
 
 def read_completed_steps_window(
@@ -273,6 +214,7 @@ def read_completed_steps_window(
             Provider,
             IngestEvent,
             IngestBatch,
+            GarminDailySummaryAcquisitionReceipt,
         )
         .outerjoin(GarminSource, GarminSource.id == obs.garmin_source_id)
         .outerjoin(GarminRawPayload, GarminRawPayload.id == obs.garmin_raw_payload_id)
@@ -281,6 +223,10 @@ def read_completed_steps_window(
         .outerjoin(Provider, Provider.id == GarminSource.provider_id)
         .outerjoin(IngestEvent, IngestEvent.id == obs.ingest_event_id)
         .outerjoin(IngestBatch, IngestBatch.id == IngestEvent.ingest_batch_id)
+        .outerjoin(
+            GarminDailySummaryAcquisitionReceipt,
+            GarminDailySummaryAcquisitionReceipt.observation_id == obs.id,
+        )
         .where(
             obs.stream_code == "daily_health",
             obs.payload_format == "json",
@@ -293,7 +239,10 @@ def read_completed_steps_window(
     )
     if source_id:
         query = query.where(obs.garmin_source_id == source_id)
-    rows = list(session.execute(query))
+    try:
+        rows = list(session.execute(query))
+    except (ValueError, TypeError, OverflowError):
+        return incomplete("acquisition_receipt_unreadable")
     provenance = len(rows)
     if provenance > MAX_PROVENANCE:
         return incomplete("provenance_limit_exceeded")
@@ -306,7 +255,7 @@ def read_completed_steps_window(
     decoded = {}
     by_source_day = defaultdict(list)
     identities = {}
-    for observation, src, raw, artifact, run, provider, event, batch in rows:
+    for observation, src, raw, artifact, run, provider, event, batch, receipt in rows:
         if monotonic() - started > MAX_READ_SECONDS:
             return incomplete("time_limit_exceeded")
         # Reprocess is positively known to be saved-byte replay, not acquisition.
@@ -342,7 +291,9 @@ def read_completed_steps_window(
         received = restore_stored_utc(observation.received_at)
         if day not in dates or received < completion_boundary(day):
             continue
-        reason = acquisition_reason(observation, src, raw, artifact, run, provider, event, batch)
+        reason = acquisition_reason(
+            observation, src, raw, artifact, run, provider, event, batch, receipt, day
+        )
         evidence = CompletedStepsEvidence(
             observation.id,
             raw.id,
@@ -355,6 +306,9 @@ def read_completed_steps_window(
             metric.value,
             reason or metric.reason,
             reason is None,
+            ("daily_summary_receipt" if receipt is not None else "succeeded_run")
+            if reason is None else None,
+            receipt.contract_version if receipt is not None else None,
         )
         by_source_day[observation.garmin_source_id, day].append(evidence)
         if src is not None and src.provider_code == "garmin_connect":

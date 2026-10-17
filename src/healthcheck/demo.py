@@ -729,6 +729,7 @@ _RESET_V2_ZERO_TABLES = (
     "coverage_intervals",
     "derived_measurements",
     "garmin_daily_records",
+    "garmin_daily_summary_acquisition_receipts",
     "garmin_fit_records",
     "garmin_intraday_records",
     "garmin_training_acquisitions",

@@ -631,6 +631,29 @@ class GarminPayloadObservation(Base):
     )
 
 
+class GarminDailySummaryAcquisitionReceipt(Base):
+    """Complete future daily-summary fetch bound to one immutable observation."""
+
+    __tablename__ = "garmin_daily_summary_acquisition_receipts"
+    __table_args__ = (
+        CheckConstraint("length(contract_version) > 0", name="version_nonempty"),
+        CheckConstraint("surface = 'daily_summary'", name="surface_allowed"),
+        CheckConstraint("method = 'get_user_summary'", name="method_allowed"),
+        CheckConstraint("requested_date = original_calendar_date", name="day_identity"),
+    )
+
+    observation_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_payload_observations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    surface: Mapped[str] = mapped_column(String(40), nullable=False)
+    method: Mapped[str] = mapped_column(String(40), nullable=False)
+    requested_date: Mapped[date] = mapped_column(Date, nullable=False)
+    original_calendar_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+
 class GarminSourceRecord(Base):
     """Current typed projection of one stable Garmin source-record identity."""
 
@@ -2686,6 +2709,7 @@ __all__ = [
     "DerivedMeasurement",
     "GarminActivityRecord",
     "GarminDailyRecord",
+    "GarminDailySummaryAcquisitionReceipt",
     "GarminFitRecord",
     "GarminIntradayRecord",
     "GarminMetricState",

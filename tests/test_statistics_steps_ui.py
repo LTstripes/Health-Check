@@ -81,6 +81,41 @@ def deterministic_steps_clock(monkeypatch):
     )
 
 
+def test_future_partial_receipt_through_real_statistics_get(statistics_ui, monkeypatch):
+    from sqlalchemy import select
+
+    from healthcheck.db.models import GarminPayloadObservation
+    from test_garmin_daily_summary_acquisition import fetch
+
+    session, paths, client = statistics_ui
+    session.commit()
+    report = fetch(paths.root, count=17)
+    assert report.status.value == "partial"
+    session.expire_all()
+    source_id = session.scalar(select(GarminPayloadObservation.garmin_source_id).where(
+        GarminPayloadObservation.sync_run_id == report.sync_run_id,
+        GarminPayloadObservation.source_filename == "daily_summary.json",
+    ))
+    session.commit()
+    statements = []
+
+    def capture(_connection, _cursor, statement, *_args):
+        statements.append(statement.lstrip().split()[0].upper())
+
+    event.listen(session.bind, "before_cursor_execute", capture)
+    try:
+        response = client.get("/statistics", params={
+            "period": "7", "end_date": DAY.isoformat(), "garmin_source_id": source_id,
+        })
+    finally:
+        event.remove(session.bind, "before_cursor_execute", capture)
+    assert response.status_code == 200
+    parser = StepsParser(steps_html(response))
+    assert parser.states[DAY.isoformat()] == "value"
+    assert parser.values[DAY.isoformat()].strip() == "17"
+    assert set(statements) <= {"SELECT", "BEGIN"}
+
+
 @pytest.mark.parametrize("period", ["7", "30", "calendar_year", "trailing365", "year_to_date"])
 def test_steps_reader_preserves_explicit_period_and_result(statistics_ui, monkeypatch, period):
     session, paths, client = statistics_ui
@@ -115,7 +150,7 @@ def test_steps_reader_preserves_explicit_period_and_result(statistics_ui, monkey
     }
     section = steps_html(response)
     assert "unknown / unknown / unknown / unknown" in section
-    assert "Europe/Moscow" in section and "garmin-completed-day-steps-moscow-v1" in section
+    assert "Europe/Moscow" in section and "garmin-completed-day-steps-moscow-v2" in section
     assert "statistics-denominator" not in section and "statistics-comparison" not in section
     for cell in result.cells:
         for evidence in cell.evidence:

@@ -49,7 +49,7 @@ from healthcheck.google.persistence import GooglePersistenceRepository
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.runtime import prepare_runtime
 
-HEAD = "0015_candidate_metadata_origins"
+HEAD = "0016_garmin_daily_summary_receipts"
 PRE_R04 = "0008_garmin_observation_reconciliation_version"
 GOOGLE_TABLES = {
     "google_sources",
