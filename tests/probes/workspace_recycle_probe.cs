@@ -9,6 +9,12 @@ using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
 namespace WorkspaceRecycleProbe {
+    // Microsoft TRANSFER_SOURCE_FLAGS; names prevent stale/mis-shifted masks.
+    [Flags] enum TransferSourceFlags : uint {
+        RenameExist=0x1, OverwriteExist=0x2, UseFullAccess=0x40,
+        DeleteRecycleIfPossible=0x80, CopyHardLink=0x100,
+        CopyLocalizedName=0x200, MoveAsCopyDelete=0x400
+    }
     [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     interface IShellItem {
         void BindToHandler(IntPtr ctx, ref Guid handler, ref Guid iid, out IntPtr result);
@@ -25,7 +31,7 @@ namespace WorkspaceRecycleProbe {
         void SetProgressMessage([MarshalAs(UnmanagedType.LPWStr)] string message);
         void SetProgressDialog(IntPtr dialog);
         void SetProperties(IntPtr properties);
-        void SetOwnerWindow(uint hwnd);
+        void SetOwnerWindow(IntPtr hwnd);
         void ApplyPropertiesToItem(IShellItem item);
         void ApplyPropertiesToItems(IntPtr items);
         void RenameItem(IShellItem item, [MarshalAs(UnmanagedType.LPWStr)] string name, IProgressSink sink);
@@ -62,7 +68,7 @@ namespace WorkspaceRecycleProbe {
     [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
     sealed class Sink : IProgressSink {
         internal const int Abort = unchecked((int)0x80004004);
-        internal bool Veto, Restore, SawPre, SawPost, AbortAfterDelete;
+        internal bool Veto, Restore, SawPre, SawPost, SawPreMove, AbortAfterDelete;
         internal bool AggregateKnown, AggregateAborted;
         internal int OperationError;
         internal Action AfterIdentityCheck;
@@ -70,12 +76,13 @@ namespace WorkspaceRecycleProbe {
         internal IShellItem Recycled;
         internal string Original, ExpectedIdentity;
         internal uint TransferFlags;
+        internal uint MoveTransferFlags;
         public int StartOperations() { return 0; }
         public int FinishOperations(int result) { return 0; }
         public int PreDeleteItem(uint flags, IShellItem item) {
             SawPre=true; TransferFlags=flags;
             // This is a test callback, not an atomic identity-bound filesystem action.
-            if (Veto || Restore || (flags & 0x80) == 0) return Abort;
+            if (Veto || Restore || (flags & (uint)TransferSourceFlags.DeleteRecycleIfPossible) == 0) return Abort;
             try {
                 if (Probe.Identity(Original) != ExpectedIdentity) return Abort;
                 if (AfterIdentityCheck != null) AfterIdentityCheck(); // Synthetic race injection only.
@@ -88,7 +95,10 @@ namespace WorkspaceRecycleProbe {
             Recycled=created; return AbortAfterDelete ? Abort : 0;
         }
         public int PreMoveItem(uint flags, IShellItem item, IShellItem parent, string name) {
-            if (!Restore || Directory.Exists(Original) || File.Exists(Original) || (flags & 0x403) != 0) return Abort;
+            SawPreMove=true;
+            MoveTransferFlags=flags;
+            uint forbidden=(uint)(TransferSourceFlags.RenameExist | TransferSourceFlags.OverwriteExist | TransferSourceFlags.MoveAsCopyDelete);
+            if (!Restore || Directory.Exists(Original) || File.Exists(Original) || (flags & forbidden) != 0) return Abort;
             return 0;
         }
         public int PostMoveItem(uint flags, IShellItem item, IShellItem parent, string name, int result, IShellItem created) { SawPost=true; ItemResult=result; return result < 0 ? Abort : 0; }
@@ -107,6 +117,8 @@ namespace WorkspaceRecycleProbe {
         public string Fixture, Volume, FileSystem, RootIdentityBefore, RootIdentityAfter;
         public bool VetoPreserved, PinnedPreserved, RecycledReceipt, Restored, ContentsEqual, IdentitiesEqual;
         public uint TransferFlags;
+        public uint RestoreTransferFlags;
+        public bool RestorePreMoveObserved;
         public int PayloadBytes;
         public string Readiness = "SYNTHETIC_ONLY; PRODUCTION_IDENTITY_BINDING_UNRESOLVED";
     }
@@ -115,6 +127,7 @@ namespace WorkspaceRecycleProbe {
         public bool OperationAccepted, ReceiptPresent, HookRan, Restored, DecoyPreserved;
         public bool AggregateKnown, AggregateAborted;
         public int OperationError;
+        public uint RestoreTransferFlags;
     }
     public sealed class ContractResult {
         public string FixtureGroup;
@@ -164,8 +177,15 @@ namespace WorkspaceRecycleProbe {
             string current=parent;
             while (!String.IsNullOrEmpty(current)) {
                 if (!Directory.Exists(current) || (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) throw new IOException("probe-parent-rejected");
+                if (String.Equals(Path.GetFileName(current),".git",StringComparison.OrdinalIgnoreCase)) throw new IOException("probe-git-metadata-parent-rejected");
                 DirectoryInfo info=Directory.GetParent(current); current=info == null ? null : info.FullName;
             }
+            string leaf=Path.GetFileName(parent), prefix="healthcheck-recycle-tests-";
+            Guid nonce;
+            if (!leaf.StartsWith(prefix,StringComparison.Ordinal) || !Guid.TryParseExact(leaf.Substring(prefix.Length),"N",out nonce)) throw new IOException("probe-harness-temp-root-required");
+            string marker=Path.Combine(parent,".harness-owned");
+            Identity(marker);
+            if (new FileInfo(marker).Length > 128 || File.ReadAllText(marker)!="WorkspaceRecycleSyntheticOnly:"+nonce.ToString("N")) throw new IOException("probe-harness-marker-rejected");
         }
         static bool DeleteFixture(string fixture, Sink sink) {
             IFileOperation op=null; IShellItem item=null;
@@ -187,17 +207,19 @@ namespace WorkspaceRecycleProbe {
             try { item.GetDisplayName(0x80058000u,out name); return Marshal.PtrToStringUni(name); }
             finally { if (name != IntPtr.Zero) Marshal.FreeCoTaskMem(name); }
         }
-        static bool RestoreTo(IShellItem receipt, string target) {
+        static bool RestoreTo(IShellItem receipt, string target, out uint moveFlags) {
+            moveFlags=0;
             if (receipt == null || Directory.Exists(target) || File.Exists(target)) return false;
             IFileOperation op=null; IShellItem parent=null;
+            Sink sink=null;
             try {
                 op=Operation(Quiet); parent=Item(Path.GetDirectoryName(target));
-                Sink sink=new Sink { Restore=true, Original=target };
+                sink=new Sink { Restore=true, Original=target };
                 op.MoveItem(receipt,parent,Path.GetFileName(target),sink); op.PerformOperations();
                 bool aborted; op.GetAnyOperationsAborted(out aborted);
-                return !aborted && sink.SawPost && sink.ItemResult >= 0 && Directory.Exists(target);
+                return !aborted && sink.SawPreMove && sink.SawPost && sink.ItemResult >= 0 && Directory.Exists(target);
             } catch (COMException) { return false; }
-            finally { Release(parent); Release(op); }
+            finally { if(sink!=null) moveFlags=sink.MoveTransferFlags; Release(parent); Release(op); }
         }
         static void WriteSynthetic(string directory, string text) {
             if (Directory.Exists(directory) || File.Exists(directory)) throw new IOException("probe-owned-target-collision");
@@ -245,9 +267,12 @@ namespace WorkspaceRecycleProbe {
                         string destination=Path.Combine(scenario,"restored-shell-item");
                         if (mode=="restore-collision") {
                             WriteSynthetic(root,"collision must survive");
-                            if (RestoreTo(sink.Recycled,root) || File.ReadAllText(Path.Combine(root,"synthetic.txt"))!="collision must survive") throw new IOException("probe-restore-overwrite");
+                            uint collisionFlags;
+                            if (RestoreTo(sink.Recycled,root,out collisionFlags) || File.ReadAllText(Path.Combine(root,"synthetic.txt"))!="collision must survive") throw new IOException("probe-restore-overwrite");
                         }
-                        result.Restored=RestoreTo(sink.Recycled,destination);
+                        uint restoreFlags;
+                        result.Restored=RestoreTo(sink.Recycled,destination,out restoreFlags);
+                        result.RestoreTransferFlags=restoreFlags;
                         if (!result.Restored || ObjectIdentity(destination,true)!=result.ShellMovedIdentity) throw new IOException("probe-contract-restore-unverified");
                         if (mode=="cancel-after-move") {
                             if (result.OperationAccepted) throw new IOException("probe-postcancel-treated-as-success");
@@ -265,6 +290,7 @@ namespace WorkspaceRecycleProbe {
             }
             return output; // Preserve all owned fixtures, including restored junctions.
         }
+        public static string LastFixture { get; private set; }
         public static Result Run(string fixtureParent) {
             string parent=Path.GetFullPath(fixtureParent).TrimEnd('\\');
             ValidateParent(parent);
@@ -273,6 +299,7 @@ namespace WorkspaceRecycleProbe {
             string fixture=Path.Combine(parent,"workspace-recycle-probe-"+Guid.NewGuid().ToString("N"));
             if (Directory.Exists(fixture) || File.Exists(fixture)) throw new IOException("probe-collision");
             Directory.CreateDirectory(fixture);
+            LastFixture=fixture;
             string payload=Path.Combine(fixture,"synthetic.txt");
             byte[] bytes=Encoding.UTF8.GetBytes("Synthetic workspace recycle round-trip. No Owner data.\r\n");
             if (bytes.Length > 4096) throw new IOException("probe-size-limit");
@@ -303,7 +330,9 @@ namespace WorkspaceRecycleProbe {
                 Sink sink=new Sink { Restore=true, Original=fixture };
                 restore.MoveItem(recycle.Recycled,destination,Path.GetFileName(fixture),sink);
                 restore.PerformOperations(); bool aborted; restore.GetAnyOperationsAborted(out aborted);
-                if (aborted || !sink.SawPost || sink.ItemResult < 0) throw new IOException("probe-restore-unverified; retain recycled item");
+                result.RestoreTransferFlags=sink.MoveTransferFlags;
+                result.RestorePreMoveObserved=sink.SawPreMove;
+                if (aborted || !sink.SawPreMove || !sink.SawPost || sink.ItemResult < 0) throw new IOException("probe-restore-unverified; retain recycled item");
                 result.Restored=Directory.Exists(fixture) && File.Exists(payload);
                 if (!result.Restored) throw new IOException("probe-restored-files-absent");
                 result.RootIdentityAfter=Identity(fixture);

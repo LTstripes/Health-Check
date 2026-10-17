@@ -5,12 +5,15 @@ param([Parameter(Mandatory=$true)][string]$FixtureParent,
       [Parameter(Mandatory=$true)][string]$EvidencePath)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'probes\recycle_test_support.ps1')
+Assert-RecycleProbeHost
 $helper=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\scripts\cleanup-workspaces.ps1'))
 $native=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'probes\workspace_recycle_probe.cs'))
 . $helper
 Initialize-JanitorNative
 Add-Type -Path $native
-$group=Join-Path ([IO.Path]::GetFullPath($FixtureParent)) ('workspace-recycle-mutex-'+[guid]::NewGuid().ToString('N'))
+$fixtureRoot=New-RecycleProbeRoot $FixtureParent
+$group=Join-Path $fixtureRoot ('workspace-recycle-mutex-'+[guid]::NewGuid().ToString('N'))
 if(Test-Path -LiteralPath $group){throw 'Owned mutex fixture collision'}
 [void][IO.Directory]::CreateDirectory($group)
 $script:ApprovedRoots=@((Join-Path $group 'codex'))
@@ -74,8 +77,7 @@ foreach($mode in @('resume-first','recycle-first','crash-after-shell')) {
     $releaseName='Local\RecycleRelease-'+$nonce
     $ready=[Threading.EventWaitHandle]::new($false,[Threading.EventResetMode]::ManualReset,$readyName)
     $release=[Threading.EventWaitHandle]::new($false,[Threading.EventResetMode]::ManualReset,$releaseName)
-    $scratch=Join-Path $group ('shell-'+$mode)
-    [void][IO.Directory]::CreateDirectory($scratch)
+    $scratch=New-RecycleProbeRoot $FixtureParent
     $response=Join-Path $group ($mode+'-response.json')
     $inputFile=Join-Path $group ($mode+'-input.json')
     [ordered]@{helper=$helper;native=$native;client=$script:ApprovedRoots[0];ops=$script:LogDirectory;mutex=$script:WorkspaceMutexName;ready=$readyName;release=$releaseName;target=$target;claim=$claim.Claim;mode=$mode;scratch=$scratch;response=$response}|ConvertTo-Json|Set-Content -LiteralPath $inputFile -Encoding UTF8
@@ -123,4 +125,6 @@ foreach($mode in @('resume-first','recycle-first','crash-after-shell')) {
         $observer.Dispose();$ready.Dispose();$release.Dispose()
     }
 }
-[ordered]@{utc=[datetime]::UtcNow.ToString('o');status='PASS_COORDINATION_PRIMITIVES_ONLY';harness_sha256=(Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash;helper_sha256=(Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash;probe_sha256=(Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash;fixture_group=$group;cases=$cases;production_ready=$false;retention_backdating=$false;network_fetch=$false;limitations='Bound newly completed lifecycle targets coordinate against actual Shell round-trips on separate owned GUID fixtures under the same mutex. This is not integrated eligible-workspace recycle or solved recovery semantics.'}|ConvertTo-Json -Depth 7|Tee-Object -FilePath $EvidencePath
+$receipt=[ordered]@{schema=2;utc=[datetime]::UtcNow.ToString('o');status='PASS_COORDINATION_PRIMITIVES_ONLY';harness_sha256=(Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash;helper_sha256=(Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash;probe_sha256=(Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash;fixture_temp_root=$fixtureRoot;fixture_group=$group;cases=$cases;production_ready=$false;source_attestations=@{retention_backdating=$false;network_fetch=$false;basis='Source/launcher attestations,not measured network counters'};limitations='Bound newly completed lifecycle targets coordinate against actual Shell round-trips on separate owned GUID fixtures under the same mutex. This is not integrated eligible-workspace recycle or solved recovery semantics.'}
+Write-RecycleProbeEvidence $receipt $EvidencePath
+$receipt|ConvertTo-Json -Depth 10

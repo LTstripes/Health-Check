@@ -21,14 +21,28 @@ NTFS volume. Fail closed on unavailable context, COM failure, absent recycled it
 collision, unexpected content or changed root/file identity. A post-action error
 does not imply that an earlier action was undone; retain the fixture/evidence.
 
-The probe uses IFileOperation with FOFX_RECYCLEONDELETE, FOF_NOERRORUI,
-FOFX_EARLYFAILURE and FOFX_NOCOPYHOOKS. PreDelete rejects missing
+The probe uses IFileOperation with FOFX_RECYCLEONDELETE, FOF_SILENT,
+FOF_NOCONFIRMATION, FOF_NOERRORUI, FOFX_EARLYFAILURE and FOFX_NOCOPYHOOKS on
+recycle. Restore omits recycle/no-confirmation flags. PreDelete rejects missing
 TSF_DELETE_RECYCLE_IF_POSSIBLE or changed identity; PostDelete must return an actual
 recycled IShellItem and successful item HRESULT. Verify aggregate cancellation too.
 Restore only that returned item to its vacant original parent/name via Shell,
 with no rename/overwrite/copy-delete/elevation permission. This is feasibility
 evidence for the deliberately tiny synthetic fixture, not an arbitrary-tree size,
 quota, no-fallback guarantee or production API safety proof.
+
+The PowerShell harnesses require Windows PowerShell 5.1; C# independently checks
+STA/interactive/normal-user/local-fixed-NTFS context. FixtureParent is a temp base,
+not a deletion target: the harness creates a fresh marked temp root outside Git,
+and the native probe refuses Git metadata ancestors and unmarked parent roots.
+The marker is test hygiene, never production enrollment or cleanup authority.
+Success/FAIL receipts flush file contents and label source attestations separately
+from measured flags/results. They are not a crash-safe recovery journal.
+
+The tested restore-collision case rejects an occupied destination before Shell.
+A collision introduced after the last callback check may still cause Shell
+confirmation UI; the probe does not prove immediate fail-closed behavior for that
+window. Do not add FOF_NOCONFIRMATION to restore to auto-answer that collision.
 
 ## Blocking contract issue
 

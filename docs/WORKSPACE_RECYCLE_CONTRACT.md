@@ -75,6 +75,13 @@ retained. A small exit-code diagnostic produced 0 both with and without an early
 handle, so it did not explain/reproduce that failure. Later focused runs capture
 the child handle before releasing its wait and pass; no old failure is relabeled.
 
+The later successful Go review of the older probe is separately
+[triaged against source and primary enum facts](WORKSPACE_RECYCLE_REVIEW_TRIAGE.md).
+Its useful harness/receipt observations are applied; its incorrect numeric mask
+and file-reparse assertions are not applied. Current tests use fresh marked temp
+roots outside Git metadata, with measured PreMove flags and explicit source
+attestations. A late after-callback restore collision remains unproved.
+
 ## Concrete alternatives and constraints
 
 | Alternative | Preserves current guarantees? | Windows Bin outcome | Decision needed |
