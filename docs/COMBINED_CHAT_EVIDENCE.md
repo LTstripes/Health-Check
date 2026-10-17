@@ -1,5 +1,76 @@
 # Combined Sleep + Activity + Context evidence
 
+## Optional saved HRV and resting heart rate (#451, next bounded slice)
+
+Set `hrv_garmin_source_id`, `hrv_google_source_id`, `rhr_garmin_source_id`
+and/or `rhr_google_source_id` on `CombinedEvidenceRequest`, or the matching CLI
+flags. Every exact ID is validated in the shared read-only snapshot before any
+domain reader runs. Each metric has its own explicit sources; no Sleep/Activity
+fallback or provider pooling occurs. `rhr_google_auto_select=True` (CLI
+`--rhr-google-auto-select`) opts into the accepted metric-specific Google RHR
+selection. An exact RHR override takes precedence, including an empty source.
+HRV requires exact sources and does not infer a Google choice from Sleep or RHR.
+
+With HRV/RHR selected, detailed/compact packets use
+`health-chat-combined-evidence-v3` / `health-chat-combined-compact-evidence-v3`.
+Existing omitted-metric v1 and Stress/Body Battery v2 remain unchanged. Sections
+`hrv` and `rhr` contain only requested `providers`; compact retains these sections
+identically to detailed. JSON, readable text, files and stdout share the frozen
+packet and the unchanged 2 MiB caps, SQL/time guards and exact 7/30-day dates.
+Context is read once. Steps and Weight remain open work in #451. The existing
+Weight/Context MCP, its schema/auth and connection setup are unchanged.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> --sleep-garmin-source-id <sleep-id> \
+  --hrv-garmin-source-id <weekly-hrv-id> --hrv-google-source-id <daily-hrv-id> \
+  --rhr-garmin-source-id <rhr-id> --rhr-google-auto-select \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
+Garmin HRV is the persisted `hrv_weekly_average_ms` snapshot, labelled as a
+provider weekly/trailing aggregate on its saved source-local date. It reuses
+Overview snapshot matching, eligibility and latest-within-date ordering; equal
+date-only candidates stay ambiguous. Eligible partial and zero values remain
+values; wrong units, missing/null/invalid, excluded and retired records never
+supply one. Per-point evidence retains source field, record/metric/raw IDs,
+precision, saved clock and normalization identity. The adapter reads current
+typed rows only; no raw-body parsing or import is added. At most 4096 candidate
+metric rows and 256 rows/date are inspected (the existing RHR work ceilings);
+overflow fails the entire packet without a prefix. Undated records cannot be
+assigned to the requested window. Counts are **snapshot-date counts**, not
+daily HRV coverage. `dates_without_eligible_snapshot` does not describe the
+physiological coverage of any weekly aggregate. No HRV mean is computed.
+
+Google HRV uses `read_google_daily_vitals` (#297), retaining its exact daily
+metric/stream/unit, date-only eligibility, current-record ambiguity, per-point
+states and exclusions. This reader gains optional exact source and cap arguments;
+omitting them preserves its existing behavior. Combined selects one exact source
+and caps candidates at 4096 before projection, rejecting overflow without a
+prefix. The scalar allowlist excludes arbitrary bodies and unrelated source
+inventory. Missing dates mean no eligible saved daily value; they never become
+zero or prove collection failure. Google daily HRV and Garmin weekly HRV remain
+different series even if their values coincide; neither is averaged with the other.
+
+RHR delegates to `read_saved_rhr_period` (#393), including its #376 eligibility,
+source-specific dates/precision, chronology exclusions, partial/zero values,
+record provenance, refresh facts, exact rational mean and final-only rounded
+display. The denominator is distinct eligible saved days; missing days are never
+zero. The existing 32-source inventory, 4096-record/source and 256-record/date
+bounds remain unchanged. Google automatic selection evaluates RHR eligibility in
+this exact window: other metrics cannot choose a source, two eligible sources
+conflict even on disjoint dates or equal values, ambiguous-only sources compete,
+and any incomplete candidate blocks selection. Conflict, unknown and incomplete
+states retain the reader's disclosure and have no selected value/mean; unresolved
+missing-day counts stay null. SQL/storage failures reject the complete packet.
+
+All acquisition coverage stays unknown. Saved dates do not establish common
+timezones, daily causal alignment, clinical significance or provider availability.
+No new ingestion, refresh, migration, UI, Stable operation or private-data test is
+included. Owner-local availability/UAT remains separate and unverified.
+
 ## Optional saved Stress and Body Battery (#451)
 
 Select `CombinedEvidenceRequest.stress_garmin_source_id` and/or
@@ -28,8 +99,8 @@ request dates as Sleep/Activity. Context is still read once. Sources may coincid
 or differ; the packet neither pools sources nor joins daily facts causally.
 These are saved-source dates, not completed Moscow days inferred by the CLI.
 This CLI addition does not extend the unchanged Weight/Context MCP or its schema,
-authentication or connection availability. HRV, RHR, Steps and Weight remain
-outside this combined extension.
+authentication or connection availability. HRV and RHR are separate opt-in sections described below; Steps and Weight
+remain outside this combined extension.
 
 `sections.stress` uses `analyze_garmin_metric_series` for
 `stress_daily_average` with the accepted

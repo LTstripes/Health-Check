@@ -1395,3 +1395,274 @@ def test_selected_metric_output_cap_never_emits_prefix(profile, selected_metrics
             result = capsys.readouterr()
             assert result.out == ''
             assert result.err == 'Export failed: output_exceeds_byte_limit\n'
+
+
+# #451: persisted synthetic opt-in HRV/RHR composition.
+def _seed_vital(profile, provider, metric, *, day=DAY, value=0, account="one"):
+    from healthcheck.garmin.normalization import GarminSourceIdentity
+    from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+    from test_google_daily_vitals import _daily_record, _fitbit_identity, _persist
+    with session_scope(profile[1]) as session:
+        if provider == "google":
+            code = "daily_hrv_average_ms" if metric == "hrv" else "daily_resting_heart_rate_bpm"
+            result = _persist(
+                session, ContentAddressedGooglePayloadStore(profile[0].root / "vital-google"),
+                _daily_record(metric_code=code, local_date=day, value=value,
+                              external_record_id=f"vital-{metric}-{day}-{value}"),
+                identity=_fitbit_identity(source_instance_id=f"synthetic-vital-{account}"))
+            identity = result.source.id
+        else:
+            body = ({"hrvSummary": {"calendarDate": day.isoformat(), "weeklyAvg": value}}
+                    if metric == "hrv" else
+                    {"calendarDate": day.isoformat(), "restingHeartRate": value})
+            result = GarminPersistenceRepository(session, payload_store=
+                ContentAddressedGarminPayloadStore(
+                    profile[0].root / "vital-garmin")).persist_result(
+                normalize_garmin_payload(body, stream="daily_health", source_identity=
+                    GarminSourceIdentity("provider", "garmin_connect", False,
+                                         source_instance_id=f"synthetic-vital-{account}")),
+                payload=body, received_at=CLOCK)
+            identity = result.source.id
+        return identity
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("projection", ["detailed", "compact"])
+def test_vitals_opt_in_exact_readers_and_distinct_hrv_semantics(profile, days, projection):
+    from healthcheck import combined_vitals
+    from healthcheck.google.daily_vitals import read_google_daily_vitals
+    from healthcheck.saved_rhr_period import SavedRhrPeriodQuery, read_saved_rhr_period
+    from healthcheck.saved_values import GARMIN_RHR, GOOGLE_RHR
+    ids = {}
+    for provider in ("garmin", "google"):
+        for metric in ("hrv", "rhr"):
+            ids[f"{metric}_{provider}_source_id"] = _seed_vital(
+                profile, provider, metric, account=metric)
+    request = replace(profile[2], days=days, projection=projection, **ids)
+    packet = read(profile, request)
+    assert packet["version"].endswith("v3")
+    start = request.domain_requests()[1].start_date
+    with session_scope(profile[1]) as session:
+        for provider, code, metric in (("garmin", "garmin_connect", GARMIN_RHR),
+                                       ("google", "google_health", GOOGLE_RHR)):
+            expected = read_saved_rhr_period(session, SavedRhrPeriodQuery(
+                code, metric, start, DAY, CLOCK, CLOCK.date(),
+                source_id=ids[f"rhr_{provider}_source_id"]))
+            actual = packet["sections"]["rhr"]["providers"][provider]
+            projected = combined_vitals._project(expected, combined_vitals.RHR_SCHEMA)
+            for key, value in projected.items():
+                assert actual[key] == value
+            assert actual["observations"][0]["is_zero"]
+            assert actual["missing_day_count"] == days - 1
+        google = read_google_daily_vitals(session, metric_code="daily_hrv_average_ms",
+            start_date=start, end_date=DAY, source_id=ids["hrv_google_source_id"]).as_dict()
+    hrv = packet["sections"]["hrv"]["providers"]
+    assert hrv["google"]["points"][0] == {
+        **google["sources"][0]["points"][0], "temporal_precision": "date"}
+    assert hrv["garmin"]["aggregate_kind"] == "trailing_aggregate"
+    assert hrv["garmin"]["mean"] is None and hrv["google"]["mean"] is None
+    assert hrv["garmin"]["points"][0]["value"] == 0
+    assert hrv["garmin"]["points"][0]["evidence"][0]["temporal_precision"] == "date"
+    text = evidence.render_combined_evidence(packet)
+    assert "weekly_snapshots_must_not_be_averaged_as_daily_hrv" in text
+    for domain in ("hrv", "rhr"):
+        assert chat_evidence._json(packet["sections"][domain]) in text
+    assert read(profile)["version"] == evidence.PACKAGE_VERSION
+
+
+def test_google_rhr_automatic_eligibility_conflict_and_exact_override(profile):
+    first = _seed_vital(profile, "google", "rhr", value=60)
+    _seed_vital(profile, "google", "hrv", value=80, account="hrv-only")
+    request = replace(profile[2], rhr_google_auto_select=True)
+    selected = read(profile, request)["sections"]["rhr"]["providers"]["google"]
+    assert selected["source_identity"]["source_id"] == first
+    assert selected["source_selection"]["selected_source_id"] == first
+    _seed_vital(profile, "google", "rhr", value=60, day=DAY - timedelta(days=1), account="two")
+    blocked = read(profile, request)["sections"]["rhr"]["providers"]["google"]
+    assert blocked["state"] == "ambiguous" and blocked["mean_exact"] is None
+    assert blocked["reason"] == "source_selection_required"
+    assert blocked["source_identity"] is None and blocked["missing_dates"] is None
+    exact = read(profile, replace(request, rhr_google_source_id=first))
+    source = exact["sections"]["rhr"]["providers"]["google"]
+    assert source["mean_display"] == 60 and "source_selection" not in source
+    assert len(source["available_sources"]) == 1
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+@pytest.mark.parametrize("state", ["null", "invalid", "missing", "partial", "ambiguous",
+                                    "unit", "retired"])
+def test_hrv_accepted_states_and_no_ineligible_mean(profile, provider, state):
+    from healthcheck.db.models import GoogleRecordMetric, GoogleSourceRecord
+    from test_saved_values import _copy
+    identity = _seed_vital(profile, provider, "hrv", value=33)
+    model = GarminSourceRecord if provider == "garmin" else GoogleSourceRecord
+    metric_model = GarminRecordMetric if provider == "garmin" else GoogleRecordMetric
+    with session_scope(profile[1]) as session:
+        source_field = model.garmin_source_id if provider == "garmin" else model.google_source_id
+        record = session.scalar(select(model).where(source_field == identity))
+        metric = session.scalar(select(metric_model).where(metric_model.record_id == record.id))
+        if state in {"null", "invalid", "missing"}:
+            metric.state, metric.value_number = state, None
+        elif state == "partial":
+            record.record_status = "partial"
+        elif state == "unit":
+            metric.unit = "bpm"
+        elif state == "retired":
+            record.projection_status = "retired"
+            record.retired_at, record.retire_reason = CLOCK, "synthetic correction"
+        else:
+            _copy((session,), record, metric)
+    packet = read(profile, replace(profile[2], **{f"hrv_{provider}_source_id": identity}))
+    source = packet["sections"]["hrv"]["providers"][provider]
+    assert source["mean"] is None
+    if state == "retired":
+        assert source["points"] == []
+    else:
+        point = source["points"][0]
+        assert point["eligible"] is (state == "partial")
+        assert point["value"] == (33 if state == "partial" else None)
+        if state == "ambiguous":
+            assert point["state"] == "ambiguous"
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+def test_hrv_candidate_cap_rejects_without_stdout_prefix(profile, monkeypatch, capsys, provider):
+    from healthcheck import combined_vitals
+    identity = _seed_vital(profile, provider, "hrv")
+    _seed_vital(profile, provider, "hrv", day=DAY - timedelta(days=1), value=31)
+    monkeypatch.setattr(combined_vitals, "MAX_PERIOD_RECORDS", 1)
+    assert cli.main([*stdout_args(profile, "json"),
+                     f"--hrv-{provider}-source-id", identity]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Export failed: hrv_selected_points_exceed_max"
+
+
+@pytest.mark.parametrize("field", ["hrv_garmin_source_id", "hrv_google_source_id",
+                                   "rhr_garmin_source_id", "rhr_google_source_id"])
+@pytest.mark.parametrize("bad", ["", " ", True, 3, "x" * 100])
+def test_vital_source_validation_precedes_snapshot(profile, monkeypatch, field, bad):
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid source must fail before snapshot")
+    monkeypatch.setattr(evidence, "_read_session", forbidden)
+    with pytest.raises(EvidenceError):
+        read(profile, replace(profile[2], **{field: bad}))
+
+
+def test_vital_ids_preflight_before_any_domain_reader(profile, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid exact source must fail before readers")
+    monkeypatch.setattr(sleep_evidence, "_assemble", forbidden)
+    with pytest.raises(EvidenceError, match="selected_source_unavailable"):
+        read(profile, replace(profile[2], rhr_google_source_id="missing"))
+
+
+def test_vital_cli_file_stdout_and_existing_versions(profile, tmp_path, capsys):
+    identity = _seed_vital(profile, "garmin", "hrv")
+    out = tmp_path / "external-vital-output"
+    flags = ["--hrv-garmin-source-id", identity, "--projection", "compact"]
+    assert cli.main([*args(profile, out), *flags]) == 0
+    capsys.readouterr()
+    saved = json.loads((out / "evidence.json").read_text(encoding="utf-8"))
+    assert saved["version"] == "health-chat-combined-compact-evidence-v3"
+    assert "weekly_snapshots_must_not_be_averaged_as_daily_hrv" in (
+        out / "evidence.txt").read_text(encoding="utf-8")
+    assert cli.main([*stdout_args(profile, "text"), *flags]) == 0
+    assert "hrv saved facts:" in capsys.readouterr().out
+
+
+def test_vitals_one_snapshot_context_once_and_privacy_allowlist(profile, monkeypatch):
+    from healthcheck import combined_vitals
+    identity = _seed_vital(profile, "google", "rhr")
+    original = combined_vitals.read_saved_rhr_period
+    sessions, context_sessions = [], []
+    original_context = ContextService.list
+    def context(self, **kwargs):
+        context_sessions.append(self.session)
+        return original_context(self, **kwargs)
+    def reader(session, query):
+        sessions.append(session)
+        result = original(session, query)
+        result["private_payload"] = {"token": "synthetic-do-not-export"}
+        result["observations"][0]["private_body"] = "synthetic-do-not-export"
+        return result
+    monkeypatch.setattr(combined_vitals, "read_saved_rhr_period", reader)
+    monkeypatch.setattr(ContextService, "list", context)
+    packet = read(profile, replace(profile[2], rhr_google_source_id=identity))
+    assert sessions == context_sessions and len(sessions) == 1
+    assert "synthetic-do-not-export" not in evidence.encode_combined_evidence(packet)
+
+
+def test_rhr_incomplete_search_preserves_no_mean_and_other_sections(profile, monkeypatch):
+    from healthcheck import combined_vitals
+    identity = _seed_vital(profile, "google", "rhr", value=60)
+    _seed_vital(profile, "google", "rhr", value=62, day=DAY - timedelta(days=1))
+    query_type = combined_vitals.SavedRhrPeriodQuery
+    def capped(*args, **kwargs):
+        return query_type(*args, **kwargs, max_candidate_records=1)
+    monkeypatch.setattr(combined_vitals, "SavedRhrPeriodQuery", capped)
+    packet = read(profile, replace(profile[2], rhr_google_auto_select=True))
+    result = packet["sections"]["rhr"]["providers"]["google"]
+    assert result["state"] == "search_incomplete"
+    assert not result["search"]["complete"] and result["mean_exact"] is None
+    assert result["observations"] == [] and result["missing_day_count"] is None
+    assert result["source_selection"]["selected_source_id"] is None
+    assert packet["sections"]["context"]["rows"]
+    assert identity in evidence.encode_combined_evidence(packet)
+
+
+def test_rhr_storage_failure_rejects_stdout_with_bounded_error(profile, monkeypatch, capsys):
+    from healthcheck import combined_vitals
+    identity = _seed_vital(profile, "google", "rhr")
+    def failed(*args, **kwargs):
+        return {"reason": "saved_value_read_failed", "private_payload": "private-synthetic"}
+    monkeypatch.setattr(combined_vitals, "read_saved_rhr_period", failed)
+    assert cli.main([*stdout_args(profile, "json"), "--rhr-google-source-id", identity]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.strip() == "Export failed: evidence_read_failed"
+
+
+def test_google_hrv_source_filter_equivalence_and_unrelated_inventory_not_exposed(profile):
+    from healthcheck.google.daily_vitals import read_google_daily_vitals
+    identity = _seed_vital(profile, "google", "hrv", value=42)
+    other = _seed_vital(profile, "google", "hrv", value=99, account="unrelated")
+    with session_scope(profile[1]) as session:
+        full = read_google_daily_vitals(session, metric_code="daily_hrv_average_ms",
+            start_date=DAY - timedelta(days=6), end_date=DAY).as_dict()
+        exact = read_google_daily_vitals(session, metric_code="daily_hrv_average_ms",
+            start_date=DAY - timedelta(days=6), end_date=DAY, source_id=identity).as_dict()
+    assert exact["sources"] == [s for s in full["sources"] if s["source_id"] == identity]
+    packet = read(profile, replace(profile[2], hrv_google_source_id=identity))
+    encoded = evidence.encode_combined_evidence(packet)
+    assert other not in encoded
+
+
+def test_vital_sections_identical_in_compact_and_detailed_and_size_guard(profile, monkeypatch):
+    ids = {f"{metric}_{provider}_source_id": _seed_vital(
+        profile, provider, metric, account=metric)
+        for provider in ("garmin", "google") for metric in ("hrv", "rhr")}
+    detailed = read(profile, replace(profile[2], **ids))
+    projected = read(profile, replace(profile[2], projection="compact", **ids))
+    for metric in ("hrv", "rhr"):
+        assert projected["sections"][metric] == detailed["sections"][metric]
+    monkeypatch.setattr(evidence, "MAX_OUTPUT_BYTES", 1)
+    with pytest.raises(EvidenceError, match="output_exceeds_byte_limit"):
+        read(profile, replace(profile[2], projection="compact", **ids))
+
+
+def test_hrv_google_scalar_disclosure_fails_closed(profile, monkeypatch):
+    from healthcheck import combined_vitals
+    identity = _seed_vital(profile, "google", "hrv")
+    original = combined_vitals.read_google_daily_vitals
+    class Injected:
+        def as_dict(self):
+            packet = self.packet.as_dict()
+            packet["sources"][0]["points"][0]["value"] = {"body": "private-synthetic"}
+            return packet
+    def poisoned(*args, **kwargs):
+        result = Injected()
+        result.packet = original(*args, **kwargs)
+        return result
+    monkeypatch.setattr(combined_vitals, "read_google_daily_vitals", poisoned)
+    with pytest.raises(EvidenceError, match="unsupported_evidence_value"):
+        read(profile, replace(profile[2], hrv_google_source_id=identity))
