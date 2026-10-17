@@ -131,6 +131,23 @@ is captured in UTC at invocation and the local evaluation date is explicit,
 never inferred from the host zone. The command writes `evidence.json` and
 `evidence.txt` from the same frozen packet only after both serializations pass.
 
+`--output-dir PATH` and `--stdout json|text` are required and mutually exclusive.
+`--stdout` emits only the selected existing serializer result for the one frozen
+packet and no status line: `json` is `encode_combined_evidence`, `text` is
+`render_combined_evidence`. The complete result is validated and constructed
+before any byte reaches stdout, so a read, validation or serialization failure
+leaves stdout empty with a bounded code on stderr and a nonzero exit. A malformed
+stdout request — missing, invalid or conflicting options, including `--stdout`
+combined with `--output-dir` in either order — likewise writes no payload and
+prints one bounded code, never the arbitrary supplied values, and reads no data.
+Stdout mode never creates the output directory and writes no `evidence.json`/`evidence.txt`.
+Stdout receives the exact UTF-8 bytes of the serializer result even when the
+active console encoding cannot represent some characters, so the packet is never
+re-escaped into invalid JSON, substituted or truncated. The user redirects or
+pipes stdout explicitly. This command runs in the local executor: it is not a
+live assistant connection, no upload occurs, and captured/redirected stdout can
+contain private owner context, so any resulting file is private Owner data.
+
 The output directory must be new and outside the profile and any Git checkout
 (including `.git` worktree files). Repeat `--agent-workspace-root` to also
 exclude development roots without Git markers. These checks happen before
