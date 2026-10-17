@@ -1,5 +1,5 @@
 // Synthetic-only Windows Shell feasibility probe. NEVER a janitor implementation.
-// The sole public operation creates its own GUID fixture, recycles and restores it.
+// Public probes create their own GUID fixtures; no existing deletion target input.
 using System;
 using System.IO;
 using System.Text;
@@ -62,7 +62,10 @@ namespace WorkspaceRecycleProbe {
     [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
     sealed class Sink : IProgressSink {
         internal const int Abort = unchecked((int)0x80004004);
-        internal bool Veto, Restore, SawPre, SawPost;
+        internal bool Veto, Restore, SawPre, SawPost, AbortAfterDelete;
+        internal bool AggregateKnown, AggregateAborted;
+        internal int OperationError;
+        internal Action AfterIdentityCheck;
         internal int ItemResult = Abort;
         internal IShellItem Recycled;
         internal string Original, ExpectedIdentity;
@@ -73,12 +76,16 @@ namespace WorkspaceRecycleProbe {
             SawPre=true; TransferFlags=flags;
             // This is a test callback, not an atomic identity-bound filesystem action.
             if (Veto || Restore || (flags & 0x80) == 0) return Abort;
-            try { return Probe.Identity(Original) == ExpectedIdentity ? 0 : Abort; } catch { return Abort; }
+            try {
+                if (Probe.Identity(Original) != ExpectedIdentity) return Abort;
+                if (AfterIdentityCheck != null) AfterIdentityCheck(); // Synthetic race injection only.
+                return 0;
+            } catch { return Abort; }
         }
         public int PostDeleteItem(uint flags, IShellItem item, int result, IShellItem created) {
             SawPost=true; ItemResult=result;
             if (result < 0 || created == null) return Abort;
-            Recycled=created; return 0;
+            Recycled=created; return AbortAfterDelete ? Abort : 0;
         }
         public int PreMoveItem(uint flags, IShellItem item, IShellItem parent, string name) {
             if (!Restore || Directory.Exists(Original) || File.Exists(Original) || (flags & 0x403) != 0) return Abort;
@@ -102,6 +109,18 @@ namespace WorkspaceRecycleProbe {
         public uint TransferFlags;
         public int PayloadBytes;
         public string Readiness = "SYNTHETIC_ONLY; PRODUCTION_IDENTITY_BINDING_UNRESOLVED";
+    }
+    public sealed class ContractCase {
+        public string Name, Outcome, OriginalIdentity, ShellMovedIdentity;
+        public bool OperationAccepted, ReceiptPresent, HookRan, Restored, DecoyPreserved;
+        public bool AggregateKnown, AggregateAborted;
+        public int OperationError;
+    }
+    public sealed class ContractResult {
+        public string FixtureGroup;
+        public System.Collections.Generic.List<ContractCase> Cases = new System.Collections.Generic.List<ContractCase>();
+        public bool ProductionReady = false;
+        public string Contract = "Counterexamples and failure observations only; never a production recycle transaction";
     }
     public static class Probe {
         [StructLayout(LayoutKind.Sequential)] struct Info {
@@ -127,10 +146,11 @@ namespace WorkspaceRecycleProbe {
             op.SetOperationFlags(flags); return op;
         }
         static void Release(object value) { if (value != null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value); }
-        internal static string Identity(string path) {
+        internal static string Identity(string path) { return ObjectIdentity(path,false); }
+        static string ObjectIdentity(string path, bool allowReparse) {
             using (SafeFileHandle h=CreateFileW(path,0x80000000u,7,IntPtr.Zero,3,0x00200000u | (Directory.Exists(path) ? 0x02000000u : 0),IntPtr.Zero)) {
                 Info i;
-                if (h.IsInvalid || !GetFileInformationByHandle(h,out i) || (i.Attributes & 0x400) != 0 || i.Links != 1) throw new IOException("probe-identity-unavailable");
+                if (h.IsInvalid || !GetFileInformationByHandle(h,out i) || (!allowReparse && (i.Attributes & 0x400) != 0) || i.Links != 1) throw new IOException("probe-identity-unavailable");
                 return i.Volume+":"+i.IndexHigh+":"+i.IndexLow+":"+i.Created.dwHighDateTime+":"+i.Created.dwLowDateTime;
             }
         }
@@ -153,9 +173,97 @@ namespace WorkspaceRecycleProbe {
                 op=Operation(Quiet | 0x10 | 0x00080000); item=Item(fixture);
                 op.DeleteItem(item,sink); op.PerformOperations();
                 bool aborted; op.GetAnyOperationsAborted(out aborted);
+                sink.AggregateKnown=true; sink.AggregateAborted=aborted;
                 return !aborted && sink.SawPre && sink.SawPost && sink.ItemResult >= 0 && sink.Recycled != null;
-            } catch (COMException) { return false; }
+            } catch (COMException error) {
+                sink.OperationError=error.ErrorCode;
+                if (op != null) { try { bool aborted; op.GetAnyOperationsAborted(out aborted); sink.AggregateKnown=true; sink.AggregateAborted=aborted; } catch (COMException) { } }
+                return false;
+            }
             finally { Release(item); Release(op); }
+        }
+        static string ItemPath(IShellItem item) {
+            IntPtr name=IntPtr.Zero;
+            try { item.GetDisplayName(0x80058000u,out name); return Marshal.PtrToStringUni(name); }
+            finally { if (name != IntPtr.Zero) Marshal.FreeCoTaskMem(name); }
+        }
+        static bool RestoreTo(IShellItem receipt, string target) {
+            if (receipt == null || Directory.Exists(target) || File.Exists(target)) return false;
+            IFileOperation op=null; IShellItem parent=null;
+            try {
+                op=Operation(Quiet); parent=Item(Path.GetDirectoryName(target));
+                Sink sink=new Sink { Restore=true, Original=target };
+                op.MoveItem(receipt,parent,Path.GetFileName(target),sink); op.PerformOperations();
+                bool aborted; op.GetAnyOperationsAborted(out aborted);
+                return !aborted && sink.SawPost && sink.ItemResult >= 0 && Directory.Exists(target);
+            } catch (COMException) { return false; }
+            finally { Release(parent); Release(op); }
+        }
+        static void WriteSynthetic(string directory, string text) {
+            if (Directory.Exists(directory) || File.Exists(directory)) throw new IOException("probe-owned-target-collision");
+            Directory.CreateDirectory(directory);
+            using (FileStream stream=new FileStream(Path.Combine(directory,"synthetic.txt"),FileMode.CreateNew,FileAccess.Write,FileShare.None)) {
+                byte[] bytes=Encoding.UTF8.GetBytes(text); if (bytes.Length > 4096) throw new IOException("probe-size-limit");
+                stream.Write(bytes,0,bytes.Length); stream.Flush(true);
+            }
+        }
+        public static string LastContractGroup { get; private set; }
+        public static ContractResult RunContracts(string fixtureParent, Action<string,string> createOwnedJunction) {
+            string parent=Path.GetFullPath(fixtureParent).TrimEnd('\\'); ValidateParent(parent);
+            string group=Path.Combine(parent,"workspace-recycle-contract-"+Guid.NewGuid().ToString("N"));
+            if (Directory.Exists(group) || File.Exists(group)) throw new IOException("probe-group-collision");
+            Directory.CreateDirectory(group); LastContractGroup=group;
+            ContractResult output=new ContractResult { FixtureGroup=group };
+            foreach (string mode in new string[] { "replacement-before-check", "replacement-after-check", "junction-after-check", "cancel-after-move", "restore-collision" }) {
+                string scenario=Path.Combine(group,mode); Directory.CreateDirectory(scenario);
+                string root=Path.Combine(scenario,"source"), parked=Path.Combine(scenario,"parked-original"), decoy=Path.Combine(scenario,"decoy");
+                WriteSynthetic(root,"original synthetic payload");
+                string expected=Identity(root); WriteSynthetic(decoy,"decoy must survive");
+                ContractCase result=new ContractCase { Name=mode, OriginalIdentity=expected };
+                Sink sink=new Sink { Original=root, ExpectedIdentity=expected, AbortAfterDelete=(mode=="cancel-after-move") };
+                if (mode=="replacement-before-check") {
+                    Directory.Move(root,parked); WriteSynthetic(root,"replacement synthetic payload");
+                } else if (mode=="replacement-after-check" || mode=="junction-after-check") {
+                    sink.AfterIdentityCheck=delegate {
+                        Directory.Move(root,parked);
+                        if (mode=="junction-after-check") {
+                            if (createOwnedJunction==null) throw new IOException("probe-junction-factory-missing");
+                            createOwnedJunction(root,decoy);
+                        } else WriteSynthetic(root,"replacement synthetic payload");
+                        result.HookRan=true;
+                    };
+                }
+                result.OperationAccepted=DeleteFixture(root,sink);
+                result.ReceiptPresent=sink.Recycled!=null;
+                result.AggregateKnown=sink.AggregateKnown; result.AggregateAborted=sink.AggregateAborted; result.OperationError=sink.OperationError;
+                try {
+                    if (mode=="replacement-before-check") {
+                        if (result.OperationAccepted || result.ReceiptPresent || !Directory.Exists(root) || Identity(parked)!=expected) throw new IOException("probe-precheck-veto-failed");
+                        result.Outcome="replacement-vetoed-before-action";
+                    } else if (result.ReceiptPresent) {
+                        result.ShellMovedIdentity=ObjectIdentity(ItemPath(sink.Recycled),true);
+                        string destination=Path.Combine(scenario,"restored-shell-item");
+                        if (mode=="restore-collision") {
+                            WriteSynthetic(root,"collision must survive");
+                            if (RestoreTo(sink.Recycled,root) || File.ReadAllText(Path.Combine(root,"synthetic.txt"))!="collision must survive") throw new IOException("probe-restore-overwrite");
+                        }
+                        result.Restored=RestoreTo(sink.Recycled,destination);
+                        if (!result.Restored || ObjectIdentity(destination,true)!=result.ShellMovedIdentity) throw new IOException("probe-contract-restore-unverified");
+                        if (mode=="cancel-after-move") {
+                            if (result.OperationAccepted) throw new IOException("probe-postcancel-treated-as-success");
+                            result.Outcome="post-move-cancellation-had-recoverable-receipt-no-retry";
+                        } else if (mode=="restore-collision") result.Outcome="occupied-destination-refused;restored-to-vacant-owned-path";
+                        else result.Outcome=result.ShellMovedIdentity==expected ? "observed-original-object-moved;not-an-api-guarantee" : "COUNTEREXAMPLE-unapproved-replacement-object-moved";
+                    } else {
+                        if (!Directory.Exists(root) || (result.HookRan && Identity(parked)!=expected)) throw new IOException("probe-contract-unknown-outcome-no-retry");
+                        result.Outcome="shell-refused;no-retry-or-fallback";
+                    }
+                    result.DecoyPreserved=File.ReadAllText(Path.Combine(decoy,"synthetic.txt"))=="decoy must survive";
+                    if (!result.DecoyPreserved) throw new IOException("probe-decoy-changed");
+                    output.Cases.Add(result);
+                } finally { Release(sink.Recycled); }
+            }
+            return output; // Preserve all owned fixtures, including restored junctions.
         }
         public static Result Run(string fixtureParent) {
             string parent=Path.GetFullPath(fixtureParent).TrimEnd('\\');

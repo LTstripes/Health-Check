@@ -10,8 +10,8 @@ its own Integrator acceptance; Health acceptance does not grant it.
 ## Minimal implementation boundary
 
 Keep the accepted production helper/janitor unchanged until identity binding is
-resolved. Add a separate Windows-only synthetic probe, not imported by the helper
-or scheduled by Ops. Its only public operation creates a new random fixture with
+resolved. Add separate Windows-only synthetic probes, not imported by the helper
+or scheduled by Ops. Public probe operations create new random fixtures with
 one constant synthetic file, limits it to 4 KiB, runs veto/locked-pin checks, then
 performs an explicitly unpinned Shell recycle/restore round-trip. It never accepts
 an existing deletion target, enumerates/empties the Bin, uses external software,
@@ -45,6 +45,10 @@ round-trip. Early independent design review is NO_GO for a direct replacement.
 No temporary handoff/quarantine architecture is implemented or assumed accepted.
 No new production CLI switch or schedulable recycle action is delivered by this
 probe. The existing permanent Apply must never appear in the future daily task.
+
+The subsequent [production contract decision packet](WORKSPACE_RECYCLE_CONTRACT.md)
+records deterministic counterexamples, concurrency/failure evidence and the
+architectural alternatives. It supersedes feasibility-only readiness assumptions.
 
 ## Production acceptance still required
 
