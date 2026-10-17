@@ -306,7 +306,7 @@ jobs:
           -File tests/test_workspace_retirement.ps1
       - name: Upload workspace relocation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: workspace-retirement-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/workspace-retirement-${{ github.run_id }}-${{ github.run_attempt }}/retirement-evidence.json
