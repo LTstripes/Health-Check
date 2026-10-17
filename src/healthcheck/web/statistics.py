@@ -1,5 +1,6 @@
 """Desktop presentation of the accepted read-only source-period packet (#347 B2)."""
 
+from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -8,6 +9,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
 
+from healthcheck.analytics.cycling_source_discovery import (
+    METRIC_CODE,
+    CyclingSourceDiscoveryService,
+)
 from healthcheck.analytics.period_summary import PeriodSummaryService
 from healthcheck.db.engine import session_scope
 from healthcheck.garmin.completed_steps_read import DISPLAY_ZONE, read_completed_steps_window
@@ -106,6 +111,9 @@ def statistics(
                 garmin_sleep_source_id=garmin_sleep_source_id or None,
                 google_sleep_source_id=google_sleep_source_id or None,
             )
+            cycling_cell = statistics_cycling_cell(
+                session, packet, window=window, explicit=garmin_source_id or None,
+            )
             steps_now = steps_evaluation_instant()
             steps_start = date.fromisoformat(packet["requested_window"]["start_date"])
             steps_end = date.fromisoformat(packet["requested_window"]["end_date"])
@@ -143,6 +151,7 @@ def statistics(
         context={
             "page": "statistics",
             "packet": packet,
+            "cycling_cell": cycling_cell,
             "steps": steps,
             "steps_state_labels": STEPS_STATE_LABELS,
             "selected_garmin_source_id": garmin_source_id or None,
@@ -169,10 +178,56 @@ def statistics(
             "session_links": statistics_session_links(
                 packet, period=selected_period, calendar_year=selected_year,
                 control_end_date=evaluated_date.isoformat(),
+                cycling_cell=cycling_cell,
             ),
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+def statistics_cycling_cell(session, packet: dict, *, window: dict, explicit: str | None) -> dict:
+    """Project #436 discovery into one UI cell; never alter the shared packet.
+
+    Provider overrides retain their existing exact-source read. Automatic mode
+    requires the complete bounded discovery, including every ambiguity check.
+    It does not select a provider for Steps, Sleep, tennis or activity counts.
+    """
+    side = packet["sides"][0]
+    cell = deepcopy(side["metrics"][METRIC_CODE])
+    cell["source_identity"] = side["source_identity"]
+    if explicit:
+        cell["cycling_selection"] = {"mode": "explicit", "state": "explicit", "options": []}
+        return cell
+    discovery = CyclingSourceDiscoveryService(session).discover(**window)
+    provider = discovery["providers"][0]
+    eligible = [o for o in provider["options"] if o["eligibility"]["has_eligible_values"]]
+    chosen = (eligible[0] if provider["search"]["complete"]
+              and provider["state"] == "unique_eligible_source"
+              and provider["ambiguous_source_count"] == 0 and len(eligible) == 1 else None)
+    selection = {"mode": "automatic", **provider,
+                 "contract_version": discovery["contract_version"],
+                 "read_limits": discovery["read_limits"]}
+    if chosen:
+        cell.update(deepcopy(chosen["summary"]))
+        cell["source_identity"] = chosen["source_identity"]
+        start = date.fromisoformat(packet["requested_window"]["start_date"])
+        cell["missing_dates"] = [
+            day.isoformat() for offset in range(packet["requested_window"]["inclusive_days"])
+            if (day := start + timedelta(days=offset)).isoformat()
+            not in cell["observed_calendar_dates"]
+        ]
+        cell["missing_day_count"] = len(cell["missing_dates"])
+    else:
+        cell["source_identity"] = None
+        cell["state"] = ("selection_required" if provider["state"] in {
+            "multiple_eligible_sources", "ambiguous_records",
+        } else provider["state"])
+        cell["aggregation"] = dict.fromkeys(cell["aggregation"])
+        for key in ("observed_count", "observed_day_count", "missing_day_count", "missing_dates"):
+            cell[key] = None
+    cell["search"] = provider["search"]
+    cell["cycling_selection"] = selection
+    return cell
 
 
 def statistics_source_choices(side: dict) -> list[dict]:

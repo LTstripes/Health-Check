@@ -56,13 +56,19 @@
     <h2 id="metric-{{ code }}">{{ label }}</h2>
     <div class="statistics-pair">
       {% for side in packet.sides %}
-      {% set cell = side.metrics[code] %}
+      {% set cell = cycling_cell if code == 'cycling_distance_meters' and side.position == 'left' else side.metrics[code] %}
       {% set cell_source = cell.source_identity if cell.source_identity is defined else side.source_identity %}
       {% set value = cell.aggregation.value %}
       {% set incomplete = cell.state == 'search_incomplete' %}
-      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] or (cell.source_selection is defined and cell_source is none) %}
+      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] or ((cell.source_selection is defined or cell.cycling_selection is defined) and cell_source is none) %}
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
+        {% if cell.cycling_selection is defined %}
+        <p data-cycling-source>{{ identity(cell_source) if cell_source else state_labels[cell.state] }}{% if cell_source %} · {{ 'Выбран явно' if cell.cycling_selection.mode == 'explicit' else 'Автоматически для этого периода' }}{% endif %}</p>
+        {% if cell.state in ['selection_required', 'search_incomplete'] %}
+        <p class="statistics-source-warning" role="status" data-cycling-source-attention>{{ 'Несколько пригодных источников или неоднозначные записи. Выберите Garmin-источник выше.' if cell.state == 'selection_required' else 'Поиск велодистанции не завершён; единственный пригодный источник не установлен.' }}</p>
+        {% endif %}
+        {% endif %}
         {% if cell.source_selection is defined %}
         <p data-sleep-source>{{ identity(cell_source) if cell_source else state_labels[cell.state] }}</p>
         {% if cell.state in ['selection_required', 'search_incomplete'] %}
@@ -103,6 +109,12 @@
           <button form="statistics-controls" type="submit">Применить источник сна</button>
           {% endif %}
           <dl>
+            {% if cell.cycling_selection is defined %}
+            <dt>Выбор источника велодистанции</dt><dd>{{ cell.cycling_selection.mode }} · {{ cell.cycling_selection.state }}</dd>
+            {% if cell.cycling_selection.mode == 'automatic' %}
+            <dt>Кандидаты в периоде</dt><dd>{% for option in cell.cycling_selection.options %}{{ identity(option.source_identity) }}: {{ option.source_identity.source_id }} · допустимых сессий {{ option.summary.aggregation.eligible_count }}; неоднозначных записей {{ option.eligibility.ambiguous_record_count }}{% for reason in option.summary.exclusions %}; {{ reason.reason_code }}: {{ reason.count }}{% endfor %}{% if not loop.last %}<br>{% endif %}{% else %}Нет завершённой оценки кандидатов с пригодной велодистанцией.{% endfor %}</dd>
+            {% endif %}
+            {% endif %}
             {% if cell.search is defined %}<dt>Поиск сохранённых данных</dt><dd>{{ 'Завершён в выбранном периоде; это не подтверждает полноту сбора или покрытие устройства.' if cell.search.complete else 'Не завершён: ' ~ cell.search.reason }}</dd>{% endif %}
             <dt>Источник / поле</dt><dd>{{ cell_source.source_id if cell_source else state_labels[cell.state] }} / {{ cell.source_metric_code }}</dd>
             {% if cell.source_selection is defined %}
