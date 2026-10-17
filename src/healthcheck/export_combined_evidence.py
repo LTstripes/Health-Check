@@ -90,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Opt in to saved Garmin daily-average Stress from this exact source")
     parser.add_argument("--body-battery-garmin-source-id",
                         help="Opt in to Body Battery maxima among saved eligible samples")
+    for domain in ("hrv", "rhr"):
+        for provider in ("garmin", "google"):
+            parser.add_argument(f"--{domain}-{provider}-source-id",
+                                help=f"Opt in to saved {provider} {domain.upper()} evidence")
+    parser.add_argument("--rhr-google-auto-select", action="store_true",
+                        help="Select the unique eligible saved Google RHR source in this window")
     parser.add_argument("--sleep-google-auto-select", action="store_true",
                         help="Select the unique eligible Google Sleep source in this window")
     parser.add_argument("--include-context", action=argparse.BooleanOptionalAction, default=True)
@@ -132,7 +138,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.sleep_garmin_source_id, args.sleep_google_source_id,
                 args.include_context, args.context_limit, args.sleep_google_auto_select,
                 args.projection, stress_garmin_source_id=args.stress_garmin_source_id,
-                body_battery_garmin_source_id=args.body_battery_garmin_source_id),
+                body_battery_garmin_source_id=args.body_battery_garmin_source_id,
+                hrv_garmin_source_id=args.hrv_garmin_source_id,
+                hrv_google_source_id=args.hrv_google_source_id,
+                rhr_garmin_source_id=args.rhr_garmin_source_id,
+                rhr_google_source_id=args.rhr_google_source_id,
+                rhr_google_auto_select=args.rhr_google_auto_select),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )
         if args.output_dir is not None:

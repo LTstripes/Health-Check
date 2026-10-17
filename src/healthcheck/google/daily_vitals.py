@@ -269,39 +269,52 @@ class GoogleDailyVitalsResult:
         }
 
 
+class DailyVitalsReadCapError(ValueError):
+    """An explicitly bounded caller must not receive a selected prefix."""
+
+
 def read_google_daily_vitals(
     session: Session,
     *,
     metric_code: str,
     start_date: date,
     end_date: date,
+    source_id: str | None = None,
+    max_records: int | None = None,
 ) -> GoogleDailyVitalsResult:
     """Read one frozen metric from persisted current Google evidence only."""
 
     definition = get_google_daily_vital(metric_code)
     validate_google_daily_vitals_window(start_date, end_date)
-    records = list(
-        session.scalars(
-            select(GoogleSourceRecord)
-            .where(
-                # Enumerate every persisted source ID so SQLite can seek the
-                # existing source/stream/date index. The FK makes this set
-                # exhaustive; no provider, device, family or source preference.
-                GoogleSourceRecord.google_source_id.in_(select(GoogleSource.id)),
-                GoogleSourceRecord.stream_code == definition.stream_code,
-                GoogleSourceRecord.projection_status == _CURRENT,
-                GoogleSourceRecord.temporal_precision == _DATE_PRECISION,
-                GoogleSourceRecord.source_local_date.is_not(None),
-                GoogleSourceRecord.source_local_date >= start_date,
-                GoogleSourceRecord.source_local_date <= end_date,
-            )
-            .order_by(
-                GoogleSourceRecord.source_local_date,
-                GoogleSourceRecord.google_source_id,
-                GoogleSourceRecord.id,
-            )
+    if max_records is not None and (type(max_records) is not int or max_records < 1):
+        raise ValueError("invalid daily vital record cap")
+    statement = (
+        select(GoogleSourceRecord)
+        .where(
+            # Enumerate every persisted source ID so SQLite can seek the
+            # existing source/stream/date index. The FK makes this set
+            # exhaustive; no provider, device, family or source preference.
+            GoogleSourceRecord.google_source_id.in_(select(GoogleSource.id)),
+            GoogleSourceRecord.stream_code == definition.stream_code,
+            GoogleSourceRecord.projection_status == _CURRENT,
+            GoogleSourceRecord.temporal_precision == _DATE_PRECISION,
+            GoogleSourceRecord.source_local_date.is_not(None),
+            GoogleSourceRecord.source_local_date >= start_date,
+            GoogleSourceRecord.source_local_date <= end_date,
+        )
+        .order_by(
+            GoogleSourceRecord.source_local_date,
+            GoogleSourceRecord.google_source_id,
+            GoogleSourceRecord.id,
         )
     )
+    if source_id is not None:
+        statement = statement.where(GoogleSourceRecord.google_source_id == source_id)
+    if max_records is not None:
+        statement = statement.limit(max_records + 1)
+    records = list(session.scalars(statement))
+    if max_records is not None and len(records) > max_records:
+        raise DailyVitalsReadCapError("daily vital candidate cap exceeded")
     if not records:
         return _empty_result(definition, start_date, end_date)
 
