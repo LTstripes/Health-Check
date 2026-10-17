@@ -94,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
         for provider in ("garmin", "google"):
             parser.add_argument(f"--{domain}-{provider}-source-id",
                                 help=f"Opt in to saved {provider} {domain.upper()} evidence")
+    parser.add_argument("--steps-garmin-source-id",
+                        help="Opt in to saved observed account-level Steps; finality is unknown")
+    parser.add_argument("--include-weight", action="store_true",
+                        help="Opt in to accepted saved Weight overlay and canonical evidence")
     parser.add_argument("--rhr-google-auto-select", action="store_true",
                         help="Select the unique eligible saved Google RHR source in this window")
     parser.add_argument("--sleep-google-auto-select", action="store_true",
@@ -143,7 +147,9 @@ def main(argv: list[str] | None = None) -> int:
                 hrv_google_source_id=args.hrv_google_source_id,
                 rhr_garmin_source_id=args.rhr_garmin_source_id,
                 rhr_google_source_id=args.rhr_google_source_id,
-                rhr_google_auto_select=args.rhr_google_auto_select),
+                rhr_google_auto_select=args.rhr_google_auto_select,
+                steps_garmin_source_id=args.steps_garmin_source_id,
+                include_weight=args.include_weight),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )
         if args.output_dir is not None:
