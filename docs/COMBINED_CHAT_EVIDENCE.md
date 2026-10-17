@@ -69,7 +69,7 @@ Existing omitted-metric v1 and Stress/Body Battery v2 remain unchanged. Sections
 `hrv` and `rhr` contain only requested `providers`; compact retains these sections
 identically to detailed. JSON, readable text, files and stdout share the frozen
 packet and the unchanged 2 MiB caps, SQL/time guards and exact 7/30-day dates.
-Context is read once. Steps and Weight are separately opt-in below. The existing
+Context is read once. Steps and Weight are separately opt-in above. The existing
 Weight/Context MCP, its schema/auth and connection setup are unchanged.
 
 ```text
@@ -151,8 +151,8 @@ request dates as Sleep/Activity. Context is still read once. Sources may coincid
 or differ; the packet neither pools sources nor joins daily facts causally.
 These are saved-source dates, not completed Moscow days inferred by the CLI.
 This CLI addition does not extend the unchanged Weight/Context MCP or its schema,
-authentication or connection availability. HRV and RHR are separate opt-in sections described below; Steps and Weight
-remain outside this combined extension.
+authentication or connection availability. HRV, RHR, Steps and Weight are
+separate opt-in sections described above.
 
 `sections.stress` uses `analyze_garmin_metric_series` for
 `stress_daily_average` with the accepted
