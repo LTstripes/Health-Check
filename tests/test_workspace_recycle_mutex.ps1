@@ -80,6 +80,9 @@ foreach($mode in @('resume-first','recycle-first','crash-after-shell')) {
     $inputFile=Join-Path $group ($mode+'-input.json')
     [ordered]@{helper=$helper;native=$native;client=$script:ApprovedRoots[0];ops=$script:LogDirectory;mutex=$script:WorkspaceMutexName;ready=$readyName;release=$releaseName;target=$target;claim=$claim.Claim;mode=$mode;scratch=$scratch;response=$response}|ConvertTo-Json|Set-Content -LiteralPath $inputFile -Encoding UTF8
     $process=$null
+    # Keep the named kernel object alive across child exit. Without this observer
+    # the last handle may vanish and a later call could create a new mutex.
+    $observer=[Threading.Mutex]::new($false,$script:WorkspaceMutexName)
     try {
         $args=@('-NoLogo','-NoProfile','-NonInteractive','-STA','-File',$childFile,'-InputFile',$inputFile)
         $argLine=($args|ForEach-Object {Quote-JanitorArgument $_}) -join ' '
@@ -102,16 +105,22 @@ foreach($mode in @('resume-first','recycle-first','crash-after-shell')) {
         $exitCode=$process.ExitCode
         if($null -eq $exitCode -or $exitCode -ne 0){throw 'Owned child native exit evidence missing or failed'}
         $retired=$false
+        $abandoned=$false
         if($mode -eq 'crash-after-shell') {
+            $observerHeld=$false
+            try {
+                try {$observerHeld=$observer.WaitOne(0)} catch [Threading.AbandonedMutexException] {$observerHeld=$true;$abandoned=$true}
+                if(-not $observerHeld -or -not $abandoned){throw 'Same-object abandoned mutex acquisition not observed'}
+            } finally {if($observerHeld){$observer.ReleaseMutex()}}
             try {Invoke-WorkerLifecycle -Action Resume -Workspace $target -Owner 'synthetic-contract' -ClaimId $claim.Claim|Out-Null} catch {if($_.Exception.Message -ne 'lifecycle-retired'){throw};$retired=$true}
             if(-not $retired){throw 'Abandoned mutex cleared durable retirement'}
         }
         $record=Invoke-WorkspaceLock {Get-LifecycleRecord $target}
-        $cases+=[pscustomobject]@{mode=$mode;child_exit_code=$exitCode;competing_operation_rejected_busy=$busy;shell_roundtrip=[bool]$child.shell_roundtrip;state_after=$record.State;resume_refused_retired_after_abandonment=$retired;target_still_present=(Test-Path -LiteralPath $target -PathType Container)}
+        $cases+=[pscustomobject]@{mode=$mode;child_exit_code=$exitCode;competing_operation_rejected_busy=$busy;shell_roundtrip=[bool]$child.shell_roundtrip;state_after=$record.State;observer_handle_retained_across_exit=$true;abandoned_mutex_observed=$abandoned;resume_refused_retired_after_abandonment=$retired;target_still_present=(Test-Path -LiteralPath $target -PathType Container)}
     } finally {
         [void]$release.Set()
         if($null -ne $process){if(-not $process.HasExited -and -not $process.WaitForExit(5000)){$process.Kill();$process.WaitForExit()};$process.Dispose()}
-        $ready.Dispose();$release.Dispose()
+        $observer.Dispose();$ready.Dispose();$release.Dispose()
     }
 }
 [ordered]@{utc=[datetime]::UtcNow.ToString('o');status='PASS_COORDINATION_PRIMITIVES_ONLY';harness_sha256=(Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash;helper_sha256=(Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash;probe_sha256=(Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash;fixture_group=$group;cases=$cases;production_ready=$false;retention_backdating=$false;network_fetch=$false;limitations='Bound newly completed lifecycle targets coordinate against actual Shell round-trips on separate owned GUID fixtures under the same mutex. This is not integrated eligible-workspace recycle or solved recovery semantics.'}|ConvertTo-Json -Depth 7|Tee-Object -FilePath $EvidencePath

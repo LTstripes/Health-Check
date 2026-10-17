@@ -63,7 +63,10 @@ clones and actual Shell round-trips on separate owned GUID fixtures under the sa
 test mutex. Resume-first excludes entry to the Shell boundary. Recycle-first
 excludes Resume. A child exit after a durable `deleting` record leaves retirement
 intact after abandoned-mutex acquisition; Resume is refused. Every successful
-child has explicit native exit 0. These prove the coordination primitives only:
+child has explicit native exit 0. The parent retains an observer handle through
+child exit, explicitly catches AbandonedMutexException on that same kernel object,
+releases it, and then verifies that the production Resume refuses retirement.
+These prove the coordination primitives only:
 they do not pretend that the unsupported eligible-workspace recycle transaction
 or a new restore/Claim protocol has been implemented.
 
