@@ -606,6 +606,19 @@ def _with_value(argv, flag, value):
     return argv
 
 
+def _abbreviated_stdout(argv, abbreviation):
+    argv = list(argv)
+    argv[argv.index("--stdout")] = abbreviation
+    return argv
+
+
+def _equals_stdout(argv, abbreviation, value=None):
+    argv = list(argv)
+    index = argv.index("--stdout")
+    argv[index:index + 2] = [f"{abbreviation}={argv[index + 1] if value is None else value}"]
+    return argv
+
+
 @pytest.mark.parametrize("mutate", [
     pytest.param(lambda base: _without(base, "--profile"), id="missing_profile"),
     pytest.param(lambda base: _without(base, "--profile-kind"), id="missing_profile_kind"),
@@ -619,6 +632,20 @@ def _with_value(argv, flag, value):
                  id="malformed_context_limit"),
     pytest.param(lambda base: [*base, "--stdout"], id="stdout_missing_value"),
     pytest.param(lambda base: [*base, "--stdout=" + _SENTINEL], id="stdout_invalid_choice"),
+    pytest.param(lambda base: _with_value(_abbreviated_stdout(base, "--st"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_shortest_abbreviation_invalid_profile_kind"),
+    pytest.param(lambda base: _with_value(_abbreviated_stdout(base, "--std"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_abbreviation_invalid_profile_kind"),
+    pytest.param(lambda base: _with_value(_abbreviated_stdout(base, "--stdou"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_longer_abbreviation_invalid_profile_kind"),
+    pytest.param(lambda base: _with_value(_equals_stdout(base, "--st"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_abbreviation_equals_invalid_profile_kind"),
+    pytest.param(lambda base: _equals_stdout(base, "--stdo", _SENTINEL),
+                 id="stdout_abbreviation_equals_invalid_choice"),
 ])
 def test_cli_stdout_malformed_arguments_sanitized_before_read(
         profile, monkeypatch, capsys, mutate):
@@ -630,6 +657,25 @@ def test_cli_stdout_malformed_arguments_sanitized_before_read(
     assert captured.out == ""
     assert captured.err.strip() == "Export failed: invalid_arguments"
     assert _SENTINEL not in captured.err
+
+
+@pytest.mark.parametrize("destination", [
+    ["--st", "json"], ["--std", "json"], ["--stdo", "json"], ["--stdou", "json"],
+    ["--stdout", "json"], ["--st=json"], ["--stdou=json"],
+])
+def test_cli_stdout_abbreviations_reach_valid_stdout_path(
+        profile, monkeypatch, capsys, destination):
+    packet = read(profile)
+    calls = []
+    def reader(**kwargs):
+        calls.append(kwargs)
+        return packet
+    monkeypatch.setattr(cli, "read_combined_evidence", reader)
+    assert cli.main([*_common_args(profile), *destination]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == evidence.encode_combined_evidence(packet)
+    assert captured.err == ""
+    assert len(calls) == 1
 
 
 def test_cli_help_still_prints_usage_to_stdout(capsys):

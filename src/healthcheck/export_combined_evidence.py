@@ -29,9 +29,9 @@ class _ArgumentParser(argparse.ArgumentParser):
     echo arbitrary (possibly private) supplied values.
     """
 
-    def __init__(self, *args: object, sanitize_errors: bool = False, **kwargs: object) -> None:
+    def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
-        self._sanitize_errors = sanitize_errors
+        self._sanitize_errors = False
 
     def error(self, message: str) -> None:
         if self._sanitize_errors:
@@ -39,8 +39,21 @@ class _ArgumentParser(argparse.ArgumentParser):
         super().error(message)
 
 
-def _requests_stdout(argv: list[str]) -> bool:
-    return any(token == "--stdout" or token.startswith("--stdout=") for token in argv)
+def _requests_stdout(argv: list[str], parser: argparse.ArgumentParser) -> bool:
+    """True when argv selects stdout, including argparse long-option abbreviations.
+
+    Mirrors argparse's own resolution so any unique abbreviation of ``--stdout``
+    that it accepts (``--st``, ``--std``, ``--stdo``, ``--stdou``), with a
+    separated or ``=``-attached value, is recognized as a stdout request.
+    Unrelated or ambiguous tokens are not, leaving file-mode parsing unchanged.
+    """
+    for token in argv:
+        if not token.startswith("--"):
+            continue
+        matches = parser._get_option_tuples(token)
+        if len(matches) == 1 and matches[0][0].dest == "stdout_format":
+            return True
+    return False
 
 
 def _write_stdout_safely(text: str) -> None:
@@ -62,8 +75,7 @@ def _write_stdout_safely(text: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
-    parser = _ArgumentParser(description="Bounded saved Sleep + Activity + Context export",
-                             sanitize_errors=_requests_stdout(argv))
+    parser = _ArgumentParser(description="Bounded saved Sleep + Activity + Context export")
     parser.add_argument("--profile", required=True, type=Path)
     parser.add_argument("--profile-kind", required=True, choices=sorted(PROFILE_KINDS))
     parser.add_argument("--end-date", required=True, type=date.fromisoformat)
@@ -83,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
     destination.add_argument("--stdout", dest="stdout_format", choices=("json", "text"),
                              help="Emit only the selected serializer result on stdout")
     parser.add_argument("--agent-workspace-root", type=Path, action="append", default=[])
+    # Abbreviation-aware: set only after every option string is registered.
+    parser._sanitize_errors = _requests_stdout(argv, parser)
     try:
         args = parser.parse_args(argv)
     except _ParserRejected:
