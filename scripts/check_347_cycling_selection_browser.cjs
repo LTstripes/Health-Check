@@ -18,7 +18,8 @@ assert.ok(fixtures && evidence);
   try {
     fs.mkdirSync(evidence, { recursive: true });
     for (const width of [1024, 1440]) {
-      for (const scenario of ['unique', 'zero', 'multiple', 'conflict', 'missing', 'empty', 'capped', 'window']) {
+      for (const scenario of ['unique', 'zero', 'multiple', 'conflict', 'missing', 'empty', 'capped', 'window',
+        'summary-deadline-unique', 'summary-deadline-multiple']) {
         const page = await browser.newPage({ viewport: { width, height: 1000 }, javaScriptEnabled: false });
         page.on('pageerror', error => errors.push(error.message));
         await page.route('**/*', route => {
@@ -30,7 +31,7 @@ assert.ok(fixtures && evidence);
           assert.equal(route.request().method(), 'GET');
           const period = url.searchParams.get('period') || '7';
           const explicit = url.searchParams.get('garmin_source_id');
-          const file = scenario === 'unique' || scenario === 'zero' ?
+          const file = scenario.startsWith('summary-deadline-') ? scenario : scenario === 'unique' || scenario === 'zero' ?
             `unique-${period}-${scenario === 'zero' ? 'zero' : 'value'}` :
             scenario === 'window' ? `window-${explicit ? 'explicit-' : ''}${period}` : `${scenario}-7`;
           return route.fulfill({ contentType: 'text/html; charset=utf-8',
@@ -44,10 +45,16 @@ assert.ok(fixtures && evidence);
         assert.match(await right.innerText(), /Не собирается/);
         const value = (await left.locator('.statistics-value').innerText()).trim();
         assert.equal(value, scenario === 'unique' ? '12,35 км' : scenario === 'zero' ? '0 км' :
-          scenario === 'window' ? '11 км' : 'Недоступно');
+          scenario === 'summary-deadline-unique' ? '21 км' : scenario === 'window' ? '11 км' : 'Недоступно');
         assert.equal(await page.locator('[name="garmin_source_id"]').inputValue(), '');
         assert.equal(await metric.locator('[data-cycling-source-attention]').count(),
-          ['multiple', 'conflict', 'capped'].includes(scenario) ? 1 : 0);
+          ['multiple', 'conflict', 'capped', 'summary-deadline-multiple'].includes(scenario) ? 1 : 0);
+        if (scenario.startsWith('summary-deadline-')) {
+          const options = page.locator('[name="garmin_source_id"] option[value]:not([value=""])');
+          assert.equal(await options.count(), scenario.endsWith('multiple') ? 2 : 1);
+          assert.ok((await options.allTextContents()).every(label => label.trim().startsWith('Garmin')));
+          if (scenario.endsWith('unique')) assert.match(await left.locator('[data-cycling-source]').innerText(), /Garmin · Vivoactive 5/);
+        }
         const l = await left.boundingBox(), r = await right.boundingBox();
         assert.ok(l.x < r.x && Math.abs(l.y - r.y) < 1 && l.width > 300 && r.width > 300);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);

@@ -23,6 +23,7 @@
     {% for side in packet.sides %}
     {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
     {% set control_source_id = selected_garmin_source_id if side.position == 'left' else selected_google_source_id %}
+    {% set provider_choices = provider_source_choices[side.position] %}
     {% set incomplete = side.state == 'search_incomplete' or side.metrics.values()|selectattr('state', 'equalto', 'search_incomplete')|list %}
     {% set selection_required = side.metrics.values()|selectattr('state', 'equalto', 'selection_required')|list or (side.position == 'left' and steps.reason == 'source_selection_required') %}
     <header data-statistics-side="{{ side.position }}">
@@ -38,12 +39,12 @@
         <label>{{ provider }}: источник
           <select form="statistics-controls" name="{{ 'garmin' if side.position == 'left' else 'google' }}_source_id" aria-label="{{ provider }}: источник">
             {% if side.state == 'search_incomplete' and side.requested_source_id and control_source_id %}<option value="{{ side.requested_source_id }}" selected>Выбранный источник: поиск не завершён</option>{% endif %}
-            <option value=""{% if not control_source_id %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if side.available_sources else 'Источник отсутствует' }}</option>
-            {% for source in side.available_sources %}<option value="{{ source.source_id }}"{% if control_source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
+            <option value=""{% if not control_source_id %} selected{% endif %}>{{ state_labels.search_incomplete if side.state == 'search_incomplete' else 'Выбери источник' if provider_choices else 'Источник отсутствует' }}</option>
+            {% for source in provider_choices %}<option value="{{ source.source_id }}"{% if control_source_id == source.source_id %} selected{% endif %}>{{ identity(source) }}</option>{% endfor %}
           </select>
         </label>
         <button form="statistics-controls" type="submit">Применить источники</button>
-        <ul>{% for source in side.available_sources %}
+        <ul>{% for source in provider_choices %}
           <li>{{ identity(source) }}: {{ source.source_id }} · {{ source.source_kind }} · {{ source.source_instance_id }} · {{ source.device_attribution_basis }} · {{ 'Устройство атрибутировано' if source.device_attributed else 'Без атрибуции устройства' }}</li>
         {% endfor %}</ul>
       </details>

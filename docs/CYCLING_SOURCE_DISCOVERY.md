@@ -137,6 +137,9 @@ stays unavailable, including confirmed-empty collection coverage.
 
 The selected exact source is labelled on the card. Candidate counts/exclusions
 and search completeness are disclosed separately from acquisition coverage.
+Completed cycling discovery identities also supply labels and provider selector
+options when the independently budgeted shared summary inventory is incomplete;
+this presentation union does not rewrite its cells or claim that its search completed.
 Google remains labelled `not_collected`; no cross-provider delta is introduced.
 This does not change eligibility, reducers, source records or discovery policy.
 

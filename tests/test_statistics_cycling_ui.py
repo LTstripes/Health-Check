@@ -262,3 +262,45 @@ def test_explicit_annual_read_keeps_existing_caps(statistics_ui, monkeypatch):
     assert parsed.values[METRIC_CODE, "left"].strip() == "Недоступно"
     assert "candidate_record_limit_exceeded" in parsed.details[METRIC_CODE, "left"]
     assert SourceFormParser(response.text).selected["garmin_source_id"] == source.id
+
+
+@pytest.mark.parametrize("multiple", [False, True])
+def test_completed_discovery_supplies_labels_after_summary_deadline(
+    statistics_ui, monkeypatch, multiple,
+):
+    session, paths, client = statistics_ui
+    _activity(session, paths, day=END)
+    if multiple:
+        _activity(session, paths, day=END, attributed=False, suffix="second")
+    source_ids = list(session.scalars(select(GarminSource.id)))
+    session.commit()
+    original_enter = bounded.PeriodReadBudget.__enter__
+    original_rows = bounded.PeriodReadBudget.rows
+    budgets = []
+
+    def enter(budget):
+        budgets.append(budget)
+        return original_enter(budget)
+
+    def rows(budget, *args, **kwargs):
+        if budget is budgets[0]:
+            raise bounded.IncompletePeriodRead("time_budget_exceeded")
+        return original_rows(budget, *args, **kwargs)
+
+    monkeypatch.setattr(bounded.PeriodReadBudget, "__enter__", enter)
+    monkeypatch.setattr(bounded.PeriodReadBudget, "rows", rows)
+    response = client.get("/statistics", params=params("trailing365"))
+    assert response.status_code == 200
+    parsed = MetricParser(response.text)
+    text = parsed.cells[METRIC_CODE, "left"]
+    assert "Garmin · Vivoactive 5" in text
+    assert parsed.values[METRIC_CODE, "left"].strip() == ("Недоступно" if multiple else "21 км")
+    # Other cells keep the first budget's failure; successful cycling identities
+    # support a labelled selector but do not rewrite that shared packet.
+    assert "Поиск сохранённых данных не завершён" in parsed.cells["activity_session_count", "left"]
+    provider_header = response.text.split('<header data-statistics-side="left">')[1].split(
+        "</header>")[0]
+    for source_id in source_ids:
+        assert f'<option value="{source_id}">Garmin' in provider_header
+    assert SourceFormParser(response.text).selected["garmin_source_id"] == ""
+    export(response, f"summary-deadline-{'multiple' if multiple else 'unique'}")

@@ -171,7 +171,11 @@ def statistics(
             "unit_labels": UNIT_LABELS,
             "state_labels": STATE_LABELS,
             "format_value": format_statistics_value,
-            "source_labels": statistics_source_labels(packet),
+            "source_labels": statistics_source_labels(packet, cycling_cell=cycling_cell),
+            "provider_source_choices": {
+                side["position"]: statistics_provider_choices(side, cycling_cell)
+                for side in packet["sides"]
+            },
             "sleep_source_choices": {
                 side["position"]: statistics_source_choices(side) for side in packet["sides"]
             },
@@ -242,12 +246,27 @@ def statistics_source_choices(side: dict) -> list[dict]:
     return list(sources.values())
 
 
-def statistics_source_labels(packet: dict) -> dict[str, str]:
+def statistics_provider_choices(side: dict, cycling_cell: dict | None) -> list[dict]:
+    """Include independently completed cycling identities in presentation only."""
+    sources = {s["source_id"]: s for s in side["available_sources"]}
+    if side["position"] == "left" and cycling_cell:
+        for option in cycling_cell["cycling_selection"]["options"]:
+            source = option["source_identity"]
+            sources[source["source_id"]] = source
+        if source := cycling_cell["source_identity"]:
+            sources[source["source_id"]] = source
+    return list(sources.values())
+
+
+def statistics_source_labels(packet: dict, *, cycling_cell: dict | None = None) -> dict[str, str]:
     """Readable labels, disambiguated without exposing opaque IDs in primary UI."""
     labels = {}
     for side in packet["sides"]:
         provider = "garmin" if side["position"] == "left" else "google"
-        sources = statistics_source_choices(side)
+        sources = {s["source_id"]: s for s in statistics_source_choices(side)}
+        sources.update({s["source_id"]: s
+                        for s in statistics_provider_choices(side, cycling_cell)})
+        sources = list(sources.values())
         for index, source in enumerate(sources, 1):
             # B1 identities omit optional Google metadata; no inference from UUIDs.
             label = source_sleep_label(
