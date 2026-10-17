@@ -50,6 +50,9 @@ def _requests_stdout(argv: list[str], parser: argparse.ArgumentParser) -> bool:
     for token in argv:
         if not token.startswith("--"):
             continue
+        exact = parser._option_string_actions.get(token.partition("=")[0])
+        if exact is not None and exact.dest == "stdout_format":
+            return True
         matches = parser._get_option_tuples(token)
         if len(matches) == 1 and matches[0][0].dest == "stdout_format":
             return True
@@ -83,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--activity-garmin-source-id", required=True)
     parser.add_argument("--sleep-garmin-source-id")
     parser.add_argument("--sleep-google-source-id")
+    parser.add_argument("--stress-garmin-source-id",
+                        help="Opt in to saved Garmin daily-average Stress from this exact source")
+    parser.add_argument("--body-battery-garmin-source-id",
+                        help="Opt in to Body Battery maxima among saved eligible samples")
     parser.add_argument("--sleep-google-auto-select", action="store_true",
                         help="Select the unique eligible Google Sleep source in this window")
     parser.add_argument("--include-context", action=argparse.BooleanOptionalAction, default=True)
@@ -92,7 +99,9 @@ def main(argv: list[str] | None = None) -> int:
     destination = parser.add_mutually_exclusive_group(required=True)
     destination.add_argument("--output-dir", type=Path,
                              help="New external directory; never overwrites existing files")
-    destination.add_argument("--stdout", dest="stdout_format", choices=("json", "text"),
+    # Preserve the previously accepted shortest stdout spelling now that Stress
+    # also starts with --st. The explicit alias wins over prefix resolution.
+    destination.add_argument("--stdout", "--st", dest="stdout_format", choices=("json", "text"),
                              help="Emit only the selected serializer result on stdout")
     parser.add_argument("--projection", choices=("detailed", "compact"), default="detailed",
                         help="Opt-in compact Sleep evidence; detailed output remains default")
@@ -122,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.end_date, args.days, args.activity_garmin_source_id,
                 args.sleep_garmin_source_id, args.sleep_google_source_id,
                 args.include_context, args.context_limit, args.sleep_google_auto_select,
-                args.projection),
+                args.projection, stress_garmin_source_id=args.stress_garmin_source_id,
+                body_battery_garmin_source_id=args.body_battery_garmin_source_id),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )
         if args.output_dir is not None:

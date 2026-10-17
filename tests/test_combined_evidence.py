@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import DatabaseError
 
-from healthcheck import activity_evidence, chat_evidence, sleep_evidence
+from healthcheck import activity_evidence, chat_evidence, combined_metrics, sleep_evidence
 from healthcheck import combined_evidence as evidence
 from healthcheck import export_combined_evidence as cli
 from healthcheck.analytics import period_summary_read as bounded
@@ -32,10 +32,12 @@ from healthcheck.db.models import GarminRecordMetric, GarminSource, GarminSource
 from healthcheck.garmin.normalization import normalize_garmin_payload
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+from test_body_battery_read import seed_battery as _seed_battery
 from test_period_summary import ACTIVITY as _ACTIVITY_FIXTURE
 from test_period_summary import _activity, _coverage
 from test_sleep_evidence import CLOCK, DAY
 from test_sleep_evidence import profile as _sleep_profile
+from test_stress_baseline import acquire as _acquire_stress
 
 sleep_profile = _sleep_profile
 
@@ -1067,3 +1069,329 @@ def test_activity_temporal_no_raw_reads_writes_or_provider_access(profile, monke
     assert {p.relative_to(profile[0].root): p.read_bytes()
             for p in profile[0].root.rglob("*")
             if p.is_file() and not p.name.endswith("-shm")} == before
+
+# #451: additional metrics use accepted saved readers in the shared snapshot.
+@pytest.fixture
+def selected_metrics(profile):
+    paths, engine = profile[:2]
+    store = ContentAddressedGarminPayloadStore(paths.root / 'metrics')
+    with session_scope(engine) as session:
+        _acquire_stress((paths, engine, session, store), DAY, 0)
+        _acquire_stress((paths, engine, session, store), DAY - timedelta(days=2), 20)
+        stress_id = session.scalar(select(GarminSourceRecord.garmin_source_id).where(
+            GarminSourceRecord.external_record_id == f'stress-{DAY}'))
+        _seed_battery(session, store, day=DAY, values=(80, 20), received=CLOCK)
+        _seed_battery(session, store, day=DAY - timedelta(days=1), values=(0,), received=CLOCK)
+        battery_id = session.scalar(select(GarminSourceRecord.garmin_source_id).where(
+            GarminSourceRecord.surface_code == 'body_battery'))
+    return replace(profile[2], stress_garmin_source_id=stress_id,
+                   body_battery_garmin_source_id=battery_id)
+
+
+@pytest.mark.parametrize('days', [7, 30])
+def test_selected_metrics_reader_equivalence_and_projection(profile, selected_metrics, days):
+    from healthcheck.analytics import garmin_baselines as stress
+    from healthcheck.garmin import body_battery_read as battery
+    request = replace(selected_metrics, days=days)
+    packet = read(profile, request)
+    assert packet['version'] == evidence.SELECTED_VERSION
+    with chat_evidence._read_session(profile[0].root) as session:
+        expected_stress = stress.analyze_garmin_metric_series(session, stress.GarminSeriesQuery(
+            'stress_daily_average', request.domain_requests()[1].start_date, DAY,
+            request.stress_garmin_source_id, stress.STRESS_APPLICABILITY_VERSION)).as_dict()
+        expected_battery = battery.read_body_battery_period(session, battery.BodyBatteryQuery(
+            request.domain_requests()[1].start_date, DAY,
+            request.body_battery_garmin_source_id, CLOCK))
+    a, b = (packet['sections'][key] for key in ('stress', 'body_battery'))
+    assert a['points'] == expected_stress['points']
+    assert a['rule_version'] == stress.R03_01_STRESS_RULE_VERSION
+    assert a['query']['selection_version'] == stress.STRESS_APPLICABILITY_VERSION
+    assert a['reader_result_hash'] == expected_stress['result_hash']
+    assert a['eligible_day_count'] == 2 and a['missing_day_count'] == days - 2
+    assert a['points'][-1]['value'] == 0 and a['points'][-1]['is_zero']
+    assert a['points'][-1]['temporal_precision'] == 'date'
+    assert a['points'][-1]['measured_at_utc'] is None
+    assert a['inputs'][-1]['evidence']['normalization_contract_version']
+    assert b['daily_maxima'] == expected_battery['daily_maxima']
+    assert b['mean_value'] == str(expected_battery['mean_value']) == '40'
+    assert b['mean_exact'] == expected_battery['mean_exact']
+    assert b['eligible_day_count'] == 2 and b['missing_day_count'] == days - 2
+    assert b['daily_maxima'][0]['value'] == 0 and b['daily_maxima'][0]['is_zero']
+    assert 'not_full_day_or_morning' in b['meaning']
+    assert a['acquisition_coverage_state'] == b['acquisition_coverage_state'] == 'unknown'
+    compact = read(profile, replace(request, projection='compact'))
+    assert compact['version'] == evidence.SELECTED_COMPACT_VERSION
+    assert compact['projection']['detailed_version'] == evidence.SELECTED_VERSION
+    for key in ('stress', 'body_battery', 'activity', 'context'):
+        assert compact['sections'][key] == packet['sections'][key]
+    readable = evidence.render_combined_evidence(compact)
+    for key in ('stress', 'body_battery'):
+        assert f'{key} saved facts: ' + chat_evidence._json(compact['sections'][key]) in readable
+
+
+def test_metric_opt_in_and_existing_default_compatibility(profile, selected_metrics, monkeypatch):
+    baseline = read(profile)
+    assert baseline['version'] == evidence.PACKAGE_VERSION
+    assert not {'stress', 'body_battery'} & baseline['sections'].keys()
+    for name in ('stress', 'body_battery'):
+        other = 'body_battery' if name == 'stress' else 'stress'
+        request = replace(selected_metrics, **{other + '_garmin_source_id': None})
+        packet = read(profile, request)
+        assert name in packet['sections'] and other not in packet['sections']
+        for key in ('sleep', 'activity', 'context'):
+            assert packet['sections'][key] == baseline['sections'][key]
+    def forbidden(*args, **kwargs):
+        pytest.fail('unselected metric reader called')
+    monkeypatch.setattr(combined_metrics, 'read_stress', forbidden)
+    monkeypatch.setattr(combined_metrics, 'read_body_battery', forbidden)
+    assert read(profile)['request'] == baseline['request']
+
+
+@pytest.mark.parametrize('field', ['stress_garmin_source_id', 'body_battery_garmin_source_id'])
+@pytest.mark.parametrize('identity', ['', ' ', 1, True, 'x' * 129, 'nonexistent'])
+def test_metric_source_validation_precedes_readers(profile, monkeypatch, field, identity):
+    def forbidden(*args, **kwargs):
+        pytest.fail('reader before source validation')
+    monkeypatch.setattr(sleep_evidence, '_assemble', forbidden)
+    with pytest.raises(EvidenceError):
+        read(profile, replace(profile[2], **{field: identity}))
+
+
+def test_metric_one_snapshot_context_once_and_concurrent_correction(
+        profile, selected_metrics, monkeypatch):
+    original = sleep_evidence._assemble
+    contexts, sessions = [], []
+    original_context = ContextService.list
+    def context(self, **kwargs):
+        contexts.append(self.session)
+        return original_context(self, **kwargs)
+    monkeypatch.setattr(ContextService, 'list', context)
+    for name in ('read_stress', 'read_body_battery'):
+        reader = getattr(combined_metrics, name)
+        def observed(session, *args, _reader=reader):
+            sessions.append(session)
+            return _reader(session, *args)
+        monkeypatch.setattr(combined_metrics, name, observed)
+    changed = False
+    def concurrent(*args, **kwargs):
+        nonlocal changed
+        result = original(*args, **kwargs)
+        if not changed:
+            changed = True
+            with session_scope(profile[1]) as writer:
+                writer.scalar(select(GarminRecordMetric).where(
+                    GarminRecordMetric.metric_code == 'stress_daily_average',
+                    GarminRecordMetric.value_number == 0)).value_number = 50
+                writer.scalar(select(GarminRecordMetric).where(
+                    GarminRecordMetric.metric_code == 'body_battery',
+                    GarminRecordMetric.value_number == 80)).value_number = 90
+        return result
+    monkeypatch.setattr(sleep_evidence, '_assemble', concurrent)
+    before, after = read(profile, selected_metrics), read(profile, selected_metrics)
+    assert contexts == [sessions[0], sessions[2]]
+    assert sessions[0] is sessions[1] and sessions[2] is sessions[3]
+    assert before['sections']['stress']['points'][-1]['value'] == 0
+    assert after['sections']['stress']['points'][-1]['value'] == 50
+    assert before['sections']['body_battery']['daily_maxima'][-1]['value'] == 80
+    assert after['sections']['body_battery']['daily_maxima'][-1]['value'] == 90
+
+
+def test_metric_empty_exact_sources_stay_missing(profile):
+    request = replace(profile[2], stress_garmin_source_id=profile[2].activity_garmin_source_id,
+                      body_battery_garmin_source_id=profile[2].activity_garmin_source_id)
+    packet = read(profile, request)
+    for name in ('stress', 'body_battery'):
+        assert packet['sections'][name]['eligible_day_count'] == 0
+        assert packet['sections'][name]['missing_day_count'] == 7
+    assert packet['sections']['body_battery']['mean_value'] is None
+    assert packet['sections']['body_battery']['daily_maxima'] == []
+    assert packet['sections']['stress']['points'] == []
+
+
+def test_metric_caps_fail_without_winning_prefix(profile, selected_metrics, monkeypatch):
+    from healthcheck.garmin import body_battery_read as battery
+    reader = battery.read_body_battery_period
+    def capped(session, query):
+        return reader(session, replace(query, max_candidate_records=1))
+    monkeypatch.setattr(battery, 'read_body_battery_period', capped)
+    packet = read(profile, selected_metrics)
+    b = packet['sections']['body_battery']
+    assert b['state'] == 'search_incomplete' and b['reason'] == 'period_record_cap'
+    assert b['daily_maxima'] == [] and b['mean_exact'] is None and b['mean_value'] is None
+    assert b['eligible_day_count'] is None and b['missing_day_count'] is None
+    assert b['excluded_day_count'] is None and b['missing_dates'] is None
+    assert packet['sections']['stress']['points']
+    monkeypatch.setattr(combined_metrics.stress, 'MAX_SERIES_SELECTED_POINTS', 1)
+    with pytest.raises(EvidenceError, match='^stress_selected_points_exceed_max$'):
+        read(profile, selected_metrics)
+
+
+@pytest.mark.parametrize('projection', ['detailed', 'compact'])
+@pytest.mark.parametrize('format', ['json', 'text'])
+def test_metrics_cli_stdout_and_files(profile, selected_metrics, monkeypatch, capsys,
+                                       tmp_path, projection, format):
+    real_read = cli.read_combined_evidence
+    packets = []
+    def observed(**kwargs):
+        packet = real_read(**kwargs)
+        packets.append(packet)
+        return packet
+    monkeypatch.setattr(cli, 'read_combined_evidence', observed)
+    options = ['--stress-garmin-source-id', selected_metrics.stress_garmin_source_id,
+               '--body-battery-garmin-source-id', selected_metrics.body_battery_garmin_source_id,
+               '--projection', projection]
+    assert cli.main([*stdout_args(profile, format), *options]) == 0
+    output = capsys.readouterr()
+    expected = (evidence.encode_combined_evidence(packets[-1]) if format == 'json'
+                else evidence.render_combined_evidence(packets[-1]))
+    assert output.out == expected and output.err == ''
+    destination = tmp_path.parent / ('selected-' + projection + format)
+    assert cli.main([*args(profile, destination), *options]) == 0
+    capsys.readouterr()
+    assert (destination / 'evidence.json').read_text(encoding='utf-8') == (
+        evidence.encode_combined_evidence(packets[-1]))
+    assert (destination / 'evidence.txt').read_text(encoding='utf-8') == (
+        evidence.render_combined_evidence(packets[-1]))
+
+@pytest.mark.parametrize('state', ['null', 'missing', 'invalid'])
+def test_metric_exclusions_states_not_zero(profile, selected_metrics, state):
+    with session_scope(profile[1]) as session:
+        rows = session.execute(select(GarminRecordMetric).join(
+            GarminSourceRecord, GarminSourceRecord.id == GarminRecordMetric.record_id).where(
+                GarminSourceRecord.source_local_date == DAY,
+                GarminRecordMetric.metric_code.in_(('stress_daily_average', 'body_battery')),
+                GarminRecordMetric.value_number.is_not(None)))
+        for metric in rows.scalars():
+            metric.state = state
+            metric.value_number = None
+    packet = read(profile, selected_metrics)
+    a, b = (packet['sections'][key] for key in ('stress', 'body_battery'))
+    assert a['eligible_day_count'] == b['eligible_day_count'] == 1
+    assert a['excluded_day_count'] == b['excluded_day_count'] == 1
+    assert a['points'][-1]['value'] is None
+    assert not a['points'][-1]['is_zero']
+    assert str(DAY) in a['missing_dates'] and str(DAY) in b['missing_dates']
+    assert any(row['reason'] == f'metric_{state}' for row in b['exclusions'])
+    assert b['mean_value'] == '0'  # Only the other day's explicit eligible zero.
+
+
+def test_metric_recursive_disclosure_and_storage_failures(profile, selected_metrics, monkeypatch):
+    from types import SimpleNamespace
+
+    from healthcheck.garmin import body_battery_read as battery
+    original = combined_metrics.stress.analyze_garmin_metric_series
+    def injected(*args):
+        result = original(*args).as_dict()
+        result['arbitrary_provider_body'] = {'secret': 'PRIVATE_SENTINEL'}
+        result['points'][0]['unknown'] = 'PRIVATE_SENTINEL'
+        result['frozen_inputs'][0]['evidence']['source_filename'] = 'PRIVATE_SENTINEL'
+        result['availability']['exclusions'].append({'reason_code': 'synthetic',
+                                                    'detail': 'PRIVATE_SENTINEL'})
+        return SimpleNamespace(as_dict=lambda: result)
+    monkeypatch.setattr(combined_metrics.stress, 'analyze_garmin_metric_series', injected)
+    packet = read(profile, selected_metrics)
+    assert 'PRIVATE_SENTINEL' not in evidence.encode_combined_evidence(packet)
+    assert 'PRIVATE_SENTINEL' not in evidence.render_combined_evidence(packet)
+    def malformed(*args):
+        result = original(*args).as_dict()
+        result['points'][0]['metric_row_id'] = {'provider_body': 'PRIVATE_SENTINEL'}
+        return SimpleNamespace(as_dict=lambda: result)
+    monkeypatch.setattr(combined_metrics.stress, 'analyze_garmin_metric_series', malformed)
+    with pytest.raises(EvidenceError, match='^unsupported_evidence_value$'):
+        read(profile, selected_metrics)
+    monkeypatch.setattr(combined_metrics.stress, 'analyze_garmin_metric_series', original)
+    def failed(*args):
+        return {'reason': 'saved_value_read_failed'}
+    monkeypatch.setattr(battery, 'read_body_battery_period', failed)
+    with pytest.raises(EvidenceError, match='^evidence_read_failed$'):
+        read(profile, selected_metrics)
+
+
+def test_selected_metric_cli_failure_empty_stdout_and_no_files(
+        profile, selected_metrics, monkeypatch, capsys, tmp_path):
+    options = ['--stress-garmin-source-id', selected_metrics.stress_garmin_source_id,
+               '--body-battery-garmin-source-id', selected_metrics.body_battery_garmin_source_id]
+    monkeypatch.setattr(combined_metrics.stress, 'MAX_SERIES_SELECTED_POINTS', 1)
+    assert cli.main([*stdout_args(profile, 'json'), *options]) == 2
+    result = capsys.readouterr()
+    assert result.out == '' and result.err == 'Export failed: stress_selected_points_exceed_max\n'
+    output = tmp_path.parent / 'must-not-exist-451'
+    assert cli.main([*args(profile, output), *options]) == 2
+    assert not output.exists()
+    capsys.readouterr()
+
+
+def test_selected_metric_no_raw_runtime_network_or_database_writes(
+        profile, selected_metrics, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail('selected metrics touched raw/runtime/provider')
+    monkeypatch.setattr('healthcheck.runtime.prepare_runtime', forbidden)
+    monkeypatch.setattr('healthcheck.db.engine.migrate_database', forbidden)
+    monkeypatch.setattr(ContentAddressedGarminPayloadStore, 'read', forbidden)
+    monkeypatch.setattr(socket.socket, 'connect', forbidden)
+    before = {p.relative_to(profile[0].root): p.read_bytes()
+              for p in profile[0].root.rglob('*')
+              if p.is_file() and not p.name.endswith('-shm')}
+    packet = read(profile, selected_metrics)
+    assert packet['sections']['stress']['points']
+    assert packet['sections']['body_battery']['daily_maxima']
+    assert {p.relative_to(profile[0].root): p.read_bytes()
+            for p in profile[0].root.rglob('*')
+            if p.is_file() and not p.name.endswith('-shm')} == before
+
+@pytest.mark.parametrize('field', ['algorithm', 'rule_version', 'result_hash'])
+def test_stress_reader_scalar_boundary_rejects_containers(
+        profile, selected_metrics, monkeypatch, field):
+    from types import SimpleNamespace
+    original = combined_metrics.stress.analyze_garmin_metric_series
+    def malformed(*args):
+        result = original(*args).as_dict()
+        result[field] = {'provider_body': 'PRIVATE_SENTINEL'}
+        return SimpleNamespace(as_dict=lambda: result)
+    monkeypatch.setattr(combined_metrics.stress, 'analyze_garmin_metric_series', malformed)
+    with pytest.raises(EvidenceError, match='^unsupported_evidence_value$'):
+        read(profile, selected_metrics)
+
+
+def test_body_battery_mean_boundary_rejects_containers(profile, selected_metrics, monkeypatch):
+    from healthcheck.garmin import body_battery_read as battery
+    original = battery.read_body_battery_period
+    def malformed(*args):
+        result = original(*args)
+        result['mean_value'] = {'provider_body': 'PRIVATE_SENTINEL'}
+        return result
+    monkeypatch.setattr(battery, 'read_body_battery_period', malformed)
+    with pytest.raises(EvidenceError, match='^unsupported_evidence_value$'):
+        read(profile, selected_metrics)
+
+
+@pytest.mark.parametrize('field', ['stress_garmin_source_id', 'body_battery_garmin_source_id'])
+def test_metric_wrong_provider_before_domain_reads(profile, selected_metrics, monkeypatch, field):
+    with session_scope(profile[1]) as session:
+        source = session.get(GarminSource, selected_metrics.stress_garmin_source_id)
+        wrong = GarminSource(provider_id=source.provider_id,
+                             acquisition_source_id=source.acquisition_source_id,
+                             source_kind=source.source_kind, provider_code='wrong_provider',
+                             source_instance_id='synthetic-wrong-metric-provider')
+        session.add(wrong)
+        session.flush()
+        identity = wrong.id
+    def forbidden(*args, **kwargs):
+        pytest.fail('domain reader before source validation')
+    monkeypatch.setattr(sleep_evidence, '_assemble', forbidden)
+    with pytest.raises(EvidenceError, match='^selected_source_wrong_provider$'):
+        read(profile, replace(selected_metrics, **{field: identity}))
+
+
+def test_selected_metric_output_cap_never_emits_prefix(profile, selected_metrics,
+                                                       monkeypatch, capsys):
+    monkeypatch.setattr(evidence, 'MAX_OUTPUT_BYTES', 100)
+    options = ['--stress-garmin-source-id', selected_metrics.stress_garmin_source_id,
+               '--body-battery-garmin-source-id', selected_metrics.body_battery_garmin_source_id]
+    for projection in ('detailed', 'compact'):
+        for mode in ('json', 'text'):
+            assert cli.main([*stdout_args(profile, mode), *options,
+                             '--projection', projection]) == 2
+            result = capsys.readouterr()
+            assert result.out == ''
+            assert result.err == 'Export failed: output_exceeds_byte_limit\n'

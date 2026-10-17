@@ -23,11 +23,13 @@ from healthcheck.context import ContextService, parse_date_only
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import (
     GarminSource,
+    GarminSourceRecord,
     GoogleRecordMetric,
     GoogleSleepRecord,
     GoogleSourceRecord,
 )
-from test_combined_evidence import cells, read, stdout_args
+from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+from test_combined_evidence import _acquire_stress, _seed_battery, cells, read, stdout_args
 from test_combined_evidence import profile as profile
 from test_combined_evidence import sleep_profile as sleep_profile
 from test_period_summary import _activity, _coverage
@@ -46,11 +48,15 @@ def compact(profile, **changes):
 
 
 def assert_parity(detailed, projected):
-    assert projected["version"] == evidence.COMPACT_VERSION
+    assert projected["version"] == (evidence.SELECTED_COMPACT_VERSION
+                                    if detailed["version"] == evidence.SELECTED_VERSION
+                                    else evidence.COMPACT_VERSION)
     for key in detailed.keys() - {"version", "generated_at_utc", "envelope_hash", "sections"}:
         assert projected[key] == detailed[key]
     assert projected["sections"]["activity"] == detailed["sections"]["activity"]
     assert projected["sections"].get("context") == detailed["sections"].get("context")
+    for metric in ("stress", "body_battery"):
+        assert projected["sections"].get(metric) == detailed["sections"].get(metric)
     for provider, old in detailed["sections"]["sleep"]["providers"].items():
         new = projected["sections"]["sleep"]["providers"][provider]
         assert {k: v for k, v in new.items() if k != "source_range"} == {
@@ -213,8 +219,9 @@ def _shift_dates(value, days):
     return value
 
 
+@pytest.mark.parametrize("with_metrics", [False, True])
 def test_representative_30_day_persisted_workload_fits_without_truncation(
-        profile, tmp_path, monkeypatch):
+        profile, tmp_path, monkeypatch, with_metrics):
     # 30 nights/provider, 60 seven-minute Google stages/night, daily activity,
     # 50 Unicode comments. Use real normalizers/readers, never provider calls.
     garmin = json.loads(GARMIN_SLEEP_FIXTURE.read_text(encoding="utf-8"))
@@ -237,6 +244,21 @@ def test_representative_30_day_persisted_workload_fits_without_truncation(
             ContextService(session).add(text=f"Synthetic {index} café 日本語 🧪 " * 10,
                                        temporal=parse_date_only(str(DAY)), capture_source="cli")
     request = replace(profile[2], days=30, end_date=DAY + timedelta(days=29))
+    if with_metrics:
+        store = ContentAddressedGarminPayloadStore(profile[0].root / "selected-metrics")
+        with session_scope(profile[1]) as session:
+            for offset in range(30):
+                day = DAY + timedelta(days=offset)
+                _acquire_stress((profile[0], profile[1], session, store), day, offset)
+                _seed_battery(session, store, day=day, values=(offset,),
+                              received=datetime(2099, 2, 10, tzinfo=UTC))
+            stress_id = session.scalar(select(GarminSourceRecord.garmin_source_id).where(
+                GarminSourceRecord.external_record_id == f"stress-{DAY}"))
+            battery_id = session.scalar(select(GarminSourceRecord.garmin_source_id).where(
+                GarminSourceRecord.surface_code == "body_battery"))
+        request = replace(request, stress_garmin_source_id=stress_id,
+                          body_battery_garmin_source_id=battery_id)
+    read_options = {"evaluated_at_utc": datetime(2099, 2, 10, tzinfo=UTC)}
     # Capture detailed size through the real guard: do not raise or bypass its cap.
     sizes, captured_packets = [], []
     encoder = evidence.encode_combined_evidence
@@ -246,13 +268,18 @@ def test_representative_30_day_persisted_workload_fits_without_truncation(
         return encoder(packet)
     monkeypatch.setattr(evidence, "encode_combined_evidence", measured)
     with pytest.raises(EvidenceError, match="output_exceeds_byte_limit"):
-        read(profile, request)
-    packet = read(profile, replace(request, projection="compact"))
+        read(profile, request, **read_options)
+    packet = read(profile, replace(request, projection="compact"), **read_options)
     assert_parity(captured_packets[0], packet)
     machine, readable = encoder(packet), evidence.render_combined_evidence(packet)
     assert sizes[0] > MAX_OUTPUT_BYTES
     assert len(machine.encode("utf-8")) < MAX_OUTPUT_BYTES * 3 // 4
     assert len(readable.encode("utf-8")) < MAX_OUTPUT_BYTES
+    if with_metrics:
+        assert len(packet["sections"]["stress"]["points"]) == 30
+        assert len(packet["sections"]["body_battery"]["daily_maxima"]) == 30
+        assert packet["sections"]["stress"]["eligible_day_count"] == 30
+        assert packet["sections"]["body_battery"]["eligible_day_count"] == 30
     for provider in packet["sections"]["sleep"]["providers"].values():
         source_range = provider["source_range"]
         assert len(source_range["days"]) == len(source_range["series"][0]["points"]) == 30

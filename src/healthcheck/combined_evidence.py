@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from healthcheck import activity_evidence, sleep_evidence
+from healthcheck import activity_evidence, combined_metrics, sleep_evidence
 from healthcheck.chat_evidence import (
     MAX_OUTPUT_BYTES,
     PROFILE_KINDS,
@@ -18,11 +18,13 @@ from healthcheck.chat_evidence import (
     _json,
     _read_session,
 )
-from healthcheck.db.models import GarminSource
+from healthcheck.db.models import ID_LENGTH, GarminSource
 
 PACKAGE_VERSION = "health-chat-combined-evidence-v1"
 PROVENANCE_VERSION = "health-chat-combined-provenance-v1"
 COMPACT_VERSION = "health-chat-combined-compact-evidence-v1"
+SELECTED_VERSION = "health-chat-combined-evidence-v2"
+SELECTED_COMPACT_VERSION = "health-chat-combined-compact-evidence-v2"
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,8 @@ class CombinedEvidenceRequest:
     context_limit: int = 50
     sleep_google_auto_select: bool = False
     projection: str = "detailed"
+    stress_garmin_source_id: str | None = None
+    body_battery_garmin_source_id: str | None = None
 
     def domain_requests(self):
         return (
@@ -53,6 +57,10 @@ class CombinedEvidenceRequest:
             raise EvidenceError("invalid_evidence_projection")
         for request in self.domain_requests():
             request.validate()
+        for identity in (self.stress_garmin_source_id, self.body_battery_garmin_source_id):
+            if identity is not None and (type(identity) is not str or not identity.strip()
+                                         or len(identity) > ID_LENGTH):
+                raise EvidenceError("explicit_garmin_source_required")
 
 
 def _domain(packet, keys):
@@ -140,6 +148,8 @@ def read_combined_evidence(
             for provider, identity in (
                 ("garmin", request.sleep_garmin_source_id),
                 ("google", request.sleep_google_source_id),
+                ("garmin", request.stress_garmin_source_id),
+                ("garmin", request.body_battery_garmin_source_id),
             ):
                 if identity is not None:
                     model, code = sleep_evidence.PROVIDERS[provider]
@@ -169,6 +179,18 @@ def read_combined_evidence(
             if context is not None:
                 sections["context"] = {
                     **context, "relationship": "local_date_window_cooccurrence_only"}
+            selected_sources = {}
+            for domain, identity in (
+                ("stress", request.stress_garmin_source_id),
+                ("body_battery", request.body_battery_garmin_source_id),
+            ):
+                if identity is None:
+                    continue
+                source = session.get(GarminSource, identity)
+                arguments = (session, source, activity_request.start_date, request.end_date)
+                sections[domain] = (combined_metrics.read_stress(*arguments) if domain == "stress"
+                                    else combined_metrics.read_body_battery(*arguments, clock))
+                selected_sources[domain] = {"garmin_source_id": identity}
             packet = {
                 "version": PACKAGE_VERSION, "provenance_version": PROVENANCE_VERSION,
                 "generated_at_utc": datetime.now(UTC).isoformat(),
@@ -207,6 +229,13 @@ def read_combined_evidence(
                     "values_and_flags": "unchanged_accepted_reader_results",
                 }
                 packet["sections"] = _compact_sleep(sections)
+            if selected_sources:
+                packet["version"] = (SELECTED_COMPACT_VERSION if request.projection == "compact"
+                                     else SELECTED_VERSION)
+                packet["request"]["sources"].update(selected_sources)
+                packet["limits"]["domain_limits"] = "limits_in_each_selected_section"
+                if "projection" in packet:
+                    packet["projection"]["detailed_version"] = SELECTED_VERSION
             packet["envelope_hash"] = hashlib.sha256(_json(packet).encode("utf-8")).hexdigest()
             encode_combined_evidence(packet)
             return packet
@@ -273,6 +302,9 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
                             code: {key: value for key, value in cell.items() if key != "evidence"}
                             for code, cell in session["metrics"].items()}
                         lines.append(f"{label} saved session: {_json(summary)}")
+    for domain in ("stress", "body_battery"):
+        if domain in packet["sections"]:
+            lines.append(f"{domain} saved facts: " + _json(packet["sections"][domain]))
     context = packet["sections"].get("context")
     if context is None:
         lines.append("context: not_requested")
