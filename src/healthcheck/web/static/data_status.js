@@ -84,7 +84,9 @@
       select.id = "saved-source-" + p;
       select.setAttribute("style", "width:100%;max-width:100%");
       label.htmlFor = select.id;
-      const empty = node("option", "Автоматический выбор пригодного источника");
+      const empty = node("option", p === "google_health"
+        ? "Автоматический выбор пригодного источника"
+        : "Без override — требуется единственный источник");
       empty.value = "";
       select.append(empty);
       for (const identity of inventory[p].values()) {
