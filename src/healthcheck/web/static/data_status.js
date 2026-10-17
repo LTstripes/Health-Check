@@ -84,7 +84,7 @@
       select.id = "saved-source-" + p;
       select.setAttribute("style", "width:100%;max-width:100%");
       label.htmlFor = select.id;
-      const empty = node("option", "Без override — требуется единственный источник");
+      const empty = node("option", "Автоматический выбор пригодного источника");
       empty.value = "";
       select.append(empty);
       for (const identity of inventory[p].values()) {
@@ -95,12 +95,13 @@
       }
       select.value = selected[p];
       select.addEventListener("change", () => { selected[p] = select.value; refresh(); });
-      card.append(label, select);
+      const controls = node("div");
+      controls.append(label, select);
       if (selected[p]) {
         const clear = node("button", "Сбросить выбор источника");
         clear.type = "button";
         clear.addEventListener("click", () => { selected[p] = ""; refresh(); });
-        card.append(clear);
+        controls.append(clear);
       }
       if (dto.reason === "source_inventory_cap" || (selected[p] && !inventory[p].has(selected[p]))) {
         const form = node("form"), input = node("input"), apply = node("button", "Выбрать ID");
@@ -111,6 +112,12 @@
         form.addEventListener("submit", event => { event.preventDefault(); selected[p] = input.value.trim(); refresh(); });
         card.append(node("p", "Список источников ограничен. Можно указать точный ID без автоматического выбора."), form);
       }
+      if (dto.source_selection?.state === "unique_eligible_source" && !selected[p] && dto.observation) {
+        const override = node("details");
+        override.className = "owner-details";
+        override.append(node("summary", "Выбрать другой источник (необязательно)"), controls);
+        card.append(override);
+      } else card.append(controls);
       card.append(node("p", labels[dto.state]));
       if (dto.reason === "source_selection_required") card.append(node("p", "Выберите источник явно. Значения разных identities не объединяются."));
       if (dto.reason === "saved_value_read_failed") card.append(node("p", "Ошибка чтения; это не отсутствие измерений."));

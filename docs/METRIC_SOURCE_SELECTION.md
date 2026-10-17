@@ -19,7 +19,20 @@ Consumers:
   reader (at most 32 sources, 400 days, 4096 records/source and 256 records/day).
   The selected packet is reused without changing values, dates, n/N, exclusions,
   rational mean or last-observation provenance. Other metrics and out-of-window
-  observations do not establish RHR eligibility. Latest RHR is unchanged.
+  observations do not establish RHR eligibility.
+- Data latest RHR explicitly opts into `read_saved_rhr(google_auto_select=True)`
+  for Google default-latest only. Each exact reader checks at most 32 observed
+  date groups and 256 candidate records across an inventory of at most 32 sources,
+  in the same read-only snapshot under the Data SQL/time budget. A complete reader
+  proves its newest eligible observation, not an exhaustive scan of older history.
+  Ambiguous-only sources compete; any incomplete search blocks automatic choice.
+  The chosen exact packet retains date, age, exclusions and provenance. The caller's
+  query stays source-unspecified, with the chosen ID in `source_identity` and an
+  additive `source_selection` disclosure. A successful automatic choice shows the
+  value immediately, with an optional exact override in closed details. Empty,
+  conflict and incomplete states remain explicit. The shared reader's default,
+  Garmin, exact overrides, explicit periods and export/evidence behavior are
+  unchanged; no Sleep preference or period mean is reused as latest RHR.
 - Data Sleep evaluates each Google source with the existing latest reader:
   32 sources, 32 observed date groups, 256 records and 200 records/night. This is
   a bounded latest search ending on the evaluation date, not a period aggregate.

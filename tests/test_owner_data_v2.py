@@ -185,7 +185,10 @@ def test_saved_rhr_data_route_keeps_exact_reader_dto(data_saved, scenario):
             last_attempt_at=NOW, diagnostic_status="reauth_required",
         ))
     session.commit()
-    expected = read_saved_rhr(session, _query(stored, source_id=None)).as_dict()
+    expected = read_saved_rhr(
+        session, _query(stored, source_id=None),
+        google_auto_select=source.provider_code == "google_health",
+    ).as_dict()
     if scenario == "disabled":
         set_collection_policy(settings, stream="google:heart_rate", state="off")
     from hashlib import sha256
@@ -210,7 +213,7 @@ def test_saved_rhr_data_route_keeps_exact_reader_dto(data_saved, scenario):
 
 
 @pytest.mark.parametrize("data_saved", ["google_health"], indirect=True)
-def test_data_saved_rhr_requires_explicit_identity_and_keeps_provider_dates(data_saved):
+def test_data_saved_rhr_metric_first_choice_and_exact_override_keep_provider_dates(data_saved):
     from datetime import timedelta
 
     from test_saved_values import (
@@ -233,8 +236,10 @@ def test_data_saved_rhr_requires_explicit_identity_and_keeps_provider_dates(data
     session.commit()
     body = _saved_get(app).json()
     assert body["items"][0]["observation"]["source_local_date"] == DAY.isoformat()
-    assert body["items"][1]["reason"] == "source_selection_required"
-    assert body["items"][1]["observation"] is None
+    assert body["items"][1]["source_selection"]["state"] == "unique_eligible_source"
+    assert body["items"][1]["source_identity"]["source_id"] == stored[2].id
+    assert body["items"][1]["query"]["source_id"] is None
+    assert len(body["items"][1]["available_sources"]) == 2
     selected = _saved_get(app, google_source_id=stored[2].id).json()["items"][1]
     assert selected["observation"]["source_local_date"] == (DAY - timedelta(days=4)).isoformat()
     assert selected["observation"]["observation_age_days"] == 4
@@ -261,16 +266,72 @@ def test_data_saved_rhr_reuses_one_physical_read_only_snapshot(data_ui, monkeypa
     reader = imports.read_saved_rhr
     connections = []
 
-    def inspect(session, query):
+    def inspect(session, query, **kwargs):
         connection = session.connection().connection.driver_connection
         assert connection.in_transaction
         assert session.scalar(text("PRAGMA query_only")) == 1
         connections.append(connection)
-        return reader(session, query)
+        return reader(session, query, **kwargs)
 
     monkeypatch.setattr(imports, "read_saved_rhr", inspect)
     assert _saved_get(app).status_code == 200
     assert len(connections) == 2 and connections[0] is connections[1]
+
+
+@pytest.mark.parametrize("data_saved", ["google_health"], indirect=True)
+def test_data_google_candidates_share_snapshot_write_denial_and_sql_deadline(
+    data_saved, monkeypatch,
+):
+    import sqlite3
+    from types import SimpleNamespace
+
+    from sqlalchemy import text
+
+    from healthcheck import saved_values
+    from healthcheck.web import imports
+    from test_saved_values import GoogleSourceRepository, _family_identity, _seed
+
+    app, _, paths, stored = data_saved
+    _seed(stored)
+    GoogleSourceRepository(stored[0]).get_or_create(_family_identity())
+    stored[0].commit()
+    original = saved_values._read_saved_rhr
+    connections, exact_sources = [], []
+
+    def inspect(session, query, *args, **kwargs):
+        driver = session.connection().connection.driver_connection
+        assert driver.in_transaction and session.scalar(text("PRAGMA query_only")) == 1
+        connections.append(driver)
+        if query.source_id:
+            exact_sources.append(query.source_id)
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            driver.execute("CREATE TABLE synthetic_forbidden (id INTEGER)")
+        return original(session, query, *args, **kwargs)
+
+    monkeypatch.setattr(saved_values, "_read_saved_rhr", inspect)
+    from hashlib import sha256
+    before = sha256(paths.database.read_bytes()).hexdigest()
+    assert _saved_get(app).json()["items"][1]["observation"]["value"] == 61
+    assert len(set(map(id, connections))) == 1 and len(set(exact_sources)) == 2
+    assert sha256(paths.database.read_bytes()).hexdigest() == before
+
+    # Exercise the installed production SQL progress handler, not a mock error.
+    clock = [0]
+    monkeypatch.setattr(imports, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    def deadline_probe(session, query, **kwargs):
+        clock[0] = 11
+        try:
+            session.connection().connection.driver_connection.execute(
+                "SELECT count(*) FROM sqlite_master a CROSS JOIN sqlite_master b "
+                "CROSS JOIN sqlite_master c"
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            assert str(exc) == "interrupted"
+            raise
+        pytest.fail("Data SQL deadline did not interrupt work")
+    monkeypatch.setattr(imports, "read_saved_rhr", deadline_probe)
+    response = _saved_get(app)
+    assert response.status_code == 503 and response.json() == {"code": "database_unavailable"}
 
 
 @pytest.mark.parametrize("data_saved", ["google_health"], indirect=True)

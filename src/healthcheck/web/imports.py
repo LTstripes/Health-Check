@@ -122,13 +122,23 @@ def saved_rhr(
     def connect():
         connection = sqlite3.connect(f"file:{paths.database.as_posix()}?mode=ro", uri=True)
         connection.execute("PRAGMA query_only=ON")
+        remaining, deadline = 20_000, time.monotonic() + 10
+
+        def progress():
+            nonlocal remaining
+            remaining -= 1
+            return int(remaining <= 0 or time.monotonic() > deadline)
+
+        connection.set_progress_handler(progress, 1000)
         return connection
 
     engine = create_engine("sqlite://", creator=connect)
     try:
         with Session(engine, autoflush=False) as session:
             ensure_read_snapshot(session)
-            items = [read_saved_rhr(session, query).as_dict() for query in queries]
+            items = [read_saved_rhr(
+                session, query, google_auto_select=query.provider_code == "google_health",
+            ).as_dict() for query in queries]
         return JSONResponse(content={
             "mode": "default_latest",
             "evaluated_at_utc": evaluated_at_utc.isoformat(),

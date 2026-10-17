@@ -147,6 +147,117 @@ def _read(stored, **kwargs):
     return read_saved_rhr(session, _query(stored, **kwargs))
 
 
+@pytest.mark.parametrize("stored", ["google_health"], indirect=True)
+@pytest.mark.parametrize("scenario", [
+    "zero", "partial", "newer_invalid", "retired", "correction", "newer_ambiguous",
+])
+def test_data_google_auto_preserves_exact_latest_packet_and_default_contract(stored, scenario):
+    session, store, source, _ = stored
+    record, metric = _seed(stored, day=DAY - timedelta(days=3), value=0)
+    if scenario == "partial":
+        record.record_status = "partial"
+    if scenario in {"newer_invalid", "retired", "correction", "newer_ambiguous"}:
+        newer, newer_metric = _seed(stored, value=65)
+        if scenario == "newer_invalid":
+            newer_metric.state, newer_metric.value_number = "invalid", None
+        elif scenario == "retired":
+            newer.projection_status, newer.retired_at = "retired", NOW
+            newer.retire_reason = "synthetic correction"
+        elif scenario == "newer_ambiguous":
+            _copy(stored, newer, newer_metric)
+    # Other metrics, wrong units, future-only and empty identities cannot win.
+    from test_google_daily_vitals import HRV
+    for index, code, day, unit in (
+        (1, HRV, DAY, "ms"), (2, GOOGLE_RHR, DAY, "ms"),
+        (3, GOOGLE_RHR, DAY + timedelta(days=1), "bpm"),
+    ):
+        _persist(session, store, _daily_record(
+            metric_code=code, local_date=day, value=70, unit=unit,
+            external_record_id=f"auto-other-{index}",
+        ), identity=_fitbit_identity(source_instance_id=f"synthetic-latest-other-{index}"))
+    GoogleSourceRepository(session).get_or_create(_family_identity())
+    session.flush()
+    query = _query(stored, source_id=None)
+    original = read_saved_rhr(session, query)
+    assert original.state == "ambiguous" and original.reason == "source_selection_required"
+    assert "source_selection" not in original.as_dict()
+    exact = read_saved_rhr(session, replace(query, source_id=source.id))
+    auto = read_saved_rhr(session, query, google_auto_select=True)
+    assert auto.query == query and len(auto.available_sources) == 5
+    assert auto.observation == exact.observation
+    assert auto.source_identity == exact.source_identity
+    assert auto.newer_exclusions == exact.newer_exclusions and auto.search == exact.search
+    assert auto.refresh == exact.refresh
+    assert auto.observation.value == (65 if scenario == "correction" else 0)
+    assert auto.observation.observation_age_days == (0 if scenario == "correction" else 3)
+    assert auto.source_selection["state"] == "unique_eligible_source"
+    assert auto.source_selection["selected_source_id"] == source.id
+    assert len(auto.source_selection["candidates"]) == 5
+    assert all("observation" not in item for item in auto.source_selection["candidates"])
+    assert read_saved_rhr(session, replace(query, source_id=source.id),
+                          google_auto_select=True) == exact
+    # Explicit periods keep the previous source-selection semantics and no fallback.
+    explicit = read_saved_rhr(session, replace(query, mode="explicit_period"))
+    assert explicit.state == "ambiguous" and explicit.observation is None
+    with pytest.raises(ValueError, match="default-latest"):
+        read_saved_rhr(session, replace(query, mode="explicit_period"), google_auto_select=True)
+
+
+@pytest.mark.parametrize("stored", ["google_health"], indirect=True)
+@pytest.mark.parametrize("competitor", ["equal", "disjoint", "ambiguous", "date_cap", "group_cap"])
+def test_data_google_auto_conflict_or_incomplete_never_publishes_a_scalar(stored, competitor):
+    session, store, source, _ = stored
+    _seed(stored, value=60)
+    identity = _fitbit_identity(source_instance_id="synthetic-latest-competitor")
+    count = 2 if competitor in {"ambiguous", "date_cap", "group_cap"} else 1
+    for index in range(count):
+        day = DAY - timedelta(days=index if competitor == "date_cap" else
+                              4 if competitor == "disjoint" else 0)
+        _persist(session, store, _daily_record(
+            metric_code=GOOGLE_RHR, local_date=day, value=60,
+            external_record_id=f"competing-{index}",
+        ), identity=identity)
+    if competitor == "date_cap":
+        for row in session.scalars(select(GoogleRecordMetric).join(
+            GoogleSourceRecord, GoogleSourceRecord.id == GoogleRecordMetric.record_id,
+        ).where(GoogleSourceRecord.google_source_id != source.id)):
+            row.state, row.value_number = "null", None
+    session.flush()
+    query = _query(stored, source_id=None,
+                   max_date_groups=1 if competitor == "date_cap" else 32,
+                   max_candidate_records=1 if competitor == "group_cap" else 256)
+    auto = read_saved_rhr(session, query, google_auto_select=True)
+    incomplete = competitor in {"date_cap", "group_cap"}
+    assert auto.state == ("search_incomplete" if incomplete else "ambiguous")
+    assert auto.observation is None and auto.source_identity is None
+    assert auto.search.complete is not incomplete
+    assert auto.source_selection["selected_source_id"] is None
+    exact = read_saved_rhr(session, replace(query, source_id=source.id), google_auto_select=True)
+    assert exact.observation.value == 60
+
+
+@pytest.mark.parametrize("stored", ["google_health"], indirect=True)
+def test_data_google_auto_empty_disclosure_and_inventory_cap(stored, monkeypatch):
+    session, _, _, _ = stored
+    _, metric = _seed(stored)
+    metric.state, metric.value_number = "missing", None
+    session.flush()
+    query = _query(stored, source_id=None)
+    exact = read_saved_rhr(session, _query(stored))
+    auto = read_saved_rhr(session, query, google_auto_select=True)
+    assert auto.state == "no_eligible_in_search" and auto.observation is None
+    assert auto.newer_exclusions == exact.newer_exclusions and auto.search == exact.search
+    GoogleSourceRepository(session).get_or_create(_family_identity())
+    session.flush()
+    empty = read_saved_rhr(session, query, google_auto_select=True)
+    assert empty.state == "no_eligible_in_search" and empty.source_identity is None
+    assert len(empty.source_selection["candidates"]) == 2
+    monkeypatch.setattr(module, "MAX_SOURCE_IDENTITIES", 1)
+    limited = read_saved_rhr(session, query, google_auto_select=True)
+    assert limited.state == "search_incomplete" and not limited.search.complete
+    assert limited.reason == "source_inventory_cap" and limited.available_sources == ()
+
+
 def _card(stored, *, explicit=False, start=None, end=DAY, freshness=None):
     session, _, source, _ = stored
     session.flush()

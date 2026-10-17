@@ -42,6 +42,16 @@ const base = 'http://127.0.0.1:8120';
         for (const dto of body.items) {
           const p = dto.query.provider_code, override = url.searchParams.get(p === 'garmin_connect' ? 'garmin_source_id' : 'google_source_id');
           dto.query.source_id = override;
+          if (override) {
+            delete dto.source_selection;
+            if (override !== dto.source_identity.source_id) {
+              dto.source_identity = dto.available_sources.find(s => s.source_id === override) ||
+                {...dto.source_identity, source_id: override};
+              dto.available_sources = [dto.source_identity];
+              dto.observation = null; dto.state = 'no_eligible_in_search'; dto.reason = dto.state;
+              dto.newer_exclusions = [];
+            }
+          }
           if (mode === 'ambiguous' && p === 'google_health' && !override) {
             dto.available_sources.push({...dto.source_identity, source_id: 'synthetic-other', source_instance_id: 'second synthetic identity'});
             dto.source_identity = dto.observation = null; dto.state = 'ambiguous'; dto.reason = 'source_selection_required';
@@ -82,6 +92,12 @@ const base = 'http://127.0.0.1:8120';
           assert.equal(await page.locator('[data-saved-provider]').count(), 2);
           assert.match(await page.locator('#saved-rhr-clock').textContent(), /default_latest/);
           if (scenario === 'saved') {
+            const google = page.locator('[data-saved-provider="google_health"]');
+            assert.equal(await google.locator('#saved-source-google_health').isVisible(), false);
+            const override = google.locator('details').filter({has: page.locator('#saved-source-google_health')});
+            await override.locator('summary').focus(); await page.keyboard.press('Enter');
+            assert.equal(await google.locator('#saved-source-google_health').isVisible(), true);
+            await override.locator('summary').focus(); await page.keyboard.press('Enter');
             for (const dto of saved.items) {
               const card = page.locator(`[data-saved-provider="${dto.query.provider_code}"]`);
               assert.match(await card.textContent(), new RegExp(dto.observation.value + ' bpm'));

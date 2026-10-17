@@ -30,6 +30,9 @@ function fixture(params, mode = 'saved') {
     dto.query.source_id = params.get(index ? 'google_source_id' : 'garmin_source_id');
     dto.available_sources = [source];
     dto.source_identity = source;
+    delete dto.source_selection;
+    if (index && !dto.query.source_id) dto.source_selection = {
+      state: 'unique_eligible_source', mode: 'auto', selected_source_id: source.source_id, search_complete: true};
     const age = index ? 3 : 0;
     const date = new Date(result.evaluation_local_date); date.setUTCDate(date.getUTCDate() - age);
     dto.state = age ? 'last_eligible' : 'exact'; dto.reason = null;
@@ -99,6 +102,9 @@ function setup(mode = 'saved') {
   assert.equal(current.requests[0].options.cache, 'no-store');
   assert.match(current.requests[0].url, /^\/api\/imports\/saved-rhr\?/);
   assert.ok(tree(current.elements['saved-rhr-results']).filter(item => item.tag === 'details').every(item => !item.attrs.open));
+  const autoControl = tree(current.elements['saved-rhr-results']).find(item =>
+    item.tag === 'details' && tree(item).some(child => child.id === 'saved-source-google_health'));
+  assert.ok(autoControl && !autoControl.attrs.open);
   current.refresh(); current.refresh();
   assert.equal(current.requests[1].options.signal.aborted, true);
   await current.finish(2, body => { body.items[0].observation.value = 72; });
