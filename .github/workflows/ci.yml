@@ -297,6 +297,20 @@ jobs:
         run: >-
           powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
           -File tests/test_cleanup_workspaces.ps1
+      - name: Run recoverable workspace relocation regressions (Windows PowerShell 5.1)
+        shell: pwsh
+        env:
+          RETIREMENT_EVIDENCE_DIR: ${{ runner.temp }}\workspace-retirement-${{ github.run_id }}-${{ github.run_attempt }}
+        run: >-
+          powershell.exe -NoLogo -NoProfile -NonInteractive
+          -File tests/test_workspace_retirement.ps1
+      - name: Upload workspace relocation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: workspace-retirement-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workspace-retirement-${{ github.run_id }}-${{ github.run_attempt }}/retirement-evidence.json
+          if-no-files-found: error
       - name: Run focused Windows smoke
         shell: pwsh
         env:

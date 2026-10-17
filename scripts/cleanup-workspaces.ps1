@@ -2,12 +2,12 @@
 .SYNOPSIS
 Fail-closed cleanup of disposable Health-Check task workspaces (Windows PowerShell 5.1+).
 .DESCRIPTION
-Dry-run is the default. -Apply is the only deletion switch. Roots are a fixed
+Dry-run is the default. -Retire moves eligible clones to recovery; -Apply is refused. Roots are a fixed
 allowlist, not an arbitrary filesystem cleanup interface. Fetch updates only local
 origin tracking refs. No remote branch is deleted. Every unknown is PRESERVE.
 A bounded, overwritten JSON summary is saved to the fixed Owner Ops directory.
 Use the matching lifecycle operations before any managed checkout writes/resume.
-Only explicitly completed enrolled standalone clones may reach fetch/deletion.
+Only explicitly completed enrolled standalone clones may reach fetch/retirement.
 Fetch is mandatory for completed candidates even in dry-run and updates local Git metadata. Conservatively,
 that write can postpone eligibility at a later invocation. Unknown process command
 lines, ignored non-cache files, non-cache hardlinks, SSH/alternate origin URL spellings and
@@ -19,7 +19,8 @@ param(
         'D:\HealthCheck\workspaces\grok', 'D:\HealthCheck\workspaces\hermes'),
     [int]$RetentionDays = 7,
     [switch]$Apply,
-    [ValidateSet('Scan','Create','Bind','Check','CheckActive','Pause','Resume','Complete')][string]$Operation='Scan',
+    [switch]$Retire,
+    [ValidateSet('Scan','Create','Bind','Check','CheckActive','Pause','Resume','Complete','Recover','Restore')][string]$Operation='Scan',
     [string]$Workspace,
     [string]$Owner,
     [string]$ClaimId
@@ -30,6 +31,7 @@ $script:ApprovedRoots = @('D:\HealthCheck\workspaces\codex', 'D:\HealthCheck\wor
     'D:\HealthCheck\workspaces\grok', 'D:\HealthCheck\workspaces\hermes')
 $script:ExpectedOrigin = 'https://github.com/LTstripes/Health-Check.git'
 $script:LogDirectory = 'D:\HealthCheck\ops'
+$script:RecoveryDirectory = 'D:\HealthCheck\recovery\workspaces'
 $script:EntryLimit = 25000
 $script:TaskLimit = 200
 $script:WorkspaceMutexName = 'Global\HealthCheck.WorkspaceCleanup'
@@ -264,7 +266,7 @@ function Get-LifecycleFile([string]$Path) {
 }
 function ConvertTo-LifecycleText($Record, [switch]$Marker) {
     $keys = @('Format','Path','RootId','GitId','Enrollment')
-    if (-not $Marker) { $keys += @('Owner','Claim','Generation','State','Head','Completed') }
+    if (-not $Marker) { $keys += @('Owner','Claim','Generation','State','Head','Completed'); if ($Record.Format -eq '2') { $keys += 'Transaction' } }
     return (($keys | ForEach-Object { $_ + '=' + [string]$Record[$_] }) -join "`n") + "`n"
 }
 function Read-LifecycleRecord([string]$File, [switch]$Marker) {
@@ -273,6 +275,7 @@ function Read-LifecycleRecord([string]$File, [switch]$Marker) {
     $text = [HealthCheck.WorkspaceCleanup.Tree]::ReadState($File)
     $keys = @('Format','Path','RootId','GitId','Enrollment')
     if (-not $Marker) { $keys += @('Owner','Claim','Generation','State','Head','Completed') }
+    if (-not $Marker -and $text.StartsWith("Format=2`n")) { $keys += 'Transaction' }
     $lines = $text.Split([char]10)
     if ($lines.Count -ne $keys.Count + 1 -or $lines[-1] -cne '') { throw 'lifecycle-invalid' }
     $record = [ordered]@{}
@@ -281,7 +284,7 @@ function Read-LifecycleRecord([string]$File, [switch]$Marker) {
         if (-not $lines[$i].StartsWith($prefix, [StringComparison]::Ordinal)) { throw 'lifecycle-invalid' }
         $record[$keys[$i]]=$lines[$i].Substring($prefix.Length)
     }
-    if ($record.Format -cne '1' -or $record.Path -cnotmatch '^[A-Za-z0-9+/]+={0,2}$' -or
+    if (($record.Format -cne '1' -and ($Marker -or $record.Format -cne '2')) -or $record.Path -cnotmatch '^[A-Za-z0-9+/]+={0,2}$' -or
         $record.RootId -cnotmatch '^\d+:\d+:\d+:\d+$' -or
         $record.GitId -cnotmatch '^(-|\d+:\d+:\d+:\d+)$' -or
         $record.Enrollment -cnotmatch '^[a-f0-9]{32}$') { throw 'lifecycle-invalid' }
@@ -293,10 +296,12 @@ function Read-LifecycleRecord([string]$File, [switch]$Marker) {
     if (-not $Marker) {
         if ($record.Owner -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$' -or
             $record.Claim -cnotmatch '^[a-f0-9]{32}$' -or $record.Generation -cnotmatch '^[1-9][0-9]{0,8}$' -or
-            $record.State -cnotmatch '^(active|paused|completed|deleting|deleted)$' -or
+            $record.State -cnotmatch '^(active|paused|completed|deleting|deleted|retiring|retired|restoring|needs_review)$' -or
             $record.Head -cnotmatch '^(-|[a-f0-9]{40}|[a-f0-9]{64})$' -or
             $record.Completed -cnotmatch '^(-|[0-9]{18})$') { throw 'lifecycle-invalid' }
-        if ($record.State -in @('completed','deleting','deleted')) {
+        if (($record.Format -eq '2' -and ($record.State -notin @('retiring','retired','restoring','needs_review') -or $record.Transaction -cnotmatch '^[a-f0-9]{32}$')) -or
+            ($record.Format -eq '1' -and $record.State -in @('retiring','retired','restoring','needs_review'))) { throw 'lifecycle-invalid' }
+        if ($record.State -in @('completed','deleting','deleted','retiring','retired','restoring','needs_review')) {
             if ($record.GitId -eq '-' -or $record.Head -eq '-' -or $record.Completed -eq '-') { throw 'lifecycle-invalid' }
             try { [void](New-Object datetime ([long]$record.Completed, [DateTimeKind]::Utc)) } catch { throw 'lifecycle-invalid' }
         } elseif ($record.Head -ne '-' -or $record.Completed -ne '-') { throw 'lifecycle-invalid' }
@@ -361,7 +366,8 @@ function Invoke-WorkspaceLifecycle([string]$Action, [string]$Path, [string]$Owne
         }
         $record=Get-LifecycleRecord $path
         if ($record.Owner -cne $Owner -or $record.Claim -cne $Token) { throw 'lifecycle-owner-or-claim-mismatch' }
-        if ($record.State -in @('deleting','deleted')) { throw 'lifecycle-retired' }
+        if ($record.State -in @('deleting','deleted','retiring','retired','restoring','needs_review')) { throw 'lifecycle-retired' }
+        Assert-NoPendingRetirement $path
         $guard.PinAncestors($path)
         Assert-LifecycleIdentity $path $record
         switch ($Action) {
@@ -458,6 +464,7 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
     $guard = $null; $tree = $null; $fresh = $null
     try {
         $path = Assert-JanitorChild $Path
+        Assert-NoPendingRetirement $path
         $guard = New-Object HealthCheck.WorkspaceCleanup.Tree($false)
         $guard.PinAncestors([IO.Path]::GetDirectoryName($path))
         $tree = New-Object HealthCheck.WorkspaceCleanup.Tree($false)
@@ -497,15 +504,9 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
         Test-JanitorProcess $path $processes
         $record.Result='ELIGIBLE'; $record.Reason='clean-published-inactive'
         if (-not $Delete) { return $record }
-        # This durable tombstone precedes the first destructive operation. Resume
-        # takes this same mutex and must refuse deleting/deleted, even after a crash.
-        $lifecycle.State='deleting'; Write-LifecycleRecord $path $lifecycle
-        # Print sanitized decision before the destructive operation, not raw Git diagnostics.
-        Write-Information ($record | ConvertTo-Json -Compress) -InformationAction Continue
-        $fresh.Delete()
-        if ([IO.Directory]::Exists($path) -or [IO.File]::Exists($path)) { throw 'delete-failed' }
-        $lifecycle.State='deleted'; Write-LifecycleRecord $path $lifecycle
-        $record.Result='REMOVED'; $record.Reason='removed'
+        $relocation=Invoke-RetirementMove $path $lifecycle $fresh
+        if ($relocation.State -eq 'NEEDS_REVIEW') { $record.Result='ERROR'; $record.Reason='retirement-needs-review-stop' }
+        else { $record.Result='RETIRED'; $record.Reason='recoverably-retired' }
     } catch {
         $reason = [string]$_.Exception.Message
         $known = @('path-rejected','root-rejected','task-name-rejected','process-state-unknown','active-process',
@@ -514,9 +515,9 @@ function Invoke-JanitorTask([string]$Path, [int]$Days, [bool]$Delete, [datetime]
             'age-unknown','younger-than-retention','unique-head-commit','ancestry-unknown','unknown-local-ref','unique-local-ref',
             'shared-worktree-preserved','lifecycle-unmanaged','lifecycle-invalid','lifecycle-identity-changed',
             'lifecycle-unbound','lifecycle-legacy-metadata','lifecycle-not-completed','lifecycle-head-changed',
-            'workspace-changed','git-check-failed','git-timeout','git-output-limit','delete-failed')
+            'retirement-pending','workspace-changed','git-check-failed','git-timeout','git-output-limit','delete-failed')
         $record.Reason = if ($known -contains $reason) { $reason } else { 'filesystem-or-check-unknown' }
-        if ($record.Result -eq 'ELIGIBLE' -and $Delete) { $record.Result='ERROR'; $record.Reason='delete-failed-stop' }
+        if ($record.Result -eq 'ELIGIBLE' -and $Delete) { $record.Result='ERROR'; $record.Reason='retirement-failed-stop' }
     } finally {
         foreach ($handle in @($fresh,$tree,$guard)) { if ($null -ne $handle) { $handle.Dispose() } }
     }
@@ -535,7 +536,7 @@ function Invoke-JanitorRun([string[]]$Roots, [int]$Days=7, [switch]$Delete) {
     $approved = @($Roots | ForEach-Object { Assert-JanitorRoot $_ } | Select-Object -Unique)
     if (-not $approved.Count) { throw 'root-rejected' }
     Initialize-JanitorNative
-    $report = [pscustomobject]@{ Version=1; Mode=$(if ($Delete) {'Apply'} else {'DryRun'}); RetentionDays=$Days;
+    $report = [pscustomobject]@{ Version=1; Mode=$(if ($Delete) {'Retire'} else {'DryRun'}); RetentionDays=$Days;
         Utc=[datetime]::UtcNow.ToString('o'); Records=@(); Status='complete' }
     # Fail before deletion if the bounded Ops summary cannot be safely written.
     Save-JanitorReport $report
@@ -570,15 +571,233 @@ function Invoke-WorkspaceJanitor([string[]]$Roots, [int]$Days=7, [switch]$Delete
     Initialize-JanitorNative
     Invoke-WorkspaceLock { Invoke-JanitorRun $Roots $Days -Delete:$Delete }
 }
+# Container relocation, not snapshot/backup. No automatic recovery or purge.
+function Get-RetirementFile([string]$Path) {
+    Join-Path $script:LogDirectory ('workspace-retirement-'+[HealthCheck.WorkspaceCleanup.Tree]::StateKey($Path)+'.state')
+}
+function Get-RetirementKeys {
+    @('Format','Transaction','Path','Destination','RootId','GitId','Enrollment','Owner','Claim','Generation','Head','Completed','BeforeDigest','AfterDigest','BeforeObservation','AfterObservation','Phase','Issue','NextClaim','NextGeneration')
+}
+function Write-RetirementJournal([string]$Path,$Journal,[switch]$Create) {
+    Assert-WorkspaceLock
+    $text=((Get-RetirementKeys|ForEach-Object {$_+'='+[string]$Journal[$_]}) -join "`n")+"`n"
+    [HealthCheck.WorkspaceCleanup.Tree]::WriteState((Get-RetirementFile $Path),$text,[bool]$Create)
+}
+function Read-RetirementJournal([string]$Path) {
+    Assert-WorkspaceLock
+    $text=[HealthCheck.WorkspaceCleanup.Tree]::ReadState((Get-RetirementFile $Path))
+    $keys=@(Get-RetirementKeys);$lines=$text.Split([char]10);$j=[ordered]@{}
+    if($lines.Count -ne $keys.Count+1 -or $lines[-1] -cne ''){throw 'retirement-journal-invalid'}
+    for($i=0;$i -lt $keys.Count;$i++){
+        $prefix=$keys[$i]+'='
+        if(-not $lines[$i].StartsWith($prefix,[StringComparison]::Ordinal)){throw 'retirement-journal-invalid'}
+        $j[$keys[$i]]=$lines[$i].Substring($prefix.Length)
+    }
+    if($j.Format -cne '2' -or $j.Transaction -cnotmatch '^[a-f0-9]{32}$' -or
+       $j.Path -cne [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Path.ToUpperInvariant())) -or
+       $j.Destination -cne (Join-Path $script:RecoveryDirectory $j.Transaction).ToUpperInvariant() -or
+       $j.RootId -cnotmatch '^\d+:\d+:\d+:\d+$' -or $j.GitId -cnotmatch '^\d+:\d+:\d+:\d+$' -or
+       $j.Enrollment -cnotmatch '^[a-f0-9]{32}$' -or $j.Claim -cnotmatch '^[a-f0-9]{32}$' -or
+       $j.Owner -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$' -or $j.Generation -cnotmatch '^[1-9][0-9]{0,8}$' -or
+       $j.Head -cnotmatch '^([a-f0-9]{40}|[a-f0-9]{64})$' -or $j.Completed -cnotmatch '^[0-9]{18}$' -or
+       $j.BeforeDigest -cnotmatch '^[A-F0-9]{64}$' -or $j.AfterDigest -cnotmatch '^(-|[A-F0-9]{64})$' -or
+       $j.Phase -cnotmatch '^(prepared|retired|restore_prepared|restored|cancelled|needs_review)$' -or
+       $j.Issue -cnotmatch '^[a-z-]{1,64}$' -or $j.NextClaim -cnotmatch '^(-|[a-f0-9]{32})$' -or
+       $j.NextGeneration -cnotmatch '^(-|[1-9][0-9]{0,8})$'){throw 'retirement-journal-invalid'}
+    foreach($key in @('BeforeObservation','AfterObservation')){
+        if($j[$key] -cne '-' -and $j[$key] -cnotmatch ('^workspace-retirement-observation-'+$j.Transaction+'-[a-f0-9]{32}\.state$')){throw 'retirement-journal-invalid'}
+    }
+    if(($j.NextClaim -eq '-') -ne ($j.NextGeneration -eq '-')){throw 'retirement-journal-invalid'}
+    if($j.NextClaim -ne '-' -and [int]$j.NextGeneration -ne ([int]$j.Generation+1)){throw 'retirement-journal-invalid'}
+    if($j.Phase -in @('restore_prepared','restored','cancelled') -and $j.NextClaim -eq '-'){throw 'retirement-journal-invalid'}
+    return $j
+}
+function Assert-NoPendingRetirement([string]$Path) {
+    if([IO.File]::Exists((Get-RetirementFile $Path)) -or [IO.Directory]::Exists((Get-RetirementFile $Path))){
+        $j=Read-RetirementJournal $Path
+        if($j.Phase -notin @('restored','cancelled')){throw 'retirement-pending'}
+        # A closed journal alone is not proof the fresh paused claim committed.
+        # Later legitimate Resume/Complete cycles increment generation under this
+        # same helper/mutex; an old completed record must never auto-retry.
+        $r=Get-LifecycleRecord $Path
+        foreach($key in @('Path','RootId','GitId','Enrollment','Owner')){if($r[$key] -cne $j[$key]){throw 'retirement-pending'}}
+        if($r.Format -cne '1' -or $r.State -notin @('active','paused','completed') -or [int]$r.Generation -lt [int]$j.NextGeneration){throw 'retirement-pending'}
+        if($r.Generation -ceq $j.NextGeneration -and ($r.Claim -cne $j.NextClaim -or $r.State -cne 'paused')){throw 'retirement-pending'}
+    }
+}
+function Get-RetirementRows($Tree,[string]$Path) {
+    @($Tree.Entries|ForEach-Object {
+        $relative=$_.Path.Substring($Path.Length).ToUpperInvariant()
+        $stamp=if($relative.Length){$_.Stamp}else{$_.Identity}
+        [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($relative))+':'+$_.Directory+':'+$stamp
+    }|Sort-Object -CaseSensitive)
+}
+function Get-RetirementDigest($Tree,[string]$Path) {
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try{([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(((Get-RetirementRows $Tree $Path) -join "`n"))))).Replace('-','')}finally{$sha.Dispose()}
+}
+function Save-RetirementObservation($Tree,[string]$Location,$Journal,[string]$Stage,[string]$Issue='none') {
+    $leaf='workspace-retirement-observation-'+$Journal.Transaction+'-'+[guid]::NewGuid().ToString('N')+'.state'
+    $text="Format=1`nNonSnapshot=true`nStage=$Stage`nIssue=$Issue`nUtc=$([datetime]::UtcNow.ToString('o'))`nLocation=$([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Location)))`n"+((Get-RetirementRows $Tree $Location) -join "`n")+"`n"
+    [HealthCheck.WorkspaceCleanup.Tree]::WriteObservation((Join-Path $script:LogDirectory $leaf),$text)
+    return $leaf
+}
+function Get-RetirementInspection([string]$Location,$Journal,$Binding=$null) {
+    Assert-WorkspaceLock
+    $tree=New-Object HealthCheck.WorkspaceCleanup.Tree($false)
+    $ownBinding=$false
+    $out=[pscustomobject]@{Good=$false;Digest='-';Observation='-';Issue='inspection-incomplete'}
+    try{
+        if($null -eq $Binding){$Binding=New-Object HealthCheck.WorkspaceCleanup.Tree($true);$ownBinding=$true;$Binding.BindRootOnly($Location,$Journal.RootId)}
+        $tree.ObserveBound($Binding,$Location,$Journal.RootId,$script:EntryLimit)
+        $out.Digest=Get-RetirementDigest $tree $Location
+        $out.Observation=Save-RetirementObservation $tree $Location $Journal 'post'
+        if([HealthCheck.WorkspaceCleanup.Tree]::IdentityOf($Location) -cne $Journal.RootId){$out.Issue='root-identity-changed';return $out}
+        if($out.Digest -cne $Journal.BeforeDigest){$out.Issue='manifest-changed';return $out}
+        if([HealthCheck.WorkspaceCleanup.Tree]::IdentityOf((Join-Path $Location '.git')) -cne $Journal.GitId){$out.Issue='git-identity-changed';return $out}
+        $m=Read-LifecycleRecord (Join-Path $Location '.git\workspace-enrollment.state') -Marker
+        foreach($k in @('Path','RootId','GitId','Enrollment')){if($m[$k] -cne $Journal[$k]){$out.Issue='enrollment-changed';return $out}}
+        # A full matching metadata digest transfers the PRE-flight cache proof.
+        # It is never an atomic content snapshot or permission to purge later.
+        foreach($e in $tree.Entries){if($null -ne $e.CacheRoot){$tree.ApproveGeneratedCache($e.Path,$e.Stamp)}}
+        Test-JanitorMarkers $tree.Entries $Location
+        $out.Good=$true;$out.Issue='none'
+    }catch{
+        try{$out.Observation=Save-RetirementObservation $tree $Location $Journal 'partial' 'inspection-incomplete'}catch{}
+    }finally{$tree.Dispose();if($ownBinding){$Binding.Dispose()}}
+    return $out
+}
+function Set-RetirementReview([string]$Path,$Record,$Journal,[string]$Issue) {
+    $Journal.Phase='needs_review';$Journal.Issue=$Issue
+    Write-RetirementJournal $Path $Journal
+    # Finish-return may have prepared a fresh paused claim before a failed write.
+    # An uncertain return never grants it: retain the original retirement authority.
+    foreach($key in @('Path','RootId','GitId','Enrollment','Owner','Claim','Generation','Head','Completed')){$Record[$key]=$Journal[$key]}
+    $Record.Format='2';$Record.State='needs_review';$Record['Transaction']=$Journal.Transaction
+    Write-LifecycleRecord $Path $Record
+    return [pscustomobject]@{State='NEEDS_REVIEW';Transaction=$Journal.Transaction;Issue=$Issue}
+}
+function Complete-RetirementInspection([string]$Path,$Record,$Journal,[string]$Location,$Binding=$null) {
+    $ownBinding=$false
+    try{
+    if($null -eq $Binding){$Binding=New-Object HealthCheck.WorkspaceCleanup.Tree($true);$ownBinding=$true;$Binding.BindRootOnly($Location,$Journal.RootId)}
+    $inspection=Get-RetirementInspection $Location $Journal $Binding
+    $Journal.AfterDigest=$inspection.Digest;$Journal.AfterObservation=$inspection.Observation
+    if(-not $inspection.Good){return Set-RetirementReview $Path $Record $Journal $inspection.Issue}
+    # Another object at the original path is never removed or overwritten.
+    if($Location -cne $Path -and ([IO.Directory]::Exists($Path) -or [IO.File]::Exists($Path))){return Set-RetirementReview $Path $Record $Journal 'original-path-occupied'}
+    $Journal.Phase='retired';$Journal.Issue='none';Write-RetirementJournal $Path $Journal
+    $Record.Format='2';$Record.State='retired';$Record['Transaction']=$Journal.Transaction;Write-LifecycleRecord $Path $Record
+    [pscustomobject]@{State='RETIRED';Transaction=$Journal.Transaction;Issue='none'}
+    }catch{return Set-RetirementReview $Path $Record $Journal 'inspection-binding-unknown'}
+    finally{if($ownBinding){$Binding.Dispose()}}
+}
+function Invoke-RetirementMove([string]$Path,$Record,$Tree) {
+    Assert-WorkspaceLock
+    $pins=New-Object HealthCheck.WorkspaceCleanup.Tree($false);$j=$null;$intent=$false
+    try{
+        $pins.PinAncestors($script:LogDirectory);$pins.PinAncestors($script:RecoveryDirectory)
+        Assert-LifecycleIdentity $Path $Record -Bound
+        $Tree.Freeze()
+        $tx=[guid]::NewGuid().ToString('N')
+        $j=[ordered]@{Format='2';Transaction=$tx;Path=$Record.Path;Destination=(Join-Path $script:RecoveryDirectory $tx).ToUpperInvariant();
+            RootId=$Record.RootId;GitId=$Record.GitId;Enrollment=$Record.Enrollment;Owner=$Record.Owner;Claim=$Record.Claim;Generation=$Record.Generation;Head=$Record.Head;Completed=$Record.Completed;
+            BeforeDigest=(Get-RetirementDigest $Tree $Path);AfterDigest='-';BeforeObservation='-';AfterObservation='-';Phase='prepared';Issue='none';NextClaim='-';NextGeneration='-'}
+        $j.BeforeObservation=Save-RetirementObservation $Tree $Path $j 'pre'
+        $file=Get-RetirementFile $Path
+        if([IO.File]::Exists($file)){
+            $old=Read-RetirementJournal $Path
+            if($old.Phase -notin @('restored','cancelled')){throw 'retirement-pending'}
+            [HealthCheck.WorkspaceCleanup.Tree]::WriteState((Join-Path $script:LogDirectory ('workspace-retirement-history-'+$old.Transaction+'.state')),[HealthCheck.WorkspaceCleanup.Tree]::ReadState($file),$true)
+        }
+        Write-RetirementJournal $Path $j;$intent=$true
+        $Record.Format='2';$Record.State='retiring';$Record['Transaction']=$tx;Write-LifecycleRecord $Path $Record
+        $Tree.ReleaseDescendantsForRelocation($j.RootId)
+        $Tree.RenameTo($Path,$j.Destination)
+        return Complete-RetirementInspection $Path $Record $j $j.Destination $Tree
+    }catch{
+        if($intent){return Set-RetirementReview $Path $Record $j 'operation-outcome-unknown'}
+        throw
+    }finally{$pins.Dispose()}
+}
+function Finish-RetirementReturn([string]$Path,$Record,$Journal,[string]$Phase,$Binding=$null) {
+    $ownBinding=$false
+    try{
+    if($null -eq $Binding){$Binding=New-Object HealthCheck.WorkspaceCleanup.Tree($true);$ownBinding=$true;$Binding.BindRootOnly($Path,$Journal.RootId)}
+    $inspection=Get-RetirementInspection $Path $Journal $Binding
+    $Journal.AfterDigest=$inspection.Digest;$Journal.AfterObservation=$inspection.Observation
+    if(-not $inspection.Good){return Set-RetirementReview $Path $Record $Journal $inspection.Issue}
+    if([IO.Directory]::Exists($Journal.Destination) -or [IO.File]::Exists($Journal.Destination)){return Set-RetirementReview $Path $Record $Journal 'recovery-path-occupied'}
+    if($Journal.NextClaim -eq '-'){
+        if([int]$Record.Generation -ge 999999999){return Set-RetirementReview $Path $Record $Journal 'generation-exhausted'}
+        $Journal.NextClaim=[guid]::NewGuid().ToString('N');$Journal.NextGeneration=([int]$Record.Generation+1).ToString()
+    }
+    $Journal.Phase=$Phase;$Journal.Issue='none';Write-RetirementJournal $Path $Journal
+    $Record.Format='1';$Record.Remove('Transaction');$Record.State='paused';$Record.Claim=$Journal.NextClaim;$Record.Generation=$Journal.NextGeneration;$Record.Head='-';$Record.Completed='-'
+    Write-LifecycleRecord $Path $Record
+    return [pscustomobject]$Record
+    }catch{return Set-RetirementReview $Path $Record $Journal 'return-binding-or-state-unknown'}
+    finally{if($ownBinding){$Binding.Dispose()}}
+}
+function Invoke-RetirementRecovery([string]$Path,[string]$Owner,[string]$Token,[switch]$Restore) {
+    Assert-WorkspaceLock
+    $Path=Assert-JanitorChild $Path
+    $guard=New-Object HealthCheck.WorkspaceCleanup.Tree($false);$tree=$null
+    try{
+        $guard.PinAncestors($script:LogDirectory);$guard.PinAncestors([IO.Path]::GetDirectoryName($Path));$guard.PinAncestors($script:RecoveryDirectory)
+        $j=Read-RetirementJournal $Path;$r=Get-LifecycleRecord $Path
+        if($Owner -cne $j.Owner -or $Token -cne $j.Claim){throw 'lifecycle-owner-or-claim-mismatch'}
+        foreach($k in @('Path','RootId','GitId','Enrollment','Owner')){if($r[$k] -cne $j[$k]){throw 'retirement-record-mismatch'}}
+        if($j.Phase -eq 'needs_review' -or $r.State -eq 'needs_review'){throw 'retirement-needs-review'}
+        if($j.Phase -in @('restored','cancelled')){
+            if($Restore){throw 'retirement-already-resolved'}
+            if($r.Format -eq '1' -and $r.State -eq 'paused' -and $r.Claim -ceq $j.NextClaim -and $r.Generation -ceq $j.NextGeneration){return Finish-RetirementReturn $Path $r $j $j.Phase}
+            if($r.Claim -cne $j.Claim -or $r.Generation -cne $j.Generation){throw 'retirement-record-mismatch'}
+            return Finish-RetirementReturn $Path $r $j $j.Phase
+        }
+        if($r.Claim -cne $j.Claim -or $r.Generation -cne $j.Generation -or $r.Head -cne $j.Head -or $r.Completed -cne $j.Completed -or
+           ($r.Format -eq '2' -and $r.Transaction -cne $j.Transaction)){throw 'retirement-record-mismatch'}
+        $original=[IO.Directory]::Exists($Path) -or [IO.File]::Exists($Path)
+        $recovery=[IO.Directory]::Exists($j.Destination) -or [IO.File]::Exists($j.Destination)
+        if($original -eq $recovery){return Set-RetirementReview $Path $r $j 'locations-ambiguous'}
+        if($original){
+            if($Restore){throw 'retirement-not-in-recovery'}
+            if($j.Phase -eq 'prepared'){return Finish-RetirementReturn $Path $r $j 'cancelled'}
+            if($j.Phase -eq 'restore_prepared'){return Finish-RetirementReturn $Path $r $j 'restored'}
+            return Set-RetirementReview $Path $r $j 'unexpected-original-location'
+        }
+        if($j.Phase -eq 'restore_prepared'){return Set-RetirementReview $Path $r $j 'restore-outcome-pending'}
+        if(-not $Restore){return Complete-RetirementInspection $Path $r $j $j.Destination}
+        if($r.Format -ne '2' -or $r.State -ne 'retired' -or $j.Phase -ne 'retired' -or [int]$r.Generation -ge 999999999){throw 'retirement-not-ready-to-restore'}
+        $inspection=Get-RetirementInspection $j.Destination $j
+        if(-not $inspection.Good){return Set-RetirementReview $Path $r $j $inspection.Issue}
+        $tree=New-Object HealthCheck.WorkspaceCleanup.Tree($true);$tree.BindRootOnly($j.Destination,$j.RootId);$tree.Scan($j.Destination,$script:EntryLimit)
+        if((Get-RetirementDigest $tree $j.Destination) -cne $j.BeforeDigest -or [HealthCheck.WorkspaceCleanup.Tree]::IdentityOf($j.Destination) -cne $j.RootId){return Set-RetirementReview $Path $r $j 'restore-preflight-changed'}
+        # No blanket approval for changed cache data; matching metadata retains preflight proof.
+        foreach($e in $tree.Entries){if($null -ne $e.CacheRoot){$tree.ApproveGeneratedCache($e.Path,$e.Stamp)}}
+        $tree.Freeze()
+        $j.NextClaim=[guid]::NewGuid().ToString('N');$j.NextGeneration=([int]$r.Generation+1).ToString();$j.Phase='restore_prepared';Write-RetirementJournal $Path $j
+        $r.State='restoring';Write-LifecycleRecord $Path $r
+        try{
+            $tree.ReleaseDescendantsForRelocation($j.RootId);$tree.RenameTo($j.Destination,$Path)
+            return Finish-RetirementReturn $Path $r $j 'restored' $tree
+        }catch{return Set-RetirementReview $Path $r $j 'restore-outcome-unknown'}
+    }finally{if($null -ne $tree){$tree.Dispose()};$guard.Dispose()}
+}
+
 if ($MyInvocation.InvocationName -ne '.') {
     try {
         Initialize-JanitorNative
         if ($Operation -ne 'Scan') {
-            if ($Apply -or $PSBoundParameters.ContainsKey('Root') -or $PSBoundParameters.ContainsKey('RetentionDays')) { throw 'invalid-operation-options' }
-            Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle $Operation $Workspace $Owner $ClaimId } | ConvertTo-Json -Depth 5
+            if ($Apply -or $Retire -or $PSBoundParameters.ContainsKey('Root') -or $PSBoundParameters.ContainsKey('RetentionDays')) { throw 'invalid-operation-options' }
+            $operationResult=if ($Operation -in @('Recover','Restore')) {
+                Invoke-WorkspaceLock { Invoke-RetirementRecovery $Workspace $Owner $ClaimId -Restore:($Operation -eq 'Restore') }
+            } else { Invoke-WorkspaceLock { Invoke-WorkspaceLifecycle $Operation $Workspace $Owner $ClaimId } }
+            $operationResult | ConvertTo-Json -Depth 5
         } else {
+            if ($Apply) { throw 'permanent-delete-disabled-use-retire' }
             if ($Workspace -or $Owner -or $ClaimId) { throw 'invalid-operation-options' }
-            $results = @(Invoke-WorkspaceJanitor $Root $RetentionDays -Delete:$Apply)
+            $results = @(Invoke-WorkspaceJanitor $Root $RetentionDays -Delete:$Retire)
             foreach ($result in $results) { if ($result -is [string]) { Write-Output $result } else { $result | ConvertTo-Json -Depth 5 } }
             if ($results[-1].Status -ne 'complete') { exit 2 }
         }

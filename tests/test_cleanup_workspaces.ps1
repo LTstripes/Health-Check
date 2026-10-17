@@ -1,3 +1,4 @@
+param([switch]$FixtureOnly)
 # Self-contained Windows PowerShell 5.1 synthetic regression; no Owner roots/data.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -91,6 +92,8 @@ $script:Remote = Join-Path $script:Temp 'remote.git'
 $script:LogDirectory = Join-Path $script:Temp 'ops'
 [void][IO.Directory]::CreateDirectory($script:Client)
 [void][IO.Directory]::CreateDirectory($script:LogDirectory)
+$script:RecoveryDirectory=Join-Path $script:Temp 'recovery'
+[void][IO.Directory]::CreateDirectory($script:RecoveryDirectory)
 $junction=$null
 try {
     # Production policy hard rejects canonical roles, arbitrary roots and nested children.
@@ -114,6 +117,7 @@ try {
     Commit $seed 'base'
     [void](Git $seed @('push',$script:Remote,'main'))
 
+    if (-not $FixtureOnly) {
     $script:CimRows=@(
         [pscustomobject]@{ ProcessId=123; CommandLine=$null },
         [pscustomobject]@{ ProcessId=124; CommandLine='  ' },
@@ -253,7 +257,7 @@ try {
     Assert ((Git $equivalent @('cherry', 'origin/main', 'HEAD')) -match '^- ') 'equivalent fixture exercises git cherry fallback'
 
     $applyFixture=Fixture 'apply-clone'
-    [void](Check $applyFixture 'removed' $true)
+    [void](Check $applyFixture 'recoverably-retired' $true)
     Assert (-not [IO.Directory]::Exists($applyFixture)) 'Apply removes eligible clone'
     # Realistic generated caches: normal dependency assets and a uv-style hardlink.
     $cacheFixture=Fixture 'generated-cache-apply'
@@ -287,8 +291,8 @@ try {
     $targetHash=(Get-FileHash -LiteralPath $cacheTarget).Hash
     $targetBefore=Get-Item -LiteralPath $cacheTarget
     $targetAttributes=$targetBefore.Attributes; $targetWritten=$targetBefore.LastWriteTimeUtc; $targetLength=$targetBefore.Length
-    [void](Check $cacheFixture 'removed' $true)
-    Assert (-not [IO.Directory]::Exists($cacheFixture)) 'Apply removes workspace including generated cache'
+    [void](Check $cacheFixture 'recoverably-retired' $true)
+    Assert (-not [IO.Directory]::Exists($cacheFixture)) 'Retire relocates workspace including generated cache'
     Assert ([IO.File]::Exists($cacheTarget) -and (Get-FileHash -LiteralPath $cacheTarget).Hash -eq $targetHash) 'external hardlink target survives with identical contents'
     $targetAfter=Get-Item -LiteralPath $cacheTarget
     Assert ($targetAfter.Attributes -eq $targetAttributes -and $targetAfter.LastWriteTimeUtc -eq $targetWritten -and $targetAfter.Length -eq $targetLength) 'external hardlink target metadata unchanged'
@@ -428,8 +432,8 @@ try {
     NoFetch $retired 'lifecycle-not-completed'
     $gone=Fixture 'tombstone'
     $r=Claim $gone
-    [void](Check $gone 'removed' $true)
-    Assert ((Claim $gone).State -eq 'deleted') 'deleted tombstone persists outside deleted directory'
+    [void](Check $gone 'recoverably-retired' $true)
+    Assert ((Claim $gone).State -eq 'retired') 'deleted tombstone persists outside deleted directory'
     Reject { Life 'Resume' $gone $r.Claim } 'deleted cannot resume'
     Reject { Life 'Create' $gone '' } 'deleted path cannot be reused'
     # No-follow registry writes must not change an external hardlink target.
@@ -449,7 +453,7 @@ param($Source,$Client,$Ops,$Mutex,$Target,$Token,$Remote,$Ready,$Release,$Mode)
 $ErrorActionPreference='Stop'
 . $Source
 Initialize-JanitorNative
-$script:ApprovedRoots=@($Client); $script:LogDirectory=$Ops; $script:WorkspaceMutexName=$Mutex
+$script:ApprovedRoots=@($Client); $script:LogDirectory=$Ops; $script:WorkspaceMutexName=$Mutex; $script:RecoveryDirectory=Join-Path ([IO.Path]::GetDirectoryName($Ops)) 'recovery'
 function Get-JanitorProcesses { [pscustomobject]@{ Known=$true; Commands=@(); HiddenProcessCommandLines=0 } }
 $script:OriginalGit=${function:Invoke-JanitorGit}
 function Invoke-JanitorGit([string]$Path,[string[]]$Arguments) {
@@ -467,7 +471,7 @@ if($Mode -eq 'resume') {
     $script:OriginalWrite=${function:Write-LifecycleRecord}
     function Write-LifecycleRecord([string]$Path,$Record,[switch]$Create) {
         & $script:OriginalWrite $Path $Record -Create:$Create
-        if($Record.State -eq 'deleting') { Rendezvous; [Environment]::Exit(0) }
+        if($Record.State -eq 'retiring') { Rendezvous; [Environment]::Exit(0) }
     }
     Invoke-WorkspaceLock { Invoke-JanitorTask $Target 7 $true ([datetime]::UtcNow) | Out-Null }
 }
@@ -486,7 +490,7 @@ if($Mode -eq 'resume') {
         $start.Arguments=(@('-NoLogo','-NoProfile','-NonInteractive','-File',$worker,$source,$script:Client,$script:LogDirectory,$script:WorkspaceMutexName,$target,$token,$script:Remote,$ready,$release,$mode) | ForEach-Object { Quote-JanitorArgument $_ }) -join ' '
         $child=New-Object Diagnostics.Process; $child.StartInfo=$start
         try {
-            [void]$child.Start(); $stdout=$child.StandardOutput.ReadToEndAsync(); $stderr=$child.StandardError.ReadToEndAsync()
+            [void]$child.Start(); $null=$child.Handle; $stdout=$child.StandardOutput.ReadToEndAsync(); $stderr=$child.StandardError.ReadToEndAsync()
             $until=[datetime]::UtcNow.AddSeconds(15)
             while(-not [IO.File]::Exists($ready)) {
                 if($child.HasExited -or [datetime]::UtcNow -gt $until) { throw ('fixture child failed '+$mode+': '+$stderr.GetAwaiter().GetResult()) }
@@ -508,8 +512,8 @@ if($Mode -eq 'resume') {
             # Child crashed after durable deleting, before any unlink. Acquisition
             # handles abandoned mutex, but must not clear the retirement record.
             Reject { Invoke-WorkerLifecycle -Action Resume -Workspace $target -Owner 'synthetic' -ClaimId $token } 'worker Resume preserves deleting after abandoned mutex' 'lifecycle-retired'
-            Assert ((Claim $target).State -eq 'deleting') 'durable crash retirement retained'
-            NoFetch $target 'lifecycle-not-completed'
+            Assert ((Claim $target).State -eq 'retiring') 'durable crash retirement retained'
+            NoFetch $target 'retirement-pending'
         }
         $observer.Dispose()
     }
@@ -604,6 +608,7 @@ if($Mode -eq 'resume') {
     } finally { ${function:Invoke-JanitorTask}=$realTask; $script:ApprovedRoots=@($script:Client) }
     $report.Records | Where-Object { $_.Task -in @('clean-merged','unique','young','marker-owner-db') } | ConvertTo-Json -Depth 3
     Write-Output "PASS: $script:Assertions synthetic janitor assertions (Windows PowerShell $($PSVersionTable.PSVersion))"
+    } else { Write-Output 'Synthetic fixture environment initialized; eligibility suite skipped here' }
 } finally {
     Remove-Item Env:\GIT_AUTHOR_DATE -ErrorAction SilentlyContinue
     Remove-Item Env:\GIT_COMMITTER_DATE -ErrorAction SilentlyContinue
@@ -613,5 +618,5 @@ if($Mode -eq 'resume') {
     $parent=[IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
     if ([IO.Path]::GetDirectoryName($resolved) -ne $parent -or [IO.Path]::GetFileName($resolved) -notmatch '^healthcheck-janitor-[a-f0-9]{32}$') { throw 'fixture cleanup boundary failed' }
     if (@(Get-ChildItem -LiteralPath $resolved -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) { throw 'fixture cleanup reparse remains' }
-    Remove-Item -LiteralPath $resolved -Recurse -Force
+    Write-Output ('Retained synthetic fixture root: '+$resolved)
 }
