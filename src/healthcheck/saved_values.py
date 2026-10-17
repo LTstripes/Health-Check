@@ -37,6 +37,7 @@ from healthcheck.google.daily_vitals import (
     get_google_daily_vital,
     project_google_daily_vital_group,
 )
+from healthcheck.metric_source_selection import SourceCandidate, select_metric_source
 from healthcheck.source_freshness_read import (
     _apply_provider_terminal,
     _checkpoint,
@@ -207,6 +208,7 @@ class SavedValueResult:
     origin_state: str = "unknown"
     snapshot_as_of: str | None = None
     age_policy: str = "not_configured"
+    source_selection: dict | None = None
 
     def as_dict(self) -> dict:
         """JSON DTO; preserve civil dates instead of fabricating midnight instants."""
@@ -221,6 +223,8 @@ class SavedValueResult:
             return value
 
         body = encode(asdict(self))
+        if self.source_selection is None:
+            body.pop("source_selection")
         body["metric_identity"] = {
             "metric_code": self.query.metric_code,
             "unit": "bpm",
@@ -339,6 +343,7 @@ def read_saved_rhr(
     query: SavedValueQuery,
     *,
     never_collected: CollectionProof | None = None,
+    google_auto_select: bool = False,
 ) -> SavedValueResult:
     """Read a bounded observation, never move an explicit date/window or source.
 
@@ -349,6 +354,11 @@ def read_saved_rhr(
     historical record was read. A limited empty search proves no global absence.
     """
     query.validate()
+    if google_auto_select and (
+        query.provider_code != "google_health" or query.mode != "default_latest"
+        or never_collected is not None
+    ):
+        raise ValueError("Google automatic selection requires a default-latest query without proof")
     lower = (
         query.requested_start_date if query.mode == "explicit_period" else query.history_start_date
     )
@@ -373,7 +383,9 @@ def read_saved_rhr(
         ensure_read_snapshot(session)
     try:
         ensure_read_snapshot(session)
-        return _read_saved_rhr(session, query, result, never_collected)
+        return _read_saved_rhr(
+            session, query, result, never_collected, google_auto_select=google_auto_select,
+        )
     except SQLAlchemyError:
         return replace(
             result,
@@ -382,7 +394,7 @@ def read_saved_rhr(
         )
 
 
-def _read_saved_rhr(session, query, result, proof):
+def _read_saved_rhr(session, query, result, proof, *, google_auto_select=False):
     source_model = GarminSource if query.provider_code == "garmin_connect" else GoogleSource
     if query.source_id is not None:
         source = session.get(source_model, query.source_id)
@@ -409,6 +421,8 @@ def _read_saved_rhr(session, query, result, proof):
                 search=replace(result.search, reason="source_inventory_cap"),
             )
         identities = tuple(_source_identity(source) for source in sources)
+        if google_auto_select:
+            return _select_google_latest(session, query, result, sources, identities)
         if len(sources) != 1:
             return replace(
                 result,
@@ -578,3 +592,53 @@ def _read_saved_rhr(session, query, result, proof):
         )
         # Seek the preceding observed group, never enumerate missing calendar days.
         before = day
+
+
+def _select_google_latest(session, query, result, sources, identities):
+    """Opt-in Data adapter; every exact read borrows the caller's snapshot.
+
+    A complete exact read proves its newest eligible observation, not a complete
+    history scan. Ambiguous newer groups remain competing evidence. No ordering,
+    value equality or another metric establishes source lineage.
+    """
+    def read_candidate(source):
+        packet = _read_saved_rhr(session, replace(query, source_id=source.id), result, None)
+        return SourceCandidate(
+            source, {"result": packet}, int(packet.observation is not None),
+            sum("ambiguous" in item.reason for item in packet.newer_exclusions),
+            packet.search.complete, packet.reason,
+        )
+
+    decision = select_metric_source(sources, read_candidate, source_cap=MAX_SOURCE_IDENTITIES)
+    selection = {
+        "state": decision.state, "mode": "auto",
+        "selected_source_id": decision.chosen.source.id if decision.chosen else None,
+        "search_complete": decision.state != "search_incomplete",
+        "candidates": [{
+            "source_id": candidate.source.id,
+            **{key: candidate.payload["result"].as_dict()[key]
+               for key in ("state", "reason", "search", "newer_exclusions")},
+        } for candidate in decision.candidates],
+    }
+    if decision.chosen:
+        return replace(decision.chosen.payload["result"], query=query,
+                       available_sources=identities, source_selection=selection)
+    if decision.state == "no_eligible_values" and len(decision.candidates) == 1:
+        return replace(decision.candidates[0].payload["result"], query=query,
+                       source_selection=selection)
+    searches = [candidate.payload["result"].search for candidate in decision.candidates]
+    incomplete = next((search for search in searches if not search.complete), None)
+    return replace(
+        result,
+        state={"selection_required": "ambiguous", "source_missing": "unavailable",
+               "no_eligible_values": "no_eligible_in_search"}.get(decision.state, decision.state),
+        reason={"selection_required": "source_selection_required",
+                "source_missing": "source_not_found"}.get(decision.state, decision.reason),
+        available_sources=identities, source_selection=selection,
+        search=replace(result.search, complete=selection["search_complete"],
+                       reason=decision.reason,
+                       groups_examined=sum(search.groups_examined for search in searches),
+                       records_examined=sum(search.records_examined for search in searches),
+                       incomplete_group_date=incomplete.incomplete_group_date
+                       if incomplete else None),
+    )

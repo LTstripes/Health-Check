@@ -17,6 +17,7 @@ from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore  # noq
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore  # noqa: E402
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor  # noqa: E402
 from test_dashboard_ui import _ui  # noqa: E402
+from test_google_daily_vitals import HRV, _daily_record, _persist  # noqa: E402
 from test_saved_values import (  # noqa: E402
     DAY,
     GARMIN_IDENTITY,
@@ -53,6 +54,10 @@ def main():
             record.record_status = "partial"
             _, metric = _seed(google_stored, day=DAY, value=70)
             metric.state, metric.value_number = "invalid", None
+            # A technical identity with another metric must not gate saved RHR.
+            _persist(session, google_stored[1], _daily_record(
+                metric_code=HRV, local_date=DAY, value=40,
+            ), identity=_fitbit_identity(source_instance_id="synthetic-hrv-only"))
             session.add(SyncStreamState(
                 provider_id=garmin.provider_id, stream_code="resting_heart_rate",
                 last_attempt_at=NOW, diagnostic_status="reauth_required",
