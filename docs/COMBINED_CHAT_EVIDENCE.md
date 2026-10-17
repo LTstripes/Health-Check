@@ -54,7 +54,8 @@ sections, interpretation boundaries and `envelope_hash`. The sections are:
   the unchanged public source sections under `providers.garmin` and/or
   `providers.google`;
 - `activity`: existing package/provenance/reader versions and limits, with the
-  unchanged public source section under `providers.garmin`;
+  unchanged public source section under `providers.garmin`, plus a versioned
+  `temporal_evidence` object;
 - optional `context`: the existing allowlisted current revisions/page metadata,
   once, with `relationship=local_date_window_cooccurrence_only`.
 
@@ -76,6 +77,49 @@ hash. No values are recomputed. Literal Context text remains JSON-escaped untrus
 data, never instructions. The complete JSON retains provenance, exclusions,
 per-night evidence, missing dates and coverage conflicts. Neither serializer
 writes files. No automatic upload occurs.
+
+## Activity temporal evidence
+
+`sections.activity.temporal_evidence` is a versioned
+`health-chat-activity-temporal-evidence-v1` object present only in combined
+packets (detailed and compact are identical); the standalone Activity reader
+stays aggregate-only. It is read in the same read-only snapshot through the
+existing bounded loader and inherited 4096 candidate cap, against the exact
+selected Garmin source and the persisted source-local-date window (no date
+recomputation). A projected current-session cap of 200 is enforced; more than
+200 projected current sessions fail the slice. Overflow returns an explicit
+`incomplete` result with `sessions` and counts null — no timing prefix — while
+the five Activity cells remain unaffected. A cooperative budget expiry anywhere
+in the bounded timing assembly, including after the candidate rows load, returns
+that same explicit `incomplete` state; unrelated storage/SQL failures still fail
+the complete request.
+
+Each projected current session exposes its persisted `source_local_date`
+independently of the start state, plus a `start` endpoint in one of five states:
+`absent`, `date_only`, `local`, `instant` or `ambiguous`, with `eligible` and a
+deterministic `reason`. A timestamp is only called an activity start when the
+persisted source field is a proven start leaf (`startTimeGMT`/`startTimeLocal`/
+`startTimeUTC`/`startTime`); generic `timestamp`/`time` clocks are ambiguous.
+Calendar/date-only evidence is retained with its saved date but is never a
+start endpoint by itself. A record that is partial only because of unrelated
+missing/invalid metrics, and an aware value that populates both paired columns
+with the same path, keep a proven start. Actual start-clock ambiguity is read
+from a closed allowlist of persisted temporal diagnostic codes
+(`paired_time_mismatch`/`invalid_datetime`/`invalid_calendar_date`); a malformed
+or unsupported diagnostic shape fails closed for timing. Invalid and conflicting
+(paired local/UTC start) records, and duplicate current identities, never yield
+usable timing. Retired records supply no current timing and are reported as
+excluded reason counts. The `end` endpoint is always explicitly
+`not_persisted_in_activity_contract` with null timing; raw payloads, unknown
+fields and duration are never used to invent an end. Missing precision/zone/
+offset stays null — never zero or a host/Moscow zone — and the persisted
+source-local date is retained even when the UTC instant crosses a boundary, the
+start clock is absent, or the start is ambiguous. Record/source/raw-payload/
+normalization identity and source field paths are closed scalar allowlists; raw
+bodies, artifact paths, unknown fields and diagnostic bodies are never exported
+(the persisted diagnostic codes are inspected internally only). Readable text
+prints the frozen `temporal_evidence` object without recomputing it. No universal
+sleep ordering, join or causality is added; Garmin sleep can remain date-only.
 
 ## Semantics and limits
 
