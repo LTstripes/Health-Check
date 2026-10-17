@@ -1,5 +1,9 @@
 # Workspace recycle: production contract decision packet
 
+Historical Windows Bin research. The Integrator subsequently accepted recoverable
+root-container relocation under [the narrower retirement contract](WORKSPACE_RETIREMENT.md).
+The Bin NO_GO and immutable-tree investigation below do not reject that new contract.
+
 Status: **NO_GO for production implementation/rollout under the current constraints**.
 This is the reviewable result of investigating a drop-in safe transition, including
 deterministic counterexamples. It is not an accepted architecture or a schedulable

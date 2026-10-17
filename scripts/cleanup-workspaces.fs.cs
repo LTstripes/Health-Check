@@ -1,4 +1,4 @@
-﻿// Windows-only no-follow directory pins and handle-bound standalone deletion.
+// Windows-only no-follow pins and recoverable handle-bound same-volume rename.
 // No ACL changes. Cache hardlinks require separate Git proof; other links fail closed.
 using System;
 using System.Collections.Generic;
@@ -26,7 +26,7 @@ namespace HealthCheck.WorkspaceCleanup {
         [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
         static extern uint GetFinalPathNameByHandleW(SafeFileHandle handle, StringBuilder name, uint size, uint flags);
         [DllImport("kernel32.dll", SetLastError=true)]
-        static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind, ref uint flags, uint size);
+        static extern bool SetFileInformationByHandle(SafeFileHandle handle, int kind, IntPtr data, uint size);
         [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
         static extern bool CreateDirectoryW(string path, IntPtr security);
         [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
@@ -89,7 +89,23 @@ namespace HealthCheck.WorkspaceCleanup {
             return null;
         }
         string workspace;
+        bool observing;
         public void Scan(string path, int maximum) { workspace=Full(path); ScanNode(path, maximum, 0); }
+        // Observation only: another retained root DELETE handle is compatible.
+        // Descendants are still opened no-follow and directories pinned before enumeration.
+        public void BindRootOnly(string path, string expectedIdentity) {
+            if (!deleting || dirs.Count!=0 || Entries.Count!=0) throw new IOException("root-binding-required");
+            workspace=Full(path);
+            var h=Open(workspace,true,0x80000000u|0x10000u,3,3);
+            try {
+                var e=Inspect(workspace,h,true); dirs.Add(workspace,h); Entries.Add(e); entriesByPath.Add(workspace,e);
+                if(HeldIdentity(workspace)!=expectedIdentity) throw new IOException("root-binding-changed");
+            } catch { h.Dispose(); dirs.Clear(); Entries.Clear(); entriesByPath.Clear(); throw; }
+        }
+        public void ObserveBound(Tree binding, string path, string expectedIdentity, int maximum) {
+            if(binding==null || !binding.deleting || binding.HeldIdentity(path)!=expectedIdentity) throw new IOException("root-binding-required");
+            observing=true; workspace=Full(path); ScanNode(path,maximum,0);
+        }
         public void ApproveGeneratedCache(string path, string stamp) {
             Entry entry;
             if (!entriesByPath.TryGetValue(path, out entry) || entry.CacheRoot == null || entry.Stamp != stamp) throw new IOException("cache-proof-changed");
@@ -99,7 +115,7 @@ namespace HealthCheck.WorkspaceCleanup {
             if (depth > 128) throw new IOException("tree-depth-limit");
             string full = Full(path);
             if (!dirs.ContainsKey(full)) {
-                var h = Open(full, true, 0x80000000u | (deleting ? 0x10000u : 0u), 3, 3);
+                var h = Open(full, true, 0x80000000u | (deleting ? 0x10000u : 0u), observing && full==workspace ? 7u : 3u, 3);
                 try {
                     var entry=Inspect(full, h, true); entry.CacheRoot=GetCacheRoot(workspace, full, true);
                     Entries.Add(entry); entriesByPath.Add(entry.Path, entry); dirs.Add(full, h);
@@ -132,7 +148,7 @@ namespace HealthCheck.WorkspaceCleanup {
         // Lifecycle state is outside the deletable checkout. All callers hold the
         // project mutex. Parent pins prevent path redirection; no ACL is changed.
         public static string IdentityOf(string path) {
-            using (var h = Open(path, true, 0x80000000u, 3, 3)) {
+            using (var h = Open(path, true, 0x80000000u, 7, 3)) {
                 Entry e = Inspect(path, h, true); Info i;
                 if (!GetFileInformationByHandle(h, out i)) throw new IOException("identity-unknown");
                 return e.Identity + ":" + Ticks(i.Created);
@@ -153,9 +169,11 @@ namespace HealthCheck.WorkspaceCleanup {
                 using (var reader = new StreamReader(stream, new UTF8Encoding(false, true), false)) return reader.ReadToEnd();
             }
         }
-        public static void WriteState(string path, string text, bool createOnly) {
+        public static void WriteState(string path, string text, bool createOnly) { WriteAtomic(path,text,createOnly,8192); }
+        public static void WriteObservation(string path, string text) { WriteAtomic(path,text,true,4194304); }
+        static void WriteAtomic(string path, string text, bool createOnly, int limit) {
             byte[] bytes = new UTF8Encoding(false, true).GetBytes(text);
-            if (bytes.Length > 8192) throw new IOException("lifecycle-invalid");
+            if (bytes.Length > limit) throw new IOException("state-or-observation-limit");
             using (var pins = new Tree(false)) {
                 pins.PinAncestors(System.IO.Path.GetDirectoryName(path));
                 // Reject aliases/links even though replacement itself does not follow them.
@@ -176,35 +194,76 @@ namespace HealthCheck.WorkspaceCleanup {
                 if (!MoveFileExW(pending, path, (createOnly ? 0u : 1u) | 8u)) throw new IOException("lifecycle-write-failed");
             }
         }
-        // Scan pins every directory. Freeze all known files and compare before marking any for deletion.
-        // Directory disposition can fail on a concurrently added file; that file is never followed/deleted.
-        public void Delete() {
-            if (!deleting) throw new IOException("delete-not-enabled");
-            var files = new List<SafeFileHandle>();
-            int marked = 0;
+        readonly List<SafeFileHandle> frozen = new List<SafeFileHandle>();
+        bool relocationReady;
+        string boundRootIdentity;
+        string HeldIdentity(string path) {
+            Info i;
+            Inspect(path,dirs[workspace],true);
+            if (!GetFileInformationByHandle(dirs[workspace],out i)) throw new IOException("identity-unknown");
+            return i.Volume+":"+i.IndexHigh+":"+i.IndexLow+":"+Ticks(i.Created);
+        }
+        // Caller must persist intent and hold the lifecycle mutex BEFORE this call.
+        // Only descendants are released; the verified root DELETE handle never closes.
+        public void ReleaseDescendantsForRelocation(string expectedRootIdentity) {
+            if (!deleting || relocationReady || HeldIdentity(workspace)!=expectedRootIdentity) throw new IOException("root-binding-changed");
+            boundRootIdentity=expectedRootIdentity;
+            foreach(var h in frozen) h.Dispose(); frozen.Clear();
+            foreach(string path in new List<string>(dirs.Keys)) {
+                if(path.StartsWith(workspace+"\\",StringComparison.OrdinalIgnoreCase)) { dirs[path].Dispose(); dirs.Remove(path); }
+            }
+            relocationReady=true;
+        }
+        // Freeze known files before journaling. Directory handles remain pinned.
+        // This is cooperative lifecycle coordination, not a same-user security boundary.
+        public void Freeze() {
+            if (!deleting || frozen.Count != 0) throw new IOException("rename-not-enabled");
             try {
-                foreach (var e in Entries) if (!e.Directory) {
-                    var h = Open(e.Path, false, 0x80000000u | 0x10000u, 1, 3);
-                    files.Add(h);
-                    if (Inspect(e.Path, h, false, e.GeneratedCache).Stamp != e.Stamp) throw new IOException("tree-changed");
+                foreach (var e in Entries) {
+                    if (e.Directory) {
+                        if (Inspect(e.Path, dirs[e.Path], true).Stamp != e.Stamp) throw new IOException("tree-changed");
+                    } else {
+                        var h=Open(e.Path, false, 0x80000000u, 1, 3);
+                        frozen.Add(h);
+                        if (Inspect(e.Path,h,false,e.GeneratedCache).Stamp != e.Stamp) throw new IOException("tree-changed");
+                    }
                 }
-                uint flags = 0x11; // FILE_DISPOSITION_DELETE | IGNORE_READONLY_ATTRIBUTE; Windows 10+.
-                foreach (var h in files) {
-                    if (!SetFileInformationByHandle(h, 21, ref flags, 4)) throw new IOException("delete-failed");
-                    marked++;
-                }
-            } catch {
-                uint clear = 0;
-                for (int i=0; i<marked; i++) SetFileInformationByHandle(files[i], 21, ref clear, 4);
-                throw;
-            } finally { foreach (var h in files) h.Dispose(); }
-            for (int i=Entries.Count-1; i>=0; i--) if (Entries[i].Directory) {
-                string path = Entries[i].Path;
-                uint flags = 0x11;
-                if (!SetFileInformationByHandle(dirs[path], 21, ref flags, 4)) throw new IOException("delete-failed");
-                dirs[path].Dispose(); dirs.Remove(path);
+            } catch { foreach (var h in frozen) h.Dispose(); frozen.Clear(); throw; }
+        }
+        // No path-based source rename, replacement, copy/delete, Shell or fallback.
+        // Source handle was acquired with DELETE while directories stayed pinned.
+        public void RenameTo(string source, string destination) {
+            source=Full(source); destination=Full(destination);
+            if (!deleting || !relocationReady || HeldIdentity(source)!=boundRootIdentity ||
+                !String.Equals(source,workspace,StringComparison.OrdinalIgnoreCase)) throw new IOException("rename-not-enabled");
+            string parent=System.IO.Path.GetDirectoryName(destination), leaf=System.IO.Path.GetFileName(destination);
+            if (leaf.Length==0 || leaf=="." || leaf==".." || leaf.IndexOfAny(new char[]{'\\','/',':'})>=0) throw new IOException("rename-target-invalid");
+            using (var target=new Tree(false)) {
+                target.PinAncestors(parent);
+                Info si,di;
+                if (!GetFileInformationByHandle(dirs[source],out si) || !GetFileInformationByHandle(target.dirs[Full(parent)],out di) || si.Volume!=di.Volume)
+                    throw new IOException("rename-volume-mismatch");
+                var drive=new DriveInfo(System.IO.Path.GetPathRoot(source));
+                if (drive.DriveType!=DriveType.Fixed || drive.DriveFormat!="NTFS") throw new IOException("rename-context-rejected");
+                Inspect(source,dirs[source],true);
+                byte[] name=Encoding.Unicode.GetBytes(destination);
+                int rootOffset=IntPtr.Size==8?8:4, lengthOffset=rootOffset+IntPtr.Size, nameOffset=lengthOffset+4;
+                IntPtr buffer=Marshal.AllocHGlobal(nameOffset+name.Length+2);
+                try {
+                    for(int i=0;i<nameOffset+name.Length+2;i++) Marshal.WriteByte(buffer,i,0);
+                    // FILE_RENAME_INFO: ReplaceIfExists=false, absolute target with all ancestors pinned.
+                    Marshal.WriteIntPtr(buffer,rootOffset,IntPtr.Zero);
+                    Marshal.WriteInt32(buffer,lengthOffset,name.Length); Marshal.Copy(name,0,IntPtr.Add(buffer,nameOffset),name.Length);
+                    if (!SetFileInformationByHandle(dirs[source],3,buffer,(uint)(nameOffset+name.Length+2)))
+                        throw new IOException("rename-refused-"+Marshal.GetLastWin32Error());
+                    Info after;
+                    if (!GetFileInformationByHandle(dirs[source],out after) || si.Volume!=after.Volume || si.IndexHigh!=after.IndexHigh || si.IndexLow!=after.IndexLow)
+                        throw new IOException("rename-identity-unknown");
+                    Inspect(destination,dirs[source],true);
+                } finally { Marshal.FreeHGlobal(buffer); }
             }
         }
+        public void Delete() { throw new IOException("permanent-delete-disabled"); }
         public static void WriteSummary(string path, string text) {
             byte[] bytes = new UTF8Encoding(false).GetBytes(text);
             if (bytes.Length > 262144) throw new IOException("report-limit");
@@ -213,6 +272,6 @@ namespace HealthCheck.WorkspaceCleanup {
                 using (var stream = new FileStream(h, FileAccess.ReadWrite)) { stream.SetLength(0); stream.Write(bytes, 0, bytes.Length); stream.Flush(true); }
             }
         }
-        public void Dispose() { foreach (var h in dirs.Values) h.Dispose(); dirs.Clear(); }
+        public void Dispose() { foreach (var h in frozen) h.Dispose(); frozen.Clear(); foreach (var h in dirs.Values) h.Dispose(); dirs.Clear(); }
     }
 }

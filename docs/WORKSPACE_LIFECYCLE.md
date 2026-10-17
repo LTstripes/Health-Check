@@ -1,5 +1,10 @@
 # Managed workspace lifecycle and cleanup
 
+Worker enrollment/claim operations below remain format 1. The current source janitor
+uses [recoverable root-container relocation and format 2 retirement](WORKSPACE_RETIREMENT.md);
+its states, recovery and no-Apply contract supersede the historical deletion-specific
+janitor sections below. Existing deleting/deleted tombstones remain protected.
+
 This is the v1 cooperative protocol used by `scripts/cleanup-workspaces.ps1`
 and its matching native `.fs.cs` file. It adds no service, credentials, ACL or
 execution-policy change. Installation and scheduling require separate acceptance;
