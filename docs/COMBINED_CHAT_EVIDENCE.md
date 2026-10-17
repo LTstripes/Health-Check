@@ -1,5 +1,57 @@
 # Combined Sleep + Activity + Context evidence
 
+## Optional saved observed Steps and Weight (#451)
+
+Set `steps_garmin_source_id` (CLI `--steps-garmin-source-id`) to select one exact
+Garmin source independently of Activity/Sleep. Set `include_weight=True` (CLI
+`--include-weight`) to request the accepted Weight overlay and canonical evidence.
+Neither option is enabled by default. These selections use explicit detailed /
+compact v4; omitted options preserve the existing v1/v2/v3 versions and defaults.
+Both sections remain identical in detailed and compact JSON/text/file/stdout,
+with the existing 2 MiB caps, exact 7/30-day dates and one read-only transaction.
+Context is still read once. The Weight/Context MCP and access setup are unchanged.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> --sleep-garmin-source-id <sleep-id> \
+  --steps-garmin-source-id <observed-steps-id> --include-weight \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
+Steps delegates to `read_observed_steps_window` and exports saved materialized
+account-level daily observations, **not completed daily totals**. Values retain
+exact integers (including zero), date precision, eligibility states, candidate /
+observation / normalization provenance and unknown coverage, device, timezone and
+finality. Unprojected, ambiguous, retired, null, missing and invalid evidence does
+not become zero. Sources are never summed, and no period total or mean is added.
+The existing 4096-candidate and independent 4096-provenance bounds remain. If the
+reader reports incomplete search, the complete combined export fails with
+`steps_search_incomplete`; even an earlier proven prefix is not published.
+This path neither opens artifact bytes nor reparses provider bodies. Completed
+Steps, Google Steps, provider refresh and new projection/ingestion remain outside
+this slice.
+
+Weight reuses the accepted v1 exporter projection of `WeightQueryService` in the
+same caller-owned snapshot. It retains confirmed source overlay measurements,
+`canonical_selected`, source/provenance, accepted daily medians, canonical status,
+coverage, trend/rate algorithm identities and unavailable reasons. Overlay points
+are not all canonical-selected; sources are not summed. Daily medians exist only
+on dates with eligible selected measurements. A derived trend is not evidence of
+a measurement on an unmeasured date. Source freshness is provider-scoped and uses
+the explicit evaluation clocks. The existing export cadence is 7 days, independent
+of runtime settings; this is a coverage policy, not imputation or acquisition proof.
+No configured goal, import queue or raw artifact is exported.
+
+The inherited 2000 scalar-input bound and 100 rows per exported Weight series are
+unchanged. Any series exceeding 100 rows fails the complete combined export with
+`weight_selected_points_exceed_max`, instead of returning a winning prefix. Missing
+or unconfirmed measurements stay absent; no zero, interpolated daily weight,
+source fallback, daily causal join or health diagnosis is introduced. Owner-local
+availability/UAT and acquisition completeness remain unverified.
+
+
 ## Optional saved HRV and resting heart rate (#451, next bounded slice)
 
 Set `hrv_garmin_source_id`, `hrv_google_source_id`, `rhr_garmin_source_id`
@@ -17,7 +69,7 @@ Existing omitted-metric v1 and Stress/Body Battery v2 remain unchanged. Sections
 `hrv` and `rhr` contain only requested `providers`; compact retains these sections
 identically to detailed. JSON, readable text, files and stdout share the frozen
 packet and the unchanged 2 MiB caps, SQL/time guards and exact 7/30-day dates.
-Context is read once. Steps and Weight remain open work in #451. The existing
+Context is read once. Steps and Weight are separately opt-in below. The existing
 Weight/Context MCP, its schema/auth and connection setup are unchanged.
 
 ```text

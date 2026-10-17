@@ -1666,3 +1666,224 @@ def test_hrv_google_scalar_disclosure_fails_closed(profile, monkeypatch):
     monkeypatch.setattr(combined_vitals, "read_google_daily_vitals", poisoned)
     with pytest.raises(EvidenceError, match="unsupported_evidence_value"):
         read(profile, replace(profile[2], hrv_google_source_id=identity))
+
+
+def _seed_movement(profile, value=0):
+    from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
+    from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+    from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
+    from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
+    from test_garmin_observed_steps import save
+
+    paths, engine = profile[:2]
+    with session_scope(engine) as session:
+        store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+        saved = save(session, store, {"calendarDate": str(DAY), "totalSteps": value})
+        SavedDailyStepsRepository(session, payload_store=store).project_day(saved.source.id, DAY)
+        steps_id = saved.source.id
+        importer = PhotoImportService(session, paths, FakeImageMeasurementExtractor())
+        batch = importer.import_photos([PhotoUpload(
+            "synthetic.png", encode_synthetic_png(weigh_in_payload(
+                source_local_date=DAY, weight_kg=80.0)))])
+        importer.confirm(batch.items[0].candidate_ids)
+    return steps_id
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("projection", ["detailed", "compact"])
+def test_movement_accepted_readers_equivalent_without_invented_days(profile, days, projection):
+    from dataclasses import asdict
+
+    from healthcheck.garmin.observed_steps_read import read_observed_steps_window
+
+    steps_id = _seed_movement(profile)
+    request = replace(profile[2], days=days, projection=projection,
+                      steps_garmin_source_id=steps_id, include_weight=True)
+    packet = read(profile, request)
+    assert packet["version"].endswith("v4")
+    start = request.domain_requests()[0].start_date
+    with evidence._read_session(profile[0].root) as session:
+        steps = asdict(read_observed_steps_window(
+            session, source_id=steps_id, start_date=start, end_date=DAY))
+        weight = chat_evidence._assemble(
+            session, chat_evidence.EvidenceRequest(start, DAY, ("weight",), row_limit=100),
+            "synthetic", CLOCK, CLOCK.date(), profile[0].root)["sections"]["weight"]
+    actual = packet["sections"]["steps"]
+    for key in steps:
+        # JSON normalizes frozen tuples into arrays.
+        assert json.loads(chat_evidence._json(actual[key])) == (
+            json.loads(chat_evidence._json(steps[key])))
+    assert len(actual["cells"]) == days
+    point = next(p for p in actual["cells"] if str(p["calendar_date"]) == str(DAY))
+    assert point["value"] == 0 and point["finality"] == "unknown"
+    assert all(p["value"] is None for p in actual["cells"] if p is not point)
+    assert actual["aggregate"] is None
+    for key, value in weight.items():
+        assert packet["sections"]["weight"][key] == value
+    daily = packet["sections"]["weight"]["daily_series"]["rows"]
+    assert len(daily) == 1 and daily[0]["observed_date"] == str(DAY)
+    raw = packet["sections"]["weight"]["measured_facts"]["rows"]
+    assert len(raw) == 1 and raw[0]["value_kg"] == 80
+    encoded = evidence.encode_combined_evidence(packet)
+    text = evidence.render_combined_evidence(packet)
+    assert "steps saved facts:" in text and "weight saved facts:" in text
+    assert "artifact_id" not in raw[0]["provenance"]
+    assert str(profile[0].root) not in encoded + text
+
+
+@pytest.mark.parametrize("value,state", [(None, "null"), (True, "invalid"), (-1, "invalid"),
+                                         (2**53 + 1, "value")])
+def test_steps_states_and_exact_integer_survive(profile, value, state):
+    steps_id = _seed_movement(profile, value)
+    packet = read(profile, replace(profile[2], steps_garmin_source_id=steps_id))
+    point = next(p for p in packet["sections"]["steps"]["cells"] if p["calendar_date"] == DAY)
+    assert point["state"] == state
+    assert point["value"] == (value if state == "value" else None)
+
+
+@pytest.mark.parametrize("field,bad,code", [
+    ("steps_garmin_source_id", "", "explicit_garmin_source_required"),
+    ("steps_garmin_source_id", True, "explicit_garmin_source_required"),
+    ("include_weight", 1, "invalid_weight_selection"),
+    ("include_weight", None, "invalid_weight_selection"),
+])
+def test_movement_invalid_request_precedes_read(profile, monkeypatch, field, bad, code):
+    monkeypatch.setattr(evidence, "_read_session", lambda *_: pytest.fail("read before validation"))
+    with pytest.raises(EvidenceError, match=code):
+        read(profile, replace(profile[2], **{field: bad}))
+
+
+def test_movement_exact_source_preflight_and_defaults(profile, monkeypatch):
+    assert read(profile)["version"].endswith("v1")
+    monkeypatch.setattr(sleep_evidence, "_assemble", lambda *_: pytest.fail("domain before source"))
+    with pytest.raises(EvidenceError, match="selected_source_unavailable"):
+        read(profile, replace(profile[2], steps_garmin_source_id="unavailable"))
+
+
+@pytest.mark.parametrize("cap,code", [("steps", "steps_search_incomplete"),
+                                      ("weight_input", "weight_input_rows_exceed_limit"),
+                                      ("weight_rows", "weight_selected_points_exceed_max")])
+def test_movement_caps_no_stdout_or_output_prefix(
+        profile, monkeypatch, capsys, tmp_path, cap, code):
+    from healthcheck.garmin import observed_steps_read
+
+    steps_id = _seed_movement(profile)
+    if cap == "steps":
+        monkeypatch.setattr(observed_steps_read, "MAX_CANDIDATES", 0)
+    elif cap == "weight_input":
+        monkeypatch.setattr(chat_evidence, "MAX_WEIGHT_INPUT_ROWS", 0)
+    else:
+        monkeypatch.setattr(chat_evidence, "MAX_ROWS", 0)
+    extra = ["--steps-garmin-source-id", steps_id, "--include-weight"]
+    assert cli.main([*stdout_args(profile, "json"), *extra]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == f"Export failed: {code}\n"
+    output = tmp_path / "not-created"
+    assert cli.main([*args(profile, output), *extra]) == 2
+    assert not output.exists()
+
+
+def test_movement_single_snapshot_context_once_and_cli_consumers(
+        profile, monkeypatch, capsys, tmp_path):
+    from healthcheck import combined_movement
+
+    steps_id = _seed_movement(profile)
+    calls = []
+    context_calls = []
+    for name in ("read_steps", "read_weight"):
+        original = getattr(combined_movement, name)
+        def wrapped(session, *args, _original=original):
+            calls.append(session)
+            return _original(session, *args)
+        monkeypatch.setattr(combined_movement, name, wrapped)
+    original_context = ContextService.list
+    def context(self, **kwargs):
+        context_calls.append(self.session)
+        return original_context(self, **kwargs)
+    monkeypatch.setattr(ContextService, "list", context)
+    packet = read(profile, replace(profile[2], steps_garmin_source_id=steps_id,
+                                   include_weight=True))
+    assert calls == context_calls * 2 and len(context_calls) == 1
+    extra = ["--steps-garmin-source-id", steps_id, "--include-weight", "--projection", "compact"]
+    assert cli.main([*stdout_args(profile, "json"), *extra]) == 0
+    emitted = json.loads(capsys.readouterr().out)
+    assert emitted["sections"]["steps"] == (
+        json.loads(chat_evidence._json(packet["sections"]["steps"])))
+    output = tmp_path / "movement-export"
+    assert cli.main([*args(profile, output), *extra]) == 0
+    capsys.readouterr()
+    saved = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
+    assert (output / "evidence.txt").read_text(encoding="utf-8") == (
+        evidence.render_combined_evidence(saved))
+    assert saved["sections"]["weight"] == emitted["sections"]["weight"]
+
+
+def test_movement_sections_unchanged_in_compact_and_empty_weight_has_no_fabricated_days(profile):
+    request = replace(profile[2], steps_garmin_source_id=profile[2].activity_garmin_source_id,
+                      include_weight=True)
+    detailed = read(profile, request)
+    compact = read(profile, replace(request, projection="compact"))
+    for domain in ("steps", "weight"):
+        assert detailed["sections"][domain] == compact["sections"][domain]
+    assert detailed["sections"]["weight"]["daily_series"]["rows"] == []
+    assert all(cell["value"] is None for cell in detailed["sections"]["steps"]["cells"])
+
+
+@pytest.mark.parametrize("counts,state,value", [([7, 7], "value", 7),
+                                               ([7, 9], "ambiguous", None),
+                                               (["absent"], "missing", None)])
+def test_movement_steps_duplicate_observations_not_summed(profile, counts, state, value):
+    from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
+    from test_garmin_observed_steps import save
+
+    with session_scope(profile[1]) as session:
+        store = ContentAddressedGarminPayloadStore(profile[0].root / "artifacts")
+        for index, count in enumerate(counts):
+            payload = {"calendarDate": str(DAY), "synthetic_revision": index}
+            if count != "absent":
+                payload["totalSteps"] = count
+            saved = save(session, store, payload)
+        steps_id = saved.source.id
+        SavedDailyStepsRepository(session, payload_store=store).project_day(steps_id, DAY)
+    result = read(profile, replace(profile[2], steps_garmin_source_id=steps_id))
+    point = next(p for p in result["sections"]["steps"]["cells"] if p["calendar_date"] == DAY)
+    assert (point["state"], point["value"]) == (state, value)
+    assert len(point["evidence"]) == len(counts)
+
+
+def test_movement_read_boundary_and_unrelated_source_are_preserved(profile, monkeypatch):
+    from test_garmin_observed_steps import save, source
+
+    steps_id = _seed_movement(profile)
+    with session_scope(profile[1]) as session:
+        store = ContentAddressedGarminPayloadStore(profile[0].root / "artifacts")
+        save(session, store, {"calendarDate": str(DAY), "totalSteps": 999999},
+             identity=source("UNRELATED_STEPS_SOURCE"))
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("export crossed saved read boundary")
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(ContentAddressedGarminPayloadStore, "read", forbidden)
+    monkeypatch.setattr("healthcheck.runtime.prepare_runtime", forbidden)
+    monkeypatch.setattr("healthcheck.db.engine.migrate_database", forbidden)
+    monkeypatch.setattr("healthcheck.db.engine.create_sqlite_engine", forbidden)
+    result = read(profile, replace(profile[2], steps_garmin_source_id=steps_id,
+                                   include_weight=True))
+    serialized = evidence.encode_combined_evidence(result)
+    assert "UNRELATED_STEPS_SOURCE" not in serialized and "999999" not in serialized
+
+
+def test_movement_steps_provenance_cap_rejects_entire_packet(profile, monkeypatch):
+    from healthcheck.garmin import observed_steps_read
+
+    steps_id = _seed_movement(profile)
+    monkeypatch.setattr(observed_steps_read, "MAX_PROVENANCE", 0)
+    with pytest.raises(EvidenceError, match="steps_search_incomplete"):
+        read(profile, replace(profile[2], steps_garmin_source_id=steps_id))
+
+
+def test_movement_new_sections_obey_existing_byte_cap(profile, monkeypatch):
+    steps_id = _seed_movement(profile)
+    monkeypatch.setattr(evidence, "MAX_OUTPUT_BYTES", 100)
+    with pytest.raises(EvidenceError, match="output_exceeds_byte_limit"):
+        read(profile, replace(profile[2], steps_garmin_source_id=steps_id,
+                               include_weight=True))
