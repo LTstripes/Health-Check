@@ -170,3 +170,71 @@ This delegates to the same [Sleep selection contract](METRIC_SOURCE_SELECTION.md
 Activity selection and omitted-provider behavior are unchanged. A blocked Google
 choice remains a labelled section with selection evidence and `source_range=null`,
 and is preserved in both JSON and text.
+
+
+## Opt-in compact projection
+
+For a 30-day local query, add `--projection compact` to either destination mode:
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> \
+  --sleep-garmin-source-id <sleep-id> --sleep-google-source-id <google-id> \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
+Python callers set `CombinedEvidenceRequest(..., projection="compact")`. The
+omitted/default `projection="detailed"` preserves the existing v1 packet shape,
+hash contract, validation and serializers. Compact uses the distinct version
+`health-chat-combined-compact-evidence-v1` and hash-bound `projection` metadata;
+it is a summary projection, not a detailed interval replay packet. Both modes
+use the same accepted readers in the same read-only snapshot, before the
+unchanged 2 MiB UTF-8 serialization guard. Compact does not call the capped
+public detailed serializer first. No byte cap is raised and no winning prefix
+is emitted. An oversized compact packet still fails the complete request.
+
+Only Sleep representation changes:
+
+- Daily ranges, series/values, units, metric states/reasons/eligibility, explicit
+  zero, missing/null/partial/ambiguous states, candidate/excluded record IDs,
+  roles, source identity/selection and acquisition-coverage limits stay intact.
+  All saved sessions remain; `summary_record_id` replaces the duplicate night
+  `summary` object, referencing its saved session or null when ambiguous/absent.
+- Every metric retains its scalar fields. Exactly equal evidence fields across
+  that session's metrics move once to `evidence_common`. Reconstruct a metric's
+  summary evidence by overlaying its own `evidence` over `evidence_common`.
+  Replace `field_paths_index` with the exact path list at that index in the
+  session's `field_path_sets`; repeated lists are stored once without dropping
+  paths. Indices are local to each session and bound by the envelope hash.
+  Record/observation/normalization identities, source eligibility, field paths,
+  immutable metadata and content hashes remain bound to the packet.
+- Per-metric `interval_ids` and `interval_snapshots` become `interval_summary`:
+  exact counts, groups by interval kind/state and endpoint precision, and SHA-256
+  of canonical UTF-8 JSON `{interval_ids, interval_snapshots}` using the existing
+  canonical encoder. This summarizes stage/out-of-bed detail without new sleep
+  formulas. Counts/digests describe all contributing intervals; they do not
+  silently retain only a prefix. The digest identifies omitted detail but cannot
+  reconstruct it or establish independent source correctness.
+- `interval_summary.session_intervals` retains original `sleep_session` endpoint
+  snapshots, including offsets, wall time, timezone, precision and state. Session
+  `temporal_evidence` and accepted start/end metric cells also stay intact.
+  Date-only/null timing gains no invented instant or host offset. Stage segment
+  endpoints/IDs are intentionally available only in detailed mode.
+
+Activity cells (including coverage/conflict/incomplete-search flags), current
+Context revisions/text/temporal precision and explicit page bounds/has-more,
+profile/privacy assertions, unknown verified-snapshot/Stable identity, requested
+and effective dates, cooperative limits and interpretation boundaries are
+unchanged. Compact text includes the projection identity and the same selected
+facts/comments as JSON; full summary provenance stays in its matching JSON.
+No daily causal join or source pooling is added. Original comments remain
+untrusted data, never tool instructions.
+
+The persisted synthetic size regression includes 30 Garmin nights, 30 Google
+nights with 60 seven-minute stage intervals each (within the existing parser
+cap), daily Activity and 50 Unicode comments plus additional rows proving the
+Context page bound. Detailed JSON exceeds 2 MiB while compact JSON stays below
+1.5 MiB, with every daily point and selected comment preserved. This proves that
+representative workload, not a universal size/latency guarantee or Owner UAT.

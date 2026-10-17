@@ -94,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
                              help="New external directory; never overwrites existing files")
     destination.add_argument("--stdout", dest="stdout_format", choices=("json", "text"),
                              help="Emit only the selected serializer result on stdout")
+    parser.add_argument("--projection", choices=("detailed", "compact"), default="detailed",
+                        help="Opt-in compact Sleep evidence; detailed output remains default")
     parser.add_argument("--agent-workspace-root", type=Path, action="append", default=[])
     # Abbreviation-aware: set only after every option string is registered.
     parser._sanitize_errors = _requests_stdout(argv, parser)
@@ -119,7 +121,8 @@ def main(argv: list[str] | None = None) -> int:
             request=CombinedEvidenceRequest(
                 args.end_date, args.days, args.activity_garmin_source_id,
                 args.sleep_garmin_source_id, args.sleep_google_source_id,
-                args.include_context, args.context_limit, args.sleep_google_auto_select),
+                args.include_context, args.context_limit, args.sleep_google_auto_select,
+                args.projection),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )
         if args.output_dir is not None:

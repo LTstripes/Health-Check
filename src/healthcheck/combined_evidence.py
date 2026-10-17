@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -20,6 +22,7 @@ from healthcheck.db.models import GarminSource
 
 PACKAGE_VERSION = "health-chat-combined-evidence-v1"
 PROVENANCE_VERSION = "health-chat-combined-provenance-v1"
+COMPACT_VERSION = "health-chat-combined-compact-evidence-v1"
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class CombinedEvidenceRequest:
     include_context: bool = True
     context_limit: int = 50
     sleep_google_auto_select: bool = False
+    projection: str = "detailed"
 
     def domain_requests(self):
         return (
@@ -45,6 +49,8 @@ class CombinedEvidenceRequest:
         )
 
     def validate(self) -> None:
+        if type(self.projection) is not str or self.projection not in {"detailed", "compact"}:
+            raise EvidenceError("invalid_evidence_projection")
         for request in self.domain_requests():
             request.validate()
 
@@ -52,6 +58,61 @@ class CombinedEvidenceRequest:
 def _domain(packet, keys):
     # Only the existing service's public projection crosses this composition boundary.
     return {key: packet[key] for key in keys}
+
+
+
+def _compact_sleep(sections):
+    """Project already allowlisted evidence, without selecting or recomputing values.
+
+    Common provenance is factored per session. Segment detail is explicitly
+    summarized; exact sleep-session endpoint evidence remains available.
+    """
+    result = deepcopy(sections)
+    for provider in result["sleep"]["providers"].values():
+        source_range = provider["source_range"]
+        if source_range is None:
+            continue
+        for night in source_range["days"]:
+            for source in night["sources"]:
+                summary = source.pop("summary")
+                source["summary_record_id"] = None if summary is None else summary["record_id"]
+                for session in source["sessions"]:
+                    evidence_cells = []
+                    field_path_sets = []
+                    for cell in session["metrics"].values():
+                        item = cell["evidence"]
+                        paths = item.pop("field_paths")
+                        if paths not in field_path_sets:
+                            field_path_sets.append(paths)
+                        item["field_paths_index"] = field_path_sets.index(paths)
+                        snapshots = item.pop("interval_snapshots")
+                        ids = item.pop("interval_ids")
+                        counts = Counter((row.get("interval_kind"), row.get("interval_state"),
+                                          row.get("start_precision"), row.get("end_precision"))
+                                         for row in snapshots)
+                        item["interval_summary"] = {
+                            "count": len(snapshots), "id_count": len(ids),
+                            "sha256": hashlib.sha256(_json({
+                                "interval_ids": ids, "interval_snapshots": snapshots,
+                            }).encode("utf-8")).hexdigest(),
+                            "groups": [{"kind": key[0], "state": key[1],
+                                        "start_precision": key[2], "end_precision": key[3],
+                                        "count": count} for key, count in counts.items()],
+                            "session_intervals": [row for row in snapshots
+                                                  if row.get("interval_kind") == "sleep_session"],
+                        }
+                        evidence_cells.append(item)
+                    # Only exactly equal fields move; cell-specific exclusions,
+                    # row identities and interval digests remain independently bound.
+                    common = {key: value for key, value in evidence_cells[0].items()
+                              if all(key in item and item[key] == value
+                                     for item in evidence_cells[1:])} if evidence_cells else {}
+                    session["field_path_sets"] = field_path_sets
+                    session["evidence_common"] = common
+                    for item in evidence_cells:
+                        for key in common:
+                            del item[key]
+    return result
 
 
 def read_combined_evidence(
@@ -131,6 +192,18 @@ def read_combined_evidence(
                     "causality": "not_established", "ai_interpretation": None,
                 },
             }
+            if request.projection == "compact":
+                packet["version"] = COMPACT_VERSION
+                packet["projection"] = {
+                    "mode": "compact", "detailed_version": PACKAGE_VERSION,
+                    "sleep_segments": "counts_and_sha256_not_replayable_segments",
+                    "sleep_session_endpoints": "retained_with_original_temporal_precision",
+                    "session_evidence": "evidence_common_overlaid_with_metric_evidence",
+                    "field_paths": "session_field_path_sets_indexed_by_field_paths_index",
+                    "night_summary": "summary_record_id_references_saved_session_or_null",
+                    "values_and_flags": "unchanged_accepted_reader_results",
+                }
+                packet["sections"] = _compact_sleep(sections)
             packet["envelope_hash"] = hashlib.sha256(_json(packet).encode("utf-8")).hexdigest()
             encode_combined_evidence(packet)
             return packet
@@ -156,6 +229,8 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
         "Stored presence is not acquisition completeness; causality is not established.",
         "Full timing/provenance and exclusions remain in the matching JSON packet.",
     ]
+    if "projection" in packet:
+        lines.append("projection: " + _json(packet["projection"]))
     for key in ("generated_at_utc", "evaluation_clock", "profile", "privacy", "request",
                 "snapshot", "limits", "interpretation"):
         lines.append(f"{key}: {_json(packet[key])}")
@@ -185,7 +260,9 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
                         "state": night["state"], "ambiguous": night_source["ambiguous"]}))
                     for session in night_source["sessions"]:
                         summary = {key: value for key, value in session.items()
-                                   if key not in {"temporal_evidence", "metrics"}}
+                                   if key not in {
+                                       "temporal_evidence", "metrics",
+                                       "evidence_common", "field_path_sets"}}
                         summary["metrics"] = {
                             code: {key: value for key, value in cell.items() if key != "evidence"}
                             for code, cell in session["metrics"].items()}
