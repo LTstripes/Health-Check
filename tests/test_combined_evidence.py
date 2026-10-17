@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import os
 import socket
 import sqlite3
 import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select, text
@@ -23,7 +26,7 @@ from healthcheck.analytics import period_summary_read as bounded
 from healthcheck.analytics import sleep_source_view
 from healthcheck.chat_evidence import EvidenceError
 from healthcheck.combined_evidence import CombinedEvidenceRequest
-from healthcheck.context import ContextService
+from healthcheck.context import ContextService, parse_date_only
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import GarminRecordMetric, GarminSource, GarminSourceRecord
 from test_period_summary import _activity, _coverage
@@ -56,14 +59,22 @@ def cells(packet):
     return packet["sections"]["activity"]["providers"]["garmin"]["metrics"]
 
 
-def args(profile, output):
+def _common_args(profile):
     request = profile[2]
     return ["--profile", str(profile[0].root), "--profile-kind", "synthetic",
             "--end-date", str(DAY), "--days", "7",
             "--activity-garmin-source-id", request.activity_garmin_source_id,
             "--sleep-garmin-source-id", request.sleep_garmin_source_id,
             "--sleep-google-source-id", request.sleep_google_source_id,
-            "--evaluation-local-date", str(CLOCK.date()), "--output-dir", str(output)]
+            "--evaluation-local-date", str(CLOCK.date())]
+
+
+def args(profile, output):
+    return [*_common_args(profile), "--output-dir", str(output)]
+
+
+def stdout_args(profile, output_format):
+    return [*_common_args(profile), "--stdout", output_format]
 
 
 @pytest.mark.parametrize("days", [7, 30])
@@ -443,3 +454,265 @@ def test_combined_cli_google_provider_selection_without_technical_id(profile, tm
     packet = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
     assert packet["sections"]["sleep"]["providers"]["google"]["selected_source_id"] == (
         profile[2].sleep_google_source_id)
+
+
+class _FrozenClock(datetime):
+    """Aware clock frozen for one CLI invocation, as a real datetime subclass."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2099, 1, 10, 12, tzinfo=UTC)
+
+
+def _add_context(profile, text):
+    with session_scope(profile[1]) as session:
+        ContextService(session).add(
+            text=text, temporal=parse_date_only(DAY.isoformat()), capture_source="cli")
+
+
+def test_cli_stdout_json_and_text_match_file_mode_with_frozen_clock(
+        profile, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "datetime", _FrozenClock)
+    monkeypatch.setattr(evidence, "datetime", _FrozenClock)
+    output = tmp_path / "frozen-files"
+    assert cli.main(args(profile, output)) == 0
+    capsys.readouterr()
+    machine = (output / "evidence.json").read_text(encoding="utf-8")
+    readable = (output / "evidence.txt").read_text(encoding="utf-8")
+
+    assert cli.main(stdout_args(profile, "json")) == 0
+    captured = capsys.readouterr()
+    assert captured.out == machine and captured.err == ""
+    packet = json.loads(captured.out)
+    assert packet["envelope_hash"] in readable
+
+    assert cli.main(stdout_args(profile, "text")) == 0
+    captured = capsys.readouterr()
+    assert captured.out == readable and captured.err == ""
+
+    unhashed = {key: value for key, value in packet.items() if key != "envelope_hash"}
+    assert packet["envelope_hash"] == hashlib.sha256(
+        chat_evidence._json(unhashed).encode("utf-8")).hexdigest()
+
+
+def test_cli_stdout_creates_no_files_or_directories(profile, tmp_path, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("stdout mode must not create directories or write export files")
+    monkeypatch.setattr(Path, "mkdir", forbidden)
+    monkeypatch.setattr(Path, "write_text", forbidden)
+    before = sorted(entry.name for entry in tmp_path.iterdir())
+    for output_format in ("json", "text"):
+        assert cli.main(stdout_args(profile, output_format)) == 0
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == before
+
+
+@pytest.mark.parametrize("state", [
+    "missing_profile", "profile_is_file", "missing_db", "old_schema", "unmigrated"])
+def test_cli_stdout_missing_or_unmigrated_database_emits_no_payload(
+        profile, tmp_path, capsys, state):
+    root = tmp_path / "target"
+    if state == "profile_is_file":
+        root.write_text("not a directory", encoding="utf-8")
+    elif state != "missing_profile":
+        root.mkdir()
+    if state in {"old_schema", "unmigrated"}:
+        with sqlite3.connect(root / "healthcheck.db") as connection:
+            if state == "old_schema":
+                connection.execute("CREATE TABLE alembic_version(version_num TEXT)")
+                connection.execute("INSERT INTO alembic_version VALUES ('old_synthetic_schema')")
+    argv = stdout_args(profile, "json")
+    argv[1] = str(root)
+    assert cli.main(argv) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert str(root) not in captured.err
+
+
+def test_cli_stdout_oversize_serializers_emit_no_payload(profile, monkeypatch, capsys):
+    packet = read(profile)
+    readable = evidence.render_combined_evidence(packet)
+    monkeypatch.setattr(cli, "read_combined_evidence", lambda **kwargs: packet)
+    monkeypatch.setattr(evidence, "MAX_OUTPUT_BYTES", 100)
+    assert cli.main(stdout_args(profile, "json")) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Export failed: output_exceeds_byte_limit"
+    monkeypatch.setattr(evidence, "MAX_OUTPUT_BYTES", len(readable.encode("utf-8")) - 1)
+    assert cli.main(stdout_args(profile, "text")) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Export failed: output_exceeds_byte_limit"
+
+
+def test_cli_stdout_unexpected_reader_and_serializer_errors_emit_no_payload(
+        profile, monkeypatch, capsys):
+    def boom(*args, **kwargs):
+        raise RuntimeError("synthetic-private-payload")
+    reader = cli.read_combined_evidence
+    monkeypatch.setattr(cli, "read_combined_evidence", boom)
+    assert cli.main(stdout_args(profile, "json")) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Export failed: output_or_profile_unavailable"
+    assert "synthetic-private-payload" not in captured.err
+    monkeypatch.setattr(cli, "read_combined_evidence", reader)
+    monkeypatch.setattr(cli, "render_combined_evidence", boom)
+    assert cli.main(stdout_args(profile, "text")) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Export failed: output_or_profile_unavailable"
+    assert "synthetic-private-payload" not in captured.err
+
+
+def test_cli_destination_required_keeps_file_mode_argparse_exit(profile, monkeypatch, capsys):
+    def forbidden(*args, **kwargs):
+        pytest.fail("destination validation must precede the reader")
+    monkeypatch.setattr(cli, "read_combined_evidence", forbidden)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(_common_args(profile))
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
+@pytest.mark.parametrize("order", ["output_first", "stdout_first"])
+def test_cli_stdout_conflicting_destinations_sanitized_before_read(
+        profile, monkeypatch, capsys, order):
+    def forbidden(*args, **kwargs):
+        pytest.fail("destination validation must precede the reader")
+    monkeypatch.setattr(cli, "read_combined_evidence", forbidden)
+    destination = ["--output-dir", "unused", "--stdout", "json"]
+    if order == "stdout_first":
+        destination = ["--stdout", "json", "--output-dir", "unused"]
+    assert cli.main([*_common_args(profile), *destination]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Export failed: invalid_arguments"
+
+
+_SENTINEL = "SYNTHETIC_PRIVATE_SENTINEL"
+
+
+def _without(argv, flag):
+    argv = list(argv)
+    index = argv.index(flag)
+    del argv[index:index + 2]
+    return argv
+
+
+def _with_value(argv, flag, value):
+    argv = list(argv)
+    argv[argv.index(flag) + 1] = value
+    return argv
+
+
+def _abbreviated_stdout(argv, abbreviation):
+    argv = list(argv)
+    argv[argv.index("--stdout")] = abbreviation
+    return argv
+
+
+def _equals_stdout(argv, abbreviation, value=None):
+    argv = list(argv)
+    index = argv.index("--stdout")
+    argv[index:index + 2] = [f"{abbreviation}={argv[index + 1] if value is None else value}"]
+    return argv
+
+
+@pytest.mark.parametrize("mutate", [
+    pytest.param(lambda base: _without(base, "--profile"), id="missing_profile"),
+    pytest.param(lambda base: _without(base, "--profile-kind"), id="missing_profile_kind"),
+    pytest.param(lambda base: _with_value(base, "--profile-kind", _SENTINEL),
+                 id="invalid_profile_kind"),
+    pytest.param(lambda base: _with_value(base, "--end-date", _SENTINEL), id="malformed_end_date"),
+    pytest.param(lambda base: _with_value(base, "--evaluation-local-date", _SENTINEL),
+                 id="malformed_evaluation_local_date"),
+    pytest.param(lambda base: _with_value(base, "--days", _SENTINEL), id="malformed_days"),
+    pytest.param(lambda base: [*base, "--context-limit", _SENTINEL],
+                 id="malformed_context_limit"),
+    pytest.param(lambda base: [*base, "--stdout"], id="stdout_missing_value"),
+    pytest.param(lambda base: [*base, "--stdout=" + _SENTINEL], id="stdout_invalid_choice"),
+    pytest.param(lambda base: _with_value(_abbreviated_stdout(base, "--st"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_shortest_abbreviation_invalid_profile_kind"),
+    pytest.param(lambda base: _with_value(_abbreviated_stdout(base, "--std"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_abbreviation_invalid_profile_kind"),
+    pytest.param(lambda base: _with_value(_abbreviated_stdout(base, "--stdou"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_longer_abbreviation_invalid_profile_kind"),
+    pytest.param(lambda base: _with_value(_equals_stdout(base, "--st"),
+                                          "--profile-kind", _SENTINEL),
+                 id="stdout_abbreviation_equals_invalid_profile_kind"),
+    pytest.param(lambda base: _equals_stdout(base, "--stdo", _SENTINEL),
+                 id="stdout_abbreviation_equals_invalid_choice"),
+])
+def test_cli_stdout_malformed_arguments_sanitized_before_read(
+        profile, monkeypatch, capsys, mutate):
+    def forbidden(*args, **kwargs):
+        pytest.fail("argument parsing must precede the reader")
+    monkeypatch.setattr(cli, "read_combined_evidence", forbidden)
+    assert cli.main(mutate(stdout_args(profile, "json"))) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "Export failed: invalid_arguments"
+    assert _SENTINEL not in captured.err
+
+
+@pytest.mark.parametrize("destination", [
+    ["--st", "json"], ["--std", "json"], ["--stdo", "json"], ["--stdou", "json"],
+    ["--stdout", "json"], ["--st=json"], ["--stdou=json"],
+])
+def test_cli_stdout_abbreviations_reach_valid_stdout_path(
+        profile, monkeypatch, capsys, destination):
+    packet = read(profile)
+    calls = []
+    def reader(**kwargs):
+        calls.append(kwargs)
+        return packet
+    monkeypatch.setattr(cli, "read_combined_evidence", reader)
+    assert cli.main([*_common_args(profile), *destination]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == evidence.encode_combined_evidence(packet)
+    assert captured.err == ""
+    assert len(calls) == 1
+
+
+def test_cli_help_still_prints_usage_to_stdout(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["--help"])
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("usage:")
+    assert captured.err == ""
+
+
+def test_module_cli_stdout_subprocess_preserves_non_ascii_context(profile):
+    note = "synthetic caf\u00e9 \u2603 \u65e5\u672c\u8a9e \U0001F600\U0001F9EA"
+    _add_context(profile, note)
+    result = subprocess.run(
+        [sys.executable, "-m", "healthcheck.export_combined_evidence",
+         *stdout_args(profile, "json")],
+        capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        check=False, timeout=30)
+    assert result.returncode == 0, result.stderr
+    decoded = result.stdout.decode("utf-8")
+    assert "\ufffd" not in decoded
+    rows = json.loads(decoded)["sections"]["context"]["rows"]
+    assert any(row["original_text"] == note for row in rows)
+
+
+@pytest.mark.parametrize("output_format", ["json", "text"])
+def test_cli_stdout_limited_console_keeps_exact_utf8(profile, monkeypatch, output_format):
+    note = "synthetic caf\u00e9 \u2603 \U0001F600"
+    _add_context(profile, note)
+    raw = io.BytesIO()
+    limited = io.TextIOWrapper(raw, encoding="ascii", errors="strict", newline="")
+    monkeypatch.setattr(sys, "stdout", limited)
+    assert cli.main(stdout_args(profile, output_format)) == 0
+    payload = raw.getvalue().decode("utf-8")
+    assert note in payload
+    assert "\ufffd" not in payload
+    if output_format == "json":
+        rows = json.loads(payload)["sections"]["context"]["rows"]
+        assert any(row["original_text"] == note for row in rows)
