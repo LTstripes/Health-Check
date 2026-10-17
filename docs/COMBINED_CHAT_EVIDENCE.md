@@ -1,7 +1,74 @@
 # Combined Sleep + Activity + Context evidence
 
+## Optional saved Stress and Body Battery (#451)
+
+Select `CombinedEvidenceRequest.stress_garmin_source_id` and/or
+`body_battery_garmin_source_id` (CLI flags below) to add those exact Garmin
+sources. Neither falls back to the Activity/Sleep source or automatic selection.
+All IDs are validated before any domain reader runs. With both omitted, existing
+detailed/compact v1 shapes and serializers are unchanged. With either selected,
+the version is `health-chat-combined-evidence-v2` or
+`health-chat-combined-compact-evidence-v2`; `request.sources` and `sections` add
+only the requested metrics. Compact changes only Sleep: all selected Stress,
+Body Battery and Context facts remain identical to detailed mode, with the same
+2 MiB cap. Oversize results fail without a winning prefix.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> --sleep-garmin-source-id <sleep-id> \
+  --stress-garmin-source-id <stress-id> \
+  --body-battery-garmin-source-id <battery-id> \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
+Both new sections use the same existing read-only transaction and exact inclusive
+request dates as Sleep/Activity. Context is still read once. Sources may coincide
+or differ; the packet neither pools sources nor joins daily facts causally.
+These are saved-source dates, not completed Moscow days inferred by the CLI.
+This CLI addition does not extend the unchanged Weight/Context MCP or its schema,
+authentication or connection availability. HRV, RHR, Steps and Weight remain
+outside this combined extension.
+
+`sections.stress` uses `analyze_garmin_metric_series` for
+`stress_daily_average` with the accepted
+`r03-01-stress-daily-mean-applicability-v1` selection and `r03-01-v2` rules.
+It preserves provider daily averages in points, every selected point's state,
+date/precision/clock, zero, partial, missing, null, ambiguity, exclusions and
+allowlisted input manifests, normalization/provenance and applicability audit.
+The existing 2000 candidate cap is unchanged: overflow rejects the entire request
+with `stress_selected_points_exceed_max`, never a truncated series. Baseline/trend comparisons are
+not exported or reinterpreted; `reader_result_hash` identifies the accepted full
+reader result, while the combined hash binds the disclosed projection. No raw
+payload, arbitrary diagnostic detail, source filename or artifact path is exposed.
+
+`sections.body_battery` uses `read_body_battery_period` with the accepted
+`r394-saved-body-battery-maxima-v1` eligibility: only proven current typed saved
+samples, with legacy scalar/alias eligibility explicitly unknown. Each daily
+value is the **maximum among saved eligible measurements**, not a guaranteed
+full-day/provider-native maximum or morning value. Sample count, winning evidence
+IDs/precision, exclusions, unknown acquisition coverage and search metadata are
+retained. The accepted period mean weights eligible saved days equally;
+`mean_exact` preserves its rational representation and `mean_value` is a lossless
+decimal **string**, or null. The 100000 period/10000 per-day candidate caps stay
+unchanged. Incomplete search emits no daily prefix or mean, and day counts and
+missing dates remain null. A storage failure rejects the complete packet.
+
+For both metrics, `missing_day_count`/`missing_dates` mean dates with no eligible
+value, including excluded dates; they do not prove acquisition failure or absence
+of a physiological observation. `excluded_day_count` counts dated exclusions
+without an eligible value and is a subset of missing days, not an additional
+disjoint count. Stress availability counts describe records separately. Explicit
+zero remains zero; missing/unknown never becomes zero. Stored presence does not
+establish full-day acquisition coverage (reported unknown). JSON and text print
+the same selected facts, semantics, counts and warnings; stdout validates its
+complete result before writing any byte. The historic `--st` stdout alias stays
+accepted despite the new `--stress-...` option. Private Owner UAT remains separate
+from synthetic tests and CI.
+
 `healthcheck.combined_evidence.read_combined_evidence` returns a single bounded
-`health-chat-combined-evidence-v1` packet. It composes the accepted
+`health-chat-combined-evidence-v1` packet by default. It composes the accepted
 [Sleep](SLEEP_CHAT_EVIDENCE.md) and [Activity](ACTIVITY_CHAT_EVIDENCE.md) evidence
 services in one existing WAL-aware read-only SQLite transaction. Context is read
 once, with the existing current-revision overlap/precision/disclosure rules.
