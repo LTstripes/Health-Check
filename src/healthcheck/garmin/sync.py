@@ -43,6 +43,7 @@ from healthcheck.garmin.capabilities import (
     get_capability,
 )
 from healthcheck.garmin.contracts import is_forbidden_payload_key
+from healthcheck.garmin.daily_summary_acquisition import record_daily_summary_acquisition
 from healthcheck.garmin.normalization import (
     HRV_CALENDAR_CONTRACT_VERSION,
     PROVIDER_SOURCE_KIND,
@@ -1817,6 +1818,14 @@ class GarminIncrementalSync:
                     failure_stage = "steps_projection"
                     saved_summary_callback(session, outcome)
                     failure_stage = "persistence"
+                if surface.code == "daily_summary" and coverage_status in {
+                    "present", "confirmed_empty"
+                }:
+                    record_daily_summary_acquisition(
+                        session, outcome, original_bytes=raw_bytes, requested_date=day,
+                        surface=surface.code, method=surface.method,
+                        fetch_complete=fetch_complete, request_count=request_count,
+                    )
                 self._write_checkpoint(
                     session,
                     provider_id=provider_id,

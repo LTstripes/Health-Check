@@ -105,6 +105,34 @@ The physical scale, input provider/application, and body-composition algorithm a
 
 ### Garmin
 
+Completed-day Steps contract `garmin-completed-day-steps-moscow-v2` retains the
+latest proved acquisition after the Europe/Moscow day boundary. A terminal
+partial run needs an immutable `garmin-daily-summary-acquisition-v1` receipt for
+that exact observation; succeeded legacy runs without a receipt retain their
+existing predicate. Present invalid or unsupported receipts fail closed. Original
+hash, source, run, event and batch links remain required; coverage, device,
+source timezone and finality stay unknown. Receipt eligibility does not suppress
+latest missing/null/invalid values, competitors or any bounded-search failure.
+
+The receipt is a one-to-one append-only FK to the immutable payload observation,
+which already binds run/source/original/hash/received time. Only a complete new
+`daily_summary` / `get_user_summary` acquisition can mint it, after the existing
+optional Steps callback and before checkpoint/commit in the same transaction.
+Receipt v1 requires strict original calendarDate equal to the requested date,
+the exact UTC request-day observation window, and enclosing run request bounds;
+these transport bounds do not establish Garmin timezone or finality. Same-key
+replay can validate an existing receipt but cannot add missing proof or advance
+received time. A genuinely new acquisition may reuse identical raw bytes. The
+shared historical fetch path retains its existing lack of a Steps callback.
+
+Migration 0016 creates an empty receipt table and does not certify old partials.
+Attempt rollback preserves earlier commits; the existing separate failure
+checkpoint may still be written, and orphan content-addressed files may remain.
+The bounded reader joins receipts by PK before applying existing caps and performs
+no writes. Observed Steps v1/history remain unchanged. New proof applies only to
+future acquisitions after a separately accepted rollout; it does not reconstruct
+past provider success or authorize recovery/provider fetches.
+
 R02 uses the community `python-garminconnect` package as a pinned runtime dependency rather than building another private HTTP client. Initial sign-in/MFA is user-assisted; reusable auth state is stored outside Git. Each stream has explicit backfill and trailing-window reconciliation because unofficial endpoints and late provider updates do not provide a universal durable cursor.
 
 Garmin payloads map into typed scalar, sleep, activity, and series entities. A library method only proves that a client endpoint exists; it does not prove that Vivoactive 5 produces the metric. Live account fixtures decide availability, and unknown/unsupported values remain unavailable. Current series identity prefers a stable provider timestamp/token over array position; an authoritative complete collection may retire absent members, and parser upgrades reprocess stored raw evidence only when explicitly requested. The incremental watermark is not contiguous history.
