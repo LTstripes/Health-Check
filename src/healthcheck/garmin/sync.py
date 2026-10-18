@@ -44,6 +44,7 @@ from healthcheck.garmin.capabilities import (
 )
 from healthcheck.garmin.contracts import is_forbidden_payload_key
 from healthcheck.garmin.daily_summary_acquisition import record_daily_summary_acquisition
+from healthcheck.garmin.daily_summary_reacquisition import DailySummaryReacquisitionPlan
 from healthcheck.garmin.normalization import (
     HRV_CALENDAR_CONTRACT_VERSION,
     PROVIDER_SOURCE_KIND,
@@ -59,7 +60,7 @@ from healthcheck.garmin.normalization import (
     normalize_garmin_payload,
     stable_garmin_reconciliation_key,
 )
-from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
+from healthcheck.garmin.observed_steps import SavedDailyStepsRepository, _calendar_date
 from healthcheck.garmin.persistence import (
     GARMIN_COVERAGE_RULE_VERSION,
     PROJECTION_CURRENT,
@@ -338,9 +339,7 @@ def validate_trailing_window_days(value: int | None) -> int:
     if not isinstance(days, int) or isinstance(days, bool):
         raise ValueError("trailing_window_days must be an integer")
     if days < 1 or days > MAX_TRAILING_WINDOW_DAYS:
-        raise ValueError(
-            f"trailing_window_days must be between 1 and {MAX_TRAILING_WINDOW_DAYS}"
-        )
+        raise ValueError(f"trailing_window_days must be between 1 and {MAX_TRAILING_WINDOW_DAYS}")
     return days
 
 
@@ -594,9 +593,7 @@ def _parse_series(
     return tuple(samples)
 
 
-def _series_item_stamp_value(
-    item: Any, descriptors: Mapping[str, int]
-) -> tuple[Any, Any]:
+def _series_item_stamp_value(item: Any, descriptors: Mapping[str, int]) -> tuple[Any, Any]:
     if _is_sequence(item) and len(item) >= 2:
         time_index = _descriptor_index(descriptors, _BODY_BATTERY_TIME_DESCRIPTOR_NAMES)
         level_index = _descriptor_index(descriptors, _BODY_BATTERY_LEVEL_DESCRIPTOR_NAMES)
@@ -623,10 +620,7 @@ def _series_item_stamp_value(
         return stamp, value
     if isinstance(item, Mapping):
         stamp = (
-            item.get("timestamp")
-            or item.get("startGMT")
-            or item.get("time")
-            or item.get("millis")
+            item.get("timestamp") or item.get("startGMT") or item.get("time") or item.get("millis")
         )
         value = item.get("value")
         if value is None:
@@ -1015,9 +1009,7 @@ def _coverage_status_for(
     return "unknown"
 
 
-def _explicit_empty_series(
-    surface: GarminSyncSurface, payload: Any, *, day: date | None
-) -> bool:
+def _explicit_empty_series(surface: GarminSyncSurface, payload: Any, *, day: date | None) -> bool:
     keys = _SERIES_FIELDS.get(surface.code)
     if not keys:
         return False
@@ -1168,6 +1160,7 @@ class GarminIncrementalSync:
         self.checkpoint_namespace = checkpoint_namespace
         self.skip_complete_coverage = skip_complete_coverage
         self.reprocess_outdated = reprocess_outdated
+        self.daily_summary_reacquisition: DailySummaryReacquisitionPlan | None = None
         if self.max_provider_requests < 1:
             raise ValueError("max_provider_requests must be positive")
         if self.max_provider_requests > MAX_SYNC_PROVIDER_REQUESTS:
@@ -1414,6 +1407,9 @@ class GarminIncrementalSync:
                     if attempt.not_run_reason == "request_budget_exhausted":
                         abort_reason = "request_budget_exhausted"
                         break
+                    if self.daily_summary_reacquisition is not None and attempt.error is not None:
+                        abort_reason = "reacquisition_" + attempt.error.error_code
+                        break
             if abort_reason is None:
                 activity_surface = next((item for item in surfaces if not item.per_day), None)
                 if activity_surface is not None:
@@ -1520,7 +1516,26 @@ class GarminIncrementalSync:
             raise RuntimeError("attempted Garmin method outside the incremental allowlist")
         coverage_start = window_start if day is None else day
         coverage_end = window_end if day is None else day
-        if self.skip_complete_coverage:
+        repair = self.daily_summary_reacquisition
+        if repair is not None:
+            if (
+                self.run_stream != "garmin_historical"
+                or surface.code != "daily_summary"
+                or day not in repair.requested_days
+            ):
+                raise RuntimeError("daily-summary reacquisition policy escaped its bounded scope")
+            if day in repair.proven_days:
+                return GarminSyncAttempt(
+                    surface=surface.code,
+                    stream=surface.stream.value,
+                    method=surface.method,
+                    day=day.isoformat(),
+                    status=GarminSyncStatus.SUCCEEDED,
+                    coverage_status=None,
+                    replayed=True,
+                    skipped=True,
+                )
+        if self.skip_complete_coverage and repair is None:
             completed = self._completed_coverage_status(
                 factory,
                 provider_id=provider_id,
@@ -1587,9 +1602,7 @@ class GarminIncrementalSync:
                 failure_stage="fetch",
             )
         if error is not None:
-            coverage = (
-                "unavailable" if error.error_code == "unsupported_or_not_found" else "failed"
-            )
+            coverage = "unavailable" if error.error_code == "unsupported_or_not_found" else "failed"
             self._record_failure_checkpoint(
                 factory,
                 provider_id=provider_id,
@@ -1736,6 +1749,29 @@ class GarminIncrementalSync:
     ) -> GarminSyncAttempt:
         attribution = infer_device_attribution(payload).status
         identity = _source_identity_for(payload)
+        repair = self.daily_summary_reacquisition
+        if repair is not None and (
+            surface.code != "daily_summary"
+            or day not in repair.requested_days
+            or not repair.matches(identity)
+            or not isinstance(payload, Mapping)
+            or _calendar_date(payload) != day
+            or fetch_complete is not True
+            or request_count <= 0
+        ):
+            return self._failed_attempt(
+                factory,
+                provider_id=provider_id,
+                surface=surface,
+                day=day,
+                window_start=window_start,
+                window_end=window_end,
+                trailing_window_days=trailing_window_days,
+                request_count=request_count,
+                attribution=attribution,
+                exc=ValueError("daily-summary acquisition binding mismatch"),
+                failure_stage="acquisition_binding",
+            )
         normalized_payload = _normalize_provider_payload(surface, payload, day=day)
         window_start_utc, _ = _day_bounds(window_start)
         _, window_end_utc = _day_bounds(window_end)
@@ -1818,13 +1854,21 @@ class GarminIncrementalSync:
                     failure_stage = "steps_projection"
                     saved_summary_callback(session, outcome)
                     failure_stage = "persistence"
+                if repair is not None and outcome.source.id != repair.source_id:
+                    raise ValueError("daily-summary acquisition source mismatch")
                 if surface.code == "daily_summary" and coverage_status in {
-                    "present", "confirmed_empty"
+                    "present",
+                    "confirmed_empty",
                 }:
                     record_daily_summary_acquisition(
-                        session, outcome, original_bytes=raw_bytes, requested_date=day,
-                        surface=surface.code, method=surface.method,
-                        fetch_complete=fetch_complete, request_count=request_count,
+                        session,
+                        outcome,
+                        original_bytes=raw_bytes,
+                        requested_date=day,
+                        surface=surface.code,
+                        method=surface.method,
+                        fetch_complete=fetch_complete,
+                        request_count=request_count,
                     )
                 self._write_checkpoint(
                     session,

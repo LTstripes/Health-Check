@@ -1342,7 +1342,7 @@ observation row.
 ### Version-aware reprocessing
 
 Normal historical backfill continues to skip `present` / `confirmed_empty` coverage.
-That skip is unchanged unless reprocessing is explicitly requested.
+That skip changes only for an explicit reprocessing or bounded acquisition-repair request.
 
 - `garmin-backfill --reprocess` re-fetches `present` coverage whose current rows are
   not yet on the current reconciliation contract version. `confirmed_empty` coverage
@@ -1649,6 +1649,37 @@ database inserts or inspect unrelated excluded files for later corruption.
 Observed Steps v1/history remain unchanged. New proof applies only to
 future acquisitions after a separately accepted rollout; it does not reconstruct
 past provider success or authorize recovery/provider fetches.
+
+
+<a id="garmin-steps--bounded-daily-summary-reacquisition"></a>
+### Bounded daily-summary reacquisition
+
+`garmin-backfill --reacquire-unproven-daily-summary` is a separate explicit
+acquisition policy, requiring an existing profile, exact stored Garmin source,
+only `daily_summary`, explicit completed dates and a span no larger than the
+existing maximum backfill chunk (14 days). It cannot combine with `--reprocess`.
+Ordinary coverage skip, projection-version reprocessing and other surfaces retain
+their behavior. This mode holds the same operation lock and historical namespace.
+
+Before authentication, one unchanged completed-day reader request evaluates the
+whole invocation in one bounded snapshot. Coverage and projection freshness do
+not establish acquisition proof. Incomplete or corrupt proof search, incompatible
+source binding, ambiguous latest evidence and non-completed dates fail closed.
+Budgets are neither raised nor reset per chunk. Latest proven acquisitions skip
+even when Steps is zero, null, missing or invalid; acquisition proof is distinct
+from numeric availability. Legacy succeeded proof and valid terminal-partial
+receipts use the existing reader predicates. Source selection binds the existing
+provider/device identity; it does not establish an external Garmin account ID.
+
+Unproven selected dates use the existing complete `get_user_summary` persistence
+transaction with strict returned-day and source binding. A later acquisition can
+reuse identical content-addressed bytes while receiving a new observation and
+receipt. Old observations, partial-run statuses and missing receipts are never
+rewritten. Any per-day error stops the invocation; committed earlier receipts
+remain usable for bounded resume. An all-proven resume performs no authentication,
+provider calls or new acquisition writes. Offline replay cannot mint missing
+historic proof. Reader eligibility, schema, caps and v1-v5 output contracts stay
+unchanged; the operational report adds mode/proven-skip fields only for opt-in.
 
 
 <a id="garmin-steps--separate-steps-window-budgets"></a>

@@ -210,6 +210,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--cutoff")
     parser.add_argument("--reprocess", action="store_true")
+    parser.add_argument("--reacquire-unproven-daily-summary", action="store_true")
+    parser.add_argument("--garmin-source-id")
     parser.add_argument("--max-observations", type=int)
     parser.add_argument("--input")
     parser.add_argument("--image", help="one Xiaomi Home screenshot path for Owner import")
@@ -256,6 +258,11 @@ def _settings(args: argparse.Namespace) -> Settings:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if (
+        args.reacquire_unproven_daily_summary or args.garmin_source_id is not None
+    ) and args.command != "garmin-backfill":
+        print("daily-summary reacquisition flags require garmin-backfill", file=sys.stderr)
+        return 2
     if args.command == "smoke":
         if args.timeout <= 0:
             print("smoke: --timeout must be positive", file=sys.stderr)
@@ -1390,29 +1397,41 @@ def _run_garmin_backfill(args: argparse.Namespace, settings: Settings) -> int:
             raise ValueError("garmin-backfill does not use --trailing-window-days")
         if args.max_observations is not None:
             raise ValueError("garmin-backfill does not use --max-observations")
+        options = dict(
+            start=args.start,
+            end=args.end,
+            streams=args.streams,
+            chunk_days=args.chunk_days,
+            reprocess=args.reprocess,
+            reacquire_unproven_daily_summary=args.reacquire_unproven_daily_summary,
+            garmin_source_id=args.garmin_source_id,
+        )
+        selected_plan = None
+        if args.reacquire_unproven_daily_summary or args.garmin_source_id is not None:
+            if not args.data_dir:
+                raise ValueError("reacquisition requires an explicit --data-dir")
+            selected_plan = plan_garmin_historical_backfill(**options)
         if args.dry_run:
-            report = plan_garmin_historical_backfill(
-                start=args.start,
-                end=args.end,
-                streams=args.streams,
-                chunk_days=args.chunk_days,
-            )
+            report = selected_plan or plan_garmin_historical_backfill(**options)
         else:
-            paths = prepare_runtime(settings)
+            if args.reacquire_unproven_daily_summary:
+                paths = resolve_runtime_paths(settings)
+                if not paths.root.is_dir() or not paths.database.is_file():
+                    raise ValueError("reacquisition requires an existing profile database")
+            else:
+                paths = prepare_runtime(settings)
             with ExternalRuntimeOperationLock(paths):
                 service = GarminAuthService(settings, is_cn=args.is_cn)
-                client, auth_result = service.load_existing()
-                report = GarminHistoricalBackfill(
-                    settings,
-                    client=client,
-                    auth_result=auth_result,
-                ).run(
-                    start=args.start,
-                    end=args.end,
-                    streams=args.streams,
-                    chunk_days=args.chunk_days,
-                    reprocess=args.reprocess,
-                )
+                if args.reacquire_unproven_daily_summary:
+                    operation = GarminHistoricalBackfill(
+                        settings, auth_loader=service.load_existing
+                    )
+                else:
+                    client, auth_result = service.load_existing()
+                    operation = GarminHistoricalBackfill(
+                        settings, client=client, auth_result=auth_result
+                    )
+                report = operation.run(**options)
     except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
         return _report_external_runtime_operation_error(
             exc,
