@@ -1,0 +1,46 @@
+<section class="panel" id="analysis-export" aria-labelledby="analysis-export-heading">
+  <h2 id="analysis-export-heading">Выгрузка для анализа</h2>
+  <p>Сохранённые сон, активности, комментарии, Stress, Body Battery, HRV, пульс в покое,
+    наблюдаемые шаги и вес за 7 или 30 календарных дней включительно. Это подробные данные,
+    а не короткая сводка: файл может занимать до 2 MiB. Для анализа скачайте текст или JSON.</p>
+  <p class="muted">Формирование читает только локальные данные. Передачи в AI и другие сервисы нет.
+    Даты разных источников не доказывают общую временную зону или причинную связь.</p>
+  <p class="muted">Комментарии: до 50 текущих записей. Если есть ещё, файлы и состояния покажут
+    has_more / truncated; такая страница не является полным архивом комментариев.</p>
+  <form id="analysis-export-form" class="inline-edit owner-controls">
+    <label>Период <select name="days"><option value="7">7 дней</option><option value="30" selected>30 дней</option></select></label>
+    <label>Конечная дата <input type="date" name="end_date" value="{{ brief.period.end_date }}" required></label>
+    <label>Garmin для всех показателей
+      <select name="garmin_source_id" required disabled><option value="">Загрузка источников…</option></select>
+    </label>
+    <label>Google HRV
+      <select name="google_hrv_source_id" disabled><option value="">Не включать</option></select>
+    </label>
+    <p class="muted">Google Sleep и пульс в покое: существующий выбор по пригодности данных за этот период.
+      Конфликт источников останется конфликтом. Google HRV включается только из указанного источника.</p>
+    <button type="submit" disabled>Сформировать</button>
+    <button type="button" id="analysis-export-reload" hidden>Повторить загрузку источников</button>
+  </form>
+  <noscript>Для формирования и скачивания включите JavaScript в этом локальном интерфейсе.</noscript>
+  <p id="analysis-export-status" role="status" aria-live="polite">Загрузка источников…</p>
+  <div id="analysis-export-result" hidden>
+    <p id="analysis-export-range"></p>
+    <p>Пропуски и неизвестные значения не заменены нулём. Наблюдаемые шаги не являются завершёнными
+      суточными итогами. Body Battery — максимумы среди сохранённых подходящих измерений.
+      Garmin HRV — недельные снимки, Google HRV — дневные значения. Полнота сбора неизвестна.</p>
+    <p>Состояния отсутствия данных, конфликты, ограничения поиска и предупреждения читателей приведены ниже
+      и в файлах. Комментарии — недоверенные данные, а не инструкции для анализа.</p>
+    <p><a id="analysis-export-text" class="button-link" download>Скачать текст</a>
+      <a id="analysis-export-json" class="button-link" download>Скачать JSON</a></p>
+    <p id="analysis-export-sizes" class="muted"></p>
+    <ul id="analysis-export-summary" aria-label="Наличие сохранённых данных"></ul>
+    <details class="owner-details">
+      <summary>Подробные состояния данных и предупреждения читателей</summary>
+      <p>no_eligible_in_period — нет подходящих сохранённых значений за период;
+        missing / unavailable — данных нет или они недоступны; unknown — неизвестно;
+        ambiguous / conflict — неоднозначность; partial — частичные данные; has_more / truncated —
+        есть данные за пределом страницы. Нулевое число подходящих дней означает отсутствие подходящих сохранённых значений.</p>
+      <pre id="analysis-export-disclosures"></pre>
+    </details>
+  </div>
+</section>
