@@ -1216,6 +1216,58 @@ owner-only directory into Git or an issue comment. Share only the sanitized
 summary/shape if explicitly requested.
 
 
+<a id="garmin-daily-summary-reacquisition"></a>
+### Bounded repair of unproven daily-summary acquisitions
+
+Use this separately authorized mode when historical coverage exists but the
+completed-day reader lacks acquisition proof. Run only an accepted compatible
+installation against the explicitly assigned existing profile. First confirm the
+profile writer is idle and prepare/verify the normal rollback backup. Select the
+exact stored Garmin source from the existing read-only source selection; never
+guess it or substitute another source. The stored identity represents the current
+provider/device model, not separately verified external-account authentication.
+
+The following is a template; set the profile, source ID and inclusive dates from
+the authorized scope. All selected dates must have completed in Europe/Moscow.
+One invocation may span at most 14 dates, only `daily_summary`, with the existing
+chunk/request caps. Start with a small pilot and verify its evidence before a
+larger separately authorized portion.
+
+```powershell
+uv run --locked healthcheck garmin-backfill --data-dir $ownerData `
+  --start $startDate --end $endDate --stream daily_summary `
+  --reacquire-unproven-daily-summary --garmin-source-id $garminSourceId --dry-run
+```
+
+Dry-run validates only request shape and makes no profile/auth/provider access;
+it does not certify source existence or proof eligibility. Remove `--dry-run`
+only for the authorized acquisition. Actual execution validates one complete
+bounded proof snapshot under the operation lock before auth. Incomplete search,
+original/spine integrity uncertainty, ambiguous latest evidence, invalid source
+binding or current/future dates stop without provider calls. No cap is raised or
+reset to bypass this failure. An existing receipt on an acquisition the native
+reader cannot prove also blocks for separate diagnosis, even when its run is
+failed/running/nonterminal. This mode requires unproven acquisitions to be
+unreceipted. `--reprocess`, mixed streams and missing explicit
+`--data-dir`/source are rejected.
+
+Already proven latest acquisitions skip, including zero/null/missing/invalid
+Steps outcomes. A successful fetch must bind the requested day and selected source
+and commit its own immutable receipt. Check request counts, original hash/size,
+returned-day binding, new observation/receipt, native completed-day reader and
+unchanged old partial statuses. Same bytes reuse raw identity; they still need a
+new acquisition observation. Repeat the same bounded request to verify resume
+skips proven days without duplicate current records or additional calls.
+
+Auth/permission, rate-limit, timeout or other per-day errors stop remaining days;
+keep the report and committed receipts, without mass retry. For `reauth_required`,
+the Owner runs the existing `garmin-auth --data-dir $ownerData` interactive recovery
+above, resolving any provider MFA/captcha there, then resumes only the authorized
+range. Do not reset checkpoints, rewrite old partial runs, reconstruct receipts or
+use offline `garmin-reprocess` to certify historical fetches. Default backfill and
+projection-version `--reprocess` retain their existing skip rules.
+
+
 <a id="windows-uat"></a>
 
 <a id="windows-uat--reusable-windows-start-and-safe-candidate-uat"></a>

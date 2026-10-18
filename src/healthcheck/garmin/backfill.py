@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
@@ -32,6 +33,10 @@ from healthcheck.garmin.capabilities import (
     GARMINCONNECT_VERSION,
     VIVOACTIVE_5_DEVICE_CODE,
     VIVOACTIVE_5_MODEL,
+)
+from healthcheck.garmin.daily_summary_reacquisition import (
+    DailySummaryReacquisitionBlocked,
+    plan_daily_summary_reacquisition,
 )
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.garmin.sync import (
@@ -55,7 +60,7 @@ from healthcheck.garmin.sync import (
     validate_sync_date,
 )
 from healthcheck.logging import log_event
-from healthcheck.runtime import prepare_runtime
+from healthcheck.runtime import prepare_runtime, resolve_runtime_paths
 
 BACKFILL_CONTRACT_VERSION = "r02-garmin-historical-backfill-v1"
 HISTORICAL_RUN_STREAM = "garmin_historical"
@@ -117,6 +122,7 @@ class GarminBackfillReport:
     remaining_chunk_count: int = 0
     remaining_day_count: int = 0
     abort_reason: str | None = None
+    reacquire_unproven_daily_summary: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         if self.auth is None:
@@ -130,7 +136,7 @@ class GarminBackfillReport:
             }
         else:
             auth_payload = self.auth.as_dict()
-        return {
+        report = {
             "contract_version": BACKFILL_CONTRACT_VERSION,
             "source": {
                 "provider_code": GARMIN_PROVIDER_CODE,
@@ -173,6 +179,10 @@ class GarminBackfillReport:
             "chunks": [item.as_dict() for item in self.chunks],
             "attempts": [item.as_dict() for item in self.attempts],
         }
+        if self.reacquire_unproven_daily_summary:
+            report["backfill"]["reacquire_unproven_daily_summary"] = True
+            report["backfill"]["skipped_proven_acquisition_count"] = self.skipped_complete_count
+        return report
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), ensure_ascii=True, indent=2, sort_keys=True) + "\n"
@@ -189,9 +199,7 @@ def validate_backfill_range(start: date | str | None, end: date | str | None) ->
         raise ValueError("garmin-backfill end must not precede start")
     span_days = (end_date - start_date).days + 1
     if span_days > MAX_BACKFILL_SPAN_DAYS:
-        raise ValueError(
-            f"garmin-backfill span must be at most {MAX_BACKFILL_SPAN_DAYS} days"
-        )
+        raise ValueError(f"garmin-backfill span must be at most {MAX_BACKFILL_SPAN_DAYS} days")
     return start_date, end_date
 
 
@@ -260,18 +268,58 @@ def plan_backfill_chunks(
     return tuple(plans)
 
 
+def validate_daily_summary_reacquisition(
+    *,
+    enabled: bool,
+    source_id: str | None,
+    start: date,
+    end: date,
+    surfaces: Sequence[GarminSyncSurface],
+    reprocess: bool,
+) -> None:
+    """Opt-in request validation; ordinary historical behavior is unchanged."""
+    if type(enabled) is not bool:
+        raise ValueError("invalid reacquisition selection")
+    if not enabled:
+        if source_id is not None:
+            raise ValueError("source selection requires daily-summary reacquisition")
+        return
+    if tuple(item.code for item in surfaces) != ("daily_summary",) or reprocess:
+        raise ValueError("reacquisition requires only daily_summary and no --reprocess")
+    if (end - start).days + 1 > MAX_BACKFILL_CHUNK_DAYS:
+        raise ValueError("reacquisition must fit one maximum backfill chunk")
+    if (
+        not isinstance(source_id, str)
+        or not source_id
+        or source_id != source_id.strip()
+        or len(source_id) > 36
+    ):
+        raise ValueError("reacquisition requires an exact stored Garmin source")
+
+
 def plan_garmin_historical_backfill(
     *,
     start: date | str | None,
     end: date | str | None,
     streams: Sequence[str] | None = None,
     chunk_days: int | None = None,
+    reacquire_unproven_daily_summary: bool = False,
+    garmin_source_id: str | None = None,
+    reprocess: bool = False,
 ) -> GarminBackfillReport:
     """Return the intended date span/chunk/request shape without fetching."""
 
     start_date, end_date = validate_backfill_range(start, end)
     surfaces = resolve_backfill_surfaces(streams)
     days = validate_backfill_chunk_days(chunk_days)
+    validate_daily_summary_reacquisition(
+        enabled=reacquire_unproven_daily_summary,
+        source_id=garmin_source_id,
+        start=start_date,
+        end=end_date,
+        surfaces=surfaces,
+        reprocess=reprocess,
+    )
     chunks = plan_backfill_chunks(start_date, end_date, chunk_days=days, surfaces=surfaces)
     return GarminBackfillReport(
         status=GarminSyncStatus.NOT_RUN,
@@ -280,6 +328,7 @@ def plan_garmin_historical_backfill(
         chunk_days=days,
         streams=tuple(item.code for item in surfaces),
         dry_run=True,
+        reacquire_unproven_daily_summary=reacquire_unproven_daily_summary,
         request_count=0,
         chunks=chunks,
         remaining_chunk_count=len(chunks),
@@ -298,8 +347,11 @@ class GarminHistoricalBackfill:
         auth_result: GarminAuthResult | None = None,
         clock: Callable[[], datetime] | None = None,
         max_provider_requests: int = MAX_BACKFILL_PROVIDER_REQUESTS,
+        auth_loader: Callable[[], tuple[Any, GarminAuthResult]] | None = None,
     ) -> None:
         self.settings = settings
+        self.auth_loader = auth_loader
+        self.reacquire_unproven_daily_summary = False
         self.auth_result = auth_result or GarminAuthResult(status=GarminAuthStatus.AUTHENTICATED)
         self.clock = clock or (lambda: datetime.now(UTC))
         self.ingest = GarminIncrementalSync(
@@ -322,10 +374,22 @@ class GarminHistoricalBackfill:
         chunk_days: int | None = None,
         dry_run: bool = False,
         reprocess: bool = False,
+        reacquire_unproven_daily_summary: bool = False,
+        garmin_source_id: str | None = None,
     ) -> GarminBackfillReport:
         start_date, end_date = validate_backfill_range(start, end)
         surfaces = resolve_backfill_surfaces(streams)
         days = validate_backfill_chunk_days(chunk_days)
+        validate_daily_summary_reacquisition(
+            enabled=reacquire_unproven_daily_summary,
+            source_id=garmin_source_id,
+            start=start_date,
+            end=end_date,
+            surfaces=surfaces,
+            reprocess=reprocess,
+        )
+        self.reacquire_unproven_daily_summary = reacquire_unproven_daily_summary
+        self.ingest.daily_summary_reacquisition = None
         self.ingest.reprocess_outdated = reprocess
         chunks = plan_backfill_chunks(start_date, end_date, chunk_days=days, surfaces=surfaces)
         if dry_run:
@@ -336,6 +400,7 @@ class GarminHistoricalBackfill:
                 chunk_days=days,
                 streams=tuple(item.code for item in surfaces),
                 dry_run=True,
+                reacquire_unproven_daily_summary=reacquire_unproven_daily_summary,
                 request_count=0,
                 auth=self.auth_result if self.auth_result.ok else None,
                 chunks=chunks,
@@ -343,6 +408,10 @@ class GarminHistoricalBackfill:
                 remaining_day_count=(end_date - start_date).days + 1,
             )
 
+        if reacquire_unproven_daily_summary:
+            selected = resolve_runtime_paths(self.settings)
+            if not selected.root.is_dir() or not selected.database.is_file():
+                raise ValueError("reacquisition requires an existing profile database")
         paths = prepare_runtime(self.settings)
         with ExternalRuntimeOperationLock(paths):
             migrate_database(paths)
@@ -350,6 +419,67 @@ class GarminHistoricalBackfill:
             store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
             factory = create_session_factory(engine)
             try:
+                if reacquire_unproven_daily_summary:
+                    try:
+                        self.ingest.daily_summary_reacquisition = plan_daily_summary_reacquisition(
+                            factory,
+                            store,
+                            source_id=garmin_source_id,
+                            start=start_date,
+                            end=end_date,
+                            evaluated_at=self.clock(),
+                        )
+                    except (DailySummaryReacquisitionBlocked, SQLAlchemyError) as exc:
+                        reason = (
+                            str(exc)
+                            if isinstance(exc, DailySummaryReacquisitionBlocked)
+                            else "proof_metadata_unavailable"
+                        )
+                        return GarminBackfillReport(
+                            status=GarminSyncStatus.FAILED,
+                            start=start_date.isoformat(),
+                            end=end_date.isoformat(),
+                            chunk_days=days,
+                            streams=tuple(item.code for item in surfaces),
+                            dry_run=False,
+                            request_count=0,
+                            chunks=chunks,
+                            remaining_chunk_count=len(chunks),
+                            remaining_day_count=(end_date - start_date).days + 1,
+                            abort_reason="reacquisition_" + reason,
+                            reacquire_unproven_daily_summary=True,
+                        )
+                repair = self.ingest.daily_summary_reacquisition
+                if repair is not None and repair.proven_days == repair.requested_days:
+                    return GarminBackfillReport(
+                        status=GarminSyncStatus.SUCCEEDED,
+                        start=start_date.isoformat(),
+                        end=end_date.isoformat(),
+                        chunk_days=days,
+                        streams=("daily_summary",),
+                        dry_run=False,
+                        request_count=0,
+                        attempts=tuple(
+                            GarminSyncAttempt(
+                                surface="daily_summary",
+                                stream="daily_health",
+                                method="get_user_summary",
+                                day=day.isoformat(),
+                                status=GarminSyncStatus.SUCCEEDED,
+                                coverage_status=None,
+                                replayed=True,
+                                skipped=True,
+                            )
+                            for day in sorted(repair.proven_days)
+                        ),
+                        chunks=chunks,
+                        skipped_complete_count=len(repair.proven_days),
+                        reacquire_unproven_daily_summary=True,
+                    )
+                if self.auth_loader is not None:
+                    client, auth = self.auth_loader()
+                    self.auth_result = self.ingest.auth_result = auth
+                    self.ingest.client = client
                 return self._run(
                     factory,
                     store,
@@ -395,6 +525,7 @@ class GarminHistoricalBackfill:
                 dry_run=False,
                 request_count=0,
                 auth=auth,
+                reacquire_unproven_daily_summary=self.reacquire_unproven_daily_summary,
                 sync_run_id=run_id,
                 chunks=chunks,
                 remaining_chunk_count=len(chunks),
@@ -530,6 +661,7 @@ class GarminHistoricalBackfill:
             dry_run=False,
             request_count=budget.used,
             auth=auth,
+            reacquire_unproven_daily_summary=self.reacquire_unproven_daily_summary,
             sync_run_id=sync_run_id,
             attempts=tuple(attempts),
             chunks=chunks,
@@ -583,6 +715,8 @@ def run_garmin_historical_backfill(
     dry_run: bool = False,
     max_provider_requests: int = MAX_BACKFILL_PROVIDER_REQUESTS,
     reprocess: bool = False,
+    reacquire_unproven_daily_summary: bool = False,
+    garmin_source_id: str | None = None,
 ) -> GarminBackfillReport:
     """Run or plan one owner-invoked historical Garmin backfill."""
 
@@ -598,4 +732,6 @@ def run_garmin_historical_backfill(
         chunk_days=chunk_days,
         dry_run=dry_run,
         reprocess=reprocess,
+        reacquire_unproven_daily_summary=reacquire_unproven_daily_summary,
+        garmin_source_id=garmin_source_id,
     )
