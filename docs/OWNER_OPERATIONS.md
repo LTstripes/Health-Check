@@ -1531,8 +1531,12 @@ The worker Create/Bind/CheckActive/Pause/Resume/Complete recipe is maintained in
 The Integrator accepted this narrow contract on 2026-10-17 after the Owner chose a
 separate recovery folder instead of Windows Recycle Bin. The existing Bin probes
 and their counterexamples are historical research, not evidence for this consumer.
-This candidate changes source only. Installation, real moves and scheduling need
-separate project acceptance. Finance receives an unapplied delta independently.
+The original implementation candidate changed source only; its acceptance did not
+itself install a helper, move real workspaces or enable a schedule. Installation
+and scheduler receipts are separate, dated operational evidence. This chapter is
+the reusable procedure, not a statement that Health or Finance is currently
+uninstalled or awaiting activation. Consult the relevant project's current status
+and accepted installation receipt before proposing another setup operation.
 
 <a id="workspace-retirement--object-and-safety-boundary"></a>
 ### Object and safety boundary
@@ -1653,7 +1657,10 @@ presented as a complete manifest. No raw Git errors, process commands, real data
 file contents or credentials enter the structural latest report.
 
 <a id="workspace-retirement--acceptance-and-activation-plan"></a>
-### Acceptance and activation plan
+### Acceptance and activation procedure
+
+Apply this procedure when a new installation or change is explicitly assigned.
+Its presence here is not a pending task or a reason to repeat an accepted setup.
 
 Validate synthetic eligibility, both mutex winners, root/path/reparse guards,
 external content writes and new old-path occupants, destination/restore collisions,
