@@ -7,7 +7,7 @@ Essential boundaries for every agent. Read this and the active issue/applicable 
 - Docs/process: affected documents and relevant policy sections only.
 - Implementation/review: the governing contract, affected source/tests and [verification](docs/DEVELOPMENT_PROCESS.md#verification-by-change).
 - Data/health semantics, migration, restore, privacy or runtime boundaries: relevant architecture/ADRs and required review/UAT gates before changing the boundary.
-- Routing is Integrator work: [MODEL_ROUTING.md](docs/MODEL_ROUTING.md). Load only your relevant `docs/agents/` adapter; [orchestration](docs/AGENT_ORCHESTRATION.md) is opt-in, not ordinary Worker setup.
+- Routing is Integrator work: [risk and routing](docs/DEVELOPMENT_PROCESS.md#risk-and-routing). Load only your relevant client chapter in Development; [orchestration](docs/DEVELOPMENT_PROCESS.md#orchestration) is opt-in, not ordinary Worker setup.
 
 ## Sources of truth
 
@@ -16,10 +16,10 @@ Resolve conflicts in this order; this is precedence, not a mandatory reading lis
 2. `docs/ARCHITECTURE.md` and accepted ADRs — durable technical contracts.
 3. The active release spec explicitly designated by its tracker/Integrator.
 4. The active issue and applicable Integrator notes — task scope and acceptance.
-5. `docs/DEVELOPMENT_PROCESS.md`, then `docs/MODEL_ROUTING.md`, then `docs/AGENT_ORCHESTRATION.md` — their respective procedures.
-6. `docs/DECISIONS_AND_OPEN_QUESTIONS.md`, then backlog/history — context unless promoted into the governing contract.
+5. `docs/DEVELOPMENT_PROCESS.md` and `docs/OWNER_OPERATIONS.md` — their respective execution and operational procedures.
+6. `docs/PROJECT_WIKI.md` — dated status, remaining decisions, roadmap and history; context unless promoted into the governing contract.
 
-Without a designated new release spec, use architecture + roadmap + the active issue/notes. A completed release spec is historical, not automatically current. An issue may narrow a higher-priority contract, not silently override it; return conflicts to the Integrator.
+Without a designated new release spec, use architecture + Wiki roadmap + the active issue/notes. A completed release spec is historical, not automatically current. An issue may narrow a higher-priority contract, not silently override it; return conflicts to the Integrator.
 
 ## Roles
 
@@ -43,11 +43,11 @@ Stay on the assigned pinned baseline; the Integrator decides refresh/retest at i
 
 ## Physical workspace isolation
 
-One active write/verification task owns one physical working tree. Use only the assigned task directory; do not inspect/create/move/rename/delete sibling workspaces without an explicit filesystem assignment. Owner canonical, Stable/private-runtime and preview/UAT locations are not development workspaces, regardless of paths. Current Owner-machine roles and Windows roots are maintained in [Owner machine layout](docs/OWNER_MACHINE_LAYOUT.md); do not duplicate that path table here.
+One active write/verification task owns one physical working tree. Use only the assigned task directory; do not inspect/create/move/rename/delete sibling workspaces without an explicit filesystem assignment. Owner canonical, Stable/private-runtime and preview/UAT locations are not development workspaces, regardless of paths. Current Owner-machine roles and Windows roots are maintained in [Owner machine layout](docs/OWNER_OPERATIONS.md#machine-layout); do not duplicate that path table here.
 
 ## Owner data and runtime isolation
 
-Follow [Owner data and efficient task execution](docs/OWNER_DATA_WORKFLOW.md).
+Follow [Owner data and efficient task execution](docs/OWNER_OPERATIONS.md#owner-data-boundary).
 Owner-requested analysis, diagnosis and UAT permit relevant real-data reads and
 ordinary presentation in the authorized assistant conversation, without masking
 personal values or asking again for each query/image. Keep credentials out of
@@ -63,7 +63,7 @@ Do only the assigned issue/listed eligible work: no automatic next roadmap item,
 
 Claim the physical checkout before writing/testing and check ownership before delivery, as described in the Owner-data workflow. Every STOP cites a concrete boundary or failure; do not invent privacy gates for authorized Owner reads.
 
-Use [proportional checks](docs/DEVELOPMENT_PROCESS.md#verification-by-change), then required exact-candidate/integration gates. A separate participant does not automatically rerun the full suite; inspect valid evidence and add focused checks for concrete gaps. Required independent review is set by [risk policy](docs/MODEL_ROUTING.md#independent-review-triggers), not by enabling a queue.
+Use [proportional checks](docs/DEVELOPMENT_PROCESS.md#verification-by-change), then required exact-candidate/integration gates. A separate participant does not automatically rerun the full suite; inspect valid evidence and add focused checks for concrete gaps. Required independent review is set by [risk policy](docs/DEVELOPMENT_PROCESS.md#c4--critical--architecture--independent-review-triggers), not by enabling a queue.
 
 Never claim tests, browser/device/provider checks, independent review or success that were not performed. Report exact commands/results, candidate identity, failures and remaining `UNVERIFIED` work. Missing/interrupted/mismatched evidence is not a pass; changed code must not inherit an old pass. CI provenance/completeness rules are unchanged.
 
@@ -77,8 +77,8 @@ Model benchmarking and attribution bookkeeping were retired by the Owner in [#21
 
 ## Durable history and decisions
 
-Detailed evidence lives in issue/PR; Integrator-maintained engineering history keeps short linked outcomes, including useful failures. Workers/Orchestrators do not edit shared history. Durable contract changes belong in architecture/decision docs or ADRs; product releases need release notes, not copied engineering reports.
+Detailed evidence lives in issue/PR; Integrator-maintained Wiki recent outcomes keep short linked outcomes, including useful failures. Workers/Orchestrators edit shared status/history only when explicitly assigned. Durable contract changes belong in the governing Product/Architecture/Development/Operations chapter or an explicitly designated ADR; product releases need release notes, not copied engineering reports.
 
 ## Delivery
 
-Worker delivers the pushed task branch and report. Integrator checks the actual diff/evidence, accepts or returns findings, and alone performs canonical integration under [Development Process](docs/DEVELOPMENT_PROCESS.md). Orchestrated queues add only their [queue report](docs/AGENT_ORCHESTRATION.md#final-queue-report), not batch project acceptance.
+Worker delivers the pushed task branch and report. Integrator checks the actual diff/evidence, accepts or returns findings, and alone performs canonical integration under [Development Process](docs/DEVELOPMENT_PROCESS.md). Orchestrated queues add only their [queue report](docs/DEVELOPMENT_PROCESS.md#orchestration--final-queue-report), not batch project acceptance.
