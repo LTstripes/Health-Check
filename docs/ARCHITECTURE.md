@@ -3914,9 +3914,9 @@ precise time/date-only, correction and method rules.
 - #147/#191/#193 are complete provider-call-free shared projections; vocabulary fresh | quiet | stale | unavailable | unknown | not_requested.
 - Attempt/success, evidence time, coverage/checkpoints and configuration/request state remain distinct.
 - Daily due/grace is versioned; activities use proven inventory; voluntary Weight is non-alert by default. Unknown chronology does not become healthy; optional metrics do not fail a healthy provider.
-- #305 compact provider/action/stream presentation is integrated; eligible metric value/date/age and clone age are still missing. Successful freshness reads do not prove provider recovery or full Data acceptance.
-- #295 per-source indexed Google freshness reads are integrated with preserved facts. Latest clone /brief still takes 12–18 seconds; no arbitrary cache or deadline increase is authorized.
-- P1 #342 diagnoses missing Google sleep/scores, provider failure and clone-vs-live state; #340 owns the stored RHR surface exclusion. Weekly HRV remained missing in the inspected window; Google daily values cannot substitute it.
+- Successful freshness reads do not prove provider recovery, complete account history or full Data acceptance. Metric date, evidence age and clone age remain distinct facts; current delivery and outstanding acceptance belong in the [dated project status](PROJECT_WIKI.md#current-backlog).
+- Per-source indexed Google freshness reads preserve source facts. The earlier clone observation of 12–18 seconds on `/brief` is historical, not a current latency measurement; subsequent optimization is recorded in [#421](https://github.com/LTstripes/Health-Check/pull/421). Any performance conclusion requires a new measurement bound to its code/profile/window; no arbitrary cache or deadline increase follows from an old observation.
+- The stored RHR exclusion was fixed and independently checked ([#340 acceptance](https://github.com/LTstripes/Health-Check/issues/340#issuecomment-6089244192)); its remaining Owner acceptance is distinct from implementation. The bounded offline sleep diagnosis was accepted ([#342 receipt](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625)). Earlier missing HRV observations are window-specific; the later [calendar recovery amendment](#hrv-calendar-recovery) does not prove recovery of all history. Google daily HRV never substitutes Garmin weekly HRV.
 
 <a id="time-freshness-decisions--time-coverage-and-agreement"></a>
 #### Time, coverage and agreement
