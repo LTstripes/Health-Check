@@ -1966,6 +1966,7 @@ def test_completed_steps_v5_reuses_full_reader_without_materialization(profile, 
     assert (
         point["evidence"][0]["acquisition_receipt_version"] == "garmin-daily-summary-acquisition-v1"
     )
+    assert actual["unit"] == "count"
     assert actual["completed_day_count"] == actual["requested_day_count"] == days
     assert actual["excluded_uncompleted_day_count"] == 0 and actual["aggregate"] is None
     assert actual["effective_completed_range"] == {"start_date": str(start), "end_date": str(DAY)}

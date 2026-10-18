@@ -76,6 +76,7 @@ def read_completed_steps(session, source_id, start, end, clock, profile):
         **_project(asdict(result), COMPLETED_STEPS_SCHEMA),
         "temporal_precision": "date", "acquisition_coverage_state": "unknown",
         "meaning": "saved_completed_day_account_steps_moscow_display_policy",
+        "unit": "count",
         "source_pooling": "not_performed", "aggregate": None,
         "requested_day_count": (end - start).days + 1,
         "completed_day_count": len(result.cells),

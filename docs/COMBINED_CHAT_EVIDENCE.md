@@ -28,6 +28,7 @@ range or other sections. `requested_day_count`, `completed_day_count`,
 distinction; completed-day count is a calendar count, not value/acquisition coverage.
 The CLI's `--evaluation-local-date` does not override this Moscow completion clock.
 
+Step values explicitly use `unit=count`.
 The allowlist retains daily states/integers, latest acquisition and completion
 timestamps, exact source/hash/run/event/observation links, proof/receipt identity,
 and unknown coverage/device/timezone/finality. Newer null/missing/invalid evidence
