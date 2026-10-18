@@ -1,12 +1,60 @@
 # Combined Sleep + Activity + Context evidence
 
+## Optional completed-day Steps (v5)
+
+`CombinedEvidenceRequest.steps_view="completed"` explicitly selects the existing
+`garmin-completed-day-steps-moscow-v2` reader for `steps_garmin_source_id`.
+The default `steps_view="observed"` preserves the saved-observation reader and
+all existing v1-v4 shapes/defaults. Completed mode requires an exact Steps source
+and uses `health-chat-combined-evidence-v5` or
+`health-chat-combined-compact-evidence-v5`, even when Weight/other metrics are selected.
+The CLI opt-in is `--completed-day-steps` together with `--steps-garmin-source-id`;
+omitting it retains the existing flags and observed semantics. For example:
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2025-12-31 --days 7 --activity-garmin-source-id <activity-id> \
+  --steps-garmin-source-id <steps-id> --completed-day-steps \
+  --evaluation-local-date 2025-12-31 --projection compact --stdout json
+```
+
+Completed Steps uses the same physical read snapshot and aware UTC evaluation
+instant as the other sections. Europe/Moscow is an explicit day-completion
+display policy, not a supplied Garmin timezone or irrevocable finality. Current
+and future Moscow days are excluded without shifting the requested 7/30-day
+range or other sections. `requested_day_count`, `completed_day_count`,
+`excluded_uncompleted_day_count` and `effective_completed_range` disclose that
+distinction; completed-day count is a calendar count, not value/acquisition coverage.
+The CLI's `--evaluation-local-date` does not override this Moscow completion clock.
+
+Step values explicitly use `unit=count`.
+The allowlist retains daily states/integers, latest acquisition and completion
+timestamps, exact source/hash/run/event/observation links, proof/receipt identity,
+and unknown coverage/device/timezone/finality. Newer null/missing/invalid evidence
+does not reveal an older count; ties and legacy unproven partials keep v2 behavior.
+The reader internally verifies bounded original bytes; no original body or path
+is exported, and no projection, ingestion, replay, provider call or migration occurs.
+Its unchanged source-wide 4096 candidate/provenance, 1000 original, 1 MiB/original,
+16 MiB total-original and 5-second cooperative guards are disclosed in the section.
+Any incomplete search rejects the entire packet as `steps_search_incomplete`.
+There is no Steps aggregate or all-time mode in this slice.
+
+`POST /api/analysis-export` accepts optional `steps_view` (default `observed`).
+The updated form visibly defaults to completed Moscow days and can select saved
+observations; old API requests remain observed/v4. It shows actual completed
+dates, calendar counts and state counts without exposing daily values in the
+disclosure summary. Detailed/compact preserve identical Steps facts. Existing
+independent 2 MiB JSON/text limits, atomic download availability, no-store,
+private classification, source selection and Context-once behavior remain.
+
 ## Desktop UI: local analysis downloads (#451)
 
 The Overview page (`/brief`) includes **Выгрузка для анализа**. Select 7 or 30
 inclusive calendar dates and an end date, confirm the displayed Garmin source,
 then choose **Сформировать** and **Скачать текст** or **Скачать JSON**. The one
 Garmin selection is explicitly used for Activity, Sleep, Stress, Body Battery,
-weekly HRV, RHR and observed Steps; it never falls back to another Garmin source.
+weekly HRV, RHR and the selected Steps view; it never falls back to another Garmin source.
 Weight and current Context are included. Google Sleep and RHR use their existing
 metric-specific eligibility selection, retaining conflicts/incomplete outcomes.
 Google daily HRV uses the exact source shown in its separate selector, or is

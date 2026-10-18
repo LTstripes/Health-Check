@@ -96,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
                                 help=f"Opt in to saved {provider} {domain.upper()} evidence")
     parser.add_argument("--steps-garmin-source-id",
                         help="Opt in to saved observed account-level Steps; finality is unknown")
+    parser.add_argument("--completed-day-steps", action="store_true",
+                        help="Use completed Moscow days for the exact --steps-garmin-source-id")
     parser.add_argument("--include-weight", action="store_true",
                         help="Opt in to accepted saved Weight overlay and canonical evidence")
     parser.add_argument("--rhr-google-auto-select", action="store_true",
@@ -149,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
                 rhr_google_source_id=args.rhr_google_source_id,
                 rhr_google_auto_select=args.rhr_google_auto_select,
                 steps_garmin_source_id=args.steps_garmin_source_id,
-                include_weight=args.include_weight),
+                include_weight=args.include_weight,
+                steps_view="completed" if args.completed_day_steps else "observed"),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )
         if args.output_dir is not None:

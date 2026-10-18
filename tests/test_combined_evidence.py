@@ -1887,3 +1887,310 @@ def test_movement_new_sections_obey_existing_byte_cap(profile, monkeypatch):
     with pytest.raises(EvidenceError, match="output_exceeds_byte_limit"):
         read(profile, replace(profile[2], steps_garmin_source_id=steps_id,
                                include_weight=True))
+
+
+
+def _seed_completed_steps(profile, value=17, *, day=DAY, at=None, status="succeeded"):
+    from healthcheck.garmin.completed_steps_read import completion_boundary
+    from test_garmin_completed_steps import acquire
+
+    with session_scope(profile[1]) as session:
+        saved = acquire(
+            session,
+            ContentAddressedGarminPayloadStore(profile[0].root / "artifacts"),
+            value,
+            day=day,
+            at=at or completion_boundary(day) + timedelta(minutes=1),
+            account="completed-combined",
+            receipt=True,
+            status=status,
+        )
+        return saved.source.id
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("projection", ["detailed", "compact"])
+def test_completed_steps_v5_reuses_full_reader_without_materialization(profile, days, projection):
+    from dataclasses import asdict
+
+    from healthcheck.garmin.completed_steps_read import read_completed_steps_window
+
+    identity = _seed_completed_steps(profile, 0, status="partial")
+    request = replace(
+        profile[2],
+        days=days,
+        projection=projection,
+        steps_garmin_source_id=identity,
+        steps_view="completed",
+        include_weight=True,
+    )
+    packet = read(profile, request)
+    assert packet["version"] == (
+        "health-chat-combined-compact-evidence-v5"
+        if projection == "compact"
+        else "health-chat-combined-evidence-v5"
+    )
+    assert packet["request"]["steps_view"] == "completed"
+    if projection == "compact":
+        assert packet["projection"]["detailed_version"] == "health-chat-combined-evidence-v5"
+    start = request.domain_requests()[0].start_date
+    with evidence._read_session(profile[0].root) as session:
+        expected = asdict(
+            read_completed_steps_window(
+                session,
+                payload_store=ContentAddressedGarminPayloadStore(profile[0].root / "artifacts"),
+                source_id=identity,
+                start_date=start,
+                end_date=DAY,
+                evaluated_at=CLOCK,
+            )
+        )
+    actual = packet["sections"]["steps"]
+    for key in (
+        "source_id",
+        "start_date",
+        "end_date",
+        "evaluated_at",
+        "source_identity",
+        "cells",
+        "search_complete",
+        "reason",
+        "contract_version",
+        "display_zone",
+    ):
+        assert json.loads(chat_evidence._json(actual[key])) == json.loads(
+            chat_evidence._json(expected[key])
+        )
+    point = next(cell for cell in actual["cells"] if cell["calendar_date"] == DAY)
+    assert point["value"] == 0 and point["state"] == "value"
+    assert (
+        point["evidence"][0]["acquisition_receipt_version"] == "garmin-daily-summary-acquisition-v1"
+    )
+    assert actual["unit"] == "count"
+    assert actual["completed_day_count"] == actual["requested_day_count"] == days
+    assert actual["excluded_uncompleted_day_count"] == 0 and actual["aggregate"] is None
+    assert actual["effective_completed_range"] == {"start_date": str(start), "end_date": str(DAY)}
+    assert (
+        actual["acquisition_coverage_state"] == point["finality"] == point["timezone"] == "unknown"
+    )
+    encoded = evidence.encode_combined_evidence(packet)
+    assert "relative_storage_path" not in encoded and str(profile[0].root) not in encoded
+    assert "steps saved facts:" in evidence.render_combined_evidence(packet)
+    observed = read(profile, replace(request, steps_view="observed"))
+    assert observed["version"].endswith("v4")
+    assert "steps_view" not in observed["request"]
+    assert all(cell["value"] is None for cell in observed["sections"]["steps"]["cells"])
+
+
+@pytest.mark.parametrize(
+    "value,state",
+    [
+        (7, "value"),
+        (0, "value"),
+        (None, "null"),
+        (True, "invalid"),
+        (-1, "invalid"),
+        (2**53 + 1, "value"),
+    ],
+)
+def test_completed_steps_latest_correction_and_states(profile, value, state):
+    from healthcheck.garmin.completed_steps_read import completion_boundary
+
+    identity = _seed_completed_steps(profile, 99999)
+    _seed_completed_steps(profile, value, at=completion_boundary(DAY) + timedelta(minutes=2))
+    packet = read(
+        profile, replace(profile[2], steps_garmin_source_id=identity, steps_view="completed")
+    )
+    cell = next(
+        cell for cell in packet["sections"]["steps"]["cells"] if cell["calendar_date"] == DAY
+    )
+    assert cell["state"] == state and cell["value"] == (value if state == "value" else None)
+    assert len(cell["evidence"]) == 2
+
+
+@pytest.mark.parametrize("counts,state,value", [([7, 7], "value", 7), ([7, 9], "ambiguous", None)])
+def test_completed_steps_ties_are_not_summed_or_tiebroken(profile, counts, state, value):
+    for count in counts:
+        identity = _seed_completed_steps(profile, count)
+    cell = next(
+        cell
+        for cell in read(
+            profile, replace(profile[2], steps_garmin_source_id=identity, steps_view="completed")
+        )["sections"]["steps"]["cells"]
+        if cell["calendar_date"] == DAY
+    )
+    assert (cell["state"], cell["value"]) == (state, value)
+    assert len(cell["evidence"]) == 2
+
+
+def test_completed_steps_preserves_requested_dates_and_moscow_cutoff(profile):
+    from healthcheck.garmin.completed_steps_read import completion_boundary
+
+    identity = _seed_completed_steps(profile)
+    now = completion_boundary(DAY) - timedelta(microseconds=1)
+    request = replace(profile[2], steps_garmin_source_id=identity, steps_view="completed")
+    packet = read(profile, request, evaluated_at_utc=now)
+    section = packet["sections"]["steps"]
+    assert packet["request"]["effective_range"]["end_date"] == str(DAY)
+    assert section["completed_day_count"] == 6 and section["excluded_uncompleted_day_count"] == 1
+    assert section["effective_completed_range"]["end_date"] == str(DAY - timedelta(days=1))
+    assert all(cell["calendar_date"] < DAY for cell in section["cells"])
+    future = read(profile, replace(request, end_date=DAY + timedelta(days=6)), evaluated_at_utc=now)
+    assert future["sections"]["steps"]["reason"] == "no_completed_days"
+    assert future["sections"]["steps"]["cells"] == []
+    assert future["sections"]["steps"]["effective_completed_range"] == {
+        "start_date": None,
+        "end_date": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "view,identity,code",
+    [
+        ("unknown", "id", "invalid_steps_view"),
+        (True, "id", "invalid_steps_view"),
+        ("completed", None, "completed_steps_requires_source"),
+    ],
+)
+def test_completed_mode_validation_precedes_profile_read(
+    profile, monkeypatch, view, identity, code
+):
+    monkeypatch.setattr(evidence, "_read_session", lambda *_: pytest.fail("read before validation"))
+    with pytest.raises(EvidenceError, match=code):
+        read(profile, replace(profile[2], steps_garmin_source_id=identity, steps_view=view))
+
+
+def test_completed_steps_shares_physical_snapshot_and_context_once(profile, monkeypatch):
+    from healthcheck import combined_movement
+
+    identity = _seed_completed_steps(profile, 17)
+    original = combined_movement.read_completed_steps
+    sessions, contexts = [], []
+
+    def corrected_during_read(session, *arguments):
+        assert session.connection().connection.driver_connection.in_transaction
+        sessions.append(session)
+        from healthcheck.garmin.completed_steps_read import completion_boundary
+
+        _seed_completed_steps(profile, 7, at=completion_boundary(DAY) + timedelta(minutes=3))
+        return original(session, *arguments)
+
+    original_context = ContextService.list
+
+    def context(self, **kwargs):
+        contexts.append(self.session)
+        return original_context(self, **kwargs)
+
+    monkeypatch.setattr(combined_movement, "read_completed_steps", corrected_during_read)
+    monkeypatch.setattr(ContextService, "list", context)
+    request = replace(profile[2], steps_garmin_source_id=identity, steps_view="completed")
+    packet = read(profile, request)
+    assert sessions == contexts and len(contexts) == 1
+    cell = next(
+        cell for cell in packet["sections"]["steps"]["cells"] if cell["calendar_date"] == DAY
+    )
+    assert cell["value"] == 17
+    monkeypatch.setattr(combined_movement, "read_completed_steps", original)
+    later = read(profile, request)
+    assert (
+        next(cell for cell in later["sections"]["steps"]["cells"] if cell["calendar_date"] == DAY)[
+            "value"
+        ]
+        == 7
+    )
+
+
+@pytest.mark.parametrize(
+    "cap",
+    [
+        "MAX_CANDIDATES",
+        "MAX_PROVENANCE",
+        "MAX_ARTIFACTS",
+        "MAX_ARTIFACT_BYTES",
+        "MAX_TOTAL_BYTES",
+        "MAX_READ_SECONDS",
+    ],
+)
+def test_completed_steps_limits_reject_entire_cli_packet(
+    profile, monkeypatch, capsys, tmp_path, cap
+):
+    from types import SimpleNamespace
+
+    from healthcheck.garmin import completed_steps_read
+
+    identity = _seed_completed_steps(profile)
+    monkeypatch.setattr(cli, "datetime", SimpleNamespace(now=lambda _zone: CLOCK))
+    monkeypatch.setattr(completed_steps_read, cap, -1 if cap == "MAX_READ_SECONDS" else 0)
+    extra = ["--steps-garmin-source-id", identity, "--completed-day-steps"]
+    assert cli.main([*stdout_args(profile, "json"), *extra]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "Export failed: steps_search_incomplete\n"
+    output = tmp_path / "no-completed-prefix"
+    assert cli.main([*args(profile, output), *extra]) == 2
+    assert not output.exists()
+
+
+def test_completed_steps_cli_serializers_and_readonly_boundary(
+    profile, monkeypatch, capsys, tmp_path
+):
+    from types import SimpleNamespace
+
+    from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
+
+    identity = _seed_completed_steps(profile)
+    monkeypatch.setattr(cli, "datetime", SimpleNamespace(now=lambda _zone: CLOCK))
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("completed export crossed read-only boundary")
+
+    monkeypatch.setattr(SavedDailyStepsRepository, "project_day", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr("healthcheck.runtime.prepare_runtime", forbidden)
+    monkeypatch.setattr("healthcheck.db.engine.migrate_database", forbidden)
+    extra = [
+        "--steps-garmin-source-id",
+        identity,
+        "--completed-day-steps",
+        "--projection",
+        "compact",
+    ]
+    assert cli.main([*stdout_args(profile, "json"), *extra]) == 0
+    packet = json.loads(capsys.readouterr().out)
+    assert packet["version"] == "health-chat-combined-compact-evidence-v5"
+    assert cli.main([*stdout_args(profile, "text"), *extra]) == 0
+    text = capsys.readouterr().out
+    assert "garmin-completed-day-steps-moscow-v2" in text
+    output = tmp_path / "completed-files"
+    assert cli.main([*args(profile, output), *extra]) == 0
+    capsys.readouterr()
+    saved = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
+    assert saved["sections"]["steps"] == packet["sections"]["steps"]
+    assert (output / "evidence.txt").read_text(
+        encoding="utf-8"
+    ) == evidence.render_combined_evidence(saved)
+    assert cli.main([*stdout_args(profile, "json"), "--completed-day-steps"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "completed_steps_requires_source" in captured.err
+
+
+
+@pytest.mark.parametrize("latest", ["missing", "unproven_partial"])
+def test_completed_newest_missing_and_unproven_partial_never_reveal_old_value(profile, latest):
+    from healthcheck.garmin.completed_steps_read import completion_boundary
+    from test_garmin_completed_steps import ABSENT, acquire
+
+    identity = _seed_completed_steps(profile, 17)
+    with session_scope(profile[1]) as session:
+        acquire(
+            session, ContentAddressedGarminPayloadStore(profile[0].root / "artifacts"),
+            ABSENT if latest == "missing" else 999,
+            day=DAY, at=completion_boundary(DAY) + timedelta(minutes=3),
+            account="completed-combined", receipt=latest == "missing",
+            status="succeeded" if latest == "missing" else "partial")
+    packet = read(profile, replace(
+        profile[2], steps_garmin_source_id=identity, steps_view="completed"))
+    cell = next(cell for cell in packet["sections"]["steps"]["cells"]
+                if cell["calendar_date"] == DAY)
+    assert cell["value"] is None
+    assert cell["state"] == ("missing" if latest == "missing" else "unavailable")
+    assert packet["sections"]["steps"]["search_complete"] is True

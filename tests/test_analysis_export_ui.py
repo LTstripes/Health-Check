@@ -182,3 +182,47 @@ def test_disclosures_reduce_cells_to_state_counts_only():
     ]}
     assert ui._disclosures(value) == {"cell_state_counts": {
         "value": 2, "ambiguous": 1, "unavailable": 1}}
+
+
+
+def test_completed_export_api_mode_and_legacy_default(client, profile, monkeypatch):
+    from types import SimpleNamespace
+
+    from test_combined_evidence import _seed_completed_steps
+    from test_sleep_evidence import CLOCK
+
+    identity = _seed_completed_steps(profile, 0)
+    monkeypatch.setattr(ui, "datetime", SimpleNamespace(now=lambda _zone: CLOCK))
+    response = client.post(
+        "/api/analysis-export",
+        json=selection(
+            profile, garmin_source_id=identity, google_hrv_source_id=None, steps_view="completed"
+        ),
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    packet = json.loads(data["json"])
+    assert packet["version"] == "health-chat-combined-compact-evidence-v5"
+    assert packet["request"]["steps_view"] == "completed"
+    assert data["disclosures"]["steps"]["display_zone"] == "Europe/Moscow"
+    assert data["disclosures"]["steps"]["completed_day_count"] == 7
+    assert "effective_completed_range" in data["disclosures"]["steps"]
+    assert data["disclosures"]["steps"]["cell_state_counts"]["value"] == 1
+    legacy = client.post("/api/analysis-export", json=selection(profile))
+    assert (
+        json.loads(legacy.json()["json"])["version"] == "health-chat-combined-compact-evidence-v4"
+    )
+    bad = client.post(
+        "/api/analysis-export", json=selection(profile, steps_view="private-invalid-mode")
+    )
+    assert bad.status_code == 400 and bad.json() == {"code": "invalid_steps_view"}
+
+
+def test_completed_export_ui_declares_mode_and_effective_days(client):
+    response = client.get("/brief")
+    assert 'name="steps_view"' in response.text
+    assert '<option value="completed" selected>' in response.text
+    assert '<option value="observed">' in response.text
+    script = client.get("/static/analysis_export.js").text
+    assert 'steps_view: values.get("steps_view")' in script
+    assert "effective_completed_range" in script and "completed_day_count" in script

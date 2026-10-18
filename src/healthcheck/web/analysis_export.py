@@ -28,6 +28,7 @@ class ExportRequest(BaseModel):
     days: int = Field(strict=True)
     garmin_source_id: str = Field(min_length=1, max_length=36)
     google_hrv_source_id: str | None = Field(default=None, min_length=1, max_length=36)
+    steps_view: str = "observed"
 
 
 def _error(code: str, status: int = 400) -> JSONResponse:
@@ -65,7 +66,9 @@ def _disclosures(value: dict) -> dict:
     """Show reader metadata without daily rows, comments or a second analytics layer."""
     result = {}
     for key, item in value.items():
-        if isinstance(item, dict):
+        if key == "effective_completed_range" and isinstance(item, dict):
+            result[key] = {bound: item[bound] for bound in ("start_date", "end_date")}
+        elif isinstance(item, dict):
             nested = _disclosures(item)
             if nested:
                 result[key] = nested
@@ -76,7 +79,7 @@ def _disclosures(value: dict) -> dict:
             result[key + "_count"] = len(item)
         elif (key in {"state", "status", "availability", "window_state", "origin_state",
                       "reason", "search_complete", "complete", "has_more",
-                      "truncated", "warnings", "acquisition_coverage_state"}
+                      "truncated", "warnings", "acquisition_coverage_state", "display_zone"}
               or key.endswith(("_day_count", "_count"))):
             result[key] = item
     return result
@@ -94,7 +97,7 @@ def generate(request: Request, selection: ExportRequest) -> JSONResponse:
             stress_garmin_source_id=source, body_battery_garmin_source_id=source,
             hrv_garmin_source_id=source, hrv_google_source_id=selection.google_hrv_source_id,
             rhr_garmin_source_id=source, rhr_google_auto_select=True,
-            steps_garmin_source_id=source, include_weight=True,
+            steps_garmin_source_id=source, include_weight=True, steps_view=selection.steps_view,
         )
         packet = read_combined_evidence(
             profile=request.app.state.runtime_paths.root, profile_kind="durable_owner_runtime",
