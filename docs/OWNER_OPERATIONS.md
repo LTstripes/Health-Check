@@ -1245,7 +1245,10 @@ only for the authorized acquisition. Actual execution validates one complete
 bounded proof snapshot under the operation lock before auth. Incomplete search,
 original/spine integrity uncertainty, ambiguous latest evidence, invalid source
 binding or current/future dates stop without provider calls. No cap is raised or
-reset to bypass this failure. `--reprocess`, mixed streams and missing explicit
+reset to bypass this failure. An existing receipt on an acquisition the native
+reader cannot prove also blocks for separate diagnosis, even when its run is
+failed/running/nonterminal. This mode requires unproven acquisitions to be
+unreceipted. `--reprocess`, mixed streams and missing explicit
 `--data-dir`/source are rejected.
 
 Already proven latest acquisitions skip, including zero/null/missing/invalid

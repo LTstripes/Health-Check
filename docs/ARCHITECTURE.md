@@ -1668,8 +1668,12 @@ source binding, ambiguous latest evidence and non-completed dates fail closed.
 Budgets are neither raised nor reset per chunk. Latest proven acquisitions skip
 even when Steps is zero, null, missing or invalid; acquisition proof is distinct
 from numeric availability. Legacy succeeded proof and valid terminal-partial
-receipts use the existing reader predicates. Source selection binds the existing
-provider/device identity; it does not establish an external Garmin account ID.
+receipts use the existing reader predicates. Unproven acquisitions must be unreceipted for this repair: any existing receipt
+on an acquisition the native reader cannot prove blocks for separate diagnosis,
+including a receipt on a failed, running or nonterminal run. This conservative
+boundary avoids adjudicating disputed receipts or adding another metadata scan.
+Source selection binds the existing provider/device identity; it does not
+establish an external Garmin account ID.
 
 Unproven selected dates use the existing complete `get_user_summary` persistence
 transaction with strict returned-day and source binding. A later acquisition can

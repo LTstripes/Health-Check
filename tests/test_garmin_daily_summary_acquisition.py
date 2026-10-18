@@ -1258,3 +1258,44 @@ def test_reacquire_clean_unproven_run_remains_reacquirable(tmp_path, status):
         assert session.get(Receipt, old_ids[0]) is None
         cell = read(session, store, source, now=REPAIR_CLOCK + timedelta(seconds=1)).cells[0]
         assert cell.state == "value" and cell.latest_received_at == REPAIR_CLOCK
+
+
+@pytest.mark.parametrize("status", ["failed", "running", "partial_unfinished"])
+@pytest.mark.parametrize("receipt_kind", ["valid", "wrong_day", "unsupported_version"])
+def test_reacquire_unproven_existing_receipt_always_blocks_before_auth(
+    tmp_path, status, receipt_kind
+):
+    root = tmp_path / "synthetic-runtime"
+    run_status = "partial" if status == "partial_unfinished" else status
+    source, old_run, old_ids = _repair_seed(root, status=run_status)
+    with database(root) as (session, store):
+        if status in {"running", "partial_unfinished"}:
+            session.get(SyncRun, old_run).completed_at = None
+        day = DAY + timedelta(days=1) if receipt_kind == "wrong_day" else DAY
+        session.add(
+            Receipt(
+                observation_id=old_ids[0],
+                contract_version="synthetic-unsupported"
+                if receipt_kind == "unsupported_version"
+                else RECEIPT_VERSION,
+                surface="daily_summary",
+                method="get_user_summary",
+                requested_date=day,
+                original_calendar_date=day,
+            )
+        )
+        session.commit()
+        cell = read(session, store, source, now=REPAIR_CLOCK).cells[0]
+        assert cell.evidence[0].reason == "acquisition_success_unproven"
+        assert cell.evidence[0].acquisition_receipt_version is not None
+        before = _repair_counts(session)
+
+    def forbidden_auth():
+        raise AssertionError("unproven existing receipt requires separate diagnosis")
+
+    result = _repair_run(root, source, None, auth_loader=forbidden_auth)
+    assert result.request_count == 0
+    assert result.abort_reason == "reacquisition_acquisition_metadata_invalid"
+    with database(root) as (session, _):
+        assert _repair_counts(session) == before
+        assert session.get(SyncRun, old_run).status == run_status

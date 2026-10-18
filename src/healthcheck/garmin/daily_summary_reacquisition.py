@@ -97,8 +97,14 @@ def plan_daily_summary_reacquisition(
             # A clean non-successful acquisition can be reacquired. Contradictory
             # identity/spine/receipt metadata is a different failure: the reader
             # exposes it as unproven evidence even when its scan is complete.
+            # A non-successful run can mask receipt defects behind that same
+            # reason, so an existing unproven receipt requires separate diagnosis.
             if any(
-                not item.acquisition_proven and item.reason != "acquisition_success_unproven"
+                not item.acquisition_proven
+                and (
+                    item.reason != "acquisition_success_unproven"
+                    or item.acquisition_receipt_version is not None
+                )
                 for item in cell.evidence
             ):
                 raise DailySummaryReacquisitionBlocked("acquisition_metadata_invalid")
