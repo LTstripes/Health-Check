@@ -1180,3 +1180,81 @@ def test_reacquire_uses_one_proof_snapshot_across_chunks(tmp_path, monkeypatch):
             now=REPAIR_CLOCK + timedelta(seconds=1),
         ).cells
         assert [c.state for c in cells] == ["value"] * 3
+
+
+@pytest.mark.parametrize(
+    "mismatch", ["run_provider", "event", "receipt_day", "receipt_version", "missing_run"]
+)
+def test_reacquire_malformed_spine_or_receipt_blocks_before_auth(tmp_path, mismatch):
+    from healthcheck.db.models import IngestEvent
+    from test_garmin_completed_steps import append_unproven
+
+    root = tmp_path / "synthetic-runtime"
+    source, old_run, old_ids = _repair_seed(root)
+    with database(root) as (session, store):
+        observation = session.get(GarminPayloadObservation, old_ids[0])
+        if mismatch == "run_provider":
+            other = repositories_for(session).providers.get_or_create(
+                "synthetic-other", "Synthetic Other", "wearable"
+            )
+            session.get(SyncRun, old_run).provider_id = other.id
+        elif mismatch == "event":
+            session.get(IngestEvent, observation.ingest_event_id).status = "failed"
+        elif mismatch == "missing_run":
+            append_unproven(
+                session,
+                observation,
+                sync_run_id=None,
+                received_at=REPAIR_CLOCK - timedelta(seconds=1),
+            )
+        else:
+            # Insert a schema-valid but semantically invalid synthetic receipt;
+            # never disable append-only triggers or mutate an existing receipt.
+            day = DAY + timedelta(days=1) if mismatch == "receipt_day" else DAY
+            session.add(
+                Receipt(
+                    observation_id=observation.id,
+                    contract_version="synthetic-unsupported"
+                    if mismatch == "receipt_version"
+                    else RECEIPT_VERSION,
+                    surface="daily_summary",
+                    method="get_user_summary",
+                    requested_date=day,
+                    original_calendar_date=day,
+                )
+            )
+        session.commit()
+        window = read(session, store, source, now=REPAIR_CLOCK)
+        assert window.search_complete
+        assert any(
+            not e.acquisition_proven and e.reason != "acquisition_success_unproven"
+            for e in window.cells[0].evidence
+        )
+        before = _repair_counts(session)
+
+    def forbidden_auth():
+        raise AssertionError("malformed proof must block before auth/fetch")
+
+    result = _repair_run(root, source, None, auth_loader=forbidden_auth)
+    assert result.request_count == 0
+    assert result.abort_reason == "reacquisition_acquisition_metadata_invalid"
+    with database(root) as (session, _):
+        assert _repair_counts(session) == before
+        assert session.get(SyncRun, old_run).status == "partial"
+
+
+@pytest.mark.parametrize("status", ["partial", "failed", "running"])
+def test_reacquire_clean_unproven_run_remains_reacquirable(tmp_path, status):
+    root = tmp_path / "synthetic-runtime"
+    source, old_run, old_ids = _repair_seed(root, status=status)
+    if status == "running":
+        with database(root) as (session, _):
+            session.get(SyncRun, old_run).completed_at = None
+            session.commit()
+    result = _repair_run(root, source, _steps_client(_repair_payload))
+    assert result.status is sync.GarminSyncStatus.SUCCEEDED and result.request_count == 1
+    with database(root) as (session, store):
+        assert session.get(SyncRun, old_run).status == status
+        assert session.get(Receipt, old_ids[0]) is None
+        cell = read(session, store, source, now=REPAIR_CLOCK + timedelta(seconds=1)).cells[0]
+        assert cell.state == "value" and cell.latest_received_at == REPAIR_CLOCK

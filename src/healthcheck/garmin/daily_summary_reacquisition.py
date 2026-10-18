@@ -94,6 +94,14 @@ def plan_daily_summary_reacquisition(
             raise DailySummaryReacquisitionBlocked("source_binding_invalid")
         proven = set()
         for cell in window.cells:
+            # A clean non-successful acquisition can be reacquired. Contradictory
+            # identity/spine/receipt metadata is a different failure: the reader
+            # exposes it as unproven evidence even when its scan is complete.
+            if any(
+                not item.acquisition_proven and item.reason != "acquisition_success_unproven"
+                for item in cell.evidence
+            ):
+                raise DailySummaryReacquisitionBlocked("acquisition_metadata_invalid")
             if cell.state == "ambiguous":
                 raise DailySummaryReacquisitionBlocked("latest_acquisition_ambiguous")
             latest = [item for item in cell.evidence if item.received_at == cell.latest_received_at]
