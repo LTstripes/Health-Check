@@ -1,5 +1,52 @@
 # Combined Sleep + Activity + Context evidence
 
+## Desktop UI: local analysis downloads (#451)
+
+The Overview page (`/brief`) includes **Выгрузка для анализа**. Select 7 or 30
+inclusive calendar dates and an end date, confirm the displayed Garmin source,
+then choose **Сформировать** and **Скачать текст** or **Скачать JSON**. The one
+Garmin selection is explicitly used for Activity, Sleep, Stress, Body Battery,
+weekly HRV, RHR and observed Steps; it never falls back to another Garmin source.
+Weight and current Context are included. Google Sleep and RHR use their existing
+metric-specific eligibility selection, retaining conflicts/incomplete outcomes.
+Google daily HRV uses the exact source shown in its separate selector, or is
+omitted when **Не включать** is selected. A unique inventory source is preselected
+visibly; competing sources require a choice. The UI does not pool providers.
+
+`GET /api/analysis-export/sources` reads only bounded saved source identities,
+with a fail-closed 32-source ceiling per provider table. It does not query provider
+accounts. `POST /api/analysis-export` accepts dates and source IDs, never a profile
+path. It uses the running UI's configured local runtime, explicitly classifies it
+as private durable-runtime evidence, and calls the existing combined reader once
+with compact projection. This is a caller classification, not verification of a
+Stable identity or of the underlying data's origin. Local synthetic checks use
+only synthetic profiles; the UI conservatively labels their exports private too.
+
+Both unchanged serializers must finish under their existing independent 2 MiB
+limits before either file becomes available. The two downloads use the same
+frozen packet, period and envelope identity; downloading again does not read the
+database again. Responses are `Cache-Control: no-store`; the server creates no
+export files or retained packet cache. Browser Blob URLs live in the current tab,
+are revoked on parameter changes, regeneration or page exit, and are not uploaded.
+User-downloaded files remain in the browser's ordinary download destination.
+
+The UI shows reader states/counts, missing/unknown/conflict/search outcomes and
+warnings without interpreting health values. Context keeps the existing 50-row
+page: `has_more`/`truncated` is disclosed, not presented as a complete archive.
+All other existing reader, SQL/time and output limits remain. Oversize or failed
+reads/serialization produce an error and no downloadable prefix. Changing controls
+invalidates prior downloads and ignores/aborts stale in-flight responses. A failed
+request can be retried; unavailable inventory has its own retry control.
+
+This is a potentially megabyte-sized evidence export, not a short summary or a
+clipboard promise. No clipboard action, external AI/API call, automatic transfer,
+provider refresh, ingestion, MCP change, Stable deployment or schedule is added.
+Observed Steps retain unknown finality/coverage; Body Battery remains saved-sample
+maxima, and Garmin weekly versus Google daily HRV remain different series. Existing
+missing/null/zero, date precision, provenance and causal limits are unchanged.
+
+
+
 ## Optional saved observed Steps and Weight (#451)
 
 Set `steps_garmin_source_id` (CLI `--steps-garmin-source-id`) to select one exact

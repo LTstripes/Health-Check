@@ -97,6 +97,8 @@
   {% else %}<p class="muted">Источник Garmin не сохранён. <a href="/imports">Проверить источники</a></p>{% endif %}
 </section>
 
+{% include "analysis_export.html" %}
+
 {% if source_actions %}
 <section class="brief-source-attention" aria-label="Источники требуют внимания">
   <details class="owner-details brief-source-disclosure">
@@ -199,3 +201,5 @@
 {% endcall %}
 </div>
 {% endblock %}
+
+{% block scripts %}<script src="/static/analysis_export.js" defer></script>{% endblock %}

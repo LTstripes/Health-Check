@@ -75,6 +75,7 @@
       "tests/test_weight_analytics.py"
     ],
     "app-ingest": [
+      "tests/test_analysis_export_ui.py",
       "tests/test_bootstrap.py",
       "tests/test_context_ui.py",
       "tests/test_owner_presentation.py",

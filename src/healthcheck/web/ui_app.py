@@ -20,6 +20,7 @@ from healthcheck.logging import log_event
 from healthcheck.web.activity_detail import router as activity_detail_router
 from healthcheck.web.activity_period import router as activity_period_router
 from healthcheck.web.agreement import router as agreement_router
+from healthcheck.web.analysis_export import router as analysis_export_router
 from healthcheck.web.common import wants_html
 from healthcheck.web.context import router as context_router
 from healthcheck.web.garmin import router as garmin_router
@@ -56,6 +57,7 @@ def create_ui_app(
     app.include_router(activity_period_router)
     app.include_router(agreement_router)
     app.include_router(period_brief_router)
+    app.include_router(analysis_export_router)
     app.include_router(source_freshness_router)
     app.include_router(context_router)
     app.include_router(statistics_router)
