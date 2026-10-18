@@ -255,3 +255,105 @@ def test_browser_period_captures_share_one_exact_source(statistics_ui):
         assert response.status_code == 200
         assert source_id in steps_html(response)
         export(response, f"completed-{period}")
+
+
+def test_all_time_stats_real_route_and_google_not_collected(statistics_ui, monkeypatch):
+    from healthcheck.web import statistics as module
+
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    calls = []
+    monkeypatch.setattr(
+        module, "steps_evaluation_instant", lambda: (calls.append(1), NOW + timedelta(days=7))[1]
+    )
+    monkeypatch.setattr(
+        module, "read_completed_steps_window", lambda *a, **k: pytest.fail("window loop")
+    )
+    response = client.get(
+        "/statistics", params={"steps_period": "all_time", "garmin_source_id": source_id}
+    )
+    assert response.status_code == 200 and len(calls) == 1
+    history = response.context["steps"]
+    assert history.statistics.total == 20 and history.statistics.eligible_day_count == 3
+    html = steps_html(response)
+    assert 'data-steps-provider="google" data-steps-history-state="not_collected"' in html
+    assert 'data-steps-stat="total">20<' in html
+    assert 'data-steps-stat="mean">6,7<' in html
+    assert "Полный поиск сохранённых данных не доказывает полную историю аккаунта" in html
+    assert "snapshot" in html and source_id in html
+    assert history.statistics.state_counts == {"value": 3, "null": 1, "missing": 1, "invalid": 1}
+
+
+def test_all_time_explicit_end_does_not_change_other_windows(statistics_ui):
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    response = client.get(
+        "/statistics",
+        params={
+            "period": "calendar_year",
+            "calendar_year": 2099,
+            "end_date": DAY.isoformat(),
+            "steps_period": "all_time",
+            "garmin_source_id": source_id,
+        },
+    )
+    assert response.status_code == 200
+    assert response.context["steps"].end_date == DAY
+    assert response.context["steps"].statistics.total == 17
+    assert response.context["packet"]["requested_window"]["end_date"] == "2099-12-31"
+
+
+@pytest.mark.parametrize("mode", ["omitted", "window"])
+def test_window_mode_compatibility_remains_v2(statistics_ui, mode):
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    params = {"end_date": DAY.isoformat(), "garmin_source_id": source_id}
+    if mode == "window":
+        params["steps_period"] = "window"
+    response = client.get("/statistics", params=params)
+    assert response.status_code == 200
+    assert response.context["steps"].contract_version == "garmin-completed-day-steps-moscow-v2"
+    assert 'data-steps-stat="total"' not in steps_html(response)
+    assert StepsParser(response.text).values[DAY.isoformat()] == "17"
+
+
+def test_all_time_incomplete_no_numeric_prefix_and_recovery(statistics_ui, monkeypatch):
+    from healthcheck.garmin import completed_steps_read as reader
+
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    params = {"steps_period": "all_time", "garmin_source_id": source_id}
+    monkeypatch.setattr(reader, "MAX_ALL_TIME_ARTIFACTS", 1)
+    response = client.get("/statistics", params=params)
+    assert response.status_code == 200
+    assert response.context["steps"].statistics is None
+    assert 'data-steps-history-state="search_incomplete"' in response.text
+    assert 'data-steps-stat="total"' not in response.text
+    monkeypatch.setattr(reader, "MAX_ALL_TIME_ARTIFACTS", 4096)
+    assert client.get("/statistics", params=params).context["steps"].statistics.total == 20
+
+
+def test_all_time_requires_explicit_account_and_invalid_mode_is_sanitized(
+    statistics_ui, monkeypatch
+):
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    response = client.get("/statistics", params={"steps_period": "all_time"})
+    assert (
+        response.status_code == 200
+        and response.context["steps"].reason == "source_selection_required"
+    )
+    assert 'value="' + source_id + '"' in response.text
+    assert "не оценена без точного источника" in steps_html(response)
+    response = client.get("/statistics", params={"steps_period": "synthetic-secret-invalid"})
+    assert response.status_code == 400 and "synthetic-secret-invalid" not in response.text
+
+
+def test_all_time_mean_rendering_does_not_inherit_ambient_rounding():
+    from decimal import ROUND_DOWN, Decimal, localcontext
+
+    from healthcheck.web.statistics import format_steps_value
+    with localcontext() as context:
+        context.rounding = ROUND_DOWN
+        assert format_steps_value(Decimal("0.15")) == "0,2"
+        assert format_steps_value(0) == "0"

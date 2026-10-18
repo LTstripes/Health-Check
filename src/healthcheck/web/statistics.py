@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -15,7 +16,11 @@ from healthcheck.analytics.cycling_source_discovery import (
 )
 from healthcheck.analytics.period_summary import PeriodSummaryService
 from healthcheck.db.engine import session_scope
-from healthcheck.garmin.completed_steps_read import DISPLAY_ZONE, read_completed_steps_window
+from healthcheck.garmin.completed_steps_read import (
+    DISPLAY_ZONE,
+    read_completed_steps_all_time,
+    read_completed_steps_window,
+)
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.owner_presentation import owner_date, owner_distance, owner_duration
@@ -79,6 +84,7 @@ def statistics(
     days: int | None = Query(default=None),
     period: str | None = Query(default=None),
     calendar_year: int | None = Query(default=None),
+    steps_period: str = Query(default="window"),
     end_date: date | None = Query(default=None),
     garmin_source_id: str | None = Query(default=None),
     google_source_id: str | None = Query(default=None),
@@ -88,6 +94,8 @@ def statistics(
     from healthcheck.web.activity_period import statistics_session_links
 
     try:
+        if steps_period not in {"window", "all_time"}:
+            raise ValueError("unsupported Steps period")
         selected_period = period or str(days if days is not None else 7)
         if period is not None and days is not None:
             raise ValueError("competing period selectors")
@@ -123,14 +131,19 @@ def statistics(
                 steps_end = steps_now.astimezone(ZoneInfo(DISPLAY_ZONE)).date() - timedelta(days=1)
                 length = 365 if selected_period == "trailing365" else int(selected_period)
                 steps_start = steps_end - timedelta(days=length - 1)
-            steps = read_completed_steps_window(
-                session,
-                payload_store=ContentAddressedGarminPayloadStore(
-                    request.app.state.runtime_paths.root / "artifacts"
-                ),
-                source_id=garmin_source_id or None,
-                start_date=steps_start, end_date=steps_end, evaluated_at=steps_now,
+            store = ContentAddressedGarminPayloadStore(
+                request.app.state.runtime_paths.root / "artifacts"
             )
+            if steps_period == "all_time":
+                steps = read_completed_steps_all_time(
+                    session, payload_store=store, source_id=garmin_source_id or None,
+                    evaluated_at=steps_now, end_date=end_date,
+                )
+            else:
+                steps = read_completed_steps_window(
+                    session, payload_store=store, source_id=garmin_source_id or None,
+                    start_date=steps_start, end_date=steps_end, evaluated_at=steps_now,
+                )
     except (ValueError, OverflowError) as exc:
         raise HTTPException(status_code=400, detail="invalid_statistics_selection") from exc
     except SQLAlchemyError as exc:
@@ -161,6 +174,8 @@ def statistics(
                 "right": google_sleep_source_id or None,
             },
             "selected_period": selected_period,
+            "selected_steps_period": steps_period,
+            "format_steps_value": format_steps_value,
             "selected_year": selected_year,
             "control_end_date": evaluated_date.isoformat(),
             "period_labels": {
@@ -276,3 +291,13 @@ def statistics_source_labels(packet: dict, *, cycling_cell: dict | None = None) 
                 f"{label} · источник {index}" if len(sources) > 1 else label
             )
     return labels
+
+
+def format_steps_value(value: int | Decimal | None) -> str:
+    """One decimal for the mean; count totals stay exact integers."""
+    if value is None:
+        return "Недоступно"
+    with localcontext() as context:
+        context.rounding = ROUND_HALF_EVEN
+        text = f"{value:,.1f}" if isinstance(value, Decimal) else f"{Decimal(value):,f}"
+    return text.replace(",", "\u202f").replace(".", ",")

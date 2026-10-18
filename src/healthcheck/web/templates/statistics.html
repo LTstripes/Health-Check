@@ -11,11 +11,18 @@
         {% for value, label in period_labels.items() %}<option value="{{ value }}"{% if selected_period == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </label>
+    <label>Период шагов
+      <select name="steps_period" aria-label="Период шагов" aria-describedby="steps-period-help">
+        <option value="window"{% if selected_steps_period == 'window' %} selected{% endif %}>Выбранный период</option>
+        <option value="all_time"{% if selected_steps_period == 'all_time' %} selected{% endif %}>Вся сохранённая история</option>
+      </select>
+    </label>
     <label>По дату включительно <input type="date" name="end_date" value="{{ control_end_date }}" required></label>
     <label>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
     <button type="submit">Показать</button>
   </form>
   <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выберите точный источник.</p>
+  <p id="steps-period-help" class="muted">«Вся сохранённая история» относится только к шагам Garmin до выбранной даты, не позднее вчера по МСК. Для этого режима выберите точный источник Garmin. Период остальных показателей не меняется.</p>
   <p class="statistics-selected-period">Выбранный период: {{ period_labels[selected_period] }}{% if selected_period == 'calendar_year' %} {{ selected_year }}{% endif %}.</p>
   <p class="statistics-window">{{ packet.requested_window.start_date|owner_date }} — {{ packet.requested_window.end_date|owner_date }} · {{ packet.requested_window.inclusive_days }} дней включительно, по локальным датам источника.</p>
   <p class="muted">Два независимых источника. Значения относятся к сохранённым записям; пропуски не означают ноль. Актуальность сейчас неизвестна.</p>

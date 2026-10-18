@@ -1,0 +1,50 @@
+{% set stats = steps.statistics %}
+<p data-steps-history-period><strong>Вся сохранённая история шагов.</strong>
+  {% if steps.start_date %}{{ steps.start_date|owner_date }} — {{ steps.end_date|owner_date }}.{% else %}До {{ steps.end_date|owner_date }}; начало сохранённого диапазона не установлено.{% endif %}
+</p>
+<div class="statistics-pair statistics-steps-history">
+  <article data-steps-provider="garmin" data-steps-history-state="{{ 'search_incomplete' if not steps.search_complete else steps.reason or ('available' if stats and stats.eligible_day_count else 'no_eligible_values') }}">
+    <h3>Garmin</h3>
+    <p>{{ source_labels.get(steps.source_id, 'Точный источник не выбран') }}</p>
+    {% if steps.reason == 'source_selection_required' %}
+      <p class="statistics-source-warning" role="status">Выберите точный источник Garmin выше. Источники не объединяются.</p>
+    {% elif not steps.search_complete %}
+      <p class="statistics-steps-warning" role="status">Поиск всей сохранённой истории не завершён. Общий итог и статистика недоступны.</p>
+    {% elif not stats %}
+      <p>Нет проверенных завершённых дат для этого источника и выбранной границы.</p>
+    {% endif %}
+    {% if stats %}
+      <p data-steps-coverage>Допустимых дней: {{ stats.eligible_day_count }} из {{ stats.calendar_day_count }} календарных дней локального диапазона. Дат без проверенного оригинала в этом snapshot: {{ stats.unobserved_day_count }}.</p>
+      <p>Первый / последний допустимый день: {{ stats.first_eligible_date|owner_date if stats.first_eligible_date else 'не установлен' }} / {{ stats.last_eligible_date|owner_date if stats.last_eligible_date else 'не установлен' }}.</p>
+      <dl class="statistics-steps-summary">
+        <div><dt>Сумма по допустимым дням</dt><dd data-steps-stat="total">{{ format_steps_value(stats.total) }}</dd></div>
+        <div><dt>Среднее за допустимый день</dt><dd data-steps-stat="mean">{{ format_steps_value(stats.mean) }}</dd></div>
+        <div><dt>Дней строго &gt; 10 000</dt><dd data-steps-stat="over_10000">{{ format_steps_value(stats.over_10000_day_count) }}</dd></div>
+        <div><dt>Дней строго &gt; 20 000</dt><dd data-steps-stat="over_20000">{{ format_steps_value(stats.over_20000_day_count) }}</dd></div>
+        <div><dt>Рекорд за допустимый день</dt><dd data-steps-stat="record">{{ format_steps_value(stats.record_value) }}</dd></div>
+        <div><dt>Лучшая серия ≥ 10 000 шагов</dt><dd data-steps-stat="streak">{{ format_steps_value(stats.longest_10000_streak) }}{% if stats.longest_10000_streak is not none %} дней{% endif %}</dd></div>
+      </dl>
+      <p>Среднее: сумма / {{ stats.eligible_day_count }} допустимых дней, включая явные нули; показан один знак после запятой. Пропуски и null не входят в знаменатель и разрывают серию. Соседство в серии определяется календарными датами.</p>
+      {% if stats.record_dates %}<details class="statistics-details"><summary>Все даты рекорда · {{ stats.record_dates|length }}</summary><ul class="statistics-steps-ranges" data-steps-record-dates>{% for day in stats.record_dates %}<li><time datetime="{{ day }}">{{ day|owner_date }}</time></li>{% endfor %}</ul></details>{% endif %}
+      {% if stats.longest_streak_ranges %}<details class="statistics-details"><summary>Все лучшие серии · {{ stats.longest_streak_ranges|length }}</summary><ul class="statistics-steps-ranges" data-steps-streak-ranges>{% for start, end in stats.longest_streak_ranges %}<li><time datetime="{{ start }}">{{ start|owner_date }}</time> — <time datetime="{{ end }}">{{ end|owner_date }}</time></li>{% endfor %}</ul></details>{% endif %}
+      <details class="statistics-details"><summary>Состояния проверенных дат</summary><dl>{% for state, count in stats.state_counts.items() %}<dt>{{ steps_state_labels.get(state, state) }}</dt><dd>{{ count }}</dd>{% endfor %}</dl></details>
+    {% endif %}
+    <p class="muted">Полнота сбора Garmin, ношение устройства, зона провайдера и окончательность неизвестны. Полный поиск сохранённых данных не доказывает полную историю аккаунта.</p>
+    <details class="statistics-details"><summary>Источник, доказательства и бюджет all-time</summary>
+      <dl>
+        <dt>Источник / контракт / budget</dt><dd>{{ steps.source_id or 'не выбран' }} / {{ steps.contract_version }} / {{ steps.budget_version }}</dd>
+        <dt>Оценка UTC / политика завершения</dt><dd>{{ steps.evaluated_at.isoformat() }} / {{ steps.display_zone }}</dd>
+        <dt>Запрошенная дата окончания / фактическая</dt><dd>{{ steps.requested_end_date or 'вчера по МСК' }} / {{ steps.end_date }}</dd>
+        <dt>Полнота bounded поиска / причина</dt><dd>{{ 'не оценена без точного источника' if steps.reason in ['source_selection_required', 'source_not_found'] else 'подтверждена' if steps.search_complete else 'не доказана' }} / {{ steps.reason or 'нет' }}</dd>
+        <dt>Candidates / observations / уникальные originals / bytes</dt><dd>{{ steps.candidates_examined }} / {{ steps.provenance_examined }} / {{ steps.artifacts_examined }} / {{ steps.bytes_examined }}</dd>
+        <dt>Лимиты всего запроса</dt><dd>{{ steps.limits.metadata_candidates }} candidates; {{ steps.limits.provenance }} observations; {{ steps.limits.unique_originals }} originals; {{ steps.limits.total_bytes }} bytes; {{ steps.limits.bytes_per_original }} bytes/original; {{ steps.limits.cooperative_seconds }} сек, cooperative guard.</dd>
+      </dl>
+      <p>Использовано последнее доказанное получение после конца каждого дня; повторные originals не складываются. Даты и provenance отдельных дней доступны в обычной таблице Steps при выборе календарного года/периода выше.</p>
+    </details>
+  </article>
+  <article data-steps-provider="google" data-steps-history-state="not_collected">
+    <h3>Google</h3>
+    <div class="statistics-value">Недоступно</div>
+    <p>Шаги Google пока не собираются. Данных для статистики нет; знаменатель и покрытие не установлены.</p>
+  </article>
+</div>
