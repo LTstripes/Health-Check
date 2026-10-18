@@ -31,6 +31,8 @@ PROVENANCE_VERSION = "health-chat-combined-provenance-v1"
 COMPACT_VERSION = "health-chat-combined-compact-evidence-v1"
 SELECTED_VERSION = "health-chat-combined-evidence-v2"
 SELECTED_COMPACT_VERSION = "health-chat-combined-compact-evidence-v2"
+COMPLETED_VERSION = "health-chat-combined-evidence-v5"
+COMPLETED_COMPACT_VERSION = "health-chat-combined-compact-evidence-v5"
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ class CombinedEvidenceRequest:
     rhr_google_auto_select: bool = False
     steps_garmin_source_id: str | None = None
     include_weight: bool = False
+    steps_view: str = "observed"
 
     def domain_requests(self):
         return (
@@ -70,6 +73,10 @@ class CombinedEvidenceRequest:
             raise EvidenceError("invalid_evidence_projection")
         for request in self.domain_requests():
             request.validate()
+        if type(self.steps_view) is not str or self.steps_view not in {"observed", "completed"}:
+            raise EvidenceError("invalid_steps_view")
+        if self.steps_view == "completed" and self.steps_garmin_source_id is None:
+            raise EvidenceError("completed_steps_requires_source")
         if type(self.include_weight) is not bool:
             raise EvidenceError("invalid_weight_selection")
         if type(self.rhr_google_auto_select) is not bool:
@@ -235,9 +242,14 @@ def read_combined_evidence(
                     vital_sources[domain]["google_auto_select"] = True
             movement_sources = {}
             if request.steps_garmin_source_id is not None:
-                sections["steps"] = combined_movement.read_steps(
-                    session, request.steps_garmin_source_id,
-                    activity_request.start_date, request.end_date)
+                if request.steps_view == "completed":
+                    sections["steps"] = combined_movement.read_completed_steps(
+                        session, request.steps_garmin_source_id,
+                        activity_request.start_date, request.end_date, clock, profile)
+                else:
+                    sections["steps"] = combined_movement.read_steps(
+                        session, request.steps_garmin_source_id,
+                        activity_request.start_date, request.end_date)
                 movement_sources["steps"] = {"garmin_source_id": request.steps_garmin_source_id}
             if request.include_weight:
                 sections["weight"] = combined_movement.read_weight(
@@ -306,6 +318,14 @@ def read_combined_evidence(
                 packet["limits"]["domain_limits"] = "limits_in_each_selected_section"
                 if "projection" in packet:
                     packet["projection"]["detailed_version"] = "health-chat-combined-evidence-v4"
+            if request.steps_view == "completed":
+                packet["version"] = (COMPLETED_COMPACT_VERSION if request.projection == "compact"
+                                     else COMPLETED_VERSION)
+                packet["request"]["steps_view"] = "completed"
+                packet["interpretation"]["steps_date_alignment"] = (
+                    "original_calendarDate_under_explicit_moscow_completion_policy")
+                if "projection" in packet:
+                    packet["projection"]["detailed_version"] = COMPLETED_VERSION
             packet["envelope_hash"] = hashlib.sha256(_json(packet).encode("utf-8")).hexdigest()
             encode_combined_evidence(packet)
             return packet

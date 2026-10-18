@@ -38,12 +38,16 @@
       observed_dates_count: "сохранённых дат", missing_dates_count: "дат без подходящих значений",
       eligible_day_count: "подходящих сохранённых дней", missing_day_count: "дней без подходящих значений",
       eligible_snapshot_date_count: "дат подходящих недельных снимков",
+      requested_day_count: "Запрошено дней", completed_day_count: "Завершённых дней, МСК",
+      excluded_uncompleted_day_count: "Незавершённых дней исключено",
       returned_count: "записей в файле", observed_count: "подходящих записей", has_more: "есть ещё записи"};
     const states = {no_records: "нет записей", no_eligible_in_period: "нет подходящих значений",
       records: "есть сохранённые записи", projection_unavailable: "сохранённая проекция недоступна",
       no_eligible_values: "нет подходящих значений", no_current_record_in_window: "нет текущих записей",
       unknown: "неизвестно", unavailable: "недоступно", ambiguous: "неоднозначно",
       conflict: "конфликт источников", partial: "частичные данные", value: "есть значение"};
+    Object.assign(states, {null: "Нет значения", missing: "Поле отсутствует",
+      invalid: "Некорректно", search_incomplete: "Поиск не завершён"});
     const rows = [];
     const add = (name, item) => {
       if (!item) return;
@@ -66,7 +70,15 @@
         add(`${domain === "hrv" ? "HRV" : "Пульс в покое"} · ${provider === "garmin" ? "Garmin" : "Google"}`, section);
       }
     }
-    add("Наблюдаемые шаги · Garmin (не суточные итоги)", details.steps);
+    add(details.steps.display_zone === "Europe/Moscow"
+      ? "Шаги за завершённые дни — Garmin (МСК)"
+      : "Наблюдаемые шаги — Garmin (не финальные итоги)", details.steps);
+    if (details.steps.effective_completed_range) {
+      const range = details.steps.effective_completed_range;
+      rows.push(range.start_date
+        ? `Завершённые даты шагов: ${range.start_date} — ${range.end_date} (МСК).`
+        : "В запрошенном периоде ещё нет завершённых дней по МСК.");
+    }
     add("Вес · измерения", details.weight.measured_facts);
     const list = document.getElementById("analysis-export-summary");
     list.replaceChildren(...rows.map((text) => {
@@ -125,6 +137,7 @@
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({days: Number(values.get("days")), end_date: values.get("end_date"),
           garmin_source_id: values.get("garmin_source_id"),
+          steps_view: values.get("steps_view") || "observed",
           google_hrv_source_id: values.get("google_hrv_source_id") || null}),
       });
       const data = await response.json();
