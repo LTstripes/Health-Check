@@ -107,8 +107,16 @@ class CompletedStepsWindow:
 
 
 def acquisition_reason(
-    observation, source, raw, artifact, run, provider, event, batch,
-    receipt=None, original_day=None,
+    observation,
+    source,
+    raw,
+    artifact,
+    run,
+    provider,
+    event,
+    batch,
+    receipt=None,
+    original_day=None,
 ):
     """Legacy success or an exact receipt; neither can hide a contradiction."""
     reason = acquisition_spine_reason(
@@ -132,11 +140,12 @@ def read_completed_steps_window(
     end_date: date,
     evaluated_at: datetime,
 ) -> CompletedStepsWindow:
-    """Scan originals once, cap+1, in one snapshot; never project or fall back.
+    """Bound metadata, then scan relevant originals once in one snapshot.
 
     Requested civil bounds are retained. Current/future Moscow days are omitted.
-    Unknown original day/integrity or any exhausted bound fails the whole search
-    closed because its day/latest rank cannot be proved. Exact source selection
+    A fully validated immutable receipt can index an original outside the window.
+    Otherwise unknown original day/integrity or any exhausted bound fails closed
+    because its day/latest rank cannot be proved. Exact source selection
     is preserved; automatic choice requires one sole source in the verified range.
     """
     if type(start_date) is not date or type(end_date) is not date:
@@ -250,7 +259,38 @@ def read_completed_steps_window(
     candidates = len(raw_ids)
     if candidates > MAX_CANDIDATES:
         return incomplete("candidate_limit_exceeded")
-    if candidates > MAX_ARTIFACTS:
+    # Receipts are a trusted-writer index, not a replacement for verifying any
+    # selected original. Keep a raw group unless EVERY acquisition has a valid,
+    # agreeing outside-window index. In particular, a good receipt cannot hide
+    # a legacy/unproven competitor sharing the same bytes.
+    indexed_days = defaultdict(set)
+    retained_ids = set()
+    for observation, src, raw, artifact, run, provider, event, batch, receipt in rows:
+        if monotonic() - started > MAX_READ_SECONDS:
+            return incomplete("time_limit_exceeded")
+        if run is not None and run.stream_code == "garmin_reprocess":
+            continue
+        raw_id = observation.garmin_raw_payload_id
+        if receipt is None or acquisition_reason(
+            observation,
+            src,
+            raw,
+            artifact,
+            run,
+            provider,
+            event,
+            batch,
+            receipt,
+            receipt.original_calendar_date,
+        ):
+            retained_ids.add(raw_id)
+            continue
+        day = receipt.original_calendar_date
+        indexed_days[raw_id].add(day)
+        if day in dates:
+            retained_ids.add(raw_id)
+    retained_ids.update(key for key, days in indexed_days.items() if len(days) != 1)
+    if len(retained_ids) > MAX_ARTIFACTS:
         return incomplete("artifact_limit_exceeded")
     decoded = {}
     by_source_day = defaultdict(list)
@@ -260,6 +300,8 @@ def read_completed_steps_window(
             return incomplete("time_limit_exceeded")
         # Reprocess is positively known to be saved-byte replay, not acquisition.
         if run is not None and run.stream_code == "garmin_reprocess":
+            continue
+        if observation.garmin_raw_payload_id not in retained_ids:
             continue
         if raw is None or artifact is None:
             return incomplete("original_not_evidenced")
@@ -307,7 +349,8 @@ def read_completed_steps_window(
             reason or metric.reason,
             reason is None,
             ("daily_summary_receipt" if receipt is not None else "succeeded_run")
-            if reason is None else None,
+            if reason is None
+            else None,
             receipt.contract_version if receipt is not None else None,
         )
         by_source_day[observation.garmin_source_id, day].append(evidence)

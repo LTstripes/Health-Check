@@ -128,8 +128,17 @@ shared historical fetch path retains its existing lack of a Steps callback.
 Migration 0016 creates an empty receipt table and does not certify old partials.
 Attempt rollback preserves earlier commits; the existing separate failure
 checkpoint may still be written, and orphan content-addressed files may remain.
-The bounded reader joins receipts by PK before applying existing caps and performs
-no writes. Observed Steps v1/history remain unchanged. New proof applies only to
+The bounded reader joins receipts by PK and performs no writes. Provenance and
+candidate caps still count the entire bounded source/time metadata scan. Before
+applying the unchanged original-count, byte and time caps, it excludes a raw
+original only when all its acquisition observations have fully validated receipts
+with one agreeing returned day outside the requested completed days. Legacy,
+missing/invalid receipt and conflicting-index groups retain all observations and
+require original-byte verification; selected receipts are checked again against
+the decoded calendarDate. This index relies on the existing trusted writer and
+append-only spine: it does not authenticate arbitrary internally consistent forged
+database inserts or inspect unrelated excluded files for later corruption.
+Observed Steps v1/history remain unchanged. New proof applies only to
 future acquisitions after a separately accepted rollout; it does not reconstruct
 past provider success or authorize recovery/provider fetches.
 
