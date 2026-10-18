@@ -483,7 +483,7 @@ Readiness means an actual writable, short external temp/cache and resolved toolc
 <a id="risk-and-routing--risk-capability-routing-and-task-proposals"></a>
 ## Risk, capability routing and task proposals
 
-Integrator guidance for task proposals, capability selection and risk-based review. An already-assigned Worker needs its issue/contract, not this whole document. Roles are defined in [AGENTS.md](../AGENTS.md#read-by-task-type); ordinary delivery/checks in [Development Process](#documentation-maintenance).
+Integrator guidance for task proposals, capability selection and risk-based review. An already-assigned Worker needs its issue/contract, not this whole document. Roles are defined in [AGENTS.md](../AGENTS.md#roles); ordinary delivery/checks in [Development Process](#1-core-operating-model).
 
 <a id="risk-and-routing--effort-and-coordination-choice"></a>
 ### Effort and coordination choice
@@ -495,7 +495,7 @@ One Worker is the default regardless of client. Coordination is separate from mo
 <a id="risk-and-routing--roles"></a>
 ### Roles
 
-Use [project role ownership](../AGENTS.md#read-by-task-type). This document owns capability/review decisions, not a second set of acceptance permissions.
+Use [project role ownership](../AGENTS.md#roles). This document owns capability/review decisions, not a second set of acceptance permissions.
 
 <a id="risk-and-routing--complexity-classes"></a>
 ### Complexity classes
@@ -554,7 +554,7 @@ Add one short copyable locator prompt, normally 5–8 lines: repo/issue/applicab
 <a id="orchestration--optional-orchestration-and-queue-policy"></a>
 ## Optional orchestration and queue policy
 
-Optional execution-local coordination for explicitly authorized queues/delegation. Reading this file, naming a client or asking for an audit does not activate it. Ordinary single-Worker work uses [Development Process](#documentation-maintenance); roles/acceptance authority are defined in [AGENTS.md](../AGENTS.md#read-by-task-type).
+Optional execution-local coordination for explicitly authorized queues/delegation. Reading this file, naming a client or asking for an audit does not activate it. Ordinary single-Worker work uses [Development Process](#1-core-operating-model); roles/acceptance authority are defined in [AGENTS.md](../AGENTS.md#roles).
 
 <a id="orchestration--roles"></a>
 ### Roles
@@ -618,7 +618,7 @@ Use [risk and routing](#c4--critical--architecture--independent-review-triggers)
 <a id="orchestration--per-task-report"></a>
 #### Per-task report
 
-Use [Completion reporting](../AGENTS.md#read-by-task-type), adding only material delegation/remediation facts and evidence references. A compact phase ledger is useful for actual coordinated work; unknown timings/costs remain unknown, not a mandatory form.
+Use [Completion reporting](../AGENTS.md#completion-reporting), adding only material delegation/remediation facts and evidence references. A compact phase ledger is useful for actual coordinated work; unknown timings/costs remain unknown, not a mandatory form.
 
 <a id="orchestration--final-queue-report"></a>
 #### Final queue report
@@ -633,7 +633,7 @@ Client skills, model routing and subagent definitions are local mechanics; do no
 <a id="orchestration--invariants-automation-cannot-weaken"></a>
 ### Invariants automation cannot weaken
 
-All [project boundaries](../AGENTS.md#read-by-task-type) still apply, including privacy, workspace isolation, health semantics, honest evidence and Integrator-controlled acceptance.
+All [project boundaries](../AGENTS.md) still apply, including privacy, workspace isolation, health semantics, honest evidence and Integrator-controlled acceptance.
 
 <a id="dependency-security"></a>
 
@@ -965,14 +965,14 @@ The Owner discontinued Health-Check model benchmarking and attribution bookkeepi
 
 The former journal remains in [Git history](https://github.com/LTstripes/Health-Check/blob/d4529df9b5c0f3df28d637a259fbe82d0b4fde43/docs/MODEL_BENCHMARK.md); the existing [earlier archive](archive/history/MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) is historical only. No new entries, model confirmations, backfill or rescoring are required.
 
-Current technical outcomes and checks belong in issues/PRs and [engineering history](archive/history/EXECUTION_HISTORY_CURRENT.md). Current completion reporting is defined in [AGENTS.md](../AGENTS.md#read-by-task-type).
+Current technical outcomes and checks belong in issues/PRs and [current engineering outcomes](PROJECT_WIKI.md#recent-outcomes). Current completion reporting is defined in [AGENTS.md](../AGENTS.md#completion-reporting).
 
 <a id="client-chatgpt"></a>
 
 <a id="client-chatgpt--optional-chatgpt-client-chapter"></a>
 ## Optional chatgpt client chapter
 
-ChatGPT/Lera remains the normal Health-Check Integrator. Role authority is in [AGENTS.md](../AGENTS.md#read-by-task-type); routine delivery/review/release is defined once in [Development Process](#documentation-maintenance).
+ChatGPT/Lera remains the normal Health-Check Integrator. Role authority is in [AGENTS.md](../AGENTS.md#roles); routine delivery/review/release is defined once in [Development Process](#1-core-operating-model).
 
 <a id="client-chatgpt--github-native-work"></a>
 ### GitHub-native work
@@ -1001,7 +1001,7 @@ The Owner normally launches the short prompt, returns its report, and performs g
 <a id="client-codex--optional-codex-client-chapter"></a>
 ## Optional codex client chapter
 
-Use [AGENTS.md](../AGENTS.md#read-by-task-type) and the assigned issue. A session is one Worker unless explicitly assigned otherwise. Local configuration selects models/effort/workspaces; no model roster or duplicate delivery policy lives here.
+Use [AGENTS.md](../AGENTS.md) and the assigned issue. A session is one Worker unless explicitly assigned otherwise. Local configuration selects models/effort/workspaces; no model roster or duplicate delivery policy lives here.
 
 <a id="client-codex--independent-review-mechanics"></a>
 ### Independent review mechanics
@@ -1018,7 +1018,7 @@ Only an explicit request activates [Agent orchestration](#orchestration). A ment
 <a id="client-codex--local-helpers"></a>
 ### Local helpers
 
-Load only a relevant procedure skill; keep implicit delivery-loop invocation disabled and avoid duplicate active skills. Skills may add mechanics, not weaken policy. Concrete model IDs/effort/local paths stay in local configuration; return the technical [completion report](../AGENTS.md#read-by-task-type).
+Load only a relevant procedure skill; keep implicit delivery-loop invocation disabled and avoid duplicate active skills. Skills may add mechanics, not weaken policy. Concrete model IDs/effort/local paths stay in local configuration; return the technical [completion report](../AGENTS.md#completion-reporting).
 
 <a id="client-codex--managed-owner-local-task-checkout"></a>
 ### Managed Owner-local task checkout
@@ -1037,14 +1037,14 @@ Without configured/accepted support, use only the shared fresh-unmanaged fallbac
 <a id="client-grok--optional-grok-client-chapter"></a>
 ## Optional grok client chapter
 
-Grok Build is an ordinary Worker under [AGENTS.md](../AGENTS.md#read-by-task-type), not a mandatory multi-bot pipeline. Use the assigned issue and relevant [development/check procedure](#book--verification-by-change).
+Grok Build is an ordinary Worker under [AGENTS.md](../AGENTS.md), not a mandatory multi-bot pipeline. Use the assigned issue and relevant [development/check procedure](#book--verification-by-change).
 
 <a id="client-grok--build-specific-use"></a>
 ### Build-specific use
 
 Exploration and browser/UI inspection are useful inside the assigned scope; they do not authorize redesign or access to private Owner data. Use synthetic browser fixtures and distinguish observed browser checks from code inspection.
 
-Return the shared [completion report](../AGENTS.md#read-by-task-type). Only explicit authorization changes delivery permissions or enables coordinated bots.
+Return the shared [completion report](../AGENTS.md#completion-reporting). Only explicit authorization changes delivery permissions or enables coordinated bots.
 
 <a id="client-grok--managed-owner-local-task-checkout"></a>
 ### Managed Owner-local task checkout
@@ -1063,7 +1063,7 @@ Without configured/accepted support, use only the shared fresh-unmanaged fallbac
 <a id="client-hermes--optional-hermes-client-chapter"></a>
 ## Optional hermes client chapter
 
-Use [AGENTS.md](../AGENTS.md#read-by-task-type). The receiving Hermes Worker remains accountable for the final candidate when it delegates or changes execution route.
+Use [AGENTS.md](../AGENTS.md). The receiving Hermes Worker remains accountable for the final candidate when it delegates or changes execution route.
 
 <a id="client-hermes--delegation-mechanics"></a>
 ### Delegation mechanics
@@ -1075,12 +1075,12 @@ A helper that contributes implementation is not the independent Reviewer of that
 <a id="client-hermes--completion"></a>
 ### Completion
 
-Report material effects of delegation/fallback on scope, verification or review independence through the shared [completion report](../AGENTS.md#read-by-task-type).
+Report material effects of delegation/fallback on scope, verification or review independence through the shared [completion report](../AGENTS.md#completion-reporting).
 
 <a id="client-hermes--client-distinction"></a>
 ### Client distinction
 
-Hermes does not need the Codex-local `$delivery-loop` skill. Only explicit coordination/queue authorization loads [Agent orchestration](#orchestration). Ordinary Hermes execution follows [Development Process](#documentation-maintenance).
+Hermes does not need the Codex-local `$delivery-loop` skill. Only explicit coordination/queue authorization loads [Agent orchestration](#orchestration). Ordinary Hermes execution follows [Development Process](#1-core-operating-model).
 
 <a id="client-hermes--managed-owner-local-task-checkout"></a>
 ### Managed Owner-local task checkout
@@ -1112,7 +1112,7 @@ No green subset or partial rerun replaces full same-attempt evidence.
 and #302 deterministic Linux environment are complete. A docs filename alone does
 not authorize skipping CI; the classifier decides. No broader Windows matrix,
 cache/xdist or new CI optimization without measured need. Preserve old failures.
-See [Development Process](#documentation-maintenance).
+See [Development Process](#1-core-operating-model).
 
 <a id="accepted-ci-decisions--repository-protection--126"></a>
 ##### Repository protection / #126

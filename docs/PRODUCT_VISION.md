@@ -325,7 +325,7 @@ algorithm banners are status, not request errors. Failed refresh does not erase
 saved history, and HTTP success does not prove healthy collection.
 
 The full shared state keys and domain-specific evidence limits have one technical
-home in [Architecture — UI evidence states](ARCHITECTURE.md#common-invariants).
+home in [Architecture — UI evidence states](ARCHITECTURE.md#ui-evidence-states).
 Source-specific summaries are not automatically interchangeable. Sleep does not
 substitute a previous night for an explicitly selected wake date, pool ambiguous
 same-date records or change Agreement/canonical gates. Activity adds no causal
@@ -350,6 +350,8 @@ required at desktop widths.
 Data uses persisted-source evaluation, not provider calls. #305 exposes sanitized
 failure classes and honest extractor configuration. Dated performance observations are retained in Wiki/history; they do not define a portable response-time promise.
 
+
+Activity clears prior evidence on submissions and rejects late completions. One usable Garmin source needs no redundant selector; multiple identities require explicit selection. This Activity rule does not establish universal per-metric source autoselection.
 
 <a id="owner-interface--saved-evidence-and-source-specific-page-behavior"></a>
 ### Saved evidence and source-specific page behavior
@@ -432,7 +434,7 @@ request races/errors. #321 retired phone-target/breakpoint/tick-density loops,
 not functional/security/privacy coverage, CI, Windows or product guards.
 Pytest retains viewport/skip-link/focus/hit-target/table contracts. Focused script
 selection and exact-candidate evidence belong to
-[Development](DEVELOPMENT_PROCESS.md#documentation-maintenance).
+[Development UI verification](DEVELOPMENT_PROCESS.md#owner-ui-verification).
 
 Synthetic browser evidence and CI do not prove human Owner UAT. Static-reference
 approval is a design decision, not acceptance of every later implementation.

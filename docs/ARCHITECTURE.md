@@ -1016,7 +1016,7 @@ The exact owner procedure is in [Owner Operations](OWNER_OPERATIONS.md#garmin-au
 and then the separate capability probe:
 
 
-See [Owner Operations — analysis export](OWNER_OPERATIONS.md#analysis-export) for the complete operator invocation.
+See [Owner Operations — Garmin auth and probe](OWNER_OPERATIONS.md#garmin-auth) for the complete operator invocation.
 
 
 Only the sanitized JSON summary may be copied back. Until the owner performs
@@ -3231,7 +3231,7 @@ The CLI opt-in is `--completed-day-steps` together with `--steps-garmin-source-i
 omitting it retains the existing flags and observed semantics. For example:
 
 
-See [Owner Operations — analysis export](OWNER_OPERATIONS.md#analysis-export) for the complete operator invocation.
+See [Owner Operations — Explicit completed Steps v5](OWNER_OPERATIONS.md#export-completed-steps-v5) for the complete operator invocation.
 
 
 Completed Steps uses the same physical read snapshot and aware UTC evaluation
@@ -3276,7 +3276,7 @@ with the existing 2 MiB caps, exact 7/30-day dates and one read-only transaction
 Context is still read once. The Weight/Context MCP and access setup are unchanged.
 
 
-See [Owner Operations — analysis export](OWNER_OPERATIONS.md#analysis-export) for the complete operator invocation.
+See [Owner Operations — Observed Steps and Weight v4](OWNER_OPERATIONS.md#export-observed-steps-weight-v4) for the complete operator invocation.
 
 
 Steps delegates to `read_observed_steps_window` and exports saved materialized
@@ -3333,7 +3333,7 @@ Context is read once. Steps and Weight are separately opt-in above. The existing
 Weight/Context MCP, its schema/auth and connection setup are unchanged.
 
 
-See [Owner Operations — analysis export](OWNER_OPERATIONS.md#analysis-export) for the complete operator invocation.
+See [Owner Operations — HRV and resting heart rate v3](OWNER_OPERATIONS.md#export-vitals-v3) for the complete operator invocation.
 
 
 Garmin HRV is the persisted `hrv_weekly_average_ms` snapshot, labelled as a
@@ -3392,7 +3392,7 @@ Body Battery and Context facts remain identical to detailed mode, with the same
 2 MiB cap. Oversize results fail without a winning prefix.
 
 
-See [Owner Operations — analysis export](OWNER_OPERATIONS.md#analysis-export) for the complete operator invocation.
+See [Owner Operations — Stress and Body Battery v2](OWNER_OPERATIONS.md#export-stress-body-battery-v2) for the complete operator invocation.
 
 
 Both new sections use the same existing read-only transaction and exact inclusive
@@ -3605,7 +3605,7 @@ writes, migrations and journal changes are denied.
 For a 30-day local query, add `--projection compact` to either destination mode:
 
 
-See [Owner Operations — analysis export](OWNER_OPERATIONS.md#analysis-export) for the complete operator invocation.
+See [Owner Operations — Compact projection with earlier defaults](OWNER_OPERATIONS.md#export-compact-v1) for the complete operator invocation.
 
 
 Python callers set `CombinedEvidenceRequest(..., projection="compact")`. The

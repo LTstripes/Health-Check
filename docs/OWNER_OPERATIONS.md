@@ -192,24 +192,29 @@ few operational consumers that encode them. Do not duplicate the table in prompt
 
 Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
+Use a fresh external directory and the marked synthetic seed. The examples below
+write only that explicitly selected demo; they contain no provider login/refresh.
+
 ```powershell
 uv sync --locked
-uv run ruff check .
-uv run pytest
+$syntheticData = Join-Path ([System.IO.Path]::GetTempPath()) ("healthcheck-demo-" + [guid]::NewGuid())
+$env:HEALTHCHECK_DATA_DIR = $syntheticData
+uv run --locked python -m healthcheck.cli seed-demo
+.\scripts\start.ps1 -DataDir $syntheticData -Port 8126
 ```
 
-Start the canonical Windows runtime:
+Open `http://127.0.0.1:8126/`. The persisted seed marker, not the directory's name,
+establishes the synthetic-demo identity. Use the [synthetic demo chapter](DEVELOPMENT_PROCESS.md#synthetic-demo)
+for its fixed data, guards and browser scenarios. Focused checks and an external
+pytest temporary directory follow [verification by change](DEVELOPMENT_PROCESS.md#verification-by-change);
+a manual full pytest run is not a bootstrap prerequisite.
 
-```powershell
-.\scripts\start.ps1
-```
-
-Runtime defaults to `%LOCALAPPDATA%\Health-Check` and may be overridden with `HEALTHCHECK_DATA_DIR`.
+Outside this explicitly bound demo, the launcher defaults to the normal `%LOCALAPPDATA%\Health-Check` when no `-DataDir` or `HEALTHCHECK_DATA_DIR` is supplied. Never use a bare launcher as a synthetic or read-only probe.
 The startup script prepares/migrates its selected runtime; it is not a read-only
 inspection command. Candidate UAT uses the explicitly verified disposable clone,
 not Stable as a scratch target.
 
-For normal Owner operation, the durable private profile is `D:\HealthCheck\stable`; the clean control checkout is `D:\HealthCheck\main`; disposable private UAT/recovery state belongs under `D:\HealthCheck\uat`; Owner-local wrappers live in `D:\HealthCheck\ops`. New agent work uses `D:\HealthCheck\workspaces\<client>\<issue-or-task>`. See [Owner machine layout](#machine-layout) for the canonical roles and cleanup lifecycle. GitHub merges still do not update the local checkout or restart its processes automatically.
+Normal Owner operation uses the protected code/data/UAT/Ops roles in [machine layout](#machine-layout). GitHub merges do not update the local checkout or restart its processes automatically.
 
 [Owner Refresh](#refresh) documents the local selected-stream runner, Scheduler controls and unchanged bounded CLI. The command requires an already-established external runtime and does not create a new profile. Never switch/pull code while the Owner refresh or dependent application processes are using that checkout.
 
@@ -898,6 +903,86 @@ and is preserved in both JSON and text.
 
 
 
+
+<a id="export-completed-steps-v5"></a>
+
+### Explicit completed Steps v5
+
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2025-12-31 --days 7 --activity-garmin-source-id <activity-id> \
+  --sleep-garmin-source-id <sleep-id> \
+  --steps-garmin-source-id <steps-id> --completed-day-steps \
+  --evaluation-local-date 2025-12-31 --projection compact --stdout json
+```
+
+The Sleep selector is mandatory under the existing combined request contract; the original v5 documentation example omitted it. Adding it repairs that example without changing the CLI default or Steps semantics.
+
+<a id="export-observed-steps-weight-v4"></a>
+
+### Observed Steps and Weight v4
+
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> --sleep-garmin-source-id <sleep-id> \
+  --steps-garmin-source-id <observed-steps-id> --include-weight \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
+<a id="export-vitals-v3"></a>
+
+### HRV and resting heart rate v3
+
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> --sleep-garmin-source-id <sleep-id> \
+  --hrv-garmin-source-id <weekly-hrv-id> --hrv-google-source-id <daily-hrv-id> \
+  --rhr-garmin-source-id <rhr-id> --rhr-google-auto-select \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
+<a id="export-stress-body-battery-v2"></a>
+
+### Stress and Body Battery v2
+
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> --sleep-garmin-source-id <sleep-id> \
+  --stress-garmin-source-id <stress-id> \
+  --body-battery-garmin-source-id <battery-id> \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
+<a id="export-compact-v1"></a>
+
+### Compact projection with earlier defaults
+
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+
+```text
+python -m healthcheck.export_combined_evidence \
+  --profile <existing-explicit-profile> --profile-kind synthetic \
+  --end-date 2099-01-31 --days 30 \
+  --activity-garmin-source-id <activity-id> \
+  --sleep-garmin-source-id <sleep-id> --sleep-google-source-id <google-id> \
+  --evaluation-local-date 2099-01-31 --projection compact --stdout json
+```
+
 <a id="health-chat-evidence-commands"></a>
 
 <a id="health-chat-evidence-commands--health-chat-evidence-command-examples"></a>
@@ -1004,7 +1089,7 @@ Health-Check app. Use `https://<owner-selected-host>/mcp` as the Server URL and
 No authentication only while the fixed profile is synthetic. This task starts
 no HTTPS service, public tunnel or background service and supplies no credentials.
 
-Owner profiles require the complete [Architecture gateway/auth contract](ARCHITECTURE.md#common-invariants), including startup secret, every-request OAuth validation, narrow forwarding and revocation. If access setup is absent, Owner-data HTTPS is BLOCKED; retain manual export.
+Owner profiles require the complete [Architecture gateway/auth contract](ARCHITECTURE.md#mcp-boundary), including startup secret, every-request OAuth validation, narrow forwarding and revocation. If access setup is absent, Owner-data HTTPS is BLOCKED; retain manual export.
 
 Once the chosen HTTPS endpoint and access gate have separately passed Inspector:
 
