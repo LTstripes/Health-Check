@@ -1,6 +1,9 @@
 <section class="statistics-steps" aria-labelledby="statistics-steps-title" data-statistics-steps>
   <h2 id="statistics-steps-title">Шаги за завершённые дни</h2>
   <p>Последнее полученное значение после окончания дня по московскому времени. Garmin может позже исправить его; окончательный итог не подтверждён.</p>
+  {% if selected_steps_period == 'all_time' %}
+    {% include "statistics_steps_all_time.html" %}
+  {% else %}
   {% if steps.reason in ['source_selection_required', 'source_not_evidenced', 'source_not_found'] %}
   <p data-steps-selection="required">{% if steps.source_choices %}Выберите источник Garmin для шагов.{% else %}Нет подтверждённого источника Garmin за выбранный период.{% endif %}</p>
   {% for choice in steps.source_choices %}<p><a href="{{ request.url.include_query_params(garmin_source_id=choice.source_id) }}">Garmin — источник {{ loop.index }}</a></p>{% endfor %}
@@ -52,4 +55,5 @@
       <dt>Оригиналы / observations / прочитанные артефакты / bytes</dt><dd>{{ steps.candidates_examined }} / {{ steps.provenance_examined }} / {{ steps.artifacts_examined }} / {{ steps.bytes_examined }}</dd>
     </dl>
   </details>
+  {% endif %}
 </section>

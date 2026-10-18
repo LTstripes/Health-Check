@@ -129,3 +129,74 @@ fail closed on elapsed excess. Real-database latency is **UNVERIFIED**.
 Moscow is a display policy, not proof of Garmin timezone, coverage, wear or final
 day total; later corrections remain possible. Owner UAT and installed rollout
 of #410 are pending; no historical replay is authorized by this contract.
+
+
+## All-time completed Steps statistics (#380 / #377)
+
+The explicit Steps-only `steps_period=all_time` Statistics mode uses
+`garmin-completed-day-steps-moscow-all-time-v1` and the separate
+`garmin-completed-steps-all-time-budget-v1`. It requires one exact Garmin source;
+an omitted source asks for selection, without pooling or source guessing. The
+existing source-wide Statistics chooser remains available. Google Steps is
+separately `not_collected` pending #392; Garmin is never substituted for Google.
+
+The existing completed window entry point retains v2, 1–366 days and its
+1000-original cap. Combined export v1–v5 and other Statistics metrics/periods
+are unchanged. All-time is not implemented by looping through years/windows.
+
+One read snapshot and one aware evaluation instant cover the all-time scan and
+statistics. Metadata/provenance are bounded source-wide at 4096 candidates and
+4096 observations, with cap+1. At most 4096 unique originals may be verified in
+the entire request, each once; original identity is the immutable exact source,
+stream and content hash (represented by raw payload ID). Reacquisitions still
+retain their own timestamps/proofs and consume provenance capacity. Caps remain
+1 MiB per original, 16 MiB combined bytes and one cooperative 5-second elapsed
+guard shared by metadata, original reads, selection and aggregation. They never
+reset by year/day. This is not a hard SQL/lock/I/O deadline or a real-data latency
+claim. Any exhausted bound, unreadable/integrity-unknown original or unproved
+daily grain fails closed as `search_incomplete`: no aggregate or winning prefix.
+
+Metadata is not filtered by a materialized earliest date. Every relevant saved
+acquisition for the exact source up to evaluation is considered within those
+bounds. The v2 acquisition spine, immutable receipt proof, source/run/event/batch
+links, returned `calendarDate`, strict nonnegative integer parsing and hash/byte
+verification are reused. Reprocess remains excluded; terminal partial requires
+valid receipt proof. Old partials, checkpoints and projections are never repaired
+or written by this reader. Latest missing/null/invalid/unproven never exposes an
+older value; later lower corrections replace earlier counts; equal latest
+timestamps with distinct values/states stay ambiguous. Identical bytes acquired
+again after the completion boundary may become eligible without a second read.
+
+Effective end is the selected explicit `end_date`, capped at yesterday under
+Europe/Moscow display policy; without an explicit end it is yesterday. The other
+Statistics metrics retain their exact existing selected window, including the
+calendar-year rule. The all-time start is the earliest verified returned completed
+calendar day within that bound; no earlier account/provider coverage is inferred.
+Returned days with no post-boundary acquisition remain unavailable. Sparse cells
+and arithmetic calendar-span counts avoid expanding an arbitrary date gap into
+an unbounded dense calendar. Empty/no-source/no-completed states are distinct.
+
+Statistics use one selected latest proved value for each unique eligible civil
+day. Integer zero is eligible and contributes to the mean's denominator. Sum is
+exact integer addition; mean is sum divided by eligible-day count (Decimal;
+rendered to one decimal, with exact numerator/denominator available). Counts
+strictly above 10000/20000 exclude exactly 10000/20000 respectively. Record dates
+include every equal maximum day. A qualifying streak uses values **>= 10000** on
+adjacent calendar dates: omitted dates, null/missing/invalid/ambiguous/unavailable
+days and values below 10000 break it. Longest length and all equally longest
+ranges are retained. Acquisitions are never summed as extra days.
+
+With no eligible values, numeric aggregates are unavailable, not fabricated zero;
+when eligible values exist but none cross a threshold, that threshold count is
+genuine zero. An incomplete search exposes no numeric statistics. The UI shows
+the effective period, eligible denominator, sparse-state counts, dates without
+verified evidence, exact source, evaluation, contracts and budget counters. Record
+ties and streak ranges are scrollable details; per-day acquisition evidence stays
+in the existing window/year table on the same Statistics page. Full bounded saved
+search does not establish provider history, collection coverage, wear, provider
+timezone or irrevocable finality. Later Garmin corrections remain possible.
+
+No provider calls, Google import, replay/backfill, schema/migration, DB/artifact
+writes, schedule or installed Stable changes are part of this code slice.
+Development/desktop checks use synthetic profiles. Real Owner UAT and rollout are
+separate and are not implied by CI or synthetic capacity checks.

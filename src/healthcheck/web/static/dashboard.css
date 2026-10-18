@@ -478,3 +478,11 @@ main, .legal { max-width: var(--owner-content-width); }
 @media (max-width: 800px) {
   .sleep-timeline-session { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Steps-only all-time summary: same Statistics shell and independent providers. */
+.statistics-steps-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 16px; margin: 24px 0; }
+.statistics-steps-summary > div { min-width: 0; }
+.statistics-steps-summary dt { color: var(--muted); font-size: .8125rem; }
+.statistics-steps-summary dd { margin: 6px 0 0; font: 1.75rem var(--owner-heading-font); overflow-wrap: anywhere; }
+.statistics-steps-ranges { max-height: 15rem; overflow: auto; padding-left: 22px; }
+.statistics-steps-history article > p { font-size: .875rem; }

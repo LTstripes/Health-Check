@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from time import monotonic
 from zoneinfo import ZoneInfo
@@ -36,6 +36,7 @@ from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.daily_summary_acquisition import acquisition_spine_reason, receipt_reason
 from healthcheck.garmin.observed_steps import _calendar_date, _decode, _metric
 from healthcheck.garmin.observed_steps_read import MAX_WINDOW_DAYS, StepsSourceIdentity
+from healthcheck.garmin.steps_statistics import StepsStatistics, summarize_completed_days
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
@@ -47,6 +48,9 @@ MAX_ARTIFACTS = 1000
 MAX_ARTIFACT_BYTES = 1024 * 1024
 MAX_TOTAL_BYTES = 16 * 1024 * 1024
 MAX_READ_SECONDS = 5.0
+ALL_TIME_CONTRACT_VERSION = "garmin-completed-day-steps-moscow-all-time-v1"
+ALL_TIME_BUDGET_VERSION = "garmin-completed-steps-all-time-budget-v1"
+MAX_ALL_TIME_ARTIFACTS = 4096
 
 
 def completion_boundary(day: date) -> datetime:
@@ -106,6 +110,24 @@ class CompletedStepsWindow:
     display_zone: str = DISPLAY_ZONE
 
 
+@dataclass(frozen=True)
+class CompletedStepsHistory(CompletedStepsWindow):
+    start_date: date | None
+    contract_version: str = ALL_TIME_CONTRACT_VERSION
+    budget_version: str = ALL_TIME_BUDGET_VERSION
+    requested_end_date: date | None = None
+    statistics: StepsStatistics | None = None
+
+    @property
+    def limits(self) -> dict:
+        return {
+            "metadata_candidates": MAX_CANDIDATES, "provenance": MAX_PROVENANCE,
+            "unique_originals": MAX_ALL_TIME_ARTIFACTS,
+            "bytes_per_original": MAX_ARTIFACT_BYTES, "total_bytes": MAX_TOTAL_BYTES,
+            "cooperative_seconds": MAX_READ_SECONDS,
+        }
+
+
 def acquisition_reason(
     observation,
     source,
@@ -140,6 +162,62 @@ def read_completed_steps_window(
     end_date: date,
     evaluated_at: datetime,
 ) -> CompletedStepsWindow:
+    """Unchanged v2 window policy and 1000-original bound."""
+    return _read_completed_steps(
+        session, payload_store=payload_store, source_id=source_id,
+        start_date=start_date, end_date=end_date, evaluated_at=evaluated_at,
+    )
+
+
+def read_completed_steps_all_time(
+    session: Session,
+    *,
+    payload_store: ContentAddressedGarminPayloadStore,
+    source_id: str | None,
+    evaluated_at: datetime,
+    end_date: date | None = None,
+) -> CompletedStepsHistory:
+    """One exact source, one snapshot, one global versioned history budget.
+
+    A separate entry point keeps window v2 and its limits intact. Statistics
+    share the scan's elapsed budget; no yearly/window loop or prefix aggregate.
+    """
+    if not isinstance(evaluated_at, datetime) or evaluated_at.utcoffset() is None:
+        raise ValueError("completed Steps requires an aware evaluation instant")
+    if end_date is not None and type(end_date) is not date:
+        raise ValueError("completed Steps requires a civil end date")
+    started = monotonic()
+    yesterday = evaluated_at.astimezone(ZoneInfo(DISPLAY_ZONE)).date() - timedelta(days=1)
+    history = _read_completed_steps(
+        session, payload_store=payload_store, source_id=source_id,
+        start_date=None, end_date=min(end_date or yesterday, yesterday),
+        evaluated_at=evaluated_at, _all_time=True, _started=started,
+        _requested_end_date=end_date,
+    )
+    if history.search_complete and history.start_date is not None:
+        try:
+            history = replace(history, statistics=summarize_completed_days(history))
+        except ValueError:
+            history = replace(history, cells=(), start_date=None, search_complete=False,
+                              reason="daily_grain_unproven")
+    if monotonic() - started > MAX_READ_SECONDS:
+        return replace(history, cells=(), start_date=None, statistics=None,
+                       search_complete=False, reason="time_limit_exceeded")
+    return history
+
+
+def _read_completed_steps(
+    session: Session,
+    *,
+    payload_store: ContentAddressedGarminPayloadStore,
+    source_id: str | None,
+    start_date: date,
+    end_date: date,
+    evaluated_at: datetime,
+    _all_time: bool = False,
+    _started: float | None = None,
+    _requested_end_date: date | None = None,
+) -> CompletedStepsWindow:
     """Bound metadata, then scan relevant originals once in one snapshot.
 
     Requested civil bounds are retained. Current/future Moscow days are omitted.
@@ -148,9 +226,9 @@ def read_completed_steps_window(
     because its day/latest rank cannot be proved. Exact source selection
     is preserved; automatic choice requires one sole source in the verified range.
     """
-    if type(start_date) is not date or type(end_date) is not date:
+    if type(end_date) is not date or (not _all_time and type(start_date) is not date):
         raise ValueError("completed Steps requires civil dates")
-    if not 1 <= (end_date - start_date).days + 1 <= MAX_WINDOW_DAYS:
+    if not _all_time and not 1 <= (end_date - start_date).days + 1 <= MAX_WINDOW_DAYS:
         raise ValueError("completed Steps window must contain 1 to 366 days")
     if source_id is not None and (not isinstance(source_id, str) or not source_id.strip()):
         raise ValueError("invalid exact source")
@@ -158,22 +236,24 @@ def read_completed_steps_window(
         raise ValueError("completed Steps requires an aware evaluation instant")
     evaluated_at = evaluated_at.astimezone(UTC)
     today = evaluated_at.astimezone(ZoneInfo(DISPLAY_ZONE)).date()
-    dates = tuple(
+    dates = () if _all_time else tuple(
         start_date + timedelta(days=i)
         for i in range((end_date - start_date).days + 1)
         if start_date + timedelta(days=i) < today
     )
     ensure_read_snapshot(session)
-    started = monotonic()
+    started = monotonic() if _started is None else _started
+    history_days = set()
     source = session.get(GarminSource, source_id) if source_id else None
     identity = None
     choices = ()
     candidates = provenance = artifacts = byte_count = 0
 
     def result(cells=(), reason=None, complete=True):
-        return CompletedStepsWindow(
+        result_type = CompletedStepsHistory if _all_time else CompletedStepsWindow
+        return result_type(
             source_id,
-            start_date,
+            min(history_days) if _all_time and history_days and complete else start_date,
             end_date,
             evaluated_at,
             identity,
@@ -185,9 +265,12 @@ def read_completed_steps_window(
             artifacts,
             byte_count,
             reason,
+            **({"requested_end_date": _requested_end_date} if _all_time else {}),
         )
 
     def incomplete(reason):
+        if _all_time:
+            return result(reason=reason, complete=False)
         return result(
             (
                 CompletedStepsDay(
@@ -204,13 +287,18 @@ def read_completed_steps_window(
             False,
         )
 
+    def in_scope(day):
+        return day <= end_date if _all_time else day in dates
+
+    if _all_time and source_id is None:
+        return result(reason="source_selection_required")
     if source_id and (source is None or source.provider_code != "garmin_connect"):
         return result(reason="source_not_found")
     if source:
         identity = StepsSourceIdentity(
             source.id, source.provider_code, source.source_kind, source.source_instance_id
         )
-    if not dates:
+    if not dates and not _all_time:
         return result(reason="no_completed_days")
     obs = GarminPayloadObservation
     query = (
@@ -240,12 +328,13 @@ def read_completed_steps_window(
             obs.stream_code == "daily_health",
             obs.payload_format == "json",
             obs.source_filename == "daily_summary.json",
-            obs.received_at >= completion_boundary(dates[0]),
             obs.received_at <= evaluated_at,
         )
         .order_by(obs.received_at, obs.id)
         .limit(MAX_PROVENANCE + 1)
     )
+    if not _all_time:
+        query = query.where(obs.received_at >= completion_boundary(dates[0]))
     if source_id:
         query = query.where(obs.garmin_source_id == source_id)
     try:
@@ -287,10 +376,10 @@ def read_completed_steps_window(
             continue
         day = receipt.original_calendar_date
         indexed_days[raw_id].add(day)
-        if day in dates:
+        if in_scope(day):
             retained_ids.add(raw_id)
     retained_ids.update(key for key, days in indexed_days.items() if len(days) != 1)
-    if len(retained_ids) > MAX_ARTIFACTS:
+    if len(retained_ids) > (MAX_ALL_TIME_ARTIFACTS if _all_time else MAX_ARTIFACTS):
         return incomplete("artifact_limit_exceeded")
     decoded = {}
     by_source_day = defaultdict(list)
@@ -312,7 +401,9 @@ def read_completed_steps_window(
                 return incomplete("total_byte_limit_exceeded")
             try:
                 content = payload_store.read(
-                    artifact.relative_storage_path, max_bytes=MAX_ARTIFACT_BYTES
+                    artifact.relative_storage_path,
+                    max_bytes=(min(MAX_ARTIFACT_BYTES, MAX_TOTAL_BYTES - byte_count)
+                               if _all_time else MAX_ARTIFACT_BYTES),
                 )
             except (OSError, ValueError):
                 return incomplete("original_unreadable")
@@ -331,7 +422,9 @@ def read_completed_steps_window(
             decoded[raw.id] = (day, _metric(payload))
         day, metric = decoded[raw.id]
         received = restore_stored_utc(observation.received_at)
-        if day not in dates or received < completion_boundary(day):
+        if _all_time and in_scope(day):
+            history_days.add(day)
+        if not in_scope(day) or received < completion_boundary(day):
             continue
         reason = acquisition_reason(
             observation, src, raw, artifact, run, provider, event, batch, receipt, day
@@ -360,6 +453,10 @@ def read_completed_steps_window(
             )
     if monotonic() - started > MAX_READ_SECONDS:
         return incomplete("time_limit_exceeded")
+    if _all_time:
+        dates = tuple(sorted(history_days))
+        if not dates:
+            return result(reason="no_completed_days" if rows else "source_not_evidenced")
     choices = tuple(identities[key] for key in sorted(identities))
     if source_id is None:
         if len(choices) != 1:
