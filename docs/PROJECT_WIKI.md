@@ -1,348 +1,444 @@
-# Health-Check Project Wiki
+<a id="book--project-wiki"></a>
+# Project Wiki
 
-This is the compact current-state entry point. The [roadmap](ROADMAP.md#current-backlog)
-owns sequencing, issues own execution contracts, and release/history documents retain
-proof. Do not use an older status paragraph as an instruction to repeat completed work.
+The single dated entry point for accepted engineering state, installed Owner code,
+human UAT, remaining work and history. Product, Architecture, Development and Owner
+Operations own their respective rules; this book does not duplicate those contracts.
+Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 
 <a id="current-canonical-state"></a>
 
-## Current canonical state - 2026-10-16 Activity evidence and saved sleep
+<a id="current-canonical-state--current-canonical-state--2026-10-18"></a>
+## Current canonical state — 2026-10-18
 
-Accepted product is
-[`main b169f839dcb36d4c98cf490f8074394fd2a4a183`](https://github.com/LTstripes/Health-Check/commit/b169f839dcb36d4c98cf490f8074394fd2a4a183).
-Both bounded slices passed independent review and their required exact-candidate
-and post-main gates; the PRs retain detailed review/provenance receipts.
+| Boundary | Observed state and evidence | What it establishes |
+| --- | --- | --- |
+| Accepted main at this documentation baseline | `b51859e9787dd81ca7959de5d3184e0c801c6cbf`, tree `6864c031fb6e8b067e7769810b36008a7891e991`; [PR #458](https://github.com/LTstripes/Health-Check/pull/458), [post-main CI attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/39148416886) | Accepted Steps-only all-time slice; full quality, three Linux lanes, Windows and final checks; 4844 reconciled nodeids, 4841 passed and three declared Windows-only skips |
+| Installed Stable code | Owner-local verification on 2026-10-18 confirmed the same `b51859e…` through a separate authorized rollout and loaded code/profile/process binding; private receipt retained locally | This installation observation is separate from GitHub integration. No private receipt path or health values are published here. The documentation candidate itself performs no rollout |
+| Human Owner UAT | [#330](https://github.com/LTstripes/Health-Check/issues/330) remains OPEN / PARTIAL; retain [positive and unresolved findings](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6106537913) | Technical rollout/browser proof does not complete human acceptance of every screen, durable Context save/edit/timezone persistence or direct ChatGPT connection |
+| Provider/runtime truth | Historical acquisition/refresh/recovery receipts have their own dates and scopes | No perpetual provider availability, complete account history, current Google recovery, new auth or scheduler change is inferred from main or installation |
 
-| Integrated slice | Delivered boundary and exact post-main proof |
+The installed-code observation was already verified in the authorized Owner-local
+session. This documentation work reads public repository sources and metadata only;
+it does not reopen private profiles or publish their results. A future observation
+must carry its own date and binding. Snapshot age, source-data date and refresh
+failure age are different facts.
+
+<a id="current-canonical-state--delivered-capabilities"></a>
+## Delivered capabilities
+
+The desktop A+ shell includes Overview, longitudinal Weight/composition, Sleep,
+Activity details and comparisons, Statistics, Data and primary Comments with one
+city/IANA chooser. Readable dates, durations and units preserve exact raw disclosure.
+Statistics keeps Garmin/Google as normal provider concepts while retaining separate
+exact eligible source identities. Saved RHR and Sleep defaults are metric-specific;
+the unique eligible Cycling source can be selected without pooling accounts.
+
+Weight screenshots are the operational Xiaomi path, retaining originals, reviewed
+candidate/confirmation history, method compatibility and metadata origins. Exact
+attachment replay is duplicate-safe; cross-image semantic merge remains parked.
+Optional openScale is an existing external contract; #153 is not planned.
+
+Garmin sync/backfill, Training/Recovery and typed saved evidence retain bounded
+coverage, provenance and correction history. Google persistence, protected OAuth,
+bounded refresh/reconciliation and explicit collection intent remain delivered;
+sample Google HR is OFF in the selected Ops profile, while bare CLI defaults are
+unchanged. No current provider health is inferred from historical release proof.
+
+Deterministic Period Brief, revisioned Context, bounded period/Sleep/Activity services,
+combined detailed/compact export, explicit stdout and the Overview download form are
+delivered. Combined optional boundaries are v2 Stress/Body Battery, v3 HRV/RHR, v4
+observed Steps/Weight and explicit v5 completed Steps. The narrow Weight/Context MCP
+prototype remains separate. Direct authenticated ChatGPT connection is deferred;
+manual export remains useful without making localhost remotely reachable.
+
+<a id="recent-outcomes"></a>
+
+<a id="recent-outcomes--recent-accepted-outcomes"></a>
+## Recent accepted outcomes
+
+| Accepted change | Evidence | Remaining boundary |
+| --- | --- | --- |
+| Add bounded all-time completed Steps statistics | [#458](https://github.com/LTstripes/Health-Check/pull/458), `b51859e9787dd81ca7959de5d3184e0c801c6cbf`, 2026-10-18T17:11:21Z | Steps-only all-time; broader #380/#377 and human UAT remain open |
+| Export completed-day Steps through explicit v5 mode | [#457](https://github.com/LTstripes/Health-Check/pull/457), `cd0f02e19a9a0a4965a524fb09a42c7b5fcbddf6`, 2026-10-18T15:36:12Z | Explicit completed Steps v5; observed defaults and v1-v4 unchanged |
+| Bound annual completed Steps reads by validated receipt dates | [#456](https://github.com/LTstripes/Health-Check/pull/456), `a39ef8e911f594ddab39f3296f4b541c0f97f943`, 2026-10-18T11:22:10Z | Validated receipt-date pruning; byte/time/candidate guards unchanged |
+| feat(ui): download combined analysis evidence from Overview | [#455](https://github.com/LTstripes/Health-Check/pull/455), `0fcbe904dd40f2ba1c28b0b449c27acc4d092880`, 2026-10-18T07:54:01Z | Local bounded download form; no direct chat connection |
+| Add optional saved Steps and Weight to combined evidence | [#454](https://github.com/LTstripes/Health-Check/pull/454), `a4845c78a44d9d04398ecc11555dab28f71f4565`, 2026-10-17T23:15:15Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Add optional saved HRV and resting heart rate to combined evidence | [#453](https://github.com/LTstripes/Health-Check/pull/453), `2af9cdd4c8aad7ab2416aee92a88c3ac4f9d2c96`, 2026-10-17T22:25:54Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Add optional Stress and saved Body Battery to combined evidence | [#452](https://github.com/LTstripes/Health-Check/pull/452), `0fbb04173c64298d565bc99fa081521227b04c5a`, 2026-10-17T21:24:37Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Expose persisted activity timing in combined evidence (#341) | [#450](https://github.com/LTstripes/Health-Check/pull/450), `ce450b2a29522d32bdbf202e6ea11d65170b94ee`, 2026-10-17T16:43:03Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Add opt-in compact 30-day combined evidence (#341) | [#449](https://github.com/LTstripes/Health-Check/pull/449), `e0b95cbb0c151f99373a6582754caa76a1a5c710`, 2026-10-17T14:59:37Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Add bounded combined evidence stdout output (#341) | [#448](https://github.com/LTstripes/Health-Check/pull/448), `5ad2bcfc52bbbdc8974501f2051f2873697381aa`, 2026-10-17T11:23:47Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Add recoverable workspace relocation and explicit restore | [#447](https://github.com/LTstripes/Health-Check/pull/447), `220382fefa9d08d8ca9f67b2e9511934275c4ea4`, 2026-10-17T09:00:19Z | Recoverable retirement source; actual helper/task installation is separate proof |
+| Data: choose default Google RHR after bounded metric eligibility | [#446](https://github.com/LTstripes/Health-Check/pull/446), `cb73f3db491e0a64b0692c834f5d05fea159aca5`, 2026-10-17T08:12:01Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Show the unique eligible cycling source in Statistics (#347) | [#445](https://github.com/LTstripes/Health-Check/pull/445), `5ed9f05b49cd6a33720118ff1eb81fd82c20f9ce`, 2026-10-17T06:45:41Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Persist future Garmin daily-summary acquisition proof for completed Steps | [#444](https://github.com/LTstripes/Health-Check/pull/444), `fa0f44d0b6e7f549c65d7a3f19a6bb2e18029f22`, 2026-10-17T05:59:57Z | Future acquisition receipts; old partials are not certified |
+| Show completed-period means in Overview recovery cards | [#443](https://github.com/LTstripes/Health-Check/pull/443), `8e945c0c00211a9959b9776d3570476b2c7ffb54`, 2026-10-16T23:11:13Z | Completed-period mean cards; human acceptance separate |
+| Connect worker checkout lifecycle to managed cleanup | [#442](https://github.com/LTstripes/Health-Check/pull/442), `af2c0d65e9a6caebcb55c8a1e35d70a3abb60134`, 2026-10-16T22:39:20Z | Explicit managed worker consumer; no legacy enrollment |
+| Select unique eligible Google sources for saved RHR and Sleep | [#441](https://github.com/LTstripes/Health-Check/pull/441), `ab0dc4c190c08abc7b30d3f7e2297a3984f100c1`, 2026-10-16T22:07:53Z | Bounded delivered slice; see PR for exact acceptance scope |
+| Require explicit managed workspace completion before cleanup | [#440](https://github.com/LTstripes/Health-Check/pull/440), `2fa46dcb65f22f2a97467f47a4ab35f4dbf8a9de`, 2026-10-16T21:23:17Z | Completed enrolled standalone clones only; preserve unknown/active/paused |
+| docs: make CBM optional in task reporting | [#439](https://github.com/LTstripes/Health-Check/pull/439), `0d8e1eb4f4e46821cd4a782c5a1d8915dc9b0b32`, 2026-10-16T19:42:42Z | Bounded delivered slice; see PR for exact acceptance scope |
+| fix: preserve Garmin HRV day identity and bounded legacy recovery | [#438](https://github.com/LTstripes/Health-Check/pull/438), `f0ef04f47e64f36a9fd3814249321e2fccc7bce7`, 2026-10-16T18:32:17Z | HRV identity fix; real copy-only recovery requires separate authorization |
+
+<a id="current-backlog"></a>
+
+<a id="current-backlog--remaining-work-and-sequencing"></a>
+## Remaining work and sequencing
+
+
+Do not repeat delivered slices because an umbrella issue is OPEN. No backlog row
+authorizes a Worker, provider call, replay, Stable write or new transport.
+
+| Subject | Next bounded delta / dependencies |
 | --- | --- |
-| [PR #433](https://github.com/LTstripes/Health-Check/pull/433), #341 Activity evidence | One explicit Garmin source, exact 7/30 source-local dates, accepted session/type counts, tennis count/duration and cycling distance, optional current Context in one read-only snapshot. [Contract](ACTIVITY_CHAT_EVIDENCE.md). Main `7ff5661eb109f71051059cc75f6efe5f7eafda28`; [CI 38879195343, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38879195343) SUCCESS |
-| [PR #434](https://github.com/LTstripes/Health-Check/pull/434), #305/#376 Data saved sleep | Latest eligible saved sleep separately for exact Garmin/Google sources, true persisted local wake date and civil-day age, independent of refresh; eligibility, missing/conflicts, zero and history retained. [Contract](DATA_SAVED_SLEEP_CONTRACT.md) and [slice outcome](https://github.com/LTstripes/Health-Check/issues/305#issuecomment-6213387603). Main `b169f839dcb36d4c98cf490f8074394fd2a4a183`; [CI 38885039993, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38885039993) SUCCESS |
+| #380 / #377 history and Steps | Steps-only all-time is delivered by #458: exact sum/eligible-day mean including zero, strict >10k/>20k counts, all tied records and adjacent-calendar >=10k streaks. Broader all-history domains, complete source coverage and Owner availability/UAT remain open. Cooperative five-second failure may withhold all numbers on a heavy request; it is not a hard SQL/I/O deadline or provider finality guarantee |
+| #392 Google Steps | First prove endpoint/type/scopes, unit, interval/daily meaning, overlap and eligible coverage; no current production Steps stream and no Garmin-to-Google copy |
+| #393 / #394 / #357 recovery cards | Mean/Moscow/applicability and saved-day Body Battery maximum contracts are implemented, including #443. Remaining Owner review/UAT is separate; do not repeat Stage B implementation or relabel snapshot as daily peak |
+| #347 / #342 source views | Delivered provider-first presentation, exact Sleep/RHR defaults and Cycling eligibility do not implement a universal eligible-source policy. Further metrics need their own meaning and ambiguity contract. No family/device pooling |
+| #305 / #376 dated Data | RHR and saved Sleep are delivered with true source date/age. Add other metrics only in scoped adapters; separate copied failure and snapshot age policy from source absence |
+| #294 Comments | Durable-profile save/edit/timezone-persistence Owner UAT; goal Settings Stage B deferred |
+| #341 / #451 evidence | Bounded source services, combined options and downloads delivered. Direct connection needs separate account/host/auth/revocation decision and end-to-end proof; broader umbrella stays OPEN |
+| #319 energy | BLOCKED on authoritative leaf, unit/category/interval, resting inclusion and eligible coverage. Max-HR/anaerobic B1 is delivered; no guessed active+resting total |
+| #379 / #378 / #345 | Remaining scoped style, functional discovery and human acceptance; preserve exact disclosure and delivered Activity detail/A-B/session drilldown |
+| #330 / #406 operations | Human UAT remains partial; Google GET-401 fix is accepted code, not proof of original failure cause or current live recovery. Any auth/refresh/runtime action needs its own assignment |
+| #126 / #167 | Repository enforcement/capability and privacy-history rewrite are explicit Owner decisions; no implicit purchase/settings/history change |
+| #228 / #105 | Cross-image identity stays parked without trustworthy event proof; canonical Sleep switch remains NOT_ELIGIBLE without separate device-pair gate |
+| #348 and later releases | Lab original/candidate/confirmation contract on separate Owner direction, not an automatic diary/medication/causal-analysis expansion |
 
-The Sleep post-main gate reconciled 4237 exact nodeids: 4234 passed / three
-expected Linux skips; same-attempt and Windows evidence verifiers PASS, DPAPI
-one passed. Its 12 reviewed desktop PNGs at 1024/1440 are synthetic UI evidence,
-not Owner UAT. Activity engineering proof is likewise synthetic; its service
-does not add a direct assistant connection or new aggregate meanings.
+<a id="current-backlog--open-issue-registry-at-the-baseline"></a>
+### Open issue registry at the baseline
 
-Installed Stable is separately `75d18763b6258900e72c4bf9e88e5fa123661025`;
-**neither #433 nor #434 is deployed there**. This documentation reconciliation
-does not inspect private profiles or change runtime/providers. Direct data
-connectivity, Owner UAT and real-profile performance remain UNVERIFIED; query
-budgets and synthetic timings are not performance acceptance. #341, #305 and
-#376 remain OPEN. Next deltas are a separately scoped connection/access decision
-for #341 and individually scoped other-metric/clone-age work for #305/#376,
-with rollout/UAT or profile measurements authorized separately. See the
-[roadmap](ROADMAP.md#current-backlog); do not repeat the delivered services or
-RHR/sleep cards. Earlier checkpoints below retain their dated scope.
+This dated registry records issue state, not whether every stage in it is missing.
+The next-delta table above and the issue's latest acceptance receipt determine scope.
 
-## Previous #357 arithmetic-mean checkpoint - 2026-10-15
+- [#451: Combined chat evidence тАФ add Stress and Body Battery from accepted readers](https://github.com/LTstripes/Health-Check/issues/451) — OPEN, last metadata update 2026-10-18T16:00:17Z.
+- [#419: Backlog: ╨╛╨▒╤Й╨╕╨╣ ╨░╨▓╤В╨╛╨╖╨░╨┐╤Г╤Б╨║ Stable Health-Check + Hermes Finance ╨╕ ╨┤╨▓╨░ ╤П╤А╨╗╤Л╨║╨░](https://github.com/LTstripes/Health-Check/issues/419) — OPEN, last metadata update 2026-10-14T16:08:12Z.
+- [#406: Google auth recovery тАФ one verified-refresh retry for GET 401](https://github.com/LTstripes/Health-Check/issues/406) — OPEN, last metadata update 2026-10-12T19:47:12Z.
+- [#403: Windows cleanup: accept exact one-sibling separator transcript](https://github.com/LTstripes/Health-Check/issues/403) — OPEN, last metadata update 2026-10-12T10:27:11Z.
+- [#394: Overview Body Battery тАФ daily maximum semantics before changing snapshot card](https://github.com/LTstripes/Health-Check/issues/394) — OPEN, last metadata update 2026-10-14T16:44:22Z.
+- [#393: Overview RHR тАФ period mean over eligible daily observations, compact card](https://github.com/LTstripes/Health-Check/issues/393) — OPEN, last metadata update 2026-10-14T10:33:29Z.
+- [#392: Google Steps тАФ source-backed acquisition, typed persistence and daily evidence](https://github.com/LTstripes/Health-Check/issues/392) — OPEN, last metadata update 2026-10-12T00:08:19Z.
+- [#380: Statistics тАФ safe 365-day, calendar-year and all-history windows](https://github.com/LTstripes/Health-Check/issues/380) — OPEN, last metadata update 2026-10-18T17:31:22Z.
+- [#379: A+ consistency тАФ desktop forms, tables and secondary screens](https://github.com/LTstripes/Health-Check/issues/379) — OPEN, last metadata update 2026-10-12T20:27:08Z.
+- [#378: Activity тАФ Owner-requested functional analytics discovery](https://github.com/LTstripes/Health-Check/issues/378) — OPEN, last metadata update 2026-10-12T20:27:16Z.
+- [#377: Saved Steps тАФ evidence, typed import and Statistics display](https://github.com/LTstripes/Health-Check/issues/377) — OPEN, last metadata update 2026-10-18T17:31:27Z.
+- [#376: Owner UI тАФ show latest eligible saved evidence with explicit as-of date](https://github.com/LTstripes/Health-Check/issues/376) — OPEN, last metadata update 2026-10-11T20:02:45Z.
+- [#375: Weight composition тАФ one readable history across distinct method groups](https://github.com/LTstripes/Health-Check/issues/375) — OPEN, last metadata update 2026-10-11T20:02:42Z.
+- [#366: CI investigation: first-push duplicate evidence and bounded reuse design](https://github.com/LTstripes/Health-Check/issues/366) — OPEN, last metadata update 2026-10-10T06:34:15Z.
+- [#357: ╨Ы╨╕╤З╨╜╤Л╨╣ baseline: ╤Б╨╡╨╣╤З╨░╤Б ╨╛╤В╨╜╨╛╤Б╨╕╤В╨╡╨╗╤М╨╜╨╛ ╤Б╨▓╨╛╨╕╤Е ╨╛╨▒╤Л╤З╨╜╤Л╤Е ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╣](https://github.com/LTstripes/Health-Check/issues/357) — OPEN, last metadata update 2026-10-15T16:10:28Z.
+- [#348: Laboratory documents v1 тАФ upload, confirm extracted results and preserve originals](https://github.com/LTstripes/Health-Check/issues/348) — OPEN, last metadata update 2026-10-09T15:51:35Z.
+- [#347: Statistics тАФ side-by-side source columns for steps, activity, distance, energy and sleep](https://github.com/LTstripes/Health-Check/issues/347) — OPEN, last metadata update 2026-10-16T13:34:55Z.
+- [#346: Training & recovery тАФ useful 7/30-day baseline cards beside dated snapshots](https://github.com/LTstripes/Health-Check/issues/346) — OPEN, last metadata update 2026-10-11T07:09:58Z.
+- [#345: Activity details тАФ one saved-session page with useful metric cards](https://github.com/LTstripes/Health-Check/issues/345) — OPEN, last metadata update 2026-10-11T06:52:32Z.
+- [#344: Overview follow-up тАФ thin Weight connectors, readable Sleep ticks, quiet freshness detail](https://github.com/LTstripes/Health-Check/issues/344) — OPEN, last metadata update 2026-10-10T17:21:38Z.
+- [#343: Sleep timeline тАФ Garmin and Google together, 7/30 days, details on a point](https://github.com/LTstripes/Health-Check/issues/343) — OPEN, last metadata update 2026-10-11T11:21:45Z.
+- [#342: P1 тАФ Data availability diagnosis: real clone, Google sleep/score and Garmin gaps](https://github.com/LTstripes/Health-Check/issues/342) — OPEN, last metadata update 2026-10-11T08:30:06Z.
+- [#341: Health chat evidence тАФ export/MCP integrated; direct ChatGPT connection deferred](https://github.com/LTstripes/Health-Check/issues/341) — OPEN, last metadata update 2026-10-16T15:32:21Z.
+- [#340: Overview Garmin RHR тАФ eligible stored value excluded by collection-surface filter](https://github.com/LTstripes/Health-Check/issues/340) — OPEN, last metadata update 2026-10-09T21:05:16Z.
+- [#333: Overview A+ тАФ compact source alerts and missing HRV/RHR evidence](https://github.com/LTstripes/Health-Check/issues/333) — OPEN, last metadata update 2026-10-11T20:03:46Z.
+- [#330: Owner UAT тАФ desktop A+ shell and real Overview](https://github.com/LTstripes/Health-Check/issues/330) — OPEN, last metadata update 2026-10-12T23:58:20Z.
+- [#319: Activity metrics evidence тАФ inventory calories, max HR and dual training effects](https://github.com/LTstripes/Health-Check/issues/319) — OPEN, last metadata update 2026-10-13T05:51:42Z.
+- [#305: Owner Data v2 тАФ fix freshness check and simplify photo-import history](https://github.com/LTstripes/Health-Check/issues/305) — OPEN, last metadata update 2026-10-16T10:23:11Z.
+- [#295: Owner UI performance тАФ measure real route latency before caching](https://github.com/LTstripes/Health-Check/issues/295) — OPEN, last metadata update 2026-10-14T20:29:00Z.
+- [#294: Owner Context & Settings тАФ comments with explicit date/time first](https://github.com/LTstripes/Health-Check/issues/294) — OPEN, last metadata update 2026-10-12T10:28:05Z.
+- [#228: Weight screenshot тАФ separate artifact replay identity from semantic weigh-in identity](https://github.com/LTstripes/Health-Check/issues/228) — OPEN, last metadata update 2026-09-29T19:21:08Z.
+- [#167: Privacy тАФ sanitize historical personal metadata before future public exposure](https://github.com/LTstripes/Health-Check/issues/167) — OPEN, last metadata update 2026-09-22T11:12:42Z.
+- [#126: CI-04 тАФ Owner action: enforce required checks and record any protection capability blocker](https://github.com/LTstripes/Health-Check/issues/126) — OPEN, last metadata update 2026-09-22T05:21:05Z.
+- [#105: R05-06 тАФ versioned canonical sleep source rule](https://github.com/LTstripes/Health-Check/issues/105) — OPEN, last metadata update 2026-09-16T18:00:20Z.
 
-The backend-only arithmetic-mean option is accepted and integrated in
-[PR #430](https://github.com/LTstripes/Health-Check/pull/430), at
-[`main 72fe2572be734c26fe7c1e713725ecfc77f3b26c`](https://github.com/LTstripes/Health-Check/commit/72fe2572be734c26fe7c1e713725ecfc77f3b26c).
-[Exact post-main CI 38743920025, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38743920025)
-is SUCCESS: 4118 exact nodeids, 4115 passed and three expected Linux skips,
-Windows/DPAPI PASS. Complete same-attempt artifacts were locally revalidated;
-merge parents and tree match the accepted candidate. The PR records independent
-semantic/code ACCEPT for `cea623cc15a0a59f3acbc3bcdf56419138947a21` against
-`86f572df98727c237d8025f967f5336a36e8f580` and its exact pre-merge gates.
+<a id="unverified-and-decisions"></a>
 
-Explicit `comparison_method="arithmetic-mean-v1"` selects adapter v4 and frozen
-R03 `baseline.mean`, with equal weight per eligible saved daily value and signed,
-unrounded current-minus-mean delta. The omitted-option v2/v3 bodies and hashes
-remain unchanged; Moscow still requires its explicit day-policy opt-in. The
-[versioned contract](R03_ANALYTIC_INPUT_CONTRACT.md#explicit-arithmetic-mean-comparison-357)
-owns the detailed finite/overflow, provenance, completion and coverage guards.
+<a id="unverified-and-decisions--unverified-observations-and-deferred-decisions"></a>
+## Unverified observations and deferred decisions
 
-The [bounded mean-mode real-copy receipt](https://github.com/LTstripes/Health-Check/issues/357#issuecomment-6194781870)
-subsequently verified one completed-day control as available and another fixed D
-as blocked by early acquisition on one isolated snapshot. It did not establish
-universal coverage or missing-day behavior. The authorized UI candidate connects
-the existing Overview daily-stress card to explicit v4/Moscow comparison for the
-end date of the selected period, with independent preceding-28-day history and
-short unavailable reasons. Independent review and Owner UAT remain pending;
-the UI candidate is not yet accepted or rolled out. [#357](https://github.com/LTstripes/Health-Check/issues/357)
-remains OPEN. The
-[earlier real-copy applicability check](https://github.com/LTstripes/Health-Check/issues/357#issuecomment-6191881424)
-was **median-mode only** and is not mean-mode verification. No Stable/Owner
-runtime or data, provider operation or rollout was changed. GitHub integration
-does not update the Owner's local runtime. Earlier checkpoints retain their
-dated scope and evidence.
 
-## Previous #357 Moscow analysis-day checkpoint - 2026-10-15
+Future Garmin MFA/shape drift, retention beyond released proof, Recovery Time
+unit/producer and unsupported max/VO2 metrics remain observation gaps. Weekly HRV
+upstream cause/current provider health is not established by a clone audit. Auth
+longevity and late corrections need dated evidence; family membership is not one
+physical Fitbit. Disabled Google HR history is intentionally incomplete. Historical
+pre-July coverage cannot be inferred or silently backfilled.
 
-The backend-only explicit Moscow analysis-day policy is integrated in
-[PR #428](https://github.com/LTstripes/Health-Check/pull/428). Its code checkpoint
-is [`main 9340def7aef61e5e96f610b25422836b5f501085`](https://github.com/LTstripes/Health-Check/commit/9340def7aef61e5e96f610b25422836b5f501085);
-[exact post-main CI 38720989149, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38720989149)
-is SUCCESS. [Independent ACCEPT relayed by parent and integration receipt](https://github.com/LTstripes/Health-Check/pull/428#issuecomment-6190237162)
-bind candidate `f48a824a7e354e5686eb5edfe632fdb6b2e8c359` on base
-`be92a019b4c8d8b0ed2b9fa91308f6cabacbee3b` and its exact pre-merge gates.
-[#357](https://github.com/LTstripes/Health-Check/issues/357) owns the current task
-status. This is a bounded backend update, not a new global product/runtime audit.
+R05 account observations remain exploratory and noncanonical. Firmware/application
+change points may require separate epochs. Two visible series do not prove matched
+device-pair eligibility. Historical algorithm versions can remain unknown; no BIA
+calibration or cross-image merge follows from plausible numeric agreement.
 
-Adapter v3 requires explicit opt-in to
-`owner-selected-europe-moscow-analysis-day-v1`; omitted policy retains strict
-adapter v2. Garmin calendarDate, timestamps and saved daily means remain original
-source evidence, without Moscow-day reaggregation. The selected analysis zone and
-nullable/unproven source zone stay distinct. Completion still needs ordinary
-successful acquisition with receipt at/after the next ZoneInfo Moscow midnight;
-replay or late evaluation cannot rescue an earlier receipt. The source/method,
-21-of-28, frozen median/Type-7, partial/cap and two-query snapshot guards remain.
+Keep direct access, full remote portal exposure, email/scheduled transport, repository
+protection purchase/settings, history rewrite and any custom Recovery Score subject
+to their actual Owner decisions. A+ style is decided; assign only remaining deltas
+without a global redesign. Telegram is optional and unimplemented as a v0 capture
+source. No pending operation is launched by this Wiki.
 
-All supplied clocks are checked, including raw fields normalization did not
-select: DST gaps, unresolved folds and conversion overflow fail closed. Both
-folds remain supported with coherent UTC/offset evidence. Conservative limitation:
-selected date-only plus unselected naive clock/standalone offset can remain
-unavailable when normalized clock proof is absent; no inferred instant or source
-zone is persisted to rescue it. The [versioned backend contract](R03_ANALYTIC_INPUT_CONTRACT.md#explicit-owner-selected-moscow-analysis-day-policy-357)
-retains the detailed meaning.
 
-Only code and synthetic evidence are accepted. #357 remains OPEN for separately
-authorized UI/surface and real-copy saved-coverage/readiness verification, then
-Owner UAT. No Stable/Owner runtime or data, provider operation, rollout or extra
-technical panel was changed. GitHub integration does not update the Owner's local
-runtime. Earlier dated checkpoints retain their original scope and evidence.
 
-## Previous #357 applicability checkpoint - 2026-10-15
+<a id="release-roadmap--release-roadmap"></a>
+## Release roadmap
 
-The accepted source-only stress adapter ([PR #425](https://github.com/LTstripes/Health-Check/pull/425))
-and its versioned applicability correction ([PR #426](https://github.com/LTstripes/Health-Check/pull/426))
-are integrated in [`main 023b3e1adf78cf46d1437c76b002206c6f9a4991`](https://github.com/LTstripes/Health-Check/commit/023b3e1adf78cf46d1437c76b002206c6f9a4991).
-The exact post-main evidence is [CI 38701739186, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38701739186).
-[Independent ACCEPT and integration receipt](https://github.com/LTstripes/Health-Check/pull/426#issuecomment-6187257557)
-bind the reviewed candidate and pre-merge gates; [#357](https://github.com/LTstripes/Health-Check/issues/357)
-owns the current task status. This is a bounded #357 update, not a new global product audit.
+<a id="release-roadmap--r00--final-architecture-complete"></a>
+### R00 — Final architecture (complete)
 
-R03 rule v2 distinguishes positively proven foreign-surface missing placeholders
-from daily stress mean candidates before date ambiguity resolution. Its separate
-applicability audit and frozen inputs remain hashed; the compatible adapter reads
-current and preceding history in one snapshot without subset recomputation.
-Genuine missing/null/invalid, unknown or conflicting provenance, unexpected
-nonmissing and genuine duplicate rows retain fail-closed per-date semantics.
-Source/date, method/unit, caps/partial, original timezone and ordinary acquisition
-guards remain; absent timezone proof preserves current value but blocks comparison.
+Delivered product boundaries, source priorities, local-first Python/FastAPI/SQLite architecture, provenance/canonical/coverage rules, donor/license audit and first implementation contracts.
 
-Only code and synthetic evidence are accepted. #357 remains OPEN: UI/surface,
-actual Owner coverage and Owner UAT are held/unverified. No Stable/Owner runtime
-or data, provider operation, rollout or future Moscow timezone policy is included.
-Earlier dated checkpoints below retain their original scope and evidence.
+<a id="release-roadmap--r01--weight--body-composition-released"></a>
+### R01 — Weight & Body Composition (released)
 
-## Previous canonical checkpoint - 2026-10-14 product closeout
+Delivered local runtime/migrations, Xiaomi historical photo import with confirmation/provenance, openScale/openScale-sync contract, canonical selection/sparse coverage, deterministic Weight/body-composition analytics, local dashboard and safe profile backup/restore.
 
-Accepted product: [`main a27aa46b844ab944ce012513dd9a86d26919c07f`](https://github.com/LTstripes/Health-Check/commit/a27aa46b844ab944ce012513dd9a86d26919c07f).
-[Exact post-main CI 38598439243](https://github.com/LTstripes/Health-Check/actions/runs/38598439243)
-SUCCESS, attempt 1: 3656 exact nodeids reconciled and actual Windows/DPAPI evidence PASS. Live GitHub remains authoritative for subsequent refs;
-check [live main](https://github.com/LTstripes/Health-Check/commits/main) before a new assignment.
+See [R01 Release Closeout](archive/releases/R01_RELEASE_CLOSEOUT.md).
 
-| Accepted since the night checkpoint | Delivered boundary |
+<a id="release-roadmap--r02--garmin-ingestion-and-backfill-released"></a>
+### R02 — Garmin ingestion and backfill (released)
+
+Delivered protected Owner-assisted session reuse, reviewed read capability/normalization/persistence, typed current/source/observation records, incremental sync/trailing reconciliation, bounded resumable backfill, explicit coverage/checkpoints and completed-rerun idempotency.
+
+Owner gates exposed real-provider convergence defects that synthetic CI had not proven; focused repairs preceded release. See [R02 Release Closeout](archive/releases/R02_RELEASE_CLOSEOUT.md).
+
+<a id="release-roadmap--r03--garmin-analytics-and-activity-comparison-released"></a>
+### R03 — Garmin analytics and activity comparison (released)
+
+Delivered reviewed metric/time/coverage contracts, immutable evidence manifests, personal baselines/quantiles/trends, activity/cycling comparison, bounded lagged cross-metric associations with explicit direction and no causal claims, read-only Garmin dashboard and populated-database migration hardening. Provider-native scores remain provider-native. R03 is Garmin-only; cross-source comparison belongs to R05.
+
+<a id="release-roadmap--r04--google-health-ingestion-released"></a>
+### R04 — Google Health ingestion (released)
+
+Released from `integration/r04-google-health` through PR #114.
+
+- Google Health API v4 only; no new legacy Fitbit Web API path.
+- Web Application OAuth and fixed registered loopback callback; exactly accepted read scopes.
+- Windows user-scoped protected auth/session state outside Git.
+- Explicit Google source/raw/typed persistence, bounded incremental/backfill/refresh, coverage/checkpoints/request budgets/resume/completed-window skip semantics.
+- Privacy-safe structural diagnostics and fail-closed provider-shape handling.
+- Owner-live auth, pagination, bounded refresh/backfill and populated-DB integrity proof.
+
+#110 accepts only the live-proven terminal missing-collection/no-token LIST/RECONCILE empty case. Null, non-array and malformed variants remain invalid.
+
+Release candidate `406f4044ffb0d010c64a8635d402016ae916fc5a`; merge `bb5776e98d259cb6256c95bd49d400dc1238af61`; exact-main CI `34768452960` SUCCESS; #80 closed.
+
+See [R04 Release Closeout](archive/releases/R04_RELEASE_CLOSEOUT.md).
+
+<a id="release-roadmap--r05--garmin--google-wearable-agreement-and-canonical-sleep-released"></a>
+### R05 — Garmin / Google wearable agreement and canonical sleep (released)
+
+Released to canonical main; design #97, closeout #106.
+
+```text
+source evidence -> pairing / eligibility -> comparable projection
+ -> immutable versioned agreement run -> optional canonical-source rule
+```
+
+- Legacy comparison pairs sleep by local wake date and one eligible main overnight session per source/date; naps/ambiguous mains are excluded.
+- `fitbit_device`/`device_pair` requires explicit persisted device metadata. Wearable-family and uncertain account cohorts are exploratory and not canonical-switch evidence.
+- Manual Google-edited evidence is not strong 42-night evidence.
+- Compare only compatible session duration/timing/TIB/stages/WASO. RHR/SpO2 may be agreement-only; HRV/respiration are outside v1 unless explicitly scoped. Scores remain display-only.
+- Difference convention is `google - garmin`; N, bias, MAE, RMSE, Bland–Altman limits and robust summaries retain coverage. Association is secondary.
+- Exploratory gate: 14 paired nights. Provisional canonical gate: 42 valid device-pair nights across at least six weeks plus coverage/stability.
+- Garmin stays canonical until a reviewed versioned per-metric rule is accepted; no automatic source switch from N/correlation/coverage.
+
+Implementation: #100 pairing, #101 projection, #102 immutable runs/replay, #103 statistics/gates, #104 reporting, #105 conditional canonical rule, #106 Owner closeout. R05 closed with exploratory agreement; #105 remains NOT_ELIGIBLE.
+
+#317 and delivered #343/#347 source-specific Sleep/Statistics views reuse accepted
+account-observation/source rules without altering legacy Compare/Agreement.
+Independent display itself is not canonical-switch evidence.
+See [R05 Release Closeout](archive/releases/R05_RELEASE_CLOSEOUT.md) and
+[Account Sleep Observations](ARCHITECTURE.md#sleep-agreement).
+
+<a id="release-roadmap--post-r05--119--deterministic-period-brief-v1-completed"></a>
+### Post-R05 / #119 — deterministic Period Brief v1 (completed)
+
+Deterministic bounded Weight/sleep/activity/data-quality packet, stable result hash, thin API/text/CLI renderers, direct R05 reuse, full bounded activity inventory and honest missing/unavailable/confirmed-empty distinctions. #203 fixes limited-encoding stdout; #227 coherent compound reads; #248 explicit JSON/text output. #172 UX and #283 backend performance are complete. #328/#334/#333 adapt Overview without changing packet mathematics. The new #341 evidence envelope must not silently change this packet or hash.
+
+<a id="release-roadmap--post-r05-stable-owner-runtime--completed-foundation"></a>
+### Post-R05 Stable Owner Runtime — completed foundation
+
+One persistent private cross-domain profile, supported backup/restore into disposable UAT clones, reproducible exploratory agreement, bounded provider refresh, stabilized Google identity and stale SyncRun recovery are canonical. #214 proved one automatic selected-stream run; #238 explicit reversible collection intent/freshness. These historical successes do not prove current auth or continuous collection health.
+
+<a id="release-roadmap--post-r05-garmin-training--recovery--completed"></a>
+### Post-R05 Garmin Training & Recovery — completed
+
+Parent #160 closed after #175 discovery, #180 typed persistence/live replay, #183 normal refresh composition and #187 read-only Owner view with semantic review/UAT. #345 session detail is now delivered; #346 duplicate summaries remain held for #378 product discovery. No custom recovery score, VO2 guessing, coaching/medical claim or invented producer attribution. #319 has typed max-HR/anaerobic but unresolved calories and separate Owner historical replay.
+
+<a id="release-roadmap--r06--context-and-read-only-conversational-evidence"></a>
+### R06 — Context and read-only conversational evidence
+
+Context v0 and historical Stable proof #215 are accepted. **Portal comments #294 Stage A** and **standalone health + Context evidence #341 Stage A** are merged into GitHub main. #413 Sleep and #433 Activity add bounded transport-independent source-specific services with optional current Context, retaining existing export/MCP and Period Brief contracts. Historical first Owner-private manual ChatGPT sharing is confirmed by the [accepted #341 decision](https://github.com/LTstripes/Health-Check/issues/341#issuecomment-6089709656); it is not UAT for these new services. New Sleep/Activity Owner UAT and real-profile performance remain UNVERIFIED; direct ChatGPT connection remains deferred and unverified, while in-app sharing requires a separate scoped decision. #341 remains OPEN and parked. Telegram remains optional; no unrestricted SQL, LLM raw-series arithmetic or provider actions. R06 as a whole is not yet declared released.
+
+<a id="release-roadmap--r07--saved-reports-and-delivery"></a>
+### R07 — Saved reports and delivery
+
+One deterministic report/evidence model for weekly/month-end/annual reviews, dashboard archive, selected chat/Telegram/email rendering and delivery audit/retry. Transport/scheduling remains future scoped work.
+
+<a id="release-roadmap--r08--deeper-personal-analytics-and-experiments"></a>
+### R08 — Deeper personal analytics and experiments
+
+Event-aligned/matched-control analysis, lagged comparisons/effect sizes with coverage gates, structured n-of-1 experiments; consider Recovery Score only for a demonstrated unmet need. Descriptive #346/#347 summaries must not silently become causal experiments or proprietary-score arithmetic.
+
+<a id="release-roadmap--r09--laboratory-medication-supplement-and-document-data"></a>
+### R09 — Laboratory, medication, supplement and document data
+
+**#348 now owns the first planned lab-document contract:** original PDF/image outside Git, extraction candidates, explicit confirmation, original analyte/units/report ranges/sample dates and traceable corrections. It is not yet implemented and does not pull the whole medication/supplement roadmap into the first slice. Lab-derived interpretation remains bounded decision support, not diagnosis.
+
+<a id="release-roadmap--r10--optional-advanced-work"></a>
+### R10 — Optional advanced work
+
+Timezone/travel extensions, provider/mobile integration, secure remote access/notifications and Obsidian/food-diary integration only for demonstrated needs. Current desktop-only scope is unchanged; #341's bounded read connection is not public exposure of the full portal.
+
+Release gates are canonical in [Development](DEVELOPMENT_PROCESS.md#ci-gates), [Architecture invariants](ARCHITECTURE.md#common-invariants) and [Owner Operations](OWNER_OPERATIONS.md#owner-data-boundary). No release plan waives them.
+
+
+<a id="backlog-ideas"></a>
+
+<a id="backlog-ideas--parked-ideas-and-future-capability-contracts"></a>
+## Parked ideas and future capability contracts
+
+<a id="backlog-ideas--medication--supplement-timeline"></a>
+### Medication & Supplement Timeline
+
+Future goal: keep a longitudinal record of vitamins, supplements and medicines
+alongside wearable, body-composition, context and laboratory data.
+
+Potential fields:
+
+- product / active ingredient;
+- type: prescription medicine, OTC medicine, vitamin, mineral, supplement;
+- dose and unit;
+- formulation / route when relevant;
+- intended schedule;
+- start/end dates and temporal precision;
+- dose changes, pauses and discontinuations as versioned events rather than destructive edits;
+- reason / user note;
+- prescribing clinician/source when the user wants to record it;
+- provenance of the entry (`dashboard`, `telegram`, `document_import`, `manual`);
+- optional adherence observations without requiring a daily compliance diary.
+
+Medication/supplement use is an **exposure interval/event**, not a permanent
+profile field. Historical dose changes must remain reconstructable. This timeline
+is not bundled into #348's first document-intake slice.
+
+<a id="backlog-ideas--lab-guided-interpretation-and-advice"></a>
+### Lab-guided interpretation and advice
+
+After confirmed laboratory data exists, Health-Check should be able to combine it
+with medication/supplement history and relevant wearable/body-composition trends.
+
+Example questions:
+
+- How did vitamin D change before/after supplementation?
+- Did ferritin/B12/other confirmed analytes change across treatment periods?
+- Which current supplements are relevant to the latest confirmed lab panel?
+- Are there values worth rechecking or discussing with a clinician?
+- Did a medication/supplement period coincide with a meaningful change in sleep, resting HR, HRV, weight or body composition?
+
+The deterministic layer aligns dates, doses/exposure periods, lab values, coverage
+and changes. The LLM may explain evidence, surface uncertainty, suggest follow-up
+questions/tests and help prepare questions for a clinician. It must not silently
+diagnose disease, independently start/stop prescription medicines, or present
+association as proof of a treatment effect.
+
+<a id="backlog-ideas--medication--supplement-safety-support"></a>
+### Medication / supplement safety support
+
+Potential later capability, only with current trustworthy drug/reference sources
+and explicit uncertainty:
+
+- duplicate active-ingredient detection;
+- basic dose/unit sanity checks;
+- known interaction/contraindication warnings;
+- reminders that may matter around specific lab tests;
+- identifying questions to ask a clinician or pharmacist;
+- highlighting when a new lab result may be relevant to a recorded medicine/supplement.
+
+This is decision support, not autonomous prescribing, and remains future work.
+
+<a id="backlog-ideas--future-ux-ideas"></a>
+### Future UX ideas
+
+- Fast add/update from dashboard; ordinary free-text Context capture is now #294.
+- Optional later Telegram capture of an exposure into a candidate event with low-friction confirmation when materially ambiguous; Telegram is no longer a prerequisite for chat analysis.
+- Import medication/supplement lists from photo/PDF with field-level extraction and confirmation, separately from the first lab-result slice.
+- Timeline overlays on lab/wearable charts.
+- Before/during/after exposure comparisons when sample size, timing and coverage allow them.
+
+<a id="backlog-ideas--context-analytics--observation-eligibility-and-cohort-truth"></a>
+### Context analytics — observation eligibility and cohort truth
+
+Future context/journal analysis must distinguish what was recorded from whether a
+day is analytically usable. #341's first evidence envelope does not implement
+causal/matched-control analytics merely by including comments.
+
+Direction to preserve before comparisons:
+
+- keep **explicit present**, **explicit absent**, and **not recorded / unknown** distinct;
+- never put a missing context entry into a negative comparison group by default;
+- keep freshness separate from observation quality: current can still mean partial-day/non-wear/unsuitable;
+- define comparison eligibility with versioned rules and expose exclusions;
+- show usable observation count and date/period coverage;
+- align actual calendar/source semantics, not array position or the host's current offset;
+- preserve insufficient/unknown when evidence is weak, without manufacturing a score;
+- treat lag/correlation scans as exploratory and account for multiple comparisons/autocorrelation;
+- never turn association into a causal health claim.
+
+Evidence for these failure classes is in
+[Reference Project Refresh](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md).
+Donor thresholds/heuristics are not Health-Check policy. Promote deeper analysis
+into its own explicit contract after the capture/read boundary is stable.
+
+<a id="backlog-ideas--ai--mcp--compact-deterministic-evidence-packets"></a>
+### AI / MCP — compact deterministic evidence packets
+
+The bounded first implementation is now **#341**, not an unassigned future idea.
+Model-facing tools should return only the evidence needed to explain a selected
+result:
+
+- requested metric/comparison and deterministic result;
+- usable observation count and effective date/period coverage;
+- freshness/data-quality disposition;
+- source/provenance at the level needed for interpretation;
+- analytics/policy/version and evidence identity;
+- exclusions/withholding reasons;
+- compact supporting values/series and current dated Context revisions when requested.
+
+Preserve typed task-specific reads, not generic raw SQL/database access. Analytical
+access stays read-only and does not gain sync/import/restore/provider-write rights.
+Reuse accepted query/Period Brief/freshness/Context services instead of model-only
+semantics. Synthetic, disposable real-clone and durable-profile origins must be
+explicit; copied stale evidence is not live recovery. Notes/documents are untrusted
+data, not executable instructions.
+
+The first transport is an Owner-selected private export with explicit period and
+contents. A sharing UI follows the accepted Context adapter. Direct ChatGPT read
+access then requires a verified authenticated connection and actual account/host
+capability; a skill does not make localhost reachable. No connection is currently
+claimed by this document, and publishing the whole portal/SQLite is not authorized.
+External service selection, tunnel/setup and consent belong to #341's later stage.
+
+
+<a id="history-map"></a>
+
+<a id="history-map--historical-evidence-and-frozen-originals"></a>
+## Historical evidence and frozen originals
+
+
+Earlier current-state sections and replaced policy remain available in immutable
+Git at the accepted documentation baseline. They describe their recorded date,
+not present installation or acceptance. The migration receipt in this candidate's
+PR maps every old path/section to its canonical home or explicit supersession.
+It is review evidence, not a sixth maintained book.
+
+| Frozen collection | Preserved scope |
 | --- | --- |
-| [PR #413](https://github.com/LTstripes/Health-Check/pull/413), #341 Sleep + Context evidence | Transport-independent, source-specific bounded Sleep 7/30 + Context packet; existing v1/MCP contract remains unchanged. No direct assistant connection or actual private export was performed |
-| [PR #414](https://github.com/LTstripes/Health-Check/pull/414), weekly report reference | Sanitized presentation inspiration in the existing reference document only; no feature, new app section or automation |
-| [PR #415](https://github.com/LTstripes/Health-Check/pull/415), #305/#376 Data RHR | [Receipt](https://github.com/LTstripes/Health-Check/issues/305#issuecomment-6169913449): latest eligible saved RHR value/source/date/age with explicit source choice and honest missing/unknown states; other metrics and clone-age policy remain open |
-| [PR #416](https://github.com/LTstripes/Health-Check/pull/416), #393 RHR period mean | [Receipt](https://github.com/LTstripes/Health-Check/issues/393#issuecomment-6166370119): equally weighted eligible days, n/N, n=1 one observation, n=0 no number, final sign-aware integer half-up rounding, inclusive 400-day cap |
-| [PR #417](https://github.com/LTstripes/Health-Check/pull/417), Windows lifecycle evidence | Narrow exact native-128 transcript recognition with ownership, identity, survivor, port, raw-output and DPAPI gates retained; [old failed PR #415 run](https://github.com/LTstripes/Health-Check/actions/runs/38544069167) stays failed, cause unproven |
-| [PR #418](https://github.com/LTstripes/Health-Check/pull/418), #394 Body Battery | Maximum of eligible saved typed measurements per preserved source-local day, then equally weighted mean over the exact 7/30/custom selected period, n/N and folded evidence; finite-value contract and unknown date-only UTC chronology retained |
+| closeouts | [CI_MAINTENANCE_CLOSEOUT_2026-09-17](archive/closeouts/CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), [CI_OPTIMIZATION_CLOSEOUT_2026-10-04](archive/closeouts/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md), [OWNER_REFRESH_CLOSEOUT_2026-10-01](archive/closeouts/OWNER_REFRESH_CLOSEOUT_2026-10-01.md), [STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21](archive/closeouts/STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md) |
+| history | [EXECUTION_HISTORY](archive/history/EXECUTION_HISTORY.md), [EXECUTION_HISTORY_CURRENT](archive/history/EXECUTION_HISTORY_CURRENT.md), [EXECUTION_HISTORY_THROUGH_2026-09-27](archive/history/EXECUTION_HISTORY_THROUGH_2026-09-27.md), [EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY](archive/history/EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md), [MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY](archive/history/MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) |
+| uat | [OWNER_UAT_CHECKPOINT_2026-10-11](archive/uat/OWNER_UAT_CHECKPOINT_2026-10-11.md), [OWNER_UAT_FOLLOWUP_2026-10-06](archive/uat/OWNER_UAT_FOLLOWUP_2026-10-06.md), [R01_OWNER_UAT](archive/uat/R01_OWNER_UAT.md) |
+| releases | [R01_IMPLEMENTATION_SPEC](archive/releases/R01_IMPLEMENTATION_SPEC.md), [R01_RELEASE_CLOSEOUT](archive/releases/R01_RELEASE_CLOSEOUT.md), [R02_OWNER_AUTH_CAPABILITY_SPIKE](archive/releases/R02_OWNER_AUTH_CAPABILITY_SPIKE.md), [R02_RELEASE_CLOSEOUT](archive/releases/R02_RELEASE_CLOSEOUT.md), [R04_RELEASE_CLOSEOUT](archive/releases/R04_RELEASE_CLOSEOUT.md), [R05_RELEASE_CLOSEOUT](archive/releases/R05_RELEASE_CLOSEOUT.md) |
+| research | [REFERENCE_PROJECTS](archive/research/REFERENCE_PROJECTS.md), [TEST_OPT2_SYNC_PROFILE](archive/research/TEST_OPT2_SYNC_PROFILE.md), [WORKSPACE_RECYCLE_CONTRACT](archive/research/WORKSPACE_RECYCLE_CONTRACT.md), [WORKSPACE_RECYCLE_PROPOSAL](archive/research/WORKSPACE_RECYCLE_PROPOSAL.md), [WORKSPACE_RECYCLE_REVIEW_TRIAGE](archive/research/WORKSPACE_RECYCLE_REVIEW_TRIAGE.md) |
+| audits | [R00_FINAL_ARCHITECTURE](archive/audits/R00_FINAL_ARCHITECTURE.md), [REFERENCE_PROJECT_REFRESH_2026-09-12](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md), [REFERENCE_PROJECT_REFRESH_2026-09-13](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md), [REFERENCE_PROJECT_REFRESH_2026-09-25](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md) |
 
-These are accepted code/synthetic evidence, not new Stable or Owner-live proof.
-Installed Stable remains separately `aca4b8f65eb276dddb3ae5de718a734afd19f369`;
-no rollout is performed by this closeout. Later UI/Google recovery still need the
-separately authorized rollout and Owner UAT. Body Battery saved maxima do not prove
-full-day collection, wear, provider finality, morning values or medical meaning;
-record caps fail closed, and real-database latency remains unverified.
-
-## Previous canonical checkpoint — 2026-10-12 night closeout
-
-Accepted product: [`main 8100b7ae7051af181a6bf3151ce3bc3e1d4c4151`](https://github.com/LTstripes/Health-Check/commit/8100b7ae7051af181a6bf3151ce3bc3e1d4c4151);
-[post-main CI 38319794454](https://github.com/LTstripes/Health-Check/actions/runs/38319794454)
-SUCCESS, attempt 1. Live source/PR/issues and these receipts were reread for this
-closeout; check [live main](https://github.com/LTstripes/Health-Check/commits/main)
-before a new assignment.
-
-| Night integration | Authoritative closeout and retained boundary |
-| --- | --- |
-| [PR #407](https://github.com/LTstripes/Health-Check/pull/407), Google GET-401 recovery | [#406 receipt](https://github.com/LTstripes/Health-Check/issues/406#issuecomment-6131450279): merged, post-main SUCCESS; synthetic only, original failure/expiry unproven, no Stable-live verification |
-| [PR #408](https://github.com/LTstripes/Health-Check/pull/408), readable dates and session units | [#379 dates](https://github.com/LTstripes/Health-Check/issues/379#issuecomment-6132044382), [#378 duration/km](https://github.com/LTstripes/Health-Check/issues/378#issuecomment-6132046243): merged, post-main SUCCESS; exact native values/precision retained, umbrella issues OPEN |
-| [PR #409](https://github.com/LTstripes/Health-Check/pull/409), compact Data | [#305 receipt](https://github.com/LTstripes/Health-Check/issues/305#issuecomment-6133059796): merged, post-main SUCCESS; eligible metric value/date/age and clone snapshot age NOT implemented |
-| [PR #410](https://github.com/LTstripes/Health-Check/pull/410), completed-day Steps | [#377 receipt](https://github.com/LTstripes/Health-Check/issues/377#issuecomment-6133714095): merged, post-main SUCCESS; latest proved acquisition after Europe/Moscow day end, v1/history unchanged; cooperative 5-second guard, real latency unmeasured, no final Garmin total claim |
-| [PR #411](https://github.com/LTstripes/Health-Check/pull/411), provider-first selector | [#347 receipt](https://github.com/LTstripes/Health-Check/issues/347#issuecomment-6134364766): merged, post-main SUCCESS; presentation only, general per-metric discovery/autoselection NOT implemented |
-
-Installed Stable is separately `aca4b8f65eb276dddb3ae5de718a734afd19f369`.
-The read-only local `D:\HealthCheck\ops\stable-rollout-20261012-task14\rollout-result.json`
-reports PASS for the daytime rollout, completed 2026-10-12 17:58 +03:00, with
-that exact `after_sha` and [post-main 38242290747](https://github.com/LTstripes/Health-Check/actions/runs/38242290747).
-No real DB/key was read for this closeout. Old #397 is not proof of this SHA.
-PRs #407–#411 are not installed there; all their new screens and Google recovery
-still require separately authorized rollout/Owner UAT.
-
-Earlier #395 routine Garmin Steps wiring ([PR #398](https://github.com/LTstripes/Health-Check/pull/398)),
-Comments primary navigation/city-IANA timezone and Statistics session drilldown
-([PR #405](https://github.com/LTstripes/Health-Check/pull/405)) are delivered;
-do not assign them again. Human #330 acceptance remains PARTIAL. Earlier clone
-UAT/latency observations are dated evidence, not current Stable/provider proof.
-The [roadmap](ROADMAP.md#current-backlog) lists only remaining deltas; R01–R05
-remain named releases. This closeout adds no product decision or runtime action.
-
-## What the product can do today
-
-### Owner interface
-
-Desktop 1024px+ A+ primary navigation is **Обзор / Вес / Сон /
-Активность / Статистика / Данные / Комментарии**. Overview `/brief`, Weight `/`,
-Sleep `/sleep` (secondary `/agreement`), Activity `/garmin` with a
-source-bound saved session detail route and A/B, Statistics `/statistics`,
-Data `/imports` and primary Comments `/context`. Comments navigation and
-city/IANA timezone input are delivered in PRs #401/#402.
-
-**Already delivered:** one all-history Weight+composition table and
-method-separated selectable chart (#375); Garmin+eligible Google Sleep timeline
-with exact provenance/unknowns (#343); human Statistics source labels and
-7/30/trailing365/calendar-year/year-to-date windows (#347/#380);
-dated latest-eligible RHR Overview/Data value (#376/#415), latest eligible saved
-sleep in Data with source-specific wake date/age and history (#434), separate
-eligible-day RHR period mean (#393/#416), and saved Body Battery daily maxima/period mean
-(#394/#418);
-Garmin `observed_daily_steps` v1 projection/window and the separate completed-day
-Statistics read-only view (#377/#410). The latter verifies saved originals and
-latest proved acquisition for one exact source; normal refresh wiring #395 is delivered.
-Google Steps production acquisition remains #392. All-history Statistics is a distinct
-unimplemented bounded task; Energy/BMR #319 BLOCKED.
-
-Normal Owner provider concepts are **Garmin and Google**, but exact saved
-Google source identities still have metric-specific eligibility/ambiguity:
-the accepted sole `google-wearables` family default applies to **Sleep only**
-(#342), not physiology/Steps/Activity. Never pool Fitbit list copies,
-family source, Google physiology or Garmin accounts. #347's presentation slice
-is delivered; general per-metric eligible-source discovery remains open. Missing/ineligible/uncollected is not zero.
-
-The dated Owner screenshots motivated the delivered date/unit and compact Data
-presentation slices. Broader #379 style acceptance remains open; source/form
-values stay exact in technical disclosure.
-
-### Weight / body composition
-
-- Xiaomi Home/S400 screenshots use the repo skill and strict Owner-assisted extraction over R01; foreign algorithm identity is rejected before semantic writes (#226).
-- Original evidence, source/device/algorithm provenance and confirmed history are preserved; #240 records visible/Owner-attested/workflow-profile/unknown origins, while legacy NULL remains historical.
-- Owner-supplied date is date-only; fixed workflow identity is not falsely called visual evidence. Exact attachment replay is duplicate-safe; cross-image semantic dedup is not implemented (#228).
-- Changed-sidecar/provenance corrections (#229/#240) require explicit review; reject is non-mutating and confirm preserves revision/supersession history.
-- openScale/openScale-sync compatibility remains delivered optional contract; #153 is closed as not planned. Screenshots are the operational path.
-- Deterministic trends, observed daily medians and separate composition compatibility groups retain their meaning. #344 already added honest thin connectors and readable Sleep ticks without changing EWMA or creating daily measurements.
-
-### Garmin
-
-- Protected Owner-assisted session reuse; incremental sync/backfill with coverage/checkpoints/reconciliation.
-- Deterministic baselines/trends, activity/cycling comparison and bounded exploratory lagged associations.
-- Garmin-native Training Status/load/ACWR, Load Focus and Readiness/Recovery with source chronology/provenance; requested acquisition date is not necessarily source date.
-- Bounded Training sync is part of normal Owner refresh. No invented recovery-time unit, provider attribution or custom score.
-- #319 already integrated typed max-HR and anaerobic Training Effect; saved history requires separate Owner replay. Calories/BMR meaning remains blocked; Garmin saved daily Steps are delivered under #377, normal refresh wiring #395 is delivered, and Google Steps need #392. Current #345 saved session detail is delivered.
-
-### Google Health
-
-- Web Application OAuth with fixed registered loopback callback and external protected state; Windows DPAPI unchanged, non-Windows purpose-bound AEAD v2 (#247), compatible authenticated legacy reads and no key creation on pure reads.
-- Accepted read-only sleep/health-metrics scopes; raw/current typed evidence and bounded incremental/backfill/refresh, privacy-safe diagnostics, coverage/checkpoints and replay.
-- Collection intent remains explicit. The bare CLI default includes sample HR, but the Owner Ops wrapper applies HR-OFF; disabled history is not relabelled fresh/provider-empty. Fixed wearables-sleep reconciliation remains distinct.
-- Historical release/live collection proof does not establish today's provider auth or completeness. Empty accepted pairs are not proof that Google has no source records. See #342 and [Owner Refresh](OWNER_REFRESH.md).
-
-### Reporting and context
-
-- Deterministic Period Brief and thin API/text/CLI rendering with stable packet/hash, explicit JSON/text stdout (#248), limited-encoding compatibility (#203) and coherent compound SQLite/ORM reads (#227).
-- Shared persisted freshness (#147/#191/#193/#238), not ad-hoc UI thresholds. #295's indexed Google reads and request-local chart reuse are delivered; cold Overview on Owner clone still needs a measured follow-up despite perceived improvement.
-- Context v0 adds/lists/revises original text with explicit time precision, append-only history and idempotent requests. #294 Stage A portal, #341 Stage A versioned bounded export and #356 read-only MCP endpoint are integrated without rewriting Period Brief packet or doing LLM-side raw-series mathematics. PR #413 adds the source-specific bounded Sleep 7/30 + Context service without
-changing the existing v1/MCP contract. PR #433 adds the separate bounded
-Activity + optional Context service over accepted summaries, without changing
-Sleep, export/MCP or Period Brief semantics. Direct on-demand assistant connection
-remains unimplemented and a separate access/security decision in open #341.
-
-### Durable Owner runtime
-
-The accepted foundation provides a persistent private profile, supported
-large-profile backup/verify/restore, external-runtime locking and bounded provider
-refresh/recovery. Historical integrity/duplicate/run findings are dated evidence,
-not perpetual guarantees. #214 proved one automatic selected-stream run, not
-uninterrupted daily service or future provider availability.
-
-Stable is data, not Git state. Follow [Owner Machine Layout](OWNER_MACHINE_LAYOUT.md)
-for code, Stable, Ops, UAT and Worker roles. Never reset Stable for UAT or copy a
-private clone into a development workspace. A routine note written in UAT is not
-a durable Stable journal entry; explicit rollout is required before normal use.
-
-## Current real-data limitations and next work
-
-The [2026-10-11 UAT checkpoint](OWNER_UAT_CHECKPOINT_2026-10-11.md) describes
-the as-of-Oct-8 disposable clone and uncontrolled `/brief` latency, not current
-Stable or new-slice UAT. Historical rollout receipts retain their specific dated
-scope; the current installed-code boundary is recorded above. Neither proves
-live provider recovery, direct connectivity or acceptance of later UI.
-
-Remaining work is tracked in [the roadmap](ROADMAP.md#current-backlog): #305/#376
-eligible value/date/age for metrics beyond delivered RHR and sleep, and separate
-clone-age policy; #341 direct connection/access decisions and separately
-authorized private-profile/performance proof; #347 per-metric eligible-source
-discovery/autoselection; #392 Google Steps evidence. #393's mean rules and #394's saved-day maxima/period means are
-implemented; their Owner UAT remains pending. #319 calories are blocked by authoritative leaf/unit/category/interval,
-resting inclusion and eligible-coverage evidence, not a missing formula;
-max-HR/anaerobic B1 is complete. #379/#378 umbrella work and new-screen Owner UAT
-remain open. Completed wiring/navigation/timezone/drilldown are not a new queue.
-
-Steps completed-day display preserves exact sources, repeat bytes, later lower
-corrections and honest ties/missingness. It is a read-only projection of latest
-proved acquisition after the Europe/Moscow day end, not an attestation of Garmin
-finality. v1 projection/history remain intact; real latency is UNVERIFIED. See
-[Steps contract](GARMIN_OBSERVED_DAILY_STEPS_CONTRACT.md). No provider calls,
-replay, Stable writes or new product choices follow from these docs.
-
-## Source-attribution rule that matters for R05
-
-`dataSourceFamily`, query mode and broad wearable-family membership are acquisition
-context, not proof of one physical Fitbit device. Device-pair evidence needs
-explicit metadata; family and uncertain account observations remain exploratory.
-Source-only display (#317/#343/#347) does not qualify for a canonical switch.
-Garmin remains default and #105 NOT_ELIGIBLE until its separate gate is satisfied.
-See [R05 closeout](R05_RELEASE_CLOSEOUT.md) and
-[account observations](R05_ACCOUNT_SLEEP_OBSERVATIONS.md).
-
-## Engineering reliability / CI
-
-#123–#125 established provenance-bound quality, exact Linux nodeid/multiplicity
-reconciliation and native Windows proof. #181/#243 retain ownership/PID/CreationTime,
-transcript, cleanup and same-attempt completeness. Failed/incomplete attempts are
-not erased by later green runs; partial reruns do not supply acceptance.
-
-The completed optimization wave preserves test coverage: #251 lane balance,
-#246 docs-only/exact-tree event delegation, #242 separate dependency audit,
-#244 Host/Origin and #302 deterministic Linux environment. Historical timing
-observations are not current runtime/billing promises. See
-[CI closeout](CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md). #126 enforcement still needs
-an Owner/capability decision; manual Integrator exact gates remain required.
-
-## Core engineering rules
-
-- `main` is the only canonical source; no automatic local deployment.
-- Issue = contract; a short prompt locates the role, baseline/workspace and delivery.
-- Workers do not self-accept or merge; independent review is risk-based.
-- Real datasets and credentials stay outside tracked code/CI; assigned Owner reads and presentation follow [Owner data workflow](OWNER_DATA_WORKFLOW.md).
-- Missing/null/zero/unavailable/unknown remain distinct; UI/LLM do not invent mathematics.
-- #210 model bookkeeping is retired. Complexity/model recommendations route work; they are not benchmark logs.
-- No feature task, provider call, network exposure or Owner runtime mutation is started by this documentation update.
-
-## Useful docs
-
-- [README](../README.md)
-- [Product Vision](PRODUCT_VISION.md)
-- [Architecture](ARCHITECTURE.md)
-- [Roadmap](ROADMAP.md)
-- [Owner UI](OWNER_UI_SHELL.md)
-- [Owner UAT checkpoint 2026-10-11](OWNER_UAT_CHECKPOINT_2026-10-11.md)
-- [Context Capture](CONTEXT_CAPTURE.md)
-- [Backlog Ideas](BACKLOG_IDEAS.md)
-- [Decisions and Open Questions](DECISIONS_AND_OPEN_QUESTIONS.md)
-- [Current Execution History](EXECUTION_HISTORY_CURRENT.md)
-- [Owner Refresh](OWNER_REFRESH.md)
-- [Owner Refresh Closeout](OWNER_REFRESH_CLOSEOUT_2026-10-01.md)
-- [Owner Screenshot Import](OWNER_WEIGHT_SCREENSHOT_IMPORT.md)
-- [Stable Owner Runtime Closeout](STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md)
-- [CI Maintenance Closeout](CI_MAINTENANCE_CLOSEOUT_2026-09-17.md)
-- [R04 Release Closeout](R04_RELEASE_CLOSEOUT.md)
-- [R05 Release Closeout](R05_RELEASE_CLOSEOUT.md)
-- [Agent Orchestration](AGENT_ORCHESTRATION.md)
-- [Development Process](DEVELOPMENT_PROCESS.md)
+The original [Wiki](https://github.com/LTstripes/Health-Check/blob/b51859e9787dd81ca7959de5d3184e0c801c6cbf/docs/PROJECT_WIKI.md),
+[Roadmap](https://github.com/LTstripes/Health-Check/blob/b51859e9787dd81ca7959de5d3184e0c801c6cbf/docs/ROADMAP.md) and
+[Decisions](https://github.com/LTstripes/Health-Check/blob/b51859e9787dd81ca7959de5d3184e0c801c6cbf/docs/DECISIONS_AND_OPEN_QUESTIONS.md)
+retain older dated checkpoints. Useful failures remain failures. Historical model
+journals are retired, old release checklists are not current assignments, and old
+recycle proposals do not grant permanent Apply/purge rights. Current procedure is
+maintained only in the five books. The static [A+ HTML reference](design/owner-overview-a-plus/index.html)
+retains its original bytes and synthetic character.
