@@ -98,6 +98,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="Opt in to saved observed account-level Steps; finality is unknown")
     parser.add_argument("--completed-day-steps", action="store_true",
                         help="Use completed Moscow days for the exact --steps-garmin-source-id")
+    parser.add_argument("--include-context-recovery", action="store_true",
+                        help="Compare timed Context events with next eligible saved sleep")
+    parser.add_argument("--include-sleep-regularity", action="store_true",
+                        help="Circular local-clock variability of eligible saved sleep")
+    parser.add_argument("--context-pairing-hours", type=int, default=24,
+                        help="Inclusive event-anchor to sleep-start window, 1 to 48 hours")
+    parser.add_argument("--sleep-day-type", action="append", default=[], metavar="DATE=TYPE",
+                        help="Explicit wake-date work/free/unknown label; never guessed weekdays")
     parser.add_argument("--include-weight", action="store_true",
                         help="Opt in to accepted saved Weight overlay and canonical evidence")
     parser.add_argument("--rhr-google-auto-select", action="store_true",
@@ -152,7 +160,11 @@ def main(argv: list[str] | None = None) -> int:
                 rhr_google_auto_select=args.rhr_google_auto_select,
                 steps_garmin_source_id=args.steps_garmin_source_id,
                 include_weight=args.include_weight,
-                steps_view="completed" if args.completed_day_steps else "observed"),
+                steps_view="completed" if args.completed_day_steps else "observed",
+                include_context_recovery=args.include_context_recovery,
+                include_sleep_regularity=args.include_sleep_regularity,
+                context_pairing_hours=args.context_pairing_hours,
+                sleep_day_types=tuple(tuple(item.split("=")) for item in args.sleep_day_type)),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )
         if args.output_dir is not None:

@@ -73,7 +73,8 @@
       "tests/test_sleep_timeline_ui.py",
       "tests/test_source_freshness.py",
       "tests/test_timezone_runtime.py",
-      "tests/test_weight_analytics.py"
+      "tests/test_weight_analytics.py",
+      "tests/test_saved_sleep_analysis.py"
     ],
     "app-ingest": [
       "tests/test_analysis_export_ui.py",
