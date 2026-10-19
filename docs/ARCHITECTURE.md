@@ -3634,6 +3634,61 @@ Owner profiles are private. Snapshot metadata stays unknown; current Stable
 identity is not inferred. SQLite WAL/SHM read coordination can occur; application
 writes, migrations and journal changes are denied.
 
+<a id="saved-sleep-analyses"></a>
+### Optional saved Context and sleep analyses (#462 / #464)
+
+Combined export request/CLI opts `include_context_recovery` /
+`--include-context-recovery` and `include_sleep_regularity` /
+`--include-sleep-regularity` add envelope v6 (compact v6) and versioned analysis
+sections. Defaults retain their existing versions/shape. Analyses consume only
+the existing allowlisted Sleep and current Context projections from the same
+read-only transaction, before compact projection. JSON, text and compact carry
+identical analysis facts, exclusions and coverage; the existing 7/30-day, Sleep
+400/provider and 200/night, Context 1–100 and output-byte limits do not grow.
+Overflow remains fail-closed; Context truncation and date-window edges are
+disclosed, never complete event history or negative exposure evidence.
+
+Eligible input is one accepted source night per exact source/wake date, with
+eligible ordered instant endpoints and explicit endpoint local zone/offset.
+Use the existing source-night resolver, excluding ambiguous sessions/naps and
+Google uncertain singleton roles. Garmin role may be null; retain its accepted
+start `explicit_record_boundary` and end `complete_stage_boundary` methods,
+without inventing a primary-sleep label. Missing endpoints/zones, conflicts and
+within-night zone changes are excluded with reasons. No end is made from duration.
+Retain source, record, role, temporal provenance and original metric references.
+Partition by provider, exact source, variant, endpoint methods, normalization
+contract and IANA zone or explicit fixed offset. DST within one IANA zone uses
+its actual offsets; fixed-offset changes and travel use separate groups.
+
+Context instant anchors retain minute/second/microsecond precision; interval
+anchors use their explicit end. Date-only anchors are excluded without midnight
+or `created_at` fallback. For each exact source pair the first eligible
+sleep start in inclusive `[anchor, anchor + hours]`, default 24, explicitly bounded
+by `context_pairing_hours` / `--context-pairing-hours` to 1–48. Keep event/revision
+IDs and full temporal provenance; partition only the comparisons. Many events can reference one night, but every
+night contributes once to pooled descriptive comparisons. Compare accepted sleep
+duration, time in bed, WASO and saved sleep score only, by each cell's unit/method/
+variant. Reference nights are the other compatible snapshot nights with exposure
+unknown, never event-free controls. Report per-metric counts, missing/incompatible
+values and means/difference only with at least three unique nights per group.
+This first package pools timed Context events; it does not infer tags, cause,
+diagnosis, HRV/Body Battery recovery or post-workout pairs. Activity end is not
+persisted and is never synthesized.
+
+Regularity explicitly means **circular local-clock population variability** for
+start/end and elapsed-UTC midpoint converted into the evidenced source local zone.
+For clock minutes `t`, `theta=2*pi*t/1440`, `R=abs(mean(exp(i*theta)))`, circular
+SD is `sqrt(-2*ln(R))*1440/(2*pi)` minutes. Each partition requires at least three
+unique nights; fewer gives `insufficient`/null, and `R<1e-12` gives undefined
+direction/null. No linear clock average or clinical threshold is introduced.
+Social jetlag is uncorrected circular free-minus-work shortest signed minutes
+in `[-720,720)` plus its absolute value, requiring three nights in each group.
+Only explicit optional wake-date `sleep_day_types` / repeatable
+`--sleep-day-type YYYY-MM-DD=work|free|unknown` classify dates; duplicates,
+out-of-window dates and invalid labels are rejected. Unlisted dates are unknown.
+No classification is persisted or guessed from weekdays; its absence does not
+block ordinary regularity. Shift-work/sleep-debt corrections are not performed.
+
 <a id="evidence-combined--opt-in-compact-projection"></a>
 ### Opt-in compact projection
 

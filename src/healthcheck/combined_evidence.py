@@ -15,6 +15,7 @@ from healthcheck import (
     combined_metrics,
     combined_movement,
     combined_vitals,
+    saved_sleep_analysis,
     sleep_evidence,
 )
 from healthcheck.chat_evidence import (
@@ -56,6 +57,10 @@ class CombinedEvidenceRequest:
     steps_garmin_source_id: str | None = None
     include_weight: bool = False
     steps_view: str = "observed"
+    include_context_recovery: bool = False
+    include_sleep_regularity: bool = False
+    context_pairing_hours: int = 24
+    sleep_day_types: tuple[tuple[str, str], ...] = ()
 
     def domain_requests(self):
         return (
@@ -73,6 +78,7 @@ class CombinedEvidenceRequest:
             raise EvidenceError("invalid_evidence_projection")
         for request in self.domain_requests():
             request.validate()
+        saved_sleep_analysis.validate_options(self)
         if type(self.steps_view) is not str or self.steps_view not in {"observed", "completed"}:
             raise EvidenceError("invalid_steps_view")
         if self.steps_view == "completed" and self.steps_garmin_source_id is None:
@@ -257,6 +263,8 @@ def read_combined_evidence(
                     profile_kind, clock, evaluation_local_date, profile)
                 movement_sources["weight"] = {
                     "selection_policy": "accepted_weight_overlay_and_canonical"}
+            if request.include_context_recovery or request.include_sleep_regularity:
+                saved_sleep_analysis.analyze_saved_sleep(sections, request)
             packet = {
                 "version": PACKAGE_VERSION, "provenance_version": PROVENANCE_VERSION,
                 "generated_at_utc": datetime.now(UTC).isoformat(),
@@ -326,6 +334,24 @@ def read_combined_evidence(
                     "original_calendarDate_under_explicit_moscow_completion_policy")
                 if "projection" in packet:
                     packet["projection"]["detailed_version"] = COMPLETED_VERSION
+            if request.include_context_recovery or request.include_sleep_regularity:
+                packet["version"] = ("health-chat-combined-compact-evidence-v6"
+                                     if request.projection == "compact"
+                                     else "health-chat-combined-evidence-v6")
+                packet["interpretation"]["optional_analyses"] = {
+                    "context_sleep_pairing": "explicit_UTC_anchors_in_bounded_window"
+                    if request.include_context_recovery else "not_requested",
+                    "sleep_regularity": "circular_source_local_clock"
+                    if request.include_sleep_regularity else "not_requested",
+                }
+                packet["request"]["analyses"] = {
+                    "context_recovery": request.include_context_recovery,
+                    "sleep_regularity": request.include_sleep_regularity,
+                    "context_pairing_hours": request.context_pairing_hours,
+                    "sleep_day_types": dict(request.sleep_day_types),
+                }
+                if "projection" in packet:
+                    packet["projection"]["detailed_version"] = "health-chat-combined-evidence-v6"
             packet["envelope_hash"] = hashlib.sha256(_json(packet).encode("utf-8")).hexdigest()
             encode_combined_evidence(packet)
             return packet
@@ -395,6 +421,9 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
     for domain in ("stress", "body_battery", "hrv", "rhr", "steps", "weight"):
         if domain in packet["sections"]:
             lines.append(f"{domain} saved facts: " + _json(packet["sections"][domain]))
+    for domain in ("sleep_analysis_inputs", "sleep_regularity", "context_recovery"):
+        if domain in packet["sections"]:
+            lines.append(f"{domain}: " + _json(packet["sections"][domain]))
     context = packet["sections"].get("context")
     if context is None:
         lines.append("context: not_requested")
