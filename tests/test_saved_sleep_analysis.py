@@ -354,3 +354,34 @@ def test_optional_analyses_use_same_snapshot_and_single_context_read(profile, mo
     assert [name for name, _ in calls] == ["snapshot", "context"]
     assert calls[0][1] is calls[1][1]
 
+
+
+@pytest.mark.parametrize("endpoint", ["start", "end"])
+@pytest.mark.parametrize("temporal", [None, "omitted"])
+def test_missing_endpoint_temporal_object_is_an_exclusion(endpoint, temporal):
+    data = sections(count=1)
+    snapshot = item(data)["metrics"][f"sleep_{endpoint}_at"]["evidence"]["interval_snapshots"][0]
+    if temporal == "omitted":
+        del snapshot[f"{endpoint}_temporal"]
+    else:
+        snapshot[f"{endpoint}_temporal"] = temporal
+    result = analyze(data)["sleep_analysis_inputs"]
+    assert result["nights"] == []
+    assert result["night_exclusions"][0]["reason"] == f"{endpoint}_temporal_unavailable"
+
+
+def test_persisted_missing_temporal_json_does_not_abort_export(profile):
+    from sqlalchemy import select
+
+    from healthcheck.db.models import GoogleSleepInterval
+    with session_scope(profile[1]) as session:
+        row = session.scalar(select(GoogleSleepInterval).where(
+            GoogleSleepInterval.interval_kind == "sleep_session"))
+        row.end_temporal_json = "null"
+    packet = read(profile, replace(profile[2], include_sleep_regularity=True,
+                                   include_context_recovery=True))
+    exclusions = packet["sections"]["sleep_analysis_inputs"]["night_exclusions"]
+    assert any(n["provider"] == "google" and n["reason"] == "end_temporal_unavailable"
+               for n in exclusions)
+    google = packet["sections"]["sleep"]["providers"]["google"]["source_range"]["days"][-1]
+    assert google["sources"][0]["sessions"][0]["metrics"]["sleep_end_at"]["eligible"] is True

@@ -76,10 +76,16 @@ def _endpoint(item, provider, endpoint):
                    and (provider != "google" or row.get("interval_kind") == "sleep_session")]
         if len(matches) != 1:
             return None, f"{endpoint}_temporal_ambiguous_or_missing"
-        temporal = matches[0][f"{endpoint}_temporal"]
+        temporal = matches[0].get(f"{endpoint}_temporal")
+    if not isinstance(temporal, dict):
+        return None, f"{endpoint}_temporal_unavailable"
     if temporal.get("precision") != "instant":
         return None, f"{endpoint}_precision_unavailable"
     zone, offset = temporal.get("source_timezone"), temporal.get("source_utc_offset_minutes")
+    if (zone is not None and (type(zone) is not str or not zone)
+            or offset is not None and (type(offset) not in (int, float)
+                                       or not math.isfinite(offset) or not -1440 < offset < 1440)):
+        return None, f"{endpoint}_timezone_invalid"
     try:
         if zone:
             tz = ZoneInfo(zone)
