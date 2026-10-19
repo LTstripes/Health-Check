@@ -1431,7 +1431,7 @@ def _parse_sleep_temporal(
         return (legacy, legacy_diagnostics) if endpoint == "Start" else (
             GarminTemporalDTO(precision="unknown"), [],
         )
-    diagnostics: list[GarminDiagnostic] = []
+    diagnostics: list[GarminDiagnostic] = list(legacy_diagnostics)
     stamp = _sleep_milliseconds(gmt)
     wall = _sleep_milliseconds(local)
     for value, decoded, path in ((gmt, stamp, gmt_path), (local, wall, local_path)):
@@ -1467,7 +1467,7 @@ def _parse_sleep_temporal(
     if explicit_zone is not None:
         try:
             zone_offset = stamp.astimezone(ZoneInfo(explicit_zone)).utcoffset()
-        except (ValueError, ZoneInfoNotFoundError):
+        except (OverflowError, ValueError, ZoneInfoNotFoundError):
             diagnostics.append(_diag("sleep_timezone_invalid", source_path, "error"))
         else:
             if offset is not None and zone_offset != timedelta(minutes=offset):

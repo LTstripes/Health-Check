@@ -481,3 +481,18 @@ def test_sleep_version_currentness_and_stale_replay_preserve_current_identity(
         session.commit()
         assert not _window_already_current(factory, old, store=store,
             request_start=DAY, request_end=DAY)
+
+
+@pytest.mark.parametrize("problem", ["invalid_root_gmt", "conflicting_root_pair"])
+def test_production_nested_timing_retains_material_legacy_alias_diagnostics(problem):
+    payload = production_sleep()
+    if problem == "invalid_root_gmt":
+        payload["startTimeGMT"] = "invalid"
+    else:
+        payload["startTimeGMT"] = START.isoformat()
+        # Same nominal offset as the nested pair, but a different UTC instant.
+        payload["startTimeLocal"] = "2099-01-02T00:00:00+01:00"
+    result = normalized(payload)
+    assert result.records[0].temporal.measured_at_utc is None
+    assert result.records[0].metric("sleep_stages").reason == "partial_collection"
+    assert {d.code for d in result.diagnostics} & {"invalid_datetime", "paired_time_mismatch"}
