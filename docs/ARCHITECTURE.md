@@ -2071,7 +2071,9 @@ ordering; it does not prove acquisition completeness or confirmed-empty sleep.
 
 Google Sleep normalization uses `r04-google-normalization-contract-v3`; other
 streams retain v2; explicitly requested historical v1/v2 keeps its previous
-metadata/unknown-field shape for immutable retries. V3 preserves `metadata.mainSleep` separately as
+metadata/unknown-field shape for immutable retries. The fixed-seed v2 demo
+explicitly retains its v2 Google interpretation and strict reset certificate;
+the reset allowlist is not broadened. V3 preserves `metadata.mainSleep` separately as
 `sleep_metadata_main_sleep`, with its actual field path and presence state,
 while retaining legacy `metadata.main`. The saved-source-night-only policy
 `saved-google-main-sleep-v2` accepts explicit `mainSleep=true` with nap missing,

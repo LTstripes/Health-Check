@@ -604,7 +604,9 @@ def _persist_google_sleep(
     )
     for wake_date, payload in nights:
         normalized = normalize_google_payload(
-            payload, stream=GoogleStream.SLEEP, query=query, source_identity=identity
+            payload, stream=GoogleStream.SLEEP, query=query, source_identity=identity,
+            # The v2 fixed-seed reset certificate retains its original metric shape.
+            normalization_contract_version="r04-google-normalization-contract-v2",
         )
         repository.persist_result(
             normalized,

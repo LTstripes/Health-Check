@@ -24,6 +24,7 @@ from healthcheck.db.models import (
     GarminSleepRecord,
     GoogleRecordMetric,
     GoogleSleepRecord,
+    GoogleSourceRecord,
 )
 from healthcheck.demo import (
     DEMO_ANCHOR_DATE,
@@ -228,6 +229,13 @@ def test_seed_demo_keeps_missing_and_partial_days_honest(tmp_path: Path) -> None
             assert garmin_duration_values == 25
             assert garmin_score_values == 22
             assert google_asleep_values == 25
+            # Demo v2 is a frozen reset certificate, separate from current Sleep v3.
+            assert set(session.scalars(select(
+                GoogleSourceRecord.normalization_contract_version
+            ))) == {"r04-google-normalization-contract-v2"}
+            assert session.scalar(select(func.count()).select_from(GoogleRecordMetric).where(
+                GoogleRecordMetric.metric_code == "sleep_metadata_main_sleep",
+            )) == 0
 
             pairing = read_persisted_sleep_pairing(
                 session, SleepPairingQuery(cohort=FAMILY_PAIR)
