@@ -27,10 +27,11 @@ import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from numbers import Real
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from healthcheck.garmin.capabilities import (
     GARMIN_PROVIDER_CODE,
@@ -46,6 +47,7 @@ from healthcheck.garmin.contracts import (
 )
 
 NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v2"
+SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v3"
 HRV_CALENDAR_CONTRACT_VERSION = "r02-garmin-hrv-calendar-normalization-v3"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 SYNTHETIC_SOURCE_KIND = "synthetic"
@@ -1095,6 +1097,8 @@ def normalize_garmin_payload(
             HRV_CALENDAR_CONTRACT_VERSION
             if normalized_stream is GarminStream.DAILY_HEALTH
             and isinstance(payload, Mapping) and "hrvSummary" in payload
+            else SLEEP_TIMING_CONTRACT_VERSION
+            if normalized_stream is GarminStream.SLEEP
             else NORMALIZATION_CONTRACT_VERSION
         ),
     )
@@ -1403,6 +1407,184 @@ def _parse_record_temporal(
     )
 
 
+
+def _sleep_milliseconds(value: Any) -> datetime | None:
+    """Only the documented production sleep fields have millisecond semantics."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        if not math.isfinite(value) or int(value) != value:
+            return None
+        return datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=int(value))
+    except (OverflowError, ValueError, TypeError):
+        return None
+
+
+def _parse_sleep_temporal(
+    raw: Mapping[str, Any], source_path: str, endpoint: str,
+) -> tuple[GarminTemporalDTO, list[GarminDiagnostic]]:
+    legacy, legacy_diagnostics = _parse_record_temporal(raw, source_path)
+    gmt_path = f"dailySleepDTO.sleep{endpoint}TimestampGMT"
+    local_path = f"dailySleepDTO.sleep{endpoint}TimestampLocal"
+    gmt, local = _read_path(raw, gmt_path), _read_path(raw, local_path)
+    if gmt is _MISSING and local is _MISSING:
+        return (legacy, legacy_diagnostics) if endpoint == "Start" else (
+            GarminTemporalDTO(precision="unknown"), [],
+        )
+    diagnostics: list[GarminDiagnostic] = list(legacy_diagnostics)
+    stamp = _sleep_milliseconds(gmt)
+    wall = _sleep_milliseconds(local)
+    for value, decoded, path in ((gmt, stamp, gmt_path), (local, wall, local_path)):
+        if value is not _MISSING and decoded is None:
+            diagnostics.append(_diag("sleep_timestamp_invalid", f"{source_path}.{path}", "error"))
+    # Preserve a local-only clock without inventing a UTC instant or offset.
+    if gmt is _MISSING and wall is not None and not diagnostics:
+        return GarminTemporalDTO(
+            precision="local", local_wall_time=wall.replace(tzinfo=None).isoformat(),
+            local_date=legacy.local_date, local_date_source=legacy.local_date_source,
+            source_field=f"{source_path}.{local_path}",
+            source_local_timestamp=str(local), source_local_field=f"{source_path}.{local_path}",
+        ), diagnostics
+    if stamp is None or diagnostics:
+        return GarminTemporalDTO(
+            precision="date" if legacy.local_date else "unknown",
+            local_date=legacy.local_date, local_date_source=legacy.local_date_source,
+            source_field=f"{source_path}.{gmt_path}",
+        ), diagnostics
+    offset = None
+    if wall is not None:
+        seconds = (wall - stamp).total_seconds()
+        if seconds % 60 or abs(seconds) >= 24 * 3600:
+            diagnostics.append(
+                _diag("sleep_offset_invalid", f"{source_path}.{local_path}", "error")
+            )
+        else:
+            offset = int(seconds // 60)
+    explicit_zone, explicit_offset = _source_time_evidence(raw)
+    _, offset_value = _first_present(raw, _UTC_OFFSET_PATHS)
+    if offset_value is not _MISSING and offset_value is not None and explicit_offset is None:
+        diagnostics.append(_diag("sleep_offset_invalid", source_path, "error"))
+    if explicit_zone is not None:
+        try:
+            zone_offset = stamp.astimezone(ZoneInfo(explicit_zone)).utcoffset()
+        except (OverflowError, ValueError, ZoneInfoNotFoundError):
+            diagnostics.append(_diag("sleep_timezone_invalid", source_path, "error"))
+        else:
+            if offset is not None and zone_offset != timedelta(minutes=offset):
+                diagnostics.append(_diag("sleep_timezone_conflict", source_path, "error"))
+    if explicit_offset is not None and offset is not None and explicit_offset != offset:
+        diagnostics.append(_diag("sleep_offset_conflict", source_path, "error"))
+    calendar_values = [_read_path(raw, path) for path in _CALENDAR_PATHS]
+    calendar_days = {_parse_date(value) for value in calendar_values if value is not _MISSING}
+    if None in calendar_days or len(calendar_days) > 1:
+        diagnostics.append(_diag("sleep_calendar_conflict", source_path, "error"))
+    if (endpoint == "Start" and legacy.source_utc_offset_minutes is not None
+            and offset is not None and legacy.source_utc_offset_minutes != offset):
+        diagnostics.append(_diag("sleep_offset_conflict", source_path, "error"))
+    if endpoint == "Start" and legacy.measured_at_utc is not None:
+        if legacy.measured_at_utc != stamp:
+            diagnostics.append(_diag("sleep_start_conflict", source_path, "error"))
+    if diagnostics:
+        return GarminTemporalDTO(
+            precision="date" if legacy.local_date else "unknown",
+            local_date=legacy.local_date, local_date_source=legacy.local_date_source,
+            source_field=f"{source_path}.{gmt_path}",
+        ), diagnostics
+    # Preserve an explicitly supplied zone only; no IANA zone is derived from an offset.
+    return GarminTemporalDTO(
+        precision="instant", measured_at_utc=stamp,
+        local_wall_time=wall.replace(tzinfo=None).isoformat() if wall else None,
+        local_date=legacy.local_date,
+        local_date_source=legacy.local_date_source,
+        source_field=f"{source_path}.{gmt_path}",
+        source_local_timestamp=str(local) if local is not _MISSING else None,
+        source_utc_offset_minutes=offset, source_timezone=explicit_zone,
+        source_local_field=f"{source_path}.{local_path}" if local is not _MISSING else None,
+        source_utc_field=f"{source_path}.{gmt_path}",
+    ), diagnostics
+
+
+def _parse_production_sleep_levels(
+    raw: Mapping[str, Any], source_path: str,
+) -> tuple[GarminMetricDTO, list[GarminDiagnostic]]:
+    path = f"{source_path}.sleepLevels"
+    value = raw["sleepLevels"]
+    diagnostics: list[GarminDiagnostic] = []
+    stages: list[GarminSleepStageDTO] = []
+    start, start_errors = _parse_sleep_temporal(raw, source_path, "Start")
+    end, end_errors = _parse_sleep_temporal(raw, source_path, "End")
+    diagnostics.extend((*start_errors, *end_errors))
+    if value is None:
+        state, reason = GarminFieldState.NULL, None
+    elif not _is_sequence(value):
+        state, reason = GarminFieldState.INVALID, "shape_drift"
+        diagnostics.append(_diag("sleep_stage_shape_drift", path, "error"))
+    else:
+        state, reason = GarminFieldState.VALUE, None
+        previous = None
+        for index, item in enumerate(value):
+            item_path = f"{path}[{index}]"
+            if not isinstance(item, Mapping):
+                diagnostics.append(_diag("sleep_stage_shape_drift", item_path, "error"))
+                continue
+            bounds = []
+            for field in ("startGMT", "endGMT"):
+                temporal, errors = _parse_garmin_time(
+                    item.get(field, _MISSING), source_field=f"{item_path}.{field}",
+                    field_semantics="utc",
+                )
+                diagnostics.extend(errors)
+                bounds.append(temporal)
+            left, right = bounds
+            code = item.get("activityLevel")
+            level = None
+            if (not isinstance(code, bool) and isinstance(code, (int, float))
+                    and code in (0, 1, 2, 3)):
+                level = ("DEEP", "LIGHT", "REM", "AWAKE")[int(code)]
+            if (left.measured_at_utc is None or right.measured_at_utc is None
+                    or right.measured_at_utc <= left.measured_at_utc or level is None):
+                diagnostics.append(_diag("sleep_stage_invalid", item_path, "error"))
+                continue
+            if previous is not None and left.measured_at_utc != previous:
+                diagnostics.append(_diag("sleep_stage_discontinuity", item_path, "error"))
+            previous = right.measured_at_utc
+            # Only the explicitly paired endpoint offsets are supported. Do not
+            # spread one endpoint's offset across a DST/travel transition.
+            for position, bound in enumerate((left, right)):
+                reference = (start if bound.measured_at_utc == start.measured_at_utc else
+                             end if bound.measured_at_utc == end.measured_at_utc else None)
+                if reference is not None and reference.source_utc_offset_minutes is not None:
+                    offset = reference.source_utc_offset_minutes
+                    wall = bound.measured_at_utc + timedelta(minutes=offset)
+                    bound = replace(
+                        bound, local_wall_time=wall.replace(tzinfo=None).isoformat(),
+                        source_utc_offset_minutes=offset,
+                        source_timezone=reference.source_timezone,
+                        source_local_timestamp=reference.source_local_timestamp,
+                        source_local_field=reference.source_local_field,
+                    )
+                if position == 0:
+                    left = bound
+                else:
+                    right = bound
+            stages.append(GarminSleepStageDTO(start=left, end=right, activity_level=level))
+        if stages:
+            if (start.measured_at_utc is None or end.measured_at_utc is None
+                    or stages[0].start.measured_at_utc != start.measured_at_utc
+                    or stages[-1].end.measured_at_utc != end.measured_at_utc):
+                diagnostics.append(_diag("sleep_stage_boundary_mismatch", path, "error"))
+        if "levels" in raw:
+            diagnostics.append(_diag("sleep_stage_alias_conflict", path, "error"))
+        if diagnostics:
+            reason = "partial_collection" if stages else "shape_drift"
+            state = GarminFieldState.VALUE if stages else GarminFieldState.INVALID
+    return GarminMetricDTO(
+        capability_code="sleep_stages", metric_code="sleep_stages", field_path=path,
+        state=state, reason=reason, collection=tuple(stages),
+        capability_status=_capability_status("sleep_stages"),
+    ), diagnostics
+
+
 def _parse_hrv_calendar(
     raw: Mapping[str, Any], source_path: str
 ) -> tuple[GarminTemporalDTO, list[GarminDiagnostic]]:
@@ -1531,6 +1713,8 @@ def _parse_record(
 
     if stream is GarminStream.DAILY_HEALTH and "hrvSummary" in raw:
         temporal, temporal_diagnostics = _parse_hrv_calendar(raw, source_path)
+    elif stream is GarminStream.SLEEP:
+        temporal, temporal_diagnostics = _parse_sleep_temporal(raw, source_path, "Start")
     else:
         temporal, temporal_diagnostics = _parse_record_temporal(raw, source_path)
     diagnostics.extend(temporal_diagnostics)
@@ -1777,6 +1961,8 @@ def _invalid_metric(
 def _parse_sleep_levels(
     raw: Mapping[str, Any], source_path: str
 ) -> tuple[GarminMetricDTO, list[GarminDiagnostic]]:
+    if "sleepLevels" in raw:
+        return _parse_production_sleep_levels(raw, source_path)
     field_path = f"{source_path}.levels"
     value = raw.get("levels", _MISSING)
     capability_status = _capability_status("sleep_stages")
@@ -2194,7 +2380,7 @@ def _known_roots(stream: GarminStream) -> set[str]:
         for path in spec.paths:
             roots.add(path.split(".")[0])
     if stream is GarminStream.SLEEP:
-        roots.add("levels")
+        roots.update({"levels", "sleepLevels", "dailySleepDTO"})
     if stream is GarminStream.INTRADAY:
         roots.update(
             {
@@ -2493,6 +2679,7 @@ stable_idempotency_key = stable_garmin_idempotency_key
 __all__ = [
     "GARMIN_NORMALIZATION_CONTRACT_VERSION",
     "NORMALIZATION_CONTRACT_VERSION",
+    "SLEEP_TIMING_CONTRACT_VERSION",
     "GarminDiagnostic",
     "GarminFieldState",
     "GarminMetricDTO",

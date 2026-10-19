@@ -24,7 +24,6 @@ from healthcheck.google.contracts import (
     GoogleSourceIdentity,
 )
 from healthcheck.google.normalization import (
-    NORMALIZATION_CONTRACT_VERSION,
     GoogleNormalizationDiagnostic,
     normalize_google_payload,
 )
@@ -58,7 +57,7 @@ class GoogleNormalizationReplayer:
         self,
         *,
         observation_ids: Sequence[str],
-        normalization_contract_version: str = NORMALIZATION_CONTRACT_VERSION,
+        normalization_contract_version: str | None = None,
         max_observations: int = MAX_REPLAY_OBSERVATIONS,
     ) -> tuple[GooglePersistenceOutcome, ...]:
         selected = _bounded_observation_ids(observation_ids, max_observations)
@@ -79,7 +78,7 @@ class GoogleNormalizationReplayer:
         self,
         observation: GooglePayloadObservation,
         *,
-        normalization_contract_version: str,
+        normalization_contract_version: str | None,
     ) -> GooglePersistenceOutcome:
         raw = self.session.get(GoogleRawPayload, observation.google_raw_payload_id)
         if raw is None:
@@ -153,7 +152,7 @@ def replay_google_observations(
     *,
     payload_store: ContentAddressedGooglePayloadStore,
     observation_ids: Sequence[str],
-    normalization_contract_version: str = NORMALIZATION_CONTRACT_VERSION,
+    normalization_contract_version: str | None = None,
     max_observations: int = MAX_REPLAY_OBSERVATIONS,
     persistence: GooglePersistenceRepository | None = None,
 ) -> tuple[GooglePersistenceOutcome, ...]:

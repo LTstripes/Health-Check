@@ -43,6 +43,7 @@ from healthcheck.google.identity import (
 )
 
 NORMALIZATION_CONTRACT_VERSION = "r04-google-normalization-contract-v2"
+SLEEP_MAIN_CONTRACT_VERSION = "r04-google-normalization-contract-v3"
 GOOGLE_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 MAX_NORMALIZATION_RECORDS = 4096
 MAX_DIAGNOSTICS = 128
@@ -230,6 +231,7 @@ class _ParseContext:
     unknown_fields: list[dict[str, object]]
     material_error: bool = False
     partial: bool = False
+    recognize_main_sleep: bool = True
 
     def diagnostic(
         self,
@@ -267,7 +269,7 @@ def normalize_google_payload(
     query_context: GoogleQueryContext | None = None,
     source_identity: GoogleSourceIdentity | None = None,
     source_contract_version: str = SOURCE_CONTRACT_VERSION,
-    normalization_contract_version: str = NORMALIZATION_CONTRACT_VERSION,
+    normalization_contract_version: str | None = None,
     max_records: int = MAX_NORMALIZATION_RECORDS,
 ) -> GoogleNormalizationResult:
     """Normalize one bounded Google v4 list/reconcile/rollup response.
@@ -279,6 +281,11 @@ def normalize_google_payload(
     """
 
     normalized_stream = _normalize_stream(stream)
+    if normalization_contract_version is None:
+        normalization_contract_version = (
+            SLEEP_MAIN_CONTRACT_VERSION if normalized_stream is GoogleStream.SLEEP
+            else NORMALIZATION_CONTRACT_VERSION
+        )
     if query is not None and query_context is not None and query != query_context:
         raise ValueError("query and query_context cannot disagree")
     normalized_query = query or query_context or GoogleQueryContext(GoogleQueryMode.LIST)
@@ -391,7 +398,11 @@ def normalize_google_payload(
             top_context.diagnostic("record_shape_drift", point_path, material=True)
             record_material_error = True
             continue
-        record_context = _ParseContext([], [])
+        record_context = _ParseContext(
+            [], [], recognize_main_sleep=normalization_contract_version not in {
+                "r04-google-normalization-contract-v1", NORMALIZATION_CONTRACT_VERSION,
+            },
+        )
         record = _normalize_point(
             item,
             stream=normalized_stream,
@@ -2478,10 +2489,13 @@ def _sleep_metadata_metrics(
         ("sleep_metadata_stages_status", "stagesStatus", _SLEEP_STAGE_STATUS_VALUES, False),
         ("sleep_metadata_processed", "processed", None, True),
         ("sleep_metadata_main", "main", None, True),
+        ("sleep_metadata_main_sleep", "mainSleep", None, True),
         ("sleep_metadata_nap", "nap", None, True),
         ("sleep_metadata_manually_edited", "manuallyEdited", None, True),
         ("sleep_metadata_external_id", "externalId", None, False),
     )
+    if not context.recognize_main_sleep:
+        definitions = tuple(d for d in definitions if d[1] != "mainSleep")
     if raw is _MISSING:
         return [
             GoogleMetricDTO(
@@ -3049,6 +3063,7 @@ __all__ = [
     "MAX_NORMALIZATION_RECORDS",
     "MAX_UNKNOWN_FIELDS",
     "NORMALIZATION_CONTRACT_VERSION",
+    "SLEEP_MAIN_CONTRACT_VERSION",
     "GoogleNormalizationDiagnostic",
     "GoogleNormalizationResult",
     "google_normalize",

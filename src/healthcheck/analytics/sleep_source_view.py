@@ -38,6 +38,8 @@ from healthcheck.analytics.sleep_metrics import (
 from healthcheck.analytics.sleep_pairing import (
     ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
     _google_observation_role,
+    _metric_bool,
+    _metric_state,
 )
 from healthcheck.db.models import (
     GarminSleepRecord,
@@ -51,6 +53,32 @@ from healthcheck.web.read_snapshot import ensure_read_snapshot
 MAX_SOURCE_SLEEP_RECORDS = 200
 MAX_SOURCE_SLEEP_RANGE_RECORDS = 400
 SOURCE_SLEEP_RANGE_VERSION = "source-sleep-range-v1"
+SAVED_GOOGLE_ROLE_POLICY = "saved-google-main-sleep-v2"
+
+
+def _saved_google_role(metrics):
+    """Saved-night policy only; frozen account pairing keeps its original helpers."""
+    code = "sleep_metadata_main_sleep"
+    state = _metric_state(metrics, code)
+    if state == "missing":
+        return _google_observation_role(metrics)
+    main = _metric_bool(metrics, code)
+    nap_state = _metric_state(metrics, "sleep_metadata_nap")
+    nap = _metric_bool(metrics, "sleep_metadata_nap")
+    legacy_state = _metric_state(metrics, "sleep_metadata_main")
+    legacy = _metric_bool(metrics, "sleep_metadata_main")
+    reason = ""
+    if nap is True:
+        reason = "google_nap_only"
+    elif state == "invalid" or legacy_state == "invalid" or nap_state == "invalid":
+        reason = "google_saved_role_invalid"
+    elif state == "value" and legacy_state == "value" and main != legacy:
+        reason = "google_main_alias_conflict"
+    if reason:
+        return None, reason, state, nap_state, main, nap, ""
+    return True, "", state, nap_state, main, nap, (
+        "explicit_main" if main is True else "uncertain_session"
+    )
 
 
 def _canonical_outcome(side: _StoredSleepSide, code: str, variant: str | None):
@@ -90,8 +118,17 @@ def _session_view(
         reason = reason or f"{side.provider}_record_invalid"
     role: dict[str, Any] | None = None
     if side.provider == "google":
-        decision = _google_observation_role(side.metrics)
+        decision = _saved_google_role(side.metrics)
         role = {
+            "policy_version": SAVED_GOOGLE_ROLE_POLICY,
+            "main_field_path": next((m.field_path for m in side.metrics
+                if m.metric_code == ("sleep_metadata_main_sleep"
+                    if _metric_state(side.metrics, "sleep_metadata_main_sleep") != "missing"
+                    else "sleep_metadata_main")), None),
+            "legacy_main_state": _metric_state(side.metrics, "sleep_metadata_main"),
+            "legacy_main_value": _metric_bool(side.metrics, "sleep_metadata_main"),
+            "legacy_main_field_path": next((m.field_path for m in side.metrics
+                if m.metric_code == "sleep_metadata_main"), None),
             "main_state": decision[2], "nap_state": decision[3],
             "main_value": decision[4], "nap_value": decision[5],
             "selection": decision[6] if len(decision) > 6 else None,
