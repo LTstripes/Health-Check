@@ -174,7 +174,10 @@ METRIC = {
 SLEEP_SESSION = {
     **_fields("record_id wake_date record_status reason variant"),
     "source_eligibility": ELIGIBILITY,
-    "role": _fields("main_state nap_state main_value nap_value selection reason"),
+    "role": _fields(
+        "main_state nap_state main_value nap_value selection reason policy_version main_field_path "
+        "legacy_main_state legacy_main_value legacy_main_field_path"
+    ),
     "metrics": {key: METRIC for key in (
         *SLEEP_CANONICAL_METRIC_CODES, "sleep_score", "nap_duration_seconds")},
     "field_states": _fields("session stages out_of_bed"),

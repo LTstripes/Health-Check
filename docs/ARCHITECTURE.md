@@ -1719,7 +1719,8 @@ application to exercise it. No real profile was reprocessed for this candidate.
 `hrvSummary.calendarDate` as a source-local date without an instant or invented
 zone. Present supported calendar fields must all be strict valid dates and agree.
 A sleep/start clock, requested day or receipt cannot replace an absent date.
-Other normalization output retains v2, including existing stress/activity gates.
+Other normalization output retains its accepted version, including stress/activity v2
+and the separate [Sleep v3 interpretation](#saved-sleep-production-shape-interpretation-462--464).
 
 Production id-less HRV identities retain the existing reconciliation algorithm:
 source + stream + surface + temporal coordinate. Distinct days cannot collide;
@@ -2033,6 +2034,65 @@ concise newer-conflict/missing notices. It uses OwnerDate and existing Data layo
 no technical JSON is added to an information badge. RHR/provider status remain
 their existing independent blocks. This is synthetic engineering validation,
 not Owner UAT or full completion of either issue.
+
+
+### Saved sleep production-shape interpretation (#462 / #464)
+
+Garmin Sleep normalization `r02-garmin-sleep-normalization-v3` accepts paired
+`dailySleepDTO.sleepStartTimestampGMT/Local` and `sleepEndTimestampGMT/Local`
+as integral epoch milliseconds. GMT establishes the instant; Local is a nominal
+wall-clock encoding. Their exact whole-minute difference establishes each
+endpoint's fixed offset, never an IANA zone or host timezone. Preserve field
+paths and original Local value; `calendarDate` remains the explicit wake date.
+Invalid/conflicting evidence cannot become an eligible instant. Local-only
+evidence retains its local clock and original value without UTC; absent timing
+retains the previous date-only/unknown outcome.
+
+Production `sleepLevels[].startGMT/endGMT` are explicit GMT interval boundaries;
+integral numeric `activityLevel` maps `0=DEEP`, `1=LIGHT`, `2=REM`, `3=AWAKE`.
+The mapping is corroborated by [upstream SleepState](https://github.com/abrander/garmin-connect/blob/cb0fca0da6bf3f645de01c092df0f324dfd51220/SleepState.go#L6-L28);
+this is implementation evidence, not a Garmin schema guarantee.
+Unknown codes, malformed/order/gap/overlap/boundary conflicts and competing stage
+aliases make the collection incomplete. Summary end validates the final stage;
+it never replaces `complete_stage_boundary` or supplies missing stages. Endpoint
+offsets are retained independently; intermediate offsets are not inferred across
+DST/travel. Fixed-offset changes remain excluded by v6. Prior ISO/`levels`
+shapes retain their semantics. Other Garmin streams retain their existing versions.
+
+Production reconciliation deliberately retains the exact legacy v2 temporal
+identity inputs, record-ID/sample-token precedence and source partition while
+persisting enriched measurement evidence. This prevents an id-less date-only
+original from becoming a second instant-keyed current night. It does not adopt
+an arbitrary same-date row. Corrections and stale-observation authority retain
+the existing collection rules; sleep version-current checks include empty windows.
+For a row-free window, a current, non-invalid interpretation of the exact latest
+original and receive epoch proves normalization currentness despite v2/v3 UUID
+ordering; it does not prove acquisition completeness or confirmed-empty sleep.
+
+Google Sleep normalization uses `r04-google-normalization-contract-v3`; other
+streams retain v2; explicitly requested historical v1/v2 keeps its previous
+metadata/unknown-field shape for immutable retries. V3 preserves `metadata.mainSleep` separately as
+`sleep_metadata_main_sleep`, with its actual field path and presence state,
+while retaining legacy `metadata.main`. The saved-source-night-only policy
+`saved-google-main-sleep-v2` accepts explicit `mainSleep=true` with nap missing,
+null or false, without processing/stage-status role gates. This follows the
+[Google SleepMetadata schema](https://developers.google.com/health/reference/rest/v4/users.dataTypes.dataPoints#Sleep.SleepMetadata),
+including its main-night fallback without stages. Never synthesize `nap=false`.
+Explicit nap=true excludes, invalid role fields and contradictory boolean aliases
+exclude, false/null remain unconfirmed and multiple mains remain ambiguous.
+Absent `mainSleep` keeps the legacy main-only policy. Source/immutability,
+variant and endpoint gates remain independent. Frozen account-pairing v1 helpers
+are unchanged. Existing originals require explicit replay before this new typed
+metric exists; missing/invalid provider `updateTime` retains the accepted
+fail-closed revision guard and can block replacement even for the same original.
+
+`garmin.sleep_preview.preview_saved_garmin_sleep` accepts an existing read-only
+snapshot, exact source, explicit observation IDs (maximum 30), a 1–30-day range
+and one-MiB verified originals. It runs production preparation and reports
+hypothetical identities, timing availability and currentness/replacement blockers.
+It never prepares/migrates runtime, persists, contacts providers or asserts that
+stored v6 eligibility changed. The existing reprocess `--dry-run` is not this
+read-only operation. This preview grants no recovery or Stable write authority.
 
 <a id="metric-source-selection"></a>
 

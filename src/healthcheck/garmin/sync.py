@@ -56,6 +56,7 @@ from healthcheck.garmin.normalization import (
     GarminSourceIdentity,
     GarminTemporalDTO,
     GarminTemporalPrecision,
+    _parse_record_temporal,
     garmin_source_identity,
     normalize_garmin_payload,
     stable_garmin_reconciliation_key,
@@ -716,7 +717,13 @@ def _prepare_normalization_result(
         # Keep the raw/diagnostics, without another unknown-time current identity.
         return replace(result, records=(), status=GarminParseStatus.PARTIAL)
     sample_records = _series_records(surface, mapping, result, day=day)
-    records = [_reconcile_record(surface, item) for item in (*result.records, *sample_records)]
+    legacy_temporal = (
+        _parse_record_temporal(mapping, "payload")[0] if surface.code == "sleep" else None
+    )
+    records = [
+        _reconcile_record(surface, item, identity_temporal=legacy_temporal)
+        for item in (*result.records, *sample_records)
+    ]
     status = result.status
     if sample_records and status in {GarminParseStatus.EMPTY, GarminParseStatus.INVALID}:
         status = GarminParseStatus.OK
@@ -726,8 +733,13 @@ def _prepare_normalization_result(
     return replace(result, records=tuple(records), status=status)
 
 
-def _reconcile_record(surface: GarminSyncSurface, record: GarminRecordDTO) -> GarminRecordDTO:
-    sample_token = record.sample_token or _temporal_sample_token(record.temporal)
+def _reconcile_record(
+    surface: GarminSyncSurface, record: GarminRecordDTO, *,
+    identity_temporal: GarminTemporalDTO | None = None,
+) -> GarminRecordDTO:
+    # Sleep v3 enriches measurement evidence, preserving exact v2 production identity.
+    temporal = identity_temporal if identity_temporal is not None else record.temporal
+    sample_token = record.sample_token or _temporal_sample_token(temporal)
     return replace(
         record,
         sample_token=sample_token,
@@ -735,7 +747,7 @@ def _reconcile_record(surface: GarminSyncSurface, record: GarminRecordDTO) -> Ga
             record.source,
             record.stream,
             surface=surface.code,
-            temporal=record.temporal,
+            temporal=temporal,
             record_id=record.record_id,
             sample_token=sample_token,
             sample_index=None if sample_token or record.record_id else record.record_index,

@@ -12,7 +12,7 @@ import pytest
 from healthcheck.garmin.capabilities import CapabilityStatus, get_capability
 from healthcheck.garmin.contracts import load_synthetic_fixture
 from healthcheck.garmin.normalization import (
-    NORMALIZATION_CONTRACT_VERSION,
+    SLEEP_TIMING_CONTRACT_VERSION,
     GarminFieldState,
     GarminParseStatus,
     GarminTemporalDTO,
@@ -142,7 +142,7 @@ def test_sleep_fixture_projects_typed_values_and_date_only_semantics() -> None:
     result = normalize_garmin_payload(fixture("sleep"))
 
     assert result.ok
-    assert result.contract_version == NORMALIZATION_CONTRACT_VERSION
+    assert result.contract_version == SLEEP_TIMING_CONTRACT_VERSION
     assert result.source is not None
     assert result.source.device_attributed is True
     (record,) = result.records

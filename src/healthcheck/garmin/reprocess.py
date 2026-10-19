@@ -33,6 +33,7 @@ from healthcheck.garmin.capabilities import GARMIN_PROVIDER_CODE
 from healthcheck.garmin.normalization import (
     HRV_CALENDAR_CONTRACT_VERSION,
     NORMALIZATION_CONTRACT_VERSION,
+    SLEEP_TIMING_CONTRACT_VERSION,
     GarminSourceIdentity,
     GarminTemporalDTO,
     GarminTemporalPrecision,
@@ -728,6 +729,7 @@ def _window_already_current(
         return False
     expected_normalization = (
         HRV_CALENDAR_CONTRACT_VERSION if surface.code == "hrv_status"
+        else SLEEP_TIMING_CONTRACT_VERSION if surface.code == "sleep"
         else NORMALIZATION_CONTRACT_VERSION
     )
     with factory() as session:
@@ -834,6 +836,18 @@ def _window_already_current(
         for item in siblings[1:]:
             if _observation_is_newer(item, latest):
                 latest = item
+        if surface.code == "sleep":
+            # Re-normalizing one immutable original retains its receive epoch.
+            # UUID ordering between v2/v3 interpretations must not defeat resume.
+            # This proves normalization currentness, not acquisition completeness.
+            return any(
+                item.garmin_raw_payload_id == latest.garmin_raw_payload_id
+                and restore_stored_utc(item.received_at) == restore_stored_utc(latest.received_at)
+                and item.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
+                and item.normalization_contract_version == expected_normalization
+                and item.parse_status != "invalid"
+                for item in siblings
+            )
         return (
             latest.reconciliation_contract_version == RECONCILIATION_CONTRACT_VERSION
             and latest.normalization_contract_version == expected_normalization
