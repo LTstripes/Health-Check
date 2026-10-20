@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Лабораторные отчёты — Health-Check{% endblock %}
+{% block styles %}<style>
+.lab-table{width:100%;border-collapse:collapse}.lab-table th,.lab-table td{padding:10px;text-align:left;border-bottom:1px solid #d8d0c3;vertical-align:top;overflow-wrap:anywhere}.lab-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.lab-grid label{display:flex;flex-direction:column;gap:4px}.lab-grid input,.lab-grid select,.lab-grid textarea{width:100%;box-sizing:border-box;min-height:36px}.lab-warning{padding:14px;background:#f6efe2;color:#6b4510;margin:16px 0}.lab-section{padding:18px 0;border-bottom:1px solid #d8d0c3}.lab-section summary{cursor:pointer}.lab-small{font-size:14px;overflow-wrap:anywhere}code{overflow-wrap:anywhere}
+</style>{% endblock %}
+{% macro leaf(key, value) %}
+{% set name = key.split('.')[-1] %}
+{% set labels = {'patient_link':'Принадлежность пациенту', 'report_link':'Принадлежность отчёту', 'source_match':'Сверка с оригиналом', 'clinic_source':'Клиника / источник', 'performing_lab':'Выполнившая лаборатория', 'report_label':'Название отчёта', 'incomplete':'Неполный отчёт', 'uncertainty':'Сомнения / неполнота', 'transcription':'Способ транскрипции', 'page':'Страница (если известна)', 'support':'Опора в оригинале (если известна)', 'value':'Дата / время как напечатано', 'precision':'Точность даты', 'label_raw':'Исходное название', 'result_raw':'Исходный результат', 'unit_raw':'Единица', 'reference_raw':'Референс', 'flag_raw':'Флаг', 'value_kind':'Тип значения', 'decimal':'Точная десятичная строка', 'comparator':'Сравнение', 'qualitative':'Качественное значение', 'method_raw':'Метод (если указан)', 'equipment_kit_notes':'Оборудование / набор (отдельно от метода)', 'specimen_raw':'Материал'} %}
+{% set choices = {'patient_link':['unresolved','resolved'], 'report_link':['unresolved','resolved'], 'source_match':['unverified','owner_verified'], 'incomplete':['True','False'], 'transcription':['manual','assistant'], 'precision':['','date','minute','second'], 'value_kind':['numeric','qualitative','unparsed'], 'comparator':['','=','<','>','<=','>=','≤','≥']} %}
+<label>{{ labels.get(name, name) }}{% if '_date.' in key %} — {{ 'забор материала' if 'specimen_date.' in key else ('печать' if 'printed_date.' in key else 'результат') }}{% endif %}
+{% if name in choices %}<select name="{{ key }}">{% for option in choices[name] %}<option value="{{ option }}"{% if option == (value|string if value is not none else '') %} selected{% endif %}>{{ option or 'Неизвестно' }}</option>{% endfor %}</select>
+{% elif name in ['uncertainty','support','reference_raw','equipment_kit_notes'] %}<textarea name="{{ key }}" maxlength="2000">{{ value if value is not none else '' }}</textarea>
+{% else %}<input name="{{ key }}" value="{{ value if value is not none else '' }}" maxlength="{{ 2000 if name in ['result_raw','qualitative'] else 255 }}"{% if name == 'page' %} type="number" min="1" max="1000"{% endif %}>{% endif %}</label>
+{% endmacro %}
+{% macro origins(item) %}
+{% if item.field_provenance %}<details class="lab-small"><summary>Происхождение отдельных полей</summary><ul>{% for field, origin in item.field_provenance.items() %}<li>{{ field }}: {{ 'вручную' if origin.transcription == 'manual' else 'ассистент' }} · {{ 'стр. ' ~ origin.page if origin.page else 'страница неизвестна' }} · {{ origin.support or 'опора неизвестна' }}</li>{% endfor %}</ul></details>{% endif %}
+{% endmacro %}
+{% block content %}
+<h2>Лабораторные отчёты</h2>
+<p><a href="/labs">Список и загрузка</a> · <a href="/imports">Импорт данных</a></p>
+<p>PDF и подготовленная вручную или с ассистентом транскрипция. Поля сначала попадают в черновик; принятие требует отдельного подтверждения.</p>
+{% if error %}<div role="alert" class="lab-warning">Операция не выполнена: <code>{{ error }}</code>. Принятые результаты не изменены. Исправьте данные или откройте актуальную версию отчёта.</div>{% endif %}
+{% if receipt %}<div role="status" class="lab-warning">Сохранено: {{ 'новая версия отчёта' if receipt.kind == 'revise' else 'подтверждение' }}. {{ 'Частичный отчёт.' if receipt.partial else '' }} <span class="lab-small">Квитанция версии: {{ receipt.revision_id }}</span></div>{% endif %}
+{% if review %}
+<div class="lab-section">
+<h3>Проверка транскрипции</h3>
+<p><a href="/labs/{{ review.report_id }}/original">Скачать неизменённый PDF</a></p>
+<p class="lab-small">Отчёт: {{ review.report_id }} · Черновик: {{ review.interpretation_id }}</p>
+<p>Клиника / источник: {{ review.draft.clinic_source or 'Неизвестно' }} · Выполнившая лаборатория: {{ review.draft.performing_lab or 'Неизвестно' }}</p>
+<p>Дата результата: {{ review.draft.result_date.value if review.draft.result_date else 'Неизвестно' }} · Печать: {{ review.draft.printed_date.value if review.draft.printed_date else 'Неизвестно' }} · Забор материала: {{ review.draft.specimen_date.value if review.draft.specimen_date else 'Неизвестно' }}</p>
+<div class="lab-warning">Сверка с оригиналом: <strong>{{ review.draft.source_match }}</strong>. Подтверждение принимает транскрипцию и не означает сверку каждого поля. {{ 'Отчёт отмечен неполным.' if review.draft.incomplete else '' }} {{ review.draft.uncertainty or '' }}
+{% if review.draft.patient_link != 'resolved' or review.draft.report_link != 'resolved' %}<p>Подтверждение заблокировано: разрешите принадлежность пациенту и отчёту в исправлениях.</p>{% endif %}</div>
+{{ origins(review.draft) }}
+<table class="lab-table"><thead><tr><th>Выбор / ID</th><th>Показатель</th><th>Результат</th><th>Единица / референс</th><th>Опора / сомнения</th></tr></thead><tbody>
+{% for row in review.draft.rows %}<tr><td>{% if not review.consumed %}<input form="lab-decision" type="{{ 'hidden' if review.expected_head else 'checkbox' }}" name="selected" value="{{ row.row_id }}" checked aria-label="Принять {{ row.label_raw }}">{% endif %}{{ row.row_id }}</td><td>{{ row.label_raw }}</td><td>{{ row.result_raw }}<br><span class="lab-small">{{ row.value_kind }}{% if row.decimal is not none %}: {{ row.comparator or '' }} {{ row.decimal }}{% endif %}{% if row.qualitative %}: {{ row.qualitative }}{% endif %}</span></td><td>{{ row.unit_raw if row.unit_raw is not none else 'Неизвестно' }}<br>{{ row.reference_raw if row.reference_raw is not none else 'Неизвестно' }}{% if row.flag_raw %}<br>Флаг: {{ row.flag_raw }}{% endif %}</td><td>Исходная транскрипция: {{ row.provenance.transcription }} · {{ 'стр. ' ~ row.provenance.page if row.provenance.page else 'страница неизвестна' }}<br>{{ row.provenance.support or '' }}<br>{{ row.uncertainty or '' }}{% if row.specimen_date %}<br>Забор материала: {{ row.specimen_date.value }}{% endif %}{% if row.method_raw %}<br>Метод: {{ row.method_raw }}{% endif %}{% if row.equipment_kit_notes %}<br>Оборудование / набор: {{ row.equipment_kit_notes }}{% endif %}{{ origins(row) }}</td></tr>{% endfor %}
+</tbody></table>
+{% if review.expected_head %}
+<h3>Изменения полной версии</h3>
+<p>Сохранены: {{ review.diff.retained|join(', ') or '—' }} · Изменены: {{ review.diff.changed|join(', ') or '—' }} · Удалены: {{ review.diff.removed|join(', ') or '—' }} · Добавлены: {{ review.diff.added|join(', ') or '—' }}</p>
+<details><summary>Предыдущая принятая версия для сравнения</summary><table class="lab-table"><thead><tr><th>ID / название</th><th>Результат / единица / референс</th></tr></thead><tbody>{% for row in review.previous.rows %}<tr><td>{{ row.row_id }} · {{ row.label_raw }}</td><td>{{ row.result_raw }} · {{ row.unit_raw or 'Неизвестно' }} · {{ row.reference_raw or 'Неизвестно' }}</td></tr>{% endfor %}</tbody></table><p class="lab-small">Метаданные предыдущей версии: {{ review.previous|tojson }}</p></details>
+{% endif %}
+{% if review.consumed %}<p class="lab-warning">Этот черновик уже использован. Дальнейшие изменения требуют нового полного снимка отчёта ниже.</p>
+{% else %}<form id="lab-decision" method="post" action="/labs/review/{{ review.interpretation_id }}/decide" class="lab-section">
+<input type="hidden" name="operation_id" value="{{ operation_id }}"><input type="hidden" name="expected_head" value="{{ review.expected_head or '' }}"><input type="hidden" name="kind" value="{{ 'revise' if review.expected_head else 'confirm' }}">
+<p><label><input type="checkbox" name="partial" value="yes"{% if review.draft.incomplete %} checked{% endif %}> Это частичный отчёт (обязательно при выборе части строк или известной неполноте)</label></p>
+<p><label><input type="checkbox" name="ack" value="yes" required> Принимаю показанную транскрипцию{{ ' и показанные изменения полной версии, включая удаления' if review.expected_head else ' выбранных строк' }}. Сверка с оригиналом остаётся отдельным статусом.</label></p>
+<button type="submit"{% if review.draft.patient_link != 'resolved' or review.draft.report_link != 'resolved' %} disabled{% endif %}>{{ 'Revise report — сохранить полную версию' if review.expected_head else 'Подтвердить выбранные результаты' }}</button>
+</form>{% endif %}
+<details class="lab-section"><summary>Исправить поля / подготовить новую полную версию</summary>
+<p>Исправления сохраняются новым черновиком. Затем проверьте таблицу и подтвердите отдельно. Пустые поля означают неизвестное. Десятичные значения вводите строкой с точкой; исходный результат сохраняйте буквально.</p>
+<form method="post" action="/labs/review/{{ review.interpretation_id }}/correct">
+<input type="hidden" name="operation_id" value="{{ operation_id }}-correction">
+<h4>Отчёт и происхождение</h4><div class="lab-grid">{% for key, value in fields.items() if not key.startswith('rows.') %}{{ leaf(key, value) }}{% endfor %}</div>
+{% for row in review.draft.rows %}{% set prefix = 'rows.' ~ loop.index0 ~ '.' %}<details class="lab-section"><summary>{{ row.row_id }} · {{ row.label_raw }}</summary><div class="lab-grid">{% for key, value in fields.items() if key.startswith(prefix) %}{{ leaf(key, value) }}{% endfor %}</div></details>{% endfor %}
+<p>Для добавления или удаления строк загрузите новый полный structured draft с тем же PDF. Сохраняйте ID прежних строк: совпадение названия не связывает строки автоматически.</p>
+<button type="submit">Сохранить исправленный черновик</button>
+</form></details></div>
+{% endif %}
+{% if listing is defined %}
+<div class="lab-section"><h3>Сохранённые отчёты</h3>
+{% if not listing.reports %}<p>Отчётов пока нет.</p>{% endif %}
+{% for report in listing.reports %}<article class="lab-section"><h4>{{ report.snapshot.report_label if report.snapshot and report.snapshot.report_label else 'Лабораторный отчёт' }}</h4>
+<p>{{ 'Принят · частичный' if report.partial else ('Принят' if report.snapshot else 'Только staging — принятых результатов нет') }} · <a href="/labs/{{ report.report_id }}/original">Скачать оригинал PDF</a></p>
+{% if report.snapshot %}<p>Сверка: {{ report.snapshot.source_match }} · Клиника: {{ report.snapshot.clinic_source or 'Неизвестно' }} · Лаборатория: {{ report.snapshot.performing_lab or 'Неизвестно' }}</p><p>Результат: {{ report.snapshot.result_date.value if report.snapshot.result_date else 'Неизвестно' }} · Печать: {{ report.snapshot.printed_date.value if report.snapshot.printed_date else 'Неизвестно' }} · Забор материала: {{ report.snapshot.specimen_date.value if report.snapshot.specimen_date else 'Неизвестно' }}</p><p>{{ report.snapshot.uncertainty or '' }}</p>{{ origins(report.snapshot) }}<table class="lab-table"><thead><tr><th>Показатель</th><th>Результат</th><th>Единица</th><th>Референс / сомнения</th></tr></thead><tbody>{% for row in report.snapshot.rows %}<tr><td>{{ row.label_raw }}</td><td>{{ row.result_raw }}</td><td>{{ row.unit_raw if row.unit_raw is not none else 'Неизвестно' }}</td><td>{{ row.reference_raw if row.reference_raw is not none else 'Неизвестно' }} {{ row.uncertainty or '' }}{% if row.specimen_date %}<br>Забор материала: {{ row.specimen_date.value }}{% endif %}{% if row.method_raw %}<br>Метод: {{ row.method_raw }}{% endif %}{% if row.equipment_kit_notes %}<br>Оборудование / набор: {{ row.equipment_kit_notes }}{% endif %}{{ origins(row) }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+<details><summary>Черновики / версии транскрипции</summary><ul>{% for interpretation in report.interpretations %}<li><a href="/labs/review/{{ interpretation }}">Проверить {{ interpretation }}</a></li>{% endfor %}</ul>{% if report.more_drafts %}<p>Показаны первые 200 черновиков.</p>{% endif %}</details></article>{% endfor %}
+{% if listing.more %}<p>Показаны первые 200 отчётов.</p>{% endif %}</div>
+{% endif %}
+<div class="lab-section"><h3>Добавить PDF и транскрипцию</h3><p>Один отчёт одного пациента. PDF до 10 MiB; UTF-8 draft <code>lab-draft-v1</code> до 256 KiB. PDF остаётся неизменным. <a href="/labs/schema">Схема structured draft</a>. Прямой транспорт из чата отдельно не проверен.</p>
+<form method="post" action="/labs/stage" enctype="multipart/form-data"><input type="hidden" name="operation_id" value="{{ operation_id }}-stage"><p><label>Исходный PDF <input type="file" name="pdf" accept="application/pdf,.pdf" required></label></p><p><label>Structured draft <input type="file" name="draft" accept="application/json,.json" required></label></p><button type="submit">Загрузить в staging для проверки</button></form></div>
+{% endblock %}

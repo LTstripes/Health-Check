@@ -9,7 +9,7 @@
   'data': ('Данные', '/imports', 'Проверка импорта'),
   'context': ('Комментарии', '/context', 'Комментарии / Контекст')
 } %}
-{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context'} %}
+{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context', 'labs': 'data'} %}
 {% set path_sections = {'/brief': 'overview', '/': 'weight', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data', '/context': 'context'} %}
 {% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
@@ -43,7 +43,7 @@
       {% elif section and section not in ['overview', 'context'] %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
     </header>
     {# Existing English page bodies stay explicitly English until their stage translates them. #}
-    {% if section == 'data' and request.url.path != '/imports' %}
+    {% if section == 'data' and request.url.path != '/imports' and page|default('') != 'labs' %}
     <div class="owner-page-content" lang="en">
     {% else %}
     <div class="owner-page-content">

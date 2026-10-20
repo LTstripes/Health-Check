@@ -2686,6 +2686,72 @@ class GoogleRecordMetric(Base):
     collection_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class LabReport(Base):
+    __tablename__ = "lab_reports"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    pdf_artifact_id: Mapped[str] = mapped_column(ForeignKey("raw_artifacts.id"), unique=True)
+
+
+class LabInterpretation(Base):
+    __tablename__ = "lab_interpretations"
+    __table_args__ = (UniqueConstraint("report_id", "draft_artifact_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    report_id: Mapped[str] = mapped_column(ForeignKey("lab_reports.id"))
+    draft_artifact_id: Mapped[str] = mapped_column(ForeignKey("raw_artifacts.id"))
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("lab_interpretations.id"))
+
+
+class LabRevision(Base):
+    __tablename__ = "lab_revisions"
+    __table_args__ = (UniqueConstraint("report_id", "id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    report_id: Mapped[str] = mapped_column(ForeignKey("lab_reports.id"))
+    interpretation_id: Mapped[str] = mapped_column(
+        ForeignKey("lab_interpretations.id"), unique=True
+    )
+    previous_id: Mapped[str | None] = mapped_column(ForeignKey("lab_revisions.id"))
+    partial: Mapped[bool] = mapped_column(Boolean)
+    snapshot_json: Mapped[str] = mapped_column(Text)
+
+
+class LabHead(Base):
+    __tablename__ = "lab_heads"
+    report_id: Mapped[str] = mapped_column(ForeignKey("lab_reports.id"), primary_key=True)
+    revision_id: Mapped[str | None] = mapped_column(ForeignKey("lab_revisions.id"), unique=True)
+
+
+class LabResult(Base):
+    __tablename__ = "lab_results"
+    __table_args__ = (
+        CheckConstraint("value_kind IN ('numeric','qualitative','unparsed')", name="kind_allowed"),
+        CheckConstraint(
+            "(value_kind = 'numeric' AND decimal IS NOT NULL AND qualitative IS NULL) OR "
+            "(value_kind != 'numeric' AND decimal IS NULL AND comparator IS NULL)",
+            name="typed_value",
+        ),
+    )
+    revision_id: Mapped[str] = mapped_column(ForeignKey("lab_revisions.id"), primary_key=True)
+    row_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    label_raw: Mapped[str] = mapped_column(String(255))
+    result_raw: Mapped[str] = mapped_column(Text)
+    unit_raw: Mapped[str | None] = mapped_column(String(255))
+    reference_raw: Mapped[str | None] = mapped_column(Text)
+    value_kind: Mapped[str] = mapped_column(String(20))
+    decimal: Mapped[str | None] = mapped_column(String(100))
+    comparator: Mapped[str | None] = mapped_column(String(2))
+    qualitative: Mapped[str | None] = mapped_column(Text)
+    detail_json: Mapped[str] = mapped_column(Text)
+
+
+class LabOperation(Base):
+    __tablename__ = "lab_operations"
+    __table_args__ = (CheckConstraint("length(fingerprint) = 64", name="fingerprint_sha256"),)
+    operation_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    receipt_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 __all__ = [
     "AcquisitionSource",
     "AgreementCoverage",

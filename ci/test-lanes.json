@@ -104,6 +104,7 @@
       "tests/test_photo_import_review.py",
       "tests/test_photo_vision.py",
       "tests/test_profile_backup.py",
+      "tests/test_lab_intake.py",
       "tests/test_offsite_backup.py",
       "tests/test_ui_host_origin_guard.py",
       "tests/test_saved_values.py",
