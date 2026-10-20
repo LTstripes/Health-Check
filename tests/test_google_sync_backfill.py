@@ -6,6 +6,7 @@ import errno
 import hashlib
 import json
 import sqlite3
+import time
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -265,6 +266,7 @@ class FakeGoogleHealthTransport:
                 "url": url,
                 "path": parsed.path,
                 "headers": safe_headers,
+                "json_body": json.loads(json.dumps(json_body)) if json_body is not None else None,
                 "operation": operation,
                 "data_type": data_type,
                 "page_size": (json_body or {}).get("pageSize")
@@ -3113,3 +3115,162 @@ def test_provider_error_body_is_retained_locally(tmp_path) -> None:
             assert all(row.status not in {"present", "confirmed_empty"} for row in coverage)
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("host_tz", ["UTC0", "EST5EDT,M3.2.0,M11.1.0", "JST-9"])
+@pytest.mark.parametrize("start,end,exclusive", [
+    ("2024-01-15", "2024-01-15", "2024-01-16"),
+    ("2024-01-31", "2024-01-31", "2024-02-01"),
+    ("2024-12-31", "2024-12-31", "2025-01-01"),
+    ("2024-02-28", "2024-02-29", "2024-03-01"),
+    ("2023-02-28", "2023-02-28", "2023-03-01"),
+    ("2024-03-09", "2024-03-11", "2024-03-12"),
+    ("2024-11-02", "2024-11-04", "2024-11-05"),
+    ("2024-02-20", "2024-03-04", "2024-03-05"),  # Exactly 14 civil days.
+])
+def test_daily_rollup_exact_civil_request(tmp_path, monkeypatch, host_tz, start, end, exclusive):
+    # tzset applies real process-local TZ changes on Linux CI; Windows has no tzset.
+    with monkeypatch.context() as context:
+        context.setenv("TZ", host_tz)
+        if hasattr(time, "tzset"):
+            time.tzset()
+        try:
+            transport = FakeGoogleHealthTransport()
+            _settings, service = _sync(tmp_path, transport)
+            report = service.run(start=start, end=end, streams=["heart_rate"],
+                                 query_mode="dailyRollUp",
+                                 data_source_family=FAMILY_GOOGLE_WEARABLES)
+        finally:
+            context.undo()
+            if hasattr(time, "tzset"):
+                time.tzset()
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.window_end_exclusive == exclusive
+    call, = transport.health_calls()
+    start_date, end_date = date.fromisoformat(start), date.fromisoformat(exclusive)
+    assert call["method"] == "POST"
+    assert call["url"] == (
+        "https://health.googleapis.com/v4/users/me/dataTypes/heart-rate/dataPoints:dailyRollUp"
+    )
+    assert call["json_body"] == {
+        "range": {
+            "start": {"date": {"year": start_date.year, "month": start_date.month,
+                               "day": start_date.day}},
+            "end": {"date": {"year": end_date.year, "month": end_date.month, "day": end_date.day}},
+        },
+        "pageSize": 500,
+        "dataSourceFamily": FAMILY_GOOGLE_WEARABLES,
+    }
+
+
+def test_daily_rollup_default_one_day_and_exclusive_entrypoint(tmp_path):
+    transport = FakeGoogleHealthTransport()
+    _settings, service = _sync(tmp_path / "default", transport)
+    report = service.run(as_of="2024-02-29", streams=["heart_rate"], query_mode="dailyRollUp")
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    expected = {
+        "range": {"start": {"date": {"year": 2024, "month": 2, "day": 29}},
+                  "end": {"date": {"year": 2024, "month": 3, "day": 1}}},
+        "pageSize": 500,
+    }
+    assert transport.health_calls()[0]["json_body"] == expected
+    direct_transport = FakeGoogleHealthTransport()
+    _settings, direct = _sync(tmp_path / "exclusive", direct_transport)
+    report = direct.run_window(start=date(2024, 2, 29), end_exclusive=date(2024, 3, 1),
+                               streams=["heart_rate"], query_mode="dailyRollUp")
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert direct_transport.health_calls()[0]["json_body"] == expected
+
+
+@pytest.mark.parametrize("mode", ["dailyRollUp", "rollUp"])
+def test_hr_rollup_over14_days_rejected_before_auth_or_transport(tmp_path, monkeypatch, mode):
+    transport = FakeGoogleHealthTransport()
+    _settings, service = _sync(tmp_path, transport)
+
+    def forbidden_auth():
+        pytest.fail("oversized rollup must fail before auth")
+
+    monkeypatch.setattr(service, "_resolve_auth", forbidden_auth)
+    with pytest.raises(ValueError, match="windows must be <= 14 days"):
+        service.run(start="2024-02-20", end="2024-03-05", streams=["heart_rate"], query_mode=mode)
+    assert transport.calls == []
+
+
+def test_daily_rollup_two_pages_change_only_page_token(tmp_path):
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", {"rollupDataPoints": [], "nextPageToken": "synthetic-page-2"},
+                    operation="dailyRollUp")
+    transport.queue("heart-rate", {"rollupDataPoints": []}, operation="dailyRollUp",
+                    page_token="synthetic-page-2")
+    settings, service = _sync(tmp_path, transport)
+    report = service.run(start="2024-12-31", end="2024-12-31", streams=["heart_rate"],
+                         query_mode="dailyRollUp", data_source_family=FAMILY_GOOGLE_WEARABLES)
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    assert report.attempts[0].page_count == 2 and report.request_count == 2
+    first, second = transport.health_calls()
+    assert second == {**first, "has_page_token": True,
+                      "json_body": {**first["json_body"], "pageToken": "synthetic-page-2"}}
+    assert first["json_body"]["range"]["end"] == {"date": {"year": 2025, "month": 1, "day": 1}}
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(select(SyncStreamState))
+            assert ":dailyRollUp:google-wearables" in state.stream_code
+            assert state.watermark is not None
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 503])
+def test_daily_rollup_later_error_never_completes_window(tmp_path, status):
+    transport = FakeGoogleHealthTransport()
+    transport.queue("heart-rate", {"rollupDataPoints": [], "nextPageToken": "synthetic-page-2"},
+                    operation="dailyRollUp")
+    for _ in range(MAX_RETRY_ATTEMPTS if status == 503 else 1):
+        transport.queue("heart-rate", status, operation="dailyRollUp",
+                        page_token="synthetic-page-2")
+    settings, service = _sync(tmp_path, transport, sleeper=lambda _delay: None)
+    report = service.run(start=AS_OF, end=AS_OF, streams=["heart_rate"], query_mode="dailyRollUp")
+    assert report.status is not GoogleSyncStatus.SUCCEEDED
+    attempt = report.attempts[0]
+    assert attempt.page_count == 1 and attempt.error.http_status == status
+    assert attempt.coverage_status != "confirmed_empty"
+    engine, factory = _session(settings)
+    try:
+        with factory() as session:
+            state = session.scalar(select(SyncStreamState))
+            assert state.watermark is None
+            assert json.loads(state.cursor)["page_token"] == "synthetic-page-2"
+            coverage = list(session.scalars(select(CoverageInterval)))
+            assert coverage and all(row.status not in {"present", "confirmed_empty"}
+                                    for row in coverage)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("mode", ["rollUp", "list", "reconcile"])
+def test_physical_rollup_list_reconcile_requests_unchanged(tmp_path, mode):
+    transport = FakeGoogleHealthTransport()
+    _settings, service = _sync(tmp_path, transport)
+    report = service.run(start="2024-12-31", end="2024-12-31", streams=["heart_rate"],
+                         query_mode=mode, data_source_family=FAMILY_GOOGLE_WEARABLES)
+    assert report.status is GoogleSyncStatus.SUCCEEDED
+    call, = transport.health_calls()
+    root = "https://health.googleapis.com/v4/users/me/dataTypes/heart-rate/dataPoints"
+    if mode == "rollUp":
+        assert call["method"] == "POST" and call["url"] == root + ":rollUp"
+        assert call["json_body"] == {
+            "range": {"startTime": "2024-12-31T00:00:00Z", "endTime": "2025-01-01T00:00:00Z"},
+            "windowSize": "60s", "pageSize": 500, "dataSourceFamily": FAMILY_GOOGLE_WEARABLES,
+        }
+    else:
+        assert call["method"] == "GET" and call["json_body"] is None
+        parsed = urlparse(call["url"])
+        assert parsed.scheme + "://" + parsed.netloc + parsed.path == (
+            root + (":reconcile" if mode == "reconcile" else "")
+        )
+        assert parse_qs(parsed.query) == {
+            "filter": ['heart_rate.sample_time.civil_time >= "2024-12-31" AND '
+                       'heart_rate.sample_time.civil_time < "2025-01-01"'],
+            "pageSize": ["500"], "dataSourceFamily": [FAMILY_GOOGLE_WEARABLES],
+        }
