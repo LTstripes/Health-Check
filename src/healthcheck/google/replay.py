@@ -22,6 +22,7 @@ from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.google.contracts import (
     GoogleQueryContext,
     GoogleSourceIdentity,
+    GoogleStream,
 )
 from healthcheck.google.normalization import (
     GoogleNormalizationDiagnostic,
@@ -98,11 +99,18 @@ class GoogleNormalizationReplayer:
             query_mode=observation.query_mode,
             data_source_family=observation.data_source_family,
         )
-        partition = _partition_replay_payload(
-            content,
-            query=query,
-            identity=identity,
-            observation_record_names=_observation_record_names(self.session, observation),
+        partition = (
+            # Offline Steps observations are whole family-aggregate envelopes.
+            # The strict normalizer below validates exact family and shape;
+            # nameless civil buckets must not enter list-record partitioning.
+            _ReplayPartition(frozenset(), all_points_selected=True)
+            if observation.stream_code == GoogleStream.STEPS.value
+            else _partition_replay_payload(
+                content,
+                query=query,
+                identity=identity,
+                observation_record_names=_observation_record_names(self.session, observation),
+            )
         )
         result = normalize_google_payload(
             partition.normalization_payload

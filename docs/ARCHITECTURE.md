@@ -1877,6 +1877,51 @@ aggregates stay separately addressable.
 <a id="google-persistence--storage-layers"></a>
 ### Storage layers
 
+#### Offline Steps countSum v1 (#392)
+
+This bounded synthetic-only slice accepts already supplied `dailyRollUp`
+`rollupDataPoints[*].steps.countSum`; it enables no acquisition surface, scope,
+provider request, replay command, UI or production sync. Acquisition, account
+access, observed-day eligibility, coverage and source selection retain their
+separate future gates from [#392](https://github.com/LTstripes/Health-Check/issues/392#issuecomment-6115372615).
+
+The reserved metric `steps_count_sum` has unit `count`. VALUE is an exact
+nonnegative signed-int64 count (0 through 9223372036854775807), stored as canonical
+ASCII decimal in the existing `value_text` slot, with `value_number` and
+`collection_json` NULL. A dedicated typed decoder validates code, unit, state,
+decimal grammar/range and empty alternate slots before returning a Python int.
+Generic text is not an accepted numeric count. Missing leaf, explicit null,
+invalid input and explicit string `"0"` remain distinct; no float conversion,
+rounding, implicit zero, local summation or claim of zero activity is permitted.
+Only canonical string integers are accepted; signs, whitespace, leading zeros,
+fractions, exponents, booleans and JSON numeric tokens are invalid.
+
+Only an explicit known family-aggregate identity matching the query family is
+accepted. The exact returned `civilStartTime`/`civilEndTime` objects are retained in
+endpoint JSON and immutable raw/attempt evidence. Their validated civil values
+must be strictly ordered; no UTC, timezone, 24-hour or completed-day inference
+is made. Identity includes the family, daily mode and exact raw endpoint objects,
+excluding response order, record name and count. Equivalent-looking but differently
+encoded endpoints conservatively remain separate. Invalid endpoints retain audit
+evidence without creating a current projection.
+
+Existing immutable payload/observation/normalization-attempt provenance is reused.
+Exact replay cannot advance chronology. Divergent same-epoch or unorderable
+observations invalidate the projection; strictly later orderable observations may
+correct it, including lower counts, zero, null, missing and invalid, without
+erasing history. For an invalid Steps projection, `projection_observed_at` retains
+the maximum conflict receipt time as a barrier while the original observation
+reference remains unchanged. Recovery must be strictly later than that barrier.
+Older replay cannot replace it. A count with non-VALUE state or
+an invalid/conflicted record is unavailable to a typed consumer. This is interval
+evidence only and does not establish daily completeness or coverage.
+
+The schema delta only admits `steps` in the four existing Google stream CHECKs;
+no numeric column or general EAV extension is needed. Migration must preserve
+populated rows, indexes, foreign keys and append-only triggers. Existing consumers
+select stream/metric codes explicitly; the reserved count never enters their
+float paths. Production stream registries and credentials remain unchanged.
+
 | Layer | Tables | Contract |
 | --- | --- | --- |
 | Raw bytes | `raw_artifacts` plus `artifacts/google/payloads/<aa>/<sha256>.<ext>` | Content-addressed reuse. |

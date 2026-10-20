@@ -40,10 +40,13 @@ from healthcheck.google.contracts import (
     GOOGLE_INPUT_METHOD,
     GOOGLE_PROVIDER_CODE,
     GOOGLE_SOURCE_APPLICATION,
+    KNOWN_DATA_SOURCE_FAMILIES,
     NORMALIZATION_CONTRACT_VERSION,
     OBSERVATION_KEY_VERSION,
     PERSISTENCE_CONTRACT_VERSION,
     SOURCE_CONTRACT_VERSION,
+    STEPS_COUNT_SUM,
+    GoogleCountSum,
     GoogleDataSourceDTO,
     GoogleIntervalDTO,
     GoogleMetricDTO,
@@ -55,9 +58,11 @@ from healthcheck.google.contracts import (
     GoogleSourceIdentity,
     GoogleStream,
     GoogleTemporalDTO,
+    decode_count_sum_metric,
 )
 from healthcheck.google.identity import (
     canonical_google_interval_identity,
+    google_steps_interval_key,
     is_safe_google_interval_identity,
 )
 from healthcheck.google.storage import (
@@ -69,6 +74,7 @@ from healthcheck.google.storage import (
 PATH_FREE_INSTANT_IDENTITY_PREFIX = "google-instant-sample-v1:"
 UNIDENTIFIED_INSTANT_IDENTITY_PREFIX = "google-no-instant-identity-v1:"
 PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX = "google-hr-interval-v1:"
+STEPS_INTERVAL_IDENTITY_PREFIX = "google-steps-interval-v1:"
 PATH_FREE_INSTANT_STREAMS = frozenset(
     {
         GoogleStream.HEART_RATE,
@@ -673,6 +679,43 @@ class GoogleSourceRecordRepository:
             )
         )
 
+    def count_sum_for(self, record_id: str) -> GoogleCountSum:
+        """Read one exact interval count, never a selected/completed daily total."""
+        row = self.session.get(GoogleSourceRecord, record_id)
+        if (
+            row is None
+            or row.stream_code != GoogleStream.STEPS.value
+            or row.query_mode != GoogleQueryMode.DAILY_ROLL_UP.value
+            or row.projection_status != PROJECTION_CURRENT
+            or row.record_status
+            not in {GooglePayloadStatus.OK.value, GooglePayloadStatus.PARTIAL.value}
+        ):
+            raise ValueError("Steps record is unavailable or conflicted")
+        source = self.session.get(GoogleSource, row.google_source_id)
+        if (
+            source is None
+            or source.source_kind != GoogleSourceKind.FAMILY_AGGREGATE.value
+            or source.source_instance_id != row.data_source_family
+            or row.data_source_family not in KNOWN_DATA_SOURCE_FAMILIES
+        ):
+            raise ValueError("Steps record has no exact family identity")
+        metrics = self.metrics_for(record_id)
+        intervals = self.intervals_for(record_id)
+        if (
+            len(intervals) != 1
+            or intervals[0].interval_state != "value"
+            or intervals[0].interval_kind != "daily_roll_up"
+            or intervals[0].start_precision != "local"
+            or intervals[0].end_precision != "local"
+            or intervals[0].start_at_utc is not None
+            or intervals[0].end_at_utc is not None
+            or google_steps_interval_key(intervals[0]) != row.idempotency_key
+        ):
+            raise ValueError("Steps record has no exact raw civil interval")
+        if len(metrics) != 1:
+            raise ValueError("Steps record must carry exactly one countSum metric")
+        return decode_count_sum_metric(metrics[0])
+
     def sleep_intervals_for(self, record_id: str) -> list[GoogleSleepInterval]:
         return list(
             self.session.scalars(
@@ -769,7 +812,14 @@ class GoogleSourceRecordRepository:
     ) -> tuple[str | None, datetime | None, str | None]:
         """Read persisted refresh provenance for ordering legacy projections."""
 
-        return self._observation_epoch(row.observation_id, row.projection_observed_at)
+        epoch = self._observation_epoch(row.observation_id, row.projection_observed_at)
+        if row.stream_code == GoogleStream.STEPS.value and row.record_status == "invalid":
+            # A conflict may involve a later, unorderable observation. Keep its
+            # receipt-time barrier without relabelling the original provenance.
+            barrier = _datetime_key(row.projection_observed_at)
+            if barrier is not None and (epoch[1] is None or barrier > epoch[1]):
+                return epoch[0], barrier, epoch[2]
+        return epoch
 
     def _observation_epoch(
         self, observation_id: str | None, fallback_at: datetime | None
@@ -1023,8 +1073,15 @@ class GoogleSourceRecordRepository:
         projected = _datetime_key(existing.projection_observed_at) or _datetime_key(
             existing.last_seen_at
         )
-        path_free_identity = record.idempotency_key.startswith(
-            (PATH_FREE_INSTANT_IDENTITY_PREFIX, PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX)
+        path_free_identity = (
+            record.stream is GoogleStream.STEPS
+            or record.idempotency_key.startswith(
+                (
+                    PATH_FREE_INSTANT_IDENTITY_PREFIX,
+                    PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX,
+                    STEPS_INTERVAL_IDENTITY_PREFIX,
+                )
+            )
         )
         incoming_epoch_is_newer = False
         if path_free_identity:
@@ -1079,6 +1136,10 @@ class GoogleSourceRecordRepository:
                 # and wait for an unambiguous later epoch.
                 existing.record_status = GooglePayloadStatus.INVALID.value
                 existing.diagnostics_json = _append_identity_conflict(existing.diagnostics_json)
+                if record.stream is GoogleStream.STEPS and incoming_epoch is not None:
+                    existing.projection_observed_at = max(
+                        value for value in (projected, incoming_epoch) if value is not None
+                    )
                 if heart_rate_page is None:
                     self.session.flush()
                 return existing, False, False
@@ -1302,7 +1363,11 @@ class GoogleSourceRecordRepository:
         }
         for metric in incoming.values():
             stored = existing.get(metric.metric_code)
-            if metric.state is GoogleMetricState.MISSING and stored is not None:
+            if (
+                metric.state is GoogleMetricState.MISSING
+                and stored is not None
+                and metric.metric_code != STEPS_COUNT_SUM
+            ):
                 continue
             values = {
                 "metric_code": metric.metric_code,
@@ -1394,6 +1459,13 @@ class GooglePersistenceRepository:
                     "family-aggregate query context must use that family as dataSourceFamily"
                 )
         stream_code = GoogleStream(stream)
+        if stream_code is GoogleStream.STEPS and (
+            query.query_mode is not GoogleQueryMode.DAILY_ROLL_UP
+            or identity.source_kind is not GoogleSourceKind.FAMILY_AGGREGATE
+            or identity.source_instance_id != query.data_source_family
+            or query.data_source_family not in KNOWN_DATA_SOURCE_FAMILIES
+        ):
+            raise ValueError("offline Steps requires dailyRollUp and an exact known family")
         normalized_records = tuple(records)
         for record in normalized_records:
             if record.stream is not stream_code:
@@ -1610,7 +1682,11 @@ class GooglePersistenceRepository:
                     # must never become a guessed logical projection.
                     continue
                 if record.idempotency_key.startswith(
-                    (PATH_FREE_INSTANT_IDENTITY_PREFIX, PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX)
+                    (
+                        PATH_FREE_INSTANT_IDENTITY_PREFIX,
+                        PATH_FREE_HR_INTERVAL_IDENTITY_PREFIX,
+                        STEPS_INTERVAL_IDENTITY_PREFIX,
+                    )
                 ):
                     signature = _record_revision_fingerprint(self.session, record=record)
                 else:
@@ -2124,6 +2200,10 @@ def build_google_record_identity_key(
     if normalized_key.startswith(UNIDENTIFIED_INSTANT_IDENTITY_PREFIX):
         raise ValueError("Google instant evidence has no safe logical identity")
     normalized_query_mode = GoogleQueryMode(query_mode)
+    if stream is GoogleStream.STEPS:
+        if interval is None or normalized_query_mode is not GoogleQueryMode.DAILY_ROLL_UP:
+            raise ValueError("Steps evidence requires a daily civil interval")
+        normalized_key = google_steps_interval_key(interval)
     if (
         stream is GoogleStream.HEART_RATE
         and normalized_query_mode
@@ -2353,10 +2433,25 @@ def _record_has_safe_projection_identity(
 
     if record.idempotency_key.startswith(UNIDENTIFIED_INSTANT_IDENTITY_PREFIX):
         return False
-    if (
-        record.stream is GoogleStream.HEART_RATE
-        and query.query_mode in {GoogleQueryMode.ROLL_UP, GoogleQueryMode.DAILY_ROLL_UP}
-    ):
+    if record.stream is GoogleStream.STEPS:
+        return (
+            record.status is not GooglePayloadStatus.INVALID
+            and record.interval is not None
+            and record.interval.state is GoogleMetricState.VALUE
+            and record.interval.start.raw_civil_json is not None
+            and record.interval.end.raw_civil_json is not None
+            and record.interval.start.measured_at_utc is None
+            and record.interval.end.measured_at_utc is None
+            and is_safe_google_interval_identity(record.interval)
+            and record.interval.interval_kind.value == "daily_roll_up"
+            and len(record.metrics) == 1
+            and record.metrics[0].metric_code == STEPS_COUNT_SUM
+            and record.idempotency_key == google_steps_interval_key(record.interval)
+        )
+    if record.stream is GoogleStream.HEART_RATE and query.query_mode in {
+        GoogleQueryMode.ROLL_UP,
+        GoogleQueryMode.DAILY_ROLL_UP,
+    }:
         return (
             record.status is GooglePayloadStatus.OK
             and record.interval is not None
@@ -2421,7 +2516,13 @@ def _record_revision_fingerprint(
             "stream": existing.stream_code,
             "status": existing.record_status,
             "precision": existing.temporal_precision,
-            "state": "value" if existing.source_timestamp_utc is not None else "unknown",
+            "state": "value"
+            if (
+                existing.source_timestamp_utc is not None
+                or existing.stream_code == GoogleStream.STEPS.value
+                and existing.local_wall_time is not None
+            )
+            else "unknown",
             "timestamp": (
                 _datetime_key(existing.source_timestamp_utc).isoformat()
                 if existing.source_timestamp_utc is not None
