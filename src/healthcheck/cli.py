@@ -79,6 +79,7 @@ from healthcheck.google.backfill import (
 )
 from healthcheck.google.diagnostics import diagnose_latest_invalid_google_envelope
 from healthcheck.google.probe import GoogleCapabilityProbe, validate_probe_window
+from healthcheck.google.steps import ACQUISITION_CONTRACT, StepsPlan, acquire_steps
 from healthcheck.google.sync import (
     GoogleHealthSync,
     GoogleRunKind,
@@ -142,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-backfill",
             "garmin-reprocess",
             "google-auth",
+            "google-steps",
             "google-capabilities",
             "google-sync",
             "google-backfill",
@@ -191,6 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-sha256")
     parser.add_argument("--replace", action="store_true")
     parser.add_argument("--force-reauth", action="store_true")
+    parser.add_argument("--include-steps", action="store_true")
     parser.add_argument("--is-cn", action="store_true")
     parser.add_argument("--date", action="append", dest="dates")
     parser.add_argument("--max-range", action="append", nargs=2, dest="max_ranges")
@@ -258,6 +261,9 @@ def _settings(args: argparse.Namespace) -> Settings:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.include_steps and args.command != "google-auth":
+        print("--include-steps requires google-auth", file=sys.stderr)
+        return 2
     if (
         args.reacquire_unproven_daily_summary or args.garmin_source_id is not None
     ) and args.command != "garmin-backfill":
@@ -343,6 +349,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_garmin_training_sync(args, settings)
     if args.command == "google-auth":
         return _run_google_auth(args, settings)
+    if args.command == "google-steps":
+        return _run_google_steps(args, settings)
     if args.command == "google-capabilities":
         return _run_google_capabilities(args, settings)
     if args.command == "google-sync":
@@ -587,7 +595,11 @@ def _run_context(args: argparse.Namespace, settings: Settings) -> int:
 
 def _run_google_auth(args: argparse.Namespace, settings: Settings) -> int:
     try:
-        result = GoogleAuthService(settings).bootstrap(force_reauth=args.force_reauth)
+        service = (
+            GoogleAuthService(settings, include_steps=True)
+            if args.include_steps else GoogleAuthService(settings)
+        )
+        result = service.bootstrap(force_reauth=args.force_reauth)
     except (OSError, ValueError):
         print(
             json.dumps(
@@ -611,6 +623,33 @@ def _run_google_auth(args: argparse.Namespace, settings: Settings) -> int:
         return 2
     print(json.dumps(result.as_dict(), ensure_ascii=True, sort_keys=True))
     return 0 if result.ok else 1
+
+
+def _run_google_steps(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        if (
+            args.dry_run == args.apply or not args.dates or len(args.dates) != 1
+            or args.start or args.end or args.streams or args.query_mode or args.force_reauth
+            or args.reprocess or args.max_observations or args.trailing_window_days
+        ):
+            raise ValueError("explicit one-day Steps request required")
+        plan = StepsPlan.build(args.dates[0], args.family)
+        if args.dry_run:
+            report = plan.preview()
+        else:
+            if not args.data_dir or not Path(args.data_dir).is_absolute():
+                raise ValueError("Steps apply requires an explicit absolute profile")
+            report = acquire_steps(settings, plan, auth_service=GoogleAuthService(settings))
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc, contract_version=ACQUISITION_CONTRACT, operation="google-steps"
+        )
+    except (OSError, ValueError):
+        report = _google_error_payload(ACQUISITION_CONTRACT, "invalid_steps_request")
+        print(json.dumps(report, sort_keys=True))
+        return 2
+    print(json.dumps(report, sort_keys=True))
+    return 0 if report["status"] in {"planned", "observed"} else 1
 
 
 def _run_google_capabilities(args: argparse.Namespace, settings: Settings) -> int:

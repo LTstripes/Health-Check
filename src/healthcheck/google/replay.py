@@ -32,6 +32,11 @@ from healthcheck.google.persistence import (
     GooglePersistenceOutcome,
     GooglePersistenceRepository,
 )
+from healthcheck.google.steps import (
+    ACQUISITION_CONTRACT,
+    normalize_acquired_steps,
+    replay_context,
+)
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.google.sync import query_level_source_identity, source_identity_from_point
 
@@ -112,17 +117,33 @@ class GoogleNormalizationReplayer:
                 observation_record_names=_observation_record_names(self.session, observation),
             )
         )
-        result = normalize_google_payload(
-            partition.normalization_payload
-            if partition.normalization_payload is not None
-            else content,
-            stream=observation.stream_code,
-            query=query,
-            source_identity=identity,
-            source_contract_version=observation.source_contract_version
-            or raw.source_contract_version,
-            normalization_contract_version=normalization_contract_version,
-        )
+        acquired_context = None
+        contract = observation.source_contract_version or raw.source_contract_version
+        if observation.stream_code == GoogleStream.STEPS.value and contract.startswith(
+            "google-steps-acquisition-"
+        ):
+            if contract != ACQUISITION_CONTRACT:
+                raise ValueError("unsupported Steps acquisition replay contract")
+            acquired_context = replay_context(observation.diagnostics_json)
+            result = normalize_acquired_steps(
+                content,
+                context=acquired_context,
+                query=query,
+                identity=identity,
+                normalization_contract_version=normalization_contract_version,
+            )
+        else:
+            result = normalize_google_payload(
+                partition.normalization_payload
+                if partition.normalization_payload is not None
+                else content,
+                stream=observation.stream_code,
+                query=query,
+                source_identity=identity,
+                source_contract_version=observation.source_contract_version
+                or raw.source_contract_version,
+                normalization_contract_version=normalization_contract_version,
+            )
         if partition.normalization_payload is not None:
             result = replace(
                 result,
@@ -152,6 +173,7 @@ class GoogleNormalizationReplayer:
             sync_run_id=observation.sync_run_id,
             ingest_event_id=observation.ingest_event_id,
             create_ingest_event=False,
+            observation_diagnostics=(acquired_context,) if acquired_context else (),
         )
 
 

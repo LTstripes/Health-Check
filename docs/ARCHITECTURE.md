@@ -1879,6 +1879,13 @@ aggregates stay separately addressable.
 
 #### Offline Steps countSum v1 (#392)
 
+The later [explicit Steps acquisition v1](GOOGLE_STEPS_ACQUISITION.md) adds only
+an opt-in readonly scope and manually requested one-day `google-wearables`
+observation path. Its coverage/pagination remain unknown; it does not enable
+Steps in production sync. The offline contract below remains the typed-value
+foundation. Acquired observations use a distinct source contract and revalidate
+their immutable request context during replay.
+
 This bounded synthetic-only slice accepts already supplied `dailyRollUp`
 `rollupDataPoints[*].steps.countSum`; it enables no acquisition surface, scope,
 provider request, replay command, UI or production sync. Acquisition, account
@@ -4154,7 +4161,7 @@ R04 is released; accepted contract remains:
 - Google Health API v4 only, no new legacy Fitbit Web API implementation.
 - Web Application/Web Server OAuth with fixed exactly registered loopback callback.
 - Client secret/token/session stays external with Windows user-scoped DPAPI; non-Windows #247 writes purpose-bound AEAD v2, reads authenticated v1 and migrates on normal writes only. Reads do not create missing keys.
-- Exactly two accepted read scopes: sleep and health metrics/measurements. Historical In-production/External Owner consent/session reuse was proven, not perpetual token durability.
+- The default read scopes remain sleep and health metrics/measurements. Explicit `google-auth --include-steps` may additionally request only activity_and_fitness.readonly under the [bounded Steps contract](GOOGLE_STEPS_ACQUISITION.md). Historical two-scope Owner consent/session reuse does not prove the optional grant or perpetual token durability.
 - `list`, `reconcile`, `rollUp`, `dailyRollUp` and `dataSourceFamily` are acquisition context, not stable device identity. Raw/list evidence is separate from aggregates/reconciled output.
 - Accepted types include sleep, HR/HRV/daily HRV, daily resting HR, SpO2/daily SpO2, sleep-summary and daily respiration. A Google proprietary sleep score is not automatically available or equivalent to sleep efficiency; #342 verifies actual support.
 - Pagination follows nextPageToken; bounded sleep pages and inclusive-lower/exclusive-upper windows. No assumed undocumented ordering.
