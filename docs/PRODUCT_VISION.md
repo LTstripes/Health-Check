@@ -24,7 +24,7 @@ for the single dated main/installed/UAT snapshot and remaining work.
 <a id="book--product-definition"></a>
 ## Product definition
 
-Health-Check is a **single-user, local-first personal health observatory** for one person using a Windows laptop. It combines long-term source evidence, deterministic/reproducible analytics, life context, and later laboratory data. A visual dashboard and a conversational AI interface are equal product surfaces over the same evidence layer.
+Health-Check is a **single-user, local-first personal health observatory** for one person using a Windows laptop. It combines long-term source evidence, deterministic/reproducible analytics, life context, and a bounded local laboratory-document intake. A visual dashboard and a conversational AI interface are equal product surfaces over the same evidence layer.
 
 Health-Check is not:
 
@@ -104,7 +104,7 @@ are owned by [Architecture](ARCHITECTURE.md#garmin-steps).
 - **Google Health API v4:** released ingestion for sleep and supported health metrics/measurements, with preserved source/device metadata and explicit source-family semantics.
 - **Google wearable / Fitbit evidence:** device-level agreement requires explicit persisted Fitbit/device attribution. Broader wearable-family and account observations are not automatically device evidence.
 - **Free-text context:** Context Capture v0 stores revisioned original text, dates/instants/intervals; the existing desktop portal, primary Comments navigation and city/IANA input are delivered. This is one revisioned note system; direct conversation access is a separate connection decision.
-- **Planned:** confirmed laboratory results and source documents under #348, then medication/supplement and other personal-health-record capabilities when separately scoped.
+- **Laboratory documents (#348):** the local PDF plus structured transcription draft intake is integrated, with review/correction, explicit confirmation, revisions and original download. Real Owner UAT and chat-to-local transport remain unverified; medication/supplement and other personal-health-record capabilities remain separately scoped.
 
 Every source value remains available. A canonical rule may select one value for one metric/period, but selection never deletes competing evidence.
 
@@ -208,11 +208,20 @@ component-attributed and explicitly non-medical.
 <a id="product-decisions--future-personal-health-record"></a>
 ## Future personal health record
 
-#348 scopes the first R09 laboratory/document slice: original PDF/image, extracted
-candidates, explicit Owner confirmation, reported labels/values/units/reference
-ranges, sample/report dates and traceable revisions. It is planned, not implemented.
-Later medication/supplement timelines and longitudinal analysis remain separately
-scoped. Uncertain extraction is not confirmed medical evidence or a diagnosis.
+The first R09 laboratory/document slice under #348 is integrated in
+[PR #474](https://github.com/LTstripes/Health-Check/pull/474): an unchanged PDF plus
+a versioned structured manual/assistant transcription draft enters local staging,
+review/correction and explicit confirmation, followed by a report list, original
+download and full-snapshot revisions. The [v1 contract](LAB_INTAKE_V1.md) preserves
+raw/exact values, nullable units/ranges, distinct source/date roles and honest
+provenance. One PDF must contain one report for one patient; unresolved linkage
+blocks confirmation. Confirming selected rows may be explicitly partial and does
+not imply field-by-field source verification.
+
+#348 remains OPEN pending real Owner UAT. Chat-to-local transport is unverified;
+Stable rollout has not been performed. OCR, interpretation, charts, cloud bridge,
+#341 export, medication/supplement timelines and longitudinal analysis remain
+outside this delivered slice. Transcribed or accepted data is not a diagnosis.
 
 <a id="product-decisions--repository-rule"></a>
 ## Repository rule
