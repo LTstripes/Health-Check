@@ -8,6 +8,7 @@ canonicalization.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -27,6 +28,20 @@ NORMALIZATION_CONTRACT_VERSION = "r04-google-persistence-shell-v2"
 OBSERVATION_KEY_VERSION = "google-observation-v1"
 GOOGLE_INPUT_METHOD = "provider_api"
 GOOGLE_SOURCE_APPLICATION = "google-health-api"
+STEPS_COUNT_SUM = "steps_count_sum"
+INT64_MAX = 9223372036854775807
+_COUNT_TEXT = re.compile(r"(?:0|[1-9][0-9]{0,18})", re.ASCII)
+
+
+def exact_count_sum(value: object) -> int:
+    """Decode canonical string-int64 without a floating-point intermediary."""
+    if not isinstance(value, str) or not _COUNT_TEXT.fullmatch(value):
+        raise ValueError("countSum must be canonical nonnegative string-int64")
+    count = int(value)
+    if count > INT64_MAX:
+        raise ValueError("countSum exceeds signed int64")
+    return count
+
 
 FAMILY_GOOGLE_WEARABLES = "users/me/dataSourceFamilies/google-wearables"
 FAMILY_GOOGLE_SOURCES = "users/me/dataSourceFamilies/google-sources"
@@ -62,6 +77,8 @@ class GoogleStream(StrEnum):
     DAILY_SPO2 = "daily_spo2"
     RESPIRATORY_RATE_SLEEP = "respiratory_rate_sleep"
     DAILY_RESPIRATORY_RATE = "daily_respiratory_rate"
+    # Offline normalization/persistence only; absent from acquisition registries.
+    STEPS = "steps"
 
 
 class GoogleTemporalPrecision(StrEnum):
@@ -167,6 +184,7 @@ class GoogleTemporalDTO:
     source_local_field: str | None = None
     source_utc_field: str | None = None
     state: GoogleMetricState = GoogleMetricState.VALUE
+    raw_civil_json: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "precision", GoogleTemporalPrecision(self.precision))
@@ -199,6 +217,7 @@ class GoogleTemporalDTO:
             "source_field": self.source_field,
             "source_local_field": self.source_local_field,
             "source_utc_field": self.source_utc_field,
+            **({"raw_civil_json": self.raw_civil_json} if self.raw_civil_json is not None else {}),
         }
 
 
@@ -219,6 +238,8 @@ class GoogleMetricDTO:
         object.__setattr__(self, "metric_code", _required_text(self.metric_code, "metric_code"))
         object.__setattr__(self, "field_path", _required_text(self.field_path, "field_path"))
         object.__setattr__(self, "state", GoogleMetricState(self.state))
+        if self.metric_code == STEPS_COUNT_SUM:
+            decode_count_sum_metric(self)
         if self.state is not GoogleMetricState.VALUE:
             if (
                 self.value_number is not None
@@ -238,6 +259,34 @@ class GoogleMetricDTO:
             "reason": self.reason,
             "collection_json": self.collection_json,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class GoogleCountSum:
+    """Exact interval count; non-VALUE states never carry an inferred zero."""
+
+    state: GoogleMetricState
+    value: int | None
+
+
+def decode_count_sum_metric(metric: object) -> GoogleCountSum:
+    """Validate the reserved typed contract on a DTO or stored metric row."""
+    if getattr(metric, "metric_code", None) != STEPS_COUNT_SUM:
+        raise ValueError("metric is not a typed Steps countSum")
+    if getattr(metric, "unit", None) != "count":
+        raise ValueError("Steps countSum requires unit=count")
+    if (
+        getattr(metric, "value_number", None) is not None
+        or getattr(metric, "collection_json", None) is not None
+    ):
+        raise ValueError("Steps countSum cannot use alternate value slots")
+    state = GoogleMetricState(getattr(metric, "state", None))
+    raw = getattr(metric, "value_text", None)
+    if state is GoogleMetricState.VALUE:
+        return GoogleCountSum(state, exact_count_sum(raw))
+    if raw is not None:
+        raise ValueError("non-value countSum cannot carry text")
+    return GoogleCountSum(state, None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -473,6 +522,11 @@ __all__ = [
     "OBSERVATION_KEY_VERSION",
     "PERSISTENCE_CONTRACT_VERSION",
     "SOURCE_CONTRACT_VERSION",
+    "STEPS_COUNT_SUM",
+    "INT64_MAX",
+    "GoogleCountSum",
+    "decode_count_sum_metric",
+    "exact_count_sum",
     "GoogleMetricDTO",
     "GoogleMetricState",
     "GoogleDataSourceDTO",

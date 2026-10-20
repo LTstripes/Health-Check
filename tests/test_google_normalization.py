@@ -38,6 +38,7 @@ from healthcheck.google.contracts import (
     FAMILY_ALL_SOURCES,
     FAMILY_GOOGLE_SOURCES,
     FAMILY_GOOGLE_WEARABLES,
+    GOOGLE_STREAMS,
     GoogleMetricState,
     GooglePayloadStatus,
     GoogleQueryContext,
@@ -256,7 +257,7 @@ def _identity(*, attributed: bool = False, suffix: str = "") -> GoogleSourceIden
     return GoogleSourceIdentity(**values)
 
 
-@pytest.mark.parametrize("stream", tuple(GoogleStream))
+@pytest.mark.parametrize("stream", tuple(GoogleStream(code) for code in GOOGLE_STREAMS))
 def test_every_accepted_type_has_a_successful_typed_projection(stream):
     result = normalize_google_payload(
         _payload(stream, data_source=_data_source()),
@@ -270,7 +271,7 @@ def test_every_accepted_type_has_a_successful_typed_projection(stream):
     assert result.records[0].unknown_fields == ()
 
 
-@pytest.mark.parametrize("stream", tuple(GoogleStream))
+@pytest.mark.parametrize("stream", tuple(GoogleStream(code) for code in GOOGLE_STREAMS))
 def test_empty_collection_is_explicit(stream):
     result = normalize_google_payload(
         {"dataPoints": []}, stream=stream, query=GoogleQueryContext(GoogleQueryMode.LIST)

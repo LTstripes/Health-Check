@@ -2025,7 +2025,7 @@ class GoogleRawPayload(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
             name="stream_code_allowed",
         ),
         CheckConstraint("payload_format IN ('json', 'binary')", name="payload_format_allowed"),
@@ -2099,7 +2099,7 @@ class GooglePayloadObservation(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
             name="stream_code_allowed",
         ),
         CheckConstraint(
@@ -2199,7 +2199,7 @@ class GoogleSourceRecord(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
             name="stream_code_allowed",
         ),
         CheckConstraint(
@@ -2587,7 +2587,7 @@ class GoogleNormalizationAttempt(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
             name="stream_code_allowed",
         ),
         CheckConstraint(

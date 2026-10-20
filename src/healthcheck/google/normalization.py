@@ -23,7 +23,9 @@ from decimal import Decimal, InvalidOperation
 from healthcheck.db.models import GoogleMetricState, GooglePayloadStatus, GoogleSourceKind
 from healthcheck.db.repositories import canonical_json
 from healthcheck.google.contracts import (
+    KNOWN_DATA_SOURCE_FAMILIES,
     SOURCE_CONTRACT_VERSION,
+    STEPS_COUNT_SUM,
     GoogleDataSourceDTO,
     GoogleIntervalDTO,
     GoogleIntervalKind,
@@ -36,14 +38,18 @@ from healthcheck.google.contracts import (
     GoogleStream,
     GoogleTemporalDTO,
     GoogleTemporalPrecision,
+    exact_count_sum,
 )
 from healthcheck.google.identity import (
     canonical_google_interval_identity,
+    google_steps_interval_key,
     is_safe_google_interval_identity,
+    parse_steps_civil_endpoint,
 )
 
 NORMALIZATION_CONTRACT_VERSION = "r04-google-normalization-contract-v2"
 SLEEP_MAIN_CONTRACT_VERSION = "r04-google-normalization-contract-v3"
+STEPS_CONTRACT_VERSION = "google-steps-countsum-v1"
 GOOGLE_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 MAX_NORMALIZATION_RECORDS = 4096
 MAX_DIAGNOSTICS = 128
@@ -283,7 +289,10 @@ def normalize_google_payload(
     normalized_stream = _normalize_stream(stream)
     if normalization_contract_version is None:
         normalization_contract_version = (
-            SLEEP_MAIN_CONTRACT_VERSION if normalized_stream is GoogleStream.SLEEP
+            STEPS_CONTRACT_VERSION
+            if normalized_stream is GoogleStream.STEPS
+            else SLEEP_MAIN_CONTRACT_VERSION
+            if normalized_stream is GoogleStream.SLEEP
             else NORMALIZATION_CONTRACT_VERSION
         )
     if query is not None and query_context is not None and query != query_context:
@@ -293,6 +302,16 @@ def normalize_google_payload(
         raise TypeError("source_identity must be a GoogleSourceIdentity")
     if not isinstance(max_records, int) or isinstance(max_records, bool) or max_records <= 0:
         raise ValueError("max_records must be a positive integer")
+
+    if normalized_stream is GoogleStream.STEPS:
+        return _normalize_steps_payload(
+            payload,
+            query=normalized_query,
+            source_identity=source_identity,
+            source_contract_version=source_contract_version,
+            normalization_contract_version=normalization_contract_version,
+            max_records=min(max_records, MAX_NORMALIZATION_RECORDS),
+        )
 
     top_context = _ParseContext([], [])
     if normalized_query.query_mode not in _allowed_query_modes(normalized_stream):
@@ -635,6 +654,8 @@ def _stable_record_source_key(
             source_identity.source_instance_id,
         )
     return ("unknown-source",)
+
+
 google_normalize = normalize_google_payload
 
 
@@ -694,6 +715,166 @@ def _next_page_token_state(
         return GoogleMetricState.VALUE
     context.diagnostic("next_page_token_invalid", "$.nextPageToken", partial=True)
     return GoogleMetricState.INVALID
+
+
+def _normalize_steps_payload(
+    payload,
+    *,
+    query,
+    source_identity,
+    source_contract_version,
+    normalization_contract_version,
+    max_records,
+) -> GoogleNormalizationResult:
+    """Offline-only DailyRollupDataPoint countSum; no daily eligibility claim."""
+    if (
+        query.query_mode is not GoogleQueryMode.DAILY_ROLL_UP
+        or query.data_source_family not in KNOWN_DATA_SOURCE_FAMILIES
+        or source_identity is None
+        or source_identity.source_kind is not GoogleSourceKind.FAMILY_AGGREGATE
+        or source_identity.source_instance_id != query.data_source_family
+    ):
+        raise ValueError("offline Steps requires dailyRollUp and an explicit matching known family")
+    context = _ParseContext([], [])
+    if isinstance(payload, (bytes, bytearray)):
+        try:
+            payload = json.loads(
+                bytes(payload).decode("utf-8"), object_pairs_hook=_unique_steps_keys
+            )
+        except (UnicodeDecodeError, ValueError):
+            context.diagnostic("payload_json_invalid", "$", material=True)
+            payload = None
+    value = _decode_payload(payload, context)
+    records = []
+    if value is not None:
+        points = value.get("rollupDataPoints")
+        if set(value) != {"rollupDataPoints"} or not isinstance(points, list):
+            context.diagnostic("steps_envelope_invalid", "$", material=True)
+        elif len(points) > max_records:
+            context.diagnostic("response_record_limit_exceeded", "$", material=True)
+        else:
+            for index, point in enumerate(points):
+                path = f"$.rollupDataPoints[{index}]"
+                item_context = _ParseContext([], [])
+                if not isinstance(point, Mapping):
+                    context.diagnostic("steps_point_invalid", path, partial=True)
+                    continue
+                # Reject unexplained oneof/source/physical interval shapes.
+                if set(point) - {"civilStartTime", "civilEndTime", "steps"}:
+                    context.diagnostic("steps_point_invalid", path, partial=True)
+                    continue
+                endpoints = []
+                for field_name in ("civilStartTime", "civilEndTime"):
+                    raw = point.get(field_name, _MISSING)
+                    endpoint_path = f"{path}.{field_name}"
+                    try:
+                        day, wall, _ = parse_steps_civil_endpoint(raw)
+                        temporal = GoogleTemporalDTO(
+                            precision=GoogleTemporalPrecision.LOCAL,
+                            local_date=day, local_wall_time=wall, source_local_timestamp=wall,
+                            source_field=endpoint_path, source_local_field=endpoint_path,
+                        )
+                    except ValueError:
+                        temporal = _empty_temporal(endpoint_path, GoogleMetricState.INVALID)
+                    if isinstance(raw, Mapping):
+                        temporal = replace(temporal, raw_civil_json=canonical_json(raw))
+                    endpoints.append(temporal)
+                start, end = endpoints
+                interval_valid = (
+                    start.state is GoogleMetricState.VALUE
+                    and end.state is GoogleMetricState.VALUE
+                    and not item_context.unknown_fields
+                    and _civil_order_key(start) < _civil_order_key(end)
+                )
+                interval = GoogleIntervalDTO(
+                    start=start,
+                    end=end,
+                    interval_kind=GoogleIntervalKind.DAILY_ROLL_UP,
+                    state=GoogleMetricState.VALUE if interval_valid else GoogleMetricState.INVALID,
+                )
+                steps = point.get("steps", _MISSING)
+                raw_count = steps.get("countSum", _MISSING) if isinstance(steps, Mapping) else steps
+                state = (
+                    GoogleMetricState.MISSING
+                    if raw_count is _MISSING
+                    else GoogleMetricState.NULL
+                    if raw_count is None
+                    else GoogleMetricState.VALUE
+                )
+                if steps is not _MISSING and steps is not None and not isinstance(steps, Mapping):
+                    state = GoogleMetricState.INVALID
+                if isinstance(steps, Mapping) and set(steps) - {"countSum"}:
+                    state = GoogleMetricState.INVALID
+                if state is GoogleMetricState.VALUE:
+                    try:
+                        exact_count_sum(raw_count)
+                    except ValueError:
+                        state = GoogleMetricState.INVALID
+                metric = GoogleMetricDTO(
+                    metric_code=STEPS_COUNT_SUM,
+                    field_path=f"{path}.steps.countSum",
+                    state=state,
+                    value_text=raw_count if state is GoogleMetricState.VALUE else None,
+                    unit="count",
+                    reason="count_sum_invalid" if state is GoogleMetricState.INVALID else None,
+                )
+                if not interval_valid or state is GoogleMetricState.INVALID:
+                    context.diagnostic("steps_point_invalid", path, partial=True)
+                # No response position/name/count enters logical identity.
+                records.append(
+                    GoogleRecordDTO(
+                        stream=GoogleStream.STEPS,
+                        idempotency_key=(
+                            google_steps_interval_key(interval)
+                            if interval_valid
+                            else "google-steps-unidentified-v1"
+                        ),
+                        temporal=start,
+                        interval=interval,
+                        metrics=(metric,),
+                        status=(
+                            GooglePayloadStatus.INVALID
+                            if not interval_valid
+                            else GooglePayloadStatus.PARTIAL
+                            if state is GoogleMetricState.INVALID
+                            else GooglePayloadStatus.OK
+                        ),
+                        diagnostics=tuple(item.as_dict() for item in item_context.diagnostics),
+                    )
+                )
+    status = (
+        GooglePayloadStatus.INVALID
+        if context.material_error
+        else GooglePayloadStatus.PARTIAL
+        if context.partial
+        else GooglePayloadStatus.OK
+        if records
+        else GooglePayloadStatus.EMPTY
+    )
+    return GoogleNormalizationResult(
+        stream=GoogleStream.STEPS,
+        query=query,
+        status=status,
+        records=tuple(
+            sorted(records, key=lambda item: (item.idempotency_key, canonical_json(item.as_dict())))
+        ),
+        source_identity=source_identity,
+        source_contract_version=source_contract_version,
+        normalization_contract_version=normalization_contract_version,
+        diagnostics=tuple(context.diagnostics),
+    )
+
+
+def _unique_steps_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value = dict(pairs)
+    if len(value) != len(pairs):
+        raise ValueError("duplicate Steps JSON keys")
+    return value
+
+
+def _civil_order_key(temporal: GoogleTemporalDTO) -> tuple:
+    """Compare civil values with integer nanoseconds, retaining the raw encoding."""
+    return parse_steps_civil_endpoint(json.loads(temporal.raw_civil_json))[2]
 
 
 def _allowed_query_modes(stream: GoogleStream) -> frozenset[GoogleQueryMode]:
@@ -3064,6 +3245,7 @@ __all__ = [
     "MAX_UNKNOWN_FIELDS",
     "NORMALIZATION_CONTRACT_VERSION",
     "SLEEP_MAIN_CONTRACT_VERSION",
+    "STEPS_CONTRACT_VERSION",
     "GoogleNormalizationDiagnostic",
     "GoogleNormalizationResult",
     "google_normalize",
