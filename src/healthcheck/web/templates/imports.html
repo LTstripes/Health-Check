@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Данные — Health-Check{% endblock %}
 {% block content %}
+<p><a class="button-link" href="/labs">Лабораторные отчёты — PDF и проверка транскрипции</a></p>
 {% macro import_table(rows, label) %}
 <div class="table-scroll" tabindex="0" role="region" aria-label="{{ label }}, прокрутка таблицы">
   <table class="data-import-table">

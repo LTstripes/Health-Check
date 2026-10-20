@@ -97,6 +97,12 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
         "context_event_heads",
         "context_tags",
         "context_revision_tags",
+        "lab_reports",
+        "lab_interpretations",
+        "lab_revisions",
+        "lab_heads",
+        "lab_results",
+        "lab_operations",
         "alembic_version",
     }
     table_names = set(inspect(engine).get_table_names())
@@ -105,7 +111,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0016_garmin_daily_summary_receipts",
+        "migration_revision": "0017_lab_intake_v1",
         "ready": True,
     }
 
@@ -795,12 +801,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0016_garmin_daily_summary_receipts"
+        == "0017_lab_intake_v1"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0016_garmin_daily_summary_receipts"
+        == "0017_lab_intake_v1"
     )
 
     engine = create_sqlite_engine(paths)
@@ -890,7 +896,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0016_garmin_daily_summary_receipts"
+            == "0017_lab_intake_v1"
         )
     finally:
         engine.dispose()

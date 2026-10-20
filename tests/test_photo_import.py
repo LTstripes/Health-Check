@@ -649,6 +649,12 @@ def test_core_schema_tables_unchanged_by_photo_import(photo_env):
         "context_event_heads",
         "context_tags",
         "context_revision_tags",
+        "lab_reports",
+        "lab_interpretations",
+        "lab_revisions",
+        "lab_heads",
+        "lab_results",
+        "lab_operations",
         "alembic_version",
     }
     assert set(inspect(engine).get_table_names()) == expected

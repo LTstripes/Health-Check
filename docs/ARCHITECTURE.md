@@ -26,6 +26,8 @@ no provider, migration, deployment or data-write authority.
   [metric source selection](#metric-source-selection), [cycling](#cycling-source-discovery)
 - [Analytic input and Stress versions](#analytics-and-stress)
 - [Context](#context-capture), [UI evidence states](#ui-evidence-states)
+- [Laboratory intake v1](LAB_INTAKE_V1.md): local PDF + transcription staging,
+  explicit confirmation and full-snapshot revisions (#348)
 - Evidence: [period](#evidence-period), [sleep](#evidence-sleep),
   [activity](#evidence-activity), [combined versions](#evidence-combined)
 - [MCP boundary](#mcp-boundary), [technical decisions](#technical-decisions)

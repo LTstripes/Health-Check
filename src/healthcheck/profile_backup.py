@@ -678,6 +678,7 @@ def _validate_archive_database(
                     raise ProfileBackupError("backup database is not in WAL mode")
                 if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise ProfileBackupError("backup database failed SQLite integrity check")
+                _validate_lab_closure(connection, manifest, handle)
                 revision = _migration_revision(database)
             finally:
                 connection.close()
@@ -685,6 +686,73 @@ def _validate_archive_database(
             raise ProfileBackupError("backup database is unreadable") from exc
         if revision != manifest["schema"].get("migration_revision"):
             raise ProfileBackupError("backup database migration identity does not match manifest")
+
+
+def _validate_lab_closure(
+    connection: sqlite3.Connection, manifest: dict[str, Any], handle: zipfile.ZipFile
+) -> None:
+    """Require all lab originals/drafts and report-local references in the backup.
+
+    Archive members have already been hash-checked; compare their manifest hashes
+    with immutable RawArtifact metadata rather than trusting file membership alone.
+    Older profiles without laboratory tables retain their existing behavior.
+    """
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='lab_reports'"
+    ).fetchone():
+        return
+    from healthcheck.labs.schema import MAX_DRAFT, MAX_PDF, LabError, parse_draft
+
+    files = {item["path"]: item for item in manifest["files"]}
+    if any(
+        str(row[0]).startswith("lab_") for row in connection.execute("PRAGMA foreign_key_check")
+    ):
+        raise ProfileBackupError("backup lab foreign key closure failed")
+    refs = connection.execute(
+        "SELECT a.content_hash,a.byte_size,a.relative_storage_path,'pdf' "
+        "FROM lab_reports r JOIN raw_artifacts a ON a.id=r.pdf_artifact_id "
+        "UNION SELECT a.content_hash,a.byte_size,a.relative_storage_path,'json' "
+        "FROM lab_interpretations i JOIN raw_artifacts a ON a.id=i.draft_artifact_id"
+    )
+    for digest, size, relative, extension in refs:
+        expected = f"labs/{digest[:2]}/{digest}.{extension}"
+        member = files.get("artifacts/" + relative)
+        bound = MAX_PDF if extension == "pdf" else MAX_DRAFT
+        if (
+            relative != expected
+            or not 1 <= size <= bound
+            or member is None
+            or member["sha256"] != digest
+            or member["size"] != size
+        ):
+            raise ProfileBackupError("backup lab artifact hash/reference closure failed")
+    bad = connection.execute(
+        "SELECT 1 FROM lab_heads h JOIN lab_revisions r ON r.id=h.revision_id "
+        "WHERE h.report_id != r.report_id UNION ALL "
+        "SELECT 1 FROM lab_revisions r JOIN lab_interpretations i ON i.id=r.interpretation_id "
+        "WHERE r.report_id != i.report_id UNION ALL "
+        "SELECT 1 FROM lab_interpretations i JOIN lab_interpretations p ON p.id=i.parent_id "
+        "WHERE i.report_id != p.report_id UNION ALL "
+        "SELECT 1 FROM lab_revisions r JOIN lab_revisions p ON p.id=r.previous_id "
+        "WHERE r.report_id != p.report_id LIMIT 1"
+    ).fetchone()
+    if bad:
+        raise ProfileBackupError("backup lab report reference closure failed")
+    # A valid FK can still point at a different report's well-formed draft.
+    # Verify the byte-bound schema binding, not only file/hash membership.
+    for pdf_hash, relative in connection.execute(
+        "SELECT p.content_hash,d.relative_storage_path "
+        "FROM lab_interpretations i JOIN lab_reports r ON r.id=i.report_id "
+        "JOIN raw_artifacts p ON p.id=r.pdf_artifact_id "
+        "JOIN raw_artifacts d ON d.id=i.draft_artifact_id"
+    ):
+        try:
+            with handle.open(PROFILE_PREFIX + "artifacts/" + relative) as source:
+                draft = parse_draft(source.read(MAX_DRAFT + 1))
+            if draft.pdf_sha256 != pdf_hash:
+                raise LabError("pdf_draft_mismatch")
+        except (LabError, KeyError, ValueError) as exc:
+            raise ProfileBackupError("backup lab draft/PDF binding closure failed") from exc
 
 
 def _extract_archive(plan: _ArchivePlan, destination: Path) -> None:

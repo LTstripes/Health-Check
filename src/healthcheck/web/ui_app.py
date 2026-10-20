@@ -25,6 +25,7 @@ from healthcheck.web.common import wants_html
 from healthcheck.web.context import router as context_router
 from healthcheck.web.garmin import router as garmin_router
 from healthcheck.web.imports import router as import_router
+from healthcheck.web.labs import router as labs_router
 from healthcheck.web.pages import html_http_error, render_error
 from healthcheck.web.pages import router as pages_router
 from healthcheck.web.period_brief import router as period_brief_router
@@ -51,6 +52,7 @@ def create_ui_app(
         photo_extractor if photo_extractor is not None else build_photo_extractor(resolved)
     )
     app.include_router(import_router)
+    app.include_router(labs_router)
     app.include_router(weight_router)
     app.include_router(garmin_router)
     app.include_router(activity_detail_router)

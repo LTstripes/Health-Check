@@ -69,7 +69,7 @@ def _save_extraction_json(tmp_path, payload: object, name: str = "extraction.jso
 
 
 def test_migration_0015_lineage_and_nullable_column(owner_photo_env):
-    assert ACCEPTED_MIGRATION_HEAD == "0016_garmin_daily_summary_receipts"
+    assert ACCEPTED_MIGRATION_HEAD == "0017_lab_intake_v1"
     assert ("0015_candidate_metadata_origins", "0014_garmin_training_evidence") in (
         ACCEPTED_MIGRATION_CHAIN
     )
