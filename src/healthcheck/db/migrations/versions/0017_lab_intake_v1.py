@@ -11,10 +11,10 @@ depends_on = None
 def upgrade():
     op.execute(
         """CREATE TABLE lab_reports (
-    id VARCHAR(36) NOT NULL, 
-    pdf_artifact_id VARCHAR(36) NOT NULL, 
-    CONSTRAINT pk_lab_reports PRIMARY KEY (id), 
-    CONSTRAINT uq_lab_reports_pdf_artifact_id UNIQUE (pdf_artifact_id), 
+    id VARCHAR(36) NOT NULL,
+    pdf_artifact_id VARCHAR(36) NOT NULL,
+    CONSTRAINT pk_lab_reports PRIMARY KEY (id),
+    CONSTRAINT uq_lab_reports_pdf_artifact_id UNIQUE (pdf_artifact_id),
     CONSTRAINT fk_lab_reports_pdf_artifact_id_raw_artifacts
         FOREIGN KEY(pdf_artifact_id)
         REFERENCES raw_artifacts (id)
@@ -23,18 +23,18 @@ def upgrade():
     )
     op.execute(
         """CREATE TABLE lab_interpretations (
-    id VARCHAR(36) NOT NULL, 
-    report_id VARCHAR(36) NOT NULL, 
-    draft_artifact_id VARCHAR(36) NOT NULL, 
-    parent_id VARCHAR(36), 
-    CONSTRAINT pk_lab_interpretations PRIMARY KEY (id), 
-    CONSTRAINT uq_lab_interpretations_report_id UNIQUE (report_id, draft_artifact_id), 
+    id VARCHAR(36) NOT NULL,
+    report_id VARCHAR(36) NOT NULL,
+    draft_artifact_id VARCHAR(36) NOT NULL,
+    parent_id VARCHAR(36),
+    CONSTRAINT pk_lab_interpretations PRIMARY KEY (id),
+    CONSTRAINT uq_lab_interpretations_report_id UNIQUE (report_id, draft_artifact_id),
     CONSTRAINT fk_lab_interpretations_report_id_lab_reports
         FOREIGN KEY(report_id)
-        REFERENCES lab_reports (id), 
+        REFERENCES lab_reports (id),
     CONSTRAINT fk_lab_interpretations_draft_artifact_id_raw_artifacts
         FOREIGN KEY(draft_artifact_id)
-        REFERENCES raw_artifacts (id), 
+        REFERENCES raw_artifacts (id),
     CONSTRAINT fk_lab_interpretations_parent_id_lab_interpretations
         FOREIGN KEY(parent_id)
         REFERENCES lab_interpretations (id)
@@ -43,21 +43,21 @@ def upgrade():
     )
     op.execute(
         """CREATE TABLE lab_revisions (
-    id VARCHAR(36) NOT NULL, 
-    report_id VARCHAR(36) NOT NULL, 
-    interpretation_id VARCHAR(36) NOT NULL, 
-    previous_id VARCHAR(36), 
-    partial BOOLEAN NOT NULL, 
-    snapshot_json TEXT NOT NULL, 
-    CONSTRAINT pk_lab_revisions PRIMARY KEY (id), 
-    CONSTRAINT uq_lab_revisions_report_id UNIQUE (report_id, id), 
+    id VARCHAR(36) NOT NULL,
+    report_id VARCHAR(36) NOT NULL,
+    interpretation_id VARCHAR(36) NOT NULL,
+    previous_id VARCHAR(36),
+    partial BOOLEAN NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    CONSTRAINT pk_lab_revisions PRIMARY KEY (id),
+    CONSTRAINT uq_lab_revisions_report_id UNIQUE (report_id, id),
     CONSTRAINT fk_lab_revisions_report_id_lab_reports
         FOREIGN KEY(report_id)
-        REFERENCES lab_reports (id), 
-    CONSTRAINT uq_lab_revisions_interpretation_id UNIQUE (interpretation_id), 
+        REFERENCES lab_reports (id),
+    CONSTRAINT uq_lab_revisions_interpretation_id UNIQUE (interpretation_id),
     CONSTRAINT fk_lab_revisions_interpretation_id_lab_interpretations
         FOREIGN KEY(interpretation_id)
-        REFERENCES lab_interpretations (id), 
+        REFERENCES lab_interpretations (id),
     CONSTRAINT fk_lab_revisions_previous_id_lab_revisions
         FOREIGN KEY(previous_id)
         REFERENCES lab_revisions (id)
@@ -66,13 +66,13 @@ def upgrade():
     )
     op.execute(
         """CREATE TABLE lab_heads (
-    report_id VARCHAR(36) NOT NULL, 
-    revision_id VARCHAR(36), 
-    CONSTRAINT pk_lab_heads PRIMARY KEY (report_id), 
+    report_id VARCHAR(36) NOT NULL,
+    revision_id VARCHAR(36),
+    CONSTRAINT pk_lab_heads PRIMARY KEY (report_id),
     CONSTRAINT fk_lab_heads_report_id_lab_reports
         FOREIGN KEY(report_id)
-        REFERENCES lab_reports (id), 
-    CONSTRAINT uq_lab_heads_revision_id UNIQUE (revision_id), 
+        REFERENCES lab_reports (id),
+    CONSTRAINT uq_lab_heads_revision_id UNIQUE (revision_id),
     CONSTRAINT fk_lab_heads_revision_id_lab_revisions
         FOREIGN KEY(revision_id)
         REFERENCES lab_revisions (id)
@@ -81,27 +81,27 @@ def upgrade():
     )
     op.execute(
         """CREATE TABLE lab_results (
-    revision_id VARCHAR(36) NOT NULL, 
-    row_id VARCHAR(80) NOT NULL, 
-    label_raw VARCHAR(255) NOT NULL, 
-    result_raw TEXT NOT NULL, 
-    unit_raw VARCHAR(255), 
-    reference_raw TEXT, 
-    value_kind VARCHAR(20) NOT NULL, 
-    decimal VARCHAR(100), 
-    comparator VARCHAR(2), 
-    qualitative TEXT, 
-    detail_json TEXT NOT NULL, 
-    CONSTRAINT pk_lab_results PRIMARY KEY (revision_id, row_id), 
+    revision_id VARCHAR(36) NOT NULL,
+    row_id VARCHAR(80) NOT NULL,
+    label_raw VARCHAR(255) NOT NULL,
+    result_raw TEXT NOT NULL,
+    unit_raw VARCHAR(255),
+    reference_raw TEXT,
+    value_kind VARCHAR(20) NOT NULL,
+    decimal VARCHAR(100),
+    comparator VARCHAR(2),
+    qualitative TEXT,
+    detail_json TEXT NOT NULL,
+    CONSTRAINT pk_lab_results PRIMARY KEY (revision_id, row_id),
     CONSTRAINT ck_lab_results_kind_allowed
-        CHECK (value_kind IN ('numeric','qualitative','unparsed')), 
+        CHECK (value_kind IN ('numeric','qualitative','unparsed')),
     CONSTRAINT ck_lab_results_typed_value
         CHECK ((value_kind = 'numeric'
         AND decimal IS NOT NULL
         AND qualitative IS NULL)
         OR (value_kind != 'numeric'
         AND decimal IS NULL
-        AND comparator IS NULL)), 
+        AND comparator IS NULL)),
     CONSTRAINT fk_lab_results_revision_id_lab_revisions
         FOREIGN KEY(revision_id)
         REFERENCES lab_revisions (id)
@@ -110,11 +110,11 @@ def upgrade():
     )
     op.execute(
         """CREATE TABLE lab_operations (
-    operation_id VARCHAR(80) NOT NULL, 
-    fingerprint VARCHAR(64) NOT NULL, 
-    receipt_json TEXT NOT NULL, 
-    created_at DATETIME NOT NULL, 
-    CONSTRAINT pk_lab_operations PRIMARY KEY (operation_id), 
+    operation_id VARCHAR(80) NOT NULL,
+    fingerprint VARCHAR(64) NOT NULL,
+    receipt_json TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    CONSTRAINT pk_lab_operations PRIMARY KEY (operation_id),
     CONSTRAINT ck_lab_operations_fingerprint_sha256
         CHECK (length(fingerprint) = 64)
 )
