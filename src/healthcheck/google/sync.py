@@ -1858,15 +1858,31 @@ class GoogleHealthSync:
         }
         page_size = page_size_for(surface)
         if query.query_mode in {GoogleQueryMode.ROLL_UP, GoogleQueryMode.DAILY_ROLL_UP}:
-            start_utc, end_utc = civil_bounds(window_start, window_end_exclusive)
-            body: dict[str, Any] = {
-                "range": {
+            body: dict[str, Any] = {"pageSize": page_size}
+            if query.query_mode is GoogleQueryMode.DAILY_ROLL_UP:
+                # CivilDateTime defaults to midnight without a timezone or UTC offset.
+                body["range"] = {
+                    "start": {
+                        "date": {
+                            "year": window_start.year,
+                            "month": window_start.month,
+                            "day": window_start.day,
+                        }
+                    },
+                    "end": {
+                        "date": {
+                            "year": window_end_exclusive.year,
+                            "month": window_end_exclusive.month,
+                            "day": window_end_exclusive.day,
+                        }
+                    },
+                }
+            else:
+                start_utc, end_utc = civil_bounds(window_start, window_end_exclusive)
+                body["range"] = {
                     "startTime": start_utc.strftime("%Y-%m-%dT00:00:00Z"),
                     "endTime": end_utc.strftime("%Y-%m-%dT00:00:00Z"),
-                },
-                "pageSize": page_size,
-            }
-            if query.query_mode is GoogleQueryMode.ROLL_UP:
+                }
                 body["windowSize"] = DEFAULT_ROLLUP_WINDOW_SIZE
             if query.data_source_family:
                 body["dataSourceFamily"] = query.data_source_family
