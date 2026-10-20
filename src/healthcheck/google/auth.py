@@ -58,6 +58,8 @@ SCOPE_METRICS = (
 SCOPE_SETTINGS = "https://www.googleapis.com/auth/googlehealth.settings.readonly"
 ALLOWED_SCOPES: frozenset[str] = frozenset({SCOPE_SLEEP, SCOPE_METRICS})
 DEFAULT_SCOPE_ORDER: tuple[str, ...] = (SCOPE_SLEEP, SCOPE_METRICS)
+SCOPE_ACTIVITY = "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly"
+STEPS_SCOPE_ORDER: tuple[str, ...] = (*DEFAULT_SCOPE_ORDER, SCOPE_ACTIVITY)
 
 _MAX_TEXT = 64 * 1024
 
@@ -185,6 +187,17 @@ class GoogleHttpTransport(Protocol):
 class UrllibGoogleHttpTransport:
     """Stdlib urllib transport used only for owner-invoked live runs."""
 
+    def __init__(self, *, max_response_bytes: int | None = None) -> None:
+        if max_response_bytes is not None and (
+            type(max_response_bytes) is not int or max_response_bytes < 1
+        ):
+            raise ValueError("response limit must be positive")
+        self.max_response_bytes = max_response_bytes
+
+    def _read(self, response) -> bytes:
+        limit = self.max_response_bytes
+        return response.read() if limit is None else response.read(limit + 1)
+
     def request(
         self,
         method: str,
@@ -217,12 +230,15 @@ class UrllibGoogleHttpTransport:
             request.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urlopen(request, timeout=timeout) as response:  # noqa: S310 — owner URL constants
-                body = response.read()
+                body = self._read(response)
                 status = int(getattr(response, "status", 200))
                 header_map = {k: v for k, v in response.headers.items()}
                 return GoogleHttpResponse(status, body, headers=header_map)
         except HTTPError as exc:
-            body = exc.read() if hasattr(exc, "read") else b""
+            try:
+                body = self._read(exc) if hasattr(exc, "read") else b""
+            finally:
+                exc.close()
             return GoogleHttpResponse(int(exc.code), body, headers=dict(exc.headers or {}))
         except URLError as exc:
             raise GoogleOAuthError("provider", "provider_unavailable") from exc
@@ -355,15 +371,17 @@ def build_authorization_url(
     if not state or not isinstance(state, str):
         raise ValueError("state is required")
     scope_list = tuple(scopes)
-    if not scope_list or set(scope_list) - ALLOWED_SCOPES:
-        raise ValueError("only the two accepted Google Health read scopes are allowed")
-    if set(scope_list) != ALLOWED_SCOPES:
-        raise ValueError("authorization must request both accepted Google Health read scopes")
+    if len(set(scope_list)) != len(scope_list) or set(scope_list) not in (
+        set(DEFAULT_SCOPE_ORDER),
+        set(STEPS_SCOPE_ORDER),
+    ):
+        raise ValueError("request the default readonly scopes or explicit Steps readonly set")
+    scope_order = STEPS_SCOPE_ORDER if SCOPE_ACTIVITY in scope_list else DEFAULT_SCOPE_ORDER
     params: dict[str, str] = {
         "client_id": client_id,
         "redirect_uri": normalize_redirect_uri(redirect_uri),
         "response_type": "code",
-        "scope": " ".join(DEFAULT_SCOPE_ORDER),
+        "scope": " ".join(scope_order),
         "state": state,
         "access_type": "offline",
         "include_granted_scopes": "false",
@@ -563,6 +581,7 @@ class GoogleAuthService:
         browser_opener: BrowserOpener | None = None,
         callback_factory: CallbackFactory | None = None,
         client_credentials: GoogleClientCredentials | None = None,
+        include_steps: bool = False,
     ) -> None:
         self.settings = settings
         self.auth_dir = resolve_google_auth_dir(settings)
@@ -576,6 +595,9 @@ class GoogleAuthService:
         self._inline_client = client_credentials
         self._pending_state: str | None = None
         self._consumed_states: set[str] = set()
+        self.include_steps = include_steps
+        self.scope_order = STEPS_SCOPE_ORDER if include_steps else DEFAULT_SCOPE_ORDER
+        self.required_scopes = frozenset(self.scope_order)
 
     @property
     def protection_kind(self) -> str:
@@ -670,6 +692,7 @@ class GoogleAuthService:
             redirect_uri=self.redirect_uri,
             state=state,
             prompt_consent=use_consent,
+            scopes=self.scope_order,
         )
 
     def consume_state(self, state: str | None) -> None:
@@ -809,15 +832,46 @@ class GoogleAuthService:
                 error=GoogleSafeError("storage", "protection_unavailable"),
             )
         granted = tokens.granted_scopes()
-        missing = ALLOWED_SCOPES - granted
+        missing = self.required_scopes - granted
         health = GoogleTokenHealth.CACHED_UNVERIFIED
         return GoogleAuthResult(
-            status=GoogleAuthStatus.AUTHENTICATED,
+            status=(
+                GoogleAuthStatus.REAUTH_REQUIRED
+                if self.include_steps and missing
+                else GoogleAuthStatus.AUTHENTICATED
+            ),
             token_health=health,
             session_reused=True,
-            granted_scope_count=len(granted & ALLOWED_SCOPES),
+            granted_scope_count=len(granted & self.required_scopes),
             missing_scope_count=len(missing),
             refresh_expires_in_known=tokens.refresh_token_expires_in is not None,
+            protection=self.protection_kind,
+            redirect_uri=self.redirect_uri,
+        )
+
+    def load_steps_access_token(self) -> tuple[str, GoogleAuthResult]:
+        """Inspect one cached snapshot only; never refresh, bootstrap or write tokens."""
+        try:
+            tokens = self._read_tokens()
+        except Exception as exc:
+            return "", GoogleAuthResult(
+                status=GoogleAuthStatus.REAUTH_REQUIRED,
+                error=classify_google_oauth_error(exc),
+            )
+        required = frozenset(STEPS_SCOPE_ORDER)
+        granted = tokens.granted_scopes()
+        missing = required - granted
+        return ("" if missing else tokens.access_token), GoogleAuthResult(
+            status=(
+                GoogleAuthStatus.REAUTH_REQUIRED if missing else GoogleAuthStatus.AUTHENTICATED
+            ),
+            token_health=(
+                GoogleTokenHealth.PARTIAL_SCOPES if missing else GoogleTokenHealth.CACHED_UNVERIFIED
+            ),
+            session_reused=True,
+            granted_scope_count=len(granted & required),
+            missing_scope_count=len(missing),
+            error=GoogleSafeError("authentication", "scope_required") if missing else None,
             protection=self.protection_kind,
             redirect_uri=self.redirect_uri,
         )
@@ -855,6 +909,13 @@ class GoogleAuthService:
             )
         refresh_error = None
         refreshed = False
+        if self.include_steps and self.required_scopes - tokens.granted_scopes():
+            return "", GoogleAuthResult(
+                status=GoogleAuthStatus.REAUTH_REQUIRED,
+                token_health=GoogleTokenHealth.PARTIAL_SCOPES,
+                error=GoogleSafeError("authentication", "scope_required"),
+                missing_scope_count=len(self.required_scopes - tokens.granted_scopes()),
+            )
         if refresh_if_needed:
             try:
                 tokens = self.refresh_access_token(tokens)
@@ -887,7 +948,7 @@ class GoogleAuthService:
                         refresh_attempted=True,
                     )
         granted = tokens.granted_scopes()
-        missing = ALLOWED_SCOPES - granted
+        missing = self.required_scopes - granted
         return tokens.access_token, GoogleAuthResult(
             status=GoogleAuthStatus.AUTHENTICATED,
             token_health=(
@@ -896,7 +957,7 @@ class GoogleAuthService:
                 else GoogleTokenHealth.CACHED_UNVERIFIED
             ),
             session_reused=True,
-            granted_scope_count=len(granted & ALLOWED_SCOPES),
+            granted_scope_count=len(granted & self.required_scopes),
             missing_scope_count=len(missing),
             refresh_expires_in_known=tokens.refresh_token_expires_in is not None,
             protection=self.protection_kind,
@@ -917,13 +978,22 @@ class GoogleAuthService:
         """Exchange a code after state validation and store protected tokens."""
 
         try:
-            if force_reauth:
+            if force_reauth and not self.include_steps:
                 # Do not silently reuse stale token state across deliberate reauth.
                 self.clear_tokens()
             tokens = self.exchange_code(code, state=state)
-            self._write_tokens(tokens)
             granted = tokens.granted_scopes()
-            missing = ALLOWED_SCOPES - granted
+            missing = self.required_scopes - granted
+            if self.include_steps and missing:
+                return GoogleAuthResult(
+                    status=GoogleAuthStatus.REAUTH_REQUIRED,
+                    token_health=GoogleTokenHealth.PARTIAL_SCOPES,
+                    force_reauth=force_reauth,
+                    missing_scope_count=len(missing),
+                    granted_scope_count=len(granted & self.required_scopes),
+                    error=GoogleSafeError("authentication", "scope_required"),
+                )
+            self._write_tokens(tokens)
             return GoogleAuthResult(
                 status=GoogleAuthStatus.AUTHENTICATED,
                 token_health=(
@@ -932,7 +1002,7 @@ class GoogleAuthService:
                 force_reauth=force_reauth,
                 prompt_consent=force_reauth or True,
                 access_verified=True,
-                granted_scope_count=len(granted & ALLOWED_SCOPES),
+                granted_scope_count=len(granted & self.required_scopes),
                 missing_scope_count=len(missing),
                 refresh_expires_in_known=tokens.refresh_token_expires_in is not None,
                 protection=self.protection_kind,
@@ -965,6 +1035,9 @@ class GoogleAuthService:
         """Run system-browser authorization-code flow with fixed loopback callback."""
 
         if not force_reauth and self.token_path.exists():
+            if self.include_steps:
+                # A missing optional grant is a diagnostic, not browser authority.
+                return self.load_steps_access_token()[1]
             access, health = self.load_access_token(refresh_if_needed=True)
             if access and health.ok:
                 return health
@@ -1074,6 +1147,8 @@ __all__ = [
     "AUTH_CONTRACT_VERSION",
     "DEFAULT_GOOGLE_OAUTH_REDIRECT_URI",
     "DEFAULT_SCOPE_ORDER",
+    "SCOPE_ACTIVITY",
+    "STEPS_SCOPE_ORDER",
     "SCOPE_METRICS",
     "SCOPE_SETTINGS",
     "SCOPE_SLEEP",

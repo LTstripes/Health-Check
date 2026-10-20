@@ -1769,6 +1769,7 @@ class GooglePersistenceRepository:
         ingest_event_id: str | None = None,
         create_ingest_event: bool = True,
         preload_heart_rate_page: bool = False,
+        observation_diagnostics: Iterable[Mapping[str, Any]] = (),
     ) -> GooglePersistenceOutcome:
         """Persist one explicit normalization result and its immutable attempt."""
 
@@ -1781,7 +1782,10 @@ class GooglePersistenceRepository:
             raise ValueError("Google normalization result requires explicit source identity")
         if payload is None:
             raise ValueError("Google normalization persistence requires the original payload")
-        diagnostics = tuple(item.as_dict() for item in result.diagnostics)
+        diagnostics = (
+            *tuple(item.as_dict() for item in result.diagnostics),
+            *tuple(observation_diagnostics),
+        )
         unknown_fields = tuple(result.unknown_fields)
         outcome = self.persist_observation(
             identity=resolved_identity,
