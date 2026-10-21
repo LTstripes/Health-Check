@@ -1,5 +1,6 @@
 <section class="statistics-steps" aria-labelledby="statistics-steps-title" data-statistics-steps>
-  <h2 id="statistics-steps-title">Шаги за завершённые дни</h2>
+  <h2 id="statistics-steps-title">Шаги</h2>
+  <h3>Garmin · Шаги за завершённые дни</h3>
   <p>Последнее полученное значение после окончания дня по московскому времени. Garmin может позже исправить его; окончательный итог не подтверждён.</p>
   {% if selected_steps_period == 'all_time' %}
     {% include "statistics_steps_all_time.html" %}
@@ -56,4 +57,5 @@
     </dl>
   </details>
   {% endif %}
+  {% include "statistics_google_steps.html" %}
 </section>

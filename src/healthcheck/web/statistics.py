@@ -22,6 +22,7 @@ from healthcheck.garmin.completed_steps_read import (
     read_completed_steps_window,
 )
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+from healthcheck.google.steps_read import read_saved_steps_window
 from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.owner_presentation import owner_date, owner_distance, owner_duration
 from healthcheck.web.pages import _persist_error, render_error
@@ -88,6 +89,7 @@ def statistics(
     end_date: date | None = Query(default=None),
     garmin_source_id: str | None = Query(default=None),
     google_source_id: str | None = Query(default=None),
+    google_steps_source_id: str | None = Query(default=None),
     garmin_sleep_source_id: str | None = Query(default=None),
     google_sleep_source_id: str | None = Query(default=None),
 ):
@@ -125,6 +127,12 @@ def statistics(
             steps_now = steps_evaluation_instant()
             steps_start = date.fromisoformat(packet["requested_window"]["start_date"])
             steps_end = date.fromisoformat(packet["requested_window"]["end_date"])
+            google_steps = None
+            if selected_period in {"7", "30"} and steps_period == "window":
+                google_steps = read_saved_steps_window(
+                    session, start_date=steps_start, end_date=steps_end,
+                    source_id=google_steps_source_id or None,
+                )
             # Default rolling Steps windows end yesterday in the explicit Owner
             # display zone. Explicit historical windows and other aggregates stay exact.
             if end_date is None and selected_period in {"7", "30", "trailing365"}:
@@ -166,6 +174,7 @@ def statistics(
             "packet": packet,
             "cycling_cell": cycling_cell,
             "steps": steps,
+            "google_steps": google_steps,
             "steps_state_labels": STEPS_STATE_LABELS,
             "selected_garmin_source_id": garmin_source_id or None,
             "selected_google_source_id": google_source_id or None,

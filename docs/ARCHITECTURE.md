@@ -1929,6 +1929,42 @@ populated rows, indexes, foreign keys and append-only triggers. Existing consume
 select stream/metric codes explicitly; the reserved count never enters their
 float paths. Production stream registries and credentials remain unchanged.
 
+<a id="saved-google-steps-read-392"></a>
+#### Saved Google Steps window v1 (#392)
+
+The [accepted reader/UI scope](https://github.com/LTstripes/Health-Check/issues/392#issuecomment-6314440860)
+adds one read-only saved-observation service and the existing Statistics Steps
+consumer. No schema, acquisition, auth, replay or production registry changes.
+
+The inclusive 7/30-date window comes from the original Statistics requested packet,
+before Garmin's independent Moscow completed-day shift. A separate
+google_steps_source_id selects one exact google_health family-aggregate source and
+known matching family. Auto-selection requires exactly one saved Steps source;
+multiple families require explicit selection. No family/device/provider pooling,
+Garmin delta or completed-day certification is introduced. Long/all-time selectors
+retain Garmin behavior and disclose unsupported Google scope.
+
+Only current Steps/dailyRollUp records participate. The accepted raw civil interval
+and derived record identities, exact family and linked observation/raw source/stream/
+query context are revalidated. A value is placed only for one exact midnight-to-next-
+midnight civil interval. Differently encoded current intervals on the same date are
+ambiguous even if counts match. Partial/multi-day intervals exclude every intersecting
+civil date, including intervals starting before the requested window; they are never
+split or summed. Unlocatable interval evidence withholds the whole bounded result.
+
+The dedicated int64 decoder returns Python integers; exact maximum and true zero
+survive HTML rendering without Float/JavaScript arithmetic. Current missing/null/
+invalid/conflicted states cannot reveal an older number. Retired rows are excluded;
+as-of uses projection_observed_at, not replay/last_seen_at. No eligible saved interval
+is distinct from no saved source and never proves absence at the provider.
+
+Coverage, pagination, timezone and finality are always unknown. Even values on every
+date do not establish complete coverage; no total or mean is exposed. Search limits
+are source discovery128, source-wide current records4096, each child collection4096,
+16MiB bounded text and five cooperative seconds. Sentinel/count/text checks precede
+child materialization; incomplete search withholds all values. The guard is not a hard
+SQL/lock/I/O deadline. The caller/reader share the existing physical read snapshot.
+
 | Layer | Tables | Contract |
 | --- | --- | --- |
 | Raw bytes | `raw_artifacts` plus `artifacts/google/payloads/<aa>/<sha256>.<ext>` | Content-addressed reuse. |
