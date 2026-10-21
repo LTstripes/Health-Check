@@ -258,6 +258,38 @@ def test_route_independent_steps_selector_and_unsupported_periods(statistics_ui)
     )
     assert response.status_code == 200 and ">13</td>" in response.text
     for params in [{"period": "30", "steps_period": "all_time"}, {"period": "trailing365"}]:
+        params["google_steps_source_id"] = got.source.id
         response = client.get("/statistics", params=params)
         assert response.status_code == 200
         assert 'data-google-steps-reason="unsupported_window"' in response.text
+        assert f'name="google_steps_source_id" value="{got.source.id}"' in response.text
+
+
+@pytest.mark.parametrize(
+    "raw", ["[]", "null", "1", '{"raw_civil_json":"[]"}', "[" * 1100 + "0" + "]" * 1100, b"[]"]
+)
+def test_malformed_temporal_outer_shape_withholds_all_values(database, raw):
+    _, session, _ = database
+    persist(database, payload("5"))
+    session.scalar(select(GoogleRecordInterval)).start_temporal_json = raw
+    session.commit()
+    result = read(session)
+    assert result["reason"] == "unlocatable_interval"
+    assert not result["search_complete"] and not result["cells"]
+
+
+def test_google_default_window_precedes_independent_garmin_moscow_shift(statistics_ui, monkeypatch):
+    from datetime import UTC, datetime
+
+    session, paths, client = statistics_ui
+    monkeypatch.setattr(
+        "healthcheck.web.statistics.steps_evaluation_instant",
+        lambda: datetime(2099, 1, 9, tzinfo=UTC),
+    )
+    response = client.get("/statistics", params={"period": "7"})
+    assert response.status_code == 200
+    google = response.context["google_steps"]
+    requested = response.context["packet"]["requested_window"]
+    assert google["end_date"].isoformat() == requested["end_date"]
+    assert google["start_date"].isoformat() == requested["start_date"]
+    assert response.context["steps"].end_date == date(2099, 1, 8)

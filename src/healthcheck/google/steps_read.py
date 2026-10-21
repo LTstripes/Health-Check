@@ -247,6 +247,10 @@ def read_saved_steps_window(
         if len(parts) != 1:
             return incomplete("unlocatable_interval")
         interval = parts[0]
+        if not isinstance(interval.start_temporal_json, str) or not isinstance(
+            interval.end_temporal_json, str
+        ):
+            return incomplete("unlocatable_interval")
         used_bytes += len(interval.start_temporal_json.encode()) + len(
             interval.end_temporal_json.encode()
         )
@@ -257,6 +261,15 @@ def read_saved_steps_window(
         ):
             return incomplete("text_budget_exceeded")
         try:
+            endpoints = []
+            for text in (interval.start_temporal_json, interval.end_temporal_json):
+                outer = json.loads(text)
+                if not isinstance(outer, dict) or not isinstance(outer.get("raw_civil_json"), str):
+                    raise ValueError("invalid temporal evidence object")
+                raw_endpoint = json.loads(outer["raw_civil_json"])
+                if not isinstance(raw_endpoint, dict):
+                    raise ValueError("invalid raw civil endpoint object")
+                endpoints.append(raw_endpoint)
             # Accepted identity validator checks raw/typed fields, no zone/UTC
             # invention, nanoseconds and omitted raw components.
             if google_steps_interval_key(interval) != row.idempotency_key:
@@ -272,11 +285,10 @@ def read_saved_steps_window(
                 != row.record_identity_key
             ):
                 raise ValueError("record identity mismatch")
-            start_raw = json.loads(json.loads(interval.start_temporal_json)["raw_civil_json"])
-            end_raw = json.loads(json.loads(interval.end_temporal_json)["raw_civil_json"])
+            start_raw, end_raw = endpoints
             first, _, start_key = parse_steps_civil_endpoint(start_raw)
             last, _, end_key = parse_steps_civil_endpoint(end_raw)
-        except (ValueError, KeyError, TypeError, OverflowError):
+        except (ValueError, KeyError, TypeError, OverflowError, RecursionError):
             return incomplete("unlocatable_interval")
         full_day = (
             start_key[3:] == (0, 0, 0, 0)

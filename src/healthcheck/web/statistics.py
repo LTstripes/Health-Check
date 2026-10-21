@@ -175,6 +175,9 @@ def statistics(
             "cycling_cell": cycling_cell,
             "steps": steps,
             "google_steps": google_steps,
+            "selected_google_steps_source_id": google_steps_source_id or (
+                google_steps["source_id"] if google_steps else None
+            ),
             "steps_state_labels": STEPS_STATE_LABELS,
             "selected_garmin_source_id": garmin_source_id or None,
             "selected_google_source_id": google_source_id or None,

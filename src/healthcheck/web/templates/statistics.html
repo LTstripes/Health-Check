@@ -6,7 +6,7 @@
 {% block content %}
 <section class="statistics-page" aria-label="Статистика по источникам">
   <form id="statistics-controls" class="statistics-controls" method="get" action="/statistics" autocomplete="off">
-    {% if google_steps and google_steps.source_id %}<input type="hidden" name="google_steps_source_id" value="{{ google_steps.source_id }}">{% endif %}
+    {% if selected_google_steps_source_id %}<input type="hidden" name="google_steps_source_id" value="{{ selected_google_steps_source_id }}">{% endif %}
     <label>Период
       <select name="period" aria-label="Период" aria-describedby="statistics-period-help">
         {% for value, label in period_labels.items() %}<option value="{{ value }}"{% if selected_period == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
