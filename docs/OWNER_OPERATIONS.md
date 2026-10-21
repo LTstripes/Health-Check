@@ -330,6 +330,104 @@ uv run --locked pytest tests/test_profile_backup.py::test_large_sparse_profile_a
   --basetemp (Join-Path $probe "pytest-large") --durations=1
 ```
 
+<a id="release-preflight-2026-10-22"></a>
+## Release rehearsal, migration and rollback — 22 October 2026
+
+[Wiki scope/release notes](PROJECT_WIKI.md#release-2026-10-22) and
+[tracker #479](https://github.com/LTstripes/Health-Check/issues/479) own current status.
+This is a prepared runbook. **No real-profile backup, restore, migration, Stable
+deployment, provider request or release/tag publication was executed by this docs
+task.** Operations below require an assignment with exact private paths. Examples
+alone grant no authority.
+
+### Candidate and recovery point
+
+1. Freeze one full accepted main SHA/tree. Read live issues/PRs, independent review
+   and complete same-attempt exact candidate/main CI under
+   [Development](DEVELOPMENT_PROCESS.md#ci-gates). Reconcile target movement; never
+   deploy a moving main. Record current installed code/profile/process binding and
+   actual read-only schema identity privately.
+2. Clean isolated candidate checkout, locked environment, explicit external profile.
+   Preserve matching old code/runtime. Select distinct private backup/UAT/recovery
+   targets outside Git/code; verify resolved identities before writes. Do not reuse
+   claims or retrospectively adopt a platform checkout into managed lifecycle.
+3. With selected profile writers idle, use installed matching code's supported
+   backup/verify/restore to a new disposable target. Retain archive/manifest digest,
+   code/schema, inventory and verification privately. Supported SQLite online backup
+   includes WAL state; a main-DB-only copy is insufficient. Follow
+   [backup contents/exclusions](#profile-backup) for protected auth/scheduler recovery;
+   do not change or test credentials for release preparation.
+
+### Reproducible clone rehearsal
+
+Bind variables below to approved private paths/full SHA first. $OldCode is installed
+matching code; $CandidateCode an isolated accepted checkout; $PreUpgradeBackup a new
+archive; $UatProfile a vacant external private target distinct from Stable/code.
+Verify native exit codes after each command; stop on failure. Future operator steps:
+
+```powershell
+Set-Location -LiteralPath $OldCode
+uv run --locked healthcheck backup-profile --data-dir $StableProfile --output $PreUpgradeBackup
+if ($LASTEXITCODE -ne 0) { throw 'pre-upgrade backup failed' }
+uv run --locked healthcheck verify-backup --backup $PreUpgradeBackup
+if ($LASTEXITCODE -ne 0) { throw 'backup verification failed' }
+uv run --locked healthcheck restore-profile --backup $PreUpgradeBackup --target-dir $UatProfile
+if ($LASTEXITCODE -ne 0) { throw 'clone restore failed' }
+
+Set-Location -LiteralPath $CandidateCode
+if ((git rev-parse HEAD).Trim() -cne $CandidateSha) { throw 'candidate SHA mismatch' }
+if (git status --porcelain) { throw 'candidate checkout is dirty' }
+uv sync --locked
+if ($LASTEXITCODE -ne 0) { throw 'locked environment failed' }
+$env:HEALTHCHECK_DATA_DIR = $UatProfile
+$env:HEALTHCHECK_INGEST_ENABLED = 'false'
+uv run --locked healthcheck migrate --data-dir $UatProfile
+if ($LASTEXITCODE -ne 0) { throw 'clone migration failed' }
+```
+
+For observed Stable startup revision 0016_garmin_daily_summary_receipts, accepted
+ancestry is 0016 -> 0017_lab_intake_v1 -> 0018_google_offline_steps.
+If actual schema differs, reconcile first. 0017 adds immutable lab entities/heads/
+receipts; 0018 recreates four Google stream CHECKs preserving rows/indexes/FKs/
+immutable triggers. Do not skip/reorder. See [migration 0017](../src/healthcheck/db/migrations/versions/0017_lab_intake_v1.py)
+and [migration 0018](../src/healthcheck/db/migrations/versions/0018_google_offline_steps.py).
+Neither migration acquires data, replays sleep history or certifies Google Steps.
+
+Before/after migration use a read-only SQLite connection (mode=ro) on the clone:
+exact alembic_version, PRAGMA integrity_check must be ok, PRAGMA foreign_key_check
+must return no rows; reconcile pre-existing domain counts/keys and artifact inventory.
+Record private results. A file hash/readiness banner does not prove integrity.
+Candidate supported backup/verify of migrated clone must pass lab artifact/hash/
+reference closure. Restore that archive into another new recovery target and repeat
+integrity/schema/closure checks. Preserve failures; synthetic migration CI does not
+replace real-profile rehearsal.
+
+Only then start separately approved candidate UI on a free loopback port against
+the clone, ingest/provider automation disabled, no scheduler targeting it. Verify
+process identity, loaded code, profile/listener; healthz alone is insufficient.
+Run [short Owner UAT](PROJECT_WIKI.md#release-2026-10-22). Retain completed Steps UAT;
+no new consent/refresh/provider request/coverage investigation. Do not reuse old
+pinned Stable launcher unchanged: its assertions bind old code/schema.
+
+### Rollback and release decision
+
+- Failed migration/integrity/closure or blocking UAT: stop only candidate-owned
+  process/writer through approved lifecycle and preserve evidence. Stable stays on
+  prior code/profile during rehearsal.
+- Restore verified pre-upgrade backup into a new private recovery target with matching
+  old code. Verify integrity/schema/artifacts/loaded binding before any approved runtime
+  switch. Never run old code on upgraded profile, overwrite Stable ad hoc or force
+  downgrade. 0017 refuses to discard staged/accepted lab history; 0018 refuses downgrade
+  with immutable Steps evidence.
+- Pre-upgrade snapshots omit later writes. Preserve them; obtain explicit reconciliation
+  before switching. Never silently discard labs/Context/Weight/collection history.
+  Follow backup exclusions; no complete machine/credential recovery is claimed.
+- Record final SHA/tree, CI, backup/recovery receipts and UNVERIFIED items in #479.
+  After successful rehearsal/UAT obtain separate Stable rollout authorization before
+  stop/update/migrate/start. Verify loaded code/profile, schema/integrity and offline
+  smoke afterward; retain old recovery point. Tag/release publication is a separate
+  decision, not performed by merge or this checklist.
+
 <a id="offsite-backup"></a>
 
 <a id="offsite-backup--protected-offsite-backup-retention-and-clean-recovery"></a>
