@@ -72,4 +72,3 @@ assert.equal(binding.synthetic, true);
     console.log(JSON.stringify({checks,screenshots,errors,external},null,2));
   } finally { await browser.close(); }
 })().catch(e=>{ console.error(e); process.exitCode=1; });
-
