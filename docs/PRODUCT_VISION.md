@@ -120,6 +120,14 @@ Google family aggregates may represent overlapping evidence. No last-writer,
 longest-night or summed/mean provider-wide winner may be assumed without a
 separate reviewed identity/eligibility decision.
 
+Saved Google Steps in Statistics is an observed interval count for one exact
+family/source and civil date, separate from Garmin completed-day Steps. Only 7/30
+dates are supported; the provider timezone, full-day coverage, pagination and finality
+remain unknown. No cross-provider sum/delta or full-period Google total/mean is
+introduced. Invalid/current conflicts and partial overlapping intervals withhold
+values; absence is never silently zero. This read-only view adds no acquisition
+or automatic refresh. [Technical contract](ARCHITECTURE.md#saved-google-steps-read-392).
+
 A source-specific value shows its **true date/eligible coverage/units**. A
 missing observation can be supplemented by a clearly labelled *last eligible
 saved* dated observation, but never silently backfilled into the requested
@@ -254,7 +262,7 @@ not certify implementation, provider health or every later Owner UAT.
 | Вес | `/` | Confirmed Weight/trend, one all-history Weight+composition table and selectable chart with distinct methods (#375) |
 | Сон | `/sleep` | Primary 7/30-day Garmin + Google duration timeline over exact saved sources, with display toggles, point details and an accessible date table; Garmin / Google / Compare selected-date modes remain |
 | Сон, secondary mode | `/agreement` | Exploratory Garmin/Google comparison and diagnostic evidence |
-| Статистика | `/statistics` | Garmin/Google 7/30, trailing365, calendar-year/YTD; saved completed Garmin daily Steps and a separate exact-source Steps-only all-time selector; Google Steps not collected |
+| Статистика | `/statistics` | Garmin/Google 7/30, trailing365, calendar-year/YTD; saved completed Garmin daily Steps and a separate exact-source Steps-only all-time selector; independent saved Google Steps observations for 7/30 civil dates with unknown coverage |
 | Активность | `/garmin#activity-journal` | Five recent saved sessions, full existing history disclosure and five-column A/B comparison |
 | Активность, secondary mode | `/garmin#training-recovery` | Garmin dated snapshots, period series and exploratory lagged associations |
 | Данные | `/imports` | Compact provider freshness/actions with stream details; upload/review queue and `/imports/{id}` |
@@ -387,7 +395,7 @@ retain every original identity and evidence, without an R05 canonical switch.
 
 Statistics keeps exact selectors/provenance in native details while ambiguity and
 incomplete warnings remain visible when closed. Inventory is not proof of metric
-availability. The Steps completion display policy is Europe/Moscow, excludes the
+availability. The Garmin Steps completion display policy is Europe/Moscow, excludes the
 current/future days, and retains repeats, lower corrections, ties and latest
 missing states. It does not claim Garmin finality. The five-second guard is
 cooperative, not a hard SQL/lock/I/O deadline or a performance guarantee. Steps-only
