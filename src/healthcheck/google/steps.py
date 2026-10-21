@@ -223,12 +223,24 @@ def acquire_steps(
     sleeper=time.sleep,
     clock=lambda: datetime.now(UTC),
 ) -> dict:
-    """Explicit apply only; cached grant preflight precedes runtime/DB/network."""
+    """Explicit apply: cached grant preflight, one startup refresh, bounded data POST."""
     # Validate direct callers too, before accessing credentials.
     StepsPlan.build(plan.day.isoformat(), FAMILY_GOOGLE_WEARABLES)
-    token, auth = auth_service.load_steps_access_token()
+    token, auth = auth_service.load_steps_access_token(refresh_if_needed=True)
+
+    def report(status: str, reason: str, requests: int, **counts) -> dict:
+        return _report(
+            status, reason, requests,
+            auth_refresh_attempted=auth.refresh_attempted,
+            auth_refresh_succeeded=auth.refresh_succeeded,
+            auth_error=auth.error.as_dict() if auth.error else None,
+            **counts,
+        )
+
     if not token or not auth.ok:
-        return _report("blocked", "steps_grant_required", 0)
+        return report(
+            "blocked", "steps_auth_failed" if auth.refresh_attempted else "steps_grant_required", 0
+        )
     http = transport or UrllibGoogleHttpTransport(max_response_bytes=MAX_RESPONSE_BYTES)
     response = None
     for attempt in range(MAX_REQUESTS):
@@ -244,25 +256,25 @@ def acquire_steps(
         except (OSError, GoogleOAuthError) as exc:
             # Never copy transport/provider text into diagnostics.
             if isinstance(exc, GoogleOAuthError) and exc.error_code != "provider_unavailable":
-                return _report("failed", "transport_rejected", count)
+                return report("failed", "transport_rejected", count)
             if count == MAX_REQUESTS:
-                return _report("failed", "provider_unavailable", count)
+                return report("failed", "provider_unavailable", count)
         else:
             if response.status not in RETRY_HTTP:
                 break
             if count == MAX_REQUESTS:
-                return _report("failed", "retry_exhausted", count, http_status=response.status)
+                return report("failed", "retry_exhausted", count, http_status=response.status)
         sleeper((0.25, 0.5)[attempt])
     assert response is not None
     if not 200 <= response.status < 300:
-        return _report(
+        return report(
             "blocked" if response.status in {401, 403} else "failed",
             "provider_rejected",
             count,
             http_status=response.status,
         )
     if not isinstance(response.body, bytes) or len(response.body) > MAX_RESPONSE_BYTES:
-        return _report("failed", "response_limit", count)
+        return report("failed", "response_limit", count)
     received_at = clock()
     context = plan.context(count)
     result = normalize_acquired_steps(response.body, context=context)
@@ -291,12 +303,12 @@ def acquire_steps(
             )
             session.commit()
     except (OSError, ValueError, SQLAlchemyError):
-        return _report("failed", "persistence_failed", count)
+        return report("failed", "persistence_failed", count)
     states: dict[str, int] = {}
     for record in result.records:
         state = decode_count_sum_metric(record.metrics[0]).state.value
         states[state] = states.get(state, 0) + 1
-    return _report(
+    return report(
         "rejected" if invalid else "observed",
         "response_invalid" if invalid else "observed_only",
         count,

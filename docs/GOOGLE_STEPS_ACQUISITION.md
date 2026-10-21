@@ -18,7 +18,9 @@ No UTC, IANA zone, fixed 24-hour duration or completed-day inference is added.
 
 At most three HTTP attempts, each timeout 30 seconds, on one page. Retry only
 transport unavailability or HTTP 429/500/502/503/504, with 0.25/0.5-second waits.
-401/403 stop without token refresh or reauthorization. No page-token following.
+Data POST 401/403 stop without recovery refresh, reauthorization or POST replay.
+No page-token following. These data attempts exclude the single startup OAuth
+refresh described below.
 Successful response bodies are bounded to 1 MiB, with at most one returned bucket.
 The documented response omits a continuation field although the request has
 paging inputs. **Pagination exhaustion and full-day coverage always remain
@@ -58,11 +60,26 @@ exactly one of `--dry-run` or `--apply`. Dry-run builds a sanitized bounded plan
 without creating auth/runtime objects, reading credentials or requesting data.
 `--apply` also requires an explicit absolute `--data-dir`. It is a future Owner
 operation, isolated from production sync,
-backfill, refresh, schedules, UI and automatic collection policy.
+backfill, schedules, UI and automatic collection policy.
 Grant inspection uses one cached token snapshot, with no provider request,
 refresh, login or token write. Missing activity grant stops before data requests
 and before runtime/DB creation. A cached grant is evidence of stored scope only;
 validity, API/project/account access and real consent remain unverified until UAT.
+
+The bounded lifecycle fix (baseline `deada912d21bf4cbc59a58dbda1b66bcd2e7b51c`)
+received independent contract GO before implementation. Explicit `--apply` checks
+all three required readonly scopes in one cached snapshot before OAuth/network
+or runtime creation. Unexpected cached scopes also block apply. It then calls the
+existing startup refresh once with that same snapshot, without cached fallback.
+An omitted refresh scope or refresh token inherits only that known cached grant
+or token. Before protected atomic replacement, the refreshed grant must contain
+exactly the three readonly scopes; missing/extra scopes fail closed. Denied,
+malformed, transport, protection or storage failures preserve the old session and
+prevent any Steps data request. No browser is opened and no grant is expanded.
+After successful refresh, only the refreshed access token is used for the bounded
+data POST. A later POST 401/403 remains terminal; it never triggers refresh/replay.
+This fixes a code lifecycle gap; it does not prove the cause of any prior 401.
+Default two-scope auth/fallback and existing GET recovery remain unchanged.
 
 ## Persistence and diagnostics
 
@@ -87,14 +104,20 @@ typed records. Oversize responses and failed HTTP/OAuth bodies are not persisted
 No coverage row, checkpoint, completeness/finality flag or zero-filled day is made.
 
 Console diagnostics expose fixed status/reason codes, HTTP status, request count,
-record/metric state counts and unknown coverage/pagination. They exclude health
-values/dates, raw bodies, page tokens, private IDs, credential material and paths.
+record/metric state counts, startup refresh attempted/succeeded flags, sanitized
+auth error codes and unknown coverage/pagination. `request_count` counts only
+Steps data HTTP attempts; a refresh flag alone does not prove data access. They
+exclude health values/dates, raw bodies, page tokens, private IDs, credential
+material and paths.
 Runtime/storage failures fail closed and use existing sanitized error patterns.
 
 ## Validation and remaining gates
 
 Only synthetic/mock tests: unchanged default scopes; explicit URL scopes; denied,
-partial and old grants; no automatic consent/refresh; dry-run without auth/runtime;
+partial and old grants; no automatic browser or post-rejection refresh;
+cached-only inspection; one startup refresh with strict pre-write scope checking;
+failed refresh preserves the prior session and prevents data/runtime calls;
+dry-run without auth/runtime;
 exact request and retry budgets; DST civil dates; zero/int64 precision;
 missing/null/invalid counts; empty/absent/malformed/paged/extra/oversize responses;
 wrong/partial/out-of-window intervals; exact storage/readback and request provenance;
@@ -133,5 +156,7 @@ uv run healthcheck google-steps --date YYYY-MM-DD --family google-wearables --ap
 ```
 
 Replace the date with one explicitly chosen civil day. No historical loop,
-automatic refresh or fallback source is implied. Successful observed evidence
-still has unknown coverage and pagination; #392 remains OPEN pending real UAT.
+background collection or fallback source is implied. Explicit apply performs
+the bounded startup refresh above; no live action is authorized by these examples.
+Successful observed evidence still has unknown coverage and pagination;
+#392 remains OPEN pending real UAT.

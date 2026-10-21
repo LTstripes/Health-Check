@@ -728,7 +728,12 @@ class GoogleAuthService:
         )
         return self._tokens_from_response(response, require_refresh=True)
 
-    def refresh_access_token(self, tokens: GoogleTokenSet | None = None) -> GoogleTokenSet:
+    def refresh_access_token(
+        self,
+        tokens: GoogleTokenSet | None = None,
+        *,
+        required_scopes: frozenset[str] | None = None,
+    ) -> GoogleTokenSet:
         current = tokens or self._read_tokens()
         if not current.refresh_token:
             raise GoogleOAuthError("authentication", "refresh_token_missing")
@@ -748,6 +753,14 @@ class GoogleAuthService:
             refreshed.refresh_token = current.refresh_token
         if not refreshed.scope:
             refreshed.scope = current.scope
+        # Optional strict acquisition boundary: reject a changed grant before
+        # protecting/replacing the previous session. Legacy callers are unchanged.
+        if required_scopes is not None:
+            granted = refreshed.granted_scopes()
+            if required_scopes - granted:
+                raise GoogleOAuthError("authentication", "scope_required")
+            if granted - required_scopes:
+                raise GoogleOAuthError("authentication", "scope_unexpected")
         try:
             self._write_tokens(refreshed)
         except Exception as exc:
@@ -849,8 +862,14 @@ class GoogleAuthService:
             redirect_uri=self.redirect_uri,
         )
 
-    def load_steps_access_token(self) -> tuple[str, GoogleAuthResult]:
-        """Inspect one cached snapshot only; never refresh, bootstrap or write tokens."""
+    def load_steps_access_token(
+        self, *, refresh_if_needed: bool = False
+    ) -> tuple[str, GoogleAuthResult]:
+        """Inspect one snapshot; explicit acquisition refreshes once, without fallback.
+
+        Inspection/bootstrap remain cached-only. A refresh failure never starts
+        browser consent, clears the old session or returns its cached access token.
+        """
         try:
             tokens = self._read_tokens()
         except Exception as exc:
@@ -861,19 +880,46 @@ class GoogleAuthService:
         required = frozenset(STEPS_SCOPE_ORDER)
         granted = tokens.granted_scopes()
         missing = required - granted
-        return ("" if missing else tokens.access_token), GoogleAuthResult(
+        unexpected = bool(refresh_if_needed and granted - required)
+        if refresh_if_needed and not missing and not unexpected:
+            try:
+                tokens = self.refresh_access_token(tokens, required_scopes=required)
+            except Exception as exc:
+                error = classify_google_oauth_error(exc)
+                return "", GoogleAuthResult(
+                    status=(
+                        GoogleAuthStatus.REAUTH_REQUIRED
+                        if error.error_code == "invalid_grant" else GoogleAuthStatus.FAILED
+                    ),
+                    session_reused=True,
+                    granted_scope_count=len(granted & required),
+                    protection=self.protection_kind,
+                    redirect_uri=self.redirect_uri,
+                    error=error,
+                    refresh_attempted=True,
+                )
+        return ("" if missing or unexpected else tokens.access_token), GoogleAuthResult(
             status=(
-                GoogleAuthStatus.REAUTH_REQUIRED if missing else GoogleAuthStatus.AUTHENTICATED
+                GoogleAuthStatus.REAUTH_REQUIRED if missing else
+                GoogleAuthStatus.FAILED if unexpected else GoogleAuthStatus.AUTHENTICATED
             ),
             token_health=(
-                GoogleTokenHealth.PARTIAL_SCOPES if missing else GoogleTokenHealth.CACHED_UNVERIFIED
+                GoogleTokenHealth.PARTIAL_SCOPES if missing else
+                GoogleTokenHealth.REFRESHED if refresh_if_needed and not unexpected else
+                GoogleTokenHealth.CACHED_UNVERIFIED
             ),
             session_reused=True,
             granted_scope_count=len(granted & required),
             missing_scope_count=len(missing),
-            error=GoogleSafeError("authentication", "scope_required") if missing else None,
+            error=(
+                GoogleSafeError("authentication", "scope_required") if missing else
+                GoogleSafeError("authentication", "scope_unexpected") if unexpected else None
+            ),
             protection=self.protection_kind,
             redirect_uri=self.redirect_uri,
+            access_verified=refresh_if_needed and not missing and not unexpected,
+            refresh_attempted=refresh_if_needed and not missing and not unexpected,
+            refresh_succeeded=refresh_if_needed and not missing and not unexpected,
         )
 
     def load_access_token(
