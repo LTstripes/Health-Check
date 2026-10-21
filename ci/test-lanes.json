@@ -111,7 +111,8 @@
       "tests/test_ui_host_origin_guard.py",
       "tests/test_saved_values.py",
       "tests/test_saved_rhr_period.py",
-      "tests/test_body_battery_read.py"
+      "tests/test_body_battery_read.py",
+      "tests/test_google_saved_steps.py"
     ]
   },
   "allowed_skips": [

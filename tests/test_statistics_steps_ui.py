@@ -257,7 +257,7 @@ def test_browser_period_captures_share_one_exact_source(statistics_ui):
         export(response, f"completed-{period}")
 
 
-def test_all_time_stats_real_route_and_google_not_collected(statistics_ui, monkeypatch):
+def test_all_time_stats_real_route_and_google_unsupported_window(statistics_ui, monkeypatch):
     from healthcheck.web import statistics as module
 
     session, paths, client = statistics_ui
@@ -276,7 +276,7 @@ def test_all_time_stats_real_route_and_google_not_collected(statistics_ui, monke
     history = response.context["steps"]
     assert history.statistics.total == 20 and history.statistics.eligible_day_count == 3
     html = steps_html(response)
-    assert 'data-steps-provider="google" data-steps-history-state="not_collected"' in html
+    assert 'data-steps-provider="google" data-steps-history-state="unsupported_window"' in html
     assert 'data-steps-stat="total">20<' in html
     assert 'data-steps-stat="mean">6,7<' in html
     assert "Полный поиск сохранённых данных не доказывает полную историю аккаунта" in html

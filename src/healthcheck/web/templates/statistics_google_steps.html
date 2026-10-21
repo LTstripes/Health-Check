@@ -1,0 +1,53 @@
+<div class="statistics-google-steps" role="group" aria-label="Шаги Google" data-google-steps>
+  <h3>Google · сохранённые наблюдения шагов</h3>
+  <p>Наблюдения за даты источника. Полнота дня, охват ответа, часовой пояс и окончательность неизвестны. Это не подтверждённые завершённые дни; итоги и среднее за полный период не вычисляются.</p>
+  {% if google_steps is none %}
+  <p data-google-steps-reason="unsupported_window">Сохранённые наблюдения Google доступны для выбранного периода 7 или 30 дней. Вся история и длинные периоды здесь не поддерживаются.</p>
+  {% else %}
+  {% if google_steps.source_choices %}
+  <nav aria-label="Источник сохранённых шагов Google">
+    {% for choice in google_steps.source_choices %}
+    <a href="{{ request.url.include_query_params(google_steps_source_id=choice.source_id) }}"{% if google_steps.source_id == choice.source_id %} aria-current="true"{% endif %}>Google · {{ choice.family_label }}</a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </nav>
+  {% endif %}
+  {% if google_steps.reason %}
+  <p class="statistics-steps-warning" role="status" data-google-steps-reason="{{ google_steps.reason }}">{% if not google_steps.search_complete %}Поиск сохранённых данных не завершён; все значения скрыты.{% elif google_steps.reason == 'source_selection_required' %}Выберите один источник Google. Источники не суммируются.{% elif google_steps.reason == 'no_saved_source' %}Нет сохранённого источника шагов Google. Это не доказывает отсутствие шагов или данных у провайдера.{% else %}Выбранный источник не подтверждён для шагов Google. Выберите сохранённый источник.{% endif %}</p>
+  {% endif %}
+  {% if google_steps.cells %}
+  <div class="table-scroll statistics-steps-table" tabindex="0" role="region" aria-label="Сохранённые наблюдения шагов Google">
+    <table>
+      <caption>{{ google_steps.start_date|owner_date }} — {{ google_steps.end_date|owner_date }} · покрытие неизвестно, пропуски не равны нулю.</caption>
+      <thead><tr><th scope="col">Дата источника</th><th scope="col">Наблюдение Google, шагов</th><th scope="col">Состояние и происхождение</th></tr></thead>
+      <tbody>
+        {% for cell in google_steps.cells %}
+        <tr data-google-steps-date="{{ cell.calendar_date }}" data-google-steps-state="{{ cell.state }}">
+          <th scope="row"><time datetime="{{ cell.calendar_date }}">{{ cell.calendar_date|owner_date }}</time></th>
+          <td data-google-steps-value>{% if cell.value is not none %}{{ cell.value }}{% else %}Недоступно{% endif %}</td>
+          <td>
+            <p>{% if cell.state == 'value' %}Сохранённое наблюдение{% if cell.value == 0 %} · явный ноль{% endif %}{% elif cell.state == 'missing' %}Поле шагов отсутствует{% elif cell.state == 'null' %}Источник передал null{% elif cell.state == 'invalid' %}Текущие данные недопустимы; старое число не подставлено{% elif cell.state == 'ambiguous' %}Пересекающиеся текущие интервалы; значение не выбрано{% elif cell.state == 'unavailable' %}Интервал не равен одному civil-дню; шаги не распределены{% else %}Нет сохранённого наблюдения за дату{% endif %}</p>
+            <details class="statistics-details">
+              <summary>Происхождение Google — {{ cell.calendar_date|owner_date }}</summary>
+              {% for item in cell.evidence %}
+              <dl>
+                <dt>Civil-интервал без подтверждённого часового пояса</dt><dd>{{ item.start }} — {{ item.end }}</dd>
+                <dt>Projection as-of UTC / record</dt><dd>{{ item.as_of.isoformat() if item.as_of else 'неизвестно' }} / {{ item.record_id }}</dd>
+                <dt>Observation / raw payload</dt><dd>{{ item.observation_id or 'неизвестно' }} / {{ item.raw_payload_id }}</dd>
+              </dl>
+              {% endfor %}
+              <p>Coverage / pagination / timezone / finality: unknown. {{ cell.reason or '' }}</p>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  <details class="statistics-details">
+    <summary>Источник и границы поиска Google</summary>
+    <p>{{ google_steps.source_identity or 'Источник не выбран' }}</p>
+    <p>{{ google_steps.contract_version }} · current records: {{ google_steps.records_examined }} · search_complete: {{ google_steps.search_complete }}. Это полнота ограниченного поиска, не полнота данных Google.</p>
+  </details>
+  {% endif %}
+</div>
