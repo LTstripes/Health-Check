@@ -3,6 +3,7 @@
 import io
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
@@ -132,7 +133,7 @@ def response(raw):
 
 def granted():
     return SimpleNamespace(
-        load_steps_access_token=lambda: (
+        load_steps_access_token=lambda **kwargs: (
             SECRET,
             GoogleAuthResult(status=GoogleAuthStatus.AUTHENTICATED),
         )
@@ -167,7 +168,188 @@ def test_cached_missing_steps_never_refreshes_bootstraps_or_writes(tmp_path, sco
     assert not svc.bootstrap().ok
     assert not svc.load_access_token()[1].ok
     assert svc.load_steps_access_token()[0] == ""
+    assert svc.load_steps_access_token(refresh_if_needed=True)[0] == ""
     assert len(saved) == 1 and not browser and not transport.calls
+
+
+def test_complete_cached_steps_inspection_and_bootstrap_do_not_refresh(tmp_path):
+    svc, saved, browser, transport = service(tmp_path, scopes=STEPS_SCOPE_ORDER, include_steps=True)
+    assert svc.bootstrap().ok
+    token, result = svc.load_steps_access_token()
+    assert token == SECRET and result.ok and not result.refresh_attempted
+    assert len(saved) == 1 and not browser and not transport.calls
+
+
+@pytest.mark.parametrize("omit", [False, True])
+def test_steps_apply_refreshes_one_snapshot_and_uses_fresh_access(tmp_path, omit):
+    body = json.loads(oauth_response(missing_scope=omit).body)
+    if omit:
+        del body["refresh_token"]
+    svc, saved, browser, oauth = service(
+        tmp_path, scopes=STEPS_SCOPE_ORDER, include_steps=True, response=response(body)
+    )
+    original = saved[0]
+    original.expires_in = 0  # Synthetic cached access must never be used for the data POST.
+    reads = []
+
+    def read_once():
+        reads.append(True)
+        return original
+
+    svc._read_tokens = read_once
+    data = Transport(response(payload()))
+    report = acquire_steps(
+        Settings(data_dir=tmp_path / "synthetic-runtime"), plan(), auth_service=svc, transport=data
+    )
+    assert report["status"] == "observed" and report["request_count"] == 1
+    assert report["auth_refresh_attempted"] and report["auth_refresh_succeeded"]
+    assert report["auth_error"] is None and len(reads) == len(oauth.calls) == 1
+    assert oauth.calls[0][0:2] == ("POST", auth.GOOGLE_TOKEN_ENDPOINT)
+    assert oauth.calls[0][2]["form"]["grant_type"] == "refresh_token"
+    assert data.calls[0][2]["headers"]["Authorization"] == "Bearer synthetic-new"
+    assert len(saved) == 2 and saved[-1].granted_scopes() == frozenset(STEPS_SCOPE_ORDER)
+    assert saved[-1].refresh_token == (SECRET if omit else "synthetic-new-refresh")
+    assert original.access_token == SECRET and not browser
+
+
+@pytest.mark.parametrize("missing", STEPS_SCOPE_ORDER)
+def test_steps_apply_requires_each_cached_scope_before_oauth(tmp_path, monkeypatch, missing):
+    svc, saved, browser, oauth = service(
+        tmp_path, scopes=tuple(s for s in STEPS_SCOPE_ORDER if s != missing), include_steps=True
+    )
+    monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
+    data = Transport()
+    report = acquire_steps(
+        Settings(data_dir=tmp_path / "none"), plan(), auth_service=svc, transport=data
+    )
+    assert report["reason"] == "steps_grant_required" and report["request_count"] == 0
+    assert not report["auth_refresh_attempted"] and not report["auth_refresh_succeeded"]
+    assert len(saved) == 1 and not browser and not oauth.calls and not data.calls
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "invalid_grant", "denied_401", "denied_403", "server", "transport", "malformed",
+        "partial", "extra", "write_scope", "empty_scope", "scope_type", "bad_type",
+        "empty_access", "missing_refresh", "storage", "protection",
+    ],
+)
+def test_steps_refresh_failure_preserves_session_and_blocks_data(tmp_path, monkeypatch, failure):
+    body = json.loads(oauth_response().body)
+    if failure == "partial":
+        body["scope"] = " ".join(DEFAULT_SCOPE_ORDER)
+    elif failure in {"extra", "write_scope"}:
+        body["scope"] += " " + (
+            auth.SCOPE_SETTINGS if failure == "extra"
+            else SCOPE_ACTIVITY.replace("readonly", "writeonly")
+        )
+    elif failure == "empty_scope":
+        body["scope"] = ""
+    elif failure == "scope_type":
+        body["scope"] = [SCOPE_ACTIVITY]
+    elif failure == "bad_type":
+        body["token_type"] = "Basic"
+    elif failure == "empty_access":
+        body["access_token"] = ""
+    reply = response(body)
+    if failure == "invalid_grant":
+        reply = GoogleHttpResponse(400, b'{"error":"invalid_grant"}')
+    elif failure.startswith("denied_"):
+        reply = GoogleHttpResponse(int(failure[-3:]), b'{}')
+    elif failure == "server":
+        reply = GoogleHttpResponse(503, SECRET.encode())
+    elif failure == "transport":
+        reply = OSError(SECRET)
+    elif failure == "malformed":
+        reply = response(b"{")
+    svc, saved, browser, oauth = service(
+        tmp_path, scopes=STEPS_SCOPE_ORDER, include_steps=True, response=reply
+    )
+    original = saved[0].as_storage_dict()
+    if failure == "missing_refresh":
+        saved[0].refresh_token = None
+        original = saved[0].as_storage_dict()
+    if failure in {"storage", "protection"}:
+
+        def fail_write(_tokens):
+            if failure == "protection":
+                raise auth.GoogleCredentialProtectionUnavailable(SECRET)
+            raise OSError(SECRET)
+
+        svc._write_tokens = fail_write
+    monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
+    data = Transport()
+    report = acquire_steps(
+        Settings(data_dir=tmp_path / "none"), plan(), auth_service=svc, transport=data
+    )
+    assert report["reason"] == "steps_auth_failed" and report["request_count"] == 0
+    assert report["auth_refresh_attempted"] and not report["auth_refresh_succeeded"]
+    assert report["auth_error"] is not None and SECRET not in json.dumps(report)
+    assert len(saved) == 1 and saved[0].as_storage_dict() == original
+    assert len(oauth.calls) == (0 if failure == "missing_refresh" else 1)
+    assert not browser and not data.calls and not (tmp_path / "none").exists()
+
+
+def test_unexpected_cached_scope_stops_before_refresh(tmp_path):
+    svc, saved, browser, oauth = service(
+        tmp_path, scopes=(*STEPS_SCOPE_ORDER, auth.SCOPE_SETTINGS), include_steps=True
+    )
+    token, result = svc.load_steps_access_token(refresh_if_needed=True)
+    assert not token and not result.ok and not result.refresh_attempted
+    assert result.error.error_code == "scope_unexpected"
+    assert len(saved) == 1 and not browser and not oauth.calls
+
+
+@pytest.mark.parametrize("failure", ["partial", "protection", "replace"])
+def test_steps_staged_refresh_preserves_previous_file_bytes(tmp_path, monkeypatch, failure):
+    svc, _, browser, oauth = service(
+        tmp_path, scopes=STEPS_SCOPE_ORDER, include_steps=True,
+        response=oauth_response(DEFAULT_SCOPE_ORDER if failure == "partial" else STEPS_SCOPE_ORDER),
+    )
+    token_path = tmp_path / "synthetic-token-envelope.enc"
+    original = b"synthetic-old-envelope"
+    token_path.write_bytes(original)
+    svc.token_path = token_path
+    protected = []
+
+    def protect(text, *, purpose):
+        protected.append(purpose)
+        if failure == "protection":
+            raise auth.GoogleCredentialProtectionUnavailable(SECRET)
+        return "synthetic-new-envelope"
+
+    svc.protector = SimpleNamespace(kind="synthetic", protect=protect)
+    svc._write_tokens = GoogleAuthService._write_tokens.__get__(svc)
+    if failure == "replace":
+
+        def fail_replace(_source, _target):
+            raise OSError(SECRET)
+
+        monkeypatch.setattr(Path, "replace", fail_replace)
+    token, result = svc.load_steps_access_token(refresh_if_needed=True)
+    assert not token and not result.ok and result.refresh_attempted
+    assert token_path.read_bytes() == original and not list(tmp_path.glob(".*.tmp"))
+    assert protected == ([] if failure == "partial" else ["google-tokens"])
+    assert len(oauth.calls) == 1 and not browser
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_steps_rejection_after_startup_refresh_never_refreshes_or_reposts(
+    tmp_path, monkeypatch, status
+):
+    svc, saved, browser, oauth = service(
+        tmp_path, scopes=STEPS_SCOPE_ORDER, include_steps=True, response=oauth_response()
+    )
+    data = Transport(GoogleHttpResponse(status, SECRET.encode()))
+    monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
+    report = acquire_steps(
+        Settings(data_dir=tmp_path / "none"), plan(), auth_service=svc, transport=data
+    )
+    assert report["reason"] == "provider_rejected" and report["http_status"] == status
+    assert report["auth_refresh_succeeded"] and report["request_count"] == 1
+    assert len(oauth.calls) == len(data.calls) == 1 and len(saved) == 2 and not browser
+    assert SECRET not in json.dumps(report)
 
 
 @pytest.mark.parametrize(
@@ -260,7 +442,11 @@ def test_documented_manual_consent_command_forwards_only_explicit_opt_in(tmp_pat
 
 def test_documented_apply_command_with_missing_grant_stops_before_runtime(tmp_path, monkeypatch):
     svc, saved, browser, transport = service(tmp_path)
-    monkeypatch.setattr(cli, "GoogleAuthService", lambda _settings: svc)
+    def auth_factory(_settings, **kwargs):
+        assert kwargs == {"include_steps": True}
+        return svc
+
+    monkeypatch.setattr(cli, "GoogleAuthService", auth_factory)
     monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
     profile = tmp_path / "owner-selected-synthetic-profile"
     assert (

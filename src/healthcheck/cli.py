@@ -639,7 +639,9 @@ def _run_google_steps(args: argparse.Namespace, settings: Settings) -> int:
         else:
             if not args.data_dir or not Path(args.data_dir).is_absolute():
                 raise ValueError("Steps apply requires an explicit absolute profile")
-            report = acquire_steps(settings, plan, auth_service=GoogleAuthService(settings))
+            report = acquire_steps(
+                settings, plan, auth_service=GoogleAuthService(settings, include_steps=True)
+            )
     except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
         return _report_external_runtime_operation_error(
             exc, contract_version=ACQUISITION_CONTRACT, operation="google-steps"
