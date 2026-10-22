@@ -2166,15 +2166,18 @@ not Owner UAT or full completion of either issue.
 <a id="saved-sleep-quality"></a>
 ### Saved sleep coverage, duration and role quality (#483 / #484)
 
-Current metric projection/algorithm `r05-02-sleep-metric-projection-v2` and rules
-`r05-02-sleep-metric-rules-v2` require recognized, ordered, nonoverlapping and
+Current metric projection/algorithm `r05-02-sleep-metric-projection-v3` and rules
+`r05-02-sleep-metric-rules-v3` require recognized, ordered, nonoverlapping and
 contiguous stages covering independently confirmed session boundaries before a
 complete stage-derived total/TIB or absent-stage zero is eligible. Internal/edge gaps,
 unknown stages and unconfirmed boundaries stay unavailable with explicit reasons.
 Legacy Garmin `levels` without a confirmed session end cannot prove REM=0 or
 complete TIB merely because its intervals are contiguous. Production v3 may use
-its preserved explicit summary-end evidence; no raw-body reread, host timezone,
-missing endpoint or invented stage fills that gap. A separately valid summary
+its preserved explicit summary-end evidence. V4 additionally stores independent
+summary start/end metadata even when phases are absent or partial; that upper
+bound does not establish stage completeness or replace the stage timing method.
+No raw-body reread, host timezone, missing endpoint or invented stage fills a gap.
+A separately valid summary
 remains eligible despite partial stages. In particular, Google summary TIB may
 remain eligible under validated explicit session boundaries even when stages
 are partial or missing; it is not relabelled a complete stage-derived total.
@@ -2187,13 +2190,34 @@ minutes cannot fit a confirmed two-hour session. Zero, missing, explicit null an
 invalid remain distinct, with original midnight/offset evidence retained. Unknown
 or incompatible bounds do not become an assumed timezone or comparison basis.
 
-The pure `sleep-duration-quality-v1` helper also serves current legacy Garmin
-scalar consumers under `r03-garmin-sleep-duration-quality-v1`. Night, latest,
+The pure `sleep-duration-quality-v2` helper also serves current legacy Garmin
+scalar consumers under `r03-garmin-sleep-duration-quality-v2`. Night, latest,
 period/annual, comparison, UI and evidence export exclude invalid current values
 with consistent reasons/counts. Versioned metadata-only quality snapshots freeze
 the scalar and interval dependencies; recursive export allowlists exclude arbitrary
 payload fields. Raw evidence, stored metric rows and historical frozen agreement
-outputs remain intact. This read-time correction requires no migration or replay.
+outputs remain intact. The allowlisted `session_bound_validation` records
+`checked` or `unverified`, a bounded reason and the evidenced upper bound when
+available, separately from the scalar's own state/value/invalid reason. It never
+defaults missing historical metadata to a successful boundary check. Pre-v4 rows
+that lost summary End cannot prove TST <= session from typed data alone; raw values
+remain preserved and their missing bound is not reconstructed from phase length.
+By the Owner's 22 October decision in [#484](https://github.com/LTstripes/Health-Check/issues/484),
+scalar-valid independent summaries with unverified boundaries remain in the
+existing calculations/comparisons/exports, with explicit unverified status/reason.
+Their eligibility denotes provider-summary usability, not certified boundary
+consistency. Absence of preserved bounds alone does not remove a night; negative
+values and supported, proven duration contradictions still exclude it. This
+decision does not permit the new counterexample when typed bounds are available.
+Boundary metadata is evidence, not an independently usable sleep measurement:
+it cannot make otherwise invalid sleep data a usable preview replacement or
+turn absent bounds into a missing sleep metric. Preserve supported integral
+numeric epoch representations exactly, including their original Local text;
+decoding must not round a fractional value into a confirmed boundary.
+New current-read checks require no database migration. New v4 metadata is produced
+by normalization or separately assigned offline reprocessing; no automatic replay
+or historical frozen-output rewrite is introduced. Final release eligibility and
+its exact candidate/verdict remain tracked in [#479](https://github.com/LTstripes/Health-Check/issues/479).
 
 The bounded period loader includes `sleep_metadata_main_sleep`, so its role
 decision and source-selection eligible-night counts match the main saved-night
@@ -2204,7 +2228,7 @@ account-pairing helpers remain their original versions; acquisition is unchanged
 
 ### Saved sleep production-shape interpretation (#462 / #464)
 
-Garmin Sleep normalization `r02-garmin-sleep-normalization-v3` accepts paired
+Garmin Sleep normalization `r02-garmin-sleep-normalization-v4` accepts paired
 `dailySleepDTO.sleepStartTimestampGMT/Local` and `sleepEndTimestampGMT/Local`
 as integral epoch milliseconds. GMT establishes the instant; Local is a nominal
 wall-clock encoding. Their exact whole-minute difference establishes each
@@ -2213,6 +2237,17 @@ paths and original Local value; `calendarDate` remains the explicit wake date.
 Invalid/conflicting evidence cannot become an eligible instant. Local-only
 evidence retains its local clock and original value without UTC; absent timing
 retains the previous date-only/unknown outcome.
+
+The sleep-only `sleep_summary_session_bounds` metric uses existing text storage
+for schema `garmin-sleep-summary-bounds-v1`, containing independently parsed
+start/end TemporalDTOs. Emit it only when both independent endpoints are valid;
+unsupported or absent bounds add no synthetic missing-metric row. Its field path,
+metric-row identity, original Local values,
+precision/state and endpoint offsets survive typed persistence and the closed
+`quality_inputs.summary_boundary` evidence projection. Neither endpoint depends
+on a phase row. Invalid or unavailable endpoints do not become confirmed bounds;
+the retained v3 fallback requires actual saved endpoint provenance. This metadata
+is not a provider raw body and adds no schema migration or new activity behavior.
 
 Production `sleepLevels[].startGMT/endGMT` are explicit GMT interval boundaries;
 integral numeric `activityLevel` maps `0=DEEP`, `1=LIGHT`, `2=REM`, `3=AWAKE`.
@@ -3937,9 +3972,10 @@ public detailed serializer first. No byte cap is raised and no winning prefix
 is emitted. An oversized compact packet still fails the complete request.
 
 The quality-evidence repair identifies its nested Sleep representation with
-`projection.sleep_evidence_schema = compact-sleep-evidence-v2`; the outer v1–v6
-envelope variants keep their existing optional-domain meaning. Older packets
-without this discriminator retain the original inline Sleep representation.
+`projection.sleep_evidence_schema = compact-sleep-evidence-v3`; the outer v1–v6
+envelope variants keep their existing optional-domain meaning. Older v2 packets
+retain their session-endpoint registry and inline quality inputs; packets without
+the discriminator retain the original inline Sleep representation.
 The new registry locator and all references are bound by the envelope hash.
 
 Only Sleep representation changes:
@@ -3964,7 +4000,7 @@ Only Sleep representation changes:
   formulas. Counts/digests describe all contributing intervals; they do not
   silently retain only a prefix. The digest identifies omitted detail but cannot
   reconstruct it or establish independent source correctness.
-- In nested v2, `interval_summary.session_intervals_index` resolves into that
+- In nested v2/v3, `interval_summary.session_intervals_index` resolves into that
   same session's `session_interval_sets`. Exactly identical arrays are interned
   once using canonical JSON identity, preserving numeric types; indices never
   reference another session/source. The restored array retains original
@@ -3975,6 +4011,15 @@ Only Sleep representation changes:
   endpoints/IDs are intentionally available only in detailed mode. Interval
   counts/groups/digests, quality dependencies and selected values are unchanged
   by interning; it does not weaken coverage or duration eligibility.
+- Nested v3 additionally interns complete, already allowlisted `quality_inputs`
+  objects in that source session's `quality_input_sets`. After overlaying common
+  and per-cell evidence, resolve `quality_inputs_index` to the exact object in
+  that local registry. Canonical JSON identity preserves every field/type,
+  including both independent summary TemporalDTOs and boundary-validation state;
+  there is no cross-session/source pooling or dependency removal. The explicit
+  locator and envelope hash bind the registry and indices. Reconstruction is
+  lossless and does not mutate a frozen packet. Readable text excludes registry
+  arrays themselves but resolves the small validation state/reason correctly.
 
 Activity cells (including coverage/conflict/incomplete-search flags), current
 Context revisions/text/temporal precision and explicit page bounds/has-more,
@@ -3988,7 +4033,8 @@ untrusted data, never tool instructions.
 The persisted synthetic size regression includes 30 Garmin nights, 30 Google
 nights with 60 seven-minute stage intervals each (within the existing parser
 cap), daily Activity and 50 Unicode comments plus additional rows proving the
-Context page bound. Detailed JSON exceeds 2 MiB while compact JSON stays below
+Context page bound. The strengthened case also supplies both native summary
+endpoints for the additional Garmin nights. Detailed JSON exceeds 2 MiB while compact JSON stays below
 1.5 MiB, with every daily point and selected comment preserved. This proves that
 representative workload, not a universal size/latency guarantee or Owner UAT.
 

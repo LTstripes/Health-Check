@@ -43,7 +43,9 @@ from healthcheck.garmin.normalization import (
 from healthcheck.sleep_quality import (
     SLEEP_DURATION_QUALITY_VERSION,
     duration_quality_reason,
-    garmin_confirmed_session_bounds,
+    garmin_duration_bound_check,
+    garmin_duration_session_bounds,
+    garmin_summary_boundary_evidence,
 )
 
 ANALYTIC_INPUT_CONTRACT_VERSION = "r03-garmin-analytic-input-v1"
@@ -1205,7 +1207,11 @@ def build_analytic_input_from_storage(
         stages = tuple(session.scalars(select(GarminSleepStageInterval).where(
             GarminSleepStageInterval.sleep_record_id == record.id,
         ).order_by(GarminSleepStageInterval.ordinal)))
-        start, end = garmin_confirmed_session_bounds(record, stages)
+        boundary_metrics = tuple(session.scalars(select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == record.id,
+            GarminRecordMetric.metric_code == "sleep_summary_session_bounds",
+        )))
+        start, end = garmin_duration_session_bounds(record, stages, boundary_metrics)
         value = coerce_selected_number(metric.value)
         reason = None if value is None else duration_quality_reason(
             value, session_seconds=(end - start).total_seconds()
@@ -1217,11 +1223,14 @@ def build_analytic_input_from_storage(
             "confirmed_start_at_utc": start.isoformat() if start is not None else None,
             "confirmed_end_at_utc": end.isoformat() if end is not None else None,
             "stage_endpoint_ids": [row.id for row in stages],
+            "summary_boundary": garmin_summary_boundary_evidence(record, boundary_metrics),
+            "session_bound_validation": garmin_duration_bound_check(
+                record, stages, boundary_metrics, value),
         })
         if reason is not None:
             metric = replace(metric, state=GarminFieldState.INVALID, reason=reason)
         if rule_version == ANALYTIC_RULE_VERSION:
-            rule_version = "r03-garmin-sleep-duration-quality-v1"
+            rule_version = "r03-garmin-sleep-duration-quality-v2"
     if record.stream_code == GarminStream.ACTIVITY.value:
         siblings = session.scalars(
             select(GarminRecordMetric).where(GarminRecordMetric.record_id == record.id)

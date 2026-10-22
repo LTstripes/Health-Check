@@ -34,7 +34,7 @@ SELECTED_VERSION = "health-chat-combined-evidence-v2"
 SELECTED_COMPACT_VERSION = "health-chat-combined-compact-evidence-v2"
 COMPLETED_VERSION = "health-chat-combined-evidence-v5"
 COMPLETED_COMPACT_VERSION = "health-chat-combined-compact-evidence-v5"
-COMPACT_SLEEP_SCHEMA_VERSION = "compact-sleep-evidence-v2"
+COMPACT_SLEEP_SCHEMA_VERSION = "compact-sleep-evidence-v3"
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,9 @@ def _compact_sleep(sections):
                     # Only exactly equal fields move; cell-specific exclusions,
                     # row identities and interval digests remain independently bound.
                     common = {key: value for key, value in evidence_cells[0].items()
-                              if all(key in item and item[key] == value
+                              if all(key in item and (
+                                  _json(item[key]) == _json(value) if key == "quality_inputs"
+                                  else item[key] == value)
                                      for item in evidence_cells[1:])} if evidence_cells else {}
                     session["field_path_sets"] = field_path_sets
                     session["session_interval_sets"] = session_interval_sets
@@ -165,7 +167,36 @@ def _compact_sleep(sections):
                     for item in evidence_cells:
                         for key in common:
                             del item[key]
+                    quality_input_sets, quality_input_indices = [], {}
+                    for item in (common, *evidence_cells):
+                        if "quality_inputs" not in item:
+                            continue
+                        quality = item.pop("quality_inputs")
+                        identity = _json(quality)
+                        if identity not in quality_input_indices:
+                            quality_input_indices[identity] = len(quality_input_sets)
+                            quality_input_sets.append(quality)
+                        item["quality_inputs_index"] = quality_input_indices[identity]
+                    session["quality_input_sets"] = quality_input_sets
     return result
+
+
+def _restore_compact_sleep_evidence(session, cell):
+    """Overlay first, then resolve independent session-local v2/v3 registries."""
+    restored = deepcopy(session.get("evidence_common", {}) | cell.get("evidence", {}))
+    def indexed(name, index):
+        values = session.get(name)
+        if type(index) is not int or not isinstance(values, list) or not 0 <= index < len(values):
+            raise EvidenceError("invalid_compact_sleep_index")
+        return deepcopy(values[index])
+    if "quality_inputs_index" in restored:
+        restored["quality_inputs"] = indexed(
+            "quality_input_sets", restored.pop("quality_inputs_index"))
+    summary = restored.get("interval_summary")
+    if summary is not None and "session_intervals_index" in summary:
+        summary["session_intervals"] = indexed(
+            "session_interval_sets", summary.pop("session_intervals_index"))
+    return restored
 
 
 def read_combined_evidence(
@@ -310,6 +341,7 @@ def read_combined_evidence(
                     "session_evidence": "evidence_common_overlaid_with_metric_evidence",
                     "field_paths": "session_field_path_sets_indexed_by_field_paths_index",
                     "session_intervals": "session_interval_sets_indexed_by_session_intervals_index",
+                    "quality_inputs": "session_quality_input_sets_indexed_by_quality_inputs_index",
                     "night_summary": "summary_record_id_references_saved_session_or_null",
                     "values_and_flags": "unchanged_accepted_reader_results",
                 }
@@ -425,10 +457,20 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
                                    if key not in {
                                        "temporal_evidence", "metrics",
                                        "evidence_common", "field_path_sets",
-                                       "session_interval_sets"}}
+                                       "session_interval_sets", "quality_input_sets"}}
                         summary["metrics"] = {
                             code: {key: value for key, value in cell.items() if key != "evidence"}
                             for code, cell in session["metrics"].items()}
+                        for code, cell in session["metrics"].items():
+                            metric_evidence = _restore_compact_sleep_evidence(session, cell)
+                            check = metric_evidence.get("quality_inputs", {}).get(
+                                "session_bound_validation", {})
+                            if (check.get("state") == "unverified" and check.get("reason")
+                                    == "summary_session_boundary_unavailable"):
+                                summary["metrics"][code]["session_bound_validation"] = {
+                                    "state": "unverified",
+                                    "reason": "summary_session_boundary_unavailable",
+                                }
                         lines.append(f"{label} saved session: {_json(summary)}")
     for domain in ("stress", "body_battery", "hrv", "rhr", "steps", "weight"):
         if domain in packet["sections"]:

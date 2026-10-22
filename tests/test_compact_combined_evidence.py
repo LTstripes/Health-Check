@@ -82,21 +82,19 @@ def assert_parity(detailed, projected):
                     assert {k: v for k, v in original.items() if k != "metrics"} == {
                         k: v for k, v in actual.items()
                         if k not in {"metrics", "evidence_common", "field_path_sets",
-                                     "session_interval_sets"}}
+                                     "session_interval_sets", "quality_input_sets"}}
                     assert original["metrics"].keys() == actual["metrics"].keys()
                     for code, metric in original["metrics"].items():
                         cell = actual["metrics"][code]
                         assert {k: v for k, v in metric.items() if k != "evidence"} == {
                             k: v for k, v in cell.items() if k != "evidence"}
-                        restored = actual["evidence_common"] | cell["evidence"]
+                        restored = evidence._restore_compact_sleep_evidence(actual, cell)
                         restored["field_paths"] = actual["field_path_sets"][
                             restored.pop("field_paths_index")]
                         assert {k: v for k, v in metric["evidence"].items()
                                 if k not in {"interval_snapshots", "interval_ids"}} == {
                             k: v for k, v in restored.items() if k != "interval_summary"}
                         summary = dict(restored["interval_summary"])
-                        summary["session_intervals"] = actual["session_interval_sets"][
-                            summary.pop("session_intervals_index")]
                         snapshots = metric["evidence"]["interval_snapshots"]
                         ids = metric["evidence"]["interval_ids"]
                         assert summary["count"] == len(snapshots)
@@ -120,7 +118,9 @@ def test_exact_parity_and_hash_without_mutating_detailed(profile, days):
     assert detailed == saved
     unhashed = {k: v for k, v in packet.items() if k != "envelope_hash"}
     assert packet["envelope_hash"] == hashlib.sha256(_json(unhashed).encode("utf-8")).hexdigest()
-    assert packet["projection"]["sleep_evidence_schema"] == "compact-sleep-evidence-v2"
+    assert packet["projection"]["sleep_evidence_schema"] == "compact-sleep-evidence-v3"
+    assert packet["projection"]["quality_inputs"] == (
+        "session_quality_input_sets_indexed_by_quality_inputs_index")
     assert packet["projection"]["session_intervals"] == (
         "session_interval_sets_indexed_by_session_intervals_index"
     )
@@ -128,14 +128,17 @@ def test_exact_parity_and_hash_without_mutating_detailed(profile, days):
     assert packet["envelope_hash"] in evidence.render_combined_evidence(packet)
 
 
-def test_endpoint_registry_uses_canonical_identity_and_stays_session_local():
+@pytest.mark.parametrize("include_null", [False, True])
+def test_endpoint_registry_uses_canonical_identity_and_stays_session_local(include_null):
     metrics = {
         code: {"evidence": {"field_paths": [], "interval_ids": ["same-reference"],
             "interval_snapshots": [{"id": "same-reference", "interval_kind": "sleep_session",
                                     "ordinal": value}],
-            "quality_inputs": {"source_bound": "preserved"}}}
-        for code, value in (("duration", True), ("start", 1), ("end", 1.0))
+            "quality_inputs": {"source_bound": value}}}
+        for code, value in (("duration", True), ("start", 1), ("end", 1.0), ("missing", None))
     }
+    if not include_null:
+        metrics.pop("missing")
     sessions = [{"record_id": identity, "metrics": deepcopy(metrics)}
                 for identity in ("first", "second")]
     sections = {"sleep": {"providers": {"google": {"source_range": {"days": [
@@ -146,29 +149,46 @@ def test_endpoint_registry_uses_canonical_identity_and_stays_session_local():
         "sources"][0]["sessions"]
     assert _json(sections) == _json(original)
     assert actual[0]["session_interval_sets"] is not actual[1]["session_interval_sets"]
+    assert actual[0]["quality_input_sets"] is not actual[1]["quality_input_sets"]
     for session in actual:
         registry = session["session_interval_sets"]
-        assert len(registry) == 3  # JSON true, 1 and 1.0 are distinct evidence.
+        assert len(registry) == len(session["quality_input_sets"]) == len(metrics)
         for code, original_cell in metrics.items():
-            restored = session["evidence_common"] | session["metrics"][code]["evidence"]
-            index = restored["interval_summary"]["session_intervals_index"]
-            assert _json(registry[index]) == _json(original_cell["evidence"]["interval_snapshots"])
-            assert restored["quality_inputs"] == original_cell["evidence"]["quality_inputs"]
+            restored = evidence._restore_compact_sleep_evidence(session, session["metrics"][code])
+            assert _json(restored["interval_summary"]["session_intervals"]) == _json(
+                original_cell["evidence"]["interval_snapshots"])
+            assert _json(restored["quality_inputs"]) == _json(
+                original_cell["evidence"]["quality_inputs"])
+            saved = _json(session)
+            restored["quality_inputs"]["source_bound"] = "changed-copy"
+            assert _json(session) == saved
 
 
-def test_prior_inline_compact_packet_remains_serializable_without_reinterpretation(profile):
+@pytest.mark.parametrize("schema", ["inline", "v2"])
+def test_prior_inline_compact_packet_remains_serializable_without_reinterpretation(profile, schema):
     # A prior saved artifact contains JSON values, not the runtime DTO's dates/tuples.
     packet = json.loads(evidence.encode_combined_evidence(compact(profile)))
-    packet["projection"].pop("sleep_evidence_schema")
-    packet["projection"].pop("session_intervals")
+    packet["projection"].pop("quality_inputs")
+    if schema == "inline":
+        packet["projection"].pop("sleep_evidence_schema")
+        packet["projection"].pop("session_intervals")
+    else:
+        packet["projection"]["sleep_evidence_schema"] = "compact-sleep-evidence-v2"
     for provider in packet["sections"]["sleep"]["providers"].values():
         for night in provider["source_range"]["days"]:
             for source in night["sources"]:
                 for session in source["sessions"]:
-                    registry = session.pop("session_interval_sets")
+                    registry = session.get("session_interval_sets")
+                    quality = session.pop("quality_input_sets")
+                    if schema == "inline":
+                        session.pop("session_interval_sets")
                     for item in (session["evidence_common"], *(cell["evidence"]
                                  for cell in session["metrics"].values())):
-                        if "interval_summary" in item:
+                        if "quality_inputs_index" in item:
+                            item["quality_inputs"] = deepcopy(
+                                quality[item.pop("quality_inputs_index")])
+                        item.get("quality_inputs", {}).pop("session_bound_validation", None)
+                        if schema == "inline" and "interval_summary" in item:
                             summary = item["interval_summary"]
                             summary["session_intervals"] = registry[
                                 summary.pop("session_intervals_index")]
@@ -177,7 +197,19 @@ def test_prior_inline_compact_packet_remains_serializable_without_reinterpretati
     original = deepcopy(packet)
     assert json.loads(evidence.encode_combined_evidence(packet)) == original
     assert packet["envelope_hash"] in evidence.render_combined_evidence(packet)
+    assert "session_bound_validation" not in evidence.render_combined_evidence(packet)
     assert packet == original
+
+
+@pytest.mark.parametrize("registry", ["quality", "interval"])
+@pytest.mark.parametrize("bad_index", [True, -1, 1.0, "0", None, 99])
+def test_compact_sleep_registry_indices_require_bounded_integers(registry, bad_index):
+    session = {"quality_input_sets": [{}], "session_interval_sets": [[]]}
+    cell = {"evidence": {"quality_inputs_index": bad_index if registry == "quality" else 0,
+        "interval_summary": {
+            "session_intervals_index": bad_index if registry == "interval" else 0}}}
+    with pytest.raises(EvidenceError, match="invalid_compact_sleep_index"):
+        evidence._restore_compact_sleep_evidence(session, cell)
 
 
 @pytest.mark.parametrize("case", ["zero_partial", "missing", "null", "invalid", "ambiguous",
@@ -298,7 +330,19 @@ def test_representative_30_day_persisted_workload_fits_without_truncation(
             _persist_google(session, profile[0], payload=payload)
             if offset:
                 fixture = tmp_path / f"sleep-{offset}.json"
-                fixture.write_text(json.dumps(_shift_dates(garmin, offset)), encoding="utf-8")
+                native = _shift_dates(garmin, offset)
+                # Exercise independently retained v4 summary bounds as well as
+                # the existing sparse legacy phases; they do not prove coverage.
+                summary = native["payload"]["dailySleepDTO"]
+                for endpoint, stamp in (("Start", native["payload"]["levels"][0]["startTimeGMT"]),
+                                        ("End", native["payload"]["levels"][-1]["endTimeGMT"])):
+                    instant = datetime.fromisoformat(stamp)
+                    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+                    summary[f"sleep{endpoint}TimestampGMT"] = int(
+                        (instant - epoch).total_seconds() * 1000)
+                    summary[f"sleep{endpoint}TimestampLocal"] = int(
+                        (instant + timedelta(hours=1) - epoch).total_seconds() * 1000)
+                fixture.write_text(json.dumps(native), encoding="utf-8")
                 _persist_garmin(session, profile[0], fixture)
                 _activity(session, profile[0], day=DAY + timedelta(days=offset), suffix=str(offset))
         for index in range(50):
@@ -333,6 +377,7 @@ def test_representative_30_day_persisted_workload_fits_without_truncation(
     packet = read(profile, replace(request, projection="compact"), **read_options)
     assert_parity(captured_packets[0], packet)
     machine, readable = encoder(packet), evidence.render_combined_evidence(packet)
+    assert "summary_session_boundary_unavailable" in readable
     assert sizes[0] > MAX_OUTPUT_BYTES
     assert len(machine.encode("utf-8")) < MAX_OUTPUT_BYTES * 3 // 4
     assert len(readable.encode("utf-8")) < MAX_OUTPUT_BYTES

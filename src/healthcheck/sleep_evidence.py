@@ -169,6 +169,11 @@ EVIDENCE = {
         **_fields("metric_rule_version record_start_precision record_start_at_utc "
                   "stage_status_succeeded session_state stages_state"),
         "metrics": [_fields("id metric_code state value_number unit reason")],
+        "summary_boundary": {
+            **_fields("schema_version metric_row_id field_path"),
+            "start": TEMPORAL, "end": TEMPORAL,
+        },
+        "session_bound_validation": _fields("state reason upper_bound_seconds"),
     },
 }
 METRIC = {

@@ -15,6 +15,23 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 <a id="current-canonical-state--current-canonical-state--2026-10-22"></a>
 ## Current canonical state - 2026-10-22
 
+The final targeted audit returned **NO-GO for code `303450b`** after the ordinary
+acceptance recorded below. [#484](https://github.com/LTstripes/Health-Check/issues/484)
+and [#485](https://github.com/LTstripes/Health-Check/issues/485) track the two
+bounded follow-up corrections in [PR #491](https://github.com/LTstripes/Health-Check/pull/491).
+[Release tracker #479](https://github.com/LTstripes/Health-Check/issues/479)
+owns the current exact candidate and verdict; prior CI success does not override
+that audit or authorize real-data UAT/rollout. #488 implementation remains on hold.
+The Owner chose to keep scalar-valid legacy nights in calculations with an
+explicit "boundaries not checked" disclosure. Missing preserved boundaries alone
+do not remove a night; negative values and proven contradictions remain excluded.
+This does not certify old TST <= session or permit the counterexample when new
+typed bounds exist. New/reprocessed v4 records preserve independent endpoints;
+lost old End values are not recovered by raw reread or guessed from stages.
+The follow-up adds no schema migration or automatic history replay. Its exact
+review/CI/post-main receipt and later targeted-audit verdict belong in #479;
+the earlier copy rehearsal does not establish this candidate's runtime result.
+
 | Boundary | Observed state and evidence | What it establishes |
 | --- | --- | --- |
 | Accepted main at this documentation baseline | 303450b371780bd49e3e802b45155d9531846f10, tree 2762a7be1133c9adc0cb7f7e6e7622bc40084fa8; [PR #489](https://github.com/LTstripes/Health-Check/pull/489), [exact combined post-main CI 39772587047 / attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/39772587047) | Four audit corrections plus saved mainSleep period-role parity are merged after independent review and exact PR/task gates: 5,400 passed / three declared skips. Combined post-main passed with original-artifact and repository provenance/completeness validators. Raw/history remain; final targeted recheck, installed runtime binding and Owner UAT are separate |
@@ -111,10 +128,16 @@ See [the reader contract](ARCHITECTURE.md#saved-google-steps-read-392).
 **Prepared scope; no published release or Stable rollout.**
 [Tracker #479](https://github.com/LTstripes/Health-Check/issues/479) designates this
 section and the [Operations checklist](OWNER_OPERATIONS.md#release-preflight-2026-10-22).
-Accepted code baseline: 303450b371780bd49e3e802b45155d9531846f10. Its exact
+Earlier accepted code baseline: 303450b371780bd49e3e802b45155d9531846f10. Its exact
 combined post-main passed 5,400 tests / three declared skips with original-artifact
-and repository provenance/completeness validators. Final operational
-freeze still requires the separate targeted recheck, Owner UAT and release decision;
+and repository provenance/completeness validators. Its subsequent final targeted
+audit returned **NO-GO**: independent Garmin summary bounds were lost with missing
+stage endpoints, and equal-epoch empty activity originals could be falsely skipped.
+The #484/#485 follow-up in [#491](https://github.com/LTstripes/Health-Check/pull/491)
+requires independent review, new exact CI/post-main
+and a targeted recheck on the new combined SHA before any real-data UAT transition.
+The current candidate/verdict belongs in #479. Final operational
+freeze also requires Owner UAT and the release decision;
 later documentation commits do not add runtime capability. Pin the selected full
 SHA instead of deploying a moving main; subsequent #488 work stays outside #479.
 [Installed Stable to code candidate comparison](https://github.com/LTstripes/Health-Check/compare/b51859e9787dd81ca7959de5d3184e0c801c6cbf...303450b371780bd49e3e802b45155d9531846f10).
@@ -192,9 +215,12 @@ the older rehearsal is retained with its exact old candidate. Final freeze and
 human UAT remain separate.
 After combined integration, the separately agreed [final independent targeted
 recheck](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6339639012)
-must bind the exact code candidate SHA above. Record its own current receipt/status
-in #479; the task reviews and CI recorded here do not establish that additional check.
-When the Owner is available, use approved disposable verified-backup clones as
+must bind the new exact code candidate after the #484/#485 follow-up; the earlier
+`303450b` verdict was NO-GO. Record its own current receipt/status in #479; task
+reviews and CI do not establish that additional check. Keep the earlier audit's
+selected/retried checks distinct from one clean full CI run. No universal HR/speed
+plausibility ceiling is introduced by these corrections.
+After the new candidate clears that gate and the Owner is available, use approved disposable verified-backup clones as
 applicable below; record PASS/FAIL/UNVERIFIED per item, private evidence outside Git:
 
 1. Verify candidate code/profile binding and desktop navigation. In Statistics,

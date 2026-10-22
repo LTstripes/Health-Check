@@ -48,7 +48,7 @@ from healthcheck.garmin.contracts import (
 
 NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v2"
 ACTIVITY_QUALITY_CONTRACT_VERSION = "garmin-activity-quality-v1"
-SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v3"
+SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v4"
 HRV_CALENDAR_CONTRACT_VERSION = "r02-garmin-hrv-calendar-normalization-v3"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
 SYNTHETIC_SOURCE_KIND = "synthetic"
@@ -1738,6 +1738,22 @@ def _parse_record(
         stage_metric, stage_diagnostics = _parse_sleep_levels(raw, source_path)
         metrics.append(stage_metric)
         diagnostics.extend(stage_diagnostics)
+        # Store parsed summary endpoints independently of phase availability.
+        # This metadata supplies a duration upper bound, never stage coverage.
+        if isinstance(raw.get("dailySleepDTO"), Mapping):
+            end, end_diagnostics = _parse_sleep_temporal(raw, source_path, "End")
+            valid = (temporal.precision is GarminTemporalPrecision.UTC_INSTANT
+                     and end.precision is GarminTemporalPrecision.UTC_INSTANT
+                     and end.measured_at_utc > temporal.measured_at_utc)
+            if valid:
+                metrics.append(GarminMetricDTO(
+                    capability_code="sleep_duration", metric_code="sleep_summary_session_bounds",
+                    field_path=f"{source_path}.dailySleepDTO", state="value",
+                    value=json.dumps({"schema_version": "garmin-sleep-summary-bounds-v1",
+                                      "start": temporal.as_dict(), "end": end.as_dict()},
+                                     sort_keys=True, separators=(",", ":")),
+                ))
+            diagnostics.extend(end_diagnostics)
 
     metrics = [
         replace(
@@ -1790,20 +1806,23 @@ def _parse_record(
         temporal=temporal,
         metrics=metrics,
     )
-    invalid_metric = any(item.state is GarminFieldState.INVALID for item in metrics)
+    # Boundary provenance is optional metadata, not usable sleep measurement.
+    status_metrics = [item for item in metrics if not (
+        stream is GarminStream.SLEEP and item.metric_code == "sleep_summary_session_bounds")]
+    invalid_metric = any(item.state is GarminFieldState.INVALID for item in status_metrics)
     missing_metric = any(
         item.state is GarminFieldState.MISSING
         and not (
             stream is GarminStream.ACTIVITY
             and item.metric_code in _OPTIONAL_ACTIVITY_METRIC_CODES
         )
-        for item in metrics
+        for item in status_metrics
     )
-    has_partial_collection = any(item.reason == "partial_collection" for item in metrics)
+    has_partial_collection = any(item.reason == "partial_collection" for item in status_metrics)
     if invalid_metric:
         status = (
             GarminParseStatus.PARTIAL
-            if any(item.has_value for item in metrics)
+            if any(item.has_value for item in status_metrics)
             else GarminParseStatus.INVALID
         )
     elif (
