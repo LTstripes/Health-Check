@@ -133,7 +133,7 @@ class PeriodReadBudget:
                 "sleep_metadata_nap",
             )
             if google
-            else ("sleep_duration_seconds", "sleep_stages")
+            else ("sleep_duration_seconds", "sleep_stages", "sleep_summary_session_bounds")
         )
         metrics = self.related(
             metric_model,

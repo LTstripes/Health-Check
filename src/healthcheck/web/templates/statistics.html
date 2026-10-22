@@ -102,6 +102,9 @@
         <p class="statistics-denominator">Допустимо: {{ cell.aggregation.eligible_count }} {{ 'ночей' if cell.aggregation.denominator == 'eligible_saved_nights' else 'сессий' }} · наблюдалось {{ cell.observed_count }} записей / {{ cell.observed_day_count }} {{ 'ночей' if code == 'sleep_duration_asleep_seconds' else 'дней' }}.</p>
         <p class="muted">Покрытие сбора: {{ 'полное' if cell.coverage.complete else 'неполное / не установлено' }} · без наблюдений {{ cell.missing_day_count }} дней.</p>
         {% endif %}
+        {% if code == 'sleep_duration_asleep_seconds' and cell.session_bound_validation is defined and cell.session_bound_validation.unverified_count %}
+        <p class="muted">Сводка источника доступна; длительность не проверена по границам сессии: {{ cell.session_bound_validation.unverified_count }} ночей.</p>
+        {% endif %}
         <details class="statistics-details">
           <summary>Покрытие и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
           {% if cell.source_selection is defined %}

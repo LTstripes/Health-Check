@@ -798,6 +798,7 @@ class PeriodSummaryService:
         exclusions = Counter()
         exclusions["wake_date_missing"] = missing_wake
         partial = uncertain = invalid = 0
+        bound_checks = Counter()
         observed = missing_wake
         sides = (
             self._read.sleep_sessions(source, [r for r, _wake in records])
@@ -853,6 +854,10 @@ class PeriodSummaryService:
                 dates.append(wake_date.isoformat())
                 partial += item["record_status"] == "partial"
                 uncertain += google and item["role"]["selection"] != "explicit_main"
+                check = cell.get("evidence", {}).get("quality_inputs", {}).get(
+                    "session_bound_validation", {})
+                if not google and check.get("state") in {"checked", "unverified"}:
+                    bound_checks[check["state"]] += 1
         result = _cell(
             SLEEP_CODE,
             values=values,
@@ -873,6 +878,13 @@ class PeriodSummaryService:
         )
         result["state"] = "observed" if values else "no_eligible_values"
         result["availability_counts"]["invalid"] = invalid
+        if not google:
+            result["session_bound_validation"] = {
+                "checked_count": bound_checks["checked"],
+                "unverified_count": bound_checks["unverified"],
+                "reason": "summary_session_boundary_unavailable" if bound_checks["unverified"]
+                else None,
+            }
         return result
 
     def _snapshot_evidence(self, records: list, *, google: bool) -> dict[str, Any]:

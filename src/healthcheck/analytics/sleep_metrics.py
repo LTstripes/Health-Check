@@ -52,11 +52,18 @@ from healthcheck.db.models import (
 )
 from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.analytic_contract import stable_manifest_hash
-from healthcheck.sleep_quality import duration_quality_reason, garmin_confirmed_session_bounds
+from healthcheck.sleep_quality import (
+    SUMMARY_BOUNDS_METRIC,
+    duration_quality_reason,
+    garmin_confirmed_session_bounds,
+    garmin_duration_bound_check,
+    garmin_duration_session_bounds,
+    garmin_summary_boundary_evidence,
+)
 
-R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION = "r05-02-sleep-metric-projection-v2"
-R05_SLEEP_METRIC_PROJECTION_RULE_VERSION = "r05-02-sleep-metric-rules-v2"
-R05_SLEEP_METRIC_PROJECTION_ALGORITHM = "r05-02-sleep-metric-projection-v2"
+R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION = "r05-02-sleep-metric-projection-v3"
+R05_SLEEP_METRIC_PROJECTION_RULE_VERSION = "r05-02-sleep-metric-rules-v3"
+R05_SLEEP_METRIC_PROJECTION_ALGORITHM = "r05-02-sleep-metric-projection-v3"
 
 # These are the only comparable/overlay cells emitted by this surface.  The
 # source metric names deliberately stay visible in each metric definition.
@@ -601,6 +608,15 @@ def _evidence_for(
             if side.field_state is not None else None,
             "stages_state": side.field_state.sleep_stages_state
             if side.field_state is not None else None,
+            **({"summary_boundary": garmin_summary_boundary_evidence(side.record, side.metrics)}
+               if side.provider == "garmin"
+               and any(row.metric_code == SUMMARY_BOUNDS_METRIC for row in metric_rows) else {}),
+            **({"session_bound_validation": garmin_duration_bound_check(
+                side.record, side.stages, side.metrics,
+                next((_finite_number(row.value_number) for row in metric_rows
+                      if row.metric_code == "sleep_duration_seconds"), None))}
+               if side.provider == "garmin"
+               and any(row.metric_code == "sleep_duration_seconds" for row in metric_rows) else {}),
             "metrics": [
                 {"id": row.id, "metric_code": row.metric_code, "state": row.state,
                  "value_number": _finite_number(row.value_number), "unit": row.unit,
@@ -1180,7 +1196,7 @@ def _outcome_from_scalar(
             {metric_code, "sleep_summary_minutes_in_sleep_period"}
             if side.provider == "google" else {
                 metric_code, "sleep_summary_minutes_in_sleep_period", "sleep_stages",
-                "sleep_metadata_stages_status",
+                "sleep_metadata_stages_status", SUMMARY_BOUNDS_METRIC,
             }
         )
         evidence = _evidence_for(
@@ -2223,7 +2239,7 @@ def _duration_quality_reason(
             if value > bound:
                 return "duration_exceeds_confirmed_session"
     else:
-        start, end = garmin_confirmed_session_bounds(side.record, side.stages)
+        start, end = garmin_duration_session_bounds(side.record, side.stages, side.metrics)
         if start is not None and end is not None and value > (end - start).total_seconds():
             return "duration_exceeds_confirmed_session"
     tib = _tib_outcome(side, variant=variant)

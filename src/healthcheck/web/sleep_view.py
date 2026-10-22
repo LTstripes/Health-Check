@@ -288,6 +288,11 @@ _SOURCE_SLEEP_NOTES = {
 
 def source_sleep_note(cell: Mapping[str, Any]) -> str:
     if cell["eligible"]:
+        check = cell.get("evidence", {}).get("quality_inputs", {}).get(
+            "session_bound_validation", {})
+        if (check.get("state") == "unverified"
+                and check.get("reason") == "summary_session_boundary_unavailable"):
+            return "Сводка источника доступна; длительность не проверена по границам сессии."
         return "Источник передал явный ноль; это значение, а не пропуск." if cell["is_zero"] else ""
     reason = cell.get("reason") or ""
     if reason in _SOURCE_SLEEP_NOTES:

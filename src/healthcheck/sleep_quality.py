@@ -7,19 +7,94 @@ from typing import Any
 
 from healthcheck.db.repositories import restore_stored_utc
 
-SLEEP_DURATION_QUALITY_VERSION = "sleep-duration-quality-v1"
+SLEEP_DURATION_QUALITY_VERSION = "sleep-duration-quality-v2"
+SUMMARY_BOUNDS_METRIC = "sleep_summary_session_bounds"
+SUMMARY_BOUNDS_VERSION = "garmin-sleep-summary-bounds-v1"
+_TEMPORAL_FIELDS = (
+    "precision", "measured_at_utc", "local_wall_time", "local_date", "source_field",
+    "local_date_source", "source_local_timestamp", "source_timezone",
+    "source_utc_offset_minutes", "source_local_field", "source_utc_field",
+)
+
+
+def garmin_summary_boundary_evidence(record: Any, metrics: Sequence[Any]) -> dict | None:
+    """Validate and freeze v4's independent summary upper bound, never stage coverage."""
+    if (record.normalization_contract_version != "r02-garmin-sleep-normalization-v4"
+            or record.temporal_precision != "instant"):
+        return None
+    rows = [row for row in metrics if row.metric_code == SUMMARY_BOUNDS_METRIC]
+    if len(rows) != 1 or rows[0].state != "value" or rows[0].unit is not None:
+        return None
+    row = rows[0]
+    if (row.field_path != f"{record.source_path}.dailySleepDTO"
+            or not isinstance(row.value_text, str) or len(row.value_text) > 8192):
+        return None
+    try:
+        value = json.loads(row.value_text)
+        if not isinstance(value, Mapping) or value.get("schema_version") != SUMMARY_BOUNDS_VERSION:
+            return None
+        parsed, endpoints = [], {}
+        for endpoint in ("Start", "End"):
+            temporal = value[endpoint.lower()]
+            path = f"{record.source_path}.dailySleepDTO.sleep{endpoint}Timestamp"
+            if (not isinstance(temporal, Mapping) or temporal.get("precision") != "instant"
+                    or temporal.get("source_field") != path + "GMT"
+                    or temporal.get("source_utc_field") != path + "GMT"):
+                return None
+            if any(temporal.get(key) is not None and not isinstance(temporal[key], str)
+                   for key in _TEMPORAL_FIELDS if key != "source_utc_offset_minutes"):
+                return None
+            stamp = datetime.fromisoformat(temporal["measured_at_utc"])
+            if stamp.tzinfo is None or stamp.utcoffset() != timedelta(0):
+                return None
+            local, offset = temporal.get("source_local_timestamp"), temporal.get(
+                "source_utc_offset_minutes")
+            if local is not None:
+                if (not isinstance(local, str) or len(local) > 20
+                        or not local.lstrip("-").isdigit() or isinstance(offset, bool)
+                        or not isinstance(offset, int) or not -1439 <= offset <= 1439
+                        or temporal.get("source_local_field") != path + "Local"):
+                    return None
+                paired = (datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=int(local))
+                          - timedelta(minutes=offset))
+                if paired != stamp:
+                    return None
+            elif offset is not None or temporal.get("source_local_field") is not None:
+                return None
+            parsed.append(stamp)
+            endpoints[endpoint.lower()] = {key: temporal.get(key) for key in _TEMPORAL_FIELDS}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if parsed[0] != restore_stored_utc(record.source_timestamp_utc) or parsed[1] <= parsed[0]:
+        return None
+    return {"schema_version": SUMMARY_BOUNDS_VERSION, "metric_row_id": row.id,
+            "field_path": row.field_path, **endpoints}
+
+
+def garmin_duration_session_bounds(
+    record: Any, stages: Sequence[Any], metrics: Sequence[Any],
+) -> tuple[datetime | None, datetime | None]:
+    """Read v4's duration upper bound, with the real v3 endpoint fallback."""
+    if record.normalization_contract_version == "r02-garmin-sleep-normalization-v4":
+        evidence = garmin_summary_boundary_evidence(record, metrics)
+        if evidence is None:
+            return None, None
+        return tuple(datetime.fromisoformat(evidence[key]["measured_at_utc"])
+                     for key in ("start", "end"))
+    return garmin_confirmed_session_bounds(record, stages)
 
 
 def garmin_confirmed_session_bounds(
     record: Any, stages: Sequence[Any],
 ) -> tuple[datetime | None, datetime | None]:
-    """Recover only v3's preserved paired summary end; never guess from stage span.
+    """Require real paired endpoint provenance for complete-stage timing.
 
-    V3 attaches the summary Local epoch and its explicitly paired fixed offset
-    when a stage endpoint exactly matches summary End GMT. Legacy levels lack
-    this evidence, even when contiguous. No raw body or host timezone is used.
+    V3/v4 attach the summary Local epoch and its explicitly paired fixed offset
+    when a stage endpoint exactly matches summary End GMT. Independent v4
+    metadata alone never proves stage coverage. No raw body or host timezone.
     """
-    if (record.normalization_contract_version != "r02-garmin-sleep-normalization-v3"
+    if (record.normalization_contract_version not in {
+            "r02-garmin-sleep-normalization-v3", "r02-garmin-sleep-normalization-v4"}
             or record.temporal_precision != "instant"):
         return None, None
     start = restore_stored_utc(record.source_timestamp_utc)
@@ -52,6 +127,22 @@ def garmin_confirmed_session_bounds(
         return None, None
     end = next(iter(ends))
     return (start, end) if end > start else (None, None)
+
+
+def garmin_duration_bound_check(
+    record: Any, stages: Sequence[Any], metrics: Sequence[Any], seconds: int | float | None,
+) -> dict:
+    """Distinguish scalar usability from a check against an evidenced upper bound."""
+    start, end = garmin_duration_session_bounds(record, stages, metrics)
+    if start is None or end is None:
+        return {"state": "unverified", "reason": "summary_session_boundary_unavailable",
+                "upper_bound_seconds": None}
+    if seconds is None:
+        return {"state": "unverified", "reason": "duration_scalar_unavailable",
+                "upper_bound_seconds": (end - start).total_seconds()}
+    bound = (end - start).total_seconds()
+    return {"state": "checked", "reason": duration_quality_reason(seconds, session_seconds=bound),
+            "upper_bound_seconds": bound}
 
 
 def duration_quality_reason(
