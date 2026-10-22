@@ -39,16 +39,7 @@
     return value.toFixed(1).replace(".", ",");
   }
 
-  function durationText(seconds) {
-    if (!isNumber(seconds) || seconds < 0) return "недоступно";
-    const hours = Math.floor(seconds / 3600);
-    const remainder = seconds - hours * 3600;
-    const minutes = Math.floor(remainder / 60);
-    const rest = remainder - minutes * 60;
-    let text = hours + " ч " + minutes + " мин";
-    if (rest > 0) text += " " + fmtNumber(Math.round(rest * 100) / 100) + " с";
-    return text;
-  }
+  const durationText = window.healthcheckOwnerFormat.duration;
 
   function readableDate(iso) {
     return new Date(iso + "T00:00:00Z").toLocaleDateString("ru-RU", {
@@ -106,19 +97,8 @@
     const add = function (label, value) {
       rows.push("<div><dt>" + esc(label) + "</dt><dd>" + value + "</dd></div>");
     };
-    const recordStatusLabels = {
-      ok: "полная", partial: "неполная", empty: "пустая", invalid: "недействительная"
-    };
-    if (session.record_status) {
-      const status = String(session.record_status);
-      add("Состояние записи", esc(status) +
-        (recordStatusLabels[status] ? " (" + esc(recordStatusLabels[status]) + ")" : ""));
-    }
-    if (eligible("sleep_start_at")) {
-      add("Начало сессии · UTC", esc(String(cell("sleep_start_at").value)));
-    }
-    if (eligible("sleep_end_at")) {
-      add("Окончание сессии · UTC", esc(String(cell("sleep_end_at").value)));
+    for (const [code, label] of [["sleep_start_at", "Начало сна"], ["sleep_end_at", "Окончание сна"]]) {
+      if (eligible(code)) add(label, esc(window.healthcheckOwnerFormat.endpoint(cell(code), session, code)));
     }
     if (eligible("sleep_time_in_bed_seconds")) {
       add("Время в постели", durationText(cell("sleep_time_in_bed_seconds").value));
@@ -131,21 +111,6 @@
     ].forEach(function (item) {
       if (eligible(item[0])) add(item[1], durationText(cell(item[0]).value));
     });
-    // Existing temporal evidence only; never infer a local time or offset.
-    const temporal = session.temporal_evidence || {};
-    const local = temporal.source_local_timestamp || temporal.local_wall_time;
-    if (local) add("Исходное местное время", esc(String(local)));
-    if (temporal.source_timestamp_utc) {
-      add("UTC-время источника", esc(String(temporal.source_timestamp_utc)));
-    }
-    if (temporal.source_utc_offset_minutes !== null &&
-        temporal.source_utc_offset_minutes !== undefined) {
-      add("Смещение источника, мин", esc(String(temporal.source_utc_offset_minutes)));
-    }
-    if (temporal.source_timezone) {
-      add("Часовой пояс источника", esc(String(temporal.source_timezone)));
-    }
-    if (temporal.precision) add("Точность времени", esc(String(temporal.precision)));
     // Native Garmin score stays a per-session detail; Google has no promised score.
     if (series.provider === "garmin" && eligible("sleep_score")) {
       add("Оценка сна Garmin · сессия", fmtNumber(cell("sleep_score").value) + " баллы");
@@ -156,9 +121,15 @@
     } else {
       html += '<p class="muted">Точные время и стадии этой сессии недоступны; запись сессии — в технических деталях.</p>';
     }
-    if (session.record_id) {
-      html += '<p class="muted">ID записи: ' + esc(session.record_id) + "</p>";
+    const check = ((cell("sleep_duration_asleep_seconds") || {}).evidence || {}).quality_inputs || {};
+    if ((check.session_bound_validation || {}).state === "unverified") {
+      html += '<p class="muted">Границы не проверены; сводка источника сохранена в расчёте.</p>';
     }
+    const incompleteStages = Object.entries(metrics).some(([code, item]) =>
+      /sleep_stage_|sleep_awake_waso/.test(code) && !item.eligible);
+    if (incompleteStages) html += '<p class="muted">Стадии сна доступны не полностью; длительность показана независимо.</p>';
+    html += '<details class="owner-details"><summary>ⓘ Данные сессии</summary><pre class="provenance">' +
+      esc(JSON.stringify(session, null, 2)) + '</pre></details>';
     return html;
   }
 
@@ -189,8 +160,7 @@
     let html = "<h3>Ночь · " + esc(readableDate(point.wake_date)) + "</h3>";
     html += '<p class="sleep-timeline-detail-source">' + esc(series.label) + "</p>";
     if (point.state === "value") {
-      html += "<p><strong>" + durationText(point.value_seconds) + "</strong> · " +
-        fmtNumber(point.value_seconds) + " с (точное сохранённое значение)</p>";
+      html += "<p><strong>" + durationText(point.value_seconds) + "</strong></p>";
       if (point.note) html += '<p class="uncertainty-note">' + esc(point.note) + "</p>";
       if (point.role_uncertain) {
         html += '<p class="uncertainty-note">Роль основного сна не подтверждена; запись показана отдельно.</p>';
@@ -203,7 +173,8 @@
     } else {
       html += "<p>" + esc(point.note || "Нет пригодного значения.") + "</p>";
     }
-    html += pointEvidence(point);
+    html += '<details class="owner-details"><summary>ⓘ Основание точки</summary>' + pointEvidence(point) +
+      '<pre class="provenance">' + esc(JSON.stringify(point, null, 2)) + '</pre></details>';
     detail.innerHTML = html;
   }
 

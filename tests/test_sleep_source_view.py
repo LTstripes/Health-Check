@@ -796,6 +796,14 @@ def test_local_precision_and_dst_offsets_are_not_replaced_by_host_offset(project
     assert snapshot["end_temporal"]["source_utc_offset_minutes"] == 60
     assert snapshot["start_temporal"]["source_local_timestamp"] == "2026-10-24T22:00:00"
     assert snapshot["end_temporal"]["source_local_timestamp"] == "2026-10-25T07:00:00"
+    from healthcheck.web.sleep_view import source_sleep_value
+
+    saved = deepcopy(cells)
+    assert source_sleep_value(cells["sleep_start_at"], {"metrics": cells}, "sleep_start_at") == (
+        "24 октября 2026, 22:00 UTC+0200")
+    assert source_sleep_value(cells["sleep_end_at"], {"metrics": cells}, "sleep_end_at") == (
+        "25 октября 2026, 07:00 UTC+0100")
+    assert cells == saved
 
 
 def test_read_is_bounded_current_exact_date_and_does_not_change_comparison(
@@ -867,7 +875,9 @@ def test_google_source_page_has_unpaired_sleep_and_separate_dated_vitals(tmp_pat
     primary, technical = response.text.split('<details class="card owner-details sleep-technical"')
     sleep, vitals = primary.split('<section class="card brief-controls" data-google-vitals>')
     assert "6 ч 50 мин" in sleep
-    assert "2099-01-01T22:00:00Z" in sleep
+    assert "2 января 2099, 01:00 UTC+0300" in sleep
+    assert "2099-01-01T22:00:00Z" not in sleep
+    assert "2099-01-01T22:00:00Z" in technical
     assert "42.5" not in sleep
     assert "42.5" in vitals and "2 января 2099" in vitals
     assert "summary_only" in technical

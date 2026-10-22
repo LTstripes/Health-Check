@@ -446,10 +446,15 @@ Comments keep event-local date/time, explicit offset, IANA zone when saved and
 minute/second/fraction precision. Automatically recorded time is labelled separately
 in UTC; it is never substituted for event time. Date-only never acquires midnight.
 
-Statistics saved-session rows and Activity detail display native seconds as hours,
-minutes and residual seconds, and native metres as kilometres. They reuse the
-Statistics headline rounding (half-up to 0.01 second / 0.01 km); positive values
-below display precision read `<0,01 с` / `<0,01 км`, while true zero stays zero.
+Owner Sleep, Activity, Training duration series and comparison labels display native
+seconds as hours/minutes, half-up to the nearest minute. True zero reads `0 мин`;
+positive values below one minute read `<1 мин`, including signed comparison deltas.
+Native metres display as kilometres (half-up to 0.01 km; tiny positives `<0,01 км`).
+Only presentation rounds: calculations, saved evidence and exports retain exact units.
+Sleep endpoints use their own persisted typed offset independently, or show UTC;
+missing end offsets never borrow start offsets. Legacy scalar-valid nights remain in
+calculations with «границы не проверены». Activity type aliases are display labels
+only. Raw codes, quality and provenance remain available in closed details.
 Extreme values of at least a billion hours or kilometres use an explicitly
 approximate, three-significant-digit scientific label (≈… × 10^… ч / км), keeping
 primary text bounded. Formatting has its own magnitude-sized Decimal context;

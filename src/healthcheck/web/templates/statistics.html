@@ -62,9 +62,10 @@
     {% endfor %}
   </div>
   {% include "statistics_steps.html" %}
-  {% for code, label in metric_labels.items() %}
+  {% for code, label in metric_labels.items() if code != 'activity_type_counts' %}
   <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">
     <h2 id="metric-{{ code }}">{{ label }}</h2>
+    {% if code == 'activity_session_count' %}<span id="metric-activity_type_counts"></span>{% endif %}
     <div class="statistics-pair">
       {% for side in packet.sides %}
       {% set cell = cycling_cell if code == 'cycling_distance_meters' and side.position == 'left' else side.metrics[code] %}
@@ -90,8 +91,8 @@
         <div class="statistics-value">
           {% if value is none %}<span>Недоступно</span>
           {% elif value is mapping %}
-            {% if value %}<ul>{% for type, count in value.items() %}<li>{{ type }}: {{ format_value(code, count) }}</li>{% endfor %}</ul>{% else %}{{ format_value(code, 0) }}{% endif %}
-          {% else %}{{ format_value(code, value) }}{% endif %}
+            {% if value %}<ul>{% for type, count in value.items() %}<li>{{ type | owner_activity_type }}: {{ format_value(code, count) }}</li>{% endfor %}</ul>{% else %}{{ format_value(code, 0) }}{% endif %}
+          {% else %}{{ format_value(code, value) }}{% if code == 'activity_session_count' and side.metrics.activity_type_counts.aggregation.value is mapping %}: {{ side.metrics.activity_type_counts.aggregation.value | owner_activity_types }}{% endif %}{% endif %}
         </div>
         {% if value is none %}<p>{{ state_labels[cell.state] }}</p>{% endif %}
         {% if side.position == 'left' and code in session_links %}<p><a href="{{ session_links[code] }}" data-session-drilldown="{{ code }}">Сессии за выбранный период</a></p>{% endif %}
@@ -103,6 +104,7 @@
         {% endif %}
         <details class="statistics-details">
           <summary>ⓘ Данные и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+          {% if code == 'activity_session_count' %}<pre class="provenance" data-activity-type-evidence="{{ side.position }}">{{ side.metrics.activity_type_counts | tojson(indent=2) }}</pre>{% if code in session_links %}<p><a href="{{ session_links.activity_type_counts }}">Записи по видам активности</a></p>{% endif %}{% endif %}
           {% if incomplete %}<p>Официальный итог и знаменатель недоступны; пропуски и полнота сбора неизвестны.</p>
           {% elif unevaluated %}<p>Наблюдения и знаменатель не оценены; это не ноль событий.</p>
           {% else %}<p>Допустимо: {{ cell.aggregation.eligible_count }}; без наблюдений {{ cell.missing_day_count }} дней.</p>

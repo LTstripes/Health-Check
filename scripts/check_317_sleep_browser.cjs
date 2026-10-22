@@ -85,21 +85,27 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
       await timeline.locator('[data-sleep-series-group^="garmin:"] [data-sleep-point-state="value"]').first().focus();
       const garminDetail = await timeline.locator('#sleep-timeline-detail').innerText();
       assert.match(garminDetail, /8 ч 0 мин/);
-      assert.match(garminDetail, /28800 с/);
+      assert.doesNotMatch(garminDetail, /28800 с|Состояние записи|Точность времени/);
       assert.match(garminDetail, /Оценка сна Garmin/);
-      assert.match(garminDetail, /Состояние записи\s+ok/);
-      assert.match(garminDetail, /Точность времени|Исходное местное время|UTC-время источника/);
+      const garminSession = JSON.parse(await timeline.locator('#sleep-timeline-detail details pre').first().textContent());
+      assert.equal(garminSession.record_status, 'ok');
+      assert.equal(garminSession.metrics.sleep_duration_asleep_seconds.value, 28800);
+      assert.ok(garminSession.temporal_evidence);
       await fitbitZero.focus();
       const zeroDetail = await timeline.locator('#sleep-timeline-detail').innerText();
       assert.match(zeroDetail, /явный ноль/);
-      assert.match(zeroDetail, /Состояние записи\s+partial/);
-      assert.match(zeroDetail, /Смещение источника, мин/);
+      assert.doesNotMatch(zeroDetail, /Состояние записи|Смещение источника, мин/);
+      const zeroSession = JSON.parse(await timeline.locator('#sleep-timeline-detail details pre').first().textContent());
+      assert.equal(zeroSession.record_status, 'partial');
+      assert.equal(zeroSession.temporal_evidence.source_utc_offset_minutes, 180);
       assert.doesNotMatch(zeroDetail, /Оценка сна Garmin/);
       await page.keyboard.press('ArrowLeft');
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-wake-date')),
         '2099-01-06');
       // Ambiguity exposes the point reason, candidates and exclusions.
       await timeline.locator('[data-sleep-point-state="ambiguous"]').focus();
+      assert.doesNotMatch(await timeline.locator('#sleep-timeline-detail').innerText(), /ambiguous_google_main|Кандидаты/);
+      await timeline.locator('#sleep-timeline-detail details > summary').click();
       const ambiguousDetail = await timeline.locator('#sleep-timeline-detail').innerText();
       assert.match(ambiguousDetail, /ambiguous_google_main/);
       assert.match(ambiguousDetail, /Кандидатов\s+2/);
@@ -179,7 +185,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
         [4, /Несколько сессий за дату; единая ночь не выбрана/],
         [5, /совместимые стадии недоступны/],
         [6, /Сохранённой сводки недостаточно/],
-        [7, /0 ч 0 мин/],
+        [7, /0 мин/],
         [8, /Роль основного сна не подтверждена/],
         [9, /Запись дневного сна/],
         [10, /Роль основного сна не подтверждена/],

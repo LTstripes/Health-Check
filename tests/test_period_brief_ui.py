@@ -631,7 +631,7 @@ def test_stage3_owner_presentation_keeps_packet_and_all_distinct_sleep_rows(tmp_
     ]:
         assert label in text
     assert primary.count('class="brief-comparison"') == 7
-    assert "-120 с" in text and "0 с" in text and "180 с" in text
+    assert "−2 мин" in text and "0 мин" in text and "3 мин" in text
     assert "999" not in text  # unknown units are not guessed
     assert "Пригодных наблюдений: —" in text
     assert "Принятое сравнение недоступно" in text
@@ -730,7 +730,7 @@ def test_stage3_notable_comparisons_identify_metric_and_use_exact_fact_unit():
         }
     }
     assert _brief_owner_note(note) == "Длительность сна: отклонение от личной базовой линии."
-    assert _brief_note_value(note, brief) == "18000 с"
+    assert _brief_note_value(note, brief) == "5 ч 0 мин"
     assert "единицы доступны" in _brief_note_value(note, {"sections": {}})
     assert _brief_owner_note(
         {"code": "sleep_exploratory_agreement", "metric_code": "sleep_stage_deep_seconds"}
@@ -744,7 +744,7 @@ def test_stage3_all_frozen_states_and_unknown_activity_copy_are_preserved():
     for state, label in templates.get_template("owner_ui.html").module.state_labels.items():
         assert _brief_owner_state(state) == label
     assert _brief_owner_state("future_state") == "Состояние данных не определено"
-    assert _brief_owner_activity("future_provider_activity") == "Другая активность"
+    assert _brief_owner_activity("future_provider_activity") == "Другой вид активности"
 
 
 def test_brief_usable_evidence_inspects_section_evidence_not_only_state():
@@ -821,8 +821,8 @@ def test_brief_activity_tennis_label_and_unknown_fallback():
 
     assert _brief_owner_activity("tennis") == "Теннис"
     assert _brief_owner_activity("tennis_v2") == "Теннис"
-    assert _brief_owner_activity("stand_up_paddleboarding_v2") == "Другая активность"
-    assert _brief_owner_activity("future_provider_activity") == "Другая активность"
+    assert _brief_owner_activity("stand_up_paddleboarding_v2") == "Другой вид активности"
+    assert _brief_owner_activity("future_provider_activity") == "Другой вид активности"
 
 
 def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, monkeypatch):
@@ -1707,4 +1707,4 @@ def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(
     assert 'href="/imports#data-status"' in page.text
     encoded = page.text.split('<pre class="brief-packet">', 1)[1].split('</pre>', 1)[0]
     assert json.loads(encoded) == page.context['packet']
-    assert '5 ч 27 мин 30 с' in page.text
+    assert '5 ч 28 мин' in page.text

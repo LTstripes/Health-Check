@@ -30,7 +30,7 @@ assert.equal(identity.candidate, candidate); assert.equal(identity.extreme_sessi
       assert.equal(await page.locator('[data-session-record]').count(), 5);
       const cells = await page.locator('[data-session-metric]').allTextContents();
       for (const text of ['≈2,78 × 10^22 ч', '≈1 × 10^27 км', '≈4,99 × 10^304 ч',
-        '≈1,8 × 10^305 км', '<0,01 с', '<0,01 км', '0 мин', '0 км', 'Источник передал null']) assert.ok(cells.includes(text), text);
+        '≈1,8 × 10^305 км', '<1 мин', '<0,01 км', '0 мин', '0 км', 'Источник передал null']) assert.ok(cells.includes(text), text);
       await capture('extreme-list');
       const links = await page.locator('tbody a').evaluateAll(nodes => nodes.map(node => node.getAttribute('href')));
       let extreme = 0, largest = 0, tiny = 0;
@@ -48,7 +48,7 @@ assert.equal(identity.candidate, candidate); assert.equal(identity.extreme_sessi
           assert.equal(distance.value, Number.MAX_VALUE); assert.ok(shown.includes('≈4,99 × 10^304 ч'));
           assert.ok(shown.includes('≈1,8 × 10^305 км')); await capture('max-finite-detail'); largest++;
         } else if (duration.value === Number.MIN_VALUE) {
-          assert.equal(distance.value, Number.MIN_VALUE); assert.ok(shown.includes('<0,01 с'));
+          assert.equal(distance.value, Number.MIN_VALUE); assert.ok(shown.includes('<1 мин'));
           assert.ok(shown.includes('<0,01 км')); await capture('min-positive-detail'); tiny++;
         }
         await page.goBack(); assert.equal(page.url(), listURL);

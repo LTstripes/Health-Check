@@ -43,14 +43,14 @@ def test_date_precision_and_source_local_day(value, precision, expected):
     (float("nan"), "Недоступно", "Недоступно"),
     (float("inf"), "Недоступно", "Недоступно"),
     (0, "0 мин", "0 км"),
-    (0.001, "<0,01 с", "<0,01 км"),
-    (0.005, "0,01 с", "<0,01 км"),
-    (1, "1 с", "<0,01 км"),
-    (59.999, "1 мин", "0,06 км"),
+    (0.001, "<1 мин", "<0,01 км"),
+    (0.005, "<1 мин", "<0,01 км"),
+    (1, "<1 мин", "<0,01 км"),
+    (59.999, "<1 мин", "0,06 км"),
     (60, "1 мин", "0,06 км"),
     (3599.999, "1 ч 0 мин", "3,6 км"),
     (3600, "1 ч 0 мин", "3,6 км"),
-    (3901.5, "1 ч 5 мин 1,5 с", "3,9 км"),
+    (3901.5, "1 ч 5 мин", "3,9 км"),
     (360000, "100 ч 0 мин", "360 км"),
 ])
 def test_native_units_display_only(value, duration, distance):
@@ -112,8 +112,8 @@ def test_statistics_primary_window_has_human_dates_and_native_controls(statistic
 
 @pytest.mark.parametrize("duration,distance,expected_duration,expected_distance", [
     (0, 0, "0 мин", "0 км"),
-    (0.001, 0.001, "&lt;0,01 с", "&lt;0,01 км"),
-    (3901.5, 12345.6, "1 ч 5 мин 1,5 с", "12,35 км"),
+    (0.001, 0.001, "&lt;1 мин", "&lt;0,01 км"),
+    (3901.5, 12345.6, "1 ч 5 мин", "12,35 км"),
     (None, None, "Источник передал null", "Источник передал null"),
 ])
 def test_saved_session_list_detail_exact_native_values(
@@ -232,7 +232,7 @@ def test_javascript_civil_validation_and_python_parity():
     (1e30, "≈2,78 × 10^26 ч", "≈1 × 10^27 км"),
     (float.fromhex("0x1.fffffffffffffp+1023"),
      "≈4,99 × 10^304 ч", "≈1,8 × 10^305 км"),
-    (float.fromhex("0x0.0000000000001p-1022"), "<0,01 с", "<0,01 км"),
+    (float.fromhex("0x0.0000000000001p-1022"), "<1 мин", "<0,01 км"),
     pytest.param(10**5000, "≈2,78 × 10^4996 ч", "≈1 × 10^4997 км", id="huge-native-int"),
 ])
 def test_duration_distance_are_total_for_finite_extremes(value, duration, distance):

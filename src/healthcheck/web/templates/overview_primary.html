@@ -72,7 +72,7 @@
         {% if not overview.completed_window.empty %}<a class="overview-detail-link" href="/sleep?wake_date={{ overview.completed_window.end_date }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">История и детали сна →</a>{% endif %}
         </div>
       {% else %}
-        <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }} <span>сохранено</span></p>
+        <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") | owner_activity_count if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }}</p>
         <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}<br>{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }}</p>
         {{ owner_ui.state_chip(activity.state, false) }}
         <p class="overview-qualifier">{% for fact in activity.summary_facts if fact.code == 'activity_type_counts' %}{{ value_text(fact) }}{% endfor %}</p>

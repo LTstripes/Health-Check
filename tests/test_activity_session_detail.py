@@ -158,7 +158,7 @@ def test_detail_route_binds_source_cards_and_exact_evidence(tmp_path):
         assert f'href="/garmin?garmin_source_id={source}#activity-journal"' in page.text
 
         duration = _card(page.text, "duration_seconds")
-        assert 'data-owner-state="present">1 ч 5 мин 1,5 с</span>' in duration
+        assert 'data-owner-state="present">1 ч 5 мин</span>' in duration
         average = _card(page.text, "heart_rate_bpm")
         assert 'data-owner-state="present">110.0</span>' in average
         assert 'activity-metric-unit">уд/мин</span>' in average

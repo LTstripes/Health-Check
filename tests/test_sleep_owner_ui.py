@@ -85,11 +85,11 @@ def test_selected_night_never_borrows_or_pools():
     assert ambiguous == {"state": "unknown", "value": None, "ambiguous": True}
 
 
-def test_sleep_duration_formatting_preserves_seconds_and_zero():
+def test_sleep_duration_formatting_rounds_display_and_preserves_zero():
     assert metric_value("sleep_duration_seconds", 28800) == "8 ч 0 мин"
-    assert metric_value("sleep_duration_seconds", 3661) == "1 ч 1 мин 1 с"
-    assert metric_value("sleep_duration_seconds", 0) == "0 ч 0 мин"
-    assert metric_value("sleep_duration_seconds", 1.25) == "1.2 с"
+    assert metric_value("sleep_duration_seconds", 3661) == "1 ч 1 мин"
+    assert metric_value("sleep_duration_seconds", 0) == "0 мин"
+    assert metric_value("sleep_duration_seconds", 1.25) == "<1 мин"
 
 
 def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
@@ -192,7 +192,7 @@ def test_sleep_empty_and_unavailable_stay_honest(tmp_path):
         primary = page.text.split('<details class="card owner-details', 1)[0]
         assert "Нет доступного источника Garmin" in primary
         assert 'data-owner-state="unavailable"' in primary
-        assert "0 с" not in primary and "0 баллы" not in primary
+        assert "0 мин" not in primary and "0 баллы" not in primary
         assert client.get("/sleep?view=garmin&garmin_source_id=unknown").status_code == 200
     app.state.engine.dispose()
     app.state.runtime_paths.database.unlink()
@@ -226,7 +226,7 @@ def test_agreement_secondary_keeps_frozen_packet_and_discloses_statistics(tmp_pa
         assert "synthetic-internal-uncertainty" not in primary
         assert "synthetic-exclusion" not in primary
         assert "bias" not in primary and "rmse" not in primary
-        assert "Средняя разность" in primary and "+8 мин 30 с" in primary
+        assert "Средняя разность" in primary and "+9 мин" in primary
         assert page.text.count("<summary>Технические детали</summary>") == 1
         assert "data-sleep-comparison" in primary
         assert "bias" in technical and "rmse" in technical
@@ -282,8 +282,9 @@ def test_agreement_accumulation_does_not_fabricate_statistics(tmp_path, monkeypa
         page = client.get("/agreement")
         assert page.status_code == 200
         assert 'data-owner-state="insufficient"' in page.text
-        assert "Статистика пока недоступна" in page.text
-        assert "осталось пригодных пар: 13" in page.text
+        assert "Сохранённого сравнения для показа пока нет" in page.text
+        assert "Средняя разность" not in page.text.split('id="sleep-technical"')[0]
+        assert '"remaining_n": 13' in page.text
         assert "Принятая исследовательская статистика" not in page.text
 
 
@@ -455,8 +456,8 @@ def test_daily_comparisons_require_their_own_same_date_record_basis(code, unit):
 def test_owner_comparison_formatting_rounds_display_only():
     from healthcheck.web.sleep_comparison import comparison_value
 
-    assert comparison_value(-3661.125, "seconds", signed=True) == "−1 ч 1 мин 1 с"
-    assert comparison_value(0, "seconds") == "0 с"
+    assert comparison_value(-3661.125, "seconds", signed=True) == "−1 ч 1 мин"
+    assert comparison_value(0, "seconds") == "0 мин"
     assert comparison_value(1.23456, "bpm") == "1.2 уд/мин"
     assert comparison_value(0.23456, "percentage_points") == "0.2 п.п."
     assert comparison_value(1, None) == "—"

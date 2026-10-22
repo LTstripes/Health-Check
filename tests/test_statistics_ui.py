@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import socket
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -362,11 +365,25 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
         k: v for k, v in packet.items() if k != "evaluated_at"
     }
     assert len(cells) == sum(
-        1 for side in packet["sides"] for cell in side["metrics"].values()
-        if side["position"] != "right" or cell["state"] != "not_collected"
+        1 for side in packet["sides"] for code, cell in side["metrics"].items()
+        if code != "activity_type_counts"
+        and (side["position"] != "right" or cell["state"] != "not_collected")
     )
     for side in packet["sides"]:
         for code, cell in side["metrics"].items():
+            if code == "activity_type_counts":
+                if side["position"] == "right" and cell["state"] == "not_collected":
+                    assert (code, "right") not in cells
+                    continue
+                evidence = re.search(
+                    r'data-activity-type-evidence="' + side["position"] + r'">(.*?)</pre>',
+                    response.text, re.S,
+                )
+                assert evidence is not None
+                assert json.loads(unescape(evidence[1])) == cell
+                assert (code, side["position"]) not in cells
+                assert 'id="metric-activity_type_counts"' in response.text
+                continue
             if side["position"] == "right" and cell["state"] == "not_collected":
                 assert (code, "right") not in cells
                 continue
@@ -380,7 +397,11 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
                 for kind, count in value.items():
                     assert f"{kind}: {int(count)} сессий" in headline
             else:
-                assert headline == format_statistics_value(code, value)
+                if code == "activity_session_count":
+                    assert headline.startswith(format_statistics_value(code, value))
+                    assert "cycling" not in headline and "tennis_v2" not in headline
+                else:
+                    assert headline == format_statistics_value(code, value)
             assert f"{value if value is not None else 'Недоступно'} / " in details
             numerator = cell["aggregation"]["numerator"]
             assert f"/ {numerator if numerator is not None else 'Недоступно'}" in details
@@ -523,23 +544,23 @@ def test_missing_google_keeps_the_independent_empty_side(statistics_ui):
         (SLEEP_CODE, 0.0, "0 мин"),
         (SLEEP_CODE, 28800.0, "8 ч 0 мин"),
         (SLEEP_CODE, 24600.0, "6 ч 50 мин"),
-        (SLEEP_CODE, 28830.5, "8 ч 0 мин 30,5 с"),
-        (SLEEP_CODE, 0.001, "<0,01 с"),
+        (SLEEP_CODE, 28830.5, "8 ч 1 мин"),
+        (SLEEP_CODE, 0.001, "<1 мин"),
         ("tennis_duration_seconds", None, "Недоступно"),
         ("tennis_duration_seconds", 0, "0 мин"),
         ("tennis_duration_seconds", 3600.0, "1 ч 0 мин"),
-        ("tennis_duration_seconds", 3661.25, "1 ч 1 мин 1,25 с"),
-        ("tennis_duration_seconds", 59.999, "1 мин"),
+        ("tennis_duration_seconds", 3661.25, "1 ч 1 мин"),
+        ("tennis_duration_seconds", 59.999, "<1 мин"),
         ("cycling_distance_meters", None, "Недоступно"),
         ("cycling_distance_meters", 0.0, "0 км"),
         ("cycling_distance_meters", 21000, "21 км"),
         ("cycling_distance_meters", 12345.6, "12,35 км"),
         ("cycling_distance_meters", 999995, "1000 км"),
         ("cycling_distance_meters", 1, "<0,01 км"),
-        ("activity_session_count", 2.0, "2 сессий"),
-        ("activity_session_count", 0.0, "0 сессий"),
-        ("tennis_session_count", 1.0, "1 сессий"),
-        ("activity_type_counts", 2.0, "2 сессий"),
+        ("activity_session_count", 2.0, "2 тренировки"),
+        ("activity_session_count", 0.0, "0 тренировок"),
+        ("tennis_session_count", 1.0, "1 тренировка"),
+        ("activity_type_counts", 2.0, "2 тренировки"),
     ],
 )
 def test_headline_formatting(code, value, expected):
