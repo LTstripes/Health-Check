@@ -1,8 +1,10 @@
 """Pure sleep duration checks shared by current and legacy persisted readers."""
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from healthcheck.db.repositories import restore_stored_utc
@@ -15,6 +17,22 @@ _TEMPORAL_FIELDS = (
     "local_date_source", "source_local_timestamp", "source_timezone",
     "source_utc_offset_minutes", "source_local_field", "source_utc_field",
 )
+
+
+def _stored_milliseconds(value: Any) -> int | None:
+    """Decode retained numeric text exactly; leave its original spelling intact."""
+    if (not isinstance(value, str) or not 1 <= len(value) <= 20
+            or re.fullmatch(r"-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", value) is None):
+        return None
+    try:
+        number = Decimal(value)
+        # The producer's datetime range, checked before an integer conversion.
+        if (not number.is_finite() or not -62135596800000 <= number <= 253402300799999
+                or number != number.to_integral_value()):
+            return None
+        return int(number)
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
 
 
 def garmin_summary_boundary_evidence(record: Any, metrics: Sequence[Any]) -> dict | None:
@@ -50,12 +68,13 @@ def garmin_summary_boundary_evidence(record: Any, metrics: Sequence[Any]) -> dic
             local, offset = temporal.get("source_local_timestamp"), temporal.get(
                 "source_utc_offset_minutes")
             if local is not None:
-                if (not isinstance(local, str) or len(local) > 20
-                        or not local.lstrip("-").isdigit() or isinstance(offset, bool)
+                local_milliseconds = _stored_milliseconds(local)
+                if (local_milliseconds is None or isinstance(offset, bool)
                         or not isinstance(offset, int) or not -1439 <= offset <= 1439
                         or temporal.get("source_local_field") != path + "Local"):
                     return None
-                paired = (datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=int(local))
+                paired = (datetime(1970, 1, 1, tzinfo=UTC)
+                          + timedelta(milliseconds=local_milliseconds)
                           - timedelta(minutes=offset))
                 if paired != stamp:
                     return None
@@ -108,16 +127,16 @@ def garmin_confirmed_session_bounds(
             continue
         path = temporal.get("source_local_field")
         stamp = temporal.get("source_local_timestamp")
+        stored_milliseconds = _stored_milliseconds(stamp)
         offset = temporal.get("source_utc_offset_minutes")
         if (not isinstance(path, str)
                 or not path.endswith("dailySleepDTO.sleepEndTimestampLocal")
-                or not isinstance(stamp, str) or len(stamp) > 20
-                or not stamp.lstrip("-").isdigit()
+                or stored_milliseconds is None
                 or isinstance(offset, bool) or not isinstance(offset, int)
                 or not -1439 <= offset <= 1439):
             continue
         try:
-            end = (datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=int(stamp))
+            end = (datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=stored_milliseconds)
                    - timedelta(minutes=offset))
         except (ValueError, OverflowError):
             continue
