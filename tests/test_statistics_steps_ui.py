@@ -357,3 +357,21 @@ def test_all_time_mean_rendering_does_not_inherit_ambient_rounding():
         context.rounding = ROUND_DOWN
         assert format_steps_value(Decimal("0.15")) == "0,2"
         assert format_steps_value(0) == "0"
+
+
+def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary(statistics_ui):
+    session, paths, client = statistics_ui
+    source = seed_steps(session, paths)
+    response = client.get('/statistics', params={
+        'period': '7', 'end_date': str(DAY + timedelta(days=6)), 'garmin_source_id': source,
+    })
+    assert response.status_code == 200
+    html = steps_html(response)
+    # Latest correction 7→3, explicit zero included; null/missing/invalid excluded.
+    assert 'data-steps-total>20</dd>' in html and 'data-steps-mean>6.7</dd>' in html
+    assert '3 из 7 дней с данными' in html
+    assert ('<details class="statistics-details steps-daily-details">'
+            '<summary>Дни и подробности Garmin</summary>') in html
+    assert 'data-steps-chart="garmin"' in html
+    assert StepsParser(html).values[str(DAY + timedelta(days=5))].strip() == '3'
+    assert '/static/statistics_steps.js' in response.text

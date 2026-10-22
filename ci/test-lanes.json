@@ -92,6 +92,8 @@
       "tests/test_demo_tooling.py",
       "tests/test_google_normalization.py",
       "tests/test_google_steps_countsum.py",
+      "tests/test_google_steps_summary.py",
+      "tests/test_steps_presentation.py",
       "tests/test_google_oauth.py",
       "tests/test_google_protection.py",
       "tests/test_google_persistence.py",

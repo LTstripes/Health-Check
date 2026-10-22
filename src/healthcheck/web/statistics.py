@@ -35,6 +35,7 @@ from healthcheck.web.owner_presentation import (
 from healthcheck.web.pages import _persist_error, render_error
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 from healthcheck.web.sleep_view import source_sleep_label
+from healthcheck.web.steps_presentation import garmin_steps_view, google_steps_view
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -185,6 +186,11 @@ def statistics(
             "cycling_cell": cycling_cell,
             "steps": steps,
             "google_steps": google_steps,
+            "compact_steps": selected_period in {"7", "30"} and steps_period == "window",
+            "garmin_steps_view": (garmin_steps_view(steps)
+                                  if selected_period in {"7", "30"} and steps_period == "window"
+                                  else None),
+            "google_steps_view": google_steps_view(google_steps),
             "selected_google_steps_source_id": google_steps_source_id or (
                 google_steps["source_id"] if google_steps else None
             ),

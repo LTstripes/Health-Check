@@ -123,8 +123,13 @@ separate reviewed identity/eligibility decision.
 Saved Google Steps in Statistics is an observed interval count for one exact
 family/source and civil date, separate from Garmin completed-day Steps. Only 7/30
 dates are supported; the provider timezone, full-day coverage, pagination and finality
-remain unknown. No cross-provider sum/delta or full-period Google total/mean is
-introduced. Invalid/current conflicts and partial overlapping intervals withhold
+remain unknown. Observed-day summary v1 shows an exact sum of saved eligible
+observations and a mean over observed days (including explicit zero), with N of D
+and unconfirmed full-day coverage visible. It never presents that sum as a proved
+complete provider-period total. Garmin and Google have separate compact daily
+plots and keyboard/day selection; full tables and source evidence are closed
+by default and available without JavaScript. Missing days remain gaps. No
+cross-provider sum/delta is introduced. Invalid/current conflicts and partial overlapping intervals withhold
 values; absence is never silently zero. This read-only view adds no acquisition
 or automatic refresh. [Technical contract](ARCHITECTURE.md#saved-google-steps-read-392).
 

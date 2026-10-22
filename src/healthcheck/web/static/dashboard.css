@@ -501,3 +501,26 @@ main, .legal { max-width: var(--owner-content-width); }
 .export-source-options[open] { padding: 8px 0; }
 .export-source-options label { display: inline-flex; flex-direction: column; gap: 6px; margin: 8px 16px 8px 0; }
 .sleep-source-status.owner-info { display: block; }
+
+/* #392: counts remain exact text; the compact plot contains only bounded geometry. */
+.statistics-steps-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
+.statistics-steps-panels > div { min-width: 0; }
+.steps-headlines { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin: 1rem 0; }
+.steps-headlines > div { min-width: 0; }
+.steps-headlines dt { font-size: .9rem; font-weight: 400; }
+.steps-headlines dd { margin: .3rem 0; font-size: clamp(1.15rem, 2vw, 1.65rem); font-weight: 700; overflow-wrap: anywhere; }
+.steps-scope { font-size: .9rem; color: var(--muted, #586174); }
+.steps-selected { min-height: 2.5rem; overflow-wrap: anywhere; }
+.steps-daily-chart { display: block; width: 100%; min-height: 110px; touch-action: manipulation; }
+.steps-axis { stroke: #aab4c5; stroke-width: 1; }
+.steps-line { stroke: #4774c7; stroke-width: 3; }
+.steps-point { fill: #315faf; }
+.steps-gap { stroke: #788394; stroke-width: 1.5; fill: none; }
+.steps-cursor { stroke: #687991; stroke-dasharray: 4 5; stroke-width: 1; pointer-events: none; }
+.steps-day-controls { display: flex; align-items: end; justify-content: center; flex-wrap: wrap; gap: .5rem; }
+.steps-day-controls[hidden] { display: none; }
+.steps-day-controls button, .steps-day-controls select { min-height: 44px; min-width: 44px; }
+.steps-day-controls label { display: grid; gap: .2rem; }
+.steps-daily-details > summary { min-height: 44px; box-sizing: border-box; padding: .7rem .2rem; }
+.steps-daily-details .statistics-steps-table { max-height: none; }
+@media (max-width: 1100px) { .statistics-steps-panels { grid-template-columns: minmax(0, 1fr); } }

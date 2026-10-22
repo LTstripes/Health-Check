@@ -1996,11 +1996,43 @@ as-of uses projection_observed_at, not replay/last_seen_at. No eligible saved in
 is distinct from no saved source and never proves absence at the provider.
 
 Coverage, pagination, timezone and finality are always unknown. Even values on every
-date do not establish complete coverage; no total or mean is exposed. Search limits
+date do not establish complete coverage. The original reader v1 exposed no total
+or mean; the versioned presentation adapter below adds observed-day summaries
+without changing that reader or frozen exports. Search limits
 are source discovery128, source-wide current records4096, each child collection4096,
 16MiB bounded text and five cooperative seconds. Sentinel/count/text checks precede
 child materialization; incomplete search withholds all values. The guard is not a hard
 SQL/lock/I/O deadline. The caller/reader share the existing physical read snapshot.
+
+##### Observed-day Steps presentation v1 (#392)
+
+`google-observed-steps-summary-v1` consumes the already-read complete v1 packet
+for one exact Google source/family. Only unique `state=value` nonnegative integer
+days participate; an explicit zero counts, while missing/null/invalid/ambiguous
+and unavailable days never become zero. Incomplete searches, unresolved sources
+or malformed daily grain leave both totals and denominator unassessed. A complete
+window with no eligible days has no total or mean, not a fabricated zero.
+
+The total is an arbitrary-precision integer sum; the exact mean is total / observed
+day count, never requested-window length. Display rounds HALF_EVEN to one decimal
+(with `<0.1` for a positive mean rounded to zero). Primary UI says N of D observed
+days and that full-day coverage remains unconfirmed even when N=D. Google civil
+dates remain the reader's dates before the independent Garmin Moscow shift.
+
+Garmin 7/30-day presentation reuses `summarize_completed_days` on the already-read
+complete `CompletedStepsWindow`; no additional history read is introduced and its
+existing all-history mathematics is unchanged. Only completed Moscow days can
+contribute; requested dates not yet complete cannot become zero. Providers and
+source families remain separate, with existing explicit selection on ambiguity.
+
+The server emits counts and exact ratios as decimal strings plus bounded integer
+SVG geometry. Browser code only selects dates/geometry; it never parses or sums
+original int64 counts through JavaScript Number. Missing days break lines; explicit
+zero is a zero point and all-zero windows have a safe scale. Mouse and keyboard
+selection share the same saved values. Closed native details retain the exact day
+table and provenance as the no-JavaScript fallback. This changes presentation only,
+not acquisition, reader caps, currentness, timezone evidence or export schemas.
+
 
 | Layer | Tables | Contract |
 | --- | --- | --- |
