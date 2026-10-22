@@ -75,6 +75,7 @@ See [the reader contract](ARCHITECTURE.md#saved-google-steps-read-392).
 
 | Accepted change | Evidence | Remaining boundary |
 | --- | --- | --- |
+| Validate saved Garmin activity and Training quality (#485/#486) | [#487](https://github.com/LTstripes/Health-Check/pull/487), canonical f831973, 2026-10-22; [post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39768396299) and [acceptance receipt](https://github.com/LTstripes/Health-Check/pull/487#issuecomment-6339722865) | Explicit invalid values/reasons in saved DTOs, comparison/period aggregates and Training presentation; compatible duration/HR bases and field-specific native ranges. Raw/history retained; no GPS certification, guessed recovery unit, provider/Stable action or Owner UAT |
 | Show saved Google Steps in existing Statistics (#392) | [#481](https://github.com/LTstripes/Health-Check/pull/481), canonical 4d4c295, 2026-10-21; [post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39596769154) | Exact current source/family/civil interval and int64 observations for 7/30 days, independent selector, conflict/nonvalue/overlap/cap withholding. Synthetic source/desktop acceptance only; new real UI UAT is UNVERIFIED, no rollout or provider request |
 | Prepare release scope and recovery/UAT procedure | [#480](https://github.com/LTstripes/Health-Check/pull/480), canonical c0918c1; [post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39591615410) | Existing Wiki/Operations only, source-backed inventory, draft notes, 0016→0017→0018 rehearsal/rollback and short UAT; documentation is not release readiness |
 | Add bounded Google Steps foundation/startup refresh (#392) | [#476](https://github.com/LTstripes/Health-Check/pull/476), [#477](https://github.com/LTstripes/Health-Check/pull/477), [#478](https://github.com/LTstripes/Health-Check/pull/478); main 13dfc43, 2026-10-21; [post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39564289821) | Exact string-int64 storage, one-civil-day opt-in observations, strict cached-grant/startup-refresh lifecycle. This foundation baseline had no Steps UI; #481 adds it above. #392 stays OPEN, no background collection or completeness proof. Prior private UAT is separate from synthetic CI |
@@ -183,8 +184,9 @@ UI and export regressions. P1 stage coverage, duration consistency and saved
 mainSleep role-projection parity block release readiness until accepted. The
 current implementation assignment is synthetic-only; the older rehearsal is
 retained with its exact old candidate. Final freeze and human UAT remain separate.
-After combined integration, the separately agreed final independent targeted
-recheck must bind the exact final candidate SHA. Its receipt is pending; the task
+After combined integration, the separately agreed [final independent targeted
+recheck](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6339639012)
+must bind the exact final candidate SHA. Its receipt is pending; the task
 reviews and CI recorded here do not establish that additional check.
 When the Owner is available, use approved disposable verified-backup clones as
 applicable below; record PASS/FAIL/UNVERIFIED per item, private evidence outside Git:
