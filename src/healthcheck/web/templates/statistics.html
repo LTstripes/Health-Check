@@ -65,6 +65,7 @@
   {% for code, label in metric_labels.items() if code != 'activity_type_counts' %}
   <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">
     <h2 id="metric-{{ code }}">{{ label }}</h2>
+    {% if code == 'activity_session_count' %}<span id="metric-activity_type_counts"></span>{% endif %}
     <div class="statistics-pair">
       {% for side in packet.sides %}
       {% set cell = cycling_cell if code == 'cycling_distance_meters' and side.position == 'left' else side.metrics[code] %}
@@ -103,7 +104,7 @@
         {% endif %}
         <details class="statistics-details">
           <summary>ⓘ Данные и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
-          {% if code == 'activity_session_count' %}<pre class="provenance">{{ side.metrics.activity_type_counts | tojson(indent=2) }}</pre>{% endif %}
+          {% if code == 'activity_session_count' %}<pre class="provenance" data-activity-type-evidence="{{ side.position }}">{{ side.metrics.activity_type_counts | tojson(indent=2) }}</pre>{% if code in session_links %}<p><a href="{{ session_links.activity_type_counts }}">Записи по видам активности</a></p>{% endif %}{% endif %}
           {% if incomplete %}<p>Официальный итог и знаменатель недоступны; пропуски и полнота сбора неизвестны.</p>
           {% elif unevaluated %}<p>Наблюдения и знаменатель не оценены; это не ноль событий.</p>
           {% else %}<p>Допустимо: {{ cell.aggregation.eligible_count }}; без наблюдений {{ cell.missing_day_count }} дней.</p>

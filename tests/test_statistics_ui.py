@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import socket
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -362,11 +365,25 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
         k: v for k, v in packet.items() if k != "evaluated_at"
     }
     assert len(cells) == sum(
-        1 for side in packet["sides"] for cell in side["metrics"].values()
-        if side["position"] != "right" or cell["state"] != "not_collected"
+        1 for side in packet["sides"] for code, cell in side["metrics"].items()
+        if code != "activity_type_counts"
+        and (side["position"] != "right" or cell["state"] != "not_collected")
     )
     for side in packet["sides"]:
         for code, cell in side["metrics"].items():
+            if code == "activity_type_counts":
+                if side["position"] == "right" and cell["state"] == "not_collected":
+                    assert (code, "right") not in cells
+                    continue
+                evidence = re.search(
+                    r'data-activity-type-evidence="' + side["position"] + r'">(.*?)</pre>',
+                    response.text, re.S,
+                )
+                assert evidence is not None
+                assert json.loads(unescape(evidence[1])) == cell
+                assert (code, side["position"]) not in cells
+                assert 'id="metric-activity_type_counts"' in response.text
+                continue
             if side["position"] == "right" and cell["state"] == "not_collected":
                 assert (code, "right") not in cells
                 continue
@@ -380,7 +397,11 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
                 for kind, count in value.items():
                     assert f"{kind}: {int(count)} сессий" in headline
             else:
-                assert headline == format_statistics_value(code, value)
+                if code == "activity_session_count":
+                    assert headline.startswith(format_statistics_value(code, value))
+                    assert "cycling" not in headline and "tennis_v2" not in headline
+                else:
+                    assert headline == format_statistics_value(code, value)
             assert f"{value if value is not None else 'Недоступно'} / " in details
             numerator = cell["aggregation"]["numerator"]
             assert f"/ {numerator if numerator is not None else 'Недоступно'}" in details

@@ -98,3 +98,17 @@ def test_legacy_a_valid_scalar_keeps_duration_and_unverified_disclosure_without_
     assert source_sleep_value(cell) == "7 ч 0 мин"
     assert "не проверена" in source_sleep_note(cell)
     assert cell == original
+
+
+def test_record_start_proof_is_not_reused_for_end():
+    start = _cell("2026-10-24T20:00:00Z")
+    end = _cell("2026-10-25T06:00:00Z")
+    session = {"temporal_evidence": {"precision": "instant",
+               "source_timestamp_utc": start["value"], "source_utc_offset_minutes": 120}}
+    assert source_sleep_value(start, session, "sleep_start_at").endswith("22:00 UTC+0200")
+    assert source_sleep_value(end, session, "sleep_end_at").endswith("06:00 UTC")
+
+
+@pytest.mark.parametrize("value", [True, 1.5, float("nan"), "2", None, -1])
+def test_invalid_activity_count_is_not_rounded_or_coerced(value):
+    assert owner_activity_count(value) == "Количество тренировок недоступно"

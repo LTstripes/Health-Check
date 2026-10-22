@@ -63,7 +63,8 @@ def main():
         "clock": "pages.datetime.now=2099-01-10T12:00Z; presentation fixture only",
         "provider_calls": False, "private_data": False,
     }
-    (runtime / "synthetic-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (runtime / "synthetic-manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8")
     with patch("healthcheck.web.pages.datetime", FixtureDatetime):
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning", access_log=False)
 

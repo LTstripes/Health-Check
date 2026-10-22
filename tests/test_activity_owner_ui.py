@@ -16,6 +16,7 @@ from healthcheck.garmin.normalization import garmin_source_identity, normalize_g
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.garmin_query import GarminQueryService
+from healthcheck.web.owner_presentation import owner_activity_count
 from test_garmin_training_owner_view import _seed_training, _ui
 
 
@@ -170,7 +171,7 @@ def test_activity_multiple_sources_require_explicit_selection(tmp_path):
         assert payload["activities"] == []
         selected = client.get("/garmin", params={"garmin_source_id": source})
         assert 'id="source-form"' in selected.text
-        assert "Велотренировка" in selected.text
+        assert "Велосипед" in selected.text
         assert "Ходьба" not in selected.text
 
 
@@ -427,7 +428,7 @@ def test_compact_journal_preserves_bounded_source_records_and_period_independenc
             assert history is not None  # No open attribute: native keyboard disclosure.
             assert recent.count("<tr><td>") == min(count, 5)
             assert history.group(1).count("<tr><td>") == min(count, 50)
-            names = {"tennis_v2": "Теннис", "cycling": "Велотренировка", "walking": "Ходьба"}
+            names = {"tennis_v2": "Теннис", "cycling": "Велосипед", "walking": "Ходьба"}
             context_query = "&amp;start_date=2098-01-01&amp;end_date=2098-01-02"
             for index, record in enumerate(records):
                 session_link = (
@@ -447,7 +448,7 @@ def test_compact_journal_preserves_bounded_source_records_and_period_independenc
                     '<div class="activity-recent">', 1
                 )[0]
                 assert (
-                    f"<strong>{min(count, 50)}</strong> в журнале выбранного источника" in summary
+                    f"<strong>{owner_activity_count(min(count, 50))}</strong>:" in summary
                 )
                 for code, name in names.items():
                     expected_count = sum(record["activity_type"] == code for record in records)

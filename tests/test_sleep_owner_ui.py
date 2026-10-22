@@ -282,8 +282,9 @@ def test_agreement_accumulation_does_not_fabricate_statistics(tmp_path, monkeypa
         page = client.get("/agreement")
         assert page.status_code == 200
         assert 'data-owner-state="insufficient"' in page.text
-        assert "Статистика пока недоступна" in page.text
-        assert "осталось пригодных пар: 13" in page.text
+        assert "Сохранённого сравнения для показа пока нет" in page.text
+        assert "Средняя разность" not in page.text.split('id="sleep-technical"')[0]
+        assert '"remaining_n": 13' in page.text
         assert "Принятая исследовательская статистика" not in page.text
 
 

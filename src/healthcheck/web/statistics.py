@@ -86,7 +86,7 @@ def format_statistics_value(code: str, value: int | float | None) -> str:
         return owner_duration(value)
     if code == "cycling_distance_meters":
         return owner_distance(value)
-    return owner_activity_count(int(value))
+    return owner_activity_count(value)
 
 
 @router.get("/statistics")

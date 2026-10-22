@@ -83,8 +83,10 @@ def owner_activity_type(value: object) -> str:
 
 
 def owner_activity_count(value: object) -> str:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+    if (not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0
+            or isinstance(value, float) and (not isfinite(value) or not value.is_integer())):
         return "Количество тренировок недоступно"
+    value = int(value)
     last, last_two = value % 10, value % 100
     word = "тренировок" if 11 <= last_two <= 14 else (
         "тренировка" if last == 1 else "тренировки" if 2 <= last <= 4 else "тренировок")

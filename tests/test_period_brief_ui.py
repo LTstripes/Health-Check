@@ -744,7 +744,7 @@ def test_stage3_all_frozen_states_and_unknown_activity_copy_are_preserved():
     for state, label in templates.get_template("owner_ui.html").module.state_labels.items():
         assert _brief_owner_state(state) == label
     assert _brief_owner_state("future_state") == "Состояние данных не определено"
-    assert _brief_owner_activity("future_provider_activity") == "Другая активность"
+    assert _brief_owner_activity("future_provider_activity") == "Другой вид активности"
 
 
 def test_brief_usable_evidence_inspects_section_evidence_not_only_state():
@@ -821,8 +821,8 @@ def test_brief_activity_tennis_label_and_unknown_fallback():
 
     assert _brief_owner_activity("tennis") == "Теннис"
     assert _brief_owner_activity("tennis_v2") == "Теннис"
-    assert _brief_owner_activity("stand_up_paddleboarding_v2") == "Другая активность"
-    assert _brief_owner_activity("future_provider_activity") == "Другая активность"
+    assert _brief_owner_activity("stand_up_paddleboarding_v2") == "Другой вид активности"
+    assert _brief_owner_activity("future_provider_activity") == "Другой вид активности"
 
 
 def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, monkeypatch):

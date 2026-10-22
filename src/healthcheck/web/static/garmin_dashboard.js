@@ -1,5 +1,6 @@
 (function () {
   const ownerDate = window.healthcheckOwnerDate;
+  const humanDuration = window.healthcheckOwnerFormat.duration;
   const dataNode = document.getElementById("garmin-dashboard-data");
   if (!dataNode) return;
   const payload = JSON.parse(dataNode.textContent || "{}");
@@ -233,7 +234,6 @@
     });
     setHtml("activity-result", html); setText("activity-evidence", JSON.stringify(body, null, 2)); identity(body);
   }
-  const humanDuration = window.healthcheckOwnerFormat.duration;
   function renderLagResult(body) {
     let html = '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сдвиг, дней</th><th>Состояние</th><th>Связь (Спирмен)</th><th>Пар значений</th><th>Ограничение</th></tr></thead><tbody>';
     (body.lags || []).forEach(lag => {

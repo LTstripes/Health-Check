@@ -332,9 +332,14 @@ def sleep_endpoint_text(
     endpoint = {"sleep_start_at": "start", "sleep_end_at": "end"}.get(code)
     offsets = set()
     if endpoint:
+        record = session.get("temporal_evidence") or {}
+        # The record attribution proves a start only. Never reuse it for the end.
+        record_start = {"precision": record.get("precision"),
+                        "measured_at_utc": record.get("source_timestamp_utc"),
+                        "source_utc_offset_minutes": record.get("source_utc_offset_minutes")}
         for item in [cell, *(session.get("metrics") or {}).values()]:
             evidence = item.get("evidence") or {}
-            candidates = []
+            candidates = [record_start] if endpoint == "start" else []
             boundary = (evidence.get("quality_inputs") or {}).get("summary_boundary") or {}
             candidates.append(boundary.get(endpoint))
             for snapshot in evidence.get("interval_snapshots") or []:
@@ -353,7 +358,10 @@ def sleep_endpoint_text(
                 except (TypeError, ValueError):
                     continue
     if len(offsets) == 1:
-        instant = instant.astimezone(timezone(timedelta(minutes=offsets.pop())))
+        try:
+            instant = instant.astimezone(timezone(timedelta(minutes=offsets.pop())))
+        except (ValueError, OverflowError):
+            instant = instant.astimezone(UTC)
     else:
         instant = instant.astimezone(UTC)
     return owner_date(instant)

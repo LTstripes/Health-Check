@@ -2,7 +2,7 @@
 {% set cell = session.metrics[code] %}
 <section data-source-sleep-metric="{{ code }}">
   <h4>{{ label }}</h4>
-  <p class="source-sleep-value">{{ source_sleep_value(cell, session, code) }}</p>
+  <p class="source-sleep-value" data-owner-state="{{ 'present' if cell.eligible else 'partial' if cell.reason == 'stage_collection_partial' else 'unavailable' }}">{{ source_sleep_value(cell, session, code) }}</p>
   {% set note = source_sleep_note(cell) %}{% if note %}<p class="muted">{{ note }}</p>{% endif %}
 </section>
 {% endmacro %}

@@ -72,7 +72,7 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
             assert.match(await page.locator('.sleep-night').innerText(), /не проверена по границам/);
           }
           if (name === 'overview' && state === 'filled-partial') {
-            const sleep = page.locator('[data-overview-primary="sleep"]');
+            const sleep = page.locator('[data-overview-period-sleep]');
             // Selector is production-specific; a real positive card is mandatory.
             assert.match(await sleep.innerText(), /ч|мин/);
             assert.doesNotMatch(await sleep.innerText(), seconds);
@@ -108,6 +108,26 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
     const values = await page.evaluate(() => [0, .001, 59.999, 60, 89.999, 90, 3599.99, -1].map(v => window.healthcheckOwnerFormat.duration(v)));
     assert.deepEqual(values, ['0 мин', '<1 мин', '<1 мин', '1 мин', '1 мин', '2 мин', '1 ч 0 мин', 'Недоступно']);
     report.checks.push('JS duration 0/subminute/HALF_UP/invalid under Pacific/Honolulu');
+    const clocks = await page.evaluate(() => {
+      const start = {eligible: true, value: '2026-10-24T20:00:00Z'};
+      const end = {eligible: true, value: '2026-10-25T06:00:00Z'};
+      const session = {metrics: {duration: {evidence: {quality_inputs: {summary_boundary: {
+        start: {precision: 'instant', measured_at_utc: start.value, source_utc_offset_minutes: 120},
+        end: {precision: 'instant', measured_at_utc: end.value, source_utc_offset_minutes: 60},
+      }}}}}};
+      const endpoint = window.healthcheckOwnerFormat.endpoint;
+      const results = [endpoint(start, session, 'sleep_start_at'), endpoint(end, session, 'sleep_end_at')];
+      delete session.metrics.duration.evidence.quality_inputs.summary_boundary.end;
+      results.push(endpoint(end, session, 'sleep_end_at'));
+      end.eligible = false;
+      results.push(endpoint(end, session, 'sleep_end_at'));
+      return results;
+    });
+    assert.match(clocks[0], /22:00 UTC\+0200$/);
+    assert.match(clocks[1], /07:00 UTC\+0100$/);
+    assert.match(clocks[2], /06:00 UTC$/);
+    assert.equal(clocks[3], '—');
+    report.checks.push('JS exact independent DST endpoints; no borrowed end offset; no metadata eligibility promotion');
     report.outcome = 'PASS';
   } catch (err) { report.outcome = 'FAIL'; report.failure = err.stack; throw err; }
   finally { fs.writeFileSync(path.join(evidence, 'receipt.json'), JSON.stringify(report, null, 2)); await browser.close(); }
