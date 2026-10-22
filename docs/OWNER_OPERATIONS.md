@@ -353,6 +353,25 @@ synthetic validation only, with no new real-profile operation.
 The #487/#489 quality corrections add no database migration or automatic raw/history
 replay. The supported schema ancestry below is unchanged; this does not turn the
 older candidate's runtime/UI rehearsal into a new-candidate pass.
+The later final targeted audit returned NO-GO for code `303450b`; reopened
+[#484](https://github.com/LTstripes/Health-Check/issues/484) and
+[#485](https://github.com/LTstripes/Health-Check/issues/485) require new exact gates
+and a targeted recheck on the new combined SHA. Preserve prior CI/rehearsal receipts
+without treating them as that recheck. No real-data UAT transition occurs while
+the current verdict in #479 is NO-GO.
+
+Forward v4 sleep metadata preserves independently parsed summary boundaries with
+or without phases. It does not recover lost End values from old typed v3 rows.
+Scalar validity and a proven duration/boundary check are separate; missing legacy
+boundary metadata must be disclosed as unverified, never guessed or silently
+reconstructed by raw-body reads. New normalization/offline-reprocess controls are
+synthetic engineering evidence, not authority to replay an Owner profile. Historical
+frozen packets retain their original rule/version/eligibility and are not rewritten.
+The Owner chose to retain scalar-valid old nights in calculations with the
+"boundaries not checked" disclosure. No night is removed solely for absent saved
+bounds; negatives and proven contradictions remain excluded. Receipts must state
+which new/reprocessed data has independent typed bounds and which old rows cannot
+prove TST <= session, without claiming complete retrospective validation.
 
 ### Candidate and recovery point
 
@@ -1104,11 +1123,16 @@ python -m healthcheck.export_combined_evidence \
 ```
 
 Current compact JSON declares `projection.sleep_evidence_schema` as
-`compact-sleep-evidence-v2`. Resolve each endpoint-array index through the same
-saved session's `session_interval_sets`, following
+`compact-sleep-evidence-v3`. Resolve each endpoint-array index through the same
+saved session's `session_interval_sets`; after overlaying common and cell evidence,
+resolve its `quality_inputs_index` through that source session's
+`quality_input_sets`, following
 [Architecture reconstruction](ARCHITECTURE.md#evidence-combined--opt-in-compact-projection).
-Earlier packets without the discriminator retain inline arrays. Selected facts
-and readable text keep their existing scope; full summary provenance remains in
+Earlier v2 packets retain their endpoint registry and inline quality inputs;
+packets without the discriminator retain inline arrays. Do not rewrite a saved
+packet or infer a successful check from absent historical validation metadata.
+Selected facts and readable text retain the bounded boundary-validation note;
+full summary provenance remains in
 the matching JSON. Existing byte/profile/privacy guards still apply.
 
 <a id="health-chat-evidence-commands"></a>

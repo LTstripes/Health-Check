@@ -21,6 +21,12 @@ and [#485](https://github.com/LTstripes/Health-Check/issues/485) are reopened fo
 bounded corrections. [Release tracker #479](https://github.com/LTstripes/Health-Check/issues/479)
 owns the current exact candidate and verdict; prior CI success does not override
 that audit or authorize real-data UAT/rollout. #488 implementation remains on hold.
+The Owner chose to keep scalar-valid legacy nights in calculations with an
+explicit "boundaries not checked" disclosure. Missing preserved boundaries alone
+do not remove a night; negative values and proven contradictions remain excluded.
+This does not certify old TST <= session or permit the counterexample when new
+typed bounds exist. New/reprocessed v4 records preserve independent endpoints;
+lost old End values are not recovered by raw reread or guessed from stages.
 
 | Boundary | Observed state and evidence | What it establishes |
 | --- | --- | --- |
