@@ -22,11 +22,14 @@ from healthcheck.db.models import (
     GarminPayloadObservation,
     GarminRawPayload,
     GarminRecordMetric,
+    GarminSleepStageInterval,
     GoogleNormalizationAttempt,
     GooglePayloadObservation,
     GoogleRawPayload,
     GoogleRecordMetric,
     GoogleRecordSourceEvidence,
+    GoogleSleepFieldState,
+    GoogleSleepInterval,
     GoogleSource,
 )
 
@@ -35,6 +38,7 @@ MAX_NIGHT_RECORDS = 200
 MAX_PERIOD_SOURCES = 32
 MAX_METRIC_ROWS = 16384
 MAX_METADATA_ROWS = 8192
+MAX_SLEEP_INTERVAL_ROWS = 131072
 MAX_COVERAGE_ROWS = 2048
 READ_BUDGET_SECONDS = 2.0
 BATCH_SIZE = 256
@@ -111,7 +115,7 @@ class PeriodReadBudget:
         return sorted(rows, key=lambda r: (r.received_at, r.id))
 
     def sleep_sessions(self, source, records):
-        """Load only duration/role/variant inputs and their accepted immutable evidence."""
+        """Load duration, compatible bounds and their accepted immutable evidence."""
         google = isinstance(source, GoogleSource)
         provider = "google" if google else "garmin"
         current = [r for r in records if r.projection_status == "current"]
@@ -120,12 +124,16 @@ class PeriodReadBudget:
         codes = (
             (
                 "sleep_summary_minutes_asleep",
+                "sleep_summary_minutes_in_sleep_period",
+                "sleep_stages",
+                "sleep_metadata_stages_status",
                 "sleep_type",
                 "sleep_metadata_main",
+                "sleep_metadata_main_sleep",
                 "sleep_metadata_nap",
             )
             if google
-            else ("sleep_duration_seconds",)
+            else ("sleep_duration_seconds", "sleep_stages")
         )
         metrics = self.related(
             metric_model,
@@ -137,6 +145,18 @@ class PeriodReadBudget:
         metrics_by_record = defaultdict(list)
         for metric in metrics:
             metrics_by_record[metric.record_id].append(metric)
+        interval_model = GoogleSleepInterval if google else GarminSleepStageInterval
+        intervals = self.related(
+            interval_model, interval_model.sleep_record_id, ids, cap=MAX_SLEEP_INTERVAL_ROWS,
+        )
+        intervals_by_record = defaultdict(list)
+        for row in sorted(intervals, key=lambda r: (getattr(r, "interval_kind", ""), r.ordinal)):
+            intervals_by_record[row.sleep_record_id].append(row)
+        field_states = {
+            r.sleep_record_id: r for r in self.related(
+                GoogleSleepFieldState, GoogleSleepFieldState.sleep_record_id, ids,
+            )
+        } if google else {}
         raw_model = GoogleRawPayload if google else GarminRawPayload
         raw = {
             r.id: r
@@ -214,8 +234,8 @@ class PeriodReadBudget:
                 source=source,
                 record=record,
                 metrics=tuple(metrics_by_record[record.id]),
-                stages=(),
-                field_state=None,
+                stages=tuple(intervals_by_record[record.id]),
+                field_state=field_states.get(record.id),
                 evidence=_record_evidence(
                     self.session,
                     provider=provider,

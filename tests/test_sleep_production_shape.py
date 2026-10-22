@@ -55,6 +55,59 @@ def production_sleep(*, offset=60, end_offset=None):
             "activityLevel": float(i)} for i in range(4)]}
 
 
+@pytest.mark.parametrize("seconds,reason", [(-1, "duration_negative"),
+    (28801, "duration_exceeds_confirmed_session"), (28800, None)])
+def test_production_duration_quality_in_current_and_legacy_readers(
+    projection_database, seconds, reason,
+):
+    from healthcheck.analytics.garmin_baselines import (
+        GarminSeriesQuery,
+        analyze_garmin_metric_series,
+    )
+    from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
+    from healthcheck.garmin.analytic_contract import build_analytic_input_from_storage
+
+    session, paths = projection_database
+    payload = production_sleep()
+    payload["dailySleepDTO"]["sleepTimeSeconds"] = seconds
+    GarminPersistenceRepository(session, payload_store=ContentAddressedGarminPayloadStore(
+        paths.root / "garmin-artifacts")).persist_result(normalized(payload), payload=payload)
+    session.commit()
+    night = read_source_sleep_night(session, provider="garmin", wake_date=DAY)
+    cell = night["sources"][0]["summary"]["metrics"]["sleep_duration_asleep_seconds"]
+    assert cell["eligible"] is (reason is None)
+    assert cell["reason"] == reason
+    row = session.scalar(select(GarminRecordMetric).where(
+        GarminRecordMetric.metric_code == "sleep_duration_seconds",
+    ))
+    dto = build_analytic_input_from_storage(session, metric_row_id=row.id)
+    assert dto.selected.state == ("invalid" if reason else "value")
+    assert dto.selected.value == seconds
+    assert dto.evidence.sleep_quality_inputs["confirmed_end_at_utc"] == END.isoformat()
+    source_id = session.scalar(select(GarminSourceRecord.garmin_source_id))
+    series = analyze_garmin_metric_series(session, GarminSeriesQuery(
+        garmin_source_id=source_id, metric_code="sleep_duration_seconds",
+        start_date=DAY, end_date=DAY,
+    ))
+    assert series.points[0].value == (seconds if reason is None else None)
+    assert series.points[0].exclusion_reason == reason
+    assert session.get(GarminRecordMetric, row.id).value_number == seconds
+
+
+def test_production_complete_coverage_can_prove_rem_zero(projection_database):
+    session, paths = projection_database
+    payload = production_sleep()
+    payload["sleepLevels"][2]["activityLevel"] = 1
+    GarminPersistenceRepository(session, payload_store=ContentAddressedGarminPayloadStore(
+        paths.root / "garmin-artifacts")).persist_result(normalized(payload), payload=payload)
+    session.commit()
+    cells = read_source_sleep_night(session, provider="garmin", wake_date=DAY)[
+        "sources"][0]["summary"]["metrics"]
+    assert cells["sleep_stage_rem_seconds"]["eligible"]
+    assert cells["sleep_stage_rem_seconds"]["value"] == 0
+    assert cells["sleep_time_in_bed_seconds"]["value"] == 28800
+
+
 def normalized(payload):
     result = normalize_garmin_payload(payload, stream="sleep", source_identity=SOURCE)
     return _prepare_normalization_result(SURFACE, payload, result, day=DAY)

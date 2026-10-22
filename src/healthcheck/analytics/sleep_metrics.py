@@ -52,10 +52,11 @@ from healthcheck.db.models import (
 )
 from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.analytic_contract import stable_manifest_hash
+from healthcheck.sleep_quality import duration_quality_reason, garmin_confirmed_session_bounds
 
-R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION = "r05-02-sleep-metric-projection-v1"
-R05_SLEEP_METRIC_PROJECTION_RULE_VERSION = "r05-02-sleep-metric-rules-v1"
-R05_SLEEP_METRIC_PROJECTION_ALGORITHM = "r05-02-sleep-metric-projection-v1"
+R05_SLEEP_METRIC_PROJECTION_CONTRACT_VERSION = "r05-02-sleep-metric-projection-v2"
+R05_SLEEP_METRIC_PROJECTION_RULE_VERSION = "r05-02-sleep-metric-rules-v2"
+R05_SLEEP_METRIC_PROJECTION_ALGORITHM = "r05-02-sleep-metric-projection-v2"
 
 # These are the only comparable/overlay cells emitted by this surface.  The
 # source metric names deliberately stay visible in each metric definition.
@@ -268,6 +269,7 @@ class SleepMetricEvidenceRef:
     field_paths: tuple[str, ...] = ()
     attribution: Mapping[str, object] = field(default_factory=dict)
     normalization_provenance: Mapping[str, object] = field(default_factory=dict)
+    quality_inputs: Mapping[str, object] = field(default_factory=dict)
     exclusion_basis: str | None = None
     immutable: bool = False
 
@@ -292,6 +294,7 @@ class SleepMetricEvidenceRef:
             "field_paths": list(self.field_paths),
             "attribution": dict(self.attribution),
             "normalization_provenance": dict(self.normalization_provenance),
+            "quality_inputs": dict(self.quality_inputs),
             "exclusion_basis": self.exclusion_basis,
             "immutable": self.immutable,
         }
@@ -588,6 +591,23 @@ def _evidence_for(
         interval_ids=tuple(row.id for row in interval_rows),
         interval_snapshots=tuple(_interval_snapshot(row) for row in interval_rows),
         field_paths=tuple(sorted(field_paths)),
+        quality_inputs={
+            "metric_rule_version": R05_SLEEP_METRIC_PROJECTION_RULE_VERSION,
+            "record_start_precision": side.record.temporal_precision,
+            "record_start_at_utc": _iso_utc(side.record.source_timestamp_utc),
+            "stage_status_succeeded": _stage_status(side) == _GOOGLE_STAGE_SUCCESS
+            if side.provider == "google" else None,
+            "session_state": side.field_state.sleep_interval_state
+            if side.field_state is not None else None,
+            "stages_state": side.field_state.sleep_stages_state
+            if side.field_state is not None else None,
+            "metrics": [
+                {"id": row.id, "metric_code": row.metric_code, "state": row.state,
+                 "value_number": _finite_number(row.value_number), "unit": row.unit,
+                 "reason": row.reason}
+                for row in sorted(metric_rows, key=lambda r: (r.metric_code, r.id))
+            ],
+        },
         exclusion_basis=exclusion_basis or side.evidence.exclusion_basis,
     )
 
@@ -1144,7 +1164,33 @@ def _outcome_from_scalar(
             evidence=_evidence_for(side, metric_rows=(row,), exclusion_basis=reason),
             exclusion_basis=reason,
         )
-    value = _numeric_value(raw_value * multiplier)
+    value = _finite_number(raw_value * multiplier)
+    if value is None:
+        reason = "metric_value_invalid"
+        return _MetricOutcome(
+            state=_INVALID, value=None, unit=normalized_unit, field_path=row.field_path,
+            reason=reason, eligible=False, variant=variant, comparison_basis=None,
+            evidence=replace(evidence, exclusion_basis=reason), exclusion_basis=reason,
+        )
+    if metric_code in {"sleep_duration_seconds", "sleep_summary_minutes_asleep"}:
+        # Freeze every dependency used for quality decisions, including valid
+        # controls. A summary-only manifest cannot reproduce a boundary check.
+        evidence = _evidence_for(
+            side,
+            metric_rows=tuple(m for m in side.metrics if m.metric_code in {
+                metric_code, "sleep_summary_minutes_in_sleep_period", "sleep_stages",
+                "sleep_metadata_stages_status",
+            }),
+            interval_rows=side.stages, field_state=side.field_state,
+        )
+        reason = _duration_quality_reason(side, value, variant=variant)
+        if reason is not None:
+            return _MetricOutcome(
+                state=_INVALID, value=value, unit=normalized_unit, field_path=row.field_path,
+                reason=reason, eligible=False, variant=variant,
+                comparison_basis="persisted_metric",
+                evidence=replace(evidence, exclusion_basis=reason), exclusion_basis=reason,
+            )
     if not side.evidence.immutable:
         reason = side.evidence.exclusion_basis or "immutable_input_evidence_unavailable"
         return _MetricOutcome(
@@ -1310,6 +1356,11 @@ def _validated_intervals(
             return _ValidatedIntervals(values, "stage_interval_order_invalid")
         if previous_end is not None and start < previous_end:
             return _ValidatedIntervals(values, "stage_interval_overlap")
+        if previous_end is not None and start > previous_end:
+            return _ValidatedIntervals(values, "stage_interval_gap")
+        stage = getattr(row, "activity_level", None) or getattr(row, "stage_type", None)
+        if not isinstance(stage, str) or stage.strip().upper() not in _STAGE_TARGETS:
+            return _ValidatedIntervals(values, "stage_type_unmapped")
         previous_start = start
         previous_end = end
     return _ValidatedIntervals(values, None)
@@ -1324,10 +1375,13 @@ def _stage_rows_evidence(
     exclusion_basis: str | None = None,
 ) -> SleepMetricEvidenceRef:
     metric_rows = (row,) if row is not None else ()
+    intervals = tuple(rows)
+    if side.provider == "google":
+        intervals += _google_session_rows(side)
     return _evidence_for(
         side,
         metric_rows=metric_rows,
-        interval_rows=rows,
+        interval_rows=intervals,
         field_state=field_state,
         exclusion_basis=exclusion_basis,
     )
@@ -1370,6 +1424,22 @@ def _stage_collection(
         reason = "stage_collection_partial"
     elif state == _VALUE and validation.reason is not None:
         reason = validation.reason
+    if state == _VALUE and reason is None:
+        # Exact UTC comparisons: neither source documents a stage-gap tolerance.
+        first = _interval_start(rows[0])
+        last = _interval_end(rows[-1])
+        if side.provider == "google":
+            session_row, _, session_reason = _validated_google_session(side)
+            if session_row is None or session_reason is not None:
+                reason = "stage_session_boundary_unconfirmed"
+            elif first != _interval_start(session_row) or last != _interval_end(session_row):
+                reason = "stage_session_boundary_gap"
+        else:
+            start, end = garmin_confirmed_session_bounds(side.record, side.stages)
+            if start is None or end is None:
+                reason = "stage_session_boundary_unconfirmed"
+            elif first != start or last != end:
+                reason = "stage_session_boundary_gap"
     if (
         side.provider == "google"
         and require_google_success
@@ -2049,6 +2119,29 @@ def _tib_outcome(
             evidence=replace(evidence, exclusion_basis=reason),
             exclusion_basis=reason,
         )
+    # Google defines this field as integral minutes between bedtime and wake.
+    # No rounding rule is documented, so do not add a guessed +/- minute slack.
+    normalized_value = _finite_number(raw_value * 60)
+    quality_reason = None
+    if normalized_value is None:
+        quality_reason = "metric_value_invalid"
+    elif raw_value < 0:
+        quality_reason = "duration_negative"
+    elif not float(raw_value).is_integer():
+        quality_reason = "duration_precision_invalid"
+    elif explicit_boundary_ok and session_row is not None:
+        bound = (_interval_end(session_row) - _interval_start(session_row)).total_seconds()
+        if raw_value * 60 > bound:
+            quality_reason = "duration_exceeds_confirmed_session"
+    if quality_reason is not None:
+        return _MetricOutcome(
+            state=_INVALID, value=normalized_value, unit="seconds",
+            field_path=field_path, reason=quality_reason, eligible=False, variant=variant,
+            comparison_basis="summary_with_explicit_session_boundary"
+            if explicit_boundary_ok else "summary_without_boundary",
+            evidence=replace(evidence, exclusion_basis=quality_reason),
+            exclusion_basis=quality_reason,
+        )
     if explicit_boundary_ok:
         basis = "summary_with_explicit_session_boundary"
     elif typed_proof_ok:
@@ -2062,6 +2155,10 @@ def _tib_outcome(
                 "stage_interval_invalid",
                 "stage_interval_order_invalid",
                 "stage_interval_temporal_precision_unavailable",
+                "stage_interval_gap",
+                "stage_type_unmapped",
+                "stage_session_boundary_gap",
+                "stage_session_boundary_unconfirmed",
             }
             else "tib_boundary_insufficient"
         )
@@ -2102,6 +2199,31 @@ def _tib_outcome(
         comparison_basis=basis,
         evidence=evidence,
     )
+
+
+def _duration_quality_reason(
+    side: _StoredSleepSide, value: int | float, *, variant: str | None,
+) -> str | None:
+    """Revalidate saved evidence without rewriting its value, raw input or history."""
+    sign_reason = duration_quality_reason(value)
+    if sign_reason is not None:
+        return sign_reason
+    if side.provider == "google":
+        if not float(value / 60).is_integer():
+            return "duration_precision_invalid"
+        row, _, reason = _validated_google_session(side)
+        if row is not None and reason is None:
+            bound = (_interval_end(row) - _interval_start(row)).total_seconds()
+            if value > bound:
+                return "duration_exceeds_confirmed_session"
+    else:
+        start, end = garmin_confirmed_session_bounds(side.record, side.stages)
+        if start is not None and end is not None and value > (end - start).total_seconds():
+            return "duration_exceeds_confirmed_session"
+    tib = _tib_outcome(side, variant=variant)
+    if tib.eligible and isinstance(tib.value, (int, float)) and value > tib.value:
+        return "duration_exceeds_time_in_bed"
+    return None
 
 
 def _auxiliary_side_candidates(

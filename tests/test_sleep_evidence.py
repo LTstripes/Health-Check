@@ -311,6 +311,8 @@ def test_whitelist_nested_future_fields_never_exported(profile, monkeypatch):
         session["source_eligibility"]["basis"]["raw_payload"] = {"token": "SECRET"}
         metric = session["metrics"]["sleep_duration_asleep_seconds"]
         metric["evidence"]["normalization_provenance"]["raw_payload"]["path"] = "SECRET"
+        metric["evidence"]["quality_inputs"]["raw_payload"] = {"token": "SECRET"}
+        metric["evidence"]["quality_inputs"]["metrics"][0]["credential"] = "SECRET"
         metric["evidence"]["interval_snapshots"].append({"token": "SECRET"})
         packet["wake_date_missing_by_source"]["UNSELECTED_SECRET_SOURCE"] = 123
         return packet

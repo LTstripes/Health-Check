@@ -44,6 +44,197 @@ GARMIN_DAILY_FIXTURE = Path(__file__).parent / "fixtures" / "garmin" / "daily_he
 FITBIT_SOURCE = "users/me/dataSources/raw:com.google.sleep:com.fitbit.Fitbit:synthetic"
 
 
+def test_internal_gap_cannot_prove_complete_totals(projection_database):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload(
+        stages_status="SUCCEEDED", stages=[
+        _stage("2099-01-01T22:00:00Z", "2099-01-01T23:00:00Z", "LIGHT"),
+        _stage("2099-01-02T00:00:00Z", "2099-01-02T05:00:00Z", "DEEP"),
+    ]))
+    session.commit()
+    result = read_persisted_sleep_metric_projection(session)
+    assert not _metric(result, "sleep_stage_rem_seconds").google.eligible
+    assert not _metric(result, "sleep_time_in_bed_seconds").garmin.eligible
+    assert _metric(result, "sleep_duration_asleep_seconds").google.eligible
+
+
+@pytest.mark.parametrize("minutes", [-1, 600])
+def test_confirmed_duration_cannot_be_negative_or_exceed_session(projection_database, minutes):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    payload = _google_sleep_payload()
+    payload["dataPoints"][0]["sleep"]["summary"]["minutesAsleep"] = str(minutes)
+    _persist_google(session, paths, payload=payload)
+    session.commit()
+    result = read_persisted_sleep_metric_projection(session)
+    assert not _metric(result, "sleep_duration_asleep_seconds").google.eligible
+
+
+@pytest.mark.parametrize("problem,reason", [
+    ("complete", None), ("internal", "stage_interval_gap"),
+    ("start", "stage_session_boundary_gap"), ("end", "stage_session_boundary_gap"),
+    ("unknown", "stage_type_unmapped"),
+])
+def test_recognized_coverage_controls_missing_rem(projection_database, problem, reason):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    stages = [
+        _stage("2099-01-01T22:00:00Z", "2099-01-02T00:00:00Z", "LIGHT"),
+        _stage("2099-01-02T00:00:00Z", "2099-01-02T05:00:00Z", "DEEP"),
+    ]
+    if problem == "internal":
+        stages[1]["startTime"] = "2099-01-02T01:00:00Z"
+    elif problem == "start":
+        stages[0]["startTime"] = "2099-01-01T23:00:00Z"
+    elif problem == "end":
+        stages[-1]["endTime"] = "2099-01-02T04:00:00Z"
+    _persist_google(session, paths, payload=_google_sleep_payload(
+        stages_status="SUCCEEDED", stages=stages,
+    ))
+    if problem == "unknown":
+        from healthcheck.db.models import GoogleSleepInterval
+        row = session.scalar(select(GoogleSleepInterval).where(
+            GoogleSleepInterval.interval_kind == "sleep_stage", GoogleSleepInterval.ordinal == 1,
+        ))
+        row.stage_type = "UNMAPPED_SAVED_STAGE"
+    session.commit()
+    result = read_persisted_sleep_metric_projection(session)
+    rem = _metric(result, "sleep_stage_rem_seconds").google
+    assert rem.eligible is (reason is None)
+    assert rem.reason == reason
+    assert rem.value == (0 if reason is None else None)
+    assert _metric(result, "sleep_duration_asleep_seconds").google.eligible
+    assert _metric(result, "sleep_time_in_bed_seconds").google.eligible
+
+
+@pytest.mark.parametrize("minutes,tib,end,reason", [
+    (90, 120, "2099-01-02T00:00:00Z", None),
+    (120, 120, "2099-01-02T00:00:00Z", None),
+    (120, 120, "2099-01-01T23:59:59.999999Z", "duration_exceeds_confirmed_session"),
+    (121, 120, "2099-01-02T00:00:00Z", "duration_exceeds_confirmed_session"),
+    (90, 89, "2099-01-02T00:00:00Z", "duration_exceeds_time_in_bed"),
+    (0, 0, "2099-01-02T00:00:00Z", None),
+])
+def test_duration_exact_precision_and_compatible_bounds(
+    projection_database, minutes, tib, end, reason,
+):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    payload = _google_sleep_payload()
+    sleep = payload["dataPoints"][0]["sleep"]
+    sleep["interval"].update(startTime="2099-01-02T01:00:00+03:00", endTime=end)
+    sleep["summary"].update(minutesAsleep=str(minutes), minutesInSleepPeriod=str(tib))
+    _persist_google(session, paths, payload=payload)
+    session.commit()
+    duration = _metric(read_persisted_sleep_metric_projection(session),
+                       "sleep_duration_asleep_seconds").google
+    assert duration.eligible is (reason is None)
+    assert duration.reason == reason
+    assert duration.value == minutes * 60
+    assert duration.state == ("value" if reason is None else "invalid")
+    assert duration.evidence.interval_snapshots
+
+
+@pytest.mark.parametrize("minutes,reason", [(-1, "duration_negative"),
+    (600, "duration_exceeds_confirmed_session")])
+def test_time_in_bed_summary_is_checked_independently(projection_database, minutes, reason):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    payload = _google_sleep_payload()
+    payload["dataPoints"][0]["sleep"]["interval"].update(
+        startTime="2099-01-02T01:00:00+03:00", endTime="2099-01-02T00:00:00Z",
+    )
+    payload["dataPoints"][0]["sleep"]["summary"].update(
+        minutesAsleep="90", minutesInSleepPeriod=str(minutes),
+    )
+    _persist_google(session, paths, payload=payload)
+    session.commit()
+    result = read_persisted_sleep_metric_projection(session)
+    tib = _metric(result, "sleep_time_in_bed_seconds").google
+    assert not tib.eligible and tib.reason == reason and tib.state == "invalid"
+    assert _metric(result, "sleep_duration_asleep_seconds").google.value == 5400
+    assert _metric(result, "sleep_duration_asleep_seconds").google.eligible
+
+
+@pytest.mark.parametrize("problem,reason", [("complete", "stage_session_boundary_unconfirmed"),
+    ("internal", "stage_interval_gap"), ("start", "stage_session_boundary_unconfirmed"),
+    ("unknown", "stage_type_unmapped")])
+def test_legacy_garmin_requires_recognized_contiguous_coverage(
+    projection_database, problem, reason,
+):
+    session, paths = projection_database
+    payload = json.loads(GARMIN_SLEEP_FIXTURE.read_text(encoding="utf-8"))
+    raw = payload["payload"]
+    raw["startTimeGMT"] = "2099-01-01T22:00:00Z"
+    raw["dailySleepDTO"]["sleepTimeSeconds"] = 7200
+    raw["levels"] = [
+        {"startTimeGMT": "2099-01-01T22:00:00Z",
+         "endTimeGMT": "2099-01-01T23:00:00Z", "activityLevel": "light"},
+        {"startTimeGMT": "2099-01-01T23:00:00Z",
+         "endTimeGMT": "2099-01-02T01:00:00Z", "activityLevel": "deep"},
+    ]
+    if problem == "internal":
+        raw["levels"][1]["startTimeGMT"] = "2099-01-02T00:00:00Z"
+    elif problem == "start":
+        raw["levels"][0]["startTimeGMT"] = "2099-01-01T22:30:00Z"
+    elif problem == "unknown":
+        raw["levels"][1]["activityLevel"] = "unknown"
+    GarminPersistenceRepository(session, payload_store=ContentAddressedGarminPayloadStore(
+        paths.root / "garmin-artifacts",
+    )).persist_result(normalize_garmin_payload(payload), payload=json.dumps(payload).encode())
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    session.commit()
+    result = read_persisted_sleep_metric_projection(session)
+    for code in ("sleep_stage_rem_seconds", "sleep_time_in_bed_seconds", "sleep_end_at"):
+        cell = _metric(result, code).garmin
+        assert cell.eligible is (reason is None)
+        assert cell.reason == reason
+    assert _metric(result, "sleep_duration_asleep_seconds").garmin.eligible
+
+
+def test_google_unconfirmed_session_edges_do_not_prove_missing_rem(projection_database):
+    from healthcheck.db.models import GoogleSleepInterval
+
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload(
+        stages_status="SUCCEEDED", stages=[
+        _stage("2099-01-01T22:00:00Z", "2099-01-02T05:00:00Z", "LIGHT"),
+    ]))
+    session.delete(session.scalar(select(GoogleSleepInterval).where(
+        GoogleSleepInterval.interval_kind == "sleep_session",
+    )))
+    session.commit()
+    result = read_persisted_sleep_metric_projection(session)
+    rem = _metric(result, "sleep_stage_rem_seconds").google
+    assert not rem.eligible and rem.value is None
+    assert rem.reason == "stage_session_boundary_unconfirmed"
+    assert not _metric(result, "sleep_time_in_bed_seconds").google.eligible
+    assert _metric(result, "sleep_time_in_bed_seconds").google.reason == (
+        "stage_session_boundary_unconfirmed"
+    )
+    assert _metric(result, "sleep_duration_asleep_seconds").google.eligible
+
+
+def test_invalid_tib_without_session_does_not_claim_boundary_proof(projection_database):
+    from healthcheck.db.models import GoogleSleepInterval
+
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    payload = _google_sleep_payload()
+    payload["dataPoints"][0]["sleep"]["summary"]["minutesInSleepPeriod"] = "-1"
+    _persist_google(session, paths, payload=payload)
+    session.delete(session.scalar(select(GoogleSleepInterval).where(
+        GoogleSleepInterval.interval_kind == "sleep_session",
+    )))
+    session.commit()
+    cell = _metric(read_persisted_sleep_metric_projection(session),
+                   "sleep_time_in_bed_seconds").google
+    assert cell.reason == "duration_negative" and not cell.eligible
+    assert cell.comparison_basis == "summary_without_boundary"
+
+
 @pytest.fixture
 def projection_database(tmp_path):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
@@ -223,8 +414,9 @@ def test_projection_uses_common_units_and_keeps_metric_eligibility_independent(
     assert waso.google.reason == "typed_stage_collection_required"
     assert start.status == "unavailable"
     assert start.garmin.reason == "timing_precision_unavailable"
-    assert end.status == "comparable"
-    assert end.difference == -6300
+    assert end.status == "unavailable"
+    assert end.garmin.reason == "stage_interval_gap"
+    assert end.google.eligible
     assert result.excluded_metric_codes == EXCLUDED_SLEEP_METRIC_CODES
     assert all(item.manifest_hash for item in result.frozen_inputs)
 
@@ -318,7 +510,7 @@ def test_overlapping_typed_intervals_fail_only_stage_dependent_metrics(projectio
 
     result = read_persisted_sleep_metric_projection(session)
     assert _metric(result, "sleep_duration_asleep_seconds").status == "comparable"
-    assert _metric(result, "sleep_time_in_bed_seconds").status == "comparable"
+    assert _metric(result, "sleep_time_in_bed_seconds").google.eligible
     light = _metric(result, "sleep_stage_light_seconds")
     assert light.status == "unavailable"
     assert light.google.reason == "stage_interval_overlap"
@@ -399,7 +591,7 @@ def test_non_succeeded_google_stage_status_fails_closed_without_breaking_indepen
     assert light.google.reason == "stages_status_not_succeeded"
     assert light.google.comparison_basis == "summary_only"
     assert _metric(result, "sleep_duration_asleep_seconds").status == "comparable"
-    assert _metric(result, "sleep_time_in_bed_seconds").status == "comparable"
+    assert _metric(result, "sleep_time_in_bed_seconds").google.eligible
 
 
 def test_auxiliary_metrics_require_their_own_persisted_daily_rows(projection_database):
