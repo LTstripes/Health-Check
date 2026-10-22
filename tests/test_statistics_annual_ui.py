@@ -1,8 +1,11 @@
 """Annual UI consumes the bounded packet without reinterpreting its evidence."""
 
+import json
 import os
+import re
 from copy import deepcopy
 from datetime import date
+from html import unescape
 from pathlib import Path
 
 import pytest
@@ -11,7 +14,7 @@ from sqlalchemy import select
 from healthcheck.analytics import period_summary_read as bounded
 from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
 from healthcheck.db.models import GarminSource, GoogleSource
-from healthcheck.web.owner_presentation import owner_date
+from healthcheck.web.owner_presentation import owner_activity_types, owner_date
 from healthcheck.web.statistics import format_statistics_value
 from test_sleep_account_cohort import _garmin, _google
 from test_statistics_ui import (
@@ -86,13 +89,27 @@ def test_annual_route_preserves_packet(statistics_ui, monkeypatch, period, start
     parser = MetricParser(response.text)
     for side in expected["sides"]:
         for code, cell in side["metrics"].items():
+            if code == "activity_type_counts":
+                assert (code, side["position"]) not in parser.cells
+                if side["position"] == "right" and cell["state"] == "not_collected":
+                    continue
+                evidence = re.search(
+                    r'data-activity-type-evidence="' + side["position"] + r'">(.*?)</pre>',
+                    response.text, re.S,
+                )
+                assert evidence is not None
+                assert json.loads(unescape(evidence[1])) == cell
+                assert 'id="metric-activity_type_counts"' in response.text
+                continue
             if side["position"] == "right" and cell["state"] == "not_collected":
                 assert (code, "right") not in parser.cells
                 continue
             value = cell["aggregation"]["value"]
-            assert parser.values[code, side["position"]].strip() == format_statistics_value(
-                code, value,
-            )
+            headline = format_statistics_value(code, value)
+            types = side["metrics"]["activity_type_counts"]["aggregation"]["value"]
+            if code == "activity_session_count" and value is not None and isinstance(types, dict):
+                headline += ": " + owner_activity_types(types)
+            assert parser.values[code, side["position"]].strip() == headline
             if code == "cycling_distance_meters" and side["position"] == "left" and value is None:
                 # Metadata alone no longer selects a cycling source. The shared
                 # packet is unchanged; the UI requires usable period distance.
