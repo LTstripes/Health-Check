@@ -7,16 +7,18 @@
     <button type="submit" disabled>Скачать</button>
     <details class="owner-info export-source-options" id="analysis-export-options">
       <summary><span aria-hidden="true">ⓘ</span> Источники и состав файла</summary>
-      <p>Сон, активности, Stress, Body Battery, HRV, пульс в покое, шаги Garmin, вес и текущие комментарии — в пределах поддерживаемых сохранённых данных. Google Sleep и пульс в покое используют существующий выбор по пригодности; конфликт остаётся конфликтом.</p>
       <label>Источник Garmin
         <select name="garmin_source_id" required disabled><option value="">Загрузка источников…</option></select>
       </label>
       <label>Шаги Garmin <select name="steps_view"><option value="completed" selected>Завершённые дни, МСК</option><option value="observed">Сохранённые наблюдения</option></select></label>
       <label>Google HRV <select name="google_hrv_source_id" disabled><option value="">Не включать</option></select></label>
+      <details class="owner-info"><summary>ⓘ Состав и ограничения файла</summary>
+      <p>Сон, активности, Stress, Body Battery, HRV, пульс в покое, шаги Garmin, вес и текущие комментарии — в пределах поддерживаемых сохранённых данных. Google Sleep и пульс в покое используют существующий выбор по пригодности; конфликт остаётся конфликтом.</p>
       <p>Единственный сохранённый источник выбран заранее; это не подтверждает наличие или пригодность каждой метрики. Если источников несколько, выберите один. Они не объединяются.</p>
       <p>Файл включает комментарии: до 50 текущих записей. has_more / truncated означает неполный архив. Никакой передачи в AI или внешние сервисы нет; чувствительный контекст не расширяется.</p>
       <p>В режиме завершённых шагов сегодня и будущие дни исключены по МСК; период остальных показателей не сдвигается. Шаги могут уточняться. Неизвестное не заменяется нулём.</p>
       <p>Текст — формат скачивания по умолчанию. JSON доступен после формирования того же снимка. Каждый формат ограничен 2 MiB; при ошибке частичный файл не создаётся.</p>
+      </details>
       <button type="button" id="analysis-export-reload" hidden>Обновить список источников</button>
     </details>
   </form>

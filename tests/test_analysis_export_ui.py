@@ -163,6 +163,7 @@ def test_overview_is_primary_entry_and_data_owns_simple_export(client):
     assert 'id="analysis-export-form"' not in overview.text
     assert '/static/analysis_export.js' not in overview.text
     assert '/imports#analysis-export' in overview.text
+    assert '<h3><a href="/weight">Вес</a></h3>' in overview.text
     data = client.get("/imports")
     assert data.status_code == 200
     for text in ('Скачать данные', 'id="analysis-export-form"',

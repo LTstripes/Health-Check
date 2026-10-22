@@ -41,7 +41,7 @@
 <section class="brief-overview" aria-labelledby="brief-overview-heading">
   <h2 id="brief-overview-heading" class="overview-section-label">Главное за период</h2>
   <ul class="brief-overview-list">
-    {% for name, section, url, kind in [('Вес', weight, '/', 'weight'), ('Сон', sleep, '/sleep', 'sleep'), ('Активность Garmin', activity, '/garmin', 'activity')] %}
+{% for name, section, url, kind in [('Вес', weight, '/weight', 'weight'), ('Сон', sleep, '/sleep', 'sleep'), ('Активность Garmin', activity, '/garmin', 'activity')] %}
     <li>
       <div class="overview-metric-heading"><h3><a href="{{ url }}">{{ name }}</a></h3>
       <details class="overview-info"><summary aria-label="Как читать {{ name }}">ⓘ</summary><div>

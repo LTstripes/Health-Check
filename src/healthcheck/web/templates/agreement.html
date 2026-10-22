@@ -68,10 +68,12 @@
 {% endfor %}
 </section>
 <section class="card" data-incompatible-comparisons>
+  {% call owner_ui.info_details("О совместимости показателей") %}
   <h2>Отдельные показатели</h2>
   <p>Оценка сна Garmin: совместимой оценки Google нет.</p>
   <p>HRV и дыхание: дневные показатели и измерения внутри сна имеют разный смысл; общий график недоступен.</p>
   <p>Пульс в покое и кислород: сравнение доступно только для сохранённых пар суточных значений за одну дату.</p>
+  {% endcall %}
 </section>
 {% call owner_ui.technical_details('sleep-technical') %}
   <h2>Garmin</h2>

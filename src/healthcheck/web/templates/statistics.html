@@ -76,13 +76,13 @@
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
         {% if cell.cycling_selection is defined %}
-        <p data-cycling-source>{{ identity(cell_source) if cell_source else state_labels[cell.state] }}{% if cell_source %} · {{ 'Выбран явно' if cell.cycling_selection.mode == 'explicit' else 'Автоматически для этого периода' }}{% endif %}</p>
+        {% if cell_source %}<p data-cycling-source>{{ identity(cell_source) }} · {{ 'Выбран явно' if cell.cycling_selection.mode == 'explicit' else 'Автоматически для этого периода' }}</p>{% endif %}
         {% if cell.state in ['selection_required', 'search_incomplete'] %}
         <p class="statistics-source-warning" role="status" data-cycling-source-attention>{{ 'Несколько пригодных источников или неоднозначные записи. Выберите Garmin-источник выше.' if cell.state == 'selection_required' else 'Поиск велодистанции не завершён; единственный пригодный источник не установлен.' }}</p>
         {% endif %}
         {% endif %}
         {% if cell.source_selection is defined %}
-        <p data-sleep-source>{{ identity(cell_source) if cell_source else state_labels[cell.state] }}</p>
+        {% if cell_source %}<p data-sleep-source>{{ identity(cell_source) }}</p>{% endif %}
         {% if cell.state in ['selection_required', 'search_incomplete'] %}
         <p class="statistics-source-warning" role="status" data-sleep-source-attention>{{ 'Выберите источник сна.' if cell.state == 'selection_required' else 'Поиск сна не завершён.' }}</p>
         {% endif %}

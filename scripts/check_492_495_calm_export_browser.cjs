@@ -46,11 +46,14 @@ const report = {candidate: {sha: git(['rev-parse', 'HEAD']), diffSha256: sha256(
     assert.equal(new URL(page.url()).pathname, '/brief');
     assert.equal(await page.locator('#analysis-export-form').count(), 0);
     assert.equal(await page.locator('a[href="/imports#analysis-export"]').count() > 0, true);
+    await page.locator('.overview-metric-heading h3 a').filter({hasText: 'Вес'}).click();
+    assert.equal(new URL(page.url()).pathname, '/weight');
+    assert.equal(await page.locator('.owner-nav [aria-current="page"]').innerText(), 'Вес');
     await page.goto(base + '/?view=history&source=synthetic');
     assert.equal(new URL(page.url()).pathname, '/weight');
     assert.equal(new URL(page.url()).search, '?view=history&source=synthetic');
     assert.equal(await page.locator('.owner-nav [aria-current="page"]').innerText(), 'Вес');
-    checks.push('Bare entry Overview; exact legacy Weight query redirect; canonical Weight active navigation');
+    checks.push('Bare entry Overview; Overview Weight heading click; exact legacy Weight query redirect; canonical Weight active navigation');
 
     const routes = [
       ['overview', '/brief?start_date=2099-01-01&end_date=2099-01-08'],
