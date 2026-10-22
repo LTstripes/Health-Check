@@ -9,7 +9,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from healthcheck.garmin.completed_steps_read import CompletedStepsHistory
+    from healthcheck.garmin.completed_steps_read import CompletedStepsHistory, CompletedStepsWindow
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,9 @@ class StepsStatistics:
     longest_streak_ranges: tuple[tuple[date, date], ...]
 
 
-def summarize_completed_days(history: CompletedStepsHistory) -> StepsStatistics:
+def summarize_completed_days(
+    history: CompletedStepsHistory | CompletedStepsWindow,
+) -> StepsStatistics:
     """Never turn an unknown day into zero or count acquisitions as days."""
     if not history.search_complete or history.start_date is None:
         raise ValueError("complete bounded daily evidence required")
