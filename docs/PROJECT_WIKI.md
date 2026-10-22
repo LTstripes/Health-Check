@@ -12,18 +12,19 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 <a id="current-canonical-state--current-canonical-state--2026-10-19"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-20"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-21"></a>
-## Current canonical state — 2026-10-21
+<a id="current-canonical-state--current-canonical-state--2026-10-22"></a>
+## Current canonical state - 2026-10-22
 
 | Boundary | Observed state and evidence | What it establishes |
 | --- | --- | --- |
 | Accepted main at this documentation baseline | 4d4c295aa1093b0f2619c523a4f8db21a31c1221, tree 24f2836a55916dbc3c4408dfe9debb84486bb7a9; [PR #481](https://github.com/LTstripes/Health-Check/pull/481), [exact post-main CI 39596769154 / attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/39596769154) | Accepted saved Google Steps 7/30-day reader in existing Statistics, separately from Garmin completed-day Steps. Exact PR/task CI, synthetic desktop 1024/1440 and independent source/visual review passed. Post-main is a separate required gate in the linked evidence. Unknown coverage/pagination/timezone/finality remain; no automatic collection or total/mean is added. Installed code and real UI UAT remain separate |
-| Installed Stable code | Read-only verification on 2026-10-21: clean b51859e9787dd81ca7959de5d3184e0c801c6cbf checkout, current listener/process plus existing code/profile startup receipt, unchanged loaded UI-module hash; private evidence retained locally | Startup receipt records schema 0016_garmin_daily_summary_receipts; no fresh database integrity audit was performed. Stable was neither updated nor restarted |
-| Human Owner UAT | [#330](https://github.com/LTstripes/Health-Check/issues/330) is CLOSED in live metadata (2026-10-19); its [last detailed receipt](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6134918395) records PARTIAL UAT. Separate bounded Google Steps UAT passed import/read-back/idempotency and one startup refresh | Closure does not establish additional UAT. Owner accepted the private Steps difference as noncritical and ended investigation; coverage/pagination UNKNOWN and timezone unspecified. Private values/paths are not published. Owner is unavailable on 21 October; tomorrow’s UAT is separate |
+| Installed Stable code | Historical read-only verification on 21 October bound clean b51859e9787dd81ca7959de5d3184e0c801c6cbf to its listener/process, startup receipt and loaded UI-module hash. The later [copy-only rehearsal](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6320839634) separately confirmed unchanged persistent source files and observed the original Stable process absent | Existing startup receipt records schema 0016_garmin_daily_summary_receipts; a new integrity audit of the original profile was not performed. Stable was neither updated nor restarted. Current loaded runtime binding is UNVERIFIED; absence of a process is distinct from unchanged files |
+| Human Owner UAT | [#330](https://github.com/LTstripes/Health-Check/issues/330) is CLOSED in live metadata (2026-10-19); its [last detailed receipt](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6134918395) records PARTIAL UAT. Separate bounded Google Steps UAT passed import/read-back/idempotency and one startup refresh | Closure does not establish additional UAT. Owner accepted the private Steps difference as noncritical and ended investigation; coverage/pagination UNKNOWN and timezone unspecified. Private values/paths are not published. The 22 October release UAT remains separate and UNVERIFIED until performed |
 | Provider/runtime truth | Historical acquisition/refresh/recovery receipts have their own dates and scopes | No perpetual provider availability, complete account history, current Google recovery, new auth or scheduler change is inferred from main or installation |
 
-Current installed-code verification is separate from accepted GitHub main and the
-earlier private UAT candidate. It did not decrypt/read credentials, request provider
-data, migrate a profile or change Stable. Historical success is not current provider
+Installed-code verification is separate from accepted GitHub main and the
+earlier private UAT candidate. It did not decrypt credentials, request provider
+data, migrate the original profile or change Stable. Historical success is not current provider
 health; snapshot, source-data and refresh-failure ages remain distinct.
 Release preparation: [#479](https://github.com/LTstripes/Health-Check/issues/479).
 
