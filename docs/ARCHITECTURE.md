@@ -2169,13 +2169,15 @@ not Owner UAT or full completion of either issue.
 Current metric projection/algorithm `r05-02-sleep-metric-projection-v2` and rules
 `r05-02-sleep-metric-rules-v2` require recognized, ordered, nonoverlapping and
 contiguous stages covering independently confirmed session boundaries before a
-complete stage total, TIB or absent-stage zero is eligible. Internal/edge gaps,
+complete stage-derived total/TIB or absent-stage zero is eligible. Internal/edge gaps,
 unknown stages and unconfirmed boundaries stay unavailable with explicit reasons.
 Legacy Garmin `levels` without a confirmed session end cannot prove REM=0 or
 complete TIB merely because its intervals are contiguous. Production v3 may use
 its preserved explicit summary-end evidence; no raw-body reread, host timezone,
 missing endpoint or invented stage fills that gap. A separately valid summary
-remains eligible despite partial stages.
+remains eligible despite partial stages. In particular, Google summary TIB may
+remain eligible under validated explicit session boundaries even when stages
+are partial or missing; it is not relabelled a complete stage-derived total.
 
 Duration values must be nonnegative and compatible with supported confirmed
 session/TIB bounds. Google [SleepSummary](https://developers.google.com/health/reference/rest/v4/users.dataTypes.dataPoints#Sleep.SleepSummary)
@@ -3934,6 +3936,12 @@ unchanged 2 MiB UTF-8 serialization guard. Compact does not call the capped
 public detailed serializer first. No byte cap is raised and no winning prefix
 is emitted. An oversized compact packet still fails the complete request.
 
+The quality-evidence repair identifies its nested Sleep representation with
+`projection.sleep_evidence_schema = compact-sleep-evidence-v2`; the outer v1–v6
+envelope variants keep their existing optional-domain meaning. Older packets
+without this discriminator retain the original inline Sleep representation.
+The new registry locator and all references are bound by the envelope hash.
+
 Only Sleep representation changes:
 
 - Daily ranges, series/values, units, metric states/reasons/eligibility, explicit
@@ -3956,11 +3964,17 @@ Only Sleep representation changes:
   formulas. Counts/digests describe all contributing intervals; they do not
   silently retain only a prefix. The digest identifies omitted detail but cannot
   reconstruct it or establish independent source correctness.
-- `interval_summary.session_intervals` retains original `sleep_session` endpoint
-  snapshots, including offsets, wall time, timezone, precision and state. Session
+- In nested v2, `interval_summary.session_intervals_index` resolves into that
+  same session's `session_interval_sets`. Exactly identical arrays are interned
+  once using canonical JSON identity, preserving numeric types; indices never
+  reference another session/source. The restored array retains original
+  `sleep_session` endpoint snapshots, including offsets, wall time, timezone,
+  precision and state. Prior inline packets use `interval_summary.session_intervals`. Session
   `temporal_evidence` and accepted start/end metric cells also stay intact.
   Date-only/null timing gains no invented instant or host offset. Stage segment
-  endpoints/IDs are intentionally available only in detailed mode.
+  endpoints/IDs are intentionally available only in detailed mode. Interval
+  counts/groups/digests, quality dependencies and selected values are unchanged
+  by interning; it does not weaken coverage or duration eligibility.
 
 Activity cells (including coverage/conflict/incomplete-search flags), current
 Context revisions/text/temporal precision and explicit page bounds/has-more,

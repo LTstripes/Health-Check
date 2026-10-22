@@ -1097,6 +1097,14 @@ python -m healthcheck.export_combined_evidence \
   --evaluation-local-date 2099-01-31 --projection compact --stdout json
 ```
 
+Current compact JSON declares `projection.sleep_evidence_schema` as
+`compact-sleep-evidence-v2`. Resolve each endpoint-array index through the same
+saved session's `session_interval_sets`, following
+[Architecture reconstruction](ARCHITECTURE.md#evidence-combined--opt-in-compact-projection).
+Earlier packets without the discriminator retain inline arrays. Selected facts
+and readable text keep their existing scope; full summary provenance remains in
+the matching JSON. Existing byte/profile/privacy guards still apply.
+
 <a id="health-chat-evidence-commands"></a>
 
 <a id="health-chat-evidence-commands--health-chat-evidence-command-examples"></a>
