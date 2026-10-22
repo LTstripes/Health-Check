@@ -16,8 +16,7 @@
   <a href="/agreement">Все сохранённые периоды</a>
   {% else %}<p class="muted">Сохранённые пары · периоды указаны у показателей</p>{% endif %}
   {% if not payload.available %}
-    {{ owner_ui.state_chip('unknown' if payload.reason == 'unknown' else 'unavailable') }}
-    <p>{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
+    <p role="status">{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
   {% endif %}
   {% if payload.available and payload.pairing_exclusions %}<p class="muted">Часть ночей не сопоставлена.</p>{% endif %}
   {% if payload.available and not payload.source_data_quality %}<p class="muted">Качество данных источников не установлено.</p>{% endif %}
