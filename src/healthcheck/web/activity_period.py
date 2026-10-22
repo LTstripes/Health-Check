@@ -11,12 +11,22 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.analytics.activity_period_sessions import read_activity_period_sessions
 from healthcheck.db.engine import session_scope
 from healthcheck.web.common import database_unavailable, request_engine
-from healthcheck.web.owner_presentation import owner_date, owner_distance, owner_duration
+from healthcheck.web.owner_presentation import (
+    owner_activity_count,
+    owner_activity_type,
+    owner_activity_types,
+    owner_date,
+    owner_distance,
+    owner_duration,
+)
 from healthcheck.web.pages import _persist_error, render_error
 from healthcheck.web.statistics import METRIC_LABELS
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.filters.update(owner_activity_type=owner_activity_type,
+                             owner_activity_count=owner_activity_count,
+                             owner_activity_types=owner_activity_types)
 templates.env.filters.update(
     owner_date=owner_date, owner_distance=owner_distance, owner_duration=owner_duration
 )

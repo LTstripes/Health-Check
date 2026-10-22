@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% import "owner_ui.html" as owner %}
-{% set activity_names = {'cycling': 'Велотренировка', 'running': 'Бег', 'walking': 'Ходьба', 'swimming': 'Плавание', 'strength_training': 'Силовая тренировка', 'tennis': 'Теннис', 'tennis_v2': 'Теннис'} %}
 {% set card_labels = {
  'duration_seconds': 'Длительность',
  'distance_meters': 'Расстояние',
@@ -17,9 +16,9 @@
 {% set session = detail.session %}{% set sel = detail.source %}
 <section class="card activity-session-detail" aria-label="Сохранённая сессия Garmin">
  <p class="muted activity-session-back"><a href="{{ back_href }}">К журналу активности</a></p>
- <h2>{{ activity_names.get(session.activity_type, 'Другой вид активности') }}</h2>
+ <h2>{{ session.activity_type | owner_activity_type }}</h2>
  <p class="muted">Сохранённая сессия Garmin{% if sel %} · {{ sel.device_model or 'Учётная запись' }}{% endif %} · {{ (session.source_local_date or session.local_wall_time or session.measured_at_utc) | owner_date }}</p>
- <p>Средний и максимальный пульс — разные поля Garmin. Пропуски не заменяются нулём. Точные значения, единицы и происхождение — в технических деталях.</p>
+ <details class="owner-info"><summary>ⓘ О показателях тренировки</summary><p>Средний и максимальный пульс — разные поля Garmin. Пропуски не заменяются нулём. Точные значения, единицы и происхождение — в технических деталях.</p></details>
  <div class="activity-detail-grid">
   {% for card in detail.cards %}
   <article class="activity-metric-card" data-metric="{{ card.metric_code }}">

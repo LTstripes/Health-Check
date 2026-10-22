@@ -2,6 +2,10 @@
 {% import "owner_ui.html" as owner_ui %}
 {% block title %}Сравнение сна — Health-Check{% endblock %}
 {% block content %}
+{% set comparison = namespace(useful=false) %}
+{% for category in sleep_groups(payload.groups) %}{% for row in category.rows %}
+{% if row.group.accepted_statistics or comparison_charts(row.group, comparison_details.get(row.group.run_id, {})) %}{% set comparison.useful = true %}{% endif %}
+{% endfor %}{% endfor %}
 <section class="card brief-controls">
   <h2>Сравнение сна</h2>
   {% if wake_date %}
@@ -18,8 +22,8 @@
   {% if not payload.available %}
     <p role="status">{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
   {% endif %}
-  {% if payload.available and payload.pairing_exclusions %}<p class="muted">Часть ночей не сопоставлена.</p>{% endif %}
-  {% if payload.available and not payload.source_data_quality %}<p class="muted">Качество данных источников не установлено.</p>{% endif %}
+  {% if comparison.useful and payload.available and payload.pairing_exclusions %}<p class="muted">Часть ночей не сопоставлена.</p>{% endif %}
+  {% if payload.available and not comparison.useful %}<p data-comparison-empty>Сохранённого сравнения для показа пока нет.</p>{% endif %}
   {% call owner_ui.info_details("О сохранённом сравнении") %}
   {% if payload.pairing_exclusions %}<p>Причины исключения ночей — в технических деталях.</p>{% endif %}
   {% for fact in payload.source_data_quality if fact.state != 'usable' %}
@@ -33,6 +37,7 @@
   {% for row in category.rows %}
   {% set group = row.group %}
   {% set charts = comparison_charts(group, comparison_details.get(group.run_id, {})) %}
+  {% if charts or group.accepted_statistics %}
   <section class="card agreement-group" data-comparison-group>
     <header><h2>{{ row.label }}</h2><span>{{ owner_cohort(group.source_attribution.cohort_label) }}</span></header>
     <p class="muted">{{ row.variant }} · {{ group.n }} пригодных пар</p>
@@ -54,7 +59,7 @@
         </tbody></table></div>
       </details>
     </figure>
-    {% else %}<p class="unavailable">Сравнение на одном графике недоступно: нет подтверждённых совместимых пар с известными источниками и вариантом сна.</p>{% endfor %}
+    {% else %}<p class="unavailable">График для этого сохранённого результата недоступен; подробности — в данных сравнения.</p>{% endfor %}
     {% if group.accepted_statistics %}
     <dl class="agreement-metrics">
       <div><dt>Средняя разность · Google − Garmin</dt><dd>{{ comparison_value(group.accepted_statistics.bias, row.unit, signed=true) }}</dd></div>
@@ -63,6 +68,7 @@
     </dl>
     {% else %}{{ owner_ui.state_chip('insufficient') }}<p>Статистика пока недоступна; осталось пригодных пар: {{ group.progress.remaining_n }}.</p>{% endif %}
   </section>
+  {% endif %}
   {% endfor %}
 {% endfor %}
 </section>

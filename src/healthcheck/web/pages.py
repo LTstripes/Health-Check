@@ -42,7 +42,13 @@ from healthcheck.web.overview_charts import read_overview_charts
 from healthcheck.web.overview_completed import read_completed_overview
 from healthcheck.web.overview_rhr import read_overview_rhr
 from healthcheck.web.overview_view import overview_number, read_overview_values
-from healthcheck.web.owner_presentation import owner_date, owner_number
+from healthcheck.web.owner_presentation import (
+    owner_activity_count,
+    owner_activity_type,
+    owner_activity_types,
+    owner_date,
+    owner_number,
+)
 from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.query import (
     WeightQueryService,
@@ -83,6 +89,9 @@ from healthcheck.web.sleep_view import (
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 templates.env.filters.update(owner_date=owner_date, owner_number=owner_number)
+templates.env.filters.update(owner_activity_count=owner_activity_count,
+                             owner_activity_type=owner_activity_type,
+                             owner_activity_types=owner_activity_types)
 router = APIRouter()
 
 
@@ -272,8 +281,7 @@ def _weight_owner_state(available: object, reason: object) -> str:
 
 
 def _brief_owner_activity(activity_type: object) -> str:
-    token = str(activity_type or "unknown")
-    return _BRIEF_ACTIVITY_LABELS.get(token, "Другая активность")
+    return owner_activity_type(activity_type)
 
 
 def _brief_owner_cohort(label: object) -> str:
@@ -432,23 +440,18 @@ def _brief_owner_value(
         return "Да" if value else "Нет"
     if isinstance(value, dict):
         if fact_code == "activity_type_counts":
-            return (
-                ", ".join(
-                    f"{_brief_owner_activity(key)}: {count}" for key, count in sorted(value.items())
-                )
-                or "Нет записей"
-            )
+            return owner_activity_types(value)
         return "Детали доступны"
     if isinstance(value, (list, tuple)):
         return "Детали доступны"
     if isinstance(value, str) and value in _BRIEF_STATE_LABELS:
         return _brief_owner_state(value)
     if (
-        fact_code == "sleep_primary_duration_seconds"
+        (fact_code == "sleep_primary_duration_seconds" or unit == "seconds")
         and isinstance(value, (int, float))
         and not isinstance(value, bool)
     ):
-        return metric_value("sleep_duration_seconds", value)
+        return comparison_value(value, "seconds")
     rendered_unit = _BRIEF_UNIT_LABELS.get(str(unit), str(unit or ""))
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         value = overview_number(value)

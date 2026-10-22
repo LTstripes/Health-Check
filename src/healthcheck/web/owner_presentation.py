@@ -55,26 +55,49 @@ def owner_date(value: object, precision: str | None = None) -> str:
 
 
 def owner_duration(value: object) -> str:
-    """Reuse Statistics' display rounding; positive sub-minute values stay visible."""
+    """Minutes for display only; preserve true zero and positive sub-minute values."""
     number = _nonnegative(value)
     if number is None:
         return "Недоступно"
     with localcontext(_display_context(number)):
         if number >= Decimal("3.6e12"):
             return _compact_unit(number / 3600, "ч")
-        seconds = number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if number > 0 and seconds == 0:
-            return "<0,01 с"
-        hours, remainder = divmod(seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-    parts = []
-    if hours:
-        parts.append(f"{int(hours)} ч")
-    if hours or minutes or not seconds:
-        parts.append(f"{int(minutes)} мин")
-    if seconds:
-        parts.append(f"{_decimal_text(seconds)} с")
-    return " ".join(parts)
+        if 0 < number < 60:
+            return "<1 мин"
+        minutes = (number / 60).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+        hours, minutes = divmod(minutes, 60)
+    return (f"{int(hours)} ч " if hours else "") + f"{int(minutes)} мин"
+
+
+_ACTIVITY_NAMES = {
+    "cycling": "Велосипед", "running": "Бег", "walking": "Ходьба",
+    "swimming": "Плавание", "strength_training": "Силовая тренировка",
+    "tennis": "Теннис", "tennis_v2": "Теннис",
+}
+
+
+def owner_activity_type(value: object) -> str:
+    """Presentation aliases only; never classify or change persisted activity types."""
+    return _ACTIVITY_NAMES.get(value, "Другой вид активности") if isinstance(value, str) else (
+        "Вид активности не указан")
+
+
+def owner_activity_count(value: object) -> str:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return "Количество тренировок недоступно"
+    last, last_two = value % 10, value % 100
+    word = "тренировок" if 11 <= last_two <= 14 else (
+        "тренировка" if last == 1 else "тренировки" if 2 <= last <= 4 else "тренировок")
+    return f"{value} {word}"
+
+
+def owner_activity_types(counts: object) -> str:
+    """A compact composition; aliases share a label, exact codes remain in details."""
+    if not isinstance(counts, dict):
+        return "Состав тренировок недоступен"
+    labels = dict.fromkeys(owner_activity_type(code).lower() for code, count in counts.items()
+                           if isinstance(count, int) and not isinstance(count, bool) and count > 0)
+    return ", ".join(labels) or "Нет сохранённых видов активности"
 
 
 def owner_distance(value: object) -> str:

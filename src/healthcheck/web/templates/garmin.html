@@ -7,7 +7,6 @@
  'duration_seconds': 'Длительность сессии', 'distance_meters': 'Расстояние', 'speed_mps': 'Средняя скорость', 'heart_rate_bpm': 'Средний пульс',
  'power_watts': 'Средняя мощность', 'cadence_rpm': 'Средний каденс', 'training_effect': 'Эффект тренировки Garmin', 'acute_training_load': 'Нагрузка сессии Garmin'
 } %}
-{% set activity_names = {'cycling': 'Велотренировка', 'running': 'Бег', 'walking': 'Ходьба', 'swimming': 'Плавание', 'strength_training': 'Силовая тренировка', 'tennis': 'Теннис', 'tennis_v2': 'Теннис'} %}
 {% macro field_value(field, numeric=true) -%}
  {% if field and field.state in ['zero', 'value'] %}
   {% if numeric %}<span data-owner-state="present">{{ field.value | owner_number }}</span>{% else %}<span>Передано Garmin; расшифровка в технических деталях</span>{% endif %}
@@ -43,15 +42,15 @@
 <div id="activity-journal" data-activity-panel>
  <section class="card activity-owner-summary" aria-label="Сохранённые сессии Garmin">
   {% if payload.activities %}
-  {% set type_counts = {} %}{% for activity in payload.activities %}{% set label = activity_names.get(activity.activity_type, 'Другой вид активности') %}{% set _ = type_counts.update({label: type_counts.get(label, 0) + 1}) %}{% endfor %}
+  {% set type_counts = {} %}{% for activity in payload.activities %}{% set label = activity.activity_type | owner_activity_type %}{% set _ = type_counts.update({label: type_counts.get(label, 0) + 1}) %}{% endfor %}
   {% set types = type_counts.items() | sort(attribute='1', reverse=true) %}
   <div class="activity-owner-grid">
-   <div class="activity-saved-summary"><h2>В журнале Garmin</h2><p><strong>{{ payload.activities | length }}</strong> в журнале выбранного источника</p>
-    <ul class="activity-type-counts" aria-label="Виды сохранённых сессий">{% for label, count in types[:3] %}<li>{{ label }} <strong>{{ count }}</strong></li>{% endfor %}{% if types | length > 3 %}<li>Другие виды <strong>{{ types[3:] | sum(attribute='1') }}</strong></li>{% endif %}</ul>
+   <div class="activity-saved-summary"><h2>В журнале Garmin</h2><p><strong>{{ payload.activities | length | owner_activity_count }}</strong>: {{ type_counts.keys() | join(", ") | lower }}</p>
+    <details class="owner-details"><summary>ⓘ Состав журнала</summary><ul class="activity-type-counts" aria-label="Виды сохранённых сессий">{% for label, count in types[:3] %}<li>{{ label }} <strong>{{ count }}</strong></li>{% endfor %}{% if types | length > 3 %}<li>Другие виды <strong>{{ types[3:] | sum(attribute='1') }}</strong></li>{% endif %}</ul></details>
    </div>
    <div class="activity-recent"><h2>Последние сессии</h2>
     <div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Вид активности</th><th>Дата / время</th></tr></thead><tbody>
-    {% for activity in payload.activities[:5] %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity_names.get(activity.activity_type, 'Другой вид активности') }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
+    {% for activity in payload.activities[:5] %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity.activity_type | owner_activity_type }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
     </tbody></table></div>
    </div>
   </div>
@@ -67,7 +66,7 @@
  </section>
  <details class="card owner-details activity-history"><summary>Полный журнал · до 50 последних записей{% if payload.activities %} · {{ payload.activities | length }} сохранено{% endif %}</summary>
   {% if payload.activities %}<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Вид активности</th><th>Дата / время</th></tr></thead><tbody>
-  {% for activity in payload.activities %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity_names.get(activity.activity_type, 'Другой вид активности') }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
+  {% for activity in payload.activities %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity.activity_type | owner_activity_type }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }}</td></tr>{% endfor %}
   </tbody></table></div>{% else %}<p class="unavailable">Сохранённые сессии недоступны. Это не подтверждает отсутствие тренировок.</p>{% endif %}
  </details>
 </div>
@@ -96,7 +95,7 @@
   </details>
   <h3>Нагрузка последних сессий</h3><p class="muted">До пяти последних сессий с полями тренировок Garmin; список может отличаться от журнала. Эффект тренировки относится к сессии, а не к дневной готовности.</p>
   {% if overview.recent_activities %}<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Вид / дата</th><th>Нагрузка Garmin</th><th>Аэробный эффект</th><th>Анаэробный эффект</th></tr></thead><tbody>
-  {% for activity in overview.recent_activities %}<tr><td>{{ activity_names.get(activity.activity_type, 'Другой вид активности') }} · {{ activity.source_date | owner_date }}</td><td>{{ field_value(activity.fields.activityTrainingLoad) }}</td><td>{{ field_value(activity.fields.aerobicTrainingEffect) }}</td><td>{{ field_value(activity.fields.anaerobicTrainingEffect) }}</td></tr>{% endfor %}
+  {% for activity in overview.recent_activities %}<tr><td>{{ activity.activity_type | owner_activity_type }} · {{ activity.source_date | owner_date }}</td><td>{{ field_value(activity.fields.activityTrainingLoad) }}</td><td>{{ field_value(activity.fields.aerobicTrainingEffect) }}</td><td>{{ field_value(activity.fields.anaerobicTrainingEffect) }}</td></tr>{% endfor %}
   </tbody></table></div>{% else %}<p class="unavailable">Показатели нагрузки сессий не предоставлены</p>{% endif %}{% endif %}
  </section>
  <section class="card"><h2>Показатель за период</h2>

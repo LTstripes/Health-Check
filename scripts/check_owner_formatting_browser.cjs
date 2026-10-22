@@ -71,7 +71,7 @@ assert.equal(identity.candidate, candidate);
       const sessionsURL = page.url();
       assert.equal(await page.locator('[data-session-record]').count(), 4);
       const cells = await page.locator('[data-session-metric]').allTextContents();
-      for (const text of ['1 ч 5 мин 1,5 с', '12,35 км', '<0,01 с', '<0,01 км', '0 мин', '0 км', 'Источник передал null']) assert.ok(cells.includes(text), text);
+      for (const text of ['1 ч 5 мин', '12,35 км', '<1 мин', '<0,01 км', '0 мин', '0 км', 'Источник передал null']) assert.ok(cells.includes(text), text);
       assert.ok(!(await page.locator('thead').innerText()).includes('Длительность, с'));
       await capture('sessions');
       const detailLinks = await page.locator('tbody a').evaluateAll(nodes => nodes.map(n => n.getAttribute('href')));
@@ -84,11 +84,11 @@ assert.equal(identity.candidate, candidate);
         const raw = await page.locator('#activity-session-evidence').textContent();
         assert.ok(raw.includes(params.get('record_id')));
         if (raw.includes('3901.5')) {
-          assert.ok(detailText.includes('1 ч 5 мин 1,5 с'));
+          assert.ok(detailText.includes('1 ч 5 мин'));
           assert.ok(detailText.includes('12,35 км'));
           await capture('activity-detail');
         } else if (raw.includes('0.001')) {
-          assert.ok(detailText.includes('<0,01 с'));
+          assert.ok(detailText.includes('<1 мин'));
           assert.ok(detailText.includes('<0,01 км'));
           await capture('activity-tiny');
         }

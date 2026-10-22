@@ -7,7 +7,7 @@ reinterprets persisted states.
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import UTC, date, datetime, timedelta, timezone
 from math import isfinite
 from typing import Any
 
@@ -22,7 +22,7 @@ from healthcheck.google.daily_vitals import (
     GoogleDailyVitalSource,
     GoogleDailyVitalsResult,
 )
-from healthcheck.web.owner_presentation import owner_number
+from healthcheck.web.owner_presentation import owner_date, owner_duration, owner_number
 
 SLEEP_METRICS = {
     "sleep_duration_seconds": ("Длительность сна", "с"),
@@ -192,12 +192,9 @@ def google_vital_cell_state(cell: Mapping[str, Any] | None) -> str:
 
 
 def metric_value(code: str, number: int | float) -> str:
-    """Format whole seconds as hours/minutes without rounding or new metrics."""
-    if code == "sleep_duration_seconds" and number >= 0 and float(number).is_integer():
-        hours, remainder = divmod(int(number), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        text = f"{hours} ч {minutes} мин"
-        return f"{text} {seconds} с" if seconds else text
+    """Round the display only; source and export values keep exact seconds."""
+    if code == "sleep_duration_seconds":
+        return owner_duration(number)
     text = str(int(number)) if float(number).is_integer() else owner_number(number)
     return f"{text} {SLEEP_METRICS[code][1]}"
 
@@ -252,8 +249,8 @@ def nightly_rows(results: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 SOURCE_SLEEP_PRIMARY = (
     ("sleep_duration_asleep_seconds", "Длительность сна"),
-    ("sleep_start_at", "Начало сна · UTC"),
-    ("sleep_end_at", "Окончание сна · UTC"),
+    ("sleep_start_at", "Начало сна"),
+    ("sleep_end_at", "Окончание сна"),
 )
 SOURCE_SLEEP_DETAILS = (
     ("sleep_time_in_bed_seconds", "Время в постели"),
@@ -304,15 +301,62 @@ def source_sleep_note(cell: Mapping[str, Any]) -> str:
     return "Сохранённых данных недостаточно для этого показателя; причина в технических деталях."
 
 
-def source_sleep_value(cell: Mapping[str, Any]) -> str:
+def source_sleep_value(
+    cell: Mapping[str, Any], session: Mapping[str, Any] | None = None, code: str | None = None,
+) -> str:
     if not cell["eligible"]:
         return "—"
     if cell["unit"] == "seconds":
         return metric_value("sleep_duration_seconds", cell["value"])
     if cell["unit"] == "points":
         return metric_value("sleep_score", cell["value"])
-    # Exact persisted UTC instant. No conversion using today's zone/offset.
-    return str(cell["value"])
+    return sleep_endpoint_text(cell, session or {}, code)
+
+
+def sleep_endpoint_text(
+    cell: Mapping[str, Any], session: Mapping[str, Any], code: str | None,
+) -> str:
+    """An eligible endpoint's own retained offset only; never today's/host/start offset.
+
+    Evidence may format an already eligible instant, never supply a missing endpoint.
+    Conflicting retained offsets fail closed to UTC. No raw or database reread.
+    """
+    if not cell.get("eligible"):
+        return "—"
+    try:
+        instant = datetime.fromisoformat(str(cell["value"]))
+        if instant.utcoffset() is None:
+            return "Время недоступно"
+    except (ValueError, TypeError):
+        return "Время недоступно"
+    endpoint = {"sleep_start_at": "start", "sleep_end_at": "end"}.get(code)
+    offsets = set()
+    if endpoint:
+        for item in [cell, *(session.get("metrics") or {}).values()]:
+            evidence = item.get("evidence") or {}
+            candidates = []
+            boundary = (evidence.get("quality_inputs") or {}).get("summary_boundary") or {}
+            candidates.append(boundary.get(endpoint))
+            for snapshot in evidence.get("interval_snapshots") or []:
+                if snapshot.get(f"{endpoint}_precision") == "instant":
+                    candidates.append(snapshot.get(f"{endpoint}_temporal"))
+            for temporal in candidates:
+                if not isinstance(temporal, Mapping) or temporal.get("precision") != "instant":
+                    continue
+                offset = temporal.get("source_utc_offset_minutes")
+                if isinstance(offset, bool) or not isinstance(offset, int) or abs(offset) > 1439:
+                    continue
+                try:
+                    proved = datetime.fromisoformat(str(temporal.get("measured_at_utc")))
+                    if proved.utcoffset() is not None and proved == instant:
+                        offsets.add(offset)
+                except (TypeError, ValueError):
+                    continue
+    if len(offsets) == 1:
+        instant = instant.astimezone(timezone(timedelta(minutes=offsets.pop())))
+    else:
+        instant = instant.astimezone(UTC)
+    return owner_date(instant)
 
 
 def source_night_metric(view: Mapping[str, Any] | None, code: str) -> dict[str, Any]:

@@ -86,7 +86,7 @@ const endpoint = '**/api/garmin/activity-comparison?**';
       assert.deepEqual(await page.locator('#activity-result thead th').allTextContents(), ['Показатель', 'A', 'B', 'B − A', '% к A']);
       assert.equal(await page.locator('#activity-result > p, #activity-result h3').count(), 0);
       assert.doesNotMatch(await page.locator('#activity-result').innerText(), /Теннис|Сессия [12] ·/);
-      assert.deepEqual(await cells('duration_seconds'), ['1 ч', '1 ч 5 мин 1.3 с', '+5 мин 1.3 с', '8.4']);
+      assert.deepEqual(await cells('duration_seconds'), ['1 ч 0 мин', '1 ч 5 мин', '+5 мин', '8.4']);
       assert.deepEqual(await cells('distance_meters'), ['0', 'Не предоставлено', 'Не вычисляется', 'Не вычисляется']);
       assert.deepEqual(await cells('acute_training_load'), ['0', '10.0', '10.0', 'Не вычисляется']);
       assert.match(await row('acute_training_load').innerText(), /В сессии A указан ноль/);
@@ -114,7 +114,7 @@ const endpoint = '**/api/garmin/activity-comparison?**';
       const reverse = await submit();
       assert.equal(reverse.query.reference_activity_id, ids[1]);
       assert.equal(reverse.comparisons[0].metrics.find(m => m.metric_code === 'duration_seconds').absolute_delta, -301.25);
-      assert.deepEqual(await cells('duration_seconds'), ['1 ч 5 мин 1.3 с', '1 ч', '−5 мин 1.3 с', '-7.7']);
+      assert.deepEqual(await cells('duration_seconds'), ['1 ч 5 мин', '1 ч 0 мин', '−5 мин', '-7.7']);
       await layout(width);
       await page.locator('#activity-a').selectOption(ids[0]);
       await page.locator('#activity-b').selectOption(ids[1]);
@@ -159,11 +159,11 @@ const endpoint = '**/api/garmin/activity-comparison?**';
         assert.deepEqual(await cells('duration_seconds'), [label, label, 'Не вычисляется', 'Не вычисляется']);
       }
       for (const [a, b, delta, percent, expected] of [
-        [0, 0, 0, null, ['0 с', '0 с', '0 с', 'Не вычисляется']],
+        [0, 0, 0, null, ['0 мин', '0 мин', '0 мин', 'Не вычисляется']],
         [60, 120, 60, 100, ['1 мин', '2 мин', '+1 мин', '100.0']],
         [60.1, 59.9, -0.2, -0.3327787022, ['1 мин 0.1 с', '59.9 с', '−0.2 с', '-0.3']],
-        [0.04, 0.08, 0.04, 100, ['< 0.1 с', '< 0.1 с', '+< 0.1 с', '100.0']],
-        [3599.96, 3600, 0.04, 0.0011111235, ['1 ч', '1 ч', '+< 0.1 с', '0.0']]
+        [0.04, 0.08, 0.04, 100, ['<1 мин', '<1 мин', '+<1 мин', '100.0']],
+        [3599.96, 3600, 0.04, 0.0011111235, ['1 ч 0 мин', '1 ч 0 мин', '+<1 мин', '0.0']]
       ]) {
         const body = withCoverage('duration_seconds', { status: a === 0 ? 'zero' : 'usable', value: a, reason: null },
           { status: b === 0 ? 'zero' : 'usable', value: b, reason: null });

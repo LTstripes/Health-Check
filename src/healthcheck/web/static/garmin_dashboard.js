@@ -164,6 +164,8 @@
     setText("series-evidence", JSON.stringify({ reason }, null, 2)); setText("result-identity", "Нет результата ряда");
   }
   function renderSeries(series) {
+    const duration = (series.metric_definition || {}).unit === "seconds";
+    const display = value => duration ? humanDuration(value) : fmt(value);
     const points = series.points || [], plottable = points.filter(p => p.status === "usable" || p.status === "zero");
     const chart = document.getElementById("series-chart");
     if (!plottable.length) chart.innerHTML = unavailable("Нет пригодных значений. Это не нулевая нагрузка.");
@@ -179,7 +181,7 @@
         const y = height - pad - (Number(point.value) - minY) / spanY * (height - pad * 2);
         const consecutive = previous && Date.parse(point.analytic_date) - Date.parse(previous.analytic_date) === 86400000;
         path += (consecutive ? " L" : " M") + x.toFixed(1) + "," + y.toFixed(1);
-        circles += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4" fill="var(--series-1)"><title>' + escapeHtml(ownerDate(point.analytic_date) + " · " + fmt(point.value, 1)) + "</title></circle>";
+        circles += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="4" fill="var(--series-1)"><title>' + escapeHtml(ownerDate(point.analytic_date) + " · " + display(point.value)) + "</title></circle>";
         previous = point;
       });
       chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" role="img" aria-label="Значения Garmin; пропуски разрывают линию"><path d="' + path + '" fill="none" stroke="var(--series-1)" stroke-width="2"/>' + circles + '</svg>';
@@ -189,10 +191,10 @@
     const a = series.availability || {}, b = series.baseline || {}, t = series.trend || {}, p = series.personal_percentile || {}, d = series.deviation || {};
     const missing = [a.missing_count, a.null_count, a.invalid_count, a.partial_count, a.not_computable_count, a.excluded_count].some(n => n > 0);
     let html = chip(!plottable.length ? "unavailable" : missing ? "partial" : "present");
-    html += "<p>" + escapeHtml(metricName(code)) + " · единица: " + escapeHtml(units[(series.metric_definition || {}).unit] || "не предоставлена") + "</p>";
+    html += "<p>" + escapeHtml(metricName(code)) + " · единица: " + escapeHtml(duration ? "часы / минуты" : units[(series.metric_definition || {}).unit] || "не предоставлена") + "</p>";
     html += "<p>Пригодных значений: " + fmt(a.usable_count, 0) + "; явных нулей: " + fmt(a.zero_count, 0) + "; исключено: " + fmt(a.excluded_count, 0) + ".</p>";
     if (missing) html += '<p class="uncertainty-note">Есть пропуски, исключения или неполные значения. Ряд не описывает весь период; неоднозначные дневные значения не объединяются.</p>';
-    html += "<ul><li>Среднее в личном окне: " + available(b, () => fmt(b.mean)) + "</li><li>Медиана: " + available(b, () => fmt(b.median)) + "</li><li>Изменение в день: " + available(t, () => fmt(t.slope_per_day, 3)) + "</li><li>Процентиль в личном окне: " + available(p, () => fmt(p.value)) + "</li></ul>";
+    html += "<ul><li>Среднее в личном окне: " + available(b, () => display(b.mean)) + "</li><li>Медиана: " + available(b, () => display(b.median)) + "</li><li>Изменение в день: " + available(t, () => duration ? humanDuration(t.slope_per_day, true) + "/день" : fmt(t.slope_per_day, 3)) + "</li><li>Процентиль в личном окне: " + available(p, () => fmt(p.value)) + "</li></ul>";
     html += "<p>Отклонение от личного окна: " + available(d, () => d.personal_baseline_deviation === true ? "выделено алгоритмом" : d.personal_baseline_deviation === false ? "не выделено алгоритмом" : "не определено") + ". Это не медицинский порог.</p>";
     setHtml("series-summary", html);
     // Exact availability.exclusions, excluded_count, ambiguous_daily_aggregate,
@@ -231,20 +233,7 @@
     });
     setHtml("activity-result", html); setText("activity-evidence", JSON.stringify(body, null, 2)); identity(body);
   }
-  function humanDuration(value, signed = false) {
-    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "Не предоставлено";
-    const seconds = Math.abs(Number(value));
-    const sign = Number(value) < 0 ? "−" : signed && seconds > 0 ? "+" : "";
-    if (seconds > 0 && seconds < 0.1) return sign + "< 0.1 с";
-    const rounded = Math.round(seconds * 10) / 10;
-    const hours = Math.floor(rounded / 3600), minutes = Math.floor(rounded % 3600 / 60);
-    const remainder = Number((rounded % 60).toFixed(1));
-    const parts = [];
-    if (hours) parts.push(hours + " ч");
-    if (minutes) parts.push(minutes + " мин");
-    if (remainder || !parts.length) parts.push(remainder + " с");
-    return sign + parts.join(" ");
-  }
+  const humanDuration = window.healthcheckOwnerFormat.duration;
   function renderLagResult(body) {
     let html = '<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сдвиг, дней</th><th>Состояние</th><th>Связь (Спирмен)</th><th>Пар значений</th><th>Ограничение</th></tr></thead><tbody>';
     (body.lags || []).forEach(lag => {

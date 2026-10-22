@@ -49,7 +49,7 @@ assert.ok(evidence && sourceId && firstRecord && secondRecord);
         .getAttribute('aria-current'), 'page');
       assert.equal(await page.locator('h2').filter({ hasText: 'Теннис' }).count() >= 1, true);
       assert.match(await cardText('duration_seconds'), /3901\.5 с/);
-      assert.match(await cardText('duration_seconds'), /1 ч 5 мин 1\.5 с/);
+      assert.match(await cardText('duration_seconds'), /1 ч 5 мин/);
       assert.match(await cardText('heart_rate_bpm'), /110\.0 уд\/мин/);
       assert.match(await cardText('max_heart_rate_bpm'), /165\.0 уд\/мин/);
       assert.match(await cardText('anaerobic_training_effect'), /1\.8 баллы/);

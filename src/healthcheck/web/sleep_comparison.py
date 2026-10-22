@@ -6,7 +6,7 @@ from math import isfinite
 from typing import Any
 
 from healthcheck.analytics.sleep_metrics import SLEEP_METRIC_DEFINITIONS
-from healthcheck.web.owner_presentation import owner_date, owner_number
+from healthcheck.web.owner_presentation import owner_date, owner_duration, owner_number
 
 
 def comparison_value(value: object, unit: str | None, *, signed: bool = False) -> str:
@@ -15,14 +15,8 @@ def comparison_value(value: object, unit: str | None, *, signed: bool = False) -
     if not isinstance(value, (int, float)) or isinstance(value, bool) or not isfinite(value):
         return "—"
     if unit == "seconds":
-        # Presentation rounding only. Frozen seconds are retained in disclosure.
-        seconds = round(abs(value))
-        hours, remainder = divmod(seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        parts = ([f"{hours} ч"] if hours else []) + ([f"{minutes} мин"] if minutes else [])
-        if seconds or not parts:
-            parts.append(f"{seconds} с")
-        return ("−" if value < 0 else "+" if signed and value > 0 else "") + " ".join(parts)
+        return ("−" if value < 0 else "+" if signed and value > 0 else "") + owner_duration(
+            abs(value))
     label = {"bpm": "уд/мин", "percentage_points": "п.п.", "%": "%"}.get(unit, "")
     return ("+" if signed and value > 0 else "") + owner_number(value) + f" {label}"
 
