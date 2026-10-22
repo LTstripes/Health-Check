@@ -348,18 +348,23 @@ candidate. Temporary process guards altered outbound/decryption behavior and are
 recorded in its provenance; the run was not unrestricted runtime or Owner UAT.
 Original persistent-file fingerprints passed, while absence of the Stable process
 was recorded separately; Stable was not started. A later audit correction does not
-inherit an old candidate's code/UI result. The current audit assignment permits
-synthetic validation only, with no new real-profile operation.
+inherit an old candidate's code/UI result. The audit correction used synthetic
+validation; this historical receipt does not authorize a new real-profile operation.
 The #487/#489 quality corrections add no database migration or automatic raw/history
 replay. The supported schema ancestry below is unchanged; this does not turn the
 older candidate's runtime/UI rehearsal into a new-candidate pass.
-The later final targeted audit returned NO-GO for code `303450b`;
-[#484](https://github.com/LTstripes/Health-Check/issues/484) and
-[#485](https://github.com/LTstripes/Health-Check/issues/485), followed up in
-[#491](https://github.com/LTstripes/Health-Check/pull/491), require new exact gates
-and a targeted recheck on the new combined SHA. Preserve prior CI/rehearsal receipts
-without treating them as that recheck. No real-data UAT transition occurs while
-the current verdict in #479 is NO-GO.
+The final targeted audit returned NO-GO for old code `303450b`. Its #484/#485
+follow-up [#491](https://github.com/LTstripes/Health-Check/pull/491) completed exact
+review/CI/post-main gates on canonical `430a11e`. A separately attributed
+[Owner-supplied recheck](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6347157693)
+reports both high findings CLOSED and 55 unique synthetic checks PASS, with GO
+limited to isolated-copy preparation. That separately authorized preparation
+completed on exact `430a11e`; its [technical receipt](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6348040813)
+does not establish acceptance of the UI. The Owner ended UAT with UX NOT ACCEPTED;
+release #479 remains NO-GO pending presentation fixes and repeat Owner UAT.
+New UX changes require their own exact gates and candidate/profile/runtime
+binding. Preserve old receipts without relabeling their code or test scope;
+leave the retained Owner-UAT runtime unchanged during implementation.
 
 Forward v4 sleep metadata preserves independently parsed summary boundaries with
 or without phases. It does not recover lost End values from old typed v3 rows.
