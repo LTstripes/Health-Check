@@ -1173,15 +1173,21 @@ def _outcome_from_scalar(
             evidence=replace(evidence, exclusion_basis=reason), exclusion_basis=reason,
         )
     if metric_code in {"sleep_duration_seconds", "sleep_summary_minutes_asleep"}:
-        # Freeze every dependency used for quality decisions, including valid
-        # controls. A summary-only manifest cannot reproduce a boundary check.
-        evidence = _evidence_for(
-            side,
-            metric_rows=tuple(m for m in side.metrics if m.metric_code in {
+        # Freeze the dependencies used for quality decisions. Google TST uses
+        # its summaries and explicit session; stage quality cannot supply a
+        # missing session boundary or invalidate an independent valid summary.
+        dependency_codes = (
+            {metric_code, "sleep_summary_minutes_in_sleep_period"}
+            if side.provider == "google" else {
                 metric_code, "sleep_summary_minutes_in_sleep_period", "sleep_stages",
                 "sleep_metadata_stages_status",
-            }),
-            interval_rows=side.stages, field_state=side.field_state,
+            }
+        )
+        evidence = _evidence_for(
+            side,
+            metric_rows=tuple(m for m in side.metrics if m.metric_code in dependency_codes),
+            interval_rows=_google_session_rows(side) if side.provider == "google" else side.stages,
+            field_state=side.field_state,
         )
         reason = _duration_quality_reason(side, value, variant=variant)
         if reason is not None:

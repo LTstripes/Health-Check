@@ -350,7 +350,7 @@ def test_snapshot_correction_consistency_across_separate_writer(profile, monkeyp
                                               capture_source="cli")
                 metric = writer.scalar(select(GoogleRecordMetric).where(
                     GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep"))
-                metric.value_number = 500
+                metric.value_number = 400
         return result
     monkeypatch.setattr(evidence, "read_source_sleep_range", concurrent)
     before = read(profile)
@@ -358,7 +358,7 @@ def test_snapshot_correction_consistency_across_separate_writer(profile, monkeyp
     assert any(i["revision_id"] == current.revision_id
                for i in before["sections"]["context"]["rows"])
     after = read(profile)
-    assert source_range(after)["series"][0]["points"][-1]["value"] == 30000
+    assert source_range(after)["series"][0]["points"][-1]["value"] == 24000
     assert any(i["original_text"] == "Concurrent" for i in after["sections"]["context"]["rows"])
 
 

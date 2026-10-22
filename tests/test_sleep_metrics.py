@@ -108,6 +108,49 @@ def test_recognized_coverage_controls_missing_rem(projection_database, problem, 
     assert _metric(result, "sleep_time_in_bed_seconds").google.eligible
 
 
+@pytest.mark.parametrize("stage_quality,stage_reason", [("complete", None),
+    ("gap", "stage_interval_gap"), ("unknown", "stage_type_unmapped")])
+def test_google_duration_freezes_only_summary_and_session_dependencies(
+    projection_database, stage_quality, stage_reason,
+):
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    stages = [
+        _stage("2099-01-01T22:00:00Z", "2099-01-02T00:00:00Z", "LIGHT"),
+        _stage("2099-01-02T00:00:00Z", "2099-01-02T05:00:00Z", "DEEP"),
+    ]
+    if stage_quality == "gap":
+        stages[1]["startTime"] = "2099-01-02T01:00:00Z"
+    elif stage_quality == "unknown":
+        stages[1]["type"] = "SLEEP_STAGE_TYPE_UNSPECIFIED"
+    _persist_google(session, paths, payload=_google_sleep_payload(
+        stages_status="SUCCEEDED", stages=stages,
+    ))
+    session.commit()
+    result = read_persisted_sleep_metric_projection(session)
+    duration = _metric(result, "sleep_duration_asleep_seconds").google
+    assert (duration.state, duration.value, duration.reason, duration.eligible) == (
+        "value", 24600, None, True,
+    )
+    dependencies = duration.evidence.quality_inputs["metrics"]
+    assert {m["metric_code"]: (m["state"], m["value_number"], m["unit"], m["reason"])
+            for m in dependencies} == {
+        "sleep_summary_minutes_asleep": ("value", 410, "min", None),
+        "sleep_summary_minutes_in_sleep_period": ("value", 420, "min", None),
+    }
+    intervals = duration.evidence.interval_snapshots
+    assert len(intervals) == 1 and intervals[0]["interval_kind"] == "sleep_session"
+    assert (intervals[0]["start_at_utc"], intervals[0]["end_at_utc"]) == (
+        "2099-01-01T22:00:00Z", "2099-01-02T05:00:00Z",
+    )
+    assert not any(".stages[" in path for path in duration.evidence.field_paths)
+    rem = _metric(result, "sleep_stage_rem_seconds").google
+    assert rem.reason == stage_reason
+    assert rem.eligible is (stage_reason is None)
+    assert rem.value == (0 if stage_reason is None else None)
+    assert _metric(result, "sleep_time_in_bed_seconds").google.eligible
+
+
 @pytest.mark.parametrize("minutes,tib,end,reason", [
     (90, 120, "2099-01-02T00:00:00Z", None),
     (120, 120, "2099-01-02T00:00:00Z", None),
