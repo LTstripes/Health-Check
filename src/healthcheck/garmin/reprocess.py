@@ -797,6 +797,33 @@ def _window_already_current(
         )
         if rows:
             observed_at = restore_stored_utc(observation.received_at)
+            activity_interpretation_current = False
+            if surface.code == "activities":
+                activity_raw = session.get(GarminRawPayload, observation.garmin_raw_payload_id)
+                if (
+                    activity_raw is not None
+                    and activity_raw.raw_artifact_id == observation.raw_artifact_id
+                ):
+                    activity_interpretation_current = session.scalar(
+                        select(GarminPayloadObservation.id).where(
+                            GarminPayloadObservation.garmin_source_id
+                            == observation.garmin_source_id,
+                            GarminPayloadObservation.source_filename == observation.source_filename,
+                            GarminPayloadObservation.stream_code == observation.stream_code,
+                            GarminPayloadObservation.garmin_raw_payload_id == activity_raw.id,
+                            GarminPayloadObservation.raw_artifact_id == observation.raw_artifact_id,
+                            GarminPayloadObservation.source_window_start_utc
+                            == observation.source_window_start_utc,
+                            GarminPayloadObservation.source_window_end_utc
+                            == observation.source_window_end_utc,
+                            GarminPayloadObservation.received_at == observation.received_at,
+                            GarminPayloadObservation.normalization_contract_version
+                            == expected_normalization,
+                            GarminPayloadObservation.reconciliation_contract_version
+                            == RECONCILIATION_CONTRACT_VERSION,
+                            GarminPayloadObservation.parse_status != "invalid",
+                        ).limit(1)
+                    ) is not None
             for row in rows:
                 projected = restore_stored_utc(row.projection_observed_at) or restore_stored_utc(
                     row.last_seen_at
@@ -814,6 +841,14 @@ def _window_already_current(
                 if not version_current:
                     return False
                 if observed_at is not None and (projected is None or observed_at > projected):
+                    return False
+                if (
+                    surface.code == "activities" and observed_at == projected
+                    and not activity_interpretation_current
+                ):
+                    # Another raw's current rows cannot prove this collection
+                    # was applied. Exact receipts also preserve overlapping
+                    # windows whose rows were subsequently replaced.
                     return False
                 if legacy_transition_pending:
                     return False
