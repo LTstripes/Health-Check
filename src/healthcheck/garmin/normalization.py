@@ -1745,14 +1745,14 @@ def _parse_record(
             valid = (temporal.precision is GarminTemporalPrecision.UTC_INSTANT
                      and end.precision is GarminTemporalPrecision.UTC_INSTANT
                      and end.measured_at_utc > temporal.measured_at_utc)
-            metrics.append(GarminMetricDTO(
-                capability_code="sleep_duration", metric_code="sleep_summary_session_bounds",
-                field_path=f"{source_path}.dailySleepDTO", state="value" if valid else "missing",
-                value=json.dumps({"schema_version": "garmin-sleep-summary-bounds-v1",
-                                  "start": temporal.as_dict(), "end": end.as_dict()},
-                                 sort_keys=True, separators=(",", ":")) if valid else None,
-                reason=None if valid else "summary_session_boundary_unconfirmed",
-            ))
+            if valid:
+                metrics.append(GarminMetricDTO(
+                    capability_code="sleep_duration", metric_code="sleep_summary_session_bounds",
+                    field_path=f"{source_path}.dailySleepDTO", state="value",
+                    value=json.dumps({"schema_version": "garmin-sleep-summary-bounds-v1",
+                                      "start": temporal.as_dict(), "end": end.as_dict()},
+                                     sort_keys=True, separators=(",", ":")),
+                ))
             diagnostics.extend(end_diagnostics)
 
     metrics = [
@@ -1806,20 +1806,23 @@ def _parse_record(
         temporal=temporal,
         metrics=metrics,
     )
-    invalid_metric = any(item.state is GarminFieldState.INVALID for item in metrics)
+    # Boundary provenance is optional metadata, not usable sleep measurement.
+    status_metrics = [item for item in metrics if not (
+        stream is GarminStream.SLEEP and item.metric_code == "sleep_summary_session_bounds")]
+    invalid_metric = any(item.state is GarminFieldState.INVALID for item in status_metrics)
     missing_metric = any(
         item.state is GarminFieldState.MISSING
         and not (
             stream is GarminStream.ACTIVITY
             and item.metric_code in _OPTIONAL_ACTIVITY_METRIC_CODES
         )
-        for item in metrics
+        for item in status_metrics
     )
-    has_partial_collection = any(item.reason == "partial_collection" for item in metrics)
+    has_partial_collection = any(item.reason == "partial_collection" for item in status_metrics)
     if invalid_metric:
         status = (
             GarminParseStatus.PARTIAL
-            if any(item.has_value for item in metrics)
+            if any(item.has_value for item in status_metrics)
             else GarminParseStatus.INVALID
         )
     elif (

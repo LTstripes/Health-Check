@@ -127,6 +127,73 @@ def test_production_complete_coverage_can_prove_rem_zero(projection_database):
     assert cells["sleep_time_in_bed_seconds"]["value"] == 28800
 
 
+@pytest.mark.parametrize("version,phases", [("v4", "missing"), ("v4", "empty"),
+                                          ("v3", "complete")])
+@pytest.mark.parametrize("fields", ["all", "local"])
+@pytest.mark.parametrize("seconds", [28801, 25200])
+def test_integral_float_summary_bounds_keep_original_provenance(
+    projection_database, version, phases, fields, seconds,
+):
+    from healthcheck.db.models import GarminRecordMetric
+    from healthcheck.garmin.analytic_contract import build_analytic_input_from_storage
+
+    session, paths = projection_database
+    payload = production_sleep()
+    summary = payload["dailySleepDTO"]
+    summary["sleepTimeSeconds"] = seconds
+    for key in tuple(summary):
+        if "Timestamp" in key and (fields == "all" or key.endswith("Local")):
+            summary[key] = float(summary[key])
+    if phases == "missing":
+        payload.pop("sleepLevels")
+    elif phases == "empty":
+        payload["sleepLevels"] = []
+    result = normalized(payload)
+    if version == "v3":
+        result = replace(result, contract_version="r02-garmin-sleep-normalization-v3", records=(
+            replace(result.records[0], metrics=tuple(m for m in result.records[0].metrics
+                if m.metric_code != "sleep_summary_session_bounds")),))
+    GarminPersistenceRepository(session, payload_store=ContentAddressedGarminPayloadStore(
+        paths.root / "garmin-artifacts")).persist_result(result, payload=payload)
+    session.commit()
+    cell = read_source_sleep_night(session, provider="garmin", wake_date=DAY)[
+        "sources"][0]["summary"]["metrics"]["sleep_duration_asleep_seconds"]
+    row = session.scalar(select(GarminRecordMetric).where(
+        GarminRecordMetric.metric_code == "sleep_duration_seconds"))
+    dto = build_analytic_input_from_storage(session, metric_row_id=row.id)
+    reason = "duration_exceeds_confirmed_session" if seconds > 28800 else None
+    assert cell["eligible"] is (reason is None)
+    assert cell["reason"] == reason
+    assert dto.selected.state == ("invalid" if reason else "value")
+    assert dto.selected.value == seconds
+    assert cell["evidence"]["quality_inputs"]["session_bound_validation"] == {
+        "state": "checked", "reason": reason, "upper_bound_seconds": 28800,
+    }
+    assert dto.evidence.sleep_quality_inputs["confirmed_end_at_utc"] == END.isoformat()
+    if version == "v4":
+        boundary = cell["evidence"]["quality_inputs"]["summary_boundary"]
+        for endpoint in ("start", "end"):
+            assert boundary[endpoint]["source_local_timestamp"] == str(
+                summary[f"sleep{endpoint.title()}TimestampLocal"])
+    assert session.get(GarminRecordMetric, row.id).value_number == seconds
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("4070901600000", 4070901600000), ("4070901600000.0", 4070901600000),
+    ("4.0709016e12", 4070901600000), ("0.0", 0), ("-1.0", -1),
+    ("253402300799999.0", 253402300799999), ("-62135596800000.0", -62135596800000),
+    ("4070901600000.5", None), ("1e-9999", None), ("NaN", None),
+    ("Infinity", None), ("-Infinity", None), ("True", None), (True, None), (False, None),
+    (None, None), ("1e9999", None), ("253402300800000", None),
+    ("-62135596800001", None), ("999999999999999999999", None),
+    ("4_070901600000", None), (" 4070901600000", None),
+])
+def test_retained_sleep_milliseconds_decode_exact_integral_values_only(text, expected):
+    from healthcheck.sleep_quality import _stored_milliseconds
+
+    assert _stored_milliseconds(text) == expected
+
+
 @pytest.mark.parametrize("phases", ["complete", "partial", "missing"])
 def test_legacy_v3_summary_bound_check_is_explicit_without_raw_recovery(
     projection_database, phases,
@@ -250,7 +317,10 @@ def normalized(payload):
 @pytest.mark.parametrize("phases", ["partial", "missing"])
 @pytest.mark.parametrize("seconds", [28801, 25200])
 @pytest.mark.parametrize("legacy", [False, True])
-def test_independent_summary_bounds_reach_statistics_and_exports(tmp_path, phases, seconds, legacy):
+@pytest.mark.parametrize("timestamps_as_float", [False, True])
+def test_independent_summary_bounds_reach_statistics_and_exports(
+    tmp_path, phases, seconds, legacy, timestamps_as_float,
+):
     import json
 
     from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
@@ -272,6 +342,10 @@ def test_independent_summary_bounds_reach_statistics_and_exports(tmp_path, phase
     engine = create_sqlite_engine(paths)
     payload = production_sleep()
     payload["dailySleepDTO"]["sleepTimeSeconds"] = seconds
+    if timestamps_as_float:
+        for key in tuple(payload["dailySleepDTO"]):
+            if "Timestamp" in key:
+                payload["dailySleepDTO"][key] = float(payload["dailySleepDTO"][key])
     if phases == "partial":
         payload["sleepLevels"].pop()
     else:
@@ -319,6 +393,8 @@ def test_independent_summary_bounds_reach_statistics_and_exports(tmp_path, phase
                 assert boundary["end"]["measured_at_utc"] == END.isoformat()
                 assert boundary["end"]["source_utc_field"].endswith(".sleepEndTimestampGMT")
                 assert boundary["end"]["source_utc_offset_minutes"] == 60
+                assert boundary["end"]["source_local_timestamp"] == str(
+                    payload["dailySleepDTO"]["sleepEndTimestampLocal"])
             with client_for(app) as client:
                 response = client.get("/statistics", params={"days": days,
                     "end_date": str(DAY), "garmin_sleep_source_id": source_id})
