@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -1054,5 +1054,100 @@ def test_activity_empty_currentness_uses_exact_raw_at_equal_epoch(tmp_path, comp
         again = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF, streams=["activities"])
         assert again.processed_count == 0
         assert again.remaining_observation_count == 0
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(("replacement_duration", "microseconds"), [
+    (None, 0), (7200, 0), (None, 1),
+])
+def test_activity_selected_raw_replaces_existing_rows_at_same_epoch(
+    tmp_path, replacement_duration, microseconds,
+):
+    from healthcheck.garmin.reprocess import _latest_observations_per_window
+    stamp = datetime(2099, 1, 2, 10, tzinfo=UTC)
+    _run(tmp_path, _client(activities=[_activity(101)]), clock=lambda: stamp)
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = resolve_runtime_paths(settings)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            original = session.scalar(select(GarminPayloadObservation).where(
+                GarminPayloadObservation.source_filename == "activities.json"))
+            source = session.get(GarminSource, original.garmin_source_id)
+            identity = GarminSourceIdentity(
+                source_kind=source.source_kind, provider_code=source.provider_code,
+                device_attributed=source.device_attributed, device_code=source.device_code,
+                device_model=source.device_model, source_instance_id=source.source_instance_id)
+            activities = [] if replacement_duration is None else [
+                _activity(101, duration=replacement_duration)]
+            payload = {"activities": activities}
+            normalized = normalize_garmin_payload(
+                payload, stream="activity", source_identity=identity)
+            # Seed an old adapter's raw receipt without applying its projection.
+            selected = GarminPersistenceRepository(session, payload_store=
+                ContentAddressedGarminPayloadStore(paths.root / "artifacts")).persist_result(
+                    replace(normalized, records=(),
+                            contract_version=NORMALIZATION_CONTRACT_VERSION),
+                    payload=payload, source_identity=identity,
+                    received_at=stamp + timedelta(microseconds=microseconds),
+                    source_window_start_utc=restore_stored_utc(original.source_window_start_utc),
+                    source_window_end_utc=restore_stored_utc(original.source_window_end_utc),
+                    source_filename="activities.json",
+                ).observation
+            selected_raw_id = selected.garmin_raw_payload_id
+            assert selected_raw_id != original.garmin_raw_payload_id
+            values = {column.name: getattr(selected, column.name)
+                      for column in GarminPayloadObservation.__table__.columns
+                      if column.name not in {"id", "observation_key",
+                                             "normalization_contract_version"}}
+            session.add(GarminPayloadObservation(
+                **values, id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+                observation_key="f" * 64,
+                normalization_contract_version="r02-garmin-normalization-contract-v1"))
+            session.commit()
+            observations = list(session.scalars(select(GarminPayloadObservation).where(
+                GarminPayloadObservation.source_filename == "activities.json")))
+            latest, _ = _latest_observations_per_window(observations)
+            assert len(latest) == 1
+            assert latest[0].id == "ffffffff-ffff-ffff-ffff-ffffffffffff"
+            assert latest[0].garmin_raw_payload_id == selected_raw_id
+            current = [r for r in _activity_rows(session)
+                       if r.projection_status == PROJECTION_CURRENT]
+            assert len(current) == 1 and _activity_duration(session, current[0].id) == 3600
+        first = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF, streams=["activities"])
+        with factory() as session:
+            current = [r for r in _activity_rows(session)
+                       if r.projection_status == PROJECTION_CURRENT]
+            durations = [_activity_duration(session, r.id) for r in current]
+            expected = [] if replacement_duration is None else [replacement_duration]
+            assert (first.processed_count, first.remaining_observation_count, durations) == (
+                1, 0, expected)
+            assert all(r.raw_payload_id == selected_raw_id for r in current)
+        again = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF, streams=["activities"])
+        assert again.processed_count == again.remaining_observation_count == 0
+        assert first.as_dict()["reprocess"]["provider_requests"] == 0
+    finally:
+        engine.dispose()
+
+
+
+def test_activity_equal_epoch_processed_overlap_retains_current_replacement(tmp_path):
+    stamp = datetime(2099, 1, 2, 10, tzinfo=UTC)
+    _run(tmp_path, _client(activities=[_activity(101)]), clock=lambda: stamp)
+    _persist_activity_payload(
+        tmp_path, [_activity(101, duration=7200)], complete=True, received_at=stamp,
+        window_start=date(2099, 1, 1), window_end=AS_OF)
+    settings = Settings(data_dir=tmp_path / "runtime")
+    first = run_garmin_reprocess(
+        settings, start=date(2099, 1, 1), end=AS_OF, streams=["activities"])
+    assert first.processed_count == first.remaining_observation_count == 0
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            current = [r for r in _activity_rows(session)
+                       if r.projection_status == PROJECTION_CURRENT]
+            assert len(current) == 1
+            assert _activity_duration(session, current[0].id) == 7200
     finally:
         engine.dispose()
