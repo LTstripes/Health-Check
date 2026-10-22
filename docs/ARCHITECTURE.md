@@ -1099,6 +1099,43 @@ Only `value` is usable. `GarminMetricDTO.is_zero` identifies an explicit numeric
 using truthiness. Missing and null values are never substituted with zero and do not activate a
 convenience fallback.
 
+<a id="garmin-summary-quality"></a>
+### Activity and Training summary quality (#485 / #486)
+
+Finite presence is necessary but does not establish field-specific usability.
+Activity HR must be positive; duration, distance and speed must be nonnegative.
+Average HR above peak HR is a conflict only for the reviewed `averageHR` / `maxHR`
+siblings in the same summary with compatible bpm units. Positive distance with
+zero duration conflicts only for the reviewed same-parent `distance` / `duration`
+or `distanceMeters` / `durationSeconds` pairs with meters/seconds units. Nested or
+unknown aliases, moving and elapsed bases do not establish that compatibility.
+No universal HR/speed ceiling or GPS-validation claim is added.
+
+Native aerobic and anaerobic Training Effect accept 0–5, including zero, following
+[Garmin Training Effect](https://www8.garmin.com/manuals/webhelp/fenix5plus/EN-US/GUID-7275629E-743A-4658-A284-C84F42A66AE5.html).
+Readiness accepts 1–100; zero is invalid, following
+[Garmin Training Readiness](https://www8.garmin.com/manuals/webhelp/GUID-9D99A9D4-467A-4F1A-A0EA-023184FEA3DD/EN-US/GUID-C21BE0C8-A08E-4DA1-B6C6-2E0E2DDDB372.html).
+This does not establish availability on an unsupported device. Load and remaining
+recovery time are nonnegative quantities, with valid zero; this is an inference
+from Garmin's [load](https://www8.garmin.com/manuals/webhelp/GUID-EECCAC99-90D6-4AB1-9A3A-EC433D3365E2/EN-US/GUID-AEDB0872-C5A1-4378-86D5-2239734B59E8.html)
+and [recovery](https://www8.garmin.com/manuals-apac/webhelp/fenix7series/EN-SG/GUID-F5BFDB71-B7FA-4BA2-82C0-9D7235410B17-3302.html)
+descriptions, not a published universal maximum. The private `recoveryTime` wire
+unit stays unknown; no hours conversion, factor/status scale or Garmin algorithm
+is inferred.
+
+Invalid values retain explicit reasons and remain unavailable in current saved
+DTOs, comparison, activity period aggregates, Training presentation and exports.
+A read-time overlay also validates older saved projections, without changing raw
+artifacts, metric rows or frozen historical outputs; no replay is automatic.
+Activity normalization and period quality use `garmin-activity-quality-v1`,
+activity analytic rules use `r03-garmin-analytic-rules-v2:activity-quality-v1`,
+comparison rules use `r03-02-v3`, and Training evidence/presentation use
+`garmin-training-evidence-v2` / `garmin-training-owner-view-v2`. Unrelated stream
+versions remain unchanged. Explicit reprocess currentness must recognize the
+activity-specific version, including current empty windows and bounded-resume
+convergence; this does not authorize automatic history replay. Earlier version
+descriptions below remain historical.
+
 <a id="garmin-normalization--source-and-device-identity"></a>
 ### Source and device identity
 
@@ -2125,6 +2162,45 @@ no technical JSON is added to an information badge. RHR/provider status remain
 their existing independent blocks. This is synthetic engineering validation,
 not Owner UAT or full completion of either issue.
 
+
+<a id="saved-sleep-quality"></a>
+### Saved sleep coverage, duration and role quality (#483 / #484)
+
+Current metric projection/algorithm `r05-02-sleep-metric-projection-v2` and rules
+`r05-02-sleep-metric-rules-v2` require recognized, ordered, nonoverlapping and
+contiguous stages covering independently confirmed session boundaries before a
+complete stage-derived total/TIB or absent-stage zero is eligible. Internal/edge gaps,
+unknown stages and unconfirmed boundaries stay unavailable with explicit reasons.
+Legacy Garmin `levels` without a confirmed session end cannot prove REM=0 or
+complete TIB merely because its intervals are contiguous. Production v3 may use
+its preserved explicit summary-end evidence; no raw-body reread, host timezone,
+missing endpoint or invented stage fills that gap. A separately valid summary
+remains eligible despite partial stages. In particular, Google summary TIB may
+remain eligible under validated explicit session boundaries even when stages
+are partial or missing; it is not relabelled a complete stage-derived total.
+
+Duration values must be nonnegative and compatible with supported confirmed
+session/TIB bounds. Google [SleepSummary](https://developers.google.com/health/reference/rest/v4/users.dataTypes.dataPoints#Sleep.SleepSummary)
+defines integral minutes for asleep/in-period fields; convert exactly to seconds
+without guessed rounding slack. For example, 90 minutes is 5400 seconds; 600
+minutes cannot fit a confirmed two-hour session. Zero, missing, explicit null and
+invalid remain distinct, with original midnight/offset evidence retained. Unknown
+or incompatible bounds do not become an assumed timezone or comparison basis.
+
+The pure `sleep-duration-quality-v1` helper also serves current legacy Garmin
+scalar consumers under `r03-garmin-sleep-duration-quality-v1`. Night, latest,
+period/annual, comparison, UI and evidence export exclude invalid current values
+with consistent reasons/counts. Versioned metadata-only quality snapshots freeze
+the scalar and interval dependencies; recursive export allowlists exclude arbitrary
+payload fields. Raw evidence, stored metric rows and historical frozen agreement
+outputs remain intact. This read-time correction requires no migration or replay.
+
+The bounded period loader includes `sleep_metadata_main_sleep`, so its role
+decision and source-selection eligible-night counts match the main saved-night
+reader: invalid or conflicting aliases exclude; an explicit supported main keeps
+priority over an unknown-role sibling. Statistics 7/30 and JSON/text exports use
+the same eligible set. The existing `saved-google-main-sleep-v2` policy and frozen
+account-pairing helpers remain their original versions; acquisition is unchanged.
 
 ### Saved sleep production-shape interpretation (#462 / #464)
 
@@ -3860,6 +3936,12 @@ unchanged 2 MiB UTF-8 serialization guard. Compact does not call the capped
 public detailed serializer first. No byte cap is raised and no winning prefix
 is emitted. An oversized compact packet still fails the complete request.
 
+The quality-evidence repair identifies its nested Sleep representation with
+`projection.sleep_evidence_schema = compact-sleep-evidence-v2`; the outer v1–v6
+envelope variants keep their existing optional-domain meaning. Older packets
+without this discriminator retain the original inline Sleep representation.
+The new registry locator and all references are bound by the envelope hash.
+
 Only Sleep representation changes:
 
 - Daily ranges, series/values, units, metric states/reasons/eligibility, explicit
@@ -3882,11 +3964,17 @@ Only Sleep representation changes:
   formulas. Counts/digests describe all contributing intervals; they do not
   silently retain only a prefix. The digest identifies omitted detail but cannot
   reconstruct it or establish independent source correctness.
-- `interval_summary.session_intervals` retains original `sleep_session` endpoint
-  snapshots, including offsets, wall time, timezone, precision and state. Session
+- In nested v2, `interval_summary.session_intervals_index` resolves into that
+  same session's `session_interval_sets`. Exactly identical arrays are interned
+  once using canonical JSON identity, preserving numeric types; indices never
+  reference another session/source. The restored array retains original
+  `sleep_session` endpoint snapshots, including offsets, wall time, timezone,
+  precision and state. Prior inline packets use `interval_summary.session_intervals`. Session
   `temporal_evidence` and accepted start/end metric cells also stay intact.
   Date-only/null timing gains no invented instant or host offset. Stage segment
-  endpoints/IDs are intentionally available only in detailed mode.
+  endpoints/IDs are intentionally available only in detailed mode. Interval
+  counts/groups/digests, quality dependencies and selected values are unchanged
+  by interning; it does not weaken coverage or duration eligibility.
 
 Activity cells (including coverage/conflict/incomplete-search flags), current
 Context revisions/text/temporal precision and explicit page bounds/has-more,

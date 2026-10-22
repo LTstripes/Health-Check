@@ -340,6 +340,20 @@ deployment, provider request or release/tag publication was executed by this doc
 task.** Operations below require an assignment with exact private paths. Examples
 alone grant no authority.
 
+The later separately authorized [technical rehearsal receipt](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6320839634)
+records backup/verify/restore, copy-only migration/integrity/FK/artifact closure,
+recovery and guarded offline UI PASS for candidate
+`6c82874efa6494d5ad1d9d6e51f8d962050f8888`. That evidence remains specific to that
+candidate. Temporary process guards altered outbound/decryption behavior and are
+recorded in its provenance; the run was not unrestricted runtime or Owner UAT.
+Original persistent-file fingerprints passed, while absence of the Stable process
+was recorded separately; Stable was not started. A later audit correction does not
+inherit an old candidate's code/UI result. The current audit assignment permits
+synthetic validation only, with no new real-profile operation.
+The #487/#489 quality corrections add no database migration or automatic raw/history
+replay. The supported schema ancestry below is unchanged; this does not turn the
+older candidate's runtime/UI rehearsal into a new-candidate pass.
+
 ### Candidate and recovery point
 
 1. Freeze one full accepted main SHA/tree. Read live issues/PRs, independent review
@@ -347,6 +361,11 @@ alone grant no authority.
    [Development](DEVELOPMENT_PROCESS.md#ci-gates). Reconcile target movement; never
    deploy a moving main. Record current installed code/profile/process binding and
    actual read-only schema identity privately.
+   Release #479 additionally requires the P1 sleep corrections #483/#484 and the
+   approved Garmin corrections #485/#486 to complete their review/exact-CI gates,
+   including targeted pipeline, UI and export regressions. Link their new exact
+   outcomes; preserve the older rehearsal as older evidence. These quality fixes
+   do not authorize raw/history replay, OAuth work or a new profile migration.
 2. Clean isolated candidate checkout, locked environment, explicit external profile.
    Preserve matching old code/runtime. Select distinct private backup/UAT/recovery
    targets outside Git/code; verify resolved identities before writes. Do not reuse
@@ -405,6 +424,9 @@ replace real-profile rehearsal.
 Only then start separately approved candidate UI on a free loopback port against
 the clone, ingest/provider automation disabled, no scheduler targeting it. Verify
 process identity, loaded code, profile/listener; healthz alone is insufficient.
+Record the separately agreed final independent targeted recheck against the exact
+combined code candidate SHA; task review/CI do not close this additional gate.
+Its current receipt/status belongs in release tracker #479.
 Run [short Owner UAT](PROJECT_WIKI.md#release-2026-10-22). Retain completed Steps UAT;
 no new consent/refresh/provider request/coverage investigation. Do not reuse old
 pinned Stable launcher unchanged: its assertions bind old code/schema.
@@ -1080,6 +1102,14 @@ python -m healthcheck.export_combined_evidence \
   --sleep-garmin-source-id <sleep-id> --sleep-google-source-id <google-id> \
   --evaluation-local-date 2099-01-31 --projection compact --stdout json
 ```
+
+Current compact JSON declares `projection.sleep_evidence_schema` as
+`compact-sleep-evidence-v2`. Resolve each endpoint-array index through the same
+saved session's `session_interval_sets`, following
+[Architecture reconstruction](ARCHITECTURE.md#evidence-combined--opt-in-compact-projection).
+Earlier packets without the discriminator retain inline arrays. Selected facts
+and readable text keep their existing scope; full summary provenance remains in
+the matching JSON. Existing byte/profile/privacy guards still apply.
 
 <a id="health-chat-evidence-commands"></a>
 
