@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from healthcheck.db.models import GarminSourceRecord
 from healthcheck.garmin.training import TRAINING_CONTRACT_VERSION, read_training_evidence
 
-TRAINING_OVERVIEW_CONTRACT = "garmin-training-owner-view-v1"
+TRAINING_OVERVIEW_CONTRACT = "garmin-training-owner-view-v2"
 DEFAULT_RECENT_ACTIVITIES = 5
 MAX_RECENT_ACTIVITIES = 10
 
@@ -106,6 +106,8 @@ def _present_field(raw: dict[str, Any] | None, *, recovery_time: bool = False) -
             presented = {"state": state, "value": None}
         else:
             presented = {"state": state or "unavailable", "value": None}
+    if raw and raw.get("reason"):
+        presented["reason"] = raw["reason"]
     if recovery_time:
         # Accepted #180 contract does not encode recoveryTime units. Do not guess.
         presented["unit_status"] = "unavailable"

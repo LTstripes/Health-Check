@@ -37,7 +37,7 @@ from healthcheck.garmin.analytic_contract import (
     substitute_aggregate_is_forbidden,
 )
 from healthcheck.garmin.normalization import (
-    NORMALIZATION_CONTRACT_VERSION,
+    ACTIVITY_QUALITY_CONTRACT_VERSION,
     normalize_garmin_payload,
 )
 from healthcheck.garmin.persistence import PROJECTION_RETIRED, GarminPersistenceRepository
@@ -387,7 +387,7 @@ def test_distinct_availability_states(comparison_database) -> None:
         _activity_payload(
             activity_id="avail-ref",
             duration=0,
-            distance=100,
+            distance=0,
             average_speed=5.0,
             average_hr=120,
             avg_power=None,
@@ -963,7 +963,7 @@ def test_all_reviewed_metric_codes_listed() -> None:
     )
     assert len(set(ACTIVITY_COMPARISON_METRIC_CODES)) == len(ACTIVITY_COMPARISON_METRIC_CODES)
     assert SURFACE_ANALYTIC_METRIC_CODES["activities"] == ACTIVITY_COMPARISON_METRIC_CODES
-    assert R03_02_RULE_VERSION == "r03-02-v2"
+    assert R03_02_RULE_VERSION == "r03-02-v3"
     assert ANALYTIC_RULE_VERSION == "r03-garmin-analytic-rules-v2"
 
 
@@ -1030,8 +1030,8 @@ def test_typed_session_comparison_preserves_distinct_values_and_provenance(
             dto = build_analytic_input_from_storage(
                 session, metric_row_id=row.id, operational_surface_present=True
             )
-            assert dto.rule_version == ANALYTIC_RULE_VERSION
-            assert dto.evidence.normalization_contract_version == NORMALIZATION_CONTRACT_VERSION
+            assert dto.rule_version == f"{ANALYTIC_RULE_VERSION}:activity-quality-v1"
+            assert dto.evidence.normalization_contract_version == ACTIVITY_QUALITY_CONTRACT_VERSION
             assert dto.evidence.raw_payload_id
             assert dto.evidence.content_hash
             assert dto.evidence.observation_id
@@ -1070,10 +1070,11 @@ def test_new_comparison_fields_do_not_fallback_on_unusable_values(
     )
     for code in ("max_heart_rate_bpm", "anaerobic_training_effect"):
         coverage = _metric_map(result.sessions[1])[code]
-        assert coverage.status == status
-        assert coverage.value == (0 if status == "zero" else None)
+        expected = "invalid" if code == "max_heart_rate_bpm" and value == 0 else status
+        assert coverage.status == expected
+        assert coverage.value == (0 if expected == "zero" else None)
         assert _delta_map(result.comparisons[0])[code].status == (
-            "compared" if status == "zero" else "not_computable"
+            "compared" if expected == "zero" else "not_computable"
         )
     assert _delta_map(result.comparisons[0])["heart_rate_bpm"].status == "compared"
     assert _delta_map(result.comparisons[0])["training_effect"].status == "compared"
@@ -1111,7 +1112,7 @@ def test_pre_v2_projection_keeps_missing_new_metrics_unavailable(comparison_data
         activity_record_ids=[left.id, right.id],
         reference_activity_id=left.id,
     )
-    assert result.rule_version == "r03-02-v2"
+    assert result.rule_version == "r03-02-v3"
     for code in ("max_heart_rate_bpm", "anaerobic_training_effect"):
         assert _metric_map(result.sessions[0])[code].reason == "metric_absent_from_projection"
         assert _metric_map(result.sessions[1])[code].status == "missing"
@@ -1185,8 +1186,235 @@ def test_v2_correction_does_not_rewrite_frozen_v1_comparison(
     assert original.as_dict() == frozen
     assert frozen["rule_version"] == "r03-02-v1"
     assert frozen["query"]["metric_codes"] == list(original_codes)
-    assert rebuilt.rule_version == "r03-02-v2"
+    assert rebuilt.rule_version == "r03-02-v3"
     assert rebuilt.query.metric_codes == ACTIVITY_COMPARISON_METRIC_CODES
     assert rebuilt.result_hash != frozen["result_hash"]
     assert _metric_map(rebuilt.sessions[0])["max_heart_rate_bpm"].value == 160
     assert _metric_map(rebuilt.sessions[0])["anaerobic_training_effect"].value == 1.5
+
+
+@pytest.mark.parametrize(("changes", "expected"), [
+    ({"averageHR": 0}, {"heart_rate_bpm": "nonpositive_heart_rate"}),
+    ({"maxHR": -1}, {"max_heart_rate_bpm": "nonpositive_heart_rate"}),
+    ({"averageSpeed": -1}, {"speed_mps": "negative_activity_summary"}),
+    ({"distance": -1}, {"distance_meters": "negative_activity_summary"}),
+    ({"duration": -1}, {"duration_seconds": "negative_activity_summary"}),
+    ({"averageHR": 150, "maxHR": 140}, {
+        "heart_rate_bpm": "average_exceeds_peak_heart_rate",
+        "max_heart_rate_bpm": "average_exceeds_peak_heart_rate",
+    }),
+    ({"distance": 1, "duration": 0}, {
+        "distance_meters": "positive_distance_with_zero_duration",
+        "duration_seconds": "positive_distance_with_zero_duration",
+    }),
+])
+def test_activity_summary_quality_normalization(changes, expected):
+    payload = _activity_payload(activity_id="quality")
+    payload["payload"]["activities"][0].update(changes)
+    metrics = {m.metric_code: m for m in normalize_garmin_payload(payload).records[0].metrics}
+    for code, reason in expected.items():
+        assert metrics[code].state.value == "invalid"
+        assert metrics[code].value is None
+        assert metrics[code].reason == reason
+    assert payload["payload"]["activities"][0].items() >= changes.items()
+
+
+def test_activity_quality_compatible_bases_only():
+    payload = _activity_payload(activity_id="quality", duration=None, distance=1, average_hr=None)
+    raw = payload["payload"]["activities"][0]
+    raw.update({"movingDuration": 0, "elapsedDuration": 0, "maxHR": 100,
+                "metrics": {"heartRateBpm": 150}})
+    metrics = {m.metric_code: m for m in normalize_garmin_payload(payload).records[0].metrics}
+    assert metrics["duration_seconds"].state.value == "missing"
+    assert metrics["distance_meters"].value == 1
+    assert metrics["heart_rate_bpm"].value == 150
+    assert metrics["max_heart_rate_bpm"].value == 100
+    # Alias duration lacks the reviewed sibling distance basis.
+    raw["durationSeconds"] = 0
+    metrics = {m.metric_code: m for m in normalize_garmin_payload(payload).records[0].metrics}
+    assert metrics["duration_seconds"].value == 0
+    assert metrics["distance_meters"].value == 1
+
+
+def test_activity_quality_saved_read_dto_comparison_exclusions(comparison_database):
+    _paths, session, store = comparison_database
+    left, right = _persist_pair(session, store,
+        _activity_payload(activity_id="quality-left"),
+        _activity_payload(activity_id="quality-right"))
+    # Model a previously saved finite-invalid projection without replaying history.
+    hr = session.scalar(select(GarminRecordMetric).where(
+        GarminRecordMetric.record_id == left.id,
+        GarminRecordMetric.metric_code == "heart_rate_bpm"))
+    hr.value_number = 0
+    session.commit()
+    dto = build_analytic_input_from_storage(session, metric_row_id=hr.id)
+    assert dto.selected.state == "invalid"
+    assert dto.selected.value is None
+    assert any(e.reason_code == "nonpositive_heart_rate" for e in dto.exclusions)
+    result = compute_garmin_activity_comparison(session,
+        garmin_source_id=left.garmin_source_id,
+        activity_record_ids=[left.id, right.id], reference_activity_id=left.id)
+    coverage = _metric_map(result.sessions[0])["heart_rate_bpm"]
+    assert coverage.status == "invalid"
+    assert coverage.reason == "nonpositive_heart_rate"
+    assert coverage.value is None and not coverage.comparable
+    assert _delta_map(result.comparisons[0])["heart_rate_bpm"].absolute_delta is None
+    assert session.get(GarminRecordMetric, hr.id).value_number == 0
+
+
+@pytest.mark.parametrize(("value", "state"), [
+    (-1, "invalid"), (0, "value"), (5, "value"), (5.01, "invalid"),
+    (None, "null"), (True, "invalid"), ("5", "invalid"), (float("inf"), "invalid"),
+])
+def test_activity_training_effect_boundaries_and_aliases(value, state):
+    payload = _activity_payload(activity_id="training-quality")
+    payload["payload"]["activities"][0].update(
+        aerobicTrainingEffect=value, anaerobicTrainingEffect=value)
+    metrics = {m.metric_code: m for m in normalize_garmin_payload(payload).records[0].metrics}
+    for code in ("training_effect", "anaerobic_training_effect",
+                 "aerobicTrainingEffect", "anaerobicTrainingEffect"):
+        assert metrics[code].state.value == state
+        assert metrics[code].value == (value if state == "value" else None)
+
+
+def test_quality_does_not_invent_hr_speed_or_load_upper_bounds():
+    payload = _activity_payload(activity_id="no-ceilings", average_hr=999, average_speed=999,
+                                training_load=1000000)
+    metrics = {m.metric_code: m for m in normalize_garmin_payload(payload).records[0].metrics}
+    assert metrics["heart_rate_bpm"].value == 999
+    assert metrics["speed_mps"].value == 999
+    assert metrics["acute_training_load"].value == 1000000
+
+
+def test_saved_distance_duration_conflict_excluded_from_periods(comparison_database):
+    from datetime import date
+
+    from healthcheck.analytics.activity_period_sessions import read_activity_period_sessions
+    from healthcheck.analytics.period_summary import PeriodSummaryService
+    _paths, session, store = comparison_database
+    out = _persist(session, store, _activity_payload(activity_id="legacy-conflict"))
+    row = out.records[0]
+    duration = session.scalar(select(GarminRecordMetric).where(
+        GarminRecordMetric.record_id == row.id,
+        GarminRecordMetric.metric_code == "duration_seconds"))
+    duration.value_number = 0
+    session.commit()
+    packet = PeriodSummaryService(session).build(end_date=date(2099, 1, 2), days=7,
+                                               garmin_source_id=row.garmin_source_id)
+    cell = packet["sides"][0]["metrics"]["cycling_distance_meters"]
+    assert cell["aggregation"]["value"] is None
+    assert {e["reason_code"]: e["count"] for e in cell["exclusions"]}[
+        "positive_distance_with_zero_duration"] == 1
+    drill = read_activity_period_sessions(session, source_id=row.garmin_source_id,
+        start_date=date(2099, 1, 2), end_date=date(2099, 1, 2),
+        metric_code="cycling_distance_meters", sport="cycling")
+    assert drill["complete"] is True and drill["sessions"] == []
+    assert session.get(GarminRecordMetric, duration.id).value_number == 0
+
+
+def test_unknown_or_incompatible_summary_bases_do_not_create_conflicts():
+    from healthcheck.garmin.normalization import apply_activity_metric_quality
+    payload = _activity_payload(activity_id="bases", duration=10, distance=1)
+    payload["payload"]["activities"][0]["maxHR"] = 140
+    original = normalize_garmin_payload(payload).records[0].metrics
+    changed = tuple(
+        replace(m, value=150) if m.metric_code == "heart_rate_bpm"
+        else replace(m, unit="unknown") if m.metric_code == "max_heart_rate_bpm"
+        else replace(m, value=0, field_path="payload.activities.movingDuration")
+        if m.metric_code == "duration_seconds" else m
+        for m in original
+    )
+    projected = {m.metric_code: m for m in apply_activity_metric_quality(changed)}
+    assert projected["heart_rate_bpm"].value == 150
+    assert projected["max_heart_rate_bpm"].value == 140
+    assert projected["distance_meters"].value == 1
+    assert projected["duration_seconds"].value == 0
+    assert all(m.reason is None for m in projected.values())
+
+
+def test_legacy_invalid_native_training_survives_read_ui_and_export(comparison_database):
+    from healthcheck.garmin.normalization import GarminFieldState
+    from healthcheck.garmin.training import read_training_evidence
+    from healthcheck.web.garmin_query import GarminQueryService
+    paths, session, store = comparison_database
+    payload = _activity_payload(activity_id="old-native", training_effect=8, training_load=-3)
+    normalized = normalize_garmin_payload(payload)
+    legacy_values = {"training_effect": 8, "aerobicTrainingEffect": 8,
+                     "acute_training_load": -3, "activityTrainingLoad": -3}
+    legacy_record = replace(normalized.records[0], metrics=tuple(
+        replace(m, state=GarminFieldState.VALUE, value=legacy_values[m.metric_code], reason=None)
+        if m.metric_code in legacy_values else m for m in normalized.records[0].metrics))
+    outcome = GarminPersistenceRepository(session, payload_store=store).persist_result(
+        replace(normalized, records=(legacy_record,),
+                contract_version="r02-garmin-normalization-contract-v2"),
+        payload=json.dumps(payload).encode(), received_at=datetime(2099, 1, 3, tzinfo=UTC))
+    session.commit()
+    row = outcome.records[0]
+    fields = read_training_evidence(session, garmin_source_id=row.garmin_source_id)[0]["fields"]
+    assert fields["aerobicTrainingEffect"] == {
+        "state": "invalid", "value": None, "reason": "training_effect_out_of_range"}
+    assert fields["activityTrainingLoad"] == {
+        "state": "invalid", "value": None, "reason": "negative_training_quantity"}
+    detail = GarminQueryService(session, Settings(data_dir=paths.root)).activity_session_detail(
+        garmin_source_id=row.garmin_source_id, activity_record_id=row.id)
+    cards = {c["metric_code"]: c for c in detail["cards"]}
+    assert cards["training_effect"]["state"] == "invalid"
+    exported = json.loads(json.dumps(detail["session"]))
+    for manifest in exported["frozen_inputs"]:
+        if manifest["selected"]["metric_code"] in legacy_values:
+            assert manifest["selected"]["state"] == "invalid"
+            assert manifest["selected"]["value"] is None
+            assert manifest["evidence"]["normalization_contract_version"] == (
+                "r02-garmin-normalization-contract-v2")
+    stored = session.scalars(select(GarminRecordMetric).where(
+        GarminRecordMetric.record_id == row.id))
+    assert {m.metric_code: m.value_number for m in stored if m.metric_code in legacy_values} == (
+        legacy_values)
+
+
+@pytest.mark.parametrize(("value", "override_reason", "state", "reason"), [
+    ("bad", None, "invalid", "numeric_string_not_coerced"),
+    (True, None, "invalid", "boolean_not_numeric"),
+    ({}, None, "invalid", "shape_drift"),
+    (-1, None, "invalid", "negative_activity_summary"),
+    ("bad", "future_quality_reason", "invalid", "future_quality_reason"),
+    (None, None, "null", "metric_null"),
+    ("absent", None, "missing", "metric_missing"),
+    (0, None, "zero", None),
+])
+def test_activity_period_invalid_counts_follow_state(
+    comparison_database, value, override_reason, state, reason,
+):
+    from datetime import date
+
+    from healthcheck.analytics.period_summary import PeriodSummaryService
+    _paths, session, store = comparison_database
+    payload = _activity_payload(activity_id="invalid-counts")
+    raw = payload["payload"]["activities"][0]
+    if value == "absent":
+        raw.pop("distance")
+    else:
+        raw["distance"] = value
+    row = _persist(session, store, payload).records[0]
+    if override_reason:
+        metric = session.scalar(select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == row.id,
+            GarminRecordMetric.metric_code == "distance_meters"))
+        metric.reason = override_reason
+    session.commit()
+    packet = PeriodSummaryService(session).build(
+        end_date=date(2099, 1, 2), days=7, garmin_source_id=row.garmin_source_id)
+    metrics = packet["sides"][0]["metrics"]
+    cell = metrics["cycling_distance_meters"]
+    counts = cell["availability_counts"]
+    assert counts["candidate"] == 1
+    assert counts["invalid"] == int(state == "invalid")
+    assert counts["null"] == int(state == "null")
+    assert counts["missing"] == int(state == "missing")
+    assert counts["zero"] == int(state == "zero")
+    assert counts["usable"] == int(state == "zero")
+    assert counts["excluded"] == int(state != "zero")
+    assert cell["aggregation"]["value"] == (0 if state == "zero" else None)
+    assert metrics["activity_session_count"]["aggregation"]["value"] == 1
+    if reason:
+        assert {e["reason_code"]: e["count"] for e in cell["exclusions"]}[reason] == 1

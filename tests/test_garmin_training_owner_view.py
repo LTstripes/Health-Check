@@ -81,7 +81,7 @@ def _readiness() -> list[dict]:
             "primaryActivityTracker": False,
         }
         for stamp, score, level, recovery, acute, feedback in (
-            ("2099-01-02T06:00:00", 0, "poor", None, 10, "earlier"),
+            ("2099-01-02T06:00:00", 1, "poor", None, 10, "earlier"),
             ("2099-01-02T12:00:00", 76, "productive", 0, 20, "later"),
         )
     ]
@@ -449,3 +449,31 @@ def test_training_overview_no_network_and_no_activity_detail(tmp_path, monkeypat
             == 200
         )
     assert calls == []
+
+
+def test_invalid_saved_training_values_reach_api_and_html(tmp_path):
+    from healthcheck.db.models import GarminRecordMetric
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            source_id = _seed_training(session, ContentAddressedGarminPayloadStore(
+                paths.root / "artifacts"))
+            scores = session.scalars(select(GarminRecordMetric).where(
+                GarminRecordMetric.metric_code == "score"))
+            for score in scores:
+                score.value_number = 123456
+            session.commit()
+        with TestClient(app, base_url="http://127.0.0.1:8120",
+                        headers={"Origin": "http://127.0.0.1:8120"}) as client:
+            packet = client.get("/api/garmin/training-overview",
+                                params={"garmin_source_id": source_id}).json()
+            score = packet["readiness"]["fields"]["score"]
+            assert score == {"state": "invalid", "value": None,
+                             "reason": "readiness_out_of_range"}
+            page = client.get(f"/garmin?garmin_source_id={source_id}")
+            assert page.status_code == 200
+            assert "123456" not in page.text
+            assert 'data-owner-state="unknown"' in page.text
+    finally:
+        engine.dispose()

@@ -31,7 +31,7 @@ from healthcheck.garmin.capabilities import GarminStream
 from healthcheck.garmin.persistence import PROJECTION_CURRENT
 
 R03_02_ALGORITHM = "r03-02-garmin-activity-comparison-v1"
-R03_02_RULE_VERSION = "r03-02-v2"
+R03_02_RULE_VERSION = "r03-02-v3"
 R03_02_SESSION_DETAIL_CONTRACT_VERSION = "r03-02-garmin-activity-session-detail-v1"
 
 MIN_SELECTED_ACTIVITIES = 2
@@ -538,7 +538,10 @@ def _classify_selected(
     if state == "null":
         return "null", None, False, None
     if state == "invalid":
-        return "invalid", None, False, "invalid_metric"
+        return "invalid", None, False, next(
+            (e.reason_code for e in dto.exclusions if e.detail == "activity_quality"),
+            "invalid_metric",
+        )
     if state == "missing":
         return "missing", None, False, None
     return "not_computable", None, False, f"unsupported_selected_state:{state}"

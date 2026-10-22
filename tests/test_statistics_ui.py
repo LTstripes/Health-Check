@@ -688,10 +688,17 @@ def test_originating_metric_eligibility_matches_statistics(projection_database, 
     for code in ["tennis_session_count", "tennis_duration_seconds"]:
         packet = read(session, source, metric_code=code)
         assert len(packet["sessions"]) == summary[code]["aggregation"]["eligible_count"]
-        assert len(packet["sessions"]) == (1 if code.endswith("count") or case == "zero" else 0)
+        assert len(packet["sessions"]) == (1 if code.endswith("count") else 0)
     count_row = read(session, source)["sessions"][0]
-    assert count_row["metrics"]["duration_seconds"]["state"] == metric.state
-    assert count_row["metrics"]["duration_seconds"]["value"] == metric.value_number
+    quality_invalid = case in {"negative", "zero"}
+    assert count_row["metrics"]["duration_seconds"]["state"] == (
+        "invalid" if quality_invalid else metric.state)
+    assert count_row["metrics"]["duration_seconds"]["value"] == (
+        None if quality_invalid else metric.value_number)
+    if quality_invalid:
+        assert count_row["metrics"]["duration_seconds"]["reason"] == (
+            "negative_activity_summary" if case == "negative"
+            else "positive_distance_with_zero_duration")
     assert count_row["metrics"]["duration_seconds"]["unit"] == metric.unit
 
 
