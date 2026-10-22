@@ -353,9 +353,10 @@ synthetic validation only, with no new real-profile operation.
 The #487/#489 quality corrections add no database migration or automatic raw/history
 replay. The supported schema ancestry below is unchanged; this does not turn the
 older candidate's runtime/UI rehearsal into a new-candidate pass.
-The later final targeted audit returned NO-GO for code `303450b`; reopened
+The later final targeted audit returned NO-GO for code `303450b`;
 [#484](https://github.com/LTstripes/Health-Check/issues/484) and
-[#485](https://github.com/LTstripes/Health-Check/issues/485) require new exact gates
+[#485](https://github.com/LTstripes/Health-Check/issues/485), followed up in
+[#491](https://github.com/LTstripes/Health-Check/pull/491), require new exact gates
 and a targeted recheck on the new combined SHA. Preserve prior CI/rehearsal receipts
 without treating them as that recheck. No real-data UAT transition occurs while
 the current verdict in #479 is NO-GO.

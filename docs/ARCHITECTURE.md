@@ -2209,6 +2209,11 @@ Their eligibility denotes provider-summary usability, not certified boundary
 consistency. Absence of preserved bounds alone does not remove a night; negative
 values and supported, proven duration contradictions still exclude it. This
 decision does not permit the new counterexample when typed bounds are available.
+Boundary metadata is evidence, not an independently usable sleep measurement:
+it cannot make otherwise invalid sleep data a usable preview replacement or
+turn absent bounds into a missing sleep metric. Preserve supported integral
+numeric epoch representations exactly, including their original Local text;
+decoding must not round a fractional value into a confirmed boundary.
 New current-read checks require no database migration. New v4 metadata is produced
 by normalization or separately assigned offline reprocessing; no automatic replay
 or historical frozen-output rewrite is introduced. Final release eligibility and

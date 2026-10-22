@@ -17,8 +17,9 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 
 The final targeted audit returned **NO-GO for code `303450b`** after the ordinary
 acceptance recorded below. [#484](https://github.com/LTstripes/Health-Check/issues/484)
-and [#485](https://github.com/LTstripes/Health-Check/issues/485) are reopened for two
-bounded corrections. [Release tracker #479](https://github.com/LTstripes/Health-Check/issues/479)
+and [#485](https://github.com/LTstripes/Health-Check/issues/485) track the two
+bounded follow-up corrections in [PR #491](https://github.com/LTstripes/Health-Check/pull/491).
+[Release tracker #479](https://github.com/LTstripes/Health-Check/issues/479)
 owns the current exact candidate and verdict; prior CI success does not override
 that audit or authorize real-data UAT/rollout. #488 implementation remains on hold.
 The Owner chose to keep scalar-valid legacy nights in calculations with an
@@ -27,6 +28,9 @@ do not remove a night; negative values and proven contradictions remain excluded
 This does not certify old TST <= session or permit the counterexample when new
 typed bounds exist. New/reprocessed v4 records preserve independent endpoints;
 lost old End values are not recovered by raw reread or guessed from stages.
+The follow-up adds no schema migration or automatic history replay. Its exact
+review/CI/post-main receipt and later targeted-audit verdict belong in #479;
+the earlier copy rehearsal does not establish this candidate's runtime result.
 
 | Boundary | Observed state and evidence | What it establishes |
 | --- | --- | --- |
@@ -129,7 +133,8 @@ combined post-main passed 5,400 tests / three declared skips with original-artif
 and repository provenance/completeness validators. Its subsequent final targeted
 audit returned **NO-GO**: independent Garmin summary bounds were lost with missing
 stage endpoints, and equal-epoch empty activity originals could be falsely skipped.
-The reopened #484/#485 fixes require independent review, new exact CI/post-main
+The #484/#485 follow-up in [#491](https://github.com/LTstripes/Health-Check/pull/491)
+requires independent review, new exact CI/post-main
 and a targeted recheck on the new combined SHA before any real-data UAT transition.
 The current candidate/verdict belongs in #479. Final operational
 freeze also requires Owner UAT and the release decision;
