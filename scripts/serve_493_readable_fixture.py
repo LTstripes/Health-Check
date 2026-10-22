@@ -11,7 +11,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -32,6 +32,7 @@ def main():
     import uvicorn
     from sqlalchemy import select
 
+    from healthcheck.analytics.sleep_source_view import read_source_sleep_night
     from healthcheck.config import Settings
     from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
     from healthcheck.db.models import GarminSource
@@ -40,6 +41,7 @@ def main():
     from healthcheck.web.ui_app import create_ui_app
     from test_activity_owner_ui import seed_activity, seed_activity_comparison_tennis
     from test_period_brief_ui import seed_overview_a_plus
+    from test_sleep_metrics import _google_sleep_payload, _persist_google, _stage
     from test_sleep_timeline_ui import _seed_nights, _seed_normal_google
 
     settings = Settings(data_dir=runtime, ui_port=args.port, ingest_enabled=False)
@@ -47,10 +49,10 @@ def main():
     migrate_database(paths)
     if not args.empty:
         seed_activity(paths)
-        seed_activity_comparison_tennis(paths)
         _seed_nights(paths)
         _seed_normal_google(paths)
         seed_overview_a_plus(paths)
+        seed_activity_comparison_tennis(paths)
     selected_source_id = None
     if not args.empty:
         engine = create_sqlite_engine(paths)
@@ -61,6 +63,40 @@ def main():
                     GarminSource.source_kind == "provider")).all()
                 assert len(sources) == 1
                 selected_source_id = sources[0].id
+                stages = []
+                for start, end, kind in (
+                    ("2026-10-24T20:00:00Z", "2026-10-24T21:00:00Z", "AWAKE"),
+                    ("2026-10-24T21:00:00Z", "2026-10-25T00:00:00Z", "LIGHT"),
+                    ("2026-10-25T00:00:00Z", "2026-10-25T02:00:00Z", "DEEP"),
+                    ("2026-10-25T02:00:00Z", "2026-10-25T03:50:00Z", "REM"),
+                    ("2026-10-25T03:50:00Z", "2026-10-25T06:00:00Z", "AWAKE"),
+                ):
+                    stage = _stage(start, end, kind)
+                    for endpoint, stamp in (("start", start), ("end", end)):
+                        stage[endpoint + "UtcOffset"] = (
+                            "7200s" if stamp < "2026-10-25T01:00:00Z" else "3600s")
+                    stages.append(stage)
+                payload = _google_sleep_payload(
+                    name="493-independent-dst", stages=stages, stages_status="SUCCEEDED")
+                sleep = payload["dataPoints"][0]["sleep"]
+                sleep["interval"] = {
+                    "startTime": "2026-10-24T20:00:00Z", "startUtcOffset": "7200s",
+                    "endTime": "2026-10-25T06:00:00Z", "endUtcOffset": "3600s",
+                    "civilStartTime": {"date": "2026-10-24", "time": "22:00:00"},
+                    "civilEndTime": {"date": "2026-10-25", "time": "07:00:00"},
+                }
+                sleep["summary"].update(minutesInSleepPeriod="600", minutesAsleep="410",
+                                        minutesAwake="190", minutesToFallAsleep="60",
+                                        minutesAfterWakeUp="130")
+                sleep["updateTime"] = "2026-10-25T08:00:00Z"
+                _persist_google(session, paths, payload=payload)
+                packet = read_source_sleep_night(session, provider="google",
+                                                 wake_date=date(2026, 10, 25))
+                assert len(packet["sources"]) == 1
+                metrics = packet["sources"][0]["summary"]["metrics"]
+                assert metrics["sleep_start_at"]["eligible"]
+                assert metrics["sleep_end_at"]["eligible"]
+                assert metrics["sleep_duration_asleep_seconds"]["value"] == 24600
         finally:
             engine.dispose()
     app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())

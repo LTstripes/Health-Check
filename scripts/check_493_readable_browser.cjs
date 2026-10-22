@@ -53,8 +53,10 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
           ['overview', '/brief?start_date=2099-01-01&end_date=2099-01-07'],
           ['selected-night', '/sleep?view=garmin&wake_date=2099-01-07'],
           ['google-night', '/sleep?view=google&wake_date=2099-01-02'],
+          ['dst-night', '/sleep?view=google&wake_date=2026-10-25'],
           ['timeline', '/sleep?view=timeline&days=7&wake_date=2099-01-07'],
           ['activity', '/garmin?metric_code=sleep_duration_seconds&start_date=2099-01-01&end_date=2099-01-07'],
+          ['activity-ab', '/garmin?metric_code=sleep_duration_seconds&start_date=2099-01-01&end_date=2099-01-07#activity-comparison'],
           ['training', '/garmin?metric_code=sleep_duration_seconds&start_date=2099-01-01&end_date=2099-01-07#training-recovery'],
           ['compare', '/agreement'],
         ];
@@ -95,11 +97,48 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
             assert.match(await page.locator('.activity-saved-summary').innerText(), /трениров/);
             assert.doesNotMatch(await page.locator('.activity-saved-summary').innerText(), /tennis_v2|cycling|сессий/);
           }
+          if (name === 'dst-night' && state === 'filled-partial') {
+            const start = await page.locator('[data-source-sleep-metric="sleep_start_at"] .source-sleep-value').innerText();
+            const end = await page.locator('[data-source-sleep-metric="sleep_end_at"] .source-sleep-value').innerText();
+            assert.equal(start, '24 октября 2026, 22:00 UTC+0200');
+            assert.equal(end, '25 октября 2026, 07:00 UTC+0100');
+            assert.equal(await page.locator('[data-source-sleep-metric="sleep_duration_asleep_seconds"] .source-sleep-value').innerText(), '6 ч 50 мин');
+            report.checks.push('Persisted normalization/read/render DST: independent +0200/+0100 start/end and24600s→6ч50мин/' + width);
+          }
+          if (name === 'activity-ab' && state === 'filled-partial') {
+            const data = JSON.parse(await page.locator('#garmin-dashboard-data').textContent());
+            const ids = data.activities.filter(item => item.activity_type === 'tennis_v2').map(item => item.record_id);
+            assert.equal(ids.length, 2, 'Two persisted synthetic tennis sessions required');
+            for (const reverse of [false, true]) {
+              await page.locator('#activity-a').selectOption(ids[reverse ? 1 : 0]);
+              await page.locator('#activity-b').selectOption(ids[reverse ? 0 : 1]);
+              const response = page.waitForResponse(r => r.url().includes('/api/garmin/activity-comparison?'));
+              await page.locator('#activity-form button').click();
+              const body = await (await response).json();
+              await page.waitForFunction(() => document.querySelector('#activity-result').getAttribute('aria-busy') === 'false');
+              assert.deepEqual(JSON.parse(await page.locator('#activity-evidence').textContent()), body);
+              const metric = body.comparisons[0].metrics.find(item => item.metric_code === 'duration_seconds');
+              assert.equal(Math.abs(metric.absolute_delta), 301.25);
+              const text = await page.locator('#activity-result tr[data-metric-code="duration_seconds"]').innerText();
+              assert.match(text, /1 ч 0 мин/); assert.match(text, /1 ч 5 мин/);
+              assert.match(text, metric.absolute_delta > 0 ? /\+5 мин/ : /−5 мин/);
+              assert.doesNotMatch(text, seconds);
+              const png = `${state}-activity-ab-${reverse ? 'reversed' : 'forward'}-${width}.png`;
+              await page.locator('#activity-comparison').screenshot({path: path.join(evidence, png)});
+              report.screenshots.push({file: png, sha256: hash(fs.readFileSync(path.join(evidence, png)))});
+              report.checks.push('Persisted A/B exact301.25s; rendered signed minute delta; reverse=' + reverse + '/' + width);
+            }
+          }
           if (name === 'training') {
             const text = await page.locator('#training-recovery').innerText();
             if (state === 'filled-partial') {
               assert.match(text, /Готовность и восстановление/);
               assert.match(text, /Единица времени восстановления не предоставлена/);
+              const series = JSON.parse(await page.locator('#garmin-dashboard-data').textContent()).series;
+              assert.equal(series.metric_definition.unit, 'seconds');
+              assert.ok(series.points.some(point => ['usable', 'zero'].includes(point.status)));
+              assert.match(await page.locator('#series-summary li').first().innerText(), /\d+ (?:ч|мин)/);
+              assert.doesNotMatch(await page.locator('#series-summary').innerText(), seconds);
             }
           }
           if (name === 'compare') {
