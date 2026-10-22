@@ -503,8 +503,8 @@ main, .legal { max-width: var(--owner-content-width); }
 .sleep-source-status.owner-info { display: block; }
 
 /* #392: counts remain exact text; the compact plot contains only bounded geometry. */
-.statistics-steps-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
-.statistics-steps-panels > div { min-width: 0; }
+.statistics-steps-panels--compact { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
+.statistics-steps-panels--compact > div { min-width: 0; }
 .steps-headlines { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin: 1rem 0; }
 .steps-headlines > div { min-width: 0; }
 .steps-headlines dt { font-size: .9rem; font-weight: 400; }
@@ -523,4 +523,4 @@ main, .legal { max-width: var(--owner-content-width); }
 .steps-day-controls label { display: grid; gap: .2rem; }
 .steps-daily-details > summary { min-height: 44px; box-sizing: border-box; padding: .7rem .2rem; }
 .steps-daily-details .statistics-steps-table { max-height: none; }
-@media (max-width: 1100px) { .statistics-steps-panels { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1100px) { .statistics-steps-panels--compact { grid-template-columns: minmax(0, 1fr); } }

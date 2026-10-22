@@ -266,7 +266,12 @@ def test_route_independent_steps_selector_and_unsupported_periods(statistics_ui)
         params["google_steps_source_id"] = got.source.id
         response = client.get("/statistics", params=params)
         assert response.status_code == 200
-        assert 'data-google-steps-reason="unsupported_window"' in response.text
+        if params.get("steps_period") == "all_time":
+            assert response.text.count('data-steps-provider="google"') == 1
+            assert 'data-steps-history-state="unsupported_window"' in response.text
+            assert "data-google-steps>" not in response.text
+        else:
+            assert 'data-google-steps-reason="unsupported_window"' in response.text
         assert f'name="google_steps_source_id" value="{got.source.id}"' in response.text
 
 

@@ -282,6 +282,52 @@ def test_all_time_stats_real_route_and_google_unsupported_window(statistics_ui, 
     assert "Полный поиск сохранённых данных не доказывает полную историю аккаунта" in html
     assert "snapshot" in html and source_id in html
     assert history.statistics.state_counts == {"value": 3, "null": 1, "missing": 1, "invalid": 1}
+    assert "statistics-steps-panels--compact" not in html
+    assert html.count('data-steps-provider="google"') == 1
+    assert "data-google-steps>" not in html  # Existing all-time pair owns this explanation.
+    assert '<div class="statistics-pair statistics-steps-history">' in html
+
+
+@pytest.mark.parametrize("period", ["7", "30", "trailing365", "calendar_year", "year_to_date"])
+def test_compact_grid_only_applies_to_7_30_window(statistics_ui, period):
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    response = client.get("/statistics", params={
+        "period": period, "end_date": str(DAY + timedelta(days=6)),
+        "calendar_year": 2099, "garmin_source_id": source_id,
+    })
+    assert response.status_code == 200
+    html = steps_html(response)
+    assert ("statistics-steps-panels--compact" in html) == (period in {"7", "30"})
+    # Long windows retain full-width daily tables and their one unsupported Google view.
+    assert html.count("data-google-steps>") == 1
+
+
+def test_all_time_fullwidth_view_matches_exact_read_api_packet(statistics_ui):
+    from healthcheck.garmin.completed_steps_read import read_completed_steps_all_time
+
+    session, paths, client = statistics_ui
+    source_id = seed_steps(session, paths)
+    response = client.get("/statistics", params={
+        "steps_period": "all_time", "end_date": str(DAY + timedelta(days=6)),
+        "garmin_source_id": source_id,
+    })
+    assert response.status_code == 200
+    actual = response.context["steps"]
+    # This is the existing Python read API, not an invented HTTP endpoint/mock.
+    expected = read_completed_steps_all_time(
+        session, payload_store=ContentAddressedGarminPayloadStore(paths.root / "artifacts"),
+        source_id=source_id, evaluated_at=actual.evaluated_at,
+        end_date=DAY + timedelta(days=6),
+    )
+    assert actual == expected
+    assert actual.source_id == source_id and actual.statistics.total == 20
+    assert actual.statistics.eligible_day_count == 3
+    html = steps_html(response)
+    assert "statistics-steps-panels--compact" not in html
+    assert html.count('data-steps-provider="garmin"') == 1
+    assert html.count('data-steps-provider="google"') == 1
+    assert 'data-steps-stat="total">20<' in html
 
 
 def test_all_time_explicit_end_does_not_change_other_windows(statistics_ui):
