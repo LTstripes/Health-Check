@@ -34,6 +34,7 @@ from healthcheck.db.models import (
     GoogleSource,
     GoogleSourceRecord,
 )
+from healthcheck.garmin.analytic_contract import project_activity_metric_quality
 from healthcheck.metric_source_selection import SourceCandidate, select_metric_source
 from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.read_snapshot import ensure_read_snapshot
@@ -645,7 +646,13 @@ class PeriodSummaryService:
                 )
             )
         )
-        metric_rows = {(m.record_id, m.metric_code): m for m in metric_inputs}
+        grouped = defaultdict(list)
+        for metric in metric_inputs:
+            grouped[metric.record_id].append(metric)
+        metric_rows = {}
+        for record in current:
+            projected = project_activity_metric_quality(grouped[record.id])
+            metric_rows.update({(record.id, code): m for code, m in projected.items()})
         coverage = self._observed_coverage(
             self._coverage(source, start, end, "activities"),
             [r.source_local_date.isoformat() for r in current],
@@ -675,7 +682,7 @@ class PeriodSummaryService:
                 )
                 values, dates = [], []
                 exclusions, type_counts = Counter(), Counter()
-                partial = 0
+                partial = invalid_metric_count = 0
                 for row in candidates:
                     if self._read is not None:
                         self._read.check()
@@ -694,18 +701,24 @@ class PeriodSummaryService:
                             else ("duration_seconds")
                         )
                         metric = metric_rows.get((row.id, field))
+                        invalid_metric_count += int(
+                            metric is not None and metric.state == "invalid"
+                        )
                         if metric is None or metric.state != "value":
-                            reason = f"metric_{metric.state if metric else 'missing'}"
+                            reason = metric.reason if metric and metric.reason else (
+                                f"metric_{metric.state if metric else 'missing'}"
+                            )
                         elif metric.unit != METRICS[code][1]:
                             reason = "metric_unit_mismatch"
                         elif (
-                            metric.value_number is None
-                            or not isfinite(metric.value_number)
-                            or metric.value_number < 0
+                            metric.value is None
+                            or not isfinite(metric.value)
+                            or metric.value < 0
                         ):
                             reason = "metric_invalid"
+                            invalid_metric_count += 1
                         else:
-                            value = metric.value_number
+                            value = metric.value
                     if reason:
                         exclusions[reason] += 1
                     else:
@@ -733,6 +746,8 @@ class PeriodSummaryService:
                 )
                 cell["coverage"] = coverage
                 cell["snapshot_evidence"] = self._snapshot_evidence(scoped_records, google=False)
+                cell["quality_rule_version"] = "garmin-activity-quality-v1"
+                cell["availability_counts"]["invalid"] = invalid_metric_count
                 cell["state"] = (
                     "observed"
                     if values

@@ -38,6 +38,7 @@ from healthcheck.garmin.normalization import (
     GarminSourceIdentity,
     GarminTemporalDTO,
     GarminTemporalPrecision,
+    apply_activity_metric_quality,
 )
 from healthcheck.sleep_quality import (
     SLEEP_DURATION_QUALITY_VERSION,
@@ -800,6 +801,10 @@ def build_analytic_input_from_metric(
 ) -> AnalyticInputDTO:
     """Build an input DTO from one normalized metric row and its parent record."""
 
+    if record.stream is GarminStream.ACTIVITY:
+        metric = next(m for m in apply_activity_metric_quality(record.metrics)
+                      if m.metric_code == metric.metric_code)
+        rule_version = f"{rule_version}:activity-quality-v1"
     return build_analytic_input_dto(
         metric_code=metric.metric_code,
         selected_state=metric.state.value,
@@ -814,6 +819,9 @@ def build_analytic_input_from_metric(
         algorithm_identity=metric.capability_code,
         rule_version=rule_version,
         selected_collection=canonicalize_metric_collection(metric),
+        extra_exclusions=(AnalyticExclusion(
+            reason_code=metric.reason, metric_code=metric.metric_code, detail="activity_quality",
+        ),) if record.stream is GarminStream.ACTIVITY and metric.reason else (),
     )
 
 
@@ -968,6 +976,15 @@ def _metric_dto_from_row(row: GarminRecordMetric) -> GarminMetricDTO:
         source_device_attributed=bool(row.source_device_attributed),
         collection=collection,
     )
+
+
+def project_activity_metric_quality(
+    rows: Iterable[GarminRecordMetric],
+) -> dict[str, GarminMetricDTO]:
+    """Current read quality over saved rows; raw evidence and ORM rows stay intact."""
+    return {m.metric_code: m for m in apply_activity_metric_quality(
+        tuple(_metric_dto_from_row(row) for row in rows)
+    )}
 
 
 def _record_dto_from_storage(
@@ -1205,6 +1222,11 @@ def build_analytic_input_from_storage(
             metric = replace(metric, state=GarminFieldState.INVALID, reason=reason)
         if rule_version == ANALYTIC_RULE_VERSION:
             rule_version = "r03-garmin-sleep-duration-quality-v1"
+    if record.stream_code == GarminStream.ACTIVITY.value:
+        siblings = session.scalars(
+            select(GarminRecordMetric).where(GarminRecordMetric.record_id == record.id)
+        )
+        metric = project_activity_metric_quality(siblings)[metric_row.metric_code]
     record_dto = _record_dto_from_storage(record, source, metric)
     return build_analytic_input_from_metric(
         record_dto,

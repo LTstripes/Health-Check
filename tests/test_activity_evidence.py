@@ -96,7 +96,7 @@ def test_exact_summary_equivalence_boundaries_and_unrelated_types(profile, days)
         _activity(session, paths, count=105, day=start, suffix="start", distance=2)
         _activity(session, paths, day=start - timedelta(days=1), suffix="before")
         _activity(session, paths, day=END + timedelta(days=1), suffix="after")
-        _activity(session, paths, kind="tennis_v2", day=END, duration=0)
+        _activity(session, paths, kind="tennis_v2", day=END, duration=0, distance=0)
         _google(session, paths, START)
     packet = read(profile, ActivityEvidenceRequest(END, days, source_id))
     actual = metrics(packet)
@@ -124,7 +124,7 @@ def test_exact_summary_equivalence_boundaries_and_unrelated_types(profile, days)
 
 @pytest.mark.parametrize("state,reason", [
     ("missing", "metric_missing"), ("null", "metric_null"), ("invalid", "metric_invalid"),
-    ("wrong_unit", "metric_unit_mismatch"), ("negative", "metric_invalid"),
+    ("wrong_unit", "metric_unit_mismatch"), ("negative", "negative_activity_summary"),
 ])
 def test_tennis_count_independent_of_duration_eligibility(profile, state, reason):
     with session_scope(profile[1]) as session:

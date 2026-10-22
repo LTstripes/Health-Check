@@ -89,7 +89,7 @@ def _readiness() -> list[dict]:
             "primaryActivityTracker": False,
         }
         for stamp, score, recovery in (
-            ("2099-01-02T06:00:00", 0, None),
+            ("2099-01-02T06:00:00", 1, None),
             ("2099-01-02T12:00:00", 76, 0),
         )
     ]
@@ -147,7 +147,7 @@ def test_readiness_multiple_snapshots_and_exact_replay(training_database):
         "2099-01-02T06:00:00+00:00",
         "2099-01-02T12:00:00+00:00",
     ]
-    assert rows[0]["fields"]["score"]["value"] == 0
+    assert rows[0]["fields"]["score"]["value"] == 1
     assert rows[0]["fields"]["recoveryTime"]["state"] == "null"
     assert rows[1]["fields"]["recoveryTime"]["value"] == 0
     assert rows[0]["fields"]["primaryActivityTracker"] == {"state": "value", "value": "false"}
@@ -439,3 +439,80 @@ def test_unavailable_status_method_is_a_failed_surface_not_empty(tmp_path):
     assert report["status"] == "partial"
     assert report["request_count"] == 1
     assert report["inserted_count"] == 0
+
+
+@pytest.mark.parametrize(("field", "value", "reason"), [
+    ("score", 0, "readiness_out_of_range"),
+    ("score", -1, "readiness_out_of_range"),
+    ("score", 101, "readiness_out_of_range"),
+    ("recoveryTime", -1, "negative_training_quantity"),
+    ("acuteLoad", -1, "negative_training_quantity"),
+    ("score", float("inf"), "non_finite_value"),
+    ("score", float("nan"), "non_finite_value"),
+    ("score", True, "shape_drift"),
+    ("score", "70", "shape_drift"),
+])
+def test_readiness_field_quality(field, value, reason):
+    from healthcheck.garmin.training import _READINESS_FIELDS, _field
+    spec = next(s for s in _READINESS_FIELDS if s.name == field)
+    metric = _field({field: value}, spec, "readiness")
+    assert metric.state.value == "invalid"
+    assert metric.value is None
+    assert metric.reason == reason
+
+
+@pytest.mark.parametrize("score", [1, 100])
+def test_readiness_inclusive_boundaries(score):
+    from healthcheck.garmin.training import _READINESS_FIELDS, _field
+    spec = next(s for s in _READINESS_FIELDS if s.name == "score")
+    assert _field({"score": score}, spec, "readiness").value == score
+    assert _field({}, spec, "readiness").state.value == "missing"
+    assert _field({"score": None}, spec, "readiness").state.value == "null"
+
+
+def test_saved_training_invalid_read_and_owner_overlay(training_database):
+    from healthcheck.db.models import GarminRecordMetric
+    from healthcheck.web.garmin_training_overview import build_training_overview
+    session, store = training_database
+    persist_training_payload(session, store, surface="training_readiness",
+        requested_date=date(2099, 1, 4), payload=[{
+            "calendarDate": "2099-01-02", "timestamp": "2099-01-02T06:00:00",
+            "score": 100, "recoveryTime": 0, "acuteLoad": 0,
+        }], received_at=datetime(2099, 1, 4, tzinfo=UTC))
+    session.commit()
+    source = session.scalar(select(GarminSource))
+    score = session.scalar(select(GarminRecordMetric).where(
+        GarminRecordMetric.metric_code == "score"))
+    score.value_number = 101  # saved by the earlier finite-only parser
+    session.commit()
+    fields = read_training_evidence(session, garmin_source_id=source.id)[0]["fields"]
+    assert fields["score"] == {"state": "invalid", "value": None,
+                               "reason": "readiness_out_of_range"}
+    owner = build_training_overview(session, garmin_source_id=source.id)["readiness"]["fields"]
+    assert owner["score"] == fields["score"]
+    assert owner["recoveryTime"]["state"] == "zero"
+    assert owner["recoveryTime"]["unit"] is None
+    assert owner["recoveryTime"]["unit_status"] == "unavailable"
+    assert owner["acuteLoad"] == {"state": "zero", "value": 0}
+    assert session.get(GarminRecordMetric, score.id).value_number == 101
+
+
+def test_training_source_invalid_persisted_without_raw_loss(training_database):
+    from healthcheck.db.models import GarminRecordMetric
+    session, store = training_database
+    payload = [{"calendarDate": "2099-01-02", "score": 0, "recoveryTime": -1, "acuteLoad": -3}]
+    counts = persist_training_payload(session, store, surface="training_readiness",
+        requested_date=date(2099, 1, 4), payload=payload,
+        received_at=datetime(2099, 1, 4, tzinfo=UTC))
+    session.commit()
+    assert counts[2] == "partial"
+    source = session.scalar(select(GarminSource))
+    fields = read_training_evidence(session, garmin_source_id=source.id)[0]["fields"]
+    assert fields["score"]["reason"] == "readiness_out_of_range"
+    assert fields["recoveryTime"]["reason"] == "negative_training_quantity"
+    assert fields["acuteLoad"]["reason"] == "negative_training_quantity"
+    assert all(fields[code]["value"] is None for code in ("score", "recoveryTime", "acuteLoad"))
+    assert payload[0]["score"] == 0 and payload[0]["recoveryTime"] == -1
+    assert session.scalar(select(func.count()).select_from(GarminRawPayload)) == 1
+    assert session.scalar(select(GarminRecordMetric).where(
+        GarminRecordMetric.metric_code == "score")).reason == "readiness_out_of_range"

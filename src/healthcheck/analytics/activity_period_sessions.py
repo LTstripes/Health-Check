@@ -4,7 +4,7 @@ Eligibility mirrors the originating #347 activity metric. Search completeness
 describes this saved-record window only; it never establishes provider coverage.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date
 from math import isfinite
 
@@ -13,6 +13,7 @@ from sqlalchemy import select
 from healthcheck.analytics.period_summary import METRICS, SLEEP_CODE
 from healthcheck.analytics.period_summary_read import IncompletePeriodRead, PeriodReadBudget
 from healthcheck.db.models import GarminRecordMetric, GarminSource, GarminSourceRecord
+from healthcheck.garmin.analytic_contract import project_activity_metric_quality
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 MAX_CANDIDATE_RECORDS = 4096
@@ -51,6 +52,7 @@ def read_activity_period_sessions(
     if source is None or source.provider_code != "garmin_connect":
         raise ValueError("unknown Garmin source")
     packet = {
+        "quality_rule_version": "garmin-activity-quality-v1",
         "source_id": source_id,
         "metric_code": metric_code,
         "sport": sport,
@@ -90,7 +92,13 @@ def read_activity_period_sessions(
                     ),
                 ),
             )
-            by_metric = {(m.record_id, m.metric_code): m for m in metrics}
+            grouped = defaultdict(list)
+            for metric in metrics:
+                grouped[metric.record_id].append(metric)
+            by_metric = {}
+            for record in records:
+                projected = project_activity_metric_quality(grouped[record.id])
+                by_metric.update({(record.id, code): m for code, m in projected.items()})
             field = {
                 "tennis_duration_seconds": "duration_seconds",
                 "cycling_distance_meters": "distance_meters",
@@ -109,9 +117,9 @@ def read_activity_period_sessions(
                     metric is None
                     or metric.state != "value"
                     or metric.unit != METRICS[metric_code][1]
-                    or metric.value_number is None
-                    or not isfinite(metric.value_number)
-                    or metric.value_number < 0
+                    or metric.value is None
+                    or not isfinite(metric.value)
+                    or metric.value < 0
                 ):
                     continue
                 eligible.append(
@@ -123,13 +131,14 @@ def read_activity_period_sessions(
                         "record_status": row.record_status,
                         "metrics": {
                             code: {
-                                "state": m.state,
-                                "value": m.value_number,
+                                "state": m.state.value,
+                                "reason": m.reason,
+                                "value": m.value,
                                 "unit": m.unit,
                                 "displayable": m.state == "value"
-                                and m.value_number is not None
-                                and isfinite(m.value_number)
-                                and m.value_number >= 0,
+                                and m.value is not None
+                                and isfinite(m.value)
+                                and m.value >= 0,
                             }
                             if (m := by_metric.get((row.id, code))) is not None
                             else {
