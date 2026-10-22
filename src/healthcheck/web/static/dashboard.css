@@ -486,3 +486,18 @@ main, .legal { max-width: var(--owner-content-width); }
 .statistics-steps-summary dd { margin: 6px 0 0; font: 1.75rem var(--owner-heading-font); overflow-wrap: anywhere; }
 .statistics-steps-ranges { max-height: 15rem; overflow: auto; padding-left: 22px; }
 .statistics-steps-history article > p { font-size: .875rem; }
+
+/* Calm evidence disclosure: visible material states stay with their values. */
+.owner-info { margin: 8px 0 14px; font-size: .875rem; color: var(--muted); }
+.owner-info > summary { cursor: pointer; width: fit-content; min-height: 44px; box-sizing: border-box; border-radius: 4px; padding: 12px 0; }
+.owner-info > summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.owner-info-content { margin-top: 8px; color: var(--ink); }
+.owner-info[open] > summary { color: var(--ink); }
+.statistics-metric .statistics-pair > article:only-child { grid-column: 1 / -1; }
+.data-primary-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.data-saved-diagnostics { margin: 24px 0; }
+.data-saved-diagnostics > summary { font-weight: 600; cursor: pointer; padding: 12px 0; }
+.export-source-options { flex-basis: 100%; }
+.export-source-options[open] { padding: 8px 0; }
+.export-source-options label { display: inline-flex; flex-direction: column; gap: 6px; margin: 8px 16px 8px 0; }
+.sleep-source-status.owner-info { display: block; }

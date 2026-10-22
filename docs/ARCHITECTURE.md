@@ -3008,7 +3008,7 @@ Context command/list limits and durable-profile workflow are in [Owner Operation
 ### State and evidence contract
 
 `templates/owner_ui.html` supplies `state_chip(state)` and the native, initially
-closed `technical_details()` caller block. The ten shared keys are `present`,
+closed `technical_details()` and `info_details()` caller blocks. The ten shared keys are `present`,
 `partial`, `confirmed_empty`, `unknown`, `unavailable`, `insufficient`,
 `not_requested`, `loading`, `error` and `no_change`. Unrecognized states display as
 unknown. Loading/error describe requests; no-change requires an explicit comparison,
@@ -3027,6 +3027,28 @@ night for the selected wake date or silently combines ambiguous same-date/source
 evidence. Agreement remains exploratory and cannot choose a canonical source.
 Activity does not add thresholds, recovery-time units, causal claims or best-lag
 ranking. Source-specific aggregates are not automatically interchangeable.
+
+The primary view prioritizes saved values and short, interpretation-changing
+limitations. Routine methodology, provenance and repeated refresh diagnostics
+use accessible closed info/details; disclosure never changes evidence quality.
+Statistics omits the redundant Google card only for an explicitly unsupported
+`not_collected` metric, retaining missing/invalid/conflict/incomplete supported
+metrics. Partial aggregates retain an observed-window qualifier and their real
+denominator; legacy scalar-valid sleep retains the visible unverified-boundaries
+qualifier. No display rule changes reader eligibility, zero/missing, source
+selection, legacy policy A or calculation precision.
+
+Bare `/` redirects to `/brief`; `/weight` is the canonical Weight page. Root
+query links retain their Weight destination and exact query string for legacy
+navigation. APIs and explicit section routes are unchanged. The existing Data
+page owns `/imports#analysis-export`; Overview has only its navigation link.
+The download form keeps date and 7/30 controls primary, discloses the existing
+supported manifest/current comments and advanced source selection, and starts
+the text download only after both unchanged capped serializers succeed. JSON
+remains available from the same frozen packet. Sole saved identities retain
+their existing selector defaults, without any new metric-eligibility inference;
+competing identities require explicit selection. Source guards, 2 MiB limits,
+Context cap, no-store, privacy scope and Blob lifecycle are unchanged.
 
 Integrated boundaries include:
 - #307 bounds only the Google daily-vitals display read to the trailing 400 inclusive days for longer custom periods and visibly discloses that scope; full Period Brief/Garmin period unchanged.

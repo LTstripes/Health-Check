@@ -22,11 +22,13 @@
     <label>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
     <button type="submit">Показать</button>
   </form>
-  <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выберите точный источник.</p>
-  <p id="steps-period-help" class="muted">«Вся сохранённая история» относится только к шагам Garmin до выбранной даты, не позднее вчера по МСК. Для этого режима выберите точный источник Garmin. Период остальных показателей не меняется.</p>
   <p class="statistics-selected-period">Выбранный период: {{ period_labels[selected_period] }}{% if selected_period == 'calendar_year' %} {{ selected_year }}{% endif %}.</p>
   <p class="statistics-window">{{ packet.requested_window.start_date|owner_date }} — {{ packet.requested_window.end_date|owner_date }} · {{ packet.requested_window.inclusive_days }} дней включительно, по локальным датам источника.</p>
-  <p class="muted">Два независимых источника. Значения относятся к сохранённым записям; пропуски не означают ноль. Актуальность сейчас неизвестна.</p>
+  {% call owner_ui.info_details("О периоде и источниках") %}
+  <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выберите точный источник.</p>
+  <p id="steps-period-help" class="muted">«Вся сохранённая история» относится только к шагам Garmin до выбранной даты, не позднее вчера по МСК. Для этого режима выберите точный источник Garmin. Период остальных показателей не меняется.</p>
+  <p>Garmin и Google показаны отдельно. Пропуски не равны нулю; сохранённые данные не подтверждают свежесть обновления.</p>
+  {% endcall %}
   <div class="statistics-pair statistics-source-headings">
     {% for side in packet.sides %}
     {% set provider = 'Garmin' if side.position == 'left' else 'Google' %}
@@ -70,6 +72,7 @@
       {% set value = cell.aggregation.value %}
       {% set incomplete = cell.state == 'search_incomplete' %}
       {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] or ((cell.source_selection is defined or cell.cycling_selection is defined) and cell_source is none) %}
+      {% if side.position != "right" or cell.state != "not_collected" %}
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
         {% if cell.cycling_selection is defined %}
@@ -90,23 +93,20 @@
             {% if value %}<ul>{% for type, count in value.items() %}<li>{{ type }}: {{ format_value(code, count) }}</li>{% endfor %}</ul>{% else %}{{ format_value(code, 0) }}{% endif %}
           {% else %}{{ format_value(code, value) }}{% endif %}
         </div>
-        <p>{{ state_labels[cell.state] }}</p>
+        {% if value is none %}<p>{{ state_labels[cell.state] }}</p>{% endif %}
         {% if side.position == 'left' and code in session_links %}<p><a href="{{ session_links[code] }}" data-session-drilldown="{{ code }}">Сессии за выбранный период</a></p>{% endif %}
-        {% if incomplete %}
-        <p class="statistics-denominator">Официальный итог и знаменатель недоступны: поиск сохранённых данных не завершён.</p>
-        <p class="muted">Число наблюдений, пропуски и полнота сбора неизвестны. Это не подтверждённое отсутствие данных.</p>
-        {% elif unevaluated %}
-        <p class="statistics-denominator">Наблюдения и знаменатель не оценены: {{ state_labels[cell.state]|lower }}.</p>
-        <p class="muted">Покрытие и пропуски не установлены.</p>
-        {% else %}
-        <p class="statistics-denominator">Допустимо: {{ cell.aggregation.eligible_count }} {{ 'ночей' if cell.aggregation.denominator == 'eligible_saved_nights' else 'сессий' }} · наблюдалось {{ cell.observed_count }} записей / {{ cell.observed_day_count }} {{ 'ночей' if code == 'sleep_duration_asleep_seconds' else 'дней' }}.</p>
-        <p class="muted">Покрытие сбора: {{ 'полное' if cell.coverage.complete else 'неполное / не установлено' }} · без наблюдений {{ cell.missing_day_count }} дней.</p>
+        {% if incomplete %}<p class="statistics-denominator">Поиск не завершён; итог недоступен.</p>
+        {% elif not unevaluated %}<p class="statistics-denominator">По {{ cell.aggregation.eligible_count }} {{ 'ночам' if cell.aggregation.denominator == 'eligible_saved_nights' else 'сохранённым сессиям' }}{% if not cell.coverage.complete %} · неполный период{% endif %}.</p>
         {% endif %}
         {% if code == 'sleep_duration_asleep_seconds' and cell.session_bound_validation is defined and cell.session_bound_validation.unverified_count %}
-        <p class="muted">Сводка источника доступна; длительность не проверена по границам сессии: {{ cell.session_bound_validation.unverified_count }} ночей.</p>
+        <p class="muted">Границы не проверены: {{ cell.session_bound_validation.unverified_count }} ночей.</p>
         {% endif %}
         <details class="statistics-details">
-          <summary>Покрытие и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+          <summary>ⓘ Данные и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+          {% if incomplete %}<p>Официальный итог и знаменатель недоступны; пропуски и полнота сбора неизвестны.</p>
+          {% elif unevaluated %}<p>Наблюдения и знаменатель не оценены; это не ноль событий.</p>
+          {% else %}<p>Допустимо: {{ cell.aggregation.eligible_count }}; без наблюдений {{ cell.missing_day_count }} дней.</p>
+          <p>Наблюдений: {{ cell.observed_count }}; дат с наблюдениями: {{ cell.observed_day_count }}.</p>{% endif %}
           {% if cell.source_selection is defined %}
           {% set explicit_sleep = selected_sleep_source_ids[side.position] %}
           <label>{{ 'Garmin' if side.position == 'left' else 'Google' }}: источник сна
@@ -152,21 +152,17 @@
           </dl>
         </details>
       </article>
+      {% endif %}
       {% endfor %}
     </div>
-    <p class="statistics-comparison">{% if packet.deltas[code].value is not none %}Google − Garmin: {{ packet.deltas[code].value }} {{ unit_labels[packet.sides[0].metrics[code].unit] }}{% else %}Числовая разница недоступна: совместимость не подтверждена. <small>{{ packet.deltas[code].reason }}</small>{% endif %}</p>
+    {% if packet.deltas[code].value is not none %}<p class="statistics-comparison">Google − Garmin: {{ packet.deltas[code].value }} {{ unit_labels[packet.sides[0].metrics[code].unit] }}</p>
+    {% else %}<details class="owner-info statistics-comparison"><summary>ⓘ О сравнении источников</summary><p>Числовая разница недоступна: совместимость не подтверждена. <small>{{ packet.deltas[code].reason }}</small></p></details>{% endif %}
   </section>
   {% endfor %}
   <details class="statistics-details"><summary>Точные даты периода</summary>
     <p>{{ packet.requested_window.start_date }} — {{ packet.requested_window.end_date }}</p>
     {% for side in packet.sides %}<p>{{ 'Garmin' if side.position == 'left' else 'Google' }}: {{ side.requested_dates.start_date }} — {{ side.requested_dates.end_date }}</p>{% endfor %}
   </details>
-  <section class="statistics-unavailable" aria-label="Недоступные показатели">
-    <h2>Другие показатели</h2>
-    <div class="statistics-pair">
-      <p><strong>Garmin</strong> · Недоступно: типизированные данные калорий отсутствуют.</p>
-      <p><strong>Google</strong> · Недоступно: типизированные данные калорий отсутствуют.</p>
-    </div>
-  </section>
+  <details class="owner-info statistics-unavailable"><summary>ⓘ Другие показатели</summary><p>Типизированные калории пока недоступны. Неподдерживаемые Google-показатели не занимают пустые карточки; это не нулевые значения.</p></details>
 </section>
 {% endblock %}

@@ -73,8 +73,7 @@
 </div>
 <div id="training-recovery" data-activity-panel>
  <section class="card"><h2>Нагрузка и восстановление Garmin</h2>
-  <p>Последние снимки Garmin. Даты блоков могут различаться; это не оценка на сегодня или за выбранный период.</p>
-  <p class="uncertainty-note">Производитель каждой метрики не подтверждён. Готовность и эффект сессии — разные показатели Garmin.</p>
+  {% call owner.info_details("О показателях Garmin") %}<p>Последние снимки Garmin. Даты блоков могут различаться; это не оценка на сегодня или за выбранный период.</p><p>Производитель каждой метрики не подтверждён. Готовность и эффект сессии — разные показатели Garmin.</p>{% endcall %}
   {% if overview.status != 'available' %}{{ owner.state_chip('unknown' if overview.status == 'require_selection' else 'unavailable') }}<p>{% if overview.status == 'require_selection' %}Выбери источник Garmin выше.{% elif overview.status == 'no_training_evidence' %}Для этого источника пока нет сохранённых показателей тренировок и восстановления.{% else %}Показатели Garmin недоступны.{% endif %} Отсутствие данных не означает нулевую нагрузку.</p>
   {% else %}
   <div class="brief-grid"><section><h3>Тренировочная нагрузка</h3>
@@ -85,7 +84,7 @@
   </section><section><h3>Готовность и восстановление</h3>
    {% if overview.readiness %}{% set ready = overview.readiness %}{{ dated(ready) }}
    <dl class="brief-statistics"><dt>Оценка готовности Garmin</dt><dd>{{ field_value(ready.fields.score) }}</dd><dt>Время восстановления Garmin</dt><dd>{{ field_value(ready.fields.recoveryTime) }}</dd><dt>Острая нагрузка в снимке готовности</dt><dd>{{ field_value(ready.fields.acuteLoad) }}</dd></dl>
-   <p class="uncertainty-note">Единица времени восстановления не предоставлена. Значение нельзя читать как часы или минуты.</p><details class="owner-details"><summary>Снимки готовности</summary><p>Сохранено снимков: {{ ready.snapshot_count }}. Предыдущие снимки не усредняются.</p></details>
+   <p class="muted">Единица времени восстановления не предоставлена; не переводим в часы или минуты.</p><details class="owner-details"><summary>Снимки готовности</summary><p>Сохранено снимков: {{ ready.snapshot_count }}. Предыдущие снимки не усредняются.</p></details>
    {% else %}<p class="unavailable">Готовность не предоставлена</p>{% endif %}
   </section></div>
   <details class="owner-details"><summary>Распределение нагрузки</summary>

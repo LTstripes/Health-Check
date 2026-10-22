@@ -2,7 +2,7 @@
 {# Existing routes remain entry points until the thematic pages are implemented. #}
 {% set sections = {
   'overview': ('Обзор', '/brief', 'За период'),
-  'weight': ('Вес', '/', 'Вес и состав тела'),
+  'weight': ('Вес', '/weight', 'Вес и состав тела'),
   'sleep': ('Сон', '/sleep', 'Сравнение сна'),
   'activity': ('Активность', '/garmin', 'Тренировки и восстановление'),
   'statistics': ('Статистика', '/statistics', 'Независимые источники за период'),
@@ -10,7 +10,7 @@
   'context': ('Комментарии', '/context', 'Комментарии / Контекст')
 } %}
 {% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context', 'labs': 'data'} %}
-{% set path_sections = {'/brief': 'overview', '/': 'weight', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data', '/context': 'context'} %}
+{% set path_sections = {'/brief': 'overview', '/weight': 'weight', '/': 'overview', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data', '/context': 'context'} %}
 {% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
 <html lang="ru">
@@ -52,7 +52,7 @@
     </div>
   </main>
   <footer class="legal">
-    <p>Интерфейс только на этом компьютере. Потребительский BIA — не клиническое измерение. Нет диагнозов и утверждений о причинах.</p>
+    <details class="owner-info"><summary><span aria-hidden="true">ⓘ</span> О показателях и ограничениях</summary><p>Интерфейс только на этом компьютере. Потребительский BIA — не клиническое измерение. Нет диагнозов и утверждений о причинах.</p></details>
     <details class="owner-state-help">
       <summary>Как читать состояния данных</summary>
       <p>Частичные данные, недостаток данных и отсутствие обнаруженных изменений — разные состояния. Неизвестные и недоступные данные не означают ноль или отсутствие событий.</p>

@@ -8,6 +8,7 @@
   const submit = form.querySelector('[type="submit"]');
   const garmin = form.elements.garmin_source_id;
   const google = form.elements.google_hrv_source_id;
+  const options = document.getElementById("analysis-export-options");
   let generation = 0;
   let controller = null;
   let urls = [];
@@ -30,7 +31,7 @@
 
   form.addEventListener("input", () => {
     clear();
-    status.textContent = "Параметры изменены. Нажмите «Сформировать».";
+    status.textContent = "Параметры изменены. Нажмите «Скачать».";
   });
 
   function showSummary(details) {
@@ -108,15 +109,19 @@
       googleRows.forEach((row) => google.add(new Option(row.label, row.id)));
       if (garminRows.length === 1) garmin.value = garminRows[0].id;
       if (googleRows.length === 1) google.value = googleRows[0].id;
+      // A sole saved identity is only a selector default. The existing reader,
+      // not inventory size, determines metric eligibility and missing states.
+      options.open = garminRows.length !== 1 || googleRows.length > 1;
       sourcesReady = true;
       garmin.disabled = false;
       google.disabled = false;
       submit.disabled = !garmin.value;
       status.textContent = !garminRows.length
         ? "Сохранённых источников Garmin нет. Проверьте источники в разделе «Данные»."
-        : garmin.value ? "Выберите период и сформируйте файлы." : "Выберите источник Garmin.";
+        : garmin.value ? "Выберите период и нажмите «Скачать»." : "Выберите источник Garmin.";
       reload.hidden = false;
     } catch (_) {
+      options.open = true;
       status.textContent = "Источники недоступны. Проверьте локальные данные и повторите загрузку.";
       reload.hidden = false;
     }
@@ -129,7 +134,7 @@
     const current = generation;
     controller = new AbortController();
     submit.disabled = true;
-    status.textContent = "Формирование локальных файлов…";
+    status.textContent = "Готовим локальный файл…";
     const values = new FormData(form);
     try {
       const response = await fetch("/api/analysis-export", {
@@ -163,11 +168,12 @@
       document.getElementById("analysis-export-disclosures").textContent = JSON.stringify(data.disclosures, null, 2);
       showSummary(data.disclosures);
       result.hidden = false;
-      status.textContent = "Файлы готовы в этой вкладке. Нажмите нужную кнопку скачивания.";
+      document.getElementById("analysis-export-text").click();
+      status.textContent = "Файл готов. Скачивание текста началось; JSON и подробности доступны ниже.";
     } catch (error) {
       if (current !== generation || error.name === "AbortError") return;
       clear();
-      status.textContent = "Не удалось получить файлы. Проверьте локальный интерфейс и повторите формирование.";
+      status.textContent = "Не удалось скачать файл. Проверьте локальный интерфейс и повторите скачивание.";
     } finally {
       if (current === generation) {
         controller = null;
@@ -178,7 +184,7 @@
   reload.addEventListener("click", loadSources);
   window.addEventListener("pagehide", () => {
     clear();
-    status.textContent = "Сформируйте файлы заново.";
+    status.textContent = "Скачайте файл заново.";
   });
   loadSources();
 })();

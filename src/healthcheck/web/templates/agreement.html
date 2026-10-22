@@ -19,12 +19,15 @@
     {{ owner_ui.state_chip('unknown' if payload.reason == 'unknown' else 'unavailable') }}
     <p>{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
   {% endif %}
-  {% if payload.pairing_exclusions %}<p class="uncertainty-note">Часть ночей не сопоставлена; причины — в технических деталях.</p>{% endif %}
-  {% if payload.available and not payload.source_data_quality %}<p class="uncertainty-note">Качество данных источников не установлено.</p>{% endif %}
+  {% if payload.available and payload.pairing_exclusions %}<p class="muted">Часть ночей не сопоставлена.</p>{% endif %}
+  {% if payload.available and not payload.source_data_quality %}<p class="muted">Качество данных источников не установлено.</p>{% endif %}
+  {% call owner_ui.info_details("О сохранённом сравнении") %}
+  {% if payload.pairing_exclusions %}<p>Причины исключения ночей — в технических деталях.</p>{% endif %}
   {% for fact in payload.source_data_quality if fact.state != 'usable' %}
     <p class="uncertainty-note">{{ {'garmin_connect': 'Garmin', 'google_health': 'Google'}.get(fact.provider_code, 'Источник') }}: {% if fact.state == 'failed' %}последний сбор завершился ошибкой.{% else %}{{ owner_ui.state_chip(fact.state) }}{% endif %}</p>
   {% endfor %}
   <p><a href="/imports">Проверить источники</a></p>
+  {% endcall %}
 </section>
 <section class="agreement-groups">
 {% for category in sleep_groups(payload.groups) %}

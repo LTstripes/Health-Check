@@ -26,3 +26,10 @@
   <div class="owner-details-content">{{ caller() }}</div>
 </details>
 {%- endmacro %}
+
+{% macro info_details(label='О данных', extra_class='') -%}
+<details class="owner-info {{ extra_class }}">
+  <summary><span aria-hidden="true">ⓘ</span> {{ label }}</summary>
+  <div class="owner-info-content">{{ caller() }}</div>
+</details>
+{%- endmacro %}

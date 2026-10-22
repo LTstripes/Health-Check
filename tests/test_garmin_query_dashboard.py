@@ -199,7 +199,7 @@ def test_empty_garmin_dashboard_honest_no_data(tmp_path):
         assert dashboard["series"] is None
         assert dashboard["activities"] == []
         assert "Активность — Health-Check" in page.text
-        weight = client.get("/")
+        weight = client.get("/weight")
         assert weight.status_code == 200
         assert "Текущий подтверждённый вес" in weight.text
 
@@ -619,7 +619,7 @@ def test_unavailable_distinct_from_zero_and_weight_unaffected(tmp_path):
         weight_series = client.get("/api/weight/series")
         assert weight_series.status_code == 200
         assert weight_series.json()["raw_points"] == []
-        weight_page = client.get("/")
+        weight_page = client.get("/weight")
         assert weight_page.status_code == 200
         assert 'href="/garmin">Активность</a>' in weight_page.text
         assert 'aria-current="page">Вес</a>' in weight_page.text
@@ -656,7 +656,7 @@ def test_nav_and_no_network_side_effects(tmp_path, monkeypatch):
         assert client.get("/api/garmin/sources").status_code == 200
         assert client.get("/api/garmin/metrics").status_code == 200
         assert client.get("/api/garmin/dashboard").status_code == 200
-        assert client.get("/").status_code == 200
+        assert client.get("/weight").status_code == 200
     assert calls == []
 
 

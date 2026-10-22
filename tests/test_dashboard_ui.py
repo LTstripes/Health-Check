@@ -125,7 +125,7 @@ def test_empty_dashboard_does_not_fabricate_zeros(tmp_path):
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
-        page = client.get("/")
+        page = client.get("/weight")
         assert page.status_code == 200
         assert "text/html" in page.headers["content-type"]
         assert "Потребительский биоимпеданс" in page.text
@@ -165,7 +165,7 @@ def test_pending_extraction_is_not_confirmed_or_canonical(tmp_path):
         series = client.get("/api/weight/series").json()
         assert series["raw_points"] == []
         assert series["canonical"]["selection_count"] == 0
-        page = client.get("/")
+        page = client.get("/weight")
         assert "Нет подтверждённых измерений" in page.text
         assert 'data-owner-state="unavailable"' in page.text
         engine = create_sqlite_engine(paths)
@@ -255,7 +255,7 @@ def test_review_edit_reject_confirm_and_dashboard_points(tmp_path):
         assert "token" not in str(provenance).lower()
         assert "authorization" not in str(provenance).lower()
         assert "configuration_snapshot" not in provenance
-        dashboard = client.get("/")
+        dashboard = client.get("/weight")
         assert "80.4" in dashboard.text
         assert "21-дневное взвешенное среднее" in dashboard.text
         assert "Текущий подтверждённый вес" in dashboard.text
@@ -290,7 +290,7 @@ def test_six_month_history_dashboard_smoke(tmp_path):
         assert summary["latest_composition"]["available"] is True
         assert summary["latest_composition"]["estimated_fat_mass_kg"] is not None
         assert "healthcheck-derived" in str(series["composition_by_group"])
-        page = client.get("/")
+        page = client.get("/weight")
         html = page.text
         assert page.status_code == 200
         assert "data-series" in html or "weight-chart" in html
@@ -394,7 +394,7 @@ def test_incompatible_composition_groups_are_separated(tmp_path):
         assert "xiaomi-home-unknown" in groups
         assert "openscale-brozek" in groups
         assert series["algorithm_boundary"]["present"] is True
-        page = client.get("/")
+        page = client.get("/weight")
         assert "Один график выбранного показателя за всю историю" in page.text
         assert "У групп свои даты измерений" in page.text
         assert 'id="weight-history"' in page.text
@@ -484,7 +484,7 @@ def test_unmigrated_dashboard_stays_available(tmp_path):
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
-        page = client.get("/")
+        page = client.get("/weight")
         assert page.status_code == 200
         assert "Потребительский биоимпеданс" in page.text
         series = client.get("/api/weight/series")
@@ -539,7 +539,7 @@ def test_dashboard_gets_do_not_mutate_canonical_state(tmp_path):
         assert established_count == 8
 
         for _ in range(2):
-            assert client.get("/").status_code == 200
+            assert client.get("/weight").status_code == 200
             series_response = client.get("/api/weight/series")
             summary = client.get("/api/weight/summary")
             assert series_response.status_code == 200
@@ -747,7 +747,7 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
     ) as client:
         series = client.get("/api/weight/series").json()
         summary = client.get("/api/weight/summary").json()
-        home = client.get("/")
+        home = client.get("/weight")
         assert home.status_code == 200
         html = home.text
         assert 'class="canonical-banner"' in html
@@ -778,7 +778,7 @@ def test_failed_canonical_recompute_marks_established_success_stale(tmp_path):
         assert _canonical_snapshot(paths) == after_fail
         client.get("/api/weight/series")
         client.get("/api/weight/summary")
-        client.get("/")
+        client.get("/weight")
         assert _canonical_snapshot(paths) == after_fail
 
 
@@ -863,7 +863,7 @@ def test_failed_only_composition_scope_marks_weight_success_stale(tmp_path):
     ) as client:
         series = client.get("/api/weight/series").json()
         summary = client.get("/api/weight/summary").json()
-        home = client.get("/")
+        home = client.get("/weight")
         assert home.status_code == 200
         assert 'class="canonical-banner"' in home.text
         assert 'class="canonical-banner" role="status"' in home.text
@@ -883,7 +883,7 @@ def test_failed_only_composition_scope_marks_weight_success_stale(tmp_path):
         assert group not in series.get("composition_by_group", {})
         mid = _canonical_snapshot(paths)
         client.get("/api/weight/series")
-        client.get("/")
+        client.get("/weight")
         assert _canonical_snapshot(paths) == mid
 
 
@@ -926,7 +926,7 @@ def test_dashboard_html_shows_canonical_banner_when_stale(tmp_path):
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
-        home = client.get("/")
+        home = client.get("/weight")
         assert home.status_code == 200
         assert 'data-canonical-warning="canonical_recompute_failed"' in home.text
         assert 'class="canonical-banner" role="status"' in home.text
@@ -1009,7 +1009,7 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
     ) as client:
         series = client.get("/api/weight/series").json()
         summary = client.get("/api/weight/summary").json()
-        home = client.get("/")
+        home = client.get("/weight")
         assert home.status_code == 200
         assert 'class="canonical-banner"' in home.text
         assert 'class="canonical-banner" role="status"' in home.text
@@ -1050,7 +1050,7 @@ def test_stale_success_composition_recompute_keeps_prior_selections(tmp_path):
             engine.dispose()
         assert _canonical_snapshot(paths) == after_fail
         client.get("/api/weight/series")
-        client.get("/")
+        client.get("/weight")
         assert _canonical_snapshot(paths) == after_fail
 
 
@@ -1058,7 +1058,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
     expected = [
         ("/brief", "Обзор"),
-        ("/", "Вес"),
+        ("/weight", "Вес"),
         ("/sleep", "Сон"),
         ("/garmin", "Активность"),
         ("/statistics", "Статистика"),
@@ -1264,7 +1264,7 @@ def test_owner_shell_a_plus_visual_system(tmp_path):
         assert "font-weight: 700" not in css
         # Shell is Russian; English bodies stay explicitly English.
         overview = client.get("/brief").text
-        weight = client.get("/").text
+        weight = client.get("/weight").text
         assert '<html lang="ru"' in overview
         assert "Обзор" in overview and "За период" in overview
         assert "Интерфейс только на этом компьютере" in overview
@@ -1567,7 +1567,7 @@ def test_weight_page_is_russian_owner_first_with_technical_disclosure(tmp_path):
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
         _confirm_all_pending(client, _upload_batch(client).json()["id"])
-        page = client.get("/")
+        page = client.get("/weight")
         assert page.status_code == 200
         html = page.text
         # Owner-first Russian primary surface.
@@ -1619,7 +1619,7 @@ def test_weight_empty_states_use_frozen_chips_and_no_zero(tmp_path):
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
-        html = client.get("/").text
+        html = client.get("/weight").text
         primary = html.split("Технические детали", 1)[0]
         assert 'data-owner-state="unavailable"' in primary
         assert "Это не означает ноль" in primary
@@ -1638,7 +1638,7 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
-        html = client.get("/").text
+        html = client.get("/weight").text
         js = client.get("/static/dashboard.js").text
         css = client.get("/static/dashboard.css").text
         # Viewport, skip link, focus, chart scroller present.
@@ -1675,7 +1675,7 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
 def test_weight_v2_styles_are_served_in_loaded_dashboard_bundle(tmp_path):
     app, _settings, _paths = _ui(tmp_path)
     with TestClient(app, base_url="http://127.0.0.1:8120") as client:
-        html = client.get("/").text
+        html = client.get("/weight").text
         assert '<link rel="stylesheet" href="/static/dashboard.css">' in html
         assert "/static/weight.css" not in html
         stylesheet = client.get("/static/dashboard.css")
@@ -1695,7 +1695,7 @@ def test_weight_v2_hierarchy_goal_and_pending_action(tmp_path):
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
-        empty = client.get("/").text
+        empty = client.get("/weight").text
         primary, technical = empty.split('<details class="card owner-details', 1)
         assert "Настройки и контекст" in primary
         assert "Проверка импорта" not in primary
@@ -1708,14 +1708,14 @@ def test_weight_v2_hierarchy_goal_and_pending_action(tmp_path):
         assert primary.count('id="composition-groups"') == 1
         assert 'id="composition-latest"' not in empty
         uploaded = _upload_batch(client, six_month_synthetic_batch()[:1]).json()["id"]
-        pending = client.get("/").text
+        pending = client.get("/weight").text
         assert "Проверка импорта" in pending
         assert 'href="/imports"' in pending
         assert "на проверке" in pending
         _confirm_all_pending(client, uploaded)
         before = _canonical_snapshot(paths)
         series_before = client.get("/api/weight/series").json()
-        confirmed = client.get("/").text
+        confirmed = client.get("/weight").text
         assert "Проверка импорта" not in confirmed
         assert client.get("/api/weight/series").json() == series_before
         assert _canonical_snapshot(paths) == before
@@ -1745,7 +1745,7 @@ def test_weight_v2_exposes_exact_same_session_composition_evidence(tmp_path, bod
         assert point["source_muscle_mass_kg"] == 45.0
         assert point["metric_origins"]["estimated_lean_mass_kg"] == "healthcheck-derived"
         assert point["metric_origins"]["source_muscle_mass_kg"] == "source-provider"
-        html = client.get("/").text
+        html = client.get("/weight").text
         assert "76.0 кг" in html
         assert "Настройка цели появится" not in html
         assert "Мышцы источника — отдельная оценка, а не остаток веса" in html
@@ -1828,7 +1828,7 @@ def test_weight_full_history_keeps_same_date_identities_and_current_correction(t
         assert zero["estimated_fat_mass_kg"] is None
         filtered = client.get("/api/weight/series?start_date=2026-01-01").json()
         assert len(filtered["raw_points"]) == 2
-        html = client.get("/").text
+        html = client.get("/weight").text
         assert 'id="weight-history"' in html
         assert "Вся сохранённая история" in html
         assert client.get("/api/weight/series").json() == full

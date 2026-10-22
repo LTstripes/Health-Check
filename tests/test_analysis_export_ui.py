@@ -152,14 +152,26 @@ def test_origin_guard_precedes_generation(client, profile, monkeypatch):
     assert response.status_code == 403
 
 
-def test_overview_contains_form_downloads_and_semantic_disclosures(client):
-    response = client.get("/brief")
-    assert response.status_code == 200
-    for text in ("Выгрузка для анализа", 'id="analysis-export-form"',
+def test_overview_is_primary_entry_and_data_owns_simple_export(client):
+    home = client.get("/", follow_redirects=False)
+    assert home.status_code == 307 and home.headers["location"] == "/brief"
+    legacy = client.get("/?source=synthetic&view=history", follow_redirects=False)
+    assert legacy.headers["location"] == "/weight?source=synthetic&view=history"
+    assert client.get("/weight").status_code == 200
+    overview = client.get("/brief")
+    assert overview.status_code == 200
+    assert 'id="analysis-export-form"' not in overview.text
+    assert '/static/analysis_export.js' not in overview.text
+    assert '/imports#analysis-export' in overview.text
+    data = client.get("/imports")
+    assert data.status_code == 200
+    for text in ('Скачать данные', 'id="analysis-export-form"',
                  'id="analysis-export-text"', 'id="analysis-export-json"',
-                 '/static/analysis_export.js', "2 MiB", "не являются завершёнными",
-                 "недельные снимки", "Полнота сбора неизвестна"):
-        assert text in response.text
+                 '/static/analysis_export.js', '2 MiB', 'ваши комментарии',
+                 'name="days"', 'name="end_date"', '>Скачать</button>'):
+        assert text in data.text
+    assert 'Сформировать</button>' not in data.text
+    assert 'id="analysis-export-options"' in data.text
 
 
 def test_disclosures_preserve_unknown_conflicts_and_pagination():
@@ -219,7 +231,7 @@ def test_completed_export_api_mode_and_legacy_default(client, profile, monkeypat
 
 
 def test_completed_export_ui_declares_mode_and_effective_days(client):
-    response = client.get("/brief")
+    response = client.get("/imports")
     assert 'name="steps_view"' in response.text
     assert '<option value="completed" selected>' in response.text
     assert '<option value="observed">' in response.text

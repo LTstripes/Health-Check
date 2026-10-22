@@ -2,6 +2,11 @@
 {% block title %}Данные — Health-Check{% endblock %}
 {% block content %}
 <p><a class="button-link" href="/labs">Лабораторные отчёты — PDF и проверка транскрипции</a></p>
+<section class="card data-purpose" aria-labelledby="data-purpose-heading">
+  <h2 id="data-purpose-heading">Добавить, проверить или скачать данные</h2>
+  <p>Здесь — загрузки, проверка сохранённых источников и файлы для анализа. Сами показатели смотрите в Обзоре и разделах истории.</p>
+  <nav class="data-primary-actions" aria-label="Действия с данными"><a class="button-link" href="#analysis-export">Скачать данные</a><a class="button-link" href="#import-queue">Добавить измерения</a><a class="button-link" href="#data-status">Проверить источники</a></nav>
+</section>
 {% macro import_table(rows, label) %}
 <div class="table-scroll" tabindex="0" role="region" aria-label="{{ label }}, прокрутка таблицы">
   <table class="data-import-table">
@@ -19,41 +24,7 @@
   </table>
 </div>
 {% endmacro %}
-<section class="card" aria-labelledby="saved-rhr-heading" id="saved-rhr">
-  <div class="section-heading">
-    <h2 id="saved-rhr-heading">Сохранённый пульс в покое</h2>
-    <button type="button" id="saved-rhr-refresh" hidden>Перечитать значения</button>
-  </div>
-  <p class="muted">Последнее пригодное измерение каждого источника. Исходная дата и возраст указаны отдельно от попыток обновления. Сохранённое число не подтверждает успешную синхронизацию.</p>
-  <p class="muted">Возраст снимка профиля неизвестен; правило «слишком старое» не настроено. Другие метрики доступны на профильных экранах.</p>
-  <p id="saved-rhr-clock" class="muted"></p>
-  <div id="saved-rhr-feedback" role="status" aria-live="polite"></div>
-  <div id="saved-rhr-results" aria-busy="false"></div>
-  <noscript><p>Для чтения сохранённых значений нужен JavaScript. Очередь импорта доступна ниже.</p></noscript>
-</section>
-<section class="card" aria-labelledby="saved-sleep-heading" id="saved-sleep">
-  <div class="section-heading">
-    <h2 id="saved-sleep-heading">Сохранённый сон</h2>
-    <button type="button" id="saved-sleep-refresh" hidden>Перечитать сон</button>
-  </div>
-  <p class="muted">Последняя пригодная длительность сна Garmin и Google. Дата — местный день пробуждения; возраст считается от неё, независимо от обновления источника.</p>
-  <div id="saved-sleep-feedback" role="status" aria-live="polite"></div>
-  <div id="saved-sleep-results" aria-busy="false"></div>
-  <noscript><p>Для чтения сохранённого сна нужен JavaScript. История доступна на <a href="/sleep">экране сна</a>.</p></noscript>
-</section>
-<section class="card" aria-labelledby="sources-heading" id="data-status">
-  <div class="section-heading">
-    <h2 id="sources-heading">Источники и свежесть данных</h2>
-    <button type="button" id="data-refresh" hidden>Проверить состояние</button>
-  </div>
-  <p class="muted">Состояние по сохранённым данным и отчётам обновления. Проверка не запускает сбор у Garmin или Google и не проверяет подключение к ним сейчас.</p>
-  <p class="muted">Ошибка обновления не отменяет сохранённую историю. Даты ниже относятся к данным потоков и попыткам обновления; дата снимка профиля здесь не определяется. Последние значения и история: <a href="/sleep">сон</a>, <a href="/">вес</a>, <a href="/garmin">активность</a>.</p>
-  <p id="data-clock" class="muted"></p>
-  <div id="data-feedback" role="status" aria-live="polite">{{ owner_ui.state_chip('not_requested') }} Для проверки состояния нужен JavaScript.</div>
-  <div id="data-results" aria-busy="false"></div>
-  <noscript><p class="uncertainty-note">Свежесть источников не проверена. Очередь импорта ниже доступна без JavaScript.</p></noscript>
-</section>
-
+{% include "analysis_export.html" %}
 <section class="card" aria-labelledby="queue-heading" id="import-queue">
   <h2 id="queue-heading">Проверка импорта</h2>
   <p class="muted">Очередь показана на момент открытия страницы. <a class="button-link" href="/imports">Обновить очередь</a></p>
@@ -90,6 +61,44 @@
     <button type="submit" {% if not photo_extraction_configured or not queue_available %}disabled{% endif %}>Загрузить и открыть проверку</button>
   </form>
 </section>
+<section class="card" aria-labelledby="sources-heading" id="data-status">
+  <div class="section-heading">
+    <h2 id="sources-heading">Источники и свежесть данных</h2>
+    <button type="button" id="data-refresh" hidden>Проверить состояние</button>
+  </div>
+  <p class="muted">Состояние сохранённых источников. Проверка не запускает синхронизацию.</p>
+  {% call owner_ui.info_details('О проверке источников') %}
+  <p>Проверка читает сохранённые факты и receipts, не проверяет подключение к Garmin или Google в этой сессии. Ошибка обновления не удаляет историю; даты относятся к измерениям и попыткам обновления, возраст снимка отдельно не определяется.</p>
+  {% endcall %}
+  <p id="data-clock" class="muted"></p>
+  <div id="data-feedback" role="status" aria-live="polite">{{ owner_ui.state_chip('not_requested') }} Для проверки состояния нужен JavaScript.</div>
+  <div id="data-results" aria-busy="false"></div>
+  <noscript><p class="uncertainty-note">Свежесть источников не проверена. Очередь импорта ниже доступна без JavaScript.</p></noscript>
+</section>
+<details class="owner-details data-saved-diagnostics"><summary>Дополнительные сохранённые показатели</summary>
+<section class="card" aria-labelledby="saved-rhr-heading" id="saved-rhr">
+  <div class="section-heading">
+    <h2 id="saved-rhr-heading">Сохранённый пульс в покое</h2>
+    <button type="button" id="saved-rhr-refresh" hidden>Перечитать значения</button>
+  </div>
+  <p class="muted">Последнее пригодное измерение каждого источника. Исходная дата и возраст указаны отдельно от попыток обновления. Сохранённое число не подтверждает успешную синхронизацию.</p>
+  <p class="muted">Возраст снимка профиля неизвестен; правило «слишком старое» не настроено. Другие метрики доступны на профильных экранах.</p>
+  <p id="saved-rhr-clock" class="muted"></p>
+  <div id="saved-rhr-feedback" role="status" aria-live="polite"></div>
+  <div id="saved-rhr-results" aria-busy="false"></div>
+  <noscript><p>Для чтения сохранённых значений нужен JavaScript. Очередь импорта доступна ниже.</p></noscript>
+</section>
+<section class="card" aria-labelledby="saved-sleep-heading" id="saved-sleep">
+  <div class="section-heading">
+    <h2 id="saved-sleep-heading">Сохранённый сон</h2>
+    <button type="button" id="saved-sleep-refresh" hidden>Перечитать сон</button>
+  </div>
+  <p class="muted">Последняя пригодная длительность сна Garmin и Google. Дата — местный день пробуждения; возраст считается от неё, независимо от обновления источника.</p>
+  <div id="saved-sleep-feedback" role="status" aria-live="polite"></div>
+  <div id="saved-sleep-results" aria-busy="false"></div>
+  <noscript><p>Для чтения сохранённого сна нужен JavaScript. История доступна на <a href="/sleep">экране сна</a>.</p></noscript>
+</section>
+</details>
 
 <section class="card" aria-labelledby="history-heading">
   <h2 id="history-heading">История загрузок</h2>
@@ -118,4 +127,4 @@
 {% endcall %}
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="/static/data_status.js" defer></script><script src="/static/data_saved_sleep.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/analysis_export.js" defer></script><script src="/static/data_status.js" defer></script><script src="/static/data_saved_sleep.js" defer></script>{% endblock %}

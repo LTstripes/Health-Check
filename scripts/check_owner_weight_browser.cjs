@@ -23,7 +23,7 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     fs.mkdirSync(evidence, { recursive: true });
     const page = await browser.newPage({ viewport: { width: 1024, height: 900 }, timezoneId: 'America/Los_Angeles' });
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(base + '/');
+    await page.goto(base + '/weight');
     const source = { candidate: git(['rev-parse', 'HEAD']), tree: git(['rev-parse', 'HEAD^{tree}']),
       dirty: !!git(['status', '--porcelain']), files: {} };
     for (const file of ['dashboard.js', 'dashboard.css']) {
@@ -76,14 +76,14 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     assert.equal(await page.locator('#weight-chart [data-series="raw"]').nth(1).evaluate(el => el === document.activeElement), true);
     checks.push('Real synthetic payload: full chronological table, semantic ID composition match, accepted weight trend and keyboard detail');
     async function renderCase(series, negativeZero = false) {
-      await page.route(base + '/', async route => {
+      await page.route(base + '/weight', async route => {
         const response = await route.fetch();
         let edited = JSON.stringify({ ...payload, series }).replace(/</g, '\\u003c');
         if (negativeZero) edited = edited.replace(/"value_kg":0(?=[,}])/g, '"value_kg":-0');
         await route.fulfill({ response, body: (await response.text()).replace(original, edited) });
       });
-      await page.goto(base + '/');
-      await page.unroute(base + '/');
+      await page.goto(base + '/weight');
+      await page.unroute(base + '/weight');
     }
     const dates = ['2020-02-29', '2024-12-25', '2026-04-01'];
     const w = (date, id, value = 80.125) => ({ ...first, observed_date: date, evidence_id: id, value_kg: value,
@@ -297,12 +297,12 @@ if (!base || !evidence || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
     // Civil-date display is independent of the browser's local DST/timezone.
     for (const timezoneId of ['UTC', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
       const datePage = await browser.newPage({ viewport: { width: 1024, height: 900 }, timezoneId });
-      await datePage.route(base + '/', async route => {
+      await datePage.route(base + '/weight', async route => {
         const response = await route.fetch();
         const edited = JSON.stringify({ ...payload, series: numericSeries }).replace(/</g, '\\u003c');
         await route.fulfill({ response, body: (await response.text()).replace(original, edited) });
       });
-      await datePage.goto(base + '/');
+      await datePage.goto(base + '/weight');
       assert.deepEqual(await datePage.locator('#weight-history tbody td:first-child').allTextContents(),
         ['29 февр. 2020 г.', '8 мар. 2026 г.', '14 мар. 2026 г.', '1 нояб. 2026 г.', '31 дек. 2026 г.', '1 янв. 2027 г.']);
       await datePage.close();

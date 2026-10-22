@@ -86,6 +86,9 @@ def test_annual_route_preserves_packet(statistics_ui, monkeypatch, period, start
     parser = MetricParser(response.text)
     for side in expected["sides"]:
         for code, cell in side["metrics"].items():
+            if side["position"] == "right" and cell["state"] == "not_collected":
+                assert (code, "right") not in parser.cells
+                continue
             value = cell["aggregation"]["value"]
             assert parser.values[code, side["position"]].strip() == format_statistics_value(
                 code, value,

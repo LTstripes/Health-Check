@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime, timedelta
 from html.parser import HTMLParser
 from tempfile import TemporaryDirectory
@@ -99,7 +100,7 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
         page = client.get("/brief")
-        home = client.get("/")
+        home = client.get("/weight")
 
     assert page.status_code == 200
     assert "Обзор за период" in page.text
@@ -1701,11 +1702,9 @@ def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(
     assert len(sleep['gaps']) == 3
     assert page.context['charts']['sleep_latest']['sleep_duration_seconds']['date'] == '2099-01-07'
     assert page.context['packet']['result_hash'] == page.context['brief']['source_result_hash']
-    for scope in ('garmin:sleep', 'garmin:activities'):
-        fragment = page.text.split(f'data-freshness-scope="{scope}"', 1)[1].split('</div>', 1)[0]
-        assert 'overview-freshness-details" open' not in fragment
-        assert 'Свежесть:' in fragment.split('</summary>', 1)[0]
-        assert ('Сохранённые значения не подтверждают обновление.'
-                in fragment.split('</summary>', 1)[1])
-        assert 'href="/imports#data-status"' in fragment.split('</details>', 1)[1]
+    # Refresh diagnostics are centralized, not repeated on saved-history cards.
+    assert 'data-freshness-scope=' not in page.text
+    assert 'href="/imports#data-status"' in page.text
+    encoded = page.text.split('<pre class="brief-packet">', 1)[1].split('</pre>', 1)[0]
+    assert json.loads(encoded) == page.context['packet']
     assert '5 ч 27 мин 30 с' in page.text
