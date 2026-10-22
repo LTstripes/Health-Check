@@ -115,6 +115,17 @@ documentation commits do not add runtime capability.
 
 ### Draft product release notes
 
+- Corrective quality scope under [#483](https://github.com/LTstripes/Health-Check/issues/483),
+  [#484](https://github.com/LTstripes/Health-Check/issues/484),
+  [#485](https://github.com/LTstripes/Health-Check/issues/485) and
+  [#486](https://github.com/LTstripes/Health-Check/issues/486): incomplete/unknown sleep
+  stages cannot establish absent REM=0 or complete TIB; impossible durations are
+  withheld while valid independent summaries remain. Saved main-night selection
+  must agree between the night reader, Statistics 7/30 and exports. Garmin activity
+  summaries and native Training fields retain explicit invalid reasons/counts
+  rather than trusted values or substituted zero. No new acquisition, GPS validation,
+  score algorithm or automatic history replay. Inclusion remains gated by exact
+  independent review/CI and integration receipts below.
 - Optional saved Context-to-sleep comparisons, circular regularity and explicitly
   classified uncorrected social jetlag ([#468](https://github.com/LTstripes/Health-Check/pull/468)).
   Unknown exposure stays unknown; no causal inference or broader recovery score.
@@ -149,17 +160,30 @@ documentation commits do not add runtime capability.
 Steps-only all-time Statistics/completed Steps export already existed in installed
 b51859e. Broader #380 history, #463 passport, direct ChatGPT connection, dependency
 PRs #459/#270 and Finance are excluded. The approved #392 reader/UI slice is now
-accepted through #481; no further code slice is promised. #463 stays BACKLOG / do
+accepted through #481; the four Owner-approved corrective scopes above have their
+own acceptance gates. No further feature slice is promised. #463 stays BACKLOG / do
 not launch, and broader #380 history remains separate. Existing issue #392 stays
 OPEN for its remaining scope and separate real UI UAT.
 
-### Readiness and short Owner UAT tomorrow
+### Readiness and short separate Owner UAT
 
-Accepted code's exact candidate gates passed. Its separate post-main gate is linked
-above and must also pass. Final operational release freeze, real-profile clone
-backup/restore/migration rehearsal and human UAT remain pending. Do not require
-Owner work on 21 October. Tomorrow, use approved disposable verified-backup clones
-as applicable below; record PASS/FAIL/UNVERIFIED per item, private evidence outside Git:
+The separately authorized [technical rehearsal](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6320839634)
+passed backup/verify/restore, copy-only migration/integrity/FK/artifact closure,
+recovery and guarded offline UI for `6c82874efa6494d5ad1d9d6e51f8d962050f8888`.
+It does not establish Owner UAT or a later candidate's code/UI result. Original
+persistent-file fingerprints passed; Stable process absence was a separate
+observation and Stable was not started. Current loaded Stable binding remains
+UNVERIFIED. Temporary process guards and their narrow Windows loopback exception
+are disclosed in the technical receipt, with outbound/decryption attempts zero.
+
+The Owner-approved quality corrections #483–#486 require independent review,
+exact candidate CI and separate post-main evidence, including targeted pipeline,
+UI and export regressions. P1 stage coverage, duration consistency and saved
+mainSleep role-projection parity block release readiness until accepted. The
+current implementation assignment is synthetic-only; the older rehearsal is
+retained with its exact old candidate. Final freeze and human UAT remain separate.
+When the Owner is available, use approved disposable verified-backup clones as
+applicable below; record PASS/FAIL/UNVERIFIED per item, private evidence outside Git:
 
 1. Verify candidate code/profile binding and desktop navigation. In Statistics,
    select 7/30 dates and one saved Google source; check exact date/value/nonvalue and
@@ -176,14 +200,20 @@ as applicable below; record PASS/FAIL/UNVERIFIED per item, private evidence outs
    unverified unless actually exercised.
 3. One known supported Context/sleep export: sources/dates/unknown warnings/readability.
    Check retained Context save/edit if needed. Clone writes do not prove durable
-   Stable persistence.
+   Stable persistence. Check that incomplete stages do not present absent REM as
+   proven zero, impossible durations are unavailable with a reason, and Statistics
+   7/30/export use the same eligible main-night set. On Training/Activity, check
+   visible invalid reasons rather than a substituted zero; no new provider request.
 4. Retain completed private Steps import/read-back/idempotency/startup-refresh results.
    Owner-accepted difference alone is not a blocker. Do not reinvestigate, infer full
    agreement/completeness or assign a timezone.
 
 Plan about 15–20 minutes; unfinished items stay UNVERIFIED. Failed migration/integrity/
 artifact closure, data loss or blocking UAT defects stop rollout. Real-profile latency
-is unmeasured; cooperative budgets are not hard SQL/I/O deadlines.
+has only warm guarded-copy observations for the old candidate: Statistics about
+0.67–1.79 seconds, Overview about 22.64–25.95 seconds. These are bounded technical
+observations, not a new-candidate latency guarantee; cooperative budgets are not
+hard SQL/I/O deadlines. Overview latency remains an operational limitation.
 After UAT obtain separate Stable rollout approval; tag/release publication also needs
 separate approval. Green CI/documentation merge grants neither action.
 
