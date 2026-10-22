@@ -39,6 +39,23 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
     });
     const page = await context.newPage();
     page.on('pageerror', err => report.errors.push(err.message));
+    async function navigate(target) {
+      const before = new URL(page.url());
+      const wanted = new URL(target);
+      const response = await page.goto(wanted.href);
+      if (response) assert.equal(response.status(), 200, wanted.href);
+      else {
+        assert.equal(before.origin, wanted.origin, 'Null response requires same origin');
+        assert.equal(before.pathname, wanted.pathname, 'Null response requires same document path');
+        assert.equal(before.search, wanted.search, 'Null response requires same document query');
+        assert.notEqual(before.hash, wanted.hash, 'Null response requires fragment-only transition');
+        assert.equal(page.url(), wanted.href, 'Actual fragment target must match');
+        if (wanted.hash === '#activity-comparison') await page.locator('#activity-comparison').waitFor({state: 'visible'});
+        else if (wanted.hash === '#training-recovery') await page.locator('#training-recovery').waitFor({state: 'visible'});
+        else assert.fail('No admitted same-document render-state contract for this fragment');
+        report.checks.push('Fragment-only navigation and visible target: ' + wanted.hash);
+      }
+    }
     for (const asset of ['owner_formatting.js', 'sleep_timeline.js', 'garmin_dashboard.js']) {
       const response = await page.request.get(base + '/static/' + asset);
       assert.equal(response.status(), 200);
@@ -61,7 +78,7 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
           ['compare', '/agreement'],
         ];
         for (const [name, route] of routes) {
-          assert.equal((await page.goto(origin + route)).status(), 200, state + '/' + name);
+          await navigate(origin + route);
           if (state === 'filled-partial' && name === 'selected-night') {
             assert.match(await page.locator('.sleep-night').innerText(), /Найдено несколько источников Garmin/);
             const negative = `${state}-source-selection-required-${width}.png`;
@@ -72,7 +89,7 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
           if (state === 'filled-partial') {
             const selectedUrl = new URL(route, origin);
             selectedUrl.searchParams.set('garmin_source_id', selectedSource);
-            assert.equal((await page.goto(selectedUrl.href)).status(), 200, state + '/' + name + '/explicit-source');
+            await navigate(selectedUrl.href);
           }
           await page.waitForTimeout(120);
           if (name === 'timeline' && state === 'filled-partial') {
