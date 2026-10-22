@@ -17,7 +17,7 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 
 | Boundary | Observed state and evidence | What it establishes |
 | --- | --- | --- |
-| Latest merged code candidate at this documentation baseline | 303450b371780bd49e3e802b45155d9531846f10, tree 2762a7be1133c9adc0cb7f7e6e7622bc40084fa8; [PR #489](https://github.com/LTstripes/Health-Check/pull/489), [exact combined post-main CI 39772587047 / attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/39772587047) | Four audit corrections plus saved mainSleep period-role parity are merged after independent review and exact PR/task gates: 5,400 passed / three declared skips. Combined post-main is pending in this unpublished closeout draft. Raw/history remain; final targeted recheck, installed runtime binding and Owner UAT are separate |
+| Accepted main at this documentation baseline | 303450b371780bd49e3e802b45155d9531846f10, tree 2762a7be1133c9adc0cb7f7e6e7622bc40084fa8; [PR #489](https://github.com/LTstripes/Health-Check/pull/489), [exact combined post-main CI 39772587047 / attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/39772587047) | Four audit corrections plus saved mainSleep period-role parity are merged after independent review and exact PR/task gates: 5,400 passed / three declared skips. Combined post-main passed with original-artifact and repository provenance/completeness validators. Raw/history remain; final targeted recheck, installed runtime binding and Owner UAT are separate |
 | Installed Stable code | Historical read-only verification on 21 October bound clean b51859e9787dd81ca7959de5d3184e0c801c6cbf to its listener/process, startup receipt and loaded UI-module hash. The later [copy-only rehearsal](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6320839634) separately confirmed unchanged persistent source files and observed the original Stable process absent | Existing startup receipt records schema 0016_garmin_daily_summary_receipts; a new integrity audit of the original profile was not performed. Stable was neither updated nor restarted. Current loaded runtime binding is UNVERIFIED; absence of a process is distinct from unchanged files |
 | Human Owner UAT | [#330](https://github.com/LTstripes/Health-Check/issues/330) is CLOSED in live metadata (2026-10-19); its [last detailed receipt](https://github.com/LTstripes/Health-Check/issues/330#issuecomment-6134918395) records PARTIAL UAT. Separate bounded Google Steps UAT passed import/read-back/idempotency and one startup refresh | Closure does not establish additional UAT. Owner accepted the private Steps difference as noncritical and ended investigation; coverage/pagination UNKNOWN and timezone unspecified. Private values/paths are not published. The 22 October release UAT remains separate and UNVERIFIED until performed |
 | Provider/runtime truth | Historical acquisition/refresh/recovery receipts have their own dates and scopes | No perpetual provider availability, complete account history, current Google recovery, new auth or scheduler change is inferred from main or installation |
@@ -75,7 +75,7 @@ See [the reader contract](ARCHITECTURE.md#saved-google-steps-read-392).
 
 | Accepted change | Evidence | Remaining boundary |
 | --- | --- | --- |
-| Preserve saved sleep quality and main-night parity (#483/#484) | [#489](https://github.com/LTstripes/Health-Check/pull/489), merged 303450b, 2026-10-22; [final independent review](https://github.com/LTstripes/Health-Check/pull/489#issuecomment-6339513880), [combined post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39772587047) | Stage completeness needs recognized coverage and confirmed boundaries; invalid durations are excluded consistently, valid independent summaries remain. MainSleep selection agrees across saved-night/7/30/export. Nested compact v2 retains endpoint provenance and existing caps; raw/frozen history unchanged. Post-main pending in this draft; final targeted recheck and Owner UAT remain separate |
+| Preserve saved sleep quality and main-night parity (#483/#484) | [#489](https://github.com/LTstripes/Health-Check/pull/489), canonical 303450b, 2026-10-22; [independent task review](https://github.com/LTstripes/Health-Check/pull/489#issuecomment-6339513880), [combined post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39772587047) and [acceptance receipt](https://github.com/LTstripes/Health-Check/pull/489#issuecomment-6340411435) | Stage completeness needs recognized coverage and confirmed boundaries; invalid durations are excluded consistently, valid independent summaries remain. MainSleep selection agrees across saved-night/7/30/export. Nested compact v2 retains endpoint provenance and existing caps; raw/frozen history unchanged. Exact post-main passed: 5,400 tests / three declared skips; final targeted recheck and Owner UAT remain separate |
 | Validate saved Garmin activity and Training quality (#485/#486) | [#487](https://github.com/LTstripes/Health-Check/pull/487), canonical f831973, 2026-10-22; [post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39768396299) and [acceptance receipt](https://github.com/LTstripes/Health-Check/pull/487#issuecomment-6339722865) | Explicit invalid values/reasons in saved DTOs, comparison/period aggregates and Training presentation; compatible duration/HR bases and field-specific native ranges. Raw/history retained; no GPS certification, guessed recovery unit, provider/Stable action or Owner UAT |
 | Show saved Google Steps in existing Statistics (#392) | [#481](https://github.com/LTstripes/Health-Check/pull/481), canonical 4d4c295, 2026-10-21; [post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39596769154) | Exact current source/family/civil interval and int64 observations for 7/30 days, independent selector, conflict/nonvalue/overlap/cap withholding. Synthetic source/desktop acceptance only; new real UI UAT is UNVERIFIED, no rollout or provider request |
 | Prepare release scope and recovery/UAT procedure | [#480](https://github.com/LTstripes/Health-Check/pull/480), canonical c0918c1; [post-main CI](https://github.com/LTstripes/Health-Check/actions/runs/39591615410) | Existing Wiki/Operations only, source-backed inventory, draft notes, 0016→0017→0018 rehearsal/rollback and short UAT; documentation is not release readiness |
@@ -111,8 +111,9 @@ See [the reader contract](ARCHITECTURE.md#saved-google-steps-read-392).
 **Prepared scope; no published release or Stable rollout.**
 [Tracker #479](https://github.com/LTstripes/Health-Check/issues/479) designates this
 section and the [Operations checklist](OWNER_OPERATIONS.md#release-preflight-2026-10-22).
-Merged code candidate: 303450b371780bd49e3e802b45155d9531846f10; its combined
-post-main remains pending in this unpublished closeout draft. Final operational
+Accepted code baseline: 303450b371780bd49e3e802b45155d9531846f10. Its exact
+combined post-main passed 5,400 tests / three declared skips with original-artifact
+and repository provenance/completeness validators. Final operational
 freeze still requires the separate targeted recheck, Owner UAT and release decision;
 later documentation commits do not add runtime capability. Pin the selected full
 SHA instead of deploying a moving main; subsequent #488 work stays outside #479.
@@ -185,14 +186,14 @@ are disclosed in the technical receipt, with outbound/decryption attempts zero.
 
 The Owner-approved quality corrections #483-#486 are merged through #487/#489
 after independent review, exact PR/task CI and targeted synthetic pipeline,
-UI and export regressions. Garmin post-main passed; combined post-main is pending
-in this unpublished closeout draft. The implementation assignment is synthetic-only;
+UI and export regressions. Both exact post-main gates passed; the combined run records 5,400 tests / three
+declared skips with original-artifact and repository validators. The implementation assignment is synthetic-only;
 the older rehearsal is retained with its exact old candidate. Final freeze and
 human UAT remain separate.
 After combined integration, the separately agreed [final independent targeted
 recheck](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6339639012)
-must bind the exact final candidate SHA. Its receipt is pending; the task
-reviews and CI recorded here do not establish that additional check.
+must bind the exact code candidate SHA above. Record its own current receipt/status
+in #479; the task reviews and CI recorded here do not establish that additional check.
 When the Owner is available, use approved disposable verified-backup clones as
 applicable below; record PASS/FAIL/UNVERIFIED per item, private evidence outside Git:
 

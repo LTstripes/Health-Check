@@ -425,7 +425,8 @@ Only then start separately approved candidate UI on a free loopback port against
 the clone, ingest/provider automation disabled, no scheduler targeting it. Verify
 process identity, loaded code, profile/listener; healthz alone is insufficient.
 Record the separately agreed final independent targeted recheck against the exact
-combined candidate SHA; task review/CI do not close this additional pending gate.
+combined code candidate SHA; task review/CI do not close this additional gate.
+Its current receipt/status belongs in release tracker #479.
 Run [short Owner UAT](PROJECT_WIKI.md#release-2026-10-22). Retain completed Steps UAT;
 no new consent/refresh/provider request/coverage investigation. Do not reuse old
 pinned Stable launcher unchanged: its assertions bind old code/schema.
