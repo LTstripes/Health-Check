@@ -133,8 +133,8 @@ def test_metadata_and_other_metrics_do_not_prove_distance(projection_database, c
 
 @pytest.mark.parametrize("case,reason", [
     ("missing", "metric_missing"), ("null", "metric_null"), ("invalid", "metric_invalid"),
-    ("wrong_unit", "metric_unit_mismatch"), ("negative", "metric_invalid"),
-    ("infinite", "metric_invalid"),
+    ("wrong_unit", "metric_unit_mismatch"), ("negative", "negative_activity_summary"),
+    ("infinite", "non_finite_value"),
     ("record_invalid", "record_invalid"), ("missing_type", "activity_type_missing"),
 ])
 def test_ineligible_fields_retain_exact_counts_and_reasons(projection_database, case, reason):
