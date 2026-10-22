@@ -140,6 +140,8 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
               assert.match(text, /1 ч 0 мин/); assert.match(text, /1 ч 5 мин/);
               assert.match(text, metric.absolute_delta > 0 ? /\+5 мин/ : /−5 мин/);
               assert.doesNotMatch(text, seconds);
+              assert.match(await page.locator('#activity-result tr[data-metric-code="max_heart_rate_bpm"] th').innerText(), /Максимальный пульс Garmin/);
+              assert.match(await page.locator('#activity-result tr[data-metric-code="anaerobic_training_effect"] th').innerText(), /Анаэробный эффект Garmin/);
               const png = `${state}-activity-ab-${reverse ? 'reversed' : 'forward'}-${width}.png`;
               await page.locator('#activity-comparison').screenshot({path: path.join(evidence, png)});
               report.screenshots.push({file: png, sha256: hash(fs.readFileSync(path.join(evidence, png)))});
@@ -163,6 +165,7 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
             const text = await page.locator('main').innerText();
             assert.match(text, /сохранённого сравнения|Сохранённого сравнения/);
             assert.doesNotMatch(text, /Источник: Состояние данных не определено/);
+            assert.doesNotMatch(text, /Источник данных недоступен|Состояние данных не определено/);
           }
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
             state + '/' + name + '/' + width + ' horizontal overflow');

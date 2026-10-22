@@ -202,6 +202,14 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         )
         page = client.get("/garmin", params=params)
         assert page.status_code == 200
+        names_match = re.search(
+            r'<script id="activity-metric-names" type="application/json">(.*?)</script>',
+            page.text, re.S,
+        )
+        assert names_match is not None
+        names = json.loads(names_match[1])
+        assert names["max_heart_rate_bpm"] == "Максимальный пульс Garmin"
+        assert names["anaerobic_training_effect"] == "Анаэробный эффект Garmin"
         primary, technical = page.text.split(
             '<details class="card owner-details activity-technical', 1
         )
