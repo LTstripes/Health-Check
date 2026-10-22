@@ -682,7 +682,7 @@ class PeriodSummaryService:
                 )
                 values, dates = [], []
                 exclusions, type_counts = Counter(), Counter()
-                partial = 0
+                partial = invalid_metric_count = 0
                 for row in candidates:
                     if self._read is not None:
                         self._read.check()
@@ -701,6 +701,9 @@ class PeriodSummaryService:
                             else ("duration_seconds")
                         )
                         metric = metric_rows.get((row.id, field))
+                        invalid_metric_count += int(
+                            metric is not None and metric.state == "invalid"
+                        )
                         if metric is None or metric.state != "value":
                             reason = metric.reason if metric and metric.reason else (
                                 f"metric_{metric.state if metric else 'missing'}"
@@ -713,6 +716,7 @@ class PeriodSummaryService:
                             or metric.value < 0
                         ):
                             reason = "metric_invalid"
+                            invalid_metric_count += 1
                         else:
                             value = metric.value
                     if reason:
@@ -743,12 +747,7 @@ class PeriodSummaryService:
                 cell["coverage"] = coverage
                 cell["snapshot_evidence"] = self._snapshot_evidence(scoped_records, google=False)
                 cell["quality_rule_version"] = "garmin-activity-quality-v1"
-                cell["availability_counts"]["invalid"] += sum(
-                    exclusions[reason] for reason in (
-                        "negative_activity_summary", "positive_distance_with_zero_duration",
-                        "non_numeric_value", "non_finite_value",
-                    )
-                )
+                cell["availability_counts"]["invalid"] = invalid_metric_count
                 cell["state"] = (
                     "observed"
                     if values

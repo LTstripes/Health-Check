@@ -1370,3 +1370,51 @@ def test_legacy_invalid_native_training_survives_read_ui_and_export(comparison_d
         GarminRecordMetric.record_id == row.id))
     assert {m.metric_code: m.value_number for m in stored if m.metric_code in legacy_values} == (
         legacy_values)
+
+
+@pytest.mark.parametrize(("value", "override_reason", "state", "reason"), [
+    ("bad", None, "invalid", "numeric_string_not_coerced"),
+    (True, None, "invalid", "boolean_not_numeric"),
+    ({}, None, "invalid", "shape_drift"),
+    (-1, None, "invalid", "negative_activity_summary"),
+    ("bad", "future_quality_reason", "invalid", "future_quality_reason"),
+    (None, None, "null", "metric_null"),
+    ("absent", None, "missing", "metric_missing"),
+    (0, None, "zero", None),
+])
+def test_activity_period_invalid_counts_follow_state(
+    comparison_database, value, override_reason, state, reason,
+):
+    from datetime import date
+
+    from healthcheck.analytics.period_summary import PeriodSummaryService
+    _paths, session, store = comparison_database
+    payload = _activity_payload(activity_id="invalid-counts")
+    raw = payload["payload"]["activities"][0]
+    if value == "absent":
+        raw.pop("distance")
+    else:
+        raw["distance"] = value
+    row = _persist(session, store, payload).records[0]
+    if override_reason:
+        metric = session.scalar(select(GarminRecordMetric).where(
+            GarminRecordMetric.record_id == row.id,
+            GarminRecordMetric.metric_code == "distance_meters"))
+        metric.reason = override_reason
+    session.commit()
+    packet = PeriodSummaryService(session).build(
+        end_date=date(2099, 1, 2), days=7, garmin_source_id=row.garmin_source_id)
+    metrics = packet["sides"][0]["metrics"]
+    cell = metrics["cycling_distance_meters"]
+    counts = cell["availability_counts"]
+    assert counts["candidate"] == 1
+    assert counts["invalid"] == int(state == "invalid")
+    assert counts["null"] == int(state == "null")
+    assert counts["missing"] == int(state == "missing")
+    assert counts["zero"] == int(state == "zero")
+    assert counts["usable"] == int(state == "zero")
+    assert counts["excluded"] == int(state != "zero")
+    assert cell["aggregation"]["value"] == (0 if state == "zero" else None)
+    assert metrics["activity_session_count"]["aggregation"]["value"] == 1
+    if reason:
+        assert {e["reason_code"]: e["count"] for e in cell["exclusions"]}[reason] == 1
