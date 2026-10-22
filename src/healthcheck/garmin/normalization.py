@@ -47,6 +47,7 @@ from healthcheck.garmin.contracts import (
 )
 
 NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v2"
+ACTIVITY_QUALITY_CONTRACT_VERSION = "garmin-activity-quality-v1"
 SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v3"
 HRV_CALENDAR_CONTRACT_VERSION = "r02-garmin-hrv-calendar-normalization-v3"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
@@ -1099,6 +1100,8 @@ def normalize_garmin_payload(
             and isinstance(payload, Mapping) and "hrvSummary" in payload
             else SLEEP_TIMING_CONTRACT_VERSION
             if normalized_stream is GarminStream.SLEEP
+            else ACTIVITY_QUALITY_CONTRACT_VERSION
+            if normalized_stream is GarminStream.ACTIVITY
             else NORMALIZATION_CONTRACT_VERSION
         ),
     )
@@ -1728,6 +1731,9 @@ def _parse_record(
         metrics.append(metric)
         diagnostics.extend(metric_diagnostics)
 
+    if stream is GarminStream.ACTIVITY:
+        metrics = list(apply_activity_metric_quality(metrics))
+
     if stream is GarminStream.SLEEP:
         stage_metric, stage_diagnostics = _parse_sleep_levels(raw, source_path)
         metrics.append(stage_metric)
@@ -1836,6 +1842,107 @@ def _specs_for_stream(stream: GarminStream) -> tuple[_ScalarSpec, ...]:
     if stream is GarminStream.ORIGINAL_FIT:
         return _FIT_SCALARS
     return _INTRADAY_SCALARS
+
+
+def training_numeric_quality_reason(
+    metric_code: str, value: Any, *, readiness: bool = False,
+) -> str | None:
+    """Field-specific Garmin-native bounds, with no inferred units or algorithms.
+
+    TE: Garmin About Training Effect GUID-7275629E-743A-4658-A284-C84F42A66AE5.
+    Readiness: Garmin GUID-C21BE0C8-A08E-4DA1-B6C6-2E0E2DDDB372 (1..100).
+    Load/EPOC and remaining recovery time are nonnegative quantities. Factor
+    percentages and status enums have no reviewed range here; never borrow the
+    readiness or TE scale for those fields. RecoveryTime units remain unknown.
+    """
+    effect = metric_code in {
+        "training_effect", "anaerobic_training_effect", "aerobicTrainingEffect",
+        "anaerobicTrainingEffect",
+    }
+    load = metric_code in {
+        "activityTrainingLoad", "acute_training_load", "dailyTrainingLoadAcute",
+        "dailyTrainingLoadChronic", "acuteLoad", "recoveryTime",
+    } or metric_code.startswith("monthlyLoad")
+    score = readiness and metric_code == "score"
+    if not (effect or load or score):
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return "non_numeric_value"
+    if not math.isfinite(value):
+        return "non_finite_value"
+    if effect and not 0 <= value <= 5:
+        return "training_effect_out_of_range"
+    if score and not 1 <= value <= 100:
+        return "readiness_out_of_range"
+    if load and value < 0:
+        return "negative_training_quantity"
+    return None
+
+
+def activity_metric_quality_reason(
+    metric_code: str, value: Any,
+) -> str | None:
+    """Validate activity summaries without medical/sport ceilings or GPS claims."""
+    numeric_codes = {
+        "duration_seconds", "distance_meters", "speed_mps", "heart_rate_bpm",
+        "max_heart_rate_bpm",
+    }
+    if metric_code not in numeric_codes:
+        return training_numeric_quality_reason(metric_code, value)
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return "non_numeric_value"
+    if not math.isfinite(value):
+        return "non_finite_value"
+    if metric_code in {"heart_rate_bpm", "max_heart_rate_bpm"} and value <= 0:
+        return "nonpositive_heart_rate"
+    if value < 0:
+        return "negative_activity_summary"
+    return None
+
+
+def apply_activity_metric_quality(
+    metrics: Sequence[GarminMetricDTO],
+) -> tuple[GarminMetricDTO, ...]:
+    """Read/normalize overlay; never mutates stored evidence or fills absent values.
+
+    Cross-field checks require reviewed sibling paths in one provider summary.
+    Nested/alias HR and unknown duration bases do not establish compatibility.
+    Moving/elapsed fields are never substituted for the selected duration.
+    """
+    reasons = {
+        m.metric_code: activity_metric_quality_reason(m.metric_code, m.value)
+        for m in metrics if m.state is GarminFieldState.VALUE
+    }
+    by_code = {m.metric_code: m for m in metrics}
+
+    def pair(left: str, right: str, leaves: set[tuple[str, str]]) -> bool:
+        a, b = by_code.get(left), by_code.get(right)
+        if a is None or b is None or not a.has_value or not b.has_value:
+            return False
+        if reasons.get(left) or reasons.get(right):
+            return False
+        units = {"heart_rate_bpm": "bpm", "max_heart_rate_bpm": "bpm",
+                 "distance_meters": "meters", "duration_seconds": "seconds"}
+        if a.unit != units[left] or b.unit != units[right]:
+            return False
+        ap, _, al = a.field_path.rpartition(".")
+        bp, _, bl = b.field_path.rpartition(".")
+        return ap == bp and (al, bl) in leaves
+
+    if pair("heart_rate_bpm", "max_heart_rate_bpm", {("averageHR", "maxHR")}):
+        if by_code["heart_rate_bpm"].value > by_code["max_heart_rate_bpm"].value:
+            for code in ("heart_rate_bpm", "max_heart_rate_bpm"):
+                reasons[code] = "average_exceeds_peak_heart_rate"
+    if pair("distance_meters", "duration_seconds", {
+        ("distance", "duration"), ("distanceMeters", "durationSeconds"),
+    }):
+        if by_code["distance_meters"].value > 0 and by_code["duration_seconds"].value == 0:
+            for code in ("distance_meters", "duration_seconds"):
+                reasons[code] = "positive_distance_with_zero_duration"
+    return tuple(
+        replace(m, state=GarminFieldState.INVALID, value=None, reason=reasons[m.metric_code])
+        if reasons.get(m.metric_code) else m for m in metrics
+    )
 
 
 def _parse_scalar(

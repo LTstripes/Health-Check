@@ -50,13 +50,14 @@ from healthcheck.garmin.normalization import (
     garmin_source_identity,
     parse_garmin_time,
     stable_garmin_idempotency_key,
+    training_numeric_quality_reason,
 )
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.garmin.sync import _disable_provider_retries
 from healthcheck.runtime import prepare_runtime
 
-TRAINING_CONTRACT_VERSION = "garmin-training-evidence-v1"
+TRAINING_CONTRACT_VERSION = "garmin-training-evidence-v2"
 MAX_TRAINING_DAYS = 14
 _TRAINING_SURFACES = ("training_status", "training_readiness")
 
@@ -170,13 +171,23 @@ def _field(item: Mapping[str, Any], spec: _Field, kind: str) -> GarminMetricDTO:
             state, value = GarminFieldState.VALUE, "true" if value else "false"
         else:
             state, value = GarminFieldState.INVALID, None
+    reason = "shape_drift" if state is GarminFieldState.INVALID else None
+    if (
+        state is GarminFieldState.INVALID
+        and isinstance(value, Real) and not isinstance(value, bool)
+    ):
+        reason = "non_finite_value"
+    if state is GarminFieldState.VALUE and spec.kind == "number":
+        reason = training_numeric_quality_reason(spec.name, value, readiness=kind == "readiness")
+        if reason:
+            state = GarminFieldState.INVALID
     return GarminMetricDTO(
         capability_code="garmin_training",
         metric_code=spec.name,
         field_path=f"{kind}.{'.'.join(spec.path)}",
         state=state,
         value=value if state is GarminFieldState.VALUE else None,
-        reason="shape_drift" if state is GarminFieldState.INVALID else None,
+        reason=reason,
         source_device_attributed=False,
     )
 
@@ -351,6 +362,8 @@ def normalize_training_payload(surface: str, payload: Any) -> TrainingProjection
             status = GarminParseStatus.EMPTY
     else:
         status = GarminParseStatus.INVALID
+    if any(row.status is GarminParseStatus.PARTIAL for row in rows):
+        status = GarminParseStatus.PARTIAL
     # Conflicting duplicate identities are never silently collapsed.
     signatures: dict[str, str] = {}
     for row in rows:
@@ -468,6 +481,34 @@ def persist_training_payload(
     return outcome.inserted_count, outcome.updated_count, projection.result.status.value
 
 
+def _read_training_field(metric: GarminRecordMetric, *, kind: str) -> dict[str, Any]:
+    """Quality overlay for old saved rows; no ORM or raw/history mutation."""
+    state = metric.state
+    value = metric.value_number if metric.value_number is not None else metric.value_text
+    reason = metric.reason
+    if state == "value":
+        numeric_fields = {
+            f.name for f in _STATUS_FIELDS + _BALANCE_FIELDS + _READINESS_FIELDS
+            if f.kind == "number"
+        }
+        if metric.metric_code in numeric_fields and (
+            isinstance(value, bool) or not isinstance(value, Real)
+        ):
+            reason = "shape_drift"
+        elif isinstance(value, Real) and not isinstance(value, bool) and not math.isfinite(value):
+            reason = "non_finite_value"
+        else:
+            reason = training_numeric_quality_reason(
+                metric.metric_code, value, readiness=kind == "readiness",
+            )
+        if reason:
+            state = "invalid"
+    field = {"state": state, "value": value if state == "value" else None}
+    if reason:
+        field["reason"] = reason
+    return field
+
+
 def read_training_evidence(
     session: Session, *, garmin_source_id: str, limit: int = 200
 ) -> tuple[dict[str, Any], ...]:
@@ -497,7 +538,7 @@ def read_training_evidence(
             .where(GarminSourceRecord.projection_status == "current")
             .where(GarminSourceRecord.stream_code == GarminStream.ACTIVITY.value)
             .where(GarminRecordMetric.metric_code.in_(_ACTIVITY_FIELDS))
-            .where(GarminRecordMetric.state == "value")
+            .where(GarminRecordMetric.state.in_(("value", "invalid", "null")))
             .distinct()
             .order_by(*ordering)
             .limit(limit)
@@ -516,8 +557,6 @@ def read_training_evidence(
         )
         if marker is None:
             metrics = [metric for metric in metrics if metric.metric_code in _ACTIVITY_FIELDS]
-            if not any(metric.state == "value" for metric in metrics):
-                continue
             kind = "activity"
             recorder = next(
                 (
@@ -568,12 +607,7 @@ def read_training_evidence(
                 "provider_device_id": device_id,
                 "metric_producer": "unverified",
                 "fields": {
-                    metric.metric_code: {
-                        "state": metric.state,
-                        "value": metric.value_number
-                        if metric.value_number is not None
-                        else metric.value_text,
-                    }
+                    metric.metric_code: _read_training_field(metric, kind=kind)
                     for metric in sorted(metrics, key=lambda value: value.metric_code)
                 },
             }

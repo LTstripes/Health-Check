@@ -158,7 +158,7 @@ def test_frozen_type_sets_and_explicit_zero(projection_database, kind):
         ("null", "meters", None, "metric_null"),
         ("invalid", "meters", None, "metric_invalid"),
         ("value", "km", 2, "metric_unit_mismatch"),
-        ("value", "meters", -2, "metric_invalid"),
+        ("value", "meters", -2, "negative_activity_summary"),
     ],
 )
 def test_activity_field_exclusions_keep_session_count(
