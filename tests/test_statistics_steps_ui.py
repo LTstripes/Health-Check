@@ -419,5 +419,7 @@ def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary
     assert ('<details class="statistics-details steps-daily-details">'
             '<summary>Дни и подробности Garmin</summary>') in html
     assert 'data-steps-chart="garmin"' in html
+    primary = html.split('<details class="owner-info">', 1)[0]
+    assert 'только завершённые дни по МСК' in primary
     assert StepsParser(html).values[str(DAY + timedelta(days=5))].strip() == '3'
     assert '/static/statistics_steps.js' in response.text

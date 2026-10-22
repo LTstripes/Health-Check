@@ -423,7 +423,21 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
                 assert f"{reason['reason_code']}: {reason['count']}" in text
     assert ("activity_session_count", "right") not in cells
     assert "Числовая разница недоступна" in response.text
-    assert "Шаги за завершённые дни" in response.text
+    steps_section = response.text.split('data-statistics-steps>', 1)[1].split('</section>', 1)[0]
+    garmin_panel = steps_section.split('class="statistics-garmin-steps">', 1)[1]
+    garmin_panel = garmin_panel.split('class="statistics-google-steps"', 1)[0]
+    assert '<h2 id="statistics-steps-title">Шаги</h2>' in steps_section
+    assert '<h3>Garmin</h3>' in garmin_panel and 'data-steps-chart="garmin"' in garmin_panel
+    steps = response.context["steps"]
+    assert steps.contract_version == "garmin-completed-day-steps-moscow-v2"
+    assert steps.display_zone == "Europe/Moscow"
+    assert steps.start_date.isoformat() == packet["requested_window"]["start_date"]
+    assert steps.end_date.isoformat() == packet["requested_window"]["end_date"]
+    # These fixtures have future dates and no completed Steps evidence: never invent zero.
+    view = response.context["garmin_steps_view"]
+    assert not view["assessed"] and view["total"] is view["mean"] is view["count"] is None
+    assert 'data-steps-summary-unavailable' in garmin_panel
+    assert 'data-steps-total' not in garmin_panel and 'data-steps-mean' not in garmin_panel
     # Presentation only: two provider choices stay associated with the period
     # form even when their native details elements are collapsed.
     controls = response.text.split('<form id="statistics-controls"', 1)[1].split("</form>", 1)[0]

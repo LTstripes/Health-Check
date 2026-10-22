@@ -508,7 +508,7 @@ main, .legal { max-width: var(--owner-content-width); }
 .steps-headlines { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin: 1rem 0; }
 .steps-headlines > div { min-width: 0; }
 .steps-headlines dt { font-size: .9rem; font-weight: 400; }
-.steps-headlines dd { margin: .3rem 0; font-size: clamp(1.15rem, 2vw, 1.65rem); font-weight: 700; overflow-wrap: anywhere; }
+.steps-headlines dd { margin: .3rem 0; font-size: clamp(1.15rem, 2vw, 1.65rem); font-weight: 600; overflow-wrap: anywhere; }
 .steps-scope { font-size: .9rem; color: var(--muted, #586174); }
 .steps-selected { min-height: 2.5rem; overflow-wrap: anywhere; }
 .steps-daily-chart { display: block; width: 100%; min-height: 110px; touch-action: manipulation; }
