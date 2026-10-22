@@ -126,8 +126,8 @@ if (emptyBase) {
       const history = page.locator('.statistics-steps-history');
       assert.equal(await history.locator('[data-steps-provider="google"][data-steps-history-state="unsupported_window"]').count(),1);
       assert.equal(await page.locator('.statistics-steps-panels--compact').count(),0);
-      assert.equal(await history.locator('[data-steps-stat="total"]').innerText(),'20800');
-      assert.equal(await history.locator('[data-steps-stat="mean"]').innerText(),'5200,0');
+      assert.equal(await history.locator('[data-steps-stat="total"]').innerText(),'20\u202f800');
+      assert.equal(await history.locator('[data-steps-stat="mean"]').innerText(),'5\u202f200,0');
       const historyBox = await history.boundingBox();
       const sectionBox = await page.locator('[data-statistics-steps]').boundingBox();
       const garminBox = await history.locator('[data-steps-provider="garmin"]').boundingBox();
