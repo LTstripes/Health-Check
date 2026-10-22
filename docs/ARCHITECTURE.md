@@ -2240,7 +2240,9 @@ retains the previous date-only/unknown outcome.
 
 The sleep-only `sleep_summary_session_bounds` metric uses existing text storage
 for schema `garmin-sleep-summary-bounds-v1`, containing independently parsed
-start/end TemporalDTOs. Its field path, metric-row identity, original Local values,
+start/end TemporalDTOs. Emit it only when both independent endpoints are valid;
+unsupported or absent bounds add no synthetic missing-metric row. Its field path,
+metric-row identity, original Local values,
 precision/state and endpoint offsets survive typed persistence and the closed
 `quality_inputs.summary_boundary` evidence projection. Neither endpoint depends
 on a phase row. Invalid or unavailable endpoints do not become confirmed bounds;
