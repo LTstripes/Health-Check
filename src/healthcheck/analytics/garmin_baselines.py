@@ -553,6 +553,10 @@ def _classify_input(dto: AnalyticInputDTO) -> tuple[str, int | float | None, boo
     if state == "null":
         return "null", None, False, None
     if state == "invalid":
+        if selected.metric_code == "sleep_duration_seconds":
+            reason = next((item.reason_code for item in dto.coverage.exclusions
+                           if item.reason_code.startswith("duration_")), selected.state)
+            return "invalid", None, False, reason
         return "invalid", None, False, selected.state
     if state == "missing":
         return "missing", None, False, None
@@ -975,6 +979,8 @@ def compute_garmin_scalar_series(
             )
         exclusion_reason = None
         if status in {"excluded", "not_computable"}:
+            exclusion_reason = classify_reason
+        if status == "invalid" and dto.selected.metric_code == "sleep_duration_seconds":
             exclusion_reason = classify_reason
         points.append(
             GarminSeriesPoint(

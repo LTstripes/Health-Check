@@ -65,6 +65,101 @@ from test_sleep_owner_ui import client_for
 WAKE_DATE = date(2099, 1, 2)
 
 
+@pytest.mark.parametrize("minutes,reason", [(-1, "duration_negative"),
+    (600, "duration_exceeds_confirmed_session"), (90.5, "duration_precision_invalid")])
+def test_saved_malformed_duration_withheld_by_current_consumers(
+    projection_database, minutes, reason,
+):
+    from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
+    from healthcheck.sleep_evidence import SleepEvidenceRequest, read_sleep_evidence
+    from healthcheck.web.sleep_view import source_sleep_note, source_sleep_value
+
+    session, paths = projection_database
+    _persist_garmin(session, paths)
+    _persist_google(session, paths, payload=_google_sleep_payload())
+    row = session.scalar(select(GoogleRecordMetric).where(
+        GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep",
+    ))
+    row.value_number = minutes  # Previously saved malformed typed evidence.
+    session.commit()
+    source_id = session.scalar(select(GoogleSourceRecord.google_source_id))
+    night = _single(session)
+    cell = night["metrics"][SLEEP_CODE]
+    assert (cell["state"], cell["eligible"], cell["reason"]) == ("invalid", False, reason)
+    assert source_sleep_value(cell) == "—"
+    assert source_sleep_note(cell)
+    packet = read_source_sleep_range(session, provider="google", source_id=source_id,
+                                    wake_date=WAKE_DATE, days=7)
+    assert packet["series"][0]["points"][-1]["value"] is None
+    assert _saved_sleep(session)["observation"] is None
+    period = PeriodSummaryService(session).build(end_date=WAKE_DATE, days=7,
+                                                google_source_id=source_id)
+    assert period["sides"][1]["metrics"][SLEEP_CODE]["aggregation"]["eligible_count"] == 0
+    projection = read_persisted_sleep_metric_projection(session)
+    duration = next(p for p in projection.projections if p.metric_code == SLEEP_CODE)
+    assert not duration.comparable and duration.google.reason == reason
+    exported = read_sleep_evidence(profile=paths.root, profile_kind="synthetic",
+        request=SleepEvidenceRequest(WAKE_DATE, 7, google_source_id=source_id),
+        evaluated_at_utc=datetime(2099, 1, 3, tzinfo=UTC), evaluation_local_date=WAKE_DATE)
+    exported_day = exported["sections"]["google"]["source_range"]["days"][-1]
+    exported_night = exported_day["sources"][0]["sessions"][0]
+    assert exported_night["metrics"][SLEEP_CODE]["reason"] == reason
+    assert exported_night["metrics"][SLEEP_CODE]["eligible"] is False
+    assert exported_night["metrics"][SLEEP_CODE]["evidence"]["quality_inputs"] == (
+        cell["evidence"]["quality_inputs"]
+    )
+    assert session.get(GoogleRecordMetric, row.id).value_number == minutes
+
+
+def test_two_hour_session_rejects_600_minute_tib_but_keeps_90_minute_sleep(projection_database):
+    from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
+    from healthcheck.sleep_evidence import SleepEvidenceRequest, read_sleep_evidence
+
+    session, paths = projection_database
+    payload = _google_sleep_payload()
+    sleep = payload["dataPoints"][0]["sleep"]
+    sleep["interval"].update(endTime="2099-01-02T00:00:00Z")
+    sleep["summary"].update(minutesAsleep="90", minutesInSleepPeriod="600")
+    _persist_google(session, paths, payload=payload)
+    session.commit()
+    source_id = session.scalar(select(GoogleSourceRecord.google_source_id))
+    cells = _single(session)["metrics"]
+    assert cells[SLEEP_CODE]["eligible"] and cells[SLEEP_CODE]["value"] == 5400
+    tib_code = "sleep_time_in_bed_seconds"
+    assert cells[tib_code]["state"] == "invalid" and not cells[tib_code]["eligible"]
+    assert cells[tib_code]["reason"] == "duration_exceeds_confirmed_session"
+    period = PeriodSummaryService(session).build(end_date=WAKE_DATE, days=7,
+                                                google_source_id=source_id)
+    assert period["sides"][1]["metrics"][SLEEP_CODE]["aggregation"]["value"] == 5400
+    exported = read_sleep_evidence(profile=paths.root, profile_kind="synthetic",
+        request=SleepEvidenceRequest(WAKE_DATE, 7, google_source_id=source_id),
+        evaluated_at_utc=datetime(2099, 1, 3, tzinfo=UTC), evaluation_local_date=WAKE_DATE)
+    exported_day = exported["sections"]["google"]["source_range"]["days"][-1]
+    actual = exported_day["sources"][0]["sessions"][0]["metrics"][tib_code]
+    assert actual["eligible"] is False and actual["reason"] == cells[tib_code]["reason"]
+
+
+def test_sleep_ui_withholds_saved_negative_duration(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            _persist_google(session, paths, payload=_google_sleep_payload())
+            session.scalar(select(GoogleRecordMetric).where(
+                GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep",
+            )).value_number = -17
+        with client_for(app) as client:
+            page = client.get("/sleep?view=google&wake_date=2099-01-02")
+            assert page.status_code == 200
+            assert "Источник передал отрицательную длительность." in page.text
+            primary = page.text.split('data-source-sleep-metric="sleep_duration_asleep_seconds"')[1]
+            primary = primary.split("</section>", 1)[0]
+            assert "-17" not in primary
+            assert 'data-owner-state="unavailable"' in primary
+    finally:
+        engine.dispose()
+
+
 def _saved_sleep(session, provider="google", **kwargs):
     from healthcheck.saved_sleep import read_saved_sleep
     return read_saved_sleep(
@@ -274,11 +369,13 @@ def test_garmin_account_without_device_keeps_own_fields_and_legacy_exclusion(pro
     assert night["source_eligibility"]["source_class"] == "garmin_account"
     for code, value in (
         ("sleep_duration_asleep_seconds", 28800), ("sleep_score", 82),
-        ("nap_duration_seconds", 900), ("sleep_stage_deep_seconds", 5400),
-        ("sleep_end_at", "2099-01-02T06:45:00Z"),
+        ("nap_duration_seconds", 900),
     ):
         assert night["metrics"][code]["eligible"] is True
         assert night["metrics"][code]["value"] == value
+    for code in ("sleep_stage_deep_seconds", "sleep_end_at"):
+        assert not night["metrics"][code]["eligible"]
+        assert night["metrics"][code]["reason"] == "stage_interval_gap"
     legacy = read_persisted_sleep_pairing(session)
     assert legacy.pairs == ()
     assert "garmin_not_target_device" in {e.reason for e in legacy.exclusions}
@@ -315,8 +412,10 @@ def test_identified_non_fitbit_account_does_not_create_device_agreement(projecti
     assert decision["eligible"] is True
     assert decision["cohort"] == ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS
     assert decision["basis"]["device_agreement_eligibility"]["eligible"] is False
-    for code in ("sleep_duration_asleep_seconds", "sleep_start_at", "sleep_stage_light_seconds"):
+    for code in ("sleep_duration_asleep_seconds", "sleep_start_at"):
         assert night["metrics"][code]["eligible"] is True
+    assert not night["metrics"]["sleep_stage_light_seconds"]["eligible"]
+    assert night["metrics"]["sleep_stage_light_seconds"]["reason"] == "stage_session_boundary_gap"
     assert "sleep_score" not in night["metrics"]
     assert read_persisted_sleep_pairing(session).pairs == ()
     assert len(read_persisted_sleep_pairing(
@@ -478,11 +577,11 @@ def test_unpaired_garmin_has_native_naps_and_independent_timing_and_stages(proje
     assert cells["sleep_duration_asleep_seconds"]["value"] == 28800
     assert cells["sleep_score"]["value"] == 82
     assert cells["nap_duration_seconds"]["value"] == 900
-    assert cells["sleep_stage_deep_seconds"]["value"] == 5400
-    assert cells["sleep_stage_light_seconds"]["value"] == 4500
+    for code in ("sleep_stage_deep_seconds", "sleep_stage_light_seconds", "sleep_end_at"):
+        assert cells[code]["value"] is None
+        assert cells[code]["reason"] == "stage_interval_gap"
     assert cells["sleep_start_at"]["eligible"] is False  # parent is date-only
     assert cells["sleep_start_at"]["reason"] == "timing_precision_unavailable"
-    assert cells["sleep_end_at"]["value"] == "2099-01-02T06:45:00Z"
     assert night["temporal_evidence"]["source_local_date"] == "2099-01-02"
     assert _read(session, "garmin", date(2099, 1, 3))["sources"] == []
 
@@ -502,7 +601,8 @@ def test_unpaired_google_uses_own_boundaries_without_creating_score_or_pair(proj
     assert night["metrics"]["sleep_time_in_bed_seconds"]["value"] == 25200
     assert night["metrics"]["sleep_start_at"]["value"] == "2099-01-01T22:00:00Z"
     assert night["metrics"]["sleep_end_at"]["value"] == "2099-01-02T05:00:00Z"
-    assert night["metrics"]["sleep_stage_light_seconds"]["value"] == 3600
+    assert night["metrics"]["sleep_stage_light_seconds"]["value"] is None
+    assert night["metrics"]["sleep_stage_light_seconds"]["reason"] == "stage_session_boundary_gap"
     assert "sleep_score" not in night["metrics"]
     assert "nap_duration_seconds" not in night["metrics"]
 
@@ -830,7 +930,7 @@ def test_range_google_role_selection_before_values(projection_database, roles, s
         if role == "fallback":
             metadata.pop("main")
             # An attractive value cannot override an explicit-main missing cell.
-            payload["dataPoints"][0]["sleep"]["summary"]["minutesAsleep"] = "600"
+            payload["dataPoints"][0]["sleep"]["summary"]["minutesAsleep"] = "415"
         elif role == "nap":
             metadata["nap"] = True
         _persist_google(session, paths, payload=payload)
@@ -1051,7 +1151,7 @@ def test_range_snapshot_is_coherent_across_separate_writer(projection_database, 
         if not commits:
             with session_scope(engine) as writer:
                 metric = writer.get(GoogleRecordMetric, cached.id)
-                metric.value_number = 500
+                metric.value_number = 400
             commits.append(True)
         return original(reader, record_id, **kwargs)
     monkeypatch.setattr(module, "_load_google_sleep_record_side", load_after_writer)
@@ -1059,7 +1159,7 @@ def test_range_snapshot_is_coherent_across_separate_writer(projection_database, 
     assert commits == [True]
     assert session.connection().connection.driver_connection.in_transaction
     session.rollback()
-    assert _point(_range(session))["value"] == 30000
+    assert _point(_range(session))["value"] == 24000
 
 
 def test_range_is_bounded_read_only_and_never_opens_payloads(projection_database, monkeypatch):

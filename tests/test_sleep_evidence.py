@@ -311,6 +311,8 @@ def test_whitelist_nested_future_fields_never_exported(profile, monkeypatch):
         session["source_eligibility"]["basis"]["raw_payload"] = {"token": "SECRET"}
         metric = session["metrics"]["sleep_duration_asleep_seconds"]
         metric["evidence"]["normalization_provenance"]["raw_payload"]["path"] = "SECRET"
+        metric["evidence"]["quality_inputs"]["raw_payload"] = {"token": "SECRET"}
+        metric["evidence"]["quality_inputs"]["metrics"][0]["credential"] = "SECRET"
         metric["evidence"]["interval_snapshots"].append({"token": "SECRET"})
         packet["wake_date_missing_by_source"]["UNSELECTED_SECRET_SOURCE"] = 123
         return packet
@@ -348,7 +350,7 @@ def test_snapshot_correction_consistency_across_separate_writer(profile, monkeyp
                                               capture_source="cli")
                 metric = writer.scalar(select(GoogleRecordMetric).where(
                     GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep"))
-                metric.value_number = 500
+                metric.value_number = 400
         return result
     monkeypatch.setattr(evidence, "read_source_sleep_range", concurrent)
     before = read(profile)
@@ -356,7 +358,7 @@ def test_snapshot_correction_consistency_across_separate_writer(profile, monkeyp
     assert any(i["revision_id"] == current.revision_id
                for i in before["sections"]["context"]["rows"])
     after = read(profile)
-    assert source_range(after)["series"][0]["points"][-1]["value"] == 30000
+    assert source_range(after)["series"][0]["points"][-1]["value"] == 24000
     assert any(i["original_text"] == "Concurrent" for i in after["sections"]["context"]["rows"])
 
 

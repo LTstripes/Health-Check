@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from enum import StrEnum
 from numbers import Real
@@ -23,6 +23,7 @@ from healthcheck.db.models import (
     GarminPayloadObservation,
     GarminRawPayload,
     GarminRecordMetric,
+    GarminSleepStageInterval,
     GarminSource,
     GarminSourceRecord,
 )
@@ -38,6 +39,11 @@ from healthcheck.garmin.normalization import (
     GarminTemporalDTO,
     GarminTemporalPrecision,
     apply_activity_metric_quality,
+)
+from healthcheck.sleep_quality import (
+    SLEEP_DURATION_QUALITY_VERSION,
+    duration_quality_reason,
+    garmin_confirmed_session_bounds,
 )
 
 ANALYTIC_INPUT_CONTRACT_VERSION = "r03-garmin-analytic-input-v1"
@@ -617,6 +623,7 @@ class AnalyticEvidenceRef:
     normalization_contract_version: str | None
     reconciliation_contract_version: str | None
     projection_status: str | None = None
+    sleep_quality_inputs: Mapping[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -631,6 +638,8 @@ class AnalyticEvidenceRef:
             "normalization_contract_version": self.normalization_contract_version,
             "reconciliation_contract_version": self.reconciliation_contract_version,
             "projection_status": self.projection_status,
+            **({"sleep_quality_inputs": dict(self.sleep_quality_inputs)}
+               if self.sleep_quality_inputs is not None else {}),
         }
 
 
@@ -1192,6 +1201,27 @@ def build_analytic_input_from_storage(
     if source is None:
         raise AnalyticInputAssemblyError("Garmin source missing for analytic input record")
     metric = _metric_dto_from_row(metric_row)
+    if metric.metric_code == "sleep_duration_seconds" and metric.has_value:
+        stages = tuple(session.scalars(select(GarminSleepStageInterval).where(
+            GarminSleepStageInterval.sleep_record_id == record.id,
+        ).order_by(GarminSleepStageInterval.ordinal)))
+        start, end = garmin_confirmed_session_bounds(record, stages)
+        value = coerce_selected_number(metric.value)
+        reason = None if value is None else duration_quality_reason(
+            value, session_seconds=(end - start).total_seconds()
+            if start is not None and end is not None else None,
+        )
+        evidence = replace(evidence, sleep_quality_inputs={
+            "rule_version": SLEEP_DURATION_QUALITY_VERSION,
+            "record_start_precision": record.temporal_precision,
+            "confirmed_start_at_utc": start.isoformat() if start is not None else None,
+            "confirmed_end_at_utc": end.isoformat() if end is not None else None,
+            "stage_endpoint_ids": [row.id for row in stages],
+        })
+        if reason is not None:
+            metric = replace(metric, state=GarminFieldState.INVALID, reason=reason)
+        if rule_version == ANALYTIC_RULE_VERSION:
+            rule_version = "r03-garmin-sleep-duration-quality-v1"
     if record.stream_code == GarminStream.ACTIVITY.value:
         siblings = session.scalars(
             select(GarminRecordMetric).where(GarminRecordMetric.record_id == record.id)

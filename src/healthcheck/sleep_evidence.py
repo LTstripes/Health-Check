@@ -165,6 +165,11 @@ EVIDENCE = {
         "source_eligibility": ELIGIBILITY,
     },
     "normalization_provenance": NORMALIZATION,
+    "quality_inputs": {
+        **_fields("metric_rule_version record_start_precision record_start_at_utc "
+                  "stage_status_succeeded session_state stages_state"),
+        "metrics": [_fields("id metric_code state value_number unit reason")],
+    },
 }
 METRIC = {
     **_fields("provider record_id state value unit field_path reason eligible is_zero variant "

@@ -264,6 +264,13 @@ SOURCE_SLEEP_DETAILS = (
 )
 
 _SOURCE_SLEEP_NOTES = {
+    "stage_interval_gap": "В записи стадий есть пропуск.",
+    "stage_session_boundary_gap": "Стадии не покрывают границы сессии.",
+    "stage_session_boundary_unconfirmed": "Нет подтверждённых границ полной записи стадий.",
+    "duration_negative": "Источник передал отрицательную длительность.",
+    "duration_exceeds_confirmed_session": "Длительность превышает подтверждённые границы сессии.",
+    "duration_exceeds_time_in_bed": "Длительность сна превышает время в постели.",
+    "duration_precision_invalid": "Точность длительности не соответствует формату источника.",
     "classic_sleep_excludes_stage_metric": "Для этого типа сна совместимые стадии недоступны.",
     "typed_stage_collection_required": "Сохранённой сводки недостаточно для подтверждения стадий.",
     "stages_status_not_succeeded": "Источник не подтвердил успешную обработку стадий.",

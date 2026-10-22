@@ -797,7 +797,7 @@ class PeriodSummaryService:
         values, dates, observed_dates = [], [], []
         exclusions = Counter()
         exclusions["wake_date_missing"] = missing_wake
-        partial = uncertain = 0
+        partial = uncertain = invalid = 0
         observed = missing_wake
         sides = (
             self._read.sleep_sessions(source, [r for r, _wake in records])
@@ -842,14 +842,12 @@ class PeriodSummaryService:
             item = candidates[0]
             cell = item["metrics"][SLEEP_CODE]
             if not cell["eligible"]:
-                reason = (
-                    f"metric_{cell['state']}"
-                    if cell["state"] != "value"
-                    else (cell["reason"] or "metric_invalid")
-                )
+                reason = cell["reason"] or f"metric_{cell['state']}"
                 exclusions[reason] += 1
+                invalid += cell["state"] == "invalid"
             elif cell["value"] < 0:
                 exclusions["metric_invalid"] += 1
+                invalid += 1
             else:
                 values.append(cell["value"])
                 dates.append(wake_date.isoformat())
@@ -874,6 +872,7 @@ class PeriodSummaryService:
             [r for r, _wake in records], google=google
         )
         result["state"] = "observed" if values else "no_eligible_values"
+        result["availability_counts"]["invalid"] = invalid
         return result
 
     def _snapshot_evidence(self, records: list, *, google: bool) -> dict[str, Any]:

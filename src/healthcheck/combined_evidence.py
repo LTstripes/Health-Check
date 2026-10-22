@@ -34,6 +34,7 @@ SELECTED_VERSION = "health-chat-combined-evidence-v2"
 SELECTED_COMPACT_VERSION = "health-chat-combined-compact-evidence-v2"
 COMPLETED_VERSION = "health-chat-combined-evidence-v5"
 COMPLETED_COMPACT_VERSION = "health-chat-combined-compact-evidence-v5"
+COMPACT_SLEEP_SCHEMA_VERSION = "compact-sleep-evidence-v2"
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,8 @@ def _compact_sleep(sections):
                 for session in source["sessions"]:
                     evidence_cells = []
                     field_path_sets = []
+                    session_interval_sets = []
+                    session_interval_indices = {}
                     for cell in session["metrics"].values():
                         item = cell["evidence"]
                         paths = item.pop("field_paths")
@@ -134,6 +137,12 @@ def _compact_sleep(sections):
                         counts = Counter((row.get("interval_kind"), row.get("interval_state"),
                                           row.get("start_precision"), row.get("end_precision"))
                                          for row in snapshots)
+                        endpoints = [row for row in snapshots
+                                     if row.get("interval_kind") == "sleep_session"]
+                        endpoint_identity = _json(endpoints)
+                        if endpoint_identity not in session_interval_indices:
+                            session_interval_indices[endpoint_identity] = len(session_interval_sets)
+                            session_interval_sets.append(endpoints)
                         item["interval_summary"] = {
                             "count": len(snapshots), "id_count": len(ids),
                             "sha256": hashlib.sha256(_json({
@@ -142,8 +151,7 @@ def _compact_sleep(sections):
                             "groups": [{"kind": key[0], "state": key[1],
                                         "start_precision": key[2], "end_precision": key[3],
                                         "count": count} for key, count in counts.items()],
-                            "session_intervals": [row for row in snapshots
-                                                  if row.get("interval_kind") == "sleep_session"],
+                            "session_intervals_index": session_interval_indices[endpoint_identity],
                         }
                         evidence_cells.append(item)
                     # Only exactly equal fields move; cell-specific exclusions,
@@ -152,6 +160,7 @@ def _compact_sleep(sections):
                               if all(key in item and item[key] == value
                                      for item in evidence_cells[1:])} if evidence_cells else {}
                     session["field_path_sets"] = field_path_sets
+                    session["session_interval_sets"] = session_interval_sets
                     session["evidence_common"] = common
                     for item in evidence_cells:
                         for key in common:
@@ -295,10 +304,12 @@ def read_combined_evidence(
                 packet["version"] = COMPACT_VERSION
                 packet["projection"] = {
                     "mode": "compact", "detailed_version": PACKAGE_VERSION,
+                    "sleep_evidence_schema": COMPACT_SLEEP_SCHEMA_VERSION,
                     "sleep_segments": "counts_and_sha256_not_replayable_segments",
                     "sleep_session_endpoints": "retained_with_original_temporal_precision",
                     "session_evidence": "evidence_common_overlaid_with_metric_evidence",
                     "field_paths": "session_field_path_sets_indexed_by_field_paths_index",
+                    "session_intervals": "session_interval_sets_indexed_by_session_intervals_index",
                     "night_summary": "summary_record_id_references_saved_session_or_null",
                     "values_and_flags": "unchanged_accepted_reader_results",
                 }
@@ -413,7 +424,8 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
                         summary = {key: value for key, value in session.items()
                                    if key not in {
                                        "temporal_evidence", "metrics",
-                                       "evidence_common", "field_path_sets"}}
+                                       "evidence_common", "field_path_sets",
+                                       "session_interval_sets"}}
                         summary["metrics"] = {
                             code: {key: value for key, value in cell.items() if key != "evidence"}
                             for code, cell in session["metrics"].items()}
