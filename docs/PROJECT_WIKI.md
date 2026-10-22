@@ -183,6 +183,9 @@ UI and export regressions. P1 stage coverage, duration consistency and saved
 mainSleep role-projection parity block release readiness until accepted. The
 current implementation assignment is synthetic-only; the older rehearsal is
 retained with its exact old candidate. Final freeze and human UAT remain separate.
+After combined integration, the separately agreed final independent targeted
+recheck must bind the exact final candidate SHA. Its receipt is pending; the task
+reviews and CI recorded here do not establish that additional check.
 When the Owner is available, use approved disposable verified-backup clones as
 applicable below; record PASS/FAIL/UNVERIFIED per item, private evidence outside Git:
 
@@ -243,6 +246,7 @@ authorizes a Worker, provider call, replay, Stable write or new transport.
 | #228 / #105 | Cross-image identity stays parked without trustworthy event proof; canonical Sleep switch remains NOT_ELIGIBLE without separate device-pair gate |
 | #462 / #464 saved-data analysis | The bounded export/CLI package is delivered by #468: timed Context-to-next-sleep comparisons, circular local-clock variability and optional explicit-classification uncorrected social jetlag. Broader HRV/RHR/Body Battery event analyses, Activity/workout joins and Owner-data verification remain pending. Activity end is not persisted; no event-free controls or causal claims are inferred. [Authoritative scope](https://github.com/LTstripes/Health-Check/issues/462#issuecomment-6275058395) |
 | #463 period passport | BACKLOG / implementation not launched in live issue. Supported-window wrapper is proposed only after parent scope/ownership approval; no arbitrary-period stitching, collection or new analytics |
+| [#488 weekly chat digest](https://github.com/LTstripes/Health-Check/issues/488#issuecomment-6338922253) | Next Owner-approved task after audit fixes, outside release #479. Prepared contract; Sunday 20:00 Europe/Moscow agreed. Implementation has not started and automation is not enabled; the supported access/delivery slice is assigned separately after the accepted combined candidate |
 | #348 and later releases | Local PDF/draft staging, review, confirmation, revisions and original download are integrated by #474. #348 remains OPEN for real Owner UAT; chat-to-local transport and rollout remain separate. No automatic diary/medication/causal-analysis expansion |
 
 <a id="current-backlog--open-issue-registry-at-the-baseline"></a>
