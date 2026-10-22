@@ -43,7 +43,7 @@ def test_runtime_override_creates_external_layout(tmp_path, monkeypatch):
 
 def test_listener_health_endpoints_are_non_sensitive(tmp_path):
     settings = Settings(data_dir=tmp_path / "runtime")
-    ui_app, _ = create_ui_app(settings)
+    ui_app, paths = create_ui_app(settings)
     ingest_app, _ = create_ingest_app(settings)
 
     with TestClient(
@@ -52,7 +52,30 @@ def test_listener_health_endpoints_are_non_sensitive(tmp_path):
         response = client.get("/healthz")
         assert response.status_code == 200
         assert response.json() == {"status": "ok", "service": "loopback-ui"}
-        assert client.get("/").status_code == 200
+        assert not paths.database.exists()
+        entry = client.get("/", follow_redirects=False)
+        assert entry.status_code == 307 and entry.headers["location"] == "/brief"
+        legacy = client.get("/?view=history", follow_redirects=False)
+        assert legacy.status_code == 307
+        assert legacy.headers["location"] == "/weight?view=history"
+        assert not paths.database.exists()
+
+        # The Weight shell tolerates an unmigrated store; Overview reports its
+        # existing storage error instead of fabricating an empty period.
+        weight = client.get("/weight")
+        assert weight.status_code == 200
+        assert weight.context["payload"]["unavailable_reason"] == "database_unavailable"
+        assert weight.context["payload"]["current"]["value_kg"] is None
+        overview = client.get("/brief")
+        assert overview.status_code == 503
+        assert overview.context["code"] == "database_unavailable"
+        assert overview.context["message"] == "Локальное хранилище данных не готово."
+        assert 'role="alert"' in overview.text
+        for page in (weight, overview):
+            assert str(paths.root) not in page.text
+            assert "no such table" not in page.text
+            assert "SELECT " not in page.text
+        assert client.get("/healthz").json() == {"status": "ok", "service": "loopback-ui"}
 
     with TestClient(ingest_app) as client:
         response = client.get("/healthz")

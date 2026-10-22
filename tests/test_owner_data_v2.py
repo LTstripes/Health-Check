@@ -375,6 +375,7 @@ def test_data_saved_rhr_production_script_synthetic_dom(data_ui):
 
 def test_data_provider_summary_synthetic_dom(tmp_path):
     import json
+    import re
     import subprocess
     from pathlib import Path
 
@@ -385,8 +386,14 @@ def test_data_provider_summary_synthetic_dom(tmp_path):
             "evaluation_local_date": "2099-01-01",
         }).json()
         html = client.get("/imports").text
-        assert "не проверяет подключение к ним сейчас" in html
-        assert "дата снимка профиля здесь не определяется" in html
+        sources = html.split('id="data-status"', 1)[1].split("</section>", 1)[0]
+        disclosure = re.search(r"<details\b([^>]*)>(.*?)</details>", sources, re.S)
+        assert disclosure is not None
+        assert "owner-info" in disclosure[1]
+        assert not re.search(r"\bopen\b", disclosure[1])
+        assert "О проверке источников" in disclosure[2]
+        assert "не проверяет подключение к Garmin или Google в этой сессии" in disclosure[2]
+        assert "возраст снимка отдельно не определяется" in disclosure[2]
     repo = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         ["node", str(repo / "scripts/check_data_status.cjs")], cwd=repo,
