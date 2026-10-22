@@ -81,7 +81,8 @@ def assert_parity(detailed, projected):
                 for original, actual in zip(source["sessions"], target["sessions"]):
                     assert {k: v for k, v in original.items() if k != "metrics"} == {
                         k: v for k, v in actual.items()
-                        if k not in {"metrics", "evidence_common", "field_path_sets"}}
+                        if k not in {"metrics", "evidence_common", "field_path_sets",
+                                     "session_interval_sets"}}
                     assert original["metrics"].keys() == actual["metrics"].keys()
                     for code, metric in original["metrics"].items():
                         cell = actual["metrics"][code]
@@ -93,7 +94,9 @@ def assert_parity(detailed, projected):
                         assert {k: v for k, v in metric["evidence"].items()
                                 if k not in {"interval_snapshots", "interval_ids"}} == {
                             k: v for k, v in restored.items() if k != "interval_summary"}
-                        summary = restored["interval_summary"]
+                        summary = dict(restored["interval_summary"])
+                        summary["session_intervals"] = actual["session_interval_sets"][
+                            summary.pop("session_intervals_index")]
                         snapshots = metric["evidence"]["interval_snapshots"]
                         ids = metric["evidence"]["interval_ids"]
                         assert summary["count"] == len(snapshots)
@@ -101,6 +104,8 @@ def assert_parity(detailed, projected):
                         assert sum(g["count"] for g in summary["groups"]) == len(snapshots)
                         assert summary["session_intervals"] == [
                             row for row in snapshots if row["interval_kind"] == "sleep_session"]
+                        assert _json(summary["session_intervals"]) == _json([
+                            row for row in snapshots if row["interval_kind"] == "sleep_session"])
                         assert summary["sha256"] == hashlib.sha256(_json({
                             "interval_ids": ids, "interval_snapshots": snapshots,
                         }).encode("utf-8")).hexdigest()
@@ -115,8 +120,64 @@ def test_exact_parity_and_hash_without_mutating_detailed(profile, days):
     assert detailed == saved
     unhashed = {k: v for k, v in packet.items() if k != "envelope_hash"}
     assert packet["envelope_hash"] == hashlib.sha256(_json(unhashed).encode("utf-8")).hexdigest()
+    assert packet["projection"]["sleep_evidence_schema"] == "compact-sleep-evidence-v2"
+    assert packet["projection"]["session_intervals"] == (
+        "session_interval_sets_indexed_by_session_intervals_index"
+    )
     assert "projection:" in evidence.render_combined_evidence(packet)
     assert packet["envelope_hash"] in evidence.render_combined_evidence(packet)
+
+
+def test_endpoint_registry_uses_canonical_identity_and_stays_session_local():
+    metrics = {
+        code: {"evidence": {"field_paths": [], "interval_ids": ["same-reference"],
+            "interval_snapshots": [{"id": "same-reference", "interval_kind": "sleep_session",
+                                    "ordinal": value}],
+            "quality_inputs": {"source_bound": "preserved"}}}
+        for code, value in (("duration", True), ("start", 1), ("end", 1.0))
+    }
+    sessions = [{"record_id": identity, "metrics": deepcopy(metrics)}
+                for identity in ("first", "second")]
+    sections = {"sleep": {"providers": {"google": {"source_range": {"days": [
+        {"sources": [{"summary": None, "sessions": sessions}]}]}}}}}
+    original = deepcopy(sections)
+    compacted = evidence._compact_sleep(sections)
+    actual = compacted["sleep"]["providers"]["google"]["source_range"]["days"][0][
+        "sources"][0]["sessions"]
+    assert _json(sections) == _json(original)
+    assert actual[0]["session_interval_sets"] is not actual[1]["session_interval_sets"]
+    for session in actual:
+        registry = session["session_interval_sets"]
+        assert len(registry) == 3  # JSON true, 1 and 1.0 are distinct evidence.
+        for code, original_cell in metrics.items():
+            restored = session["evidence_common"] | session["metrics"][code]["evidence"]
+            index = restored["interval_summary"]["session_intervals_index"]
+            assert _json(registry[index]) == _json(original_cell["evidence"]["interval_snapshots"])
+            assert restored["quality_inputs"] == original_cell["evidence"]["quality_inputs"]
+
+
+def test_prior_inline_compact_packet_remains_serializable_without_reinterpretation(profile):
+    # A prior saved artifact contains JSON values, not the runtime DTO's dates/tuples.
+    packet = json.loads(evidence.encode_combined_evidence(compact(profile)))
+    packet["projection"].pop("sleep_evidence_schema")
+    packet["projection"].pop("session_intervals")
+    for provider in packet["sections"]["sleep"]["providers"].values():
+        for night in provider["source_range"]["days"]:
+            for source in night["sources"]:
+                for session in source["sessions"]:
+                    registry = session.pop("session_interval_sets")
+                    for item in (session["evidence_common"], *(cell["evidence"]
+                                 for cell in session["metrics"].values())):
+                        if "interval_summary" in item:
+                            summary = item["interval_summary"]
+                            summary["session_intervals"] = registry[
+                                summary.pop("session_intervals_index")]
+    packet.pop("envelope_hash")
+    packet["envelope_hash"] = hashlib.sha256(_json(packet).encode("utf-8")).hexdigest()
+    original = deepcopy(packet)
+    assert json.loads(evidence.encode_combined_evidence(packet)) == original
+    assert packet["envelope_hash"] in evidence.render_combined_evidence(packet)
+    assert packet == original
 
 
 @pytest.mark.parametrize("case", ["zero_partial", "missing", "null", "invalid", "ambiguous",

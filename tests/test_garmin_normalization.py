@@ -66,9 +66,13 @@ def test_session_metrics_preserve_presence_and_typed_provenance(
     activity.pop(leaf, None)
     if present:
         activity[leaf] = value
+    if leaf == "maxHR":
+        activity["averageHR"] = 1
+        if present and value == 0 and not isinstance(value, bool):
+            state, reason = "invalid", "nonpositive_heart_rate"
     result = normalize_garmin_payload(payload)
     metric = result.records[0].metric(code)
-    assert result.contract_version == "r02-garmin-normalization-contract-v2"
+    assert result.contract_version == "garmin-activity-quality-v1"
     assert metric.state.value == state
     assert metric.field_path == f"payload.activities.{leaf}"
     assert metric.unit == unit

@@ -7,10 +7,12 @@ credentials, session files, or live Garmin payloads.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
 from sqlalchemy import func, select
 
 from healthcheck import cli
@@ -22,9 +24,14 @@ from healthcheck.db.models import (
     GarminSourceRecord,
     SyncStreamState,
 )
+from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.auth import GarminAuthResult, GarminAuthStatus
 from healthcheck.garmin.backfill import run_garmin_historical_backfill
-from healthcheck.garmin.normalization import GarminSourceIdentity, normalize_garmin_payload
+from healthcheck.garmin.normalization import (
+    NORMALIZATION_CONTRACT_VERSION,
+    GarminSourceIdentity,
+    normalize_garmin_payload,
+)
 from healthcheck.garmin.persistence import (
     PRE_RECONCILIATION_CONTRACT_VERSION,
     PROJECTION_CURRENT,
@@ -999,3 +1006,53 @@ def test_cli_reprocess_rejects_sync_flags(tmp_path: Path, capsys):
         ["garmin-reprocess", "--start", "2099-01-01", "--end", "2099-01-02", "--dry-run"]
     )
     assert args.command == "garmin-reprocess"
+
+
+@pytest.mark.parametrize("competing_raw", [False, True])
+def test_activity_empty_currentness_uses_exact_raw_at_equal_epoch(tmp_path, competing_raw):
+    _run(tmp_path, _client(activities=[]))
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = resolve_runtime_paths(settings)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            original = session.scalar(select(GarminPayloadObservation).where(
+                GarminPayloadObservation.source_filename == "activities.json"))
+            if competing_raw:
+                source = session.get(GarminSource, original.garmin_source_id)
+                identity = GarminSourceIdentity(
+                    source_kind=source.source_kind, provider_code=source.provider_code,
+                    device_attributed=source.device_attributed, device_code=source.device_code,
+                    device_model=source.device_model, source_instance_id=source.source_instance_id)
+                payload = {"activities": [], "syntheticEvidence": "competing-original"}
+                normalized = normalize_garmin_payload(
+                    payload, stream="activity", source_identity=identity)
+                original = GarminPersistenceRepository(session, payload_store=
+                    ContentAddressedGarminPayloadStore(paths.root / "artifacts")).persist_result(
+                        replace(normalized, contract_version=NORMALIZATION_CONTRACT_VERSION),
+                        payload=payload, source_identity=identity,
+                        received_at=restore_stored_utc(original.received_at),
+                        source_window_start_utc=restore_stored_utc(original.source_window_start_utc),
+                        source_window_end_utc=restore_stored_utc(original.source_window_end_utc),
+                        source_filename="activities.json",
+                    ).observation
+            # A historical interpretation wins the UUID tie; UUID order must
+            # not hide a current interpretation of exactly this immutable raw.
+            values = {column.name: getattr(original, column.name)
+                      for column in GarminPayloadObservation.__table__.columns
+                      if column.name not in {"id", "observation_key",
+                                             "normalization_contract_version"}}
+            session.add(GarminPayloadObservation(
+                **values, id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+                observation_key="f" * 64,
+                normalization_contract_version="r02-garmin-normalization-contract-v1"))
+            session.commit()
+        first = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF, streams=["activities"])
+        # The current interpretation of a different raw never proves this one.
+        assert first.processed_count == int(competing_raw)
+        assert first.remaining_observation_count == 0
+        again = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF, streams=["activities"])
+        assert again.processed_count == 0
+        assert again.remaining_observation_count == 0
+    finally:
+        engine.dispose()

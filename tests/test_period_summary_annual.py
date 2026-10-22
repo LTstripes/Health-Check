@@ -34,6 +34,23 @@ END = date(2096, 12, 31)
 START = date(2096, 1, 1)
 
 
+@pytest.mark.parametrize("minutes,reason", [(-1, "duration_negative"),
+    (600, "duration_exceeds_confirmed_session"), (90, None)])
+def test_annual_sleep_duration_quality_matches_night_reader(projection_database, minutes, reason):
+    session, paths = projection_database
+    _google(session, paths, END, minutes=str(minutes))
+    session.commit()
+    source_id = session.scalar(select(GoogleSource.id))
+    packet = PeriodSummaryService(session).build(period_type="calendar_year",
+        calendar_year=END.year, google_source_id=source_id)
+    actual = cell(packet, side=1)
+    assert actual["aggregation"]["value"] == (5400 if reason is None else None)
+    assert actual["aggregation"]["eligible_count"] == (1 if reason is None else 0)
+    if reason:
+        assert {e["reason_code"] for e in actual["exclusions"]} == {reason}
+        assert actual["availability_counts"]["invalid"] == 1
+
+
 def sleep_selection_window(period, end=END):
     if period in {"7", "30"}:
         return {"days": int(period), "end_date": end}

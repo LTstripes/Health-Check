@@ -82,6 +82,140 @@ def _reasons(metric):
     return {e["reason_code"]: e["count"] for e in metric["exclusions"]}
 
 
+@pytest.mark.parametrize("minutes,reason", [(-1, "duration_negative"),
+    (600, "duration_exceeds_confirmed_session"), (410, "duration_exceeds_time_in_bed")])
+def test_sleep_bounds_loaded_by_optimized_period_reader(projection_database, minutes, reason):
+    session, paths = projection_database
+    _google(session, paths, START, minutes="90")
+    session.commit()
+    row = session.scalar(select(GoogleRecordMetric).where(
+        GoogleRecordMetric.metric_code == "sleep_summary_minutes_asleep",
+    ))
+    row.value_number = minutes
+    if reason == "duration_exceeds_time_in_bed":
+        session.scalar(select(GoogleRecordMetric).where(
+            GoogleRecordMetric.metric_code == "sleep_summary_minutes_in_sleep_period",
+        )).value_number = 120
+    session.commit()
+    source_id = session.scalar(select(GoogleSource.id))
+    cell = _metric(_packet(session, google_source_id=source_id), side=1)
+    assert cell["aggregation"]["value"] is None
+    assert cell["aggregation"]["eligible_count"] == 0
+    assert _reasons(cell)[reason] == 1
+    assert cell["availability_counts"]["invalid"] == 1
+    assert session.get(GoogleRecordMetric, row.id).value_number == minutes
+
+
+def _seed_documented_main_sleep_case(session, paths, case):
+    from test_sleep_metrics import _google_sleep_payload, _persist_google
+
+    for index in range(2):
+        day = END if case == "main_priority" or index else END - timedelta(days=1)
+        minutes = 360 if index == 0 else 60 if case == "main_priority" else 600
+        payload = _google_sleep_payload(name=f"documented-role-{case}-{index}")
+        sleep = payload["dataPoints"][0]["sleep"]
+        start = datetime.combine(day - timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+        start += timedelta(hours=22)
+        end = start + timedelta(minutes=minutes)
+        sleep["interval"].update(startTime=start.isoformat(), endTime=end.isoformat())
+        sleep["interval"]["civilStartTime"]["date"] = day.isoformat()
+        sleep["interval"]["civilEndTime"]["date"] = day.isoformat()
+        sleep["interval"]["civilEndTime"]["time"] = (
+            end + timedelta(hours=3)
+        ).strftime("%H:%M:%S")
+        sleep["summary"].update(minutesAsleep=str(minutes), minutesInSleepPeriod=str(minutes))
+        sleep["updateTime"] = datetime.combine(day, datetime.max.time(), tzinfo=UTC).isoformat()
+        metadata = sleep["metadata"]
+        if case == "main_priority":
+            metadata.pop("main")
+            if index == 0:
+                metadata["mainSleep"] = True
+        else:
+            metadata["mainSleep"] = "invalid" if case == "invalid_alias" and index else True
+            if case == "conflicting_alias" and index:
+                metadata["main"] = False
+        _persist_google(session, paths, payload=payload)
+    session.commit()
+    return session.scalar(select(GoogleSource.id))
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("case", ["conflicting_alias", "invalid_alias", "main_priority"])
+def test_documented_google_main_sleep_matches_period_projection(projection_database, days, case):
+    from healthcheck.analytics.sleep_source_view import (
+        read_source_sleep_night,
+        resolve_source_sleep_point,
+    )
+
+    session, paths = projection_database
+    source_id = _seed_documented_main_sleep_case(session, paths, case)
+    good_day = END if case == "main_priority" else END - timedelta(days=1)
+    night = read_source_sleep_night(session, provider="google", wake_date=good_day,
+                                   source_id=source_id)
+    assert resolve_source_sleep_point(night["sources"][0], provider="google")["value"] == 21600
+    packet = PeriodSummaryService(session).build(end_date=END, days=days,
+        google_sleep_source_id=source_id, sleep_source_selection=True)
+    actual = _metric(packet, side=1)
+    assert actual["aggregation"]["value"] == 21600
+    assert actual["aggregation"]["eligible_count"] == 1
+    selected = PeriodSummaryService(session).build(end_date=END, days=days,
+        sleep_source_selection=True)["sides"][1]["metrics"][SLEEP_CODE]
+    assert selected["aggregation"] == actual["aggregation"]
+    assert selected["source_selection"]["selected_source_id"] == source_id
+    assert selected["source_selection"]["options"][0]["eligible_count"] == 1
+
+
+@pytest.mark.parametrize("days", [7, 30])
+@pytest.mark.parametrize("case", ["conflicting_alias", "invalid_alias", "main_priority"])
+def test_documented_google_main_sleep_html_and_auto_exports(tmp_path, days, case):
+    from healthcheck.db.engine import create_sqlite_engine, session_scope
+    from healthcheck.sleep_evidence import (
+        SleepEvidenceRequest,
+        encode_sleep_evidence,
+        read_sleep_evidence,
+        render_sleep_evidence,
+    )
+    from healthcheck.web.statistics import format_statistics_value
+    from test_garmin_query_dashboard import _ui
+    from test_sleep_owner_ui import client_for
+    from test_statistics_ui import MetricParser
+
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            source_id = _seed_documented_main_sleep_case(session, paths, case)
+            expected = PeriodSummaryService(session).build(end_date=END, days=days,
+                sleep_source_selection=True)["sides"][1]["metrics"][SLEEP_CODE]
+        with client_for(app) as client:
+            response = client.get("/statistics", params={"days": days, "end_date": str(END)})
+            assert response.status_code == 200
+            parser = MetricParser(response.text)
+            assert parser.values[SLEEP_CODE, "right"].strip() == format_statistics_value(
+                SLEEP_CODE, 21600,
+            )
+            assert source_id in parser.details[SLEEP_CODE, "right"]
+            assert "Допустимо: 1" in parser.cells[SLEEP_CODE, "right"]
+        exported = read_sleep_evidence(profile=paths.root, profile_kind="synthetic",
+            request=SleepEvidenceRequest(END, days, google_auto_select=True),
+            evaluated_at_utc=datetime(2099, 1, 9, tzinfo=UTC), evaluation_local_date=END)
+        section = exported["sections"]["google"]
+        assert section["selected_source_id"] == source_id
+        assert section["source_selection"] == expected["source_selection"]
+        points = section["source_range"]["series"][0]["points"]
+        assert [point["value"] for point in points if point["value"] is not None] == [21600]
+        assert json.loads(encode_sleep_evidence(exported))["sections"]["google"] == section
+        assert source_id in render_sleep_evidence(exported)
+        if case != "main_priority":
+            reason = "google_main_alias_conflict" if case == "conflicting_alias" else (
+                "google_saved_role_invalid"
+            )
+            assert reason in encode_sleep_evidence(exported)
+            assert reason in render_sleep_evidence(exported)
+    finally:
+        engine.dispose()
+
+
 def _coverage(session, source, *, surface="activities", status="present", scoped=True):
     return repositories_for(session).coverage.record(
         provider_id=source.provider_id,
@@ -158,7 +292,7 @@ def test_frozen_type_sets_and_explicit_zero(projection_database, kind):
         ("null", "meters", None, "metric_null"),
         ("invalid", "meters", None, "metric_invalid"),
         ("value", "km", 2, "metric_unit_mismatch"),
-        ("value", "meters", -2, "metric_invalid"),
+        ("value", "meters", -2, "negative_activity_summary"),
     ],
 )
 def test_activity_field_exclusions_keep_session_count(
