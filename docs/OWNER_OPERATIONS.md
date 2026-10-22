@@ -350,6 +350,9 @@ Original persistent-file fingerprints passed, while absence of the Stable proces
 was recorded separately; Stable was not started. A later audit correction does not
 inherit an old candidate's code/UI result. The current audit assignment permits
 synthetic validation only, with no new real-profile operation.
+The #487/#489 quality corrections add no database migration or automatic raw/history
+replay. The supported schema ancestry below is unchanged; this does not turn the
+older candidate's runtime/UI rehearsal into a new-candidate pass.
 
 ### Candidate and recovery point
 
