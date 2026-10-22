@@ -69,6 +69,7 @@
       "tests/test_sleep_google_vitals_ui.py",
       "tests/test_sleep_metrics.py",
       "tests/test_sleep_owner_ui.py",
+      "tests/test_readable_sleep_activity.py",
       "tests/test_sleep_pairing.py",
       "tests/test_sleep_source_view.py",
       "tests/test_sleep_timeline_ui.py",

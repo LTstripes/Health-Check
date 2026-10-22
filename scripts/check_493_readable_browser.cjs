@@ -23,6 +23,8 @@ for (const [name, url] of [['FILLED', base], ['EMPTY', empty]]) {
   assert.equal(manifest.private_data, false); assert.equal(manifest.provider_calls, false);
   report.manifests.push(manifest);
 }
+const selectedSource = report.manifests.find(manifest => !manifest.empty).explicit_synthetic_garmin_source_id;
+assert.ok(selectedSource, 'Explicit fixture source identity required');
 const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
 (async () => {
   fs.mkdirSync(evidence, {recursive: true});
@@ -58,6 +60,18 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
         ];
         for (const [name, route] of routes) {
           assert.equal((await page.goto(origin + route)).status(), 200, state + '/' + name);
+          if (state === 'filled-partial' && name === 'selected-night') {
+            assert.match(await page.locator('.sleep-night').innerText(), /Найдено несколько источников Garmin/);
+            const negative = `${state}-source-selection-required-${width}.png`;
+            await page.screenshot({path: path.join(evidence, negative), fullPage: true});
+            report.screenshots.push({file: negative, sha256: hash(fs.readFileSync(path.join(evidence, negative)))});
+            report.checks.push('Explicit source required; no silent source choice/' + width);
+          }
+          if (state === 'filled-partial') {
+            const selectedUrl = new URL(route, origin);
+            selectedUrl.searchParams.set('garmin_source_id', selectedSource);
+            assert.equal((await page.goto(selectedUrl.href)).status(), 200, state + '/' + name + '/explicit-source');
+          }
           await page.waitForTimeout(120);
           if (name === 'timeline' && state === 'filled-partial') {
             const point = page.locator('[data-sleep-series-group^="garmin:"] [data-sleep-point-state="value"]').last();
@@ -74,7 +88,7 @@ const seconds = /(?:^|\s)\d+(?:[.,]\d+)?\s+с(?:\s|$)/u;
           if (name === 'overview' && state === 'filled-partial') {
             const sleep = page.locator('[data-overview-period-sleep]');
             // Selector is production-specific; a real positive card is mandatory.
-            assert.match(await sleep.innerText(), /ч|мин/);
+            assert.match(await sleep.locator('.overview-value').innerText(), /\d+ (?:ч|мин)/);
             assert.doesNotMatch(await sleep.innerText(), seconds);
           }
           if (name === 'activity' && state === 'filled-partial') {

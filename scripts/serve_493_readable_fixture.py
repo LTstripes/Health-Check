@@ -30,9 +30,11 @@ def main():
     sys.path.insert(0, str(ROOT / "tests"))
 
     import uvicorn
+    from sqlalchemy import select
 
     from healthcheck.config import Settings
-    from healthcheck.db.engine import migrate_database
+    from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+    from healthcheck.db.models import GarminSource
     from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
     from healthcheck.runtime import prepare_runtime
     from healthcheck.web.ui_app import create_ui_app
@@ -49,6 +51,18 @@ def main():
         _seed_nights(paths)
         _seed_normal_google(paths)
         seed_overview_a_plus(paths)
+    selected_source_id = None
+    if not args.empty:
+        engine = create_sqlite_engine(paths)
+        try:
+            with session_scope(engine) as session:
+                # Explicit fixture identity, not a new production auto-selection rule.
+                sources = session.scalars(select(GarminSource).where(
+                    GarminSource.source_kind == "provider")).all()
+                assert len(sources) == 1
+                selected_source_id = sources[0].id
+        finally:
+            engine.dispose()
     app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
 
     class FixtureDatetime(datetime):
@@ -62,6 +76,7 @@ def main():
         "pid": os.getpid(), "port": args.port, "runtime": str(runtime),
         "clock": "pages.datetime.now=2099-01-10T12:00Z; presentation fixture only",
         "provider_calls": False, "private_data": False,
+        "explicit_synthetic_garmin_source_id": selected_source_id,
     }
     (runtime / "synthetic-manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8")
