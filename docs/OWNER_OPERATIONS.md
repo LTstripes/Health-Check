@@ -929,16 +929,27 @@ Envelope definitions and hashes are canonical in Architecture.
 <a id="combined-export--desktop-ui-local-analysis-downloads-451"></a>
 ### Desktop UI: local analysis downloads (#451)
 
-The Overview page (`/brief`) includes **Выгрузка для анализа**. Select 7 or 30
-inclusive calendar dates and an end date, confirm the displayed Garmin source,
-then choose **Сформировать** and **Скачать текст** or **Скачать JSON**. The one
+Bare `/` opens Overview (`/brief`); Weight has the canonical `/weight` route.
+Existing root links carrying query parameters retain their Weight destination
+and unchanged query string. Explicit section links and APIs keep their routes.
+
+**Данные → Скачать данные** (`/imports#analysis-export`) owns the download form;
+Overview links to it without embedding export controls. Select 7 or 30 inclusive
+calendar dates and an end date, then choose **Скачать**. A text download begins
+after both existing serializers finish; JSON and the same text remain available
+under **Файл, JSON и подробности данных**. The visible label states that current
+comments are included. **Источники и состав файла** discloses the supported
+manifest, source selectors and limits, and opens when source selection is needed.
+The one
 Garmin selection is explicitly used for Activity, Sleep, Stress, Body Battery,
 weekly HRV, RHR and the selected Steps view; it never falls back to another Garmin source.
 Weight and current Context are included. Google Sleep and RHR use their existing
 metric-specific eligibility selection, retaining conflicts/incomplete outcomes.
 Google daily HRV uses the exact source shown in its separate selector, or is
 omitted when **Не включать** is selected. A unique inventory source is preselected
-visibly; competing sources require a choice. The UI does not pool providers.
+visibly in the disclosed selector; competing sources require a choice. A sole
+inventory identity is only a selector default, never proof of metric eligibility
+or completeness; existing readers retain authority. The UI does not pool providers.
 
 `GET /api/analysis-export/sources` reads only bounded saved source identities,
 with a fail-closed 32-source ceiling per provider table. It does not query provider
@@ -957,8 +968,11 @@ export files or retained packet cache. Browser Blob URLs live in the current tab
 are revoked on parameter changes, regeneration or page exit, and are not uploaded.
 User-downloaded files remain in the browser's ordinary download destination.
 
-The UI shows reader states/counts, missing/unknown/conflict/search outcomes and
-warnings without interpreting health values. Context keeps the existing 50-row
+The primary UI keeps short missing/invalid/conflict/search outcomes and partial
+period qualifiers visible; routine methodology, provenance and repeated source
+freshness live in accessible info/details. Saved history is not hidden by an
+overdue refresh. Details retain reader states/counts and warnings without
+interpreting health values. Context keeps the existing 50-row
 page: `has_more`/`truncated` is disclosed, not presented as a complete archive.
 All other existing reader, SQL/time and output limits remain. Oversize or failed
 reads/serialization produce an error and no downloadable prefix. Changing controls

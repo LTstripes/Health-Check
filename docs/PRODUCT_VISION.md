@@ -259,22 +259,38 @@ not certify implementation, provider health or every later Owner UAT.
 | Primary section | Route | Current surface |
 | --- | --- | --- |
 | Обзор | `/brief` | A+ Weight/Sleep/Activity readings and source-backed graphs, secondary metrics, compact actions and disclosed evidence |
-| Вес | `/` | Confirmed Weight/trend, one all-history Weight+composition table and selectable chart with distinct methods (#375) |
+| Вес | `/weight` | Confirmed Weight/trend, one all-history Weight+composition table and selectable chart with distinct methods (#375) |
 | Сон | `/sleep` | Primary 7/30-day Garmin + Google duration timeline over exact saved sources, with display toggles, point details and an accessible date table; Garmin / Google / Compare selected-date modes remain |
 | Сон, secondary mode | `/agreement` | Exploratory Garmin/Google comparison and diagnostic evidence |
 | Статистика | `/statistics` | Garmin/Google 7/30, trailing365, calendar-year/YTD; saved completed Garmin daily Steps and a separate exact-source Steps-only all-time selector; independent saved Google Steps observations for 7/30 civil dates with unknown coverage |
 | Активность | `/garmin#activity-journal` | Five recent saved sessions, full existing history disclosure and five-column A/B comparison |
 | Активность, secondary mode | `/garmin#training-recovery` | Garmin dated snapshots, period series and exploratory lagged associations |
-| Данные | `/imports` | Compact provider freshness/actions with stream details; upload/review queue and `/imports/{id}` |
+| Данные | `/imports` | Download saved data, upload/review queue and `/imports/{id}`; source status with disclosed diagnostics |
 | Комментарии | `/context` | Revisioned Context with primary navigation and city/IANA timezone chooser |
 
-The brand opens Overview at `/brief`; the legacy root remains Weight. Existing
+The brand and bare root open Overview at `/brief`; Weight uses `/weight`.
+Legacy root links with query parameters retain the Weight destination and exact
+query string. Existing
 API/query/import contracts are not redefined by navigation. The Data queue describes
 its bounded recent-batch inventory, not an exhaustive count of all history.
 The `/context` primary navigation and city/IANA chooser are delivered. Statistics
 also includes saved-session drilldown; completed navigation/timezone/drilldown
 must not be reassigned. Provider-first presentation is integrated, while general
 per-metric eligible-source discovery/autoselection remains open.
+
+Overview prioritizes readings and period selection. Its download link opens the
+existing Data page at `/imports#analysis-export`; export controls do not occupy
+the Overview. The ordinary download flow is end date, 7/30 days and **Скачать**,
+including the full existing supported manifest and clearly labelled current
+comments. Source choice, JSON and evidence details remain accessible. Ambiguous
+identities require explicit selection; providers are not pooled. Existing
+eligibility, privacy scope, frozen packet and size limits remain binding.
+
+Routine methodology, provenance and repeated update diagnostics belong in
+keyboard-accessible closed info/details. Keep a short visible qualifier when
+partial coverage, invalid/conflicting evidence or an incomplete search changes
+the result. Missing is never zero; presentation rounding never changes stored
+values or calculations. Saved history remains readable after a failed update.
 
 <a id="owner-interface--one-a-visual-and-language-system"></a>
 ### One A+ visual and language system

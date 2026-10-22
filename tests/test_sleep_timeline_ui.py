@@ -419,7 +419,8 @@ def test_sleep_default_route_is_timeline_with_embedded_packets(tmp_path):
         # Compact freshness stays separate from saved history.
         assert "состояние обновлений неизвестно" in primary
         assert 'href="/imports#data-status"' in primary
-        assert "Свежесть обновления отделена от сохранённой истории" in primary
+        assert "Сбой обновления не удаляет сохранённую историю" in primary
+        assert '<details class="owner-info sleep-source-status" data-sleep-freshness>' in primary
         assert "read_limit_exceeded" not in primary
         assert "result_hash" not in primary
         payload = _timeline_json(page.text)

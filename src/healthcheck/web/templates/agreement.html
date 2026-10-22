@@ -16,15 +16,17 @@
   <a href="/agreement">Все сохранённые периоды</a>
   {% else %}<p class="muted">Сохранённые пары · периоды указаны у показателей</p>{% endif %}
   {% if not payload.available %}
-    {{ owner_ui.state_chip('unknown' if payload.reason == 'unknown' else 'unavailable') }}
-    <p>{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
+    <p role="status">{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
   {% endif %}
-  {% if payload.pairing_exclusions %}<p class="uncertainty-note">Часть ночей не сопоставлена; причины — в технических деталях.</p>{% endif %}
-  {% if payload.available and not payload.source_data_quality %}<p class="uncertainty-note">Качество данных источников не установлено.</p>{% endif %}
+  {% if payload.available and payload.pairing_exclusions %}<p class="muted">Часть ночей не сопоставлена.</p>{% endif %}
+  {% if payload.available and not payload.source_data_quality %}<p class="muted">Качество данных источников не установлено.</p>{% endif %}
+  {% call owner_ui.info_details("О сохранённом сравнении") %}
+  {% if payload.pairing_exclusions %}<p>Причины исключения ночей — в технических деталях.</p>{% endif %}
   {% for fact in payload.source_data_quality if fact.state != 'usable' %}
     <p class="uncertainty-note">{{ {'garmin_connect': 'Garmin', 'google_health': 'Google'}.get(fact.provider_code, 'Источник') }}: {% if fact.state == 'failed' %}последний сбор завершился ошибкой.{% else %}{{ owner_ui.state_chip(fact.state) }}{% endif %}</p>
   {% endfor %}
   <p><a href="/imports">Проверить источники</a></p>
+  {% endcall %}
 </section>
 <section class="agreement-groups">
 {% for category in sleep_groups(payload.groups) %}
@@ -65,10 +67,12 @@
 {% endfor %}
 </section>
 <section class="card" data-incompatible-comparisons>
+  {% call owner_ui.info_details("О совместимости показателей") %}
   <h2>Отдельные показатели</h2>
   <p>Оценка сна Garmin: совместимой оценки Google нет.</p>
   <p>HRV и дыхание: дневные показатели и измерения внутри сна имеют разный смысл; общий график недоступен.</p>
   <p>Пульс в покое и кислород: сравнение доступно только для сохранённых пар суточных значений за одну дату.</p>
+  {% endcall %}
 </section>
 {% call owner_ui.technical_details('sleep-technical') %}
   <h2>Garmin</h2>

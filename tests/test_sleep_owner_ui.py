@@ -238,6 +238,36 @@ def test_agreement_secondary_keeps_frozen_packet_and_discloses_statistics(tmp_pa
     assert packet == before
 
 
+@pytest.mark.parametrize("reason", ["no_published_agreement", "unknown", "database_unavailable"])
+def test_saved_comparison_empty_state_does_not_claim_source_health(tmp_path, monkeypatch, reason):
+    from healthcheck.analytics.sleep_agreement_report import (
+        SleepAgreementReportService,
+        unavailable_report,
+    )
+
+    app, _settings, _paths = _ui(tmp_path)
+    packet = unavailable_report(reason=reason)
+    before = copy.deepcopy(packet)
+    monkeypatch.setattr(SleepAgreementReportService, "report", lambda *a, **kw: packet)
+    with client_for(app) as client:
+        page = client.get("/agreement")
+        assert page.status_code == 200
+        primary, technical = page.text.split('<details class="card owner-details', 1)
+        card = primary.split('<section class="card brief-controls">', 1)[1]
+        card = card.split('</section>', 1)[0]
+        assert "Источник данных недоступен" not in card
+        assert 'class="status-chip owner-state' not in card
+        expected = ("Локальное хранилище данных не готово." if reason == "database_unavailable"
+                    else "Нет доступного сохранённого сравнения.")
+        assert card.count(expected) == 1
+        assert 'role="status"' in card
+        assert 'О сохранённом сравнении' in card
+        assert reason in technical
+        assert page.context["payload"] == packet
+        assert client.get("/api/agreement/report").json() == packet
+    assert packet == before
+
+
 def test_agreement_accumulation_does_not_fabricate_statistics(tmp_path, monkeypatch):
     from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
 

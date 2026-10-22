@@ -32,18 +32,7 @@
 {%- endmacro %}
 
 {% macro freshness_note(scope) %}
-  {% set freshness = quality.get('coverage', {}).get('freshness', {}) %}
-  {% for item in freshness.get('owner', {}).get('actionable_items', []) + freshness.get('optional_details', []) + freshness.get('not_requested_required', []) if item.scope_key == scope %}
-    {% if item.state in ['stale', 'unknown', 'unavailable', 'not_requested'] %}
-    <div class="overview-freshness" data-freshness-scope="{{ scope }}">
-      <details class="owner-details overview-freshness-details">
-        <summary>Свежесть: {{ {'stale': 'данные устарели', 'unknown': 'неизвестна', 'unavailable': 'данные недоступны', 'not_requested': 'данные не запрашивались'}[item.state] }}</summary>
-        <p>Сохранённые значения не подтверждают обновление.</p>
-      </details>
-      {% if item.state != 'not_requested' %}<a href="/imports#data-status">{{ 'Повторить вход' if item.reason_code == 'reauth_required' else 'Проверить источник' }}</a>{% endif %}
-    </div>
-    {% endif %}
-  {% endfor %}
+  {# Refresh state is centralized below, not repeated on saved-history cards. #}
 {% endmacro %}
 
 <section class="brief-controls" aria-labelledby="brief-period-heading">
@@ -63,11 +52,13 @@
     <button type="submit">Применить период</button>
   </form>
   </details>
+  {% call owner_ui.info_details("О сохранённых источниках") %}
   <p class="muted" data-overview-sources>Вес: {{ brief_owner_state(weight.state) }} ·
     Garmin: {% if source_selection.status == 'selected' %}{{ brief_source_label(source_selection.selected_source) }}{% elif source_selection.status == 'require_selection' %}нужен выбор источника{% else %}источник не сохранён{% endif %} ·
     Google: {% if overview.google.sources %}источников с текущими записями {% if overview.google.window_limited %}в окне Google{% else %}в периоде{% endif %} — {{ overview.google.sources | length }}{% else %}нет текущих записей {{ google_scope }}{% endif %}.
     {% if overview.google.window_limited %}Окно Google: {{ overview.google.start_date | owner_date }} → {{ overview.google.end_date | owner_date }}.{% endif %}
   </p>
+  {% endcall %}
   {% if source_selection.sources | length > 1 %}
   <details class="owner-details brief-source"{% if source_selection.status == "require_selection" %} open{% endif %}>
     <summary>Источник Garmin{% if source_selection.status == "selected" %}: {{ brief_source_label(source_selection.selected_source) }}{% endif %}</summary>
@@ -97,7 +88,7 @@
   {% else %}<p class="muted">Источник Garmin не сохранён. <a href="/imports">Проверить источники</a></p>{% endif %}
 </section>
 
-{% include "analysis_export.html" %}
+<p class="overview-download"><a href="/imports#analysis-export">Скачать данные за период →</a></p>
 
 {% if source_actions %}
 <section class="brief-source-attention" aria-label="Источники требуют внимания">
@@ -202,4 +193,4 @@
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="/static/analysis_export.js" defer></script>{% endblock %}
+{% block scripts %}{% endblock %}

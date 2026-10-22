@@ -10,7 +10,7 @@
 {%- endmacro %}
 <section class="card sleep-timeline" data-sleep-timeline>
   <h2>Длительность сна по датам</h2>
-  <p class="muted">Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p>
+  {% call owner_ui.info_details("О графике") %}<p>Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p>{% endcall %}
   <div class="preset-links" aria-label="Окно истории сна">
     {% for window in (7, 30) %}
     <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{{ window }} дней</a>
@@ -24,7 +24,7 @@
   {% endif %}
   {% if timeline.google_selection.options %}
   <details class="owner-details" data-sleep-alternate-sources{% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %} open{% endif %}>
-    <summary>Источники Google и выбор линии</summary>
+    <summary>ⓘ Источник Google{% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %} · нужен выбор{% endif %}</summary>
     <form method="get" action="/sleep" class="inline-edit owner-controls">
       <input type="hidden" name="wake_date" value="{{ wake_date }}">
       <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
@@ -90,20 +90,10 @@
   <p class="muted">Часть сохранённых записей без пригодной даты пробуждения не показана: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Дата не подставляется; записи остаются в технических деталях.</p>
   {% endif %}
   {% endif %}
-  {% if timeline_freshness %}
-    {% set attention_items = timeline_freshness | selectattr('attention') | list %}
-    <p class="sleep-source-status" data-sleep-freshness>
-      {% if attention_items %}
-        {% for item in attention_items %}<span class="sleep-freshness-note">{{ item.provider_label }}: {{ item.state_text }}{% if item.reason_text %} · {{ item.reason_text }}{% endif %}</span>{% endfor %}
-      {% else %}
-        <span>Замечаний по свежести источников сна нет.</span>
-      {% endif %}
-      <a href="/imports#data-status">Проверить источники →</a>
-    </p>
-  {% else %}
-    <p class="sleep-source-status" data-sleep-freshness>Состояние свежести источников недоступно. <a href="/imports#data-status">Проверить источники →</a></p>
-  {% endif %}
-  <p class="muted">Свежесть обновления отделена от сохранённой истории: сбой обновления не удаляет записи ниже.</p>
+  <details class="owner-info sleep-source-status" data-sleep-freshness><summary>ⓘ Обновления источников</summary>
+  {% if timeline_freshness %}{% for item in timeline_freshness %}<p>{{ item.provider_label }}: {{ item.state_text }}{% if item.reason_text %} · {{ item.reason_text }}{% endif %}</p>{% endfor %}
+  {% else %}<p>Состояние свежести источников недоступно.</p>{% endif %}
+  <p>Сбой обновления не удаляет сохранённую историю. <a href="/imports#data-status">Проверить источники →</a></p></details>
 </section>
 {% call owner_ui.technical_details('sleep-technical') %}
   <h2>Динамика сна</h2>

@@ -42,7 +42,7 @@ function contrast(a, b) {
 // store/state checks below pin the retained legacy Garmin view explicitly.
 const sections = [
   ['Обзор', '/brief?start_date=2099-01-01&end_date=2099-01-08'],
-  ['Вес', '/'],
+  ['Вес', '/weight'],
   ['Сон', '/sleep?view=garmin&wake_date=2099-01-02'],
   ['Активность', '/garmin?metric_code=stress_daily_average&start_date=2099-01-01&end_date=2099-01-08'],
   ['Данные', '/imports'],
@@ -52,7 +52,7 @@ const sections = [
 // Статистика joined the shell in #347; its page states have their own dedicated
 // check, so the store-state matrix below keeps the original fixture sections.
 const navSections = [
-  ['Обзор', '/brief'], ['Вес', '/'], ['Сон', '/sleep'],
+  ['Обзор', '/brief'], ['Вес', '/weight'], ['Сон', '/sleep'],
   ['Активность', '/garmin'], ['Статистика', '/statistics'], ['Данные', '/imports'],
 ];
 

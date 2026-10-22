@@ -787,6 +787,15 @@ def _extractor(request: Request):
 
 
 @router.get("/", response_class=HTMLResponse)
+def home_page(request: Request) -> RedirectResponse:
+    # Bare entry opens the Owner's summary. Legacy root links with query
+    # parameters keep their Weight destination and exact query string.
+    query = request.url.query
+    target = f"/weight?{query}" if query else "/brief"
+    return RedirectResponse(url=target, status_code=307)
+
+
+@router.get("/weight", response_class=HTMLResponse)
 def dashboard_page(request: Request) -> HTMLResponse:
     try:
         with session_scope(request_engine(request)) as session:
@@ -1227,6 +1236,7 @@ def imports_page(request: Request) -> HTMLResponse:
         "imports.html",
         {
             "batches": batches,
+            "export_end_date": date.today().isoformat(),
             "queue": queue,
             "queue_available": queue_available,
             "action_imports": sorted(

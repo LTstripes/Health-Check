@@ -61,12 +61,12 @@
 {% if sleep_view == 'google' %}
 <section class="card google-sleep-night">
   <h2>Google · выбранная ночь</h2>
-  <p>Сохранённые сессии сна по каждому источнику отдельно. Совместимой оценки сна Google нет.</p>
+  {% call owner_ui.info_details("О данных Google") %}<p>Сохранённые сессии сна по каждому источнику отдельно. Совместимой оценки сна Google нет.</p>{% endcall %}
   {% include "sleep_source_night.html" %}
 </section>
 <section class="card brief-controls" data-google-vitals>
   <h2>Google дневные показатели</h2>
-  <p>По каждому источнику отдельно: суточные показатели, а не измерения внутри сна.</p>
+  {% call owner_ui.info_details("О дневных показателях") %}<p>По каждому источнику отдельно: суточные показатели, а не измерения внутри сна.</p>{% endcall %}
   {% if google_vitals is none %}
     {{ owner_ui.state_chip('unavailable') }}
     <p>Локальное хранилище данных не готово.</p>

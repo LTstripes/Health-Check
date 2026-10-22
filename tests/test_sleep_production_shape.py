@@ -322,6 +322,7 @@ def test_independent_summary_bounds_reach_statistics_and_exports(
     tmp_path, phases, seconds, legacy, timestamps_as_float,
 ):
     import json
+    import re
 
     from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
     from healthcheck.db.engine import create_sqlite_engine, session_scope
@@ -402,7 +403,9 @@ def test_independent_summary_bounds_reach_statistics_and_exports(
                 parser = MetricParser(response.text)
                 html = parser.values[SLEEP_CODE, "left"].strip()
                 if legacy:
-                    assert "не проверена по границам сессии: 1" in response.text
+                    qualifier = r"Границы не проверены:\s*1\b"
+                    assert re.search(qualifier, parser.cells[SLEEP_CODE, "left"])
+                    assert not re.search(qualifier, parser.details[SLEEP_CODE, "left"])
             actual[f"html{days}"] = html
             if expected is None:
                 actual[f"reason{days}"] = (

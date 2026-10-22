@@ -86,7 +86,7 @@ def test_exact_unique_metric_source_and_packet_preservation(statistics_ui, perio
         METRIC_CODE, distance)
     assert "Автоматически для этого периода" in parsed.cells[METRIC_CODE, "left"]
     assert source.id in parsed.details[METRIC_CODE, "left"]
-    assert "Не собирается" in parsed.cells[METRIC_CODE, "right"]
+    assert (METRIC_CODE, "right") not in parsed.cells
     assert SourceFormParser(response.text).selected["garmin_source_id"] == ""
     # Only cycling gets a metric source. Provider-wide activities stay unselected.
     assert parsed.values["activity_session_count", "left"].strip() == "Недоступно"
@@ -133,7 +133,7 @@ def test_no_silent_winner_or_missing_zero(statistics_ui, case, period):
     assert ("Выберите Garmin-источник выше" in text) == (case in {"multiple", "conflict"})
     if case == "conflict":
         assert "duplicate_current_identity: 2" in parsed.details[METRIC_CODE, "left"]
-    assert "Не собирается" in parsed.cells[METRIC_CODE, "right"]
+    assert (METRIC_CODE, "right") not in parsed.cells
     export(response, f"{case}-{period}")
 
 
@@ -183,7 +183,7 @@ def test_capped_search_publishes_no_prefix_or_zero(statistics_ui, monkeypatch, c
     assert "Допустимо:" not in text
     assert "без наблюдений 0" not in text
     assert "Не завершён:" in parsed.details[METRIC_CODE, "left"]
-    assert "Не собирается" in parsed.cells[METRIC_CODE, "right"]
+    assert (METRIC_CODE, "right") not in parsed.cells
     export(response, f"capped-{period}")
 
 

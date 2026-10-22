@@ -81,7 +81,7 @@ def test_google_sleep_default_is_exact_and_window_bound(statistics_ui, case, day
         assert ("Выбери источник" in text) == (case in {"eligible", "conflict"})
         if case not in {"eligible", "conflict"}:
             assert "Нет допустимых значений" in text
-    assert "Не собирается" in parser.cells["activity_session_count", "right"]
+    assert ("activity_session_count", "right") not in parser.cells
     export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
     if export:
         Path(export).mkdir(parents=True, exist_ok=True)
@@ -139,7 +139,7 @@ def test_five_google_identities_use_generic_sleep_eligibility(statistics_ui, per
     assert family_id in parser.details[SLEEP_CODE, "right"]
     assert "unique_eligible_source" in parser.details[SLEEP_CODE, "right"]
     assert "google_nap_only" in parser.details[SLEEP_CODE, "right"]
-    assert "Не собирается" in parser.cells["activity_session_count", "right"]
+    assert ("activity_session_count", "right") not in parser.cells
     form = SourceFormParser(response.text)
     assert {key: form.selected[key] for key in (
         "garmin_source_id", "google_source_id", "garmin_sleep_source_id", "google_sleep_source_id",
@@ -361,9 +361,15 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
     assert {k: v for k, v in actual.items() if k != "evaluated_at"} == {
         k: v for k, v in packet.items() if k != "evaluated_at"
     }
-    assert len(cells) == 12
+    assert len(cells) == sum(
+        1 for side in packet["sides"] for cell in side["metrics"].values()
+        if side["position"] != "right" or cell["state"] != "not_collected"
+    )
     for side in packet["sides"]:
         for code, cell in side["metrics"].items():
+            if side["position"] == "right" and cell["state"] == "not_collected":
+                assert (code, "right") not in cells
+                continue
             text = cells[code, side["position"]]
             value = cell["aggregation"]["value"]
             headline = parser.values[code, side["position"]].strip()
@@ -387,12 +393,14 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
             else:
                 assert f"Допустимо: {cell['aggregation']['eligible_count']}" in text
                 assert f"без наблюдений {cell['missing_day_count']} дней" in text
+                assert f"Наблюдений: {cell['observed_count']}" in details
+                assert f"дат с наблюдениями: {cell['observed_day_count']}" in details
                 assert cell["coverage"]["state"] in text
             assert f"{cell['source_unit']} → {cell['unit']}" in details
             assert cell["conversion"] in details
             for reason in cell["exclusions"]:
                 assert f"{reason['reason_code']}: {reason['count']}" in text
-    assert "Не собирается" in cells["activity_session_count", "right"]
+    assert ("activity_session_count", "right") not in cells
     assert "Числовая разница недоступна" in response.text
     assert "Шаги за завершённые дни" in response.text
     # Presentation only: two provider choices stay associated with the period
@@ -505,7 +513,7 @@ def test_missing_google_keeps_the_independent_empty_side(statistics_ui):
     assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
     assert "Источник отсутствует" in cells[SLEEP_CODE, "right"]
     assert "Недоступно" in cells[SLEEP_CODE, "right"]
-    assert "Не собирается" in cells["activity_session_count", "right"]
+    assert ("activity_session_count", "right") not in cells
 
 
 @pytest.mark.parametrize(
