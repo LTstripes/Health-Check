@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from html.parser import HTMLParser
 
 import pytest
 from sqlalchemy import event, select
@@ -1133,8 +1134,21 @@ def test_historical_sleep_keeps_explicit_source_in_date_form_and_period_links(tm
     form = response.text.split('data-sleep-period-form>', 1)[1].split('</form>', 1)[0]
     assert f'name="google_sleep_source_id" value="{family}"' in form
     assert f'&amp;google_sleep_source_id={family}' in response.text
-    handoff = response.text.split('data-sleep-export>', 1)[0].rsplit('<a href="', 1)[1]
-    assert 'google_sleep_source_id' not in handoff and family not in handoff
+    class HandoffParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.hrefs = []
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if tag == "a" and "data-sleep-export" in attributes:
+                self.hrefs.append(attributes.get("href"))
+
+    handoff = HandoffParser()
+    handoff.feed(response.text)
+    assert handoff.hrefs == [
+        "/imports?export_end_date=2099-01-02&export_days=7#analysis-export"]
+    assert 'google_sleep_source_id' not in handoff.hrefs[0] and family not in handoff.hrefs[0]
 
 
 @pytest.mark.parametrize("value", ["invalid-private-date", "2025-02-29", "0001-01-01"])
