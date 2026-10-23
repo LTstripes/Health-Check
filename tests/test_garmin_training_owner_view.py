@@ -282,7 +282,7 @@ def test_training_overview_chronology_zero_missing_and_units(tmp_path):
         assert "Тренировки и восстановление" in page.text
         assert "2099-01-02" in page.text
         assert "Дата запроса не подставляется" in page.text
-        assert "Единица времени восстановления не предоставлена" in page.text
+        assert "· единица не указана" in page.text
         assert "metric producer unverified" in page.text
         assert "associated device" in page.text
         assert "activity recorder" in page.text

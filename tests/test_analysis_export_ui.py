@@ -1,6 +1,7 @@
 """Synthetic UI adapter regressions; reader semantics remain in their own tests."""
 
 import json
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -239,3 +240,79 @@ def test_completed_export_ui_declares_mode_and_effective_days(client):
     script = client.get("/static/analysis_export.js").text
     assert 'steps_view: values.get("steps_view")' in script
     assert "effective_completed_range" in script and "completed_day_count" in script
+
+
+@pytest.mark.parametrize("end,days", [
+    ("2024-03-01", 7), ("2024-03-01", 30), ("2025-01-05", 7), ("2025-01-05", 30),
+])
+def test_sleep_period_handoff_prefills_only_then_exports_exact_range(
+        client, profile, monkeypatch, end, days):
+    from html import unescape
+    from re import search
+
+    calls = []
+    original = ui.read_combined_evidence
+
+    def capture(**kwargs):
+        calls.append(kwargs["request"])
+        return original(**kwargs)
+
+    monkeypatch.setattr(ui, "read_combined_evidence", capture)
+    sleep = client.get(f"/sleep?wake_date={end}&days={days}")
+    link = search(r'href="([^"]+)" data-sleep-export', sleep.text)
+    assert link
+    target = unescape(link.group(1))
+    assert target == f"/imports?export_end_date={end}&export_days={days}#analysis-export"
+    page = client.get(target)
+    assert page.status_code == 200
+    assert calls == []  # GET never generates an export.
+    start = str(date.fromisoformat(end) - timedelta(days=days - 1))
+    assert f'<option value="{days}" selected>' in page.text
+    assert f'name="end_date" value="{end}"' in page.text
+    assert f'Период: {start} — {end} (включительно).' in page.text
+    assert "Скачайте и приложите в личный чат" in page.text
+    response = client.post("/api/analysis-export", json=selection(profile, days=days, end_date=end))
+    assert response.status_code == 200
+    assert len(calls) == 1 and calls[0].days == days and str(calls[0].end_date) == end
+    data = response.json()
+    assert data["range"] == {"start_date": start, "end_date": end,
+                             "precision": "inclusive_local_date"}
+    assert json.loads(data["json"])["request"]["effective_range"] == data["range"]
+    assert f"{end}-{days}d" in data["filename"]
+
+
+def test_export_prefill_defaults_still_today_and_30(client):
+    response = client.get("/imports")
+    end = date.today()
+    assert f'name="end_date" value="{end}"' in response.text
+    assert '<option value="30" selected>' in response.text
+    assert f'Период: {end - timedelta(days=29)} — {end} (включительно).' in response.text
+
+
+@pytest.mark.parametrize("query", [
+    "export_days=14", "export_days=07", "export_days=", "export_days=7&export_days=30",
+    "export_end_date=invalid-private-date", "export_end_date=2025-02-29",
+    "export_end_date=20240301", "export_end_date=2024-W09-5", "export_end_date=",
+    "export_end_date=0001-01-01&export_days=7",
+    "export_end_date=0001-01-29&export_days=30", "export_end_date=9999-12-31",
+    "export_end_date=2024-03-01&export_end_date=2025-03-01",
+    "export_end_date=%22%3E%3Cscript%3Ealert(1)%3C/script%3E",
+])
+def test_invalid_export_prefill_rejects_without_range_or_generation(client, monkeypatch, query):
+    def unexpected(**_kwargs):
+        pytest.fail("invalid GET reached export reader")
+
+    monkeypatch.setattr(ui, "read_combined_evidence", unexpected)
+    response = client.get("/imports?" + query)
+    assert response.status_code == 400
+    assert 'invalid_export_period' in response.text
+    assert 'id="analysis-export-form"' not in response.text
+    assert 'invalid-private-date' not in response.text
+    assert '<script>alert(1)</script>' not in response.text
+
+
+@pytest.mark.parametrize("end,days", [("0001-01-07", 7), ("0001-01-30", 30)])
+def test_export_prefill_accepts_first_complete_range(client, end, days):
+    response = client.get(f"/imports?export_end_date={end}&export_days={days}")
+    assert response.status_code == 200
+    assert f'Период: 0001-01-01 — {end} (включительно).' in response.text

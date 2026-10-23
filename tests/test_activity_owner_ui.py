@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +18,7 @@ from healthcheck.garmin.normalization import garmin_source_identity, normalize_g
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.garmin_query import GarminQueryService
-from healthcheck.web.owner_presentation import owner_activity_count
+from healthcheck.web.owner_presentation import owner_activity_count, owner_number
 from test_garmin_training_owner_view import _seed_training, _ui
 
 
@@ -225,7 +227,7 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         assert "Тренировки и восстановление" in primary and "Острая нагрузка Garmin" in primary
         assert "3 января 2099" in primary and "2 января 2099, 12:00 UTC" in primary
         assert "2099-01-02T12:00:00+00:00" in technical
-        assert "Единица времени восстановления не предоставлена" in primary
+        assert "· единица не указана" in primary
         assert "Дата запроса не подставляется" in primary
         assert "Производитель каждой метрики не подтверждён" in primary
         assert 'href="/imports"' in primary
@@ -380,14 +382,16 @@ def test_activity_field_does_not_invent_zero_or_units(tmp_path, monkeypatch, fie
             field.update(state=field_state, value=None)
     monkeypatch.setattr(GarminQueryService, "dashboard", lambda *a, **kw: payload)
     with client_for(app) as client:
-        primary = client.get("/garmin").text.split(
-            '<details class="card owner-details activity-technical', 1
-        )[0]
+        rendered = client.get("/garmin").text
+        primary = rendered.split('<details class="card owner-details activity-technical', 1)[0]
     recovery = primary.split("<h3>Готовность и восстановление</h3>", 1)[1].split("</section>", 1)[0]
     assert ">0</span>" not in recovery
     state = "unknown" if field_state == "invalid" else "unavailable"
     assert f'data-owner-state="{state}"' in recovery
-    assert "часы или минуты" in recovery
+    assert "единица не указана" not in recovery
+    if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+        Path(target).mkdir(parents=True, exist_ok=True)
+        Path(target, f"recovery-{field_state}.html").write_text(rendered, encoding="utf-8")
 
 
 def test_activity_empty_is_unavailable_and_no_fabricated_sessions(tmp_path):
@@ -540,3 +544,30 @@ def test_activity_rounds_display_only_and_preserves_raw_precision(tmp_path, monk
     assert ">123.5</span>" in primary and "123.456789" not in primary
     assert "123.456789" in technical
     assert field["value"] == 123.456789
+
+
+@pytest.mark.parametrize("value", [0, 12.5])
+def test_recovery_unit_adjoins_actual_number_without_api_change(tmp_path, monkeypatch, value):
+    app, settings, paths = _ui(tmp_path)
+    source = seed_activity(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            payload = GarminQueryService(session, settings).dashboard(garmin_source_id=source)
+    finally:
+        engine.dispose()
+    field = payload["training_overview"]["readiness"]["fields"]["recoveryTime"]
+    field.update(state="zero" if value == 0 else "value", value=value)
+    expected = json.dumps(payload, sort_keys=True)
+    monkeypatch.setattr(GarminQueryService, "dashboard", lambda *a, **kw: payload)
+    with client_for(app) as client:
+        page = client.get("/garmin")
+    cell = re.search(r'<dd data-recovery-time>(.*?)</dd>', page.text, re.S)[1]
+    assert 'data-owner-state="present"' in cell
+    assert f">{owner_number(value)}</span>" in cell
+    assert "· единица не указана" in cell
+    assert not any(word in cell for word in ("час", "мин", "не нужно", "восстановлен"))
+    assert json.dumps(payload, sort_keys=True) == expected
+    if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+        Path(target).mkdir(parents=True, exist_ok=True)
+        Path(target, f"recovery-{value}.html").write_text(page.text, encoding="utf-8")

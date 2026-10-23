@@ -83,8 +83,8 @@
    {% else %}<p class="unavailable">Статус тренировок не предоставлен</p>{% endif %}
   </section><section><h3>Готовность и восстановление</h3>
    {% if overview.readiness %}{% set ready = overview.readiness %}{{ dated(ready) }}
-   <dl class="brief-statistics"><dt>Оценка готовности Garmin</dt><dd>{{ field_value(ready.fields.score) }}</dd><dt>Время восстановления Garmin</dt><dd>{{ field_value(ready.fields.recoveryTime) }}</dd><dt>Острая нагрузка в снимке готовности</dt><dd>{{ field_value(ready.fields.acuteLoad) }}</dd></dl>
-   <p class="muted">Единица времени восстановления не предоставлена; не переводим в часы или минуты.</p><details class="owner-details"><summary>Снимки готовности</summary><p>Сохранено снимков: {{ ready.snapshot_count }}. Предыдущие снимки не усредняются.</p></details>
+   <dl class="brief-statistics"><dt>Оценка готовности Garmin</dt><dd>{{ field_value(ready.fields.score) }}</dd><dt>Время восстановления Garmin</dt><dd data-recovery-time>{{ field_value(ready.fields.recoveryTime) }}{% if ready.fields.recoveryTime and ready.fields.recoveryTime.state in ['value', 'zero'] and ready.fields.recoveryTime.value is not none %} <span class="muted">· единица не указана</span>{% endif %}</dd><dt>Острая нагрузка в снимке готовности</dt><dd>{{ field_value(ready.fields.acuteLoad) }}</dd></dl>
+   <details class="owner-details"><summary>Снимки готовности</summary><p>Сохранено снимков: {{ ready.snapshot_count }}. Предыдущие снимки не усредняются.</p></details>
    {% else %}<p class="unavailable">Готовность не предоставлена</p>{% endif %}
   </section></div>
   <details class="owner-details"><summary>Распределение нагрузки</summary>

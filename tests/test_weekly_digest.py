@@ -4,10 +4,12 @@ import hashlib
 import json
 import os
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from html import unescape
 from pathlib import Path
+from types import MappingProxyType
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -23,6 +25,7 @@ from healthcheck.db.engine import session_scope
 from healthcheck.db.models import GarminRecordMetric, GoogleRecordMetric
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.web.ui_app import create_ui_app
+from healthcheck.web.weekly_preview import weekly_preview_presentation
 from test_chat_evidence_mcp import HEADERS, rpc
 from test_combined_evidence import (
     _seed_completed_steps,
@@ -52,6 +55,27 @@ def read(profile, **kwargs):
         config=kwargs.pop("config", config(profile)),
         week_end=kwargs.pop("week_end", END),
         evaluated_at_utc=kwargs.pop("clock", CLOCK), **kwargs)
+
+
+def presentation_checked(packet):
+    before = deepcopy(packet)
+    encoded = weekly.encode_weekly_digest(packet)
+    text = weekly.render_weekly_digest(packet)
+
+    def freeze(value):
+        if isinstance(value, dict):
+            return MappingProxyType({key: freeze(item) for key, item in value.items()})
+        if isinstance(value, list):
+            return tuple(freeze(item) for item in value)
+        return value
+
+    result = weekly_preview_presentation(freeze(packet))
+    assert result == weekly_preview_presentation(packet)
+    assert packet == before
+    assert weekly.encode_weekly_digest(packet) == encoded
+    assert weekly.render_weekly_digest(packet) == text == packet["text"]
+    assert packet["digest_hash"] == before["digest_hash"]
+    return result
 
 
 def seed_google(profile, value="0"):
@@ -99,6 +123,8 @@ def test_one_snapshot_exact_sources_frozen_renderer_hash_readonly(profile, monke
     assert "итог предварительный" in packet["text"]
     assert "1 из 7 дат" in packet["text"]
     assert "0 шагов" in packet["text"] and "123 шагов" in packet["text"]
+    shown = presentation_checked(packet)
+    assert any("0 шагов" in fact for fact in shown["facts"])
 
 
 def test_reuses_activity_reducers_invalid_field_does_not_remove_session(profile):
@@ -123,6 +149,8 @@ def test_empty_week_is_unknown_not_no_activity_or_zero_steps(profile):
     assert "нет" in packet["text"]
     assert "пригодной длительности" in packet["text"]
     assert packet["comparison"]["state"] == "not_performed"
+    shown = presentation_checked(packet)
+    assert not shown["facts"] and shown["gaps"]
 
 
 def test_completed_steps_excludes_unfinished_sunday(profile):
@@ -135,6 +163,8 @@ def test_completed_steps_excludes_unfinished_sunday(profile):
     assert steps["excluded_uncompleted_day_count"] == 1
     assert all(str(cell["calendar_date"]) != str(END) for cell in steps["cells"])
     assert "1 из 6 дат" in packet["text"]
+    assert any("Незавершённые даты исключены" in fact
+               for fact in presentation_checked(packet)["facts"])
 
 
 @pytest.mark.parametrize("offset", [timedelta(minutes=1), timedelta(days=2)])
@@ -143,6 +173,8 @@ def test_late_read_uses_actual_clock_never_sunday_time_travel(profile, offset):
     assert packet["period"]["late_read"] is True
     assert packet["period"]["as_of"] == (CLOCK + offset).astimezone(weekly.MOSCOW).isoformat()
     assert "не восстановление на 20:00" in packet["text"]
+    assert any("не восстановление на 20:00" in notice
+               for notice in presentation_checked(packet)["notices"])
     assert packet["period"]["sunday_incomplete"] == (offset < timedelta(days=1))
 
 
@@ -268,6 +300,13 @@ def test_overview_opt_in_card_and_no_new_route(profile, monkeypatch):
         assert "Подробности и основания" in response.text
         assert "автоматическая отправка не включена" in response.text
         assert "итог предварительный" in response.text
+        card = response.text.split("data-weekly-preview>", 1)[1].split("</section>", 1)[0]
+        primary, details = card.split('<details class="owner-details">', 1)
+        assert primary.index("data-weekly-fact") < primary.index("data-weekly-gaps")
+        assert "data-weekly-original-text" in details
+        assert "Свежесть обновления неизвестна" in primary
+        assert "По состоянию на" in primary
+        assert "Дневной сон и записи с неопределённой ролью" not in primary
         assert "Проверьте дату воскресенья" in http.get(url.replace(
             "weekly_end=2099-01-04", "weekly_end=2099-01-02")).text
         # Optional local visual evidence, never a runtime launch or real profile.
@@ -303,6 +342,9 @@ def test_sleep_accepted_roles_and_duration_gates(profile, role):
     packet = read(profile)
     assert "Сон Google: пригодной длительности основного сна нет" in packet["text"]
     assert packet["evidence"]["sections"]["sleep"]["providers"]["google"]["source_range"]
+    shown = presentation_checked(packet)
+    assert not any(fact.startswith("Сон Google:") for fact in shown["facts"])
+    assert any(gap.startswith("Сон Google:") for gap in shown["gaps"])
 
 
 def test_full_activity_and_google_steps_seven_dates_no_cross_source_sum(profile):
@@ -377,6 +419,8 @@ def test_compact_preserves_every_renderer_input(profile, view):
                 ["source_range"]["series"] == detailed["sections"]["sleep"]
                 ["providers"][provider]["source_range"]["series"])
     assert weekly.render_weekly_digest({**compact, "evidence": detailed}) == compact["text"]
+    assert presentation_checked(compact) == weekly_preview_presentation(
+        {**compact, "evidence": detailed})
 
 
 def test_dense_persisted_sleep_compact_adapter_overview_mcp(profile, monkeypatch):
@@ -413,6 +457,7 @@ def test_dense_persisted_sleep_compact_adapter_overview_mcp(profile, monkeypatch
     eligible = [p for p in points if p["state"] == "value" and p["value"] is not None
                 and not p["role_uncertain"]]
     assert len(eligible) == 7
+    assert any("7 из 7 ночей" in fact for fact in presentation_checked(packet)["facts"])
     assert {str(p["wake_date"]) for p in eligible} == {
         str(end - timedelta(days=i)) for i in range(7)}
 
@@ -472,3 +517,71 @@ def test_overview_weekly_failure_reason_is_truthful(profile, monkeypatch, reason
             assert "Проверьте дату" not in response.text
             if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
                 (Path(target) / "budget-fallback.html").write_text(response.text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("scenario", ["activity_incomplete", "activity_zero", "uncertain_role"])
+def test_presentation_reuses_guarded_facts_from_frozen_packet(profile, monkeypatch, scenario):
+    packet = read(profile)
+    sections = packet["evidence"]["sections"]
+    count = sections["activity"]["providers"]["garmin"]["metrics"]["activity_session_count"]
+    if scenario == "activity_incomplete":
+        count["search"]["complete"] = False
+    elif scenario == "activity_zero":
+        count["aggregation"]["value"] = 0
+    else:
+        for item in sections["sleep"]["providers"].values():
+            if item["source_range"]:
+                for series in item["source_range"]["series"]:
+                    for point in series["points"]:
+                        point["role_uncertain"] = True
+    packet["text"] = weekly.render_weekly_digest(packet)
+    packet.pop("digest_hash")
+    packet["digest_hash"] = hashlib.sha256(_json(packet).encode()).hexdigest()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("presentation must not read evidence")
+
+    monkeypatch.setattr(weekly, "read_combined_evidence", forbidden)
+    shown = presentation_checked(packet)
+    if scenario == "activity_incomplete":
+        assert not any(fact.startswith("Занятия Garmin:") for fact in shown["facts"])
+        assert any(gap.startswith("Занятия Garmin:") for gap in shown["gaps"])
+    elif scenario == "activity_zero":
+        assert any("подтверждённых занятий нет" in fact for fact in shown["facts"])
+    else:
+        assert not any(fact.startswith("Сон ") for fact in shown["facts"])
+    from healthcheck.web import pages
+    assert pages.templates.env.globals["weekly_preview_presentation"] is weekly_preview_presentation
+
+
+@pytest.mark.parametrize("offset", [0, 7])
+def test_weekly_empty_and_zero_route_production_presentation(profile, monkeypatch, offset):
+    from healthcheck.web import pages
+
+    steps = _seed_movement(profile)
+    google = seed_google(profile, "0")
+    cfg = config(profile, steps_garmin_source_id=steps, steps_google_source_id=google)
+    clock, end = CLOCK + timedelta(days=offset), END + timedelta(days=offset)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", Clock)
+    app, _ = create_ui_app(Settings(data_dir=profile[0].root),
+                           weekly_digest=cfg, profile_kind="synthetic")
+    with TestClient(app, base_url="http://127.0.0.1:8120") as http:
+        response = http.get(f"/brief?start_date={end - timedelta(days=6)}"
+                            f"&end_date={end}&weekly_end={end}")
+    assert response.status_code == 200
+    shown = presentation_checked(response.context["weekly_digest"])
+    if offset:
+        assert not shown["facts"]
+    else:
+        assert any("0 шагов" in fact for fact in shown["facts"])
+    if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+        output = Path(target)
+        output.mkdir(parents=True, exist_ok=True)
+        (output / f"weekly-{'empty' if offset else 'zero'}.html").write_text(
+            response.text, encoding="utf-8")

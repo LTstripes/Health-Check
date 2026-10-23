@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from html.parser import HTMLParser
 
 import pytest
 from sqlalchemy import event, select
@@ -1084,3 +1085,78 @@ def test_sleep_regularity_sparse_table_collapses_identical_states(tmp_path, monk
     result = build_sleep_regularity({}, [], google_selection={"status": "require_selection"},
         days=7, end_date=date(2026, 10, 8))
     assert result["empty_text"] == "Выберите источник Google."
+
+
+@pytest.mark.parametrize("end,days", [
+    (date(2024, 3, 1), 7), (date(2024, 3, 1), 30),
+    (date(2025, 1, 5), 7), (date(2025, 1, 5), 30),
+])
+def test_historical_sleep_period_controls_share_existing_snapshot(tmp_path, monkeypatch, end, days):
+    from html import unescape
+
+    from healthcheck.web import pages
+
+    app, _, _ = _ui(tmp_path)
+    reads = []
+    original = pages.read_source_sleep_range
+
+    def capture(session, **kwargs):
+        reads.append(kwargs.copy())
+        return original(session, **kwargs)
+
+    monkeypatch.setattr(pages, "read_source_sleep_range", capture)
+    with client_for(app) as client:
+        response = client.get(f"/sleep?wake_date={end}&days={days}")
+    assert response.status_code == 200
+    packet = _timeline_json(response.text)
+    start = end - timedelta(days=days - 1)
+    assert reads == [dict(provider=provider, wake_date=end, days=days)
+                     for provider in ("garmin", "google")]
+    assert packet["start_date"] == str(start) and packet["end_date"] == str(end)
+    assert packet["dates"] == [str(start + timedelta(days=i)) for i in range(days)]
+    assert [row["date"] for row in packet["table_rows"]] == packet["dates"]
+    form = response.text.split('data-sleep-period-form>', 1)[1].split('</form>', 1)[0]
+    assert f'name="wake_date" value="{end}" required' in form
+    assert f'name="days" value="{days}"' in form
+    assert '<button type="submit">Показать</button>' in form
+    assert f'aria-current="true" href="/sleep?view=timeline&amp;days={days}' in response.text
+    assert f'<strong>{days} дней <span aria-hidden="true">✓</span></strong>' in response.text
+    assert f'/imports?export_end_date={end}&export_days={days}#analysis-export' in unescape(
+        response.text)
+
+
+def test_historical_sleep_keeps_explicit_source_in_date_form_and_period_links(tmp_path):
+    app, _, paths = _ui(tmp_path)
+    family, _ = _seed_normal_google(paths, competitor=True)
+    with client_for(app) as client:
+        response = client.get(
+            f"/sleep?wake_date=2099-01-02&days=7&google_sleep_source_id={family}")
+    form = response.text.split('data-sleep-period-form>', 1)[1].split('</form>', 1)[0]
+    assert f'name="google_sleep_source_id" value="{family}"' in form
+    assert f'&amp;google_sleep_source_id={family}' in response.text
+    class HandoffParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.hrefs = []
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if tag == "a" and "data-sleep-export" in attributes:
+                self.hrefs.append(attributes.get("href"))
+
+    handoff = HandoffParser()
+    handoff.feed(response.text)
+    assert handoff.hrefs == [
+        "/imports?export_end_date=2099-01-02&export_days=7#analysis-export"]
+    assert 'google_sleep_source_id' not in handoff.hrefs[0] and family not in handoff.hrefs[0]
+
+
+@pytest.mark.parametrize("value", ["invalid-private-date", "2025-02-29", "0001-01-01"])
+def test_historical_sleep_invalid_date_never_substitutes_today(tmp_path, value):
+    app, _, _ = _ui(tmp_path)
+    with client_for(app) as client:
+        response = client.get("/sleep", params={"wake_date": value, "days": "7"})
+    assert response.status_code == 400
+    assert 'invalid_sleep_date' in response.text
+    assert 'data-sleep-period-form' not in response.text
+    assert value not in response.text

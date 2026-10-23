@@ -1,7 +1,9 @@
 """Completed Moscow Overview windows and real synthetic saved measurements."""
 
+import os
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +17,7 @@ from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.web import overview_completed as module
 from healthcheck.web import pages
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
+from healthcheck.web.owner_presentation import owner_date
 from healthcheck.web.ui_app import create_ui_app
 from test_body_battery_read import seed_battery
 from test_stress_baseline import acquire
@@ -225,3 +228,95 @@ def test_route_preserves_requested_packet_and_form_but_shows_completed_card_rang
         today = client.get("/brief?start_date=2099-01-08&end_date=2099-01-08")
         assert today.status_code == 200
         assert today.text.count("В выбранном периоде нет завершённых дней") == 3
+
+
+@pytest.mark.parametrize("mode", ["empty", "zero", "partial", "invalid", "withheld"])
+def test_battery_empty_plot_and_withheld_error_stay_distinct(database, monkeypatch, mode):
+    source_id, settings = seed_completed(database)
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
+    original = pages.read_completed_overview
+
+    def presented(*args, **kwargs):
+        result = original(*args, **kwargs)
+        battery = result["body_battery"]
+        dto = battery["selected"]
+        if mode == "withheld":
+            dto.update(reason="period_record_cap", state="search_incomplete",
+                       mean_display=None, mean_exact=None, daily_maxima=[],
+                       eligible_day_count=None)
+            dto["search"]["complete"] = False
+            battery["figure"] = None
+        else:
+            point = dict(dto["daily_maxima"][0], source_local_date="2099-01-03",
+                         value=0, is_zero=True)
+            available = mode in {"zero", "partial"}
+            dto.update(mean_display="0" if available else None,
+                       mean_exact={"numerator": 0, "denominator": 1} if available else None,
+                       state="observed" if available else "no_eligible_in_period",
+                       eligible_day_count=1 if available else 0,
+                       daily_maxima=[point] if available else [])
+            rows = [] if mode == "empty" else [{
+                "date": "2099-01-03", "value": None if mode == "invalid" else 0,
+                "state": "partial" if mode == "partial" else "present"}]
+            battery["figure"] = module.dated_chart(rows, start=date(2099, 1, 1),
+                end=date(2099, 1, 7), include_zero=True)
+        return result
+
+    monkeypatch.setattr(pages, "read_completed_overview", presented)
+    with TestClient(create_ui_app(settings)[0], base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief", params={"start_date": "2099-01-01",
+            "end_date": "2099-01-07", "garmin_source_id": source_id})
+    assert page.status_code == 200
+    assert ('data-overview-chart="body-battery"' in page.text) == (mode in {"zero", "partial"})
+    assert ('data-overview-empty="body-battery"' in page.text) == (mode in {"empty", "invalid"})
+    if mode == "withheld":
+        assert "Достигнут лимит записей периода; среднее недоступно." in page.text
+        assert "Поиск не завершён" in page.text
+    assert f"{owner_date(date(2099, 1, 1))} — {owner_date(date(2099, 1, 7))}" in page.text
+    if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+        Path(target).mkdir(parents=True, exist_ok=True)
+        Path(target, f"battery-{mode}.html").write_text(page.text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("value,trend,plot", [(None, None, False), (None, 70, False),
+                                          (0, None, True), (70, None, True), (70, 71, True)])
+def test_weight_observed_gate_and_actual_ewma_legend(database, monkeypatch, value, trend, plot):
+    source_id, settings = seed_completed(database)
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
+    original = pages.read_overview_charts
+
+    def charts(*args, **kwargs):
+        result = original(*args, **kwargs)
+        result["weight_current"] = {"value_kg": value,
+                                    "observed_date": "2099-01-03"} if value is not None else None
+        result["weight_trend"]["available"] = trend is not None
+        result["weight"] = module.dated_chart([
+            {"date": "2099-01-03", "value": value, "trend": trend, "state": "present"}],
+            start=date(2099, 1, 1), end=date(2099, 1, 7), weight_layout=True)
+        return result
+
+    monkeypatch.setattr(pages, "read_overview_charts", charts)
+    with TestClient(create_ui_app(settings)[0], base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief", params={"start_date": "2099-01-01",
+            "end_date": "2099-01-07", "garmin_source_id": source_id})
+    assert page.status_code == 200
+    assert ('data-overview-chart="weight"' in page.text) == plot
+    if plot:
+        figure = page.text.split('data-overview-chart="weight"', 1)[1].split('</figure>', 1)[0]
+        assert ('overview-weight-diamond' in figure) == (trend is not None)
+        assert 'overview-observed' in figure
+    else:
+        assert 'data-overview-empty="weight"' in page.text
+    if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+        Path(target).mkdir(parents=True, exist_ok=True)
+        Path(target, f"weight-{value}-{trend}.html").write_text(page.text, encoding="utf-8")

@@ -3082,6 +3082,23 @@ their existing selector defaults, without any new metric-eligibility inference;
 competing identities require explicit selection. Source guards, 2 MiB limits,
 Context cap, no-store, privacy scope and Blob lifecycle are unchanged.
 
+The Sleep timeline's existing `wake_date` and 7/30 window also have a compact
+GET form (#504). Chart, regularity and table retain the same bounded snapshot.
+Its download link prefills only `export_end_date` and `export_days` at the existing
+Data/export anchor; GET does not generate or send evidence. Prefill accepts only
+canonical dates and 7/30, rejecting duplicate parameters and unsupported bounds.
+Ordinary defaults remain today/30; the existing Sleep fallback remains unchanged.
+The inclusive range is visible before and after download, and edits invalidate
+the previous result. The file is downloaded locally for manual attachment in the
+private chat. Source selection and the supported manifest are unchanged: the link
+does not promise the same selected Google family or add Google Steps export.
+
+Weight and Body Battery omit empty plot areas when no eligible observed value
+exists; this is a non-None check, so an eligible zero remains visible. Withheld
+search results remain withheld, and an EWMA legend requires actual trend points.
+RecoveryTime's unknown unit is adjacent to an actual value/zero; missing/invalid
+remain nonnumeric. No unit or physiological meaning is inferred (#505).
+
 Integrated boundaries include:
 - #307 bounds only the Google daily-vitals display read to the trailing 400 inclusive days for longer custom periods and visibly discloses that scope; full Period Brief/Garmin period unchanged.
 - #317 source-only account observations reuse accepted R05 eligibility, uncertain roles, exact wake dates and evidence. They do not loosen legacy device/family Compare or canonical rules. Google daily vitals are not within-sleep measurements; Google vendor-score availability is not promised.
@@ -4000,6 +4017,11 @@ optional `weekly_digest` plus explicit `profile_kind`; only then the existing
 Overview offers a preview through `/brief?weekly_end=YYYY-MM-DD`. The digest owns
 its own bounded snapshot, separately from the Overview read. Frozen compact
 evidence is collapsed below short text; default UI/source selection is unchanged.
+A pure web presentation helper (#505) orders existing usable facts before compact
+gaps, with actual period/as-of, unfinished Sunday, late-read and preview/freshness
+notices retained. Original text and JSON remain under details. It performs no
+read or mutation and does not change `packet.text`, `digest_hash`, serialized
+evidence or MCP output; the existing source/search/role/zero guards still apply.
 
 <a id="saved-sleep-analyses"></a>
 ### Optional saved Context and sleep analyses (#462 / #464)
