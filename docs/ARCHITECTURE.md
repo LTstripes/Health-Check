@@ -305,8 +305,9 @@ They reuse the existing scalar-series eligibility, partial/zero and ambiguity
 rules, retain source selection, and never average repeated observations within a
 day. Both reads retain the existing 400-day / 2,000-point bounds; an incomplete
 read exposes no partial-prefix mean and a long window is not silently clipped.
-One eligible day is sufficient, with compact n/N coverage; missing days never
-become zero. Partial observations remain labelled. Sleep's final mean is rounded
+One eligible day is sufficient; missing days never become zero. The actual
+denominator and partial evidence remain in accessible details, without repeated
+coverage rows in ordinary cards. Sleep's final mean is rounded
 half-up to a whole second only for human duration display; Stress retains the
 existing up-to-two-decimal format. The selected-day 28-day Stress baseline reader
 remains available separately and its interpretation is unchanged.
@@ -2015,9 +2016,10 @@ window with no eligible days has no total or mean, not a fabricated zero.
 
 The total is an arbitrary-precision integer sum; the exact mean is total / observed
 day count, never requested-window length. Display rounds HALF_EVEN to one decimal
-(with `<0.1` for a positive mean rounded to zero). Primary UI says N of D observed
-days and that full-day coverage remains unconfirmed even when N=D. Google civil
-dates remain the reader's dates before the independent Garmin Moscow shift.
+(with `<0.1` for a positive mean rounded to zero). Existing heading details retain
+N of D observed days and unconfirmed full-day coverage even when N=D; the ordinary
+card omits those repeated rows. Google civil dates remain the reader's dates
+before the independent Garmin Moscow shift.
 
 Garmin 7/30-day presentation reuses `summarize_completed_days` on the already-read
 complete `CompletedStepsWindow`; no additional history read is introduced and its
@@ -3065,17 +3067,18 @@ limitations. Routine methodology, provenance and repeated refresh diagnostics
 use accessible closed info/details; disclosure never changes evidence quality.
 Statistics omits the redundant Google card only for an explicitly unsupported
 `not_collected` metric, retaining missing/invalid/conflict/incomplete supported
-metrics. Partial aggregates retain an observed-window qualifier and their real
-denominator; legacy scalar-valid sleep retains the visible unverified-boundaries
-qualifier. No display rule changes reader eligibility, zero/missing, source
+metrics. Partial aggregates retain their real observed-day denominator and evidence
+qualifier in accessible existing details. Legacy scalar-valid sleep retains its
+unverified-boundaries state/reason there and is never relabelled verified. No display rule changes reader eligibility, zero/missing, source
 selection, legacy policy A or calculation precision.
 
 Bare `/` redirects to `/brief`; `/weight` is the canonical Weight page. Root
 query links retain their Weight destination and exact query string for legacy
 navigation. APIs and explicit section routes are unchanged. The existing Data
-page owns `/imports#analysis-export`; Overview has only its navigation link.
-The download form keeps date and 7/30 controls primary, discloses the existing
-supported manifest/current comments and advanced source selection, and starts
+page owns `/imports#analysis-export`; Overview and Sleep have no download CTA.
+The fallback form shows date, 7/30 and Download, with existing supported data and
+current comments. Exact sole-source defaults are retained; source controls appear
+only for a genuine unresolved choice. It starts
 the text download only after both unchanged capped serializers succeed. JSON
 remains available from the same frozen packet. Sole saved identities retain
 their existing selector defaults, without any new metric-eligibility inference;
@@ -3084,14 +3087,33 @@ Context cap, no-store, privacy scope and Blob lifecycle are unchanged.
 
 The Sleep timeline's existing `wake_date` and 7/30 window also have a compact
 GET form (#504). Chart, regularity and table retain the same bounded snapshot.
-Its download link prefills only `export_end_date` and `export_days` at the existing
-Data/export anchor; GET does not generate or send evidence. Prefill accepts only
+The former Sleep download CTA is removed. Existing Data/export prefill accepts
+only `export_end_date` and `export_days`; GET does not generate or send evidence.
+Prefill accepts only
 canonical dates and 7/30, rejecting duplicate parameters and unsupported bounds.
 Ordinary defaults remain today/30; the existing Sleep fallback remains unchanged.
 The inclusive range is visible before and after download, and edits invalidate
-the previous result. The file is downloaded locally for manual attachment in the
-private chat. Source selection and the supported manifest are unchanged: the link
-does not promise the same selected Google family or add Google Steps export.
+the previous result. The file remains a local fallback; the separately bound assistant runner is the
+authorized no-download route. Source selection and the supported manifest are
+unchanged: prefill does not promise the same Google family or add Google Steps export.
+
+The Owner-directed lighter presentation (#492/#392/#495) removes the ordinary
+weekly preview, four lower technical Overview sections and repeated card dates,
+coverage/source rows. One accessible tooltip on the existing period indicator
+states the requested calendar window and the completed Moscow window used by
+Sleep/Stress/Body Battery. Hover and keyboard focus reveal it; Escape dismisses
+and it rearms. Window policy and metric selection are unchanged. Weight and
+Activity retain the requested calendar window; no different windows are silently
+presented as one. Observation dates and retained evidence tables use existing
+heading details. Latest weekly HRV is named as a saved observation, not a period mean.
+
+Statistics keeps Garmin/Google headings and values primary. Existing heading
+icons retain denominator/quality/provenance; source conflicts and incomplete
+selection remain actionable. Steps totals/counts preserve exact integer strings,
+group digits, and use a numeric scale with label-derived padding. The observed-day
+mean is display-rounded only. A day value appears after explicit selection, not
+an arbitrary preselected date; missing days never become zero. These rules do not
+pool providers, change packet semantics or suppress a genuine loading failure.
 
 Weight and Body Battery omit empty plot areas when no eligible observed value
 exists; this is a non-None check, so an eligible zero remains visible. Withheld
@@ -3656,8 +3678,9 @@ Any incomplete search rejects the entire packet as `steps_search_incomplete`.
 There is no Steps aggregate or all-time mode in this slice.
 
 `POST /api/analysis-export` accepts optional `steps_view` (default `observed`).
-The updated form visibly defaults to completed Moscow days and can select saved
-observations; old API requests remain observed/v4. It shows actual completed
+The fallback form fixes completed Moscow days without an ordinary mode switch;
+API callers can still select observed, and old requests remain observed/v4.
+Existing result details show actual completed
 dates, calendar counts and state counts without exposing daily values in the
 disclosure summary. Detailed/compact preserve identical Steps facts. Existing
 independent 2 MiB JSON/text limits, atomic download availability, no-store,
@@ -4010,8 +4033,8 @@ The weekly adapter explicitly selects the existing compact projection. Its
 accepted Activity/Steps cells and Sleep duration series have the same renderer
 meaning as detailed evidence; compact is not a detailed interval replay packet.
 The unchanged 2 MiB UTF-8 guard covers the complete weekly envelope, and an
-oversized compact result is withheld entirely. Overview reports size/read
-failures without suggesting a valid date or source should be changed.
+oversized compact result is withheld entirely. Callers report size/read failures
+without suggesting a valid date or source should be changed.
 Context and previous-period comparison are not requested. Existing defaults and
 all quality/resource guards remain unchanged. One combined snapshot provides the
 entire digest. The optional `steps_google_source_id` combined request adds v7
@@ -4044,10 +4067,11 @@ revision before any future transport reuses a delivery identity.
 under the existing authenticated gateway, lock, protocol and wire-size limits.
 Default MCP remains Weight/Context only; no CLI setting, connection, credential,
 network route, scheduler or message transport is enabled. `create_ui_app` accepts
-optional `weekly_digest` plus explicit `profile_kind`; only then the existing
-Overview offers a preview through `/brief?weekly_end=YYYY-MM-DD`. The digest owns
-its own bounded snapshot, separately from the Overview read. Frozen compact
-evidence is collapsed below short text; default UI/source selection is unchanged.
+optional `weekly_digest` plus explicit `profile_kind` for compatibility, but the
+ordinary Overview no longer renders the preview or its trigger after Owner UAT.
+The digest API/MCP contract and the separately requested future Sunday chat summary
+remain; no scheduled delivery is enabled. A digest read owns its bounded snapshot
+separately from the Overview read; frozen evidence and source selection are unchanged.
 A pure web presentation helper (#505) orders existing usable facts before compact
 gaps, with actual period/as-of, unfinished Sunday, late-read and preview/freshness
 notices retained. Original text and JSON remain under details. It performs no

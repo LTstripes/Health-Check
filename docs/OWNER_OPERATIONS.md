@@ -979,23 +979,22 @@ Bare `/` opens Overview (`/brief`); Weight has the canonical `/weight` route.
 Existing root links carrying query parameters retain their Weight destination
 and unchanged query string. Explicit section links and APIs keep their routes.
 
-**Данные → Скачать данные** (`/imports#analysis-export`) owns the download form;
-Overview links to it without embedding export controls. Select 7 or 30 inclusive
-calendar dates and an end date, then choose **Скачать**. A text download begins
-after both existing serializers finish; JSON and the same text remain available
-under **Файл, JSON и подробности данных**. The visible label states that current
-comments are included. **Источники и состав файла** discloses the supported
-manifest, source selectors and limits, and opens when source selection is needed.
-The one
-Garmin selection is explicitly used for Activity, Sleep, Stress, Body Battery,
-weekly HRV, RHR and the selected Steps view; it never falls back to another Garmin source.
-Weight and current Context are included. Google Sleep and RHR use their existing
-metric-specific eligibility selection, retaining conflicts/incomplete outcomes.
-Google daily HRV uses the exact source shown in its separate selector, or is
-omitted when **Не включать** is selected. A unique inventory source is preselected
-visibly in the disclosed selector; competing sources require a choice. A sole
-inventory identity is only a selector default, never proof of metric eligibility
-or completeness; existing readers retain authority. The UI does not pool providers.
+**Данные → Скачать данные** (`/imports#analysis-export`) is a local fallback.
+Overview and Sleep no longer show download CTAs. Choose an end date and 7/30 days,
+then Download; no routine metric/source switches or manual-attachment instructions
+are shown. The form states that current comments are included. A sole saved Garmin
+and sole Google HRV retain their existing defaults; competing identities reveal
+the necessary source choice rather than choosing the first. An unavailable or
+incomplete inventory exposes a clear retry/failure and withholds the download.
+
+The exact selected Garmin is reused for Activity, Sleep, Stress, Body Battery,
+weekly HRV, RHR and completed Steps. Weight/current Context and the existing
+Google Sleep/RHR eligibility selection remain unchanged. Google daily HRV may be
+unselected when no exact choice is available. No provider pooling, Google Steps
+UI-export support or broader content/privacy scope is added. Both serializers
+must succeed before the text download starts; JSON, limits and retained evidence
+are available in existing result details. For an authorized no-download question,
+use the separately provisioned [local assistant runner](#assistant-period-runner).
 
 `GET /api/analysis-export/sources` reads only bounded saved source identities,
 with a fail-closed 32-source ceiling per provider table. It does not query provider
@@ -1014,9 +1013,10 @@ export files or retained packet cache. Browser Blob URLs live in the current tab
 are revoked on parameter changes, regeneration or page exit, and are not uploaded.
 User-downloaded files remain in the browser's ordinary download destination.
 
-The primary UI keeps short missing/invalid/conflict/search outcomes and partial
-period qualifiers visible; routine methodology, provenance and repeated source
-freshness live in accessible info/details. Saved history is not hidden by an
+The primary UI keeps actionable loading/selection failures visible. Routine
+coverage, denominators, observation dates, methodology, provenance and repeated
+source freshness use accessible existing heading info/details, without new rows
+replacing the removed noise. Values retain their actual meaning and quality. Saved history is not hidden by an
 overdue refresh. Details retain reader states/counts and warnings without
 interpreting health values. Context keeps the existing 50-row
 page: `has_more`/`truncated` is disclosed, not presented as a complete archive.
@@ -1040,10 +1040,11 @@ missing/null/zero, date precision, provenance and causal limits are unchanged.
 
 ### Weekly preview and remaining delivery gate (#488)
 
-The code-only preview is available through the existing Overview when a trusted
-caller explicitly supplies `WeeklyDigestConfig` and `profile_kind` to
-`create_ui_app`; it is disabled by default. The same source configuration can be
-passed as `MCPConfig.weekly_digest`, exposing only the Sunday `week_end` argument.
+Owner UAT removed the weekly preview and its trigger from ordinary Overview.
+The read-only digest backend and trusted `WeeklyDigestConfig` contract remain;
+this does not cancel the requested future Sunday summary. The source configuration
+can be passed as `MCPConfig.weekly_digest`, exposing only Sunday `week_end` under
+the existing separately authenticated transport; no connection is enabled here.
 Use external synthetic profiles for tests. The accepted semantics and frozen
 packet contract are in [Architecture](ARCHITECTURE.md#weekly-digest-preview-488).
 Neither factory call installs or starts a service. Existing CLI/runtime settings
