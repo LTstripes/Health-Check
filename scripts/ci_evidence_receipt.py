@@ -11,21 +11,42 @@ conveyed independently by a trusted producer. A receipt is not a signature.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
-import marshal
 import os
 import re
 import stat
+import subprocess
 import tempfile
+import types
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import ci_evidence_summary as summary
 import ci_test_lanes as lanes
 import ci_windows_smoke as windows
 
 SCHEMA = "healthcheck.exact-ci-receipt/v1"
+WORKFLOW = ".github/workflows/ci.yml"
+CANONICAL_INPUTS = (
+    WORKFLOW,
+    "ci/test-lanes.json",
+    "uv.lock",
+    "pyproject.toml",
+    "scripts/ci_test_lanes.py",
+    "scripts/ci_windows_smoke.py",
+    "scripts/ci_lane_plugin.py",
+    "scripts/ci_evidence_summary.py",
+    "scripts/ci_windows_smoke.ps1",
+    "scripts/ci_windows_process.ps1",
+    "scripts/ci_docs_gate.py",
+    "scripts/ci_event_route.py",
+    "scripts/cleanup-workspaces.ps1",
+    "scripts/cleanup-workspaces.fs.cs",
+    "scripts/ci_evidence_receipt.py",
+)
 
 
 class ReceiptError(ValueError):
@@ -88,10 +109,118 @@ def inventory(root: Path) -> dict[str, str]:
     return result
 
 
+def git(repo: Path, *args: str) -> bytes:
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
+    result = subprocess.run(
+        [
+            "git",
+            "--no-replace-objects",
+            "-c",
+            "core.hooksPath=NUL",
+            "-c",
+            "core.fsmonitor=false",
+            "-C",
+            str(repo),
+            *args,
+        ],
+        env=environment,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    require(result.returncode == 0, "canonical Git identity unavailable")
+    return result.stdout
+
+
+def canonical_binding(context: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+    repo = Path(context["repo_root"])
+    safe_path(repo)
+    require(
+        Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
+        == repo.resolve(),
+        "repo_root is not canonical checkout root",
+    )
+    require(
+        git(repo, "remote", "get-url", "origin").decode().strip()
+        == f"https://github.com/{options['repository']}.git",
+        "foreign repository origin",
+    )
+    local_head = git(repo, "rev-parse", "HEAD").decode().strip()
+    require(local_head in (options["head"], options["checkout"]), "unrelated local HEAD")
+    require(
+        git(repo, "rev-parse", "HEAD^{tree}").decode().strip() == options["tree"],
+        "local HEAD tree differs from intended checkout",
+    )
+    require(
+        git(repo, "rev-parse", options["checkout"] + "^{tree}").decode().strip() == options["tree"],
+        "canonical checkout tree mismatch",
+    )
+    require(
+        git(repo, "show", "-s", "--format=%P", options["checkout"]).decode().strip().split()
+        == options["parents"],
+        "canonical checkout parents mismatch",
+    )
+    canonical = {}
+    sources = {}
+    for relative in CANONICAL_INPUTS:
+        raw = git(repo, "show", options["checkout"] + ":" + relative)
+        path = repo / relative
+        safe_path(path)
+        # Git checkout may convert LF to CRLF; bind actual bytes separately below.
+        require(
+            path.read_bytes().replace(b"\r\n", b"\n") == raw.replace(b"\r\n", b"\n"),
+            "working configuration differs from canonical Git blob: " + relative,
+        )
+        canonical[relative] = {
+            "git_sha256": digest(raw),
+            "working_sha256": digest(path.read_bytes()),
+        }
+        sources[relative] = raw
+    for key, relative in (("manifest_path", "ci/test-lanes.json"), ("lock_path", "uv.lock")):
+        path = Path(context[key])
+        safe_path(path)
+        require(
+            path.read_bytes() == sources[relative],
+            "noncanonical " + key,
+        )
+    require(
+        Path(__file__).read_bytes().replace(b"\r\n", b"\n")
+        == sources["scripts/ci_evidence_receipt.py"].replace(b"\r\n", b"\n"),
+        "noncanonical loaded receipt tool",
+    )
+    for module, relative in (
+        (lanes, "scripts/ci_test_lanes.py"),
+        (windows, "scripts/ci_windows_smoke.py"),
+        (summary, "scripts/ci_evidence_summary.py"),
+    ):
+        require(
+            Path(module.__file__).read_bytes().replace(b"\r\n", b"\n")
+            == sources[relative].replace(b"\r\n", b"\n"),
+            "noncanonical loaded verifier",
+        )
+        code = compile(sources[relative], str(module.__file__), "exec", dont_inherit=True)
+        expected = {
+            item.co_name: item
+            for item in code.co_consts
+            if isinstance(item, types.CodeType) and item.co_flags & inspect.CO_NEWLOCALS
+        }
+        actual = {
+            name: value.__code__
+            for name, value in vars(module).items()
+            if callable(value)
+            and hasattr(value, "__code__")
+            and value.__module__ == module.__name__
+        }
+        require(actual == expected, "loaded verifier code differs from canonical Git blob")
+    return {"local_head": local_head, "inputs": canonical}
+
+
 def binding(context: dict[str, Any]) -> dict[str, Any]:
     """Bind actual loaded modules, external adapter, options and canonical inputs."""
     required = {
         "repository",
+        "workflow_id",
         "run_id",
         "attempt",
         "event",
@@ -108,6 +237,10 @@ def binding(context: dict[str, Any]) -> dict[str, Any]:
     options = context["options"]
     require(set(options) == required, "incomplete or unknown options")
     require(options["event"] in ("push", "pull_request"), "unsupported event")
+    require(
+        type(options["workflow_id"]) is int and options["workflow_id"] > 0,
+        "canonical workflow ID required",
+    )
     for key in ("head", "checkout", "tree"):
         require(bool(re.fullmatch(r"[0-9a-f]{40}", options[key])), "invalid Git identity")
     require(
@@ -124,11 +257,13 @@ def binding(context: dict[str, Any]) -> dict[str, Any]:
         },
         "mandatory code-mode job set changed",
     )
+    canonical = canonical_binding(context, options)
     paths = {
         "manifest": Path(context["manifest_path"]),
         "lock": Path(context["lock_path"]),
         "lanes": Path(lanes.__file__),
         "windows": Path(windows.__file__),
+        "summary": Path(summary.__file__),
         "receipt_tool": Path(__file__),
         "adapter": Path(context["adapter_path"]),
     }
@@ -136,19 +271,12 @@ def binding(context: dict[str, Any]) -> dict[str, Any]:
     for name, path in paths.items():
         safe_path(path)
         files[name] = {"path": str(path.absolute()), "sha256": digest(path.read_bytes())}
-    loaded = {}
-    for module in (lanes, windows):
-        loaded[module.__name__] = {
-            name: digest(marshal.dumps(value.__code__))
-            for name, value in vars(module).items()
-            if callable(value) and hasattr(value, "__code__")
-        }
     return json.loads(
         encoded(
             {
                 "options": options,
+                "canonical": canonical,
                 "files": files,
-                "loaded": loaded,
                 "repo_root": str(Path(context["repo_root"]).absolute()),
             }
         )
@@ -159,6 +287,10 @@ def metadata_identity(metadata: dict[str, Any], options: dict[str, Any]) -> dict
     """Project immutable identities, deliberately excluding URLs/timestamps/display text."""
     run, jobs, artifacts = metadata["run"], metadata["jobs"], metadata["artifacts"]
     run_id, attempt = int(options["run_id"]), int(options["attempt"])
+    require(
+        run["workflow_id"] == options["workflow_id"] and run["path"] == WORKFLOW,
+        "foreign workflow identity",
+    )
     require(run["id"] == run_id and run["run_attempt"] == attempt, "superseded run attempt")
     require(run["status"] == "completed" and run["conclusion"] == "success", "unsuccessful run")
     require(run["repository"]["full_name"] == options["repository"], "foreign repository")
@@ -184,13 +316,16 @@ def metadata_identity(metadata: dict[str, Any], options: dict[str, Any]) -> dict
         artifacts["total_count"] == len(artifacts["artifacts"]), "incomplete artifact pagination"
     )
     expected_names = {
-        f"ci-{name}-{run_id}-{attempt}"
+        f"{name}-{run_id}-{attempt}"
         for name in (
-            "quality",
-            "windows-smoke",
-            "lane-garmin",
-            "lane-core-sleep",
-            "lane-app-ingest",
+            "ci-quality",
+            "ci-windows-smoke",
+            "ci-lane-garmin",
+            "ci-lane-core-sleep",
+            "ci-lane-app-ingest",
+            "event-decision",
+            "docs-decision",
+            "workspace-retirement",
         )
     }
     stable_artifacts = []
@@ -260,7 +395,18 @@ def metadata_identity(metadata: dict[str, Any], options: dict[str, Any]) -> dict
         )
     require(identity == expected_identity, "workflow identity changed")
     return {
-        "run": {k: run[k] for k in ("id", "run_attempt", "head_sha", "event", "head_branch")},
+        "run": {
+            k: run[k]
+            for k in (
+                "id",
+                "run_attempt",
+                "head_sha",
+                "event",
+                "head_branch",
+                "workflow_id",
+                "path",
+            )
+        },
         "jobs": sorted(stable_jobs, key=lambda x: x["id"]),
         "artifacts": sorted(stable_artifacts, key=lambda x: x["id"]),
         "checkout": options["checkout"],
