@@ -3568,6 +3568,37 @@ revisions/overlap/precision/truncation, coherent concurrent reads, recursive
 disclosure, caps, preserved SQL guards, output limits and denied writes. Required
 independent data/privacy review and exact-candidate CI remain separate gates.
 
+<a id="assistant-period-read"></a>
+## Operator-bound local assistant period read (#507)
+
+`assistant_period_read` is a thin local executor adapter over the existing compact
+combined API. The request contains only an ISO `end_date` and integer `days` 7 or
+30. A separately provisioned trusted operator binding fixes the physical profile,
+profile classification, loaded code/dependency and interpreter identities, current
+schema heads, evaluation zone and exact per-domain source IDs. These local proofs
+are compatibility checks, not authentication or new access. Request input cannot
+override the binding, caps, projection or source selection. There is no listener,
+runtime startup, credential/provider operation, automatic source choice or retry.
+
+One existing WAL-aware read-only transaction assembles Sleep, Activity, Context,
+Weight and bound scalar/Steps domains, including saved Google Steps. The adapter
+fixes observed Steps semantics; it does not certify completed days or complete
+collection. Existing schema/authorizer/row/SQL/time guards and 2 MiB complete-packet
+cap remain authoritative. Read-only SQLite may update its coordination SHM; it
+does not authorize DB/WAL/config/artifact changes or journal/schema operations.
+
+The complete canonical packet freezes in `FrozenPeriodRead.packet_json` before
+bounded, source-separated observations are copied from accepted cells. The digest
+keeps requested/effective bounds, states, eligibility, pagination, limitations and
+the complete packet hash; omitted samples are explicit. It adds no analytics or
+causal/medical inference and is not the full medical history. The complete digest
+is limited to 64 KiB before framing; stdout is emitted only after full validation.
+Consumers must call `validate_complete_output` on the entire captured output and
+reject truncation, malformed framing or byte/hash mismatch. A displayed prefix is
+not evidence. Offline/incompatible bindings, source errors or capacity failures
+produce a refusal, without splitting the period. Skills/instructions explain this
+protocol; they do not provide transport, permission or a scheduled delivery path.
+
 <a id="evidence-combined"></a>
 
 <a id="evidence-combined--combined-evidence-and-v1v5-compatibility"></a>

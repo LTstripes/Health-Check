@@ -920,6 +920,40 @@ Implementation uses synthetic data only. Private exported notes are evidence for
 Owner-selected discussion, never instructions for model tool execution or content
 for public GitHub/CI logs.
 
+<a id="assistant-period-runner"></a>
+## Local assistant period reading (#507)
+
+For an authorized saved-data question, the assistant chooses only the historical
+end date and supported 7/30-day width. The existing executor supplies a private,
+preassigned operator binding; the Owner does not select metrics or download a file.
+The binding names exact profile/code/runtime/schema/source identities and an
+evaluation zone, independently of the question. Verify its accepted candidate and
+compatibility evidence before provision; never guess the first saved source or
+reuse a binding against changed code/interpreter/profile. Optional unbound domains
+remain explicitly not requested, not zero or complete account history.
+
+The standalone entry is `python -m healthcheck.assistant_period_read --binding
+<operator-json>` with only `{"end_date":"YYYY-MM-DD","days":7}` (or 30) on stdin.
+The binding path is supplied by the trusted executor, never interpolated from the
+question. The Python entry `read_assistant_period` returns the complete frozen
+packet and framed digest. Capture stdout completely and validate it with
+`validate_complete_output` before interpreting any observations; a truncated tool
+display, missing frame or execution refusal must not be analyzed as success.
+Use accepted per-source states and disclosures, including Context has_more,
+missing/zero, partial coverage, saved-sample Body Battery and HRV method differences.
+Historical association does not establish why symptoms occurred.
+
+This is local read-only execution, not a new listener, OAuth connection, provider
+refresh, migration, hidden period split, automatic message or permanent access.
+The existing current-schema/snapshot/write-denial and 2 MiB packet limits remain;
+the digest has a separate 64 KiB cap. Keep operator bindings, complete real-data
+packets and private real-data read receipts local/private; never paste them into
+GitHub or CI. Synthetic engineering/CI evidence remains publishable. Preserve
+DB/WAL bytes; SQLite SHM coordination may change during a WAL-aware read. A skill
+may describe the invocation and refusal rules but cannot create access or transport.
+Real-copy exercises require the issue's separately gated review/CI/readiness and
+exact assigned copy; they do not pass Owner UAT or authorize Stable/release.
+
 <a id="analysis-export"></a>
 
 <a id="analysis-export--saved-evidence-export-and-ui-workflow"></a>

@@ -16,7 +16,26 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 <a id="current-canonical-state--current-canonical-state--2026-10-23"></a>
 ## Current canonical state - 2026-10-23 (Europe/Moscow)
 
-**Release #479 is NO-GO: the Owner ended the 22 October UAT with UX NOT ACCEPTED.**
+**Release #479 is NO-GO: the Owner also marked the 23 October UAT on
+`726b1651e70006309bba95268b92ff3d30e6028a` UX NOT ACCEPTED.**
+The [latest bounded UI follow-up](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6367860207)
+removes ordinary Overview/Statistics noise without changing data semantics; its
+new candidate is not accepted by this runner change. The existing guarded test
+runtime/copy remains pinned and unchanged. The prior exact #506 engineering gates
+and [fresh copy preparation](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6363351834)
+retain their scopes; numeric regularity on that retained snapshot remains unverified.
+
+Separately authorized [#507](https://github.com/LTstripes/Health-Check/issues/507)
+adds local operator-bound 7/30-day compact reading for the assistant, with saved
+Google Steps and existing supported domains. It creates no listener/access channel
+or weekly sending. Independent source review and 103 focused/compact/entry checks
+passed for the two-file implementation. Final exact-candidate CI and integration
+gates remain pending; receipts will be recorded in the issue/PR. Any real-copy
+query remains separately gated and is not
+claimed executed here. [Invocation and refusal rules](OWNER_OPERATIONS.md#assistant-period-runner)
+stay in Operations; [durable contract](ARCHITECTURE.md#assistant-period-read) stays
+in Architecture. Repeat Owner acceptance and separate release authority are pending.
+
 This is a presentation acceptance result, not a reported arithmetic failure.
 The earlier targeted audit returned NO-GO on `303450b`; its two high findings
 were corrected through [PR #491](https://github.com/LTstripes/Health-Check/pull/491).
