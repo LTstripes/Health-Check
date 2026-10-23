@@ -416,23 +416,33 @@ def delegate(
     branch = identity["GITHUB_REF"].removeprefix("refs/heads/")
     require(re.fullmatch(r"task/[A-Za-z0-9_./-]+", branch) is not None)
     candidate = None
+    retrying = False
     while True:
+        lookup_deadline = discovery_deadline if retrying else deadline
+        require(monotonic() < lookup_deadline)
+        if isinstance(api, GitHub):
+            api.deadline = lookup_deadline
         try:
             observed = snapshot(api, repository, branch, head)
             require(candidate is None or candidate == observed)
             candidate = observed
             require(
                 candidate["head_tree"]
-                == bounded_git(root, deadline, monotonic, "rev-parse", "HEAD^{tree}")
+                == bounded_git(root, lookup_deadline, monotonic, "rev-parse", "HEAD^{tree}")
                 .decode()
                 .strip()
             )
             run = current_run(api, candidate, branch)
+            require(not retrying or monotonic() < discovery_deadline)
             break
         except Absent as absent:
             require(candidate is None or absent.args == ("run",))
             require(monotonic() < discovery_deadline)
             sleep(min(5, discovery_deadline - monotonic()))
+            retrying = True
+        finally:
+            if isinstance(api, GitHub):
+                api.deadline = deadline
     run_identity = (run["id"], run["run_attempt"])
     while run["status"] != "completed":
         require(monotonic() < deadline)

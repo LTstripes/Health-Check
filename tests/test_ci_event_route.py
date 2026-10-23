@@ -823,3 +823,71 @@ def test_api_timeout_is_clamped_to_total_deadline(monkeypatch):
     with pytest.raises(ROUTE.Unproven):
         api.raw("synthetic")
     assert timeouts == [1.5]
+
+
+@pytest.mark.parametrize("discovered_at", [30, 31])
+@pytest.mark.parametrize("absent", ["PR", "run"])
+def test_discovery_success_at_or_after_expiry_keeps_full(docs_candidate, absent, discovered_at):
+    root, identity, api = docs_candidate
+    clock = Clock()
+    original = api.get
+    lookups = []
+
+    def late_discovery(path):
+        is_lookup = path.startswith("pulls?" if absent == "PR" else "actions/workflows/")
+        if is_lookup:
+            lookups.append(clock.elapsed)
+            if clock.elapsed < 25:
+                clock.elapsed = 25
+                return [] if absent == "PR" else {"total_count": 0, "workflow_runs": []}
+            clock.elapsed = discovered_at
+        return original(path)
+
+    api.get = late_discovery
+    observed = ROUTE.route(root, identity, REPO, api, monotonic=clock.now, sleep=clock.sleep)
+    assert observed["delegated"] is False
+    assert lookups == [0]  # No lookup starts on the expired 30-second boundary.
+    assert api.downloads == []
+
+
+@pytest.mark.parametrize("lookup_finishes", [30, 31, 29.999])
+def test_retry_lookup_must_finish_before_grace_and_restores_total_budget(
+    docs_candidate, lookup_finishes
+):
+    root, identity, original_api = docs_candidate
+    clock = Clock()
+
+    class TimedAPI(FakeAPI, ROUTE.GitHub):
+        pass
+
+    api = TimedAPI.__new__(TimedAPI)
+    api.__dict__.update(original_api.__dict__)
+    original = api.get
+    retry_deadlines = []
+    selected = False
+
+    def slow_lookup(path):
+        nonlocal selected
+        if path.startswith("actions/workflows/") and not selected:
+            if clock.elapsed == 0:
+                return {"total_count": 0, "workflow_runs": []}
+            retry_deadlines.append(api.deadline)
+            clock.elapsed = lookup_finishes
+            selected = True
+        return original(path)
+
+    original_raw = api.raw
+    proof_deadlines = []
+
+    def proof_read(path):
+        proof_deadlines.append(api.deadline)
+        clock.elapsed = 40  # Selected-run proof may legitimately continue after grace.
+        return original_raw(path)
+
+    api.get = slow_lookup
+    api.raw = proof_read
+    observed = ROUTE.route(root, identity, REPO, api, monotonic=clock.now, sleep=clock.sleep)
+    assert retry_deadlines == [30]
+    assert api.deadline == 420
+    assert observed["delegated"] is (lookup_finishes < 30)
+    assert proof_deadlines == ([420, 420, 420] if lookup_finishes < 30 else [])
