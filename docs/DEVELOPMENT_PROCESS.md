@@ -386,66 +386,54 @@ the quality attempt, including command/report paths. Cross-attempt selection
 would need a separate verified source-job/attempt contract; the current workflow
 deliberately keeps one complete same-attempt set.
 
-Windows smoke retains the native taskkill exit code and output plus the verified
-root/descendant identities (PID, name, command line and creation time). A single
-root-scoped `/PID <root> /T /F` call is followed by bounded checks of every
-captured tree member, including children whose parent has already exited.
-Native exit 0 is `terminated`. Exit 255 can be `exited-during-termination` only
-when every native error is the English runner diagnostic `There is no running
-instance of the task.` for a captured owned PID, and every captured identity is
-absent or proven reused by a successful query with a trustworthy different
-CreationTime, and the native reported PID set equals the captured tree. The
-exact English transcript grammar and complete line consumption remain mandatory.
-One exact zero-length string may follow the accepted ERROR/Reason pair only
-when the suffix is final root SUCCESS, or one unique captured non-root SUCCESS
-then final root SUCCESS. Both parsers retain the raw items and reject whitespace
-or Unicode lookalikes, extra separators, later ERROR records, multiple sibling
-suffixes, missing/duplicate/foreign PIDs and a nonfinal root in that suffix.
-The no-separator grammar is unchanged. This bounded #403 extension does not
-waive failed historical runs, missing DPAPI or exact-attempt evidence gates.
-Post-termination observations classify each captured root/child independently
-as absent, same-identity-alive, reused, or unknown. Reuse evidence retains the
-captured and observed UTC DateTime ticks plus observed PID/name/command line
-and query result. A generic identity-change list is never reuse proof. Same CreationTime with
-changed non-empty name/command line remains an identity failure. During bounded
-post-termination polling, a successful query with the same trustworthy
-CreationTime but transiently missing Name/CommandLine is still the captured
-instance and therefore remains a non-success `same-identity-alive` state to poll
-again; if that state survives to the deadline/final evidence it fails. Invalid
-or missing CreationTime, unknown queries and surviving captured children fail.
-Root reuse does not
-stop checks of captured children or authorize traversal from the reused PID.
-These observations do not provide process-handle/object-bound guarantees.
-Native exit 128 has a separate bounded exception for the retained transcript in
-failed [PR #415 run 38544069167, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38544069167).
-It requires exactly 13 raw string items: six SUCCESS records, two distinct captured
-uv launcher ERROR/exact English Reason/zero-length-item groups, and final root
-SUCCESS. Exactly nine unique captured PIDs must be covered. The reported parent
-edges and captured roles match the observed two-branch shape: UI/ingest Python
-child chains, the ingest launcher console child, root console child, ingest then UI
-launcher errors, and the pwsh root. Both captured uv command lines must end in the
-exact respective `run python -m healthcheck.cli serve --app ingest`/`ui` commands,
-with quoted uv.exe paths. Names constrain this exception; the coherent ownership
-snapshot and full identities remain the ownership proof. Parent text is a shape
-constraint, not additional process-handle or captured-parent proof. All existing
-post/final CreationTime, query, survivor and identity guards remain mandatory.
-This exception does not extend the exit-255 grammar or normalize any output item.
-All other 128 shapes, unrecognized/localized diagnostics and other nonzero exit
-codes fail. Both ports must
-also be closed and the external synthetic runtime removed. No second kill or
-process-name-wide operation is used. A root absent before the ownership
-snapshot is unproven and fails. Artifact schema 3 requires this lifecycle
-evidence, both termination and final observations for every captured PID, and
-rejects all identity-change entries. Historical artifacts that
-discarded native output cannot retrospectively prove this diagnostic or be
-waived under the new contract.
+Windows smoke retains the native taskkill exit code, every raw output item and
+verified root/descendant identities (PID, name, command line and CreationTime).
+Only one root-scoped `/PID <root> /T /F` call is permitted after ownership
+verification; an absent root before the snapshot is unproven and fails. No second
+kill, process-name-wide operation or traversal from a reused PID is allowed.
+Artifact schema 3 requires bounded post-termination and final observations for
+every captured member, including children whose parent exited. Root reuse cannot
+hide surviving children. Both ports must close and the external synthetic runtime
+must be removed; DPAPI and a complete same-attempt evidence set remain mandatory.
 
-The source artifact 11883313457 ZIP SHA256 is
-`b1ca2d7f6d0cf008ac53b77dfecbed13dcb528fd6013ea735ca37fb65924e37b`.
-Its native scheduling/exit-code and blank-item capture causes remain unproven;
-the failed attempt stays FAILURE and its unreached DPAPI remains absent. Recognition
-is demonstrated by synthetic replay; a new complete exact-attempt gate including
-DPAPI is required for a candidate. No native kill reproduction is implied.
+Each captured identity must be absent or proven reused by a successful query with
+a trustworthy different CreationTime. Evidence retains captured/observed UTC
+DateTime ticks, observed PID/name/command line and query result. Generic
+identity-change lists are not reuse proof; schema 3 rejects identity-change
+entries. Unknown queries, invalid/missing CreationTime and surviving identities
+fail. The same trustworthy CreationTime with transiently missing name/command line
+remains non-success `same-identity-alive` during bounded polling and fails if it
+survives to final evidence; changed non-empty fields with the same CreationTime
+are an identity failure. These observations provide no process-handle/object-bound
+guarantee. Reported parent text and role names constrain exception shape; the
+coherent ownership snapshot and full identities remain the ownership proof.
+
+Native exit 0 is `terminated`. Only the exact bounded exit-255 and separate
+exit-128 exceptions can yield `exited-during-termination`, with all identity and
+postconditions above still required. Complete raw-item consumption, exact English
+diagnostics and captured PID coverage remain mandatory; no trimming, normalization,
+localized/unrecognized output or other nonzero exit code is accepted. Executable
+grammar, suffix/role/edge constraints and fixture matrices live in:
+
+- [Test-Exit255LifecycleTranscript](../scripts/ci_windows_process.ps1#L183) and
+  [Test-Exit128LifecycleTranscript](../scripts/ci_windows_process.ps1#L237).
+- [Get-PostTerminationProcessObservation](../scripts/ci_windows_process.ps1#L294),
+  [Invoke-RootProcessTreeTermination](../scripts/ci_windows_process.ps1#L344) and
+  the independent [Windows artifact verifier](../scripts/ci_windows_smoke.py).
+- [Workflow/evidence tests](../tests/test_ci_workflow.py),
+  [PowerShell lifecycle tests](../tests/test_ci_windows_process.ps1) and
+  [shared Python regressions](../tests/ci_windows_transcript_regressions.py).
+- The exact [exit-255 fixtures](../tests/fixtures/ci_windows_exit255_transcripts.json)
+  and [exit-128 fixtures](../tests/fixtures/ci_windows_exit128_transcripts.json),
+  including retained source artifact identities and ZIP hashes.
+
+The failed [#403 run](https://github.com/LTstripes/Health-Check/actions/runs/38229347233)
+and [PR #415 run 38544069167, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38544069167)
+remain failures. Discarded native output cannot retrospectively prove a diagnostic;
+native scheduling/exit-code and blank-item capture causes remain unproven.
+Unreached DPAPI remains absent. Synthetic replay demonstrates recognition, not
+native kill reproduction; a new complete exact-attempt gate including DPAPI is
+required for a candidate.
 
 Use one full remote candidate gate after frozen code stabilizes, then the exact
 post-integration and post-main gates owned by the Integrator. Run a full local
