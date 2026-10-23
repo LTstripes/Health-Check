@@ -348,18 +348,30 @@ candidate. Temporary process guards altered outbound/decryption behavior and are
 recorded in its provenance; the run was not unrestricted runtime or Owner UAT.
 Original persistent-file fingerprints passed, while absence of the Stable process
 was recorded separately; Stable was not started. A later audit correction does not
-inherit an old candidate's code/UI result. The current audit assignment permits
-synthetic validation only, with no new real-profile operation.
+inherit an old candidate's code/UI result. The audit correction used synthetic
+validation; this historical receipt does not authorize a new real-profile operation.
 The #487/#489 quality corrections add no database migration or automatic raw/history
 replay. The supported schema ancestry below is unchanged; this does not turn the
 older candidate's runtime/UI rehearsal into a new-candidate pass.
-The later final targeted audit returned NO-GO for code `303450b`;
-[#484](https://github.com/LTstripes/Health-Check/issues/484) and
-[#485](https://github.com/LTstripes/Health-Check/issues/485), followed up in
-[#491](https://github.com/LTstripes/Health-Check/pull/491), require new exact gates
-and a targeted recheck on the new combined SHA. Preserve prior CI/rehearsal receipts
-without treating them as that recheck. No real-data UAT transition occurs while
-the current verdict in #479 is NO-GO.
+The final targeted audit returned NO-GO for old code `303450b`. Its #484/#485
+follow-up [#491](https://github.com/LTstripes/Health-Check/pull/491) completed exact
+review/CI/post-main gates on canonical `430a11e`. A separately attributed
+[Owner-supplied recheck](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6347157693)
+reports both high findings CLOSED and 55 unique synthetic checks PASS, with GO
+limited to isolated-copy preparation. That separately authorized preparation
+completed on exact `430a11e`; its [technical receipt](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6348040813)
+does not establish acceptance of the UI. The Owner ended UAT with UX NOT ACCEPTED;
+release #479 remains NO-GO pending repeat acceptance of the corrected presentation.
+The approved primary UX slices are now engineering accepted through #496, #497
+and #498: product-code baseline `c1295b69e16be62d20b4e2a6d491d756a35e8302`,
+tree `7c80ea0c96df90029439360d0edfa038b27afba8`; [latest post-main](https://github.com/LTstripes/Health-Check/actions/runs/39872257163)
+verified 5,622 passed / three declared skips, original ZIP and official validators.
+These presentation/summary changes add no schema migration or automatic replay.
+#380 wider-window capacity remains blocked and its new controls are not included.
+Repeat Owner UAT and a separately bound new candidate/profile/runtime remain
+required; the retained 430a11e UAT stays unchanged. Preserve old receipts without
+relabeling their code, process-guard provenance or test scope. Documentation gates
+and descendants are recorded separately in #479; none authorize profile writes.
 
 Forward v4 sleep metadata preserves independently parsed summary boundaries with
 or without phases. It does not recover lost End values from old typed v3 rows.
