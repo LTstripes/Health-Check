@@ -16,6 +16,42 @@
     <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{{ window }} дней</a>
     {% endfor %}
   </div>
+  <section class="brief-subsection" data-sleep-regularity>
+    <h3>Регулярность сна</h3>
+    <p class="muted">Разброс времени · {{ start_date | owner_date }} — {{ wake_date | owner_date }}</p>
+    {% if timeline and timeline.regularity.sources %}
+    <div class="table-scroll"><table aria-label="Регулярность сна по источникам">
+      <thead><tr><th scope="col">Источник</th><th scope="col">Засыпание</th><th scope="col">Подъём</th></tr></thead>
+      <tbody>
+      {% for source in timeline.regularity.sources %}
+        {% if source.state == 'unavailable' or not source.groups %}
+        <tr data-regularity-source="{{ source.provider }}"><th scope="row">{{ source.label }}</th>
+          <td colspan="2">{{ 'Не удалось оценить этот период.' if source.state == 'unavailable' else 'Пока недостаточно подходящих ночей.' }}</td></tr>
+        {% else %}
+        {% for group in source.groups %}
+        <tr data-regularity-source="{{ source.provider }}" data-regularity-group>
+          <th scope="row">{{ source.label }}{% if source.groups | length > 1 %} · группа {{ loop.index }}{% endif %}</th>
+          {% if group.start.state != 'sufficient' and group.start.text == group.end.text %}
+          <td colspan="2">{{ group.start.text }}</td>
+          {% else %}<td><strong>{{ group.start.text }}</strong></td><td><strong>{{ group.end.text }}</strong></td>{% endif %}
+        </tr>
+        {% endfor %}
+        {% endif %}
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p>{{ timeline.regularity.empty_text if timeline else 'Не удалось оценить этот период.' }}</p>{% endif %}
+    {% call owner_ui.info_details("О регулярности сна") %}
+    <p>Меньше разброс — стабильнее время сна. Это стандартное отклонение местного времени начала и конца подходящей основной сессии сна, а не оценка здоровья.</p>
+    <p>Учитываются только подходящие ночи с подтверждённым временем и часовым поясом. Пригодная длительность сна сама по себе не подтверждает его границы. Источники и несовместимые способы записи считаются раздельно; полнота сбора неизвестна.</p>
+    {% if timeline %}{% for source in timeline.regularity.sources %}
+      {% if source.eligible_nights is not none %}
+      <p>{{ source.label }}: подходящих ночей {{ source.eligible_nights }}; исключено {{ source.excluded_nights }}. Для каждой совместимой группы нужно не меньше {{ source.min_nights }} ночей.</p>
+      {% for group in source.groups %}<p>Группа {{ loop.index }}: {{ group.nights }} ночей; часовой пояс {{ group.partition.local_clock_regime }}; начало {{ group.partition.start_method }}, конец {{ group.partition.end_method }}.</p>{% endfor %}
+      {% endif %}
+    {% endfor %}{% endif %}
+    {% endcall %}
+  </section>
   {% if timeline and not timeline.read_limit_exceeded %}
   {% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %}
   <p class="uncertainty-note" data-sleep-source-choice>Google: выберите источник сна для этого окна. Несколько независимых источников не объединяются; автоматический выбор не сделан.</p>
