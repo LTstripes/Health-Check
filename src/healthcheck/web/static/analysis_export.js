@@ -14,6 +14,22 @@
   let urls = [];
   let sourcesReady = false;
 
+  function updateRange() {
+    const days = Number(form.elements.days.value);
+    const value = form.elements.end_date.value;
+    const end = new Date(`${value}T00:00:00Z`);
+    const start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - days + 1);
+    const valid = [7, 30].includes(days) && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      Number.isFinite(end.getTime()) && end.toISOString().slice(0, 10) === value &&
+      start.getUTCFullYear() >= 1 && value < "9999-12-31";
+    form.elements.end_date.setCustomValidity(valid ? "" : "Укажите корректную дату для выбранного периода.");
+    document.getElementById("analysis-export-preview").textContent = valid
+      ? `Период: ${start.toISOString().slice(0, 10)} — ${value} (включительно).`
+      : "Укажите корректную дату и период 7 или 30 дней для скачивания.";
+    return valid;
+  }
+
   function clear() {
     generation += 1;
     if (controller) controller.abort();
@@ -26,7 +42,8 @@
     }
     document.getElementById("analysis-export-disclosures").textContent = "";
     document.getElementById("analysis-export-summary").replaceChildren();
-    submit.disabled = !sourcesReady || !garmin.value;
+    const validRange = updateRange();
+    submit.disabled = !sourcesReady || !garmin.value || !validRange;
   }
 
   form.addEventListener("input", () => {
@@ -115,7 +132,7 @@
       sourcesReady = true;
       garmin.disabled = false;
       google.disabled = false;
-      submit.disabled = !garmin.value;
+      submit.disabled = !garmin.value || !updateRange();
       status.textContent = !garminRows.length
         ? "Сохранённых источников Garmin нет. Проверьте источники в разделе «Данные»."
         : garmin.value ? "Выберите период и нажмите «Скачать»." : "Выберите источник Garmin.";
@@ -169,7 +186,7 @@
       showSummary(data.disclosures);
       result.hidden = false;
       document.getElementById("analysis-export-text").click();
-      status.textContent = "Файл готов. Скачивание текста началось; JSON и подробности доступны ниже.";
+      status.textContent = "Файл готов. Скачивание текста началось. Скачайте и приложите в личный чат; JSON и подробности доступны ниже.";
     } catch (error) {
       if (current !== generation || error.name === "AbortError") return;
       clear();
@@ -177,7 +194,7 @@
     } finally {
       if (current === generation) {
         controller = null;
-        submit.disabled = !sourcesReady || !garmin.value;
+        submit.disabled = !sourcesReady || !garmin.value || !updateRange();
       }
     }
   });

@@ -1229,7 +1229,29 @@ def garmin_dashboard_page(
 
 
 @router.get("/imports", response_class=HTMLResponse)
-def imports_page(request: Request) -> HTMLResponse:
+def imports_page(
+    request: Request, export_end_date: str | None = None, export_days: str | None = None,
+) -> HTMLResponse:
+    # GET only prefills the existing exporter. Invalid supplied periods never
+    # silently become a different date/window, and no evidence is generated here.
+    try:
+        window = export_days if export_days is not None else "30"
+        if window not in {"7", "30"} or any(
+            len(request.query_params.getlist(key)) > 1
+            for key in ("export_end_date", "export_days")
+        ):
+            raise ValueError
+        end = date.fromisoformat(export_end_date) if export_end_date is not None else date.today()
+        if export_end_date is not None and export_end_date != end.isoformat():
+            raise ValueError
+        if end == date.max:
+            raise ValueError
+        start = end - timedelta(days=int(window) - 1)
+    except (ValueError, OverflowError):
+        return render_error(
+            request, code="invalid_export_period",
+            message="Укажите корректную дату и период 7 или 30 дней для скачивания.",
+        )
     queue_available = True
     history = []
     try:
@@ -1277,7 +1299,9 @@ def imports_page(request: Request) -> HTMLResponse:
         "imports.html",
         {
             "batches": batches,
-            "export_end_date": date.today().isoformat(),
+            "export_end_date": end.isoformat(),
+            "export_start_date": start.isoformat(),
+            "export_days": int(window),
             "queue": queue,
             "queue_available": queue_available,
             "action_imports": sorted(

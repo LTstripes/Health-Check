@@ -11,11 +11,20 @@
 <section class="card sleep-timeline" data-sleep-timeline>
   <h2>Длительность сна по датам</h2>
   {% call owner_ui.info_details("О графике") %}<p>Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p>{% endcall %}
+  <form method="get" action="/sleep" class="inline-edit owner-controls" data-sleep-period-form>
+    <label>По дату включительно <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
+    <input type="hidden" name="view" value="timeline">
+    <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
+    {% if timeline and timeline.google_selection.status == 'explicit' %}<input type="hidden" name="google_sleep_source_id" value="{{ timeline.google_selection.selected_source_id }}">{% endif %}
+    <button type="submit">Показать</button>
+  </form>
+  <p data-sleep-period>Период: <strong>{{ start_date | owner_date }} — {{ wake_date | owner_date }}</strong> · {{ sleep_timeline_days }} дней, включительно</p>
   <div class="preset-links" aria-label="Окно истории сна">
     {% for window in (7, 30) %}
-    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{{ window }} дней</a>
+    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{% if window == sleep_timeline_days %}<strong>{{ window }} дней <span aria-hidden="true">✓</span></strong>{% else %}{{ window }} дней{% endif %}</a>
     {% endfor %}
   </div>
+  <p><a href="/imports?export_end_date={{ wake_date }}&amp;export_days={{ sleep_timeline_days }}#analysis-export" data-sleep-export>Скачать этот период</a></p>
   <section class="brief-subsection" data-sleep-regularity>
     <h3>Регулярность сна</h3>
     <p class="muted">Разброс времени · {{ start_date | owner_date }} — {{ wake_date | owner_date }}</p>

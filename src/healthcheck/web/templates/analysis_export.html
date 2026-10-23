@@ -1,9 +1,11 @@
 <section class="card analysis-export" id="analysis-export" aria-labelledby="analysis-export-heading">
   <h2 id="analysis-export-heading">Скачать данные</h2>
   <p>Сохранённые показатели и ваши комментарии в одном локальном файле.</p>
+  <p>Скачайте и приложите в личный чат.</p>
+  <p id="analysis-export-preview" aria-live="polite">Период: {{ export_start_date }} — {{ export_end_date }} (включительно).</p>
   <form id="analysis-export-form" class="inline-edit owner-controls">
-    <label>Период <select name="days"><option value="7">7 дней</option><option value="30" selected>30 дней</option></select></label>
-    <label>По дату включительно <input type="date" name="end_date" value="{{ export_end_date }}" required></label>
+    <label>Период <select name="days"><option value="7"{% if export_days == 7 %} selected{% endif %}>7 дней</option><option value="30"{% if export_days == 30 %} selected{% endif %}>30 дней</option></select></label>
+    <label>По дату включительно <input type="date" name="end_date" value="{{ export_end_date }}" max="9999-12-30" required></label>
     <button type="submit" disabled>Скачать</button>
     <details class="owner-info export-source-options" id="analysis-export-options">
       <summary><span aria-hidden="true">ⓘ</span> Источники и состав файла</summary>
