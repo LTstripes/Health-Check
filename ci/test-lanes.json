@@ -36,6 +36,7 @@
     ],
     "core-sleep": [
       "tests/test_canonical_coverage.py",
+      "tests/test_ci_evidence_receipt.py",
       "tests/test_ci_evidence_summary.py",
       "tests/test_ci_docs_gate.py",
       "tests/test_ci_event_route.py",

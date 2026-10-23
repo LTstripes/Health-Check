@@ -386,6 +386,26 @@ the quality attempt, including command/report paths. Cross-attempt selection
 would need a separate verified source-job/attempt contract; the current workflow
 deliberately keeps one complete same-attempt set.
 
+Local reuse of an already validated full code-mode gate is supported by
+[`ci_evidence_receipt.py`](../scripts/ci_evidence_receipt.py), with adversarial and
+real-validator coverage in [its tests](../tests/test_ci_evidence_receipt.py).
+The trusted operator adapter first retains every original ZIP and its GitHub
+digest, complete metadata and extracted bytes. `cold_verify` calls the unchanged
+official validators and atomically publishes a versioned receipt outside that
+bundle. The Integrator conveys its SHA256 separately; a receipt is not a signature.
+
+`warm_reuse` requires that trusted pin, unchanged retained bytes, canonical Git
+configuration and actual loaded verifier/adapter identities, plus fresh complete
+authenticated run/attempt/jobs/artifacts/checkout/PR metadata. It performs no
+downloads or official content-validator calls. Expired/deleted artifacts,
+superseded attempts or PR identities, uncertainty, changed bytes/configuration,
+unsafe paths and legacy unbound receipts reject reuse. Rejection is not a pass or
+permission for implicit reruns, replacement receipts or another candidate's evidence.
+The same-attempt, independent-review and pre-merge identity gates above still apply.
+This first bounded slice covers full CI evidence only; reuse of prose/link outcomes
+remains tracked in [#511](https://github.com/LTstripes/Health-Check/issues/511).
+Documentation delta/privacy review is never replaced by a cached link result.
+
 Windows smoke retains the native taskkill exit code, every raw output item and
 verified root/descendant identities (PID, name, command line and CreationTime).
 Only one root-scoped `/PID <root> /T /F` call is permitted after ownership
