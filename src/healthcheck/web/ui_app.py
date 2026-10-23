@@ -26,16 +26,18 @@ from healthcheck.web.context import router as context_router
 from healthcheck.web.garmin import router as garmin_router
 from healthcheck.web.imports import router as import_router
 from healthcheck.web.labs import router as labs_router
-from healthcheck.web.pages import html_http_error, render_error
+from healthcheck.web.pages import html_http_error, render_error, templates
 from healthcheck.web.pages import router as pages_router
 from healthcheck.web.period_brief import router as period_brief_router
 from healthcheck.web.source_freshness import router as source_freshness_router
 from healthcheck.web.statistics import router as statistics_router
 from healthcheck.web.ui_guard import ui_guard_middleware
+from healthcheck.web.weekly_preview import weekly_preview_presentation
 from healthcheck.web.weight import router as weight_router
 from healthcheck.weekly_digest import WeeklyDigestConfig
 
 WEB_DIR = Path(__file__).resolve().parent
+templates.env.globals["weekly_preview_presentation"] = weekly_preview_presentation
 
 
 def create_ui_app(

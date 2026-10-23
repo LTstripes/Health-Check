@@ -119,9 +119,13 @@
 <section class="card" aria-labelledby="weekly-heading" data-weekly-preview>
   <h2 id="weekly-heading">Итог недели · preview</h2>
   {% if weekly_digest %}
-    {% for paragraph in weekly_digest.text.split('\n\n') %}<p>{{ paragraph }}</p>{% endfor %}
+    {% set weekly_presentation = weekly_preview_presentation(weekly_digest) %}
+    {% for fact in weekly_presentation.facts %}<p data-weekly-fact>{{ fact }}</p>{% endfor %}
+    {% if weekly_presentation.gaps %}<p class="muted" data-weekly-gaps>{{ weekly_presentation.gaps | join(' ') }}</p>{% endif %}
+    {% for notice in weekly_presentation.notices %}<p class="muted" data-weekly-notice>{{ notice }}</p>{% endfor %}
     <details class="owner-details"><summary>Подробности и основания</summary>
       <p>Проверяемый сохранённый срез; даты, источники, ограничения и исключения.</p>
+      <div data-weekly-original-text style="white-space:pre-wrap">{{ weekly_digest.text }}</div>
       <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:24rem;overflow:auto">{{ weekly_evidence }}</pre>
     </details>
   {% elif weekly_error %}<p role="status">{{ weekly_error }}</p>

@@ -25,7 +25,7 @@
     {% endfor %}
     {% if kind == 'weight' %}{% for tick in figure.date_ticks %}<path class="overview-gridline" d="M{{ tick.x }} 150v4"/><text x="{{ tick.x }}" y="174" text-anchor="{{ 'start' if loop.first else ('end' if loop.last else 'middle') }}">{{ tick.label }}</text>{% endfor %}<text x="194" y="195" text-anchor="middle">{{ figure.years }}</text>{% else %}<text x="38" y="137">{{ figure.start }}</text><text x="322" y="137" text-anchor="end">{{ figure.end }}</text>{% endif %}
   </svg>
-  <figcaption>{% if kind == 'weight' %}<span class="overview-weight-key"><i class="overview-weight-dot" aria-hidden="true"></i> Измерения · дневные медианы</span><span class="overview-weight-key"><i class="overview-weight-diamond" aria-hidden="true"></i> EWMA, 21 день · тренд</span><span>Обводка — последний день с измерениями.</span><span>Штрих — нет наблюдений, это не ноль. Тонкая линия соединяет измерения; пунктир — дни без наблюдений. Значения между точками не вычисляются. Линия тренда только между соседними днями.</span>{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
+  <figcaption>{% if kind == 'weight' %}<span class="overview-weight-key"><i class="overview-weight-dot" aria-hidden="true"></i> Измерения · дневные медианы</span>{% if figure.points | selectattr("trend_y", "ne", none) | list %}<span class="overview-weight-key"><i class="overview-weight-diamond" aria-hidden="true"></i> EWMA, 21 день · тренд</span>{% endif %}<span>Обводка — последний день с измерениями.</span><span>Штрих — нет наблюдений, это не ноль. Тонкая линия соединяет измерения; пунктир — дни без наблюдений. Значения между точками не вычисляются. Линия тренда только между соседними днями.</span>{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
 </figure>
 <details class="owner-details brief-records overview-chart-values"><summary>{{ label }} · таблица</summary>
   <div class="table-scroll" role="region" tabindex="0" aria-label="{{ label }}: значения графика">
@@ -53,11 +53,15 @@
       </div></details></div>
       {% if kind == 'weight' %}
         {% set current = charts.weight_current %}
+        {% set weight_observed = charts.weight.points | selectattr('value', 'ne', none) | list %}
         <p class="overview-value">{{ overview_number(current.value_kg) ~ ' кг' if current and current.value_kg is not none else '—' }}</p>
         <p class="overview-source">Подтверждённый вес{% if current and current.value_kg is not none %} · {{ current.observed_date | owner_date }}{% endif %}</p>
         {{ owner_ui.state_chip(weight.state, false) }}
-        <p class="overview-qualifier">{{ charts.weight.points | length }} дней с измерениями.{% if not charts.weight_trend.available %} Недостаточно пригодных данных для тренда.{% endif %}</p>
+        <p class="overview-qualifier">{{ weight_observed | length }} дней с измерениями.{% if not charts.weight_trend.available %} Недостаточно пригодных данных для тренда.{% endif %}</p>
+        <p class="overview-source">{{ charts.weight.start | owner_date }} — {{ charts.weight.end | owner_date }}</p>
+        {% if weight_observed %}
         {{ chart(charts.weight, kind, 'Измерения веса', 'кг') }}
+        {% else %}<p class="overview-qualifier" data-overview-empty="weight">Нет пригодных измерений веса за период. Пропуски — не ноль.</p>{% endif %}
       {% elif kind == 'sleep' %}
         {% set period_sleep = overview.period_sleep %}
         <div data-overview-period-sleep>
