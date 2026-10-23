@@ -63,6 +63,14 @@ new wider-window controls are connected. Existing trailing-365, calendar-year/YT
 and Garmin all-time support remains unchanged. Earlier failed checks retain
 their original identities.
 
+Owner decision on 23 October narrows the nearest scope: new annual Sleep
+coverage is excluded, and a custom period is optional and must not block
+release. [The current #380 decision](https://github.com/LTstripes/Health-Check/issues/380#issuecomment-6359590905)
+supersedes its earlier planned scope; 90-day Sleep UI is not delivered in
+main and the WIP remains paused. Priority is useful saved-date questions and
+descriptive Sleep/Activity/Context comparison. The transfer/UX investigation
+is planning only, with no new connection, permission or automatic sending.
+
 Installed-code verification is separate from accepted GitHub main and the
 earlier private UAT candidate. It did not decrypt credentials, request provider
 data, migrate the original profile or change Stable. Historical success is not current provider
@@ -339,7 +347,7 @@ authorizes a Worker, provider call, replay, Stable write or new transport.
 | --- | --- |
 | #492 / #495 primary UI and simple export | Engineering accepted through #496 with exact PR/task/post-main and independent actual-image review. Repeat Owner UAT after the remaining approved UX queue; source guards and full supported export manifest remain. No Stable launcher/runtime update |
 | #493 readable saved Sleep/Activity/Training | Engineering accepted through #497/7604967 after independent source/actual-image review, separate corrective-test review and exact PR/task/post-main PASS. Repeat Owner UAT pending. Display rounding never changes calculations/export; main-night/legacy A remain. Active calories are still blocked by #319 |
-| #380 / #377 history and Steps | Steps-only all-time is delivered by #458. The approved 90/year/custom follow-up remains technical HOLD after the [last measured snapshot-hit iteration](https://github.com/LTstripes/Health-Check/issues/380#issuecomment-6356731866): 90-day/200-session controls passed, all four annual cases timed out and withheld results. Clean local checkpoint and claim stay paused/protected; no next optimization or UI is launched. Two seconds/16 MiB and lossless evidence remain fixed. No full annual result, new coverage promise or 12-by-30 stitching. Existing trailing-365, calendar-year/YTD and Garmin all-time support is retained; cooperative budgets are not hard I/O/RSS deadlines |
+| #380 / #377 history and Steps | Steps-only all-time is delivered by #458. New annual Sleep coverage is excluded from the nearest scope; custom period is optional/non-blocking, and 90-day Sleep UI is not delivered. The range-reader WIP remains paused/protected technical HOLD after the [last measured snapshot-hit iteration](https://github.com/LTstripes/Health-Check/issues/380#issuecomment-6356731866): 90-day/200-session controls passed, all four annual cases timed out and withheld results. Clean local checkpoint and claim stay paused/protected; no next optimization or UI is launched. Two seconds/16 MiB and lossless evidence remain fixed. No full annual result, new coverage promise or 12-by-30 stitching. Existing trailing-365, calendar-year/YTD and Garmin all-time support is retained; cooperative budgets are not hard I/O/RSS deadlines |
 | #392 Google Steps | #476/#477/#478 foundation plus #481 saved 7/30 UI are accepted. Compact graph/day selection and exact observed-day sum/mean are engineering accepted through #498/c1295b6 with independent source/all-16-image review and exact PR/task/post-main PASS; this does not turn observed counts into certified completed days. Prior private acquisition UAT and accepted noncritical difference retain their own scope. Repeat real UI UAT remains pending; coverage/pagination UNKNOWN, timezone unspecified, no pooling or new automatic collection |
 | #393 / #394 / #357 recovery cards | Mean/Moscow/applicability and saved-day Body Battery maximum contracts are implemented, including #443. Remaining Owner review/UAT is separate; do not repeat Stage B implementation or relabel snapshot as daily peak |
 | #347 / #342 source views | Delivered provider-first presentation, exact Sleep/RHR defaults and Cycling eligibility do not implement a universal eligible-source policy. Further metrics need their own meaning and ambiguity contract. No family/device pooling |
