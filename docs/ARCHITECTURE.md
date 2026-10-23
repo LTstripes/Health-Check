@@ -3951,6 +3951,50 @@ Owner profiles are private. Snapshot metadata stays unknown; current Stable
 identity is not inferred. SQLite WAL/SHM read coordination can occur; application
 writes, migrations and journal changes are denied.
 
+### Weekly digest preview (#488)
+
+`healthcheck.weekly_digest.get_weekly_digest_evidence` is an opt-in read-only
+adapter over `read_combined_evidence`: exactly seven inclusive calendar dates
+ending on an explicit Sunday. `WeeklyDigestConfig` fixes exact Activity, Sleep
+and optional Steps source IDs and the Garmin Steps view in trusted caller
+configuration; requests cannot select profiles, sources, SQL or extra domains.
+Context and previous-period comparison are not requested. Existing defaults and
+all quality/resource guards remain unchanged. One combined snapshot provides the
+entire digest. The optional `steps_google_source_id` combined request adds v7
+(compact v7) with a closed `sections.google_steps` projection of the accepted
+saved Steps reader, retaining exact family, cells, reasons and provenance while
+omitting source inventory and raw fields. Incomplete search rejects the entire
+selected response; sources are never pooled and no Steps aggregate is added.
+
+The `health-weekly-digest-v1` envelope retains the complete combined packet,
+evaluation/generated clocks, intended Sunday 20:00 Europe/Moscow target, actual
+as-of, seven-date bounds, explicit unfinished-Sunday and late-read flags, unknown
+collection freshness and a SHA-256 `digest_hash` over canonical JSON excluding
+only that hash. Its Russian text is deterministic from frozen evidence. Activity
+reuses count/type/tennis-duration/cycling-distance reducers; invalid distance does
+not remove an otherwise usable session. Steps show observed dates and the latest
+usable observation, with no total or mean. Completed Garmin excludes unfinished
+dates. Sleep uses accepted source-specific duration series, retaining wake dates,
+main/nap/unknown-role exclusions; uncertain-role points do not become confirmed
+main nights. No sleep mean, medical inference or previous-week comparison is added.
+
+The schedule timezone never rewrites source-local dates. This is a saved-store
+read, **not time travel**: delayed reads retain their actual as-of and may include
+observations acquired after the intended Sunday target. Stored observation dates
+do not prove recent collection; freshness remains explicitly unknown. No result
+is fabricated when the profile is unavailable. Rendering/retrying a frozen packet
+performs no read; a new read has new generated evidence and requires an explicit
+revision before any future transport reuses a delivery identity.
+
+`MCPConfig.weekly_digest` optionally exposes `get_weekly_digest_evidence(week_end)`
+under the existing authenticated gateway, lock, protocol and wire-size limits.
+Default MCP remains Weight/Context only; no CLI setting, connection, credential,
+network route, scheduler or message transport is enabled. `create_ui_app` accepts
+optional `weekly_digest` plus explicit `profile_kind`; only then the existing
+Overview offers a preview through `/brief?weekly_end=YYYY-MM-DD`. The digest owns
+its own bounded snapshot, separately from the Overview read. Detailed evidence
+is collapsed below short text; default UI/source selection is unchanged.
+
 <a id="saved-sleep-analyses"></a>
 ### Optional saved Context and sleep analyses (#462 / #464)
 

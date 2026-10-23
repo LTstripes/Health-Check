@@ -73,6 +73,7 @@ _ACTIVITY_NAMES = {
     "cycling": "Велосипед", "running": "Бег", "walking": "Ходьба",
     "swimming": "Плавание", "strength_training": "Силовая тренировка",
     "tennis": "Теннис", "tennis_v2": "Теннис",
+    "soccer": "Футбол", "football": "Футбол",
 }
 
 

@@ -62,6 +62,7 @@ class CombinedEvidenceRequest:
     include_sleep_regularity: bool = False
     context_pairing_hours: int = 24
     sleep_day_types: tuple[tuple[str, str], ...] = ()
+    steps_google_source_id: str | None = None
 
     def domain_requests(self):
         return (
@@ -88,7 +89,8 @@ class CombinedEvidenceRequest:
             raise EvidenceError("invalid_weight_selection")
         if type(self.rhr_google_auto_select) is not bool:
             raise EvidenceError("invalid_source_selection")
-        for identity in (self.hrv_google_source_id, self.rhr_google_source_id):
+        for identity in (self.hrv_google_source_id, self.rhr_google_source_id,
+                         self.steps_google_source_id):
             if identity is not None and (type(identity) is not str or not identity.strip()
                                          or len(identity) > ID_LENGTH):
                 raise EvidenceError("invalid_source_id")
@@ -231,6 +233,7 @@ def read_combined_evidence(
                 ("garmin", request.rhr_garmin_source_id),
                 ("google", request.rhr_google_source_id),
                 ("garmin", request.steps_garmin_source_id),
+                ("google", request.steps_google_source_id),
             ):
                 if identity is not None:
                     model, code = sleep_evidence.PROVIDERS[provider]
@@ -297,6 +300,12 @@ def read_combined_evidence(
                         session, request.steps_garmin_source_id,
                         activity_request.start_date, request.end_date)
                 movement_sources["steps"] = {"garmin_source_id": request.steps_garmin_source_id}
+            if request.steps_google_source_id is not None:
+                sections["google_steps"] = combined_movement.read_google_steps(
+                    session, request.steps_google_source_id,
+                    activity_request.start_date, request.end_date)
+                movement_sources["google_steps"] = {
+                    "google_source_id": request.steps_google_source_id}
             if request.include_weight:
                 sections["weight"] = combined_movement.read_weight(
                     session, activity_request.start_date, request.end_date,
@@ -395,6 +404,12 @@ def read_combined_evidence(
                 }
                 if "projection" in packet:
                     packet["projection"]["detailed_version"] = "health-chat-combined-evidence-v6"
+            if request.steps_google_source_id is not None:
+                packet["version"] = ("health-chat-combined-compact-evidence-v7"
+                                     if request.projection == "compact"
+                                     else "health-chat-combined-evidence-v7")
+                if "projection" in packet:
+                    packet["projection"]["detailed_version"] = "health-chat-combined-evidence-v7"
             packet["envelope_hash"] = hashlib.sha256(_json(packet).encode("utf-8")).hexdigest()
             encode_combined_evidence(packet)
             return packet
@@ -472,7 +487,7 @@ def render_combined_evidence(packet: dict[str, Any]) -> str:
                                     "reason": "summary_session_boundary_unavailable",
                                 }
                         lines.append(f"{label} saved session: {_json(summary)}")
-    for domain in ("stress", "body_battery", "hrv", "rhr", "steps", "weight"):
+    for domain in ("stress", "body_battery", "hrv", "rhr", "steps", "google_steps", "weight"):
         if domain in packet["sections"]:
             lines.append(f"{domain} saved facts: " + _json(packet["sections"][domain]))
     for domain in ("sleep_analysis_inputs", "sleep_regularity", "context_recovery"):

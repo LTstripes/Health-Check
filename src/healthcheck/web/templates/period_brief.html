@@ -115,6 +115,22 @@
 </section>
 {% endif %}
 
+{% if weekly_preview_available %}
+<section class="card" aria-labelledby="weekly-heading" data-weekly-preview>
+  <h2 id="weekly-heading">Итог недели · preview</h2>
+  {% if weekly_digest %}
+    {% for paragraph in weekly_digest.text.split('\n\n') %}<p>{{ paragraph }}</p>{% endfor %}
+    <details class="owner-details"><summary>Подробности и основания</summary>
+      <p>Проверяемый сохранённый срез; даты, источники, ограничения и исключения.</p>
+      <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:24rem;overflow:auto">{{ weekly_evidence }}</pre>
+    </details>
+  {% elif weekly_error %}<p role="status">{{ weekly_error }}</p>
+  {% else %}<p>Короткий итог занятий, шагов и сна по сохранённым данным. Автоматическая отправка не включена.</p>
+    <a href="/brief?weekly_end={{ weekly_default_end }}">Посмотреть итог последней недели</a>
+  {% endif %}
+</section>
+{% endif %}
+
 {% include 'overview_primary.html' %}
 
 {% include 'overview_values.html' %}
