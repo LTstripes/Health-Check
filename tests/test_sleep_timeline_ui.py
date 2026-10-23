@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
+import pytest
 from sqlalchemy import event, select
 
 from healthcheck.analytics.sleep_source_view import read_source_sleep_range
@@ -786,3 +787,274 @@ def test_google_undated_source_details_retain_presence_without_point_or_selectio
             selected = _timeline_json(client.get(url + "&google_sleep_source_id=" + source_id).text)
             assert selected["google_selection"]["status"] == "invalid_selection"
             assert selected["display_series"] == []
+
+
+# #501 uses accepted analysis fixtures as its packet oracle, never a copied formula.
+def _regularity_packet(provider="google", count=7, *, days=7, end=date(2026, 10, 8)):
+    from copy import deepcopy
+
+    from test_saved_sleep_analysis import sections
+
+    raw = deepcopy(sections(count=count, provider=provider)["sleep"]["providers"][provider][
+        "source_range"])
+    source = _range_series(provider, "sleep", [])["source"]
+    by_date = {day["wake_date"]: day for day in raw["days"]}
+    start = end - timedelta(days=days - 1)
+    raw.update(provider=provider, contract_version="source-sleep-range-v1",
+               start_date=start.isoformat(), end_date=end.isoformat(), limit=400)
+    raw["days"] = [by_date.get((start + timedelta(days=i)).isoformat(), {
+        "wake_date": (start + timedelta(days=i)).isoformat(), "sources": [],
+    }) for i in range(days)]
+    for day in raw["days"]:
+        for group in day["sources"]:
+            group["source"] = deepcopy(source)
+    raw["series"] = [_range_series(provider, "sleep", [
+        _range_point(day["wake_date"]) for day in raw["days"] if day["sources"]
+    ])]
+    return raw
+
+
+def _regularity_view(packet, *, provider="google", days=7, end=date(2026, 10, 8)):
+    from healthcheck.web.sleep_regularity import build_sleep_regularity
+
+    series = {**packet["series"][0], "provider": provider, "label": provider.title()}
+    return build_sleep_regularity({provider: packet}, [series], days=days, end_date=end,
+        google_selection={"selected_source_id": "sleep", "status": "explicit"})
+
+
+@pytest.mark.parametrize("provider", ["google", "garmin"])
+def test_sleep_regularity_reuses_packet_and_omits_providerwide_counts(provider, monkeypatch):
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    from healthcheck import saved_sleep_analysis as accepted
+    from healthcheck.web import sleep_regularity as presenter
+
+    packet = _regularity_packet(provider)
+    before = deepcopy(packet)
+    captured = []
+    original = presenter.analyze_saved_sleep
+    def capture(sections, request):
+        source = sections["sleep"]["providers"][provider]
+        assert source["selected_source_id"] == "sleep"
+        assert source["acquisition_coverage"] == {"state": "unknown"}
+        assert set(source["source_range"]).isdisjoint({
+            "observed_dates", "missing_dates", "wake_date_missing_count", "series"})
+        assert all("state" not in day for day in source["source_range"]["days"])
+        original(sections, request)
+        captured.append(sections)
+    monkeypatch.setattr(presenter, "analyze_saved_sleep", capture)
+    result = _regularity_view(packet, provider=provider)["sources"][0]
+    oracle = {"sleep": {"providers": {provider: {
+        "selected_source_id": "sleep", "acquisition_coverage": {"state": "unknown"},
+        "source_range": deepcopy(packet),
+    }}}}
+    accepted.analyze_saved_sleep(oracle, SimpleNamespace(include_sleep_regularity=True,
+        include_context_recovery=False, sleep_day_types=()))
+    expected = oracle["sleep_regularity"]
+    assert result["eligible_nights"] == expected["eligible_nights"] == 7
+    assert result["min_nights"] == expected["min_nights"]
+    assert captured[0]["sleep_regularity"] == expected
+    assert captured[0]["sleep_analysis_inputs"]["night_exclusions"] == oracle[
+        "sleep_analysis_inputs"]["night_exclusions"]
+    for actual, group in zip(result["groups"], expected["groups"], strict=True):
+        assert actual["partition"] == group["partition"]
+        assert actual["nights"] == group["nights"]
+        for endpoint in ("start", "end"):
+            assert actual[endpoint]["minutes"] == group["clocks"][endpoint]["circular_sd_minutes"]
+    assert packet == before
+    assert "record_ids" not in json.dumps(result) and "interval_snapshots" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("count", [0, 2, 7])
+def test_sleep_regularity_insufficient_and_actual_zero_stay_distinct(count):
+    packet = _regularity_packet(count=count)
+    row = _regularity_view(packet)["sources"][0]
+    assert row["eligible_nights"] == count
+    if count == 0:
+        assert row["groups"] == [] and row["state"] == "insufficient"
+    elif count == 2:
+        assert row["groups"][0]["start"]["text"] == "Недостаточно ночей"
+        assert row["groups"][0]["start"]["minutes"] is None
+    else:
+        assert row["groups"][0]["start"]["text"] == "0 мин"
+        assert row["groups"][0]["start"]["minutes"] == 0
+
+
+@pytest.mark.parametrize("problem", ["overflow", "missing_day", "mismatched", "malformed"])
+def test_sleep_regularity_incomplete_input_never_produces_prefix_or_zero(problem):
+    packet = _regularity_packet()
+    if problem == "overflow":
+        packet["state"] = "read_limit_exceeded"
+    elif problem == "missing_day":
+        packet["days"].pop()
+    elif problem == "mismatched":
+        packet["end_date"] = "2026-10-09"
+    else:
+        packet["days"][0]["sources"][0]["sessions"][0]["metrics"] = {}
+    row = _regularity_view(packet)["sources"][0]
+    assert row["state"] == "unavailable" and row["groups"] == []
+    assert row["eligible_nights"] is None and row["excluded_nights"] is None
+
+
+def test_sleep_regularity_midnight_dst_offset_methods_and_all_partitions():
+    from datetime import datetime
+
+    from test_saved_sleep_analysis import item
+
+    packet = _regularity_packet()
+    # Local clocks straddle midnight. A linear-clock SD would be hundreds of minutes.
+    for i, (stamp, zone, offset) in enumerate([
+        ("2026-10-01T23:30:00Z", "UTC", 0),
+        ("2026-10-03T00:00:00Z", "UTC", 0),
+        ("2026-10-04T00:30:00Z", "UTC", 0),
+    ]):
+        night = item({"sleep": {"providers": {"google": {"source_range": packet}}}}, i)
+        start = datetime.fromisoformat(stamp)
+        end = start + timedelta(hours=7)
+        for endpoint, instant in (("start", start), ("end", end)):
+            cell = night["metrics"][f"sleep_{endpoint}_at"]
+            cell["value"] = instant.isoformat()
+            snapshot = cell["evidence"]["interval_snapshots"][0]
+            snapshot[f"{endpoint}_at_utc"] = instant.isoformat()
+            snapshot[f"{endpoint}_temporal"].update(
+                source_timezone=zone, source_utc_offset_minutes=offset)
+    # Keep the last four nights in a different accepted method partition.
+    for day in packet["days"][3:]:
+        day["sources"][0]["sessions"][0]["metrics"]["sleep_start_at"][
+            "comparison_basis"] = "other_saved_method"
+    row = _regularity_view(packet)["sources"][0]
+    assert len(row["groups"]) == 2
+    assert sorted(group["nights"] for group in row["groups"]) == [3, 4]
+    circular = next(group for group in row["groups"] if group["nights"] == 3)
+    assert circular["start"]["minutes"] == pytest.approx(24.512413, abs=1e-5)
+    # Change one full night to an explicit fixed offset: never pool it into UTC/IANA.
+    night = packet["days"][-1]["sources"][0]["sessions"][0]
+    for endpoint in ("start", "end"):
+        night["metrics"][f"sleep_{endpoint}_at"]["evidence"]["interval_snapshots"][0][
+            f"{endpoint}_temporal"].update(source_timezone=None, source_utc_offset_minutes=60)
+    assert len(_regularity_view(packet)["sources"][0]["groups"]) == 3
+    # Actual DST transition retains one IANA partition even when endpoint offsets differ.
+    dst = _regularity_packet(count=1, end=date(2026, 11, 1))
+    night = packet["days"][0]["sources"][0]["sessions"][0]
+    from copy import deepcopy
+    night = deepcopy(night)
+    for endpoint, stamp, offset in (("start", "2026-11-01T04:00:00+00:00", -240),
+                                    ("end", "2026-11-01T09:00:00+00:00", -300)):
+        cell = night["metrics"][f"sleep_{endpoint}_at"]
+        cell["value"] = stamp
+        snapshot = cell["evidence"]["interval_snapshots"][0]
+        snapshot[f"{endpoint}_at_utc"] = stamp
+        snapshot[f"{endpoint}_temporal"] = {**snapshot[f"{endpoint}_temporal"],
+            "source_timezone": "America/New_York", "source_utc_offset_minutes": offset}
+    dst["days"][-1]["sources"] = [{"source": packet["series"][0]["source"], "sessions": [night]}]
+    dst["series"] = packet["series"]
+    result = _regularity_view(dst, end=date(2026, 11, 1))["sources"][0]
+    assert result["eligible_nights"] == 1
+    assert result["groups"][0]["partition"]["local_clock_regime"]["zone"] == "America/New_York"
+
+
+def test_sleep_regularity_keeps_google_selection_source_separation_and_main_role():
+    from copy import deepcopy
+
+    from healthcheck.web.sleep_regularity import build_sleep_regularity
+
+    google = _regularity_packet()
+    other = deepcopy(google["series"][0])
+    other["source"]["source_id"] = "other"
+    google["series"].append(other)
+    for day in google["days"]:
+        group = deepcopy(day["sources"][0])
+        group["source"]["source_id"] = "other"
+        group["sessions"][0]["record_id"] += "-other"
+        day["sources"].append(group)
+    garmin = _regularity_packet("garmin")
+    timeline = build_sleep_timeline({"garmin": garmin, "google": google}, days=7,
+        end_date=date(2026, 10, 8), google_source_id="other")
+    rows = timeline["regularity"]["sources"]
+    assert [(row["provider"], row["source_id"]) for row in rows] == [
+        ("garmin", "sleep"), ("google", "other")]
+    assert all(row["eligible_nights"] == 7 for row in rows)
+    no_selection = build_sleep_timeline({"google": google}, days=7, end_date=date(2026, 10, 8))
+    assert no_selection["regularity"]["sources"] == []
+    assert no_selection["regularity"]["state"] == "source_required"
+    for day in google["days"]:
+        day["sources"][0]["sessions"][0]["role"]["selection"] = "uncertain_session"
+    row = _regularity_view(google)["sources"][0]
+    assert row["eligible_nights"] == 0 and row["excluded_nights"] == 7
+    # No runtime, DB, provider, or export dependency is involved in this adapter call.
+    assert build_sleep_regularity({}, [], google_selection={}, days=90,
+        end_date=date(2026, 10, 8))["state"] == "unavailable"
+
+
+def test_sleep_regularity_presentation_rounding_and_undefined_are_not_false_zero():
+    from healthcheck.saved_sleep_analysis import circular_local_clock
+    from healthcheck.web.sleep_regularity import _clock_view
+
+    assert _clock_view(circular_local_clock([0, 0.1, 0.2]))["text"] == "<1 мин"
+    assert _clock_view(circular_local_clock([0, 480, 960]))["text"] == "Нет устойчивого времени"
+    assert _clock_view(circular_local_clock([0, 0, 0]))["text"] == "0 мин"
+
+
+def _seed_regularity_nights(paths):
+    """Local synthetic production normalization/persistence, never a provider call."""
+    from datetime import datetime
+
+    from healthcheck.garmin.sync import _prepare_normalization_result
+    from test_sleep_production_shape import DAY, SOURCE, SURFACE, production_sleep
+
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            repository = GarminPersistenceRepository(session,
+                payload_store=ContentAddressedGarminPayloadStore(paths.root / "garmin-artifacts"))
+            for index, minutes in enumerate((0, 25, -35, 15, 50, -20, 5, 40, -10, 10)):
+                day = END - timedelta(days=9 - index)
+                shift = timedelta(days=(day - DAY).days, minutes=minutes)
+                payload = production_sleep()
+                daily = payload["dailySleepDTO"]
+                daily["calendarDate"] = day.isoformat()
+                for key in ("sleepStartTimestampGMT", "sleepEndTimestampGMT",
+                            "sleepStartTimestampLocal", "sleepEndTimestampLocal"):
+                    daily[key] += int(shift.total_seconds() * 1000)
+                for stage in payload["sleepLevels"]:
+                    for key in ("startGMT", "endGMT"):
+                        stage[key] = (datetime.fromisoformat(stage[key]) + shift).isoformat()
+                normalized = normalize_garmin_payload(
+                    payload, stream="sleep", source_identity=SOURCE)
+                repository.persist_result(_prepare_normalization_result(
+                    SURFACE, payload, normalized, day=day), payload=payload)
+                google = _google_sleep_payload(name=f"regularity-synthetic-{index}")
+                component = google["dataPoints"][0]["sleep"]
+                interval = component["interval"]
+                for endpoint in ("start", "end"):
+                    instant = datetime.fromisoformat(interval[f"{endpoint}Time"]) + shift
+                    interval[f"{endpoint}Time"] = instant.isoformat()
+                    local = instant + timedelta(hours=3)
+                    interval[f"civil{endpoint.title()}Time"].update(
+                        date=local.date().isoformat(),
+                        time=local.time().replace(tzinfo=None).isoformat())
+                _persist_google(session, paths, payload=google)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("days,expected_nights", [(7, 7), (30, 10)])
+def test_sleep_regularity_production_http_packet_and_period_switch(tmp_path, days, expected_nights):
+    app, _, paths = _ui(tmp_path)
+    _seed_regularity_nights(paths)
+    with client_for(app) as client:
+        response = client.get(f"/sleep?days={days}&wake_date={END}")
+    assert response.status_code == 200
+    packet = _timeline_json(response.text)
+    rows = packet["regularity"]["sources"]
+    assert [row["provider"] for row in rows] == ["garmin", "google"]
+    assert all(row["eligible_nights"] == expected_nights for row in rows)
+    assert all(len(row["groups"]) == 1 for row in rows)
+    assert all(row["groups"][0]["start"]["state"] == "sufficient" for row in rows)
+    assert 'data-sleep-regularity' in response.text
+    primary = response.text.split('data-sleep-regularity>', 1)[1].split('<details', 1)[0]
+    assert 'Засыпание' in primary and 'Подъём' in primary
+    assert 'circular_sd' not in primary and 'complete_stage_boundary' not in primary
+    assert 'social_jetlag' not in json.dumps(packet["regularity"])
+    assert packet["start_date"] == (END - timedelta(days=days - 1)).isoformat()
