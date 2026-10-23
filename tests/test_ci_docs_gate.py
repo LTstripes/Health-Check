@@ -150,10 +150,42 @@ def test_actual_cli_docs_example_has_terminal_verifiable_outcome(repo, tmp_path)
 
 # Exact prose paths audited for links/agent-policy consumers only. Policy/content
 # and privacy review still applies even when the product test suite is skipped.
-POLICY_PROSE = ("AGENTS.md", "docs/MODEL_ROUTING.md", "docs/OWNER_DATA_WORKFLOW.md")
+POLICY_PROSE = ("AGENTS.md", "docs/OWNER_OPERATIONS.md")
+CURRENT_PROSE = (
+    "AGENTS.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DEVELOPMENT_PROCESS.md",
+    "docs/OWNER_OPERATIONS.md",
+    "docs/PRODUCT_VISION.md",
+    "docs/PROJECT_WIKI.md",
+)
+RETIRED_PROSE = ("docs/MODEL_ROUTING.md", "docs/OWNER_DATA_WORKFLOW.md", "docs/ROADMAP.md")
 
 
-@pytest.mark.parametrize("path", POLICY_PROSE)
+def test_exact_current_allowlist_contains_only_existing_regular_books():
+    assert GATE.DOC_PATHS == frozenset(CURRENT_PROSE)
+    for path in CURRENT_PROSE:
+        assert git(ROOT, "ls-files", "--stage", "--", path).startswith("100644 ")
+        assert (ROOT / path).is_file() and not (ROOT / path).is_symlink()
+    for path in RETIRED_PROSE:
+        assert not git(ROOT, "ls-files", "--", path)
+
+
+@pytest.mark.parametrize("path", RETIRED_PROSE)
+@pytest.mark.parametrize("existing", [False, True])
+def test_retired_prose_requires_full_even_if_present_in_comparison_base(repo, path, existing):
+    root, base = repo
+    target = root / path
+    if existing:
+        target.write_text("# Retired prose\n", encoding="utf-8")
+        base = commit(root)
+        git(root, "branch", "-f", "main", base)
+    target.write_text("# Updated retired prose\n", encoding="utf-8")
+    root, identity = merge((root, base))
+    assert GATE.classify(root, identity)["mode"] == "full"
+
+
+@pytest.mark.parametrize("path", CURRENT_PROSE)
 def test_existing_policy_prose_has_complete_verified_docs_outcome(repo, tmp_path, path):
     (repo[0] / path).write_text("# Updated policy prose\n", encoding="utf-8")
     root, identity = merge(repo)
@@ -163,13 +195,8 @@ def test_existing_policy_prose_has_complete_verified_docs_outcome(repo, tmp_path
     assert route(root, evidence(tmp_path, root, identity), identity) == "docs"
 
 
-def test_six_policy_paths_from_359_qualify_only_as_existing_prose_edits(repo, tmp_path):
-    paths = (
-        *POLICY_PROSE,
-        "docs/ARCHITECTURE.md",
-        "docs/DEVELOPMENT_PROCESS.md",
-        "docs/PRODUCT_VISION.md",
-    )
+def test_all_current_books_qualify_together_only_as_existing_prose_edits(repo, tmp_path):
+    paths = CURRENT_PROSE
     for path in paths:
         (repo[0] / path).write_text("# Updated policy prose\n", encoding="utf-8")
     root, identity = merge(repo)
@@ -226,7 +253,7 @@ def test_mixed_unknown_fixture_build_dependency_and_policy_changes_require_full(
     assert GATE.classify(root, identity)["mode"] == "full"
 
 
-@pytest.mark.parametrize("path", ("docs/PRODUCT_VISION.md", *POLICY_PROSE))
+@pytest.mark.parametrize("path", CURRENT_PROSE)
 @pytest.mark.parametrize("operation", ["new", "rename", "delete", "executable", "symlink"])
 def test_even_allowlisted_path_requires_existing_regular_unchanged_mode(repo, operation, path):
     root = repo[0]
@@ -414,7 +441,7 @@ def test_docs_checks_fail_for_invalid_text_links_and_credentials(repo, text):
 def test_docs_checks_local_links_without_execution_or_network(repo):
     root, identity = docs_candidate(
         repo,
-        "# Prose\n[roadmap](ROADMAP.md#title)\n"
+        "# Prose\n[operations](OWNER_OPERATIONS.md#title)\n"
         "[web](https://example.invalid)\n```sh\nexit 1\n```\n",
     )
     assert GATE.check_documents(root, GATE.classify(root, identity))["status"] == "passed"
