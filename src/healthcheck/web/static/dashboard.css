@@ -448,6 +448,13 @@ main, .legal { max-width: var(--owner-content-width); }
 
 /* Sleep B2: independent 7/30 source timelines over exact saved sources. */
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.sleep-timeline .sleep-period-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.sleep-timeline .sleep-period-toolbar form { gap: 8px; align-items: center; margin: 0; }
+.sleep-timeline .sleep-period-toolbar label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sleep-timeline .sleep-period-toolbar .preset-links { margin: 0; }
+.sleep-timeline [data-sleep-period] { margin: 8px 0 12px; }
+.sleep-timeline [data-sleep-regularity] > h3,
+.sleep-timeline [data-sleep-regularity] > p { display: inline-block; margin: 8px 8px 8px 0; }
 .sleep-timeline .chart { min-height: 0; }
 .sleep-timeline .chart svg { display: block; width: 100%; min-width: 320px; height: auto; }
 .sleep-timeline-legend { gap: 4px 24px; margin: 12px 0; }
