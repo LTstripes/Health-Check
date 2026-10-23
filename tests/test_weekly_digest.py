@@ -1,10 +1,12 @@
 """Synthetic saved-store and HTTP entry points for the Sunday preview."""
 
 import hashlib
+import json
 import os
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from html import unescape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -81,6 +83,7 @@ def test_one_snapshot_exact_sources_frozen_renderer_hash_readonly(profile, monke
     assert len(sessions) == 1
     assert fingerprint() == before
     assert packet["evidence"]["request"]["days"] == 7
+    assert cfg.request(END).projection == "compact"
     assert packet["evidence"]["snapshot"] == "one_sqlite_read_transaction"
     assert packet["evidence"]["sections"]["google_steps"]["source_id"] == google_steps
     assert "source_choices" not in weekly.encode_weekly_digest(packet)
@@ -265,7 +268,7 @@ def test_overview_opt_in_card_and_no_new_route(profile, monkeypatch):
         assert "Подробности и основания" in response.text
         assert "автоматическая отправка не включена" in response.text
         assert "итог предварительный" in response.text
-        assert "Не удалось прочитать недельный итог" in http.get(url.replace(
+        assert "Проверьте дату воскресенья" in http.get(url.replace(
             "weekly_end=2099-01-04", "weekly_end=2099-01-02")).text
         # Optional local visual evidence, never a runtime launch or real profile.
         if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
@@ -326,3 +329,146 @@ def test_full_activity_and_google_steps_seven_dates_no_cross_source_sum(profile)
     full = read(profile)
     assert "Даты с записями: 7 из 7" in full["text"]
     assert "Это не подтверждает полноту реальной активности" in full["text"]
+
+
+def _seed_dense_sleep(profile):
+    from test_sleep_metrics import _google_sleep_payload, _persist_google, _stage
+
+    def fmt(dt):
+        return dt.isoformat().replace("+00:00", "Z")
+
+    end = END + timedelta(days=7)
+    with session_scope(profile[1]) as session:
+        for day in range(7):
+            wake = end - timedelta(days=6 - day)
+            start = datetime.combine(wake, datetime.min.time(), UTC) - timedelta(hours=2)
+            stages = [
+                _stage(fmt(start + timedelta(minutes=14 * i)),
+                       fmt(start + timedelta(minutes=14 * (i + 1))), "LIGHT")
+                for i in range(30)
+            ]
+            raw = _google_sleep_payload(
+                name=f"dense-{wake}", stages=stages, stages_status="SUCCEEDED")
+            sleep = raw["dataPoints"][0]["sleep"]
+            sleep["interval"].update(
+                startTime=fmt(start), endTime=fmt(start + timedelta(hours=7)),
+                civilStartTime={"date": str(wake), "time": "01:00:00", "zone": "Europe/Moscow"},
+                civilEndTime={"date": str(wake), "time": "08:00:00", "zone": "Europe/Moscow"})
+            sleep["updateTime"] = fmt(start + timedelta(hours=8))
+            _persist_google(session, profile[0], payload=raw)
+    return end
+
+
+@pytest.mark.parametrize("view", ["observed", "completed"])
+def test_compact_preserves_every_renderer_input(profile, view):
+    steps = _seed_completed_steps(profile) if view == "completed" else _seed_movement(profile)
+    google = seed_google(profile, "123")
+    cfg = config(profile, steps_garmin_source_id=steps,
+                 steps_google_source_id=google, steps_view=view)
+    kwargs = dict(profile=profile[0].root, profile_kind="synthetic",
+                  evaluated_at_utc=CLOCK, evaluation_local_date=END)
+    detailed = combined_evidence.read_combined_evidence(
+        **kwargs, request=replace(cfg.request(END), projection="detailed"))
+    compact = read(profile, config=cfg)
+    for section in ("activity", "steps", "google_steps"):
+        assert compact["evidence"]["sections"][section] == detailed["sections"][section]
+    for provider in ("garmin", "google"):
+        assert (compact["evidence"]["sections"]["sleep"]["providers"][provider]
+                ["source_range"]["series"] == detailed["sections"]["sleep"]
+                ["providers"][provider]["source_range"]["series"])
+    assert weekly.render_weekly_digest({**compact, "evidence": detailed}) == compact["text"]
+
+
+def test_dense_persisted_sleep_compact_adapter_overview_mcp(profile, monkeypatch):
+    from healthcheck import chat_evidence_mcp as mcp
+    from healthcheck.web import pages
+
+    end = _seed_dense_sleep(profile)
+    clock = CLOCK + timedelta(days=7)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.astimezone(tz)
+
+    cfg = config(profile)
+    measured = []
+    original = combined_evidence.encode_combined_evidence
+
+    def encode(packet):
+        measured.append(len(_json(packet).encode("utf-8")))
+        return original(packet)
+
+    monkeypatch.setattr(combined_evidence, "encode_combined_evidence", encode)
+    with pytest.raises(EvidenceError, match="output_exceeds_byte_limit"):
+        combined_evidence.read_combined_evidence(
+            profile=profile[0].root, profile_kind="synthetic",
+            request=replace(cfg.request(end), projection="detailed"),
+            evaluated_at_utc=clock, evaluation_local_date=end)
+    packet = read(profile, config=cfg, week_end=end, clock=clock)
+    assert measured[0] > weekly.MAX_OUTPUT_BYTES
+    assert measured[1] < weekly.MAX_OUTPUT_BYTES
+    assert len(weekly.encode_weekly_digest(packet).encode("utf-8")) < weekly.MAX_OUTPUT_BYTES
+    points = packet["evidence"]["sections"]["sleep"]["providers"]["google"][
+        "source_range"]["series"][0]["points"]
+    eligible = [p for p in points if p["state"] == "value" and p["value"] is not None
+                and not p["role_uncertain"]]
+    assert len(eligible) == 7
+    assert {str(p["wake_date"]) for p in eligible} == {
+        str(end - timedelta(days=i)) for i in range(7)}
+
+    monkeypatch.setattr(pages, "datetime", Clock)
+    monkeypatch.setattr(mcp, "datetime", Clock)
+    app, _ = create_ui_app(Settings(data_dir=profile[0].root),
+                           weekly_digest=cfg, profile_kind="synthetic")
+    url = f"/brief?start_date={end - timedelta(days=6)}&end_date={end}&weekly_end={end}"
+    with TestClient(app, base_url="http://127.0.0.1:8120") as http:
+        response = http.get(url)
+        assert response.status_code == 200
+        assert 'data-weekly-preview' in response.text
+        encoded = response.text.split("data-weekly-preview>", 1)[1].split("<pre", 1)[1]
+        overview = json.loads(unescape(encoded.split(">", 1)[1].split("</pre>", 1)[0]))
+        assert overview["evidence"]["sections"] == packet["evidence"]["sections"]
+        assert overview["period"] == packet["period"]
+        assert overview["text"] == packet["text"]
+        if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+            output = Path(target)
+            output.mkdir(parents=True, exist_ok=True)
+            (output / "dense-overview.html").write_text(response.text, encoding="utf-8")
+    with TestClient(create_app(MCPConfig(profile[0].root, "synthetic",
+                    ZoneInfo("Europe/Moscow"), weekly_digest=cfg)),
+                    base_url="http://127.0.0.1", headers=HEADERS) as http:
+        result = rpc(http, "tools/call", {"name": "get_weekly_digest_evidence",
+                     "arguments": {"week_end": str(end)}}).json()["result"]
+        assert result["isError"] is False
+        assert result["structuredContent"]["evidence"]["sections"] == packet["evidence"]["sections"]
+        assert result["structuredContent"]["period"] == packet["period"]
+        assert result["structuredContent"]["text"] == packet["text"]
+        assert result["content"][0]["text"] == packet["text"]
+
+
+@pytest.mark.parametrize("reason, expected", [
+    ("output_exceeds_byte_limit", "превышает допустимый размер"),
+    ("selected_source_unavailable", "выбранный источник недоступен"),
+    ("evidence_read_failed", "попробуйте повторить чтение позже"),
+    ("weekly_end_must_be_sunday", "Проверьте дату воскресенья"),
+    ("future_week_not_available", "Проверьте дату воскресенья"),
+])
+def test_overview_weekly_failure_reason_is_truthful(profile, monkeypatch, reason, expected):
+    from healthcheck.web import pages
+
+    def failed(**kwargs):
+        raise EvidenceError(reason)
+
+    monkeypatch.setattr(pages, "get_weekly_digest_evidence", failed)
+    app, _ = create_ui_app(Settings(data_dir=profile[0].root),
+                           weekly_digest=config(profile), profile_kind="synthetic")
+    with TestClient(app, base_url="http://127.0.0.1:8120") as http:
+        response = http.get("/brief?weekly_end=2099-01-04")
+        assert response.status_code == 200
+        assert expected in response.text
+        assert 'data-weekly-preview' in response.text
+        assert '<pre style="white-space:pre-wrap' not in response.text
+        if reason == "output_exceeds_byte_limit":
+            assert "Проверьте дату" not in response.text
+            if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+                (Path(target) / "budget-fallback.html").write_text(response.text, encoding="utf-8")

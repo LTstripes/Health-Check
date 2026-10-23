@@ -35,7 +35,7 @@ class WeeklyDigestConfig:
 
     def request(self, week_end: date) -> CombinedEvidenceRequest:
         request = CombinedEvidenceRequest(
-            end_date=week_end, days=7, include_context=False,
+            end_date=week_end, days=7, include_context=False, projection="compact",
             activity_garmin_source_id=self.activity_garmin_source_id,
             sleep_garmin_source_id=self.sleep_garmin_source_id,
             sleep_google_source_id=self.sleep_google_source_id,

@@ -1130,9 +1130,20 @@ def period_brief_page(
                 profile_kind=request.app.state.weekly_profile_kind,
                 config=weekly_config, week_end=date.fromisoformat(weekly_end),
                 evaluated_at_utc=datetime.now(UTC))
-        except (EvidenceError, ValueError):
-            weekly_error = ("Не удалось прочитать недельный итог. "
-                            "Проверьте дату воскресенья и источники.")
+        except (EvidenceError, ValueError) as exc:
+            reason = str(exc)
+            if not isinstance(exc, EvidenceError) or reason in {
+                "weekly_end_must_be_sunday", "future_week_not_available",
+            }:
+                weekly_error = "Не удалось собрать недельный итог. Проверьте дату воскресенья."
+            elif reason == "selected_source_unavailable":
+                weekly_error = "Не удалось собрать недельный итог: выбранный источник недоступен."
+            elif reason == "output_exceeds_byte_limit":
+                weekly_error = ("Не удалось собрать недельный итог: объём подтверждений "
+                                "превышает допустимый размер. Итог не сформирован.")
+            else:
+                weekly_error = ("Не удалось прочитать сохранённые данные для недельного итога. "
+                                "Итог не сформирован; попробуйте повторить чтение позже.")
     return render(
         request,
         "period_brief.html",
