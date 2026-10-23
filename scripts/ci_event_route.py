@@ -10,13 +10,28 @@ import re
 import subprocess
 import time
 import zipfile
+import zlib
 from pathlib import Path
 
-from ci_docs_gate import classify, context, git, write_json
+from ci_docs_gate import (
+    DOC_CHECK,
+    POLICY_FILES,
+    canonical,
+    changed_docs,
+    classify,
+    context,
+    digest,
+    git,
+    write_json,
+)
 
 
 class Unproven(ValueError):
     pass
+
+
+class Absent(Unproven):
+    """Only ordinary initial PR/run absence may use bounded discovery."""
 
 
 def require(condition: bool) -> None:
@@ -33,27 +48,65 @@ class GitHub:
     def __init__(self, repository: str):
         require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is not None)
         self.prefix = f"repos/{repository}"
+        self.deadline = None
+        self.monotonic = time.monotonic
 
     def raw(self, path: str) -> bytes:
         # gh handles authenticated API redirects without logging token/response bodies.
+        remaining = 30 if self.deadline is None else self.deadline - self.monotonic()
+        require(remaining > 0)
         return subprocess.run(
             ["gh", "api", f"{self.prefix}/{path}"],
             check=True,
             capture_output=True,
-            timeout=30,
+            timeout=min(30, remaining),
         ).stdout
 
     def get(self, path: str):
         return json.loads(self.raw(path))
 
-    def decision(self, artifact_id: int) -> dict:
+    def decision(self, artifact_id: int, *, expected_digest=None, filename="decision.json") -> dict:
         archive = self.raw(f"actions/artifacts/{artifact_id}/zip")
         require(len(archive) <= 65536)
+        if expected_digest is not None:
+            require(re.fullmatch(r"sha256:[0-9a-f]{64}", expected_digest) is not None)
+            require(expected_digest == "sha256:" + digest(archive))
         with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
-            require(zipped.namelist() == ["decision.json"])
-            info = zipped.getinfo("decision.json")
-            require(info.file_size <= 16384)
-            return json.loads(zipped.read(info))
+            require(zipped.namelist() == [filename])
+            info = zipped.getinfo(filename)
+            require(info.file_size <= 16384 and not info.is_dir())
+            require(not info.flag_bits & 1)
+            require(info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED))
+            require((info.external_attr >> 16) & 0o170000 in (0, 0o100000))
+
+            def unique(pairs):
+                value = {}
+                for key, item in pairs:
+                    require(key not in value)
+                    value[key] = item
+                return value
+
+            def invalid_constant(_):
+                raise Unproven("non-JSON constant")
+
+            value = json.loads(
+                zipped.read(info).decode("utf-8"),
+                object_pairs_hook=unique,
+                parse_constant=invalid_constant,
+            )
+            require(isinstance(value, dict))
+            return value
+
+
+def bounded_git(root, deadline, monotonic, *args):
+    remaining = deadline - monotonic()
+    require(remaining > 0)
+    return subprocess.run(
+        ["git", "--no-replace-objects", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        timeout=min(30, remaining),
+    ).stdout
 
 
 def pr_checkout(root: Path, identity: dict) -> dict:
@@ -79,7 +132,10 @@ def pr_checkout(root: Path, identity: dict) -> dict:
 
 def snapshot(api, repository: str, branch: str, head: str) -> dict:
     prs = api.get(f"pulls?state=open&head={repository.split('/')[0]}:{branch}&per_page=2")
-    require(isinstance(prs, list) and len(prs) == 1)
+    require(isinstance(prs, list))
+    if not prs:
+        raise Absent("PR")
+    require(len(prs) == 1)
     number = prs[0]["number"]
     require(type(number) is int and number > 0)
     pr = api.get(f"pulls/{number}")
@@ -112,6 +168,8 @@ def snapshot(api, repository: str, branch: str, head: str) -> dict:
 def current_run(api, candidate: dict, branch: str) -> dict:
     # Select the newest PR run, never fall back to an older green run.
     result = api.get(f"actions/workflows/ci.yml/runs?event=pull_request&branch={branch}&per_page=2")
+    if result["total_count"] == 0 and result["workflow_runs"] == []:
+        raise Absent("run")
     require(result["total_count"] > 0 and bool(result["workflow_runs"]))
     run = result["workflow_runs"][0]
     require(run["event"] == "pull_request" and run["path"] == ".github/workflows/ci.yml")
@@ -123,22 +181,28 @@ def current_run(api, candidate: dict, branch: str) -> dict:
     return {key: run[key] for key in ("id", "run_attempt", "status", "conclusion")}
 
 
-def verify_pr_run(api, candidate: dict, run: dict, repository: str, branch: str) -> dict:
-    require(run["status"] == "completed" and run["conclusion"] == "success")
-    run_id, attempt = run["id"], run["run_attempt"]
-    jobs = api.get(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
-    require(jobs["total_count"] == 8 and len(jobs["jobs"]) == 8)
+def docs_listing(jobs, artifacts, run_id, attempt, head):
     expected = {
-        "classify",
-        "quality",
-        "test (garmin)",
-        "test (core-sleep)",
-        "test (app-ingest)",
-        "windows-smoke",
-        "checks",
+        "classify": "success",
+        "docs": "success",
+        "checks": "success",
+        "quality": "skipped",
+        "test": "skipped",
+        "windows-smoke": "skipped",
     }
     observed = jobs["jobs"]
-    require({job["name"] for job in observed} == expected | {"docs"})
+    require(jobs["total_count"] == len(observed) == len(expected))
+    require({job["name"]: job["conclusion"] for job in observed} == expected)
+    require(len({job["id"] for job in observed}) == len(observed))
+    require(
+        all(
+            type(job["id"]) is int
+            and job["id"] > 0
+            and type(job["run_id"]) is int
+            and type(job["run_attempt"]) is int
+            for job in observed
+        )
+    )
     require(
         all(
             job["run_id"] == run_id
@@ -147,12 +211,105 @@ def verify_pr_run(api, candidate: dict, run: dict, repository: str, branch: str)
             for job in observed
         )
     )
+    items = artifacts["artifacts"]
+    require(artifacts["total_count"] == len(items) == 3)
     require(
-        all(
-            job["conclusion"] == ("skipped" if job["name"] == "docs" else "success")
-            for job in observed
-        )
+        {item["name"] for item in items}
+        == {
+            f"{stem}-{run_id}-{attempt}"
+            for stem in ("event-decision", "docs-decision", "docs-outcome")
+        }
     )
+    require(len({item["id"] for item in items}) == 3)
+    for item in items:
+        require(type(item["id"]) is int and item["id"] > 0 and item["expired"] is False)
+        require(type(item["size_in_bytes"]) is int and 0 < item["size_in_bytes"] <= 65536)
+        require(re.fullmatch(r"sha256:[0-9a-f]{64}", item["digest"]) is not None)
+        require(item["workflow_run"]["id"] == run_id and item["workflow_run"]["head_sha"] == head)
+    return {
+        "jobs": sorted(
+            (j["name"], j["conclusion"], j["run_id"], j["run_attempt"], j["status"], j["id"])
+            for j in observed
+        ),
+        "artifacts": sorted((a["id"], a["name"], a["digest"]) for a in items),
+    }
+
+
+def verify_docs(root, api, candidate, identity, artifacts, deadline, monotonic):
+    # The task checkout stays the task head. Remote ordered parents/tree equality
+    # establish the distinct PR checkout; never classify a fabricated merge checkout.
+    def local(*args):
+        return bounded_git(root, deadline, monotonic, *args)
+
+    raw = local(
+        "diff",
+        "--raw",
+        "--full-index",
+        "--abbrev=40",
+        "-z",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        candidate["base"],
+        candidate["head"],
+        "--",
+    )
+    paths = changed_docs(raw)
+    policy = {}
+    for path in POLICY_FILES:
+        before, after = [
+            local("show", f"{commit}:{path}") for commit in (candidate["base"], candidate["head"])
+        ]
+        require(before == after and (root / path).read_bytes() == after)
+        policy[path] = digest(after)
+    decision = {
+        "schema_version": 1,
+        "mode": "docs",
+        "identity": identity,
+        "reason": "allowlisted-prose",
+        "trees": [candidate[key] for key in ("base_tree", "head_tree", "merge_tree")],
+        "paths": paths,
+        "diff_sha256": [digest(raw)] * 2,
+        "policy_sha256": policy,
+    }
+    saved = {}
+    for stem, filename in (("docs-decision", "decision.json"), ("docs-outcome", "outcome.json")):
+        item = next(a for a in artifacts["artifacts"] if a["name"].startswith(stem + "-"))
+        saved[stem] = api.decision(item["id"], expected_digest=item["digest"], filename=filename)
+    require(canonical(saved["docs-decision"]) == canonical(decision))
+    outcome = {
+        "schema_version": 1,
+        "status": "passed",
+        "check": DOC_CHECK,
+        "decision_sha256": digest(canonical(decision).encode()),
+        "documents": [
+            {"path": path, "sha256": digest(local("show", f"{candidate['head']}:{path}"))}
+            for path in paths
+        ],
+    }
+    # Successful exact PR checks is the content/link/privacy authority. This binds
+    # its outcome to immutable document bytes; no second content validator is run.
+    require(canonical(saved["docs-outcome"]) == canonical(outcome))
+    return {
+        "decision_sha256": digest(canonical(decision).encode()),
+        "outcome_sha256": digest(canonical(outcome).encode()),
+    }
+
+
+def verify_pr_run(
+    api,
+    candidate: dict,
+    run: dict,
+    repository: str,
+    branch: str,
+    *,
+    root=None,
+    deadline=None,
+    monotonic=time.monotonic,
+) -> dict:
+    require(run["status"] == "completed" and run["conclusion"] == "success")
+    run_id, attempt = run["id"], run["run_attempt"]
+    jobs = api.get(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
     artifacts = api.get(f"actions/runs/{run_id}/artifacts?per_page=100")
     require(artifacts["total_count"] == len(artifacts["artifacts"]) < 100)
     matches = [
@@ -161,11 +318,17 @@ def verify_pr_run(api, candidate: dict, run: dict, repository: str, branch: str)
         if item["name"] == f"event-decision-{run_id}-{attempt}"
     ]
     require(len(matches) == 1 and not matches[0]["expired"])
-    record = api.decision(matches[0]["id"])
-    require(record["schema_version"] == 1 and record["delegated"] is False)
+    record = api.decision(matches[0]["id"], expected_digest=matches[0].get("digest"))
+    require(
+        type(record["schema_version"]) is int
+        and record["schema_version"] == 1
+        and record["delegated"] is False
+    )
     proof = record["pr_checkout"]
     identity = proof["identity"]
-    require(record["repository"] == repository and proof["required_mode"] == "full")
+    require(record["repository"] == repository)
+    mode = proof["required_mode"]
+    require(mode in ("full", "docs"))
     require(
         identity
         == {
@@ -181,7 +344,50 @@ def verify_pr_run(api, candidate: dict, run: dict, repository: str, branch: str)
         }
     )
     require(all(proof[key] == candidate[key] for key in ("base_tree", "head_tree", "merge_tree")))
-    return {"run_id": run_id, "attempt": attempt, "checkout": proof}
+    result = {"run_id": run_id, "attempt": attempt, "checkout": proof}
+    if mode == "full":
+        require(jobs["total_count"] == 8 and len(jobs["jobs"]) == 8)
+        expected = {
+            "classify",
+            "quality",
+            "test (garmin)",
+            "test (core-sleep)",
+            "test (app-ingest)",
+            "windows-smoke",
+            "checks",
+        }
+        observed = jobs["jobs"]
+        require({job["name"] for job in observed} == expected | {"docs"})
+        require(
+            all(
+                job["run_id"] == run_id
+                and job["run_attempt"] == attempt
+                and job["status"] == "completed"
+                for job in observed
+            )
+        )
+        require(
+            all(
+                job["conclusion"] == ("skipped" if job["name"] == "docs" else "success")
+                for job in observed
+            )
+        )
+    else:
+        require(record["identity"] == identity)
+        stable = docs_listing(jobs, artifacts, run_id, attempt, candidate["head"])
+        result["docs"] = verify_docs(root, api, candidate, identity, artifacts, deadline, monotonic)
+        require(
+            docs_listing(
+                api.get(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"),
+                api.get(f"actions/runs/{run_id}/artifacts?per_page=100"),
+                run_id,
+                attempt,
+                candidate["head"],
+            )
+            == stable
+        )
+        result["docs"]["source"] = stable
+    return result
 
 
 def delegate(
@@ -194,26 +400,53 @@ def delegate(
     monotonic=time.monotonic,
     sleep=time.sleep,
 ) -> dict:
+    require(0 <= wait_seconds <= 420)
+    started = monotonic()
+    deadline = started + wait_seconds
+    discovery_deadline = min(deadline, started + 30)
+    if isinstance(api, GitHub):
+        api.deadline, api.monotonic = deadline, monotonic
     head = sha(identity["GITHUB_SHA"])
-    require(git(root, "rev-parse", "HEAD").decode().strip() == head)
-    require(not git(root, "status", "--porcelain", "--untracked-files=normal"))
+    require(bounded_git(root, deadline, monotonic, "rev-parse", "HEAD").decode().strip() == head)
+    require(
+        not bounded_git(
+            root, deadline, monotonic, "status", "--porcelain", "--untracked-files=normal"
+        )
+    )
     branch = identity["GITHUB_REF"].removeprefix("refs/heads/")
     require(re.fullmatch(r"task/[A-Za-z0-9_./-]+", branch) is not None)
-    candidate = snapshot(api, repository, branch, head)
-    require(candidate["head_tree"] == git(root, "rev-parse", "HEAD^{tree}").decode().strip())
-    run = current_run(api, candidate, branch)
+    candidate = None
+    while True:
+        try:
+            observed = snapshot(api, repository, branch, head)
+            require(candidate is None or candidate == observed)
+            candidate = observed
+            require(
+                candidate["head_tree"]
+                == bounded_git(root, deadline, monotonic, "rev-parse", "HEAD^{tree}")
+                .decode()
+                .strip()
+            )
+            run = current_run(api, candidate, branch)
+            break
+        except Absent as absent:
+            require(candidate is None or absent.args == ("run",))
+            require(monotonic() < discovery_deadline)
+            sleep(min(5, discovery_deadline - monotonic()))
     run_identity = (run["id"], run["run_attempt"])
-    deadline = monotonic() + wait_seconds
     while run["status"] != "completed":
         require(monotonic() < deadline)
         sleep(min(15, max(0, deadline - monotonic())))
         require(snapshot(api, repository, branch, head) == candidate)
         run = current_run(api, candidate, branch)
         require((run["id"], run["run_attempt"]) == run_identity)
-    proof = verify_pr_run(api, candidate, run, repository, branch)
+    proof = verify_pr_run(
+        api, candidate, run, repository, branch, root=root, deadline=deadline, monotonic=monotonic
+    )
     # Close head/base/PR/merge/run races across the evidence read.
     require(snapshot(api, repository, branch, head) == candidate)
     require(current_run(api, candidate, branch) == run)
+    require(monotonic() < deadline)
     return {"pr": candidate, "pr_run": proof}
 
 
@@ -241,6 +474,8 @@ def route(root: Path, identity: dict, repository: str, api=None, **wait) -> dict
         OSError,
         subprocess.SubprocessError,
         zipfile.BadZipFile,
+        zlib.error,
+        RecursionError,
     ):
         record["reason"] = "unproven-keep-full"
     return record

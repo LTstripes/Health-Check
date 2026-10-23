@@ -337,17 +337,28 @@ PR targeting main, with the exact task head and an exact merge checkout tree
 equal to the task-head tree. `scripts/ci_event_route.py` records head/base/merge
 commits and trees separately. The PR classifier records its actual checkout in
 `event-decision-<run>-<attempt>/decision.json`; API head SHA alone is insufficient.
-The push selects the newest corresponding PR run and may wait up to seven minutes
-for that exact run/attempt, without rerunning jobs. Delegation requires successful
-classifier, quality, all three Linux lanes, Windows (including janitor), and final
-`checks`, with docs skipped, plus matching checkout routing identity from that
-attempt. The successful PR `checks` remains the authority for the complete
-same-attempt evidence set; the push neither combines nor republishes those results.
-Head/base/merge/PR/run identities are checked again after reading the evidence.
+The push selects the newest corresponding PR run. One initial discovery window
+of at most 30 seconds may find an ordinarily absent PR/run; all lookup, waiting
+and evidence processing shares the existing seven-minute deadline. API errors or
+ambiguity fall back immediately. The exact run/attempt must finish successfully.
+Full-code mode still requires classifier, quality, all three Linux lanes, Windows
+(including janitor), and final `checks` successful, with docs skipped.
 
-No PR/run at lookup, ambiguity, stale/foreign/closed PR, changed merge/base/head,
-different tree, lookup error, missing/expired identity, docs-only PR, failed,
-cancelled or superseded run/attempt, or bounded-wait expiry keeps the push full.
+A Stage A docs-only PR may instead supply exactly six completed jobs: classify,
+docs and checks successful; quality, aggregate `test` and Windows skipped. The
+push verifies the three unique same-attempt event-decision, docs-decision and
+docs-outcome ZIPs against their GitHub SHA256 digests using bounded JSON parsing.
+Complete raw diffs, allowlisted regular-file paths, ordered parents/trees,
+canonical policy/document hashes and decision/outcome digests must match the
+actual PR merge checkout. The task checkout remains the task head. Successful
+exact PR `checks` remains the content/link/privacy authority; delegation does not
+rerun those checks or combine/republish evidence. PR/head/base/merge/run identities
+and docs job/artifact identities are checked again after the reads.
+
+Ambiguity, stale/foreign/closed PR, changed merge/base/head, different tree, API
+error, missing/expired/altered evidence, path/mode discrepancy, failed/cancelled
+or superseded run/attempt, or deadline expiry keeps the push full. A PR/run still
+absent after the one initial discovery window also keeps full CI.
 A delegated push skips its own quality/lanes/Windows and `checks`; its routing
 summary explicitly says it is **not a complete candidate gate** and identifies
 the PR run/attempt. Main/integration/other pushes and Stage A docs-only PR routing
@@ -402,9 +413,20 @@ superseded attempts or PR identities, uncertainty, changed bytes/configuration,
 unsafe paths and legacy unbound receipts reject reuse. Rejection is not a pass or
 permission for implicit reruns, replacement receipts or another candidate's evidence.
 The same-attempt, independent-review and pre-merge identity gates above still apply.
-This first bounded slice covers full CI evidence only; reuse of prose/link outcomes
-remains tracked in [#511](https://github.com/LTstripes/Health-Check/issues/511).
-Documentation delta/privacy review is never replaced by a cached link result.
+For manual prose/link reuse, retain the original successful receipt and its
+candidate/scope for explicitly listed documents only after proving unchanged
+paths, `100644` modes and bytes, checker/policy/configuration and resolution
+semantics, plus relevant local-target/ancestor existence, type and mode facts.
+Record current bounded-diff/dependency proof as reuse, without claiming another
+validator execution. If no historical target manifest exists, derive targets
+from proven document bytes with the same resolver and establish original/current
+immutable Git-tree facts; do not invent a historical manifest. Ordinary regular
+file target content changes need not invalidate existence-only evidence; anchors,
+meaning and surrounding privacy context require their separate review. Changed,
+renamed, deleted, type/mode/symlink or uncertain dependencies require affected
+checks. The [accepted manual rule](https://github.com/LTstripes/Health-Check/issues/511#issuecomment-6376298954)
+retains detailed guidance. Exact CI and documentation delta/privacy review remain
+required; this rule creates no automatic cache.
 
 Windows smoke retains the native taskkill exit code, every raw output item and
 verified root/descendant identities (PID, name, command line and CreationTime).
