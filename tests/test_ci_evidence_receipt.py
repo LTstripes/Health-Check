@@ -375,7 +375,9 @@ def test_case_collision_rejected(case, monkeypatch):
         "walk",
         lambda *args, **kwargs: [(str(case.root), [], ["duplicate", "DUPLICATE"])],
     )
-    (case.root / "duplicate").write_text("same Windows file")
+    # Both entries must resolve on case-sensitive filesystems before inventory.
+    for name in ("duplicate", "DUPLICATE"):
+        (case.root / name).write_text("synthetic collision")
     with pytest.raises(receipt.ReceiptError, match="case-colliding"):
         receipt.inventory(case.root)
 
