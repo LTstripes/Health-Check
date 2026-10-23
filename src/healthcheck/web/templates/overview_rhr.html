@@ -22,10 +22,10 @@
     {% set dto = item.dto %}{% set point = dto.last_observation %}{% set source = dto.source_identity %}
     <div data-rhr-provider="{{ item.label }}" data-rhr-state="{{ dto.state }}">
       {% if dto.mean_display is not none %}
-        <strong>Средний пульс в покое · {{ dto.mean_display }} уд/мин</strong>
-        <p class="overview-source">{{ item.source_labels.get(source.source_id, item.label) if source else item.label }} · по {{ dto.eligible_day_count }} из {{ dto.requested_day_count }} дней{% if dto.eligible_day_count == 1 %} · одно наблюдение{% endif %}</p>
+        <strong>{{ dto.mean_display }} уд/мин</strong>
+        <p class="overview-source">{{ item.label }}</p>
       {% else %}
-        <p class="overview-source">{{ item.source_labels.get(source.source_id, item.label) if source else item.label }}{% if dto.eligible_day_count is not none %} · по {{ dto.eligible_day_count }} из {{ dto.requested_day_count }} дней{% endif %}</p>
+        <p class="overview-source">{{ item.label }}</p>
         {% if dto.state == 'no_eligible_in_period' %}<p>Нет пригодных наблюдений в выбранном периоде.</p>
         {% elif dto.state == 'search_incomplete' %}<p>Поиск не завершён. {{ reasons.get(dto.reason, dto.reason) }}</p>
         {% else %}<p>{{ reasons.get(dto.reason, 'Среднее недоступно.') }}</p>{% endif %}

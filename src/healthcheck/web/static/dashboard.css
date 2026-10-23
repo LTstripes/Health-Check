@@ -518,7 +518,7 @@ main, .legal { max-width: var(--owner-content-width); }
 .steps-headlines dt { font-size: .9rem; font-weight: 400; }
 .steps-headlines dd { margin: .3rem 0; font-size: clamp(1.15rem, 2vw, 1.65rem); font-weight: 600; overflow-wrap: anywhere; }
 .steps-scope { font-size: .9rem; color: var(--muted, #586174); }
-.steps-selected { min-height: 2.5rem; overflow-wrap: anywhere; }
+.steps-selected { margin: 0; align-self: center; overflow-wrap: anywhere; }
 .steps-daily-chart { display: block; width: 100%; min-height: 110px; touch-action: manipulation; }
 .steps-axis { stroke: #aab4c5; stroke-width: 1; }
 .steps-line { stroke: #4774c7; stroke-width: 3; }
@@ -532,3 +532,9 @@ main, .legal { max-width: var(--owner-content-width); }
 .steps-daily-details > summary { min-height: 44px; box-sizing: border-box; padding: .7rem .2rem; }
 .steps-daily-details .statistics-steps-table { max-height: none; }
 @media (max-width: 1100px) { .statistics-steps-panels--compact { grid-template-columns: minmax(0, 1fr); } }
+
+.steps-grid { stroke: #dce3eb; stroke-width: 1; }
+.steps-tick { fill: #516176; font-size: 20px; }
+.steps-cursor[hidden] { display: none; }
+
+.export-source-options label[hidden] { display: none; }

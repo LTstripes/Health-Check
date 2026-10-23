@@ -115,8 +115,10 @@ def test_google_full_observed_grid_still_discloses_unknown_coverage_and_exact_st
     env = Environment(loader=FileSystemLoader(directory), autoescape=select_autoescape())
     env.filters["owner_date"] = owner_date
     html = env.get_template("statistics_steps_chart.html").render(view=view)
-    assert "7 из 7 дней с данными" in html and "полнота суток не подтверждена" in html
-    assert "64563604257983430649" in html
+    assert "7 из 7 дней с данными" not in html
+    assert "Выберите день" in html and "data-steps-cursor hidden" in html
+    assert "64\u202f563\u202f604\u202f257\u202f983\u202f430\u202f649" in html
+    assert view["total"] == "64563604257983430649"
     assert '<details class="owner-info">' in html and "Точное среднее" in html
     assert "<noscript>" in html
     payload = html.split('data-steps-chart-data>', 1)[1].split("</script>", 1)[0]
@@ -128,3 +130,26 @@ def test_no_javascript_count_arithmetic_or_date_timezone_conversion():
               / "src/healthcheck/web/static/statistics_steps.js").read_text(encoding="utf-8")
     assert "parseInt" not in source and "Number(" not in source and "new Date" not in source
     assert 'row.value === null' in source and "textContent" in source
+
+
+@pytest.mark.parametrize("factory", [packet, garmin_packet])
+@pytest.mark.parametrize("values", [(0, 0), (17, 0, None, 12345),
+                                      (9223372036854775807, 0, None)])
+def test_numeric_ticks_share_exact_geometry_and_day_starts_unselected(factory, values):
+    original = factory(*values)
+    before = deepcopy(original)
+    view = (google_steps_view if factory is packet else garmin_steps_view)(original)
+    assert original == before
+    assert view["selected"] is None and view["selected_index"] is None
+    maximum = max(1, *(value for value in values if value is not None))
+    assert view["ticks"][0]["value"] == "0" and view["ticks"][0]["y"] == 150
+    assert view["ticks"][-1]["value"] == str(maximum)
+    for tick in view["ticks"]:
+        assert tick["y"] == 150 - int(tick["value"]) * 130 // maximum
+        assert tick["label"].replace("\u202f", "") == tick["value"]
+    for row in view["rows"]:
+        if row["value"] is not None:
+            assert row["display"].replace("\u202f", "") == row["value"]
+            assert row["y"] == 150 - int(row["value"]) * 130 // maximum
+    assert view["total_display"].replace("\u202f", "") == view["total"]
+    assert view["mean_display"].replace("\u202f", "") == view["mean"]

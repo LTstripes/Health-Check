@@ -3,9 +3,7 @@
 <div data-overview-stress data-stress-state="{{ 'available' if stress.mean_display is not none else 'unavailable' }}">
   <p class="overview-source">Среднее за период</p>
   {% if stress.mean_display is not none %}<strong data-stress-mean>{{ stress.mean_display }} балл.</strong>{% else %}<strong>—</strong>{% endif %}
-  <p class="overview-source">{{ period_range(overview.completed_window) }}</p>
-  {% if stress.figure %}<p class="overview-source" data-period-coverage>{{ stress.eligible_days }}/{{ stress.days }} дней{% if stress.partial_days %} · есть частичные{% endif %}</p>
-  {% elif stress.reason == 'source_not_selected' %}<p class="muted">Выберите источник Garmin.</p>
+  {% if stress.reason == 'source_not_selected' %}<p class="muted">Выберите источник Garmin.</p>
   {% elif stress.reason == 'range_exceeds_max' %}<p class="muted">Период длиннее доступного окна чтения (400 дней).</p>
   {% elif stress.reason == 'read_unavailable' %}<p class="muted">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}
   <details class="owner-details" data-stress-evidence><summary>Подробнее о среднем</summary>

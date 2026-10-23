@@ -43,7 +43,7 @@
   <ul class="brief-overview-list">
 {% for name, section, url, kind in [('Вес', weight, '/weight', 'weight'), ('Сон', sleep, '/sleep', 'sleep'), ('Активность Garmin', activity, '/garmin', 'activity')] %}
     <li>
-      <div class="overview-metric-heading"><h3><a href="{{ url }}">{{ name }}</a></h3>
+      <div class="overview-metric-heading"><h3><a href="{{ url }}">{{ "Последнее измерение веса" if kind == "weight" else name }}</a>{% if kind == "weight" and charts.weight_current and charts.weight_current.value_kg is not none %} · {{ charts.weight_current.observed_date | owner_date }}{% endif %}</h3>
       <details class="overview-info"><summary aria-label="Как читать {{ name }}">ⓘ</summary><div>
         {% if kind == 'weight' %}<p>Последнее подтверждённое измерение. На графике дневные медианы и действующий тренд EWMA с периодом полураспада 21 день. Пропущенные даты не соединяются.</p>
         {% elif kind == 'sleep' %}<p>Средняя длительность пригодных ночей Garmin за завершённые дни по Москве. Дата ночи — существующая дата пробуждения источника. Пропуски не считаются нулями; несколько значений одной даты не объединяются. Среднее округляется до секунды только для показа.</p>
@@ -55,10 +55,6 @@
         {% set current = charts.weight_current %}
         {% set weight_observed = charts.weight.points | selectattr('value', 'ne', none) | list %}
         <p class="overview-value">{{ overview_number(current.value_kg) ~ ' кг' if current and current.value_kg is not none else '—' }}</p>
-        <p class="overview-source">Подтверждённый вес{% if current and current.value_kg is not none %} · {{ current.observed_date | owner_date }}{% endif %}</p>
-        {{ owner_ui.state_chip(weight.state, false) }}
-        <p class="overview-qualifier">{{ weight_observed | length }} дней с измерениями.{% if not charts.weight_trend.available %} Недостаточно пригодных данных для тренда.{% endif %}</p>
-        <p class="overview-source">{{ charts.weight.start | owner_date }} — {{ charts.weight.end | owner_date }}</p>
         {% if weight_observed %}
         {{ chart(charts.weight, kind, 'Измерения веса', 'кг') }}
         {% else %}<p class="overview-qualifier" data-overview-empty="weight">Нет пригодных измерений веса за период. Пропуски — не ноль.</p>{% endif %}
@@ -66,10 +62,8 @@
         {% set period_sleep = overview.period_sleep %}
         <div data-overview-period-sleep>
         <p class="overview-value">{{ period_sleep.duration_display or '—' }}</p>
-        <p class="overview-source">Среднее за период · Garmin</p>
-        <p class="overview-source">{{ period_range(overview.completed_window) }}</p>
-        {% if period_sleep.figure %}<p class="overview-qualifier" data-period-coverage>{{ period_sleep.eligible_days }}/{{ period_sleep.days }} ночей{% if period_sleep.partial_days %} · есть частичные{% endif %}</p>
-        {% elif period_sleep.reason == 'source_not_selected' %}<p class="overview-qualifier">Выберите источник Garmin.</p>
+        <p class="overview-source">Средняя длительность</p>
+        {% if period_sleep.reason == 'source_not_selected' %}<p class="overview-qualifier">Выберите источник Garmin.</p>
         {% elif period_sleep.reason == 'range_exceeds_max' %}<p class="overview-qualifier">Период длиннее доступного окна чтения (400 дней).</p>
         {% elif period_sleep.reason == 'read_unavailable' %}<p class="overview-qualifier">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}
         {{ period_chart(period_sleep.figure, 'sleep', 'История сна', true) }}
@@ -77,8 +71,6 @@
         </div>
       {% else %}
         <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") | owner_activity_count if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }}</p>
-        <p class="overview-source">Garmin{% if source_selection.selected_source %} · {{ brief_source_label(source_selection.selected_source) }}{% endif %}<br>{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }}</p>
-        {{ owner_ui.state_chip(activity.state, false) }}
         <p class="overview-qualifier">{% for fact in activity.summary_facts if fact.code == 'activity_type_counts' %}{{ value_text(fact) }}{% endfor %}</p>
         {% if not charts.activity_complete %}<p class="overview-warning">Покрытие дней не подтверждено полностью. Дни без записи — не ноль.</p>{% endif %}
         {{ freshness_note('garmin:activities') }}

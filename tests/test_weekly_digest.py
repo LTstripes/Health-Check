@@ -1,13 +1,11 @@
 """Synthetic saved-store and HTTP entry points for the Sunday preview."""
 
 import hashlib
-import json
 import os
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
-from html import unescape
 from pathlib import Path
 from types import MappingProxyType
 from zoneinfo import ZoneInfo
@@ -295,20 +293,12 @@ def test_overview_opt_in_card_and_no_new_route(profile, monkeypatch):
     with TestClient(app, base_url="http://127.0.0.1:8120") as http:
         response = http.get(url)
         assert response.status_code == 200
-        assert 'data-weekly-preview' in response.text
-        assert "Итог недели · preview" in response.text
-        assert "Подробности и основания" in response.text
-        assert "автоматическая отправка не включена" in response.text
-        assert "итог предварительный" in response.text
-        card = response.text.split("data-weekly-preview>", 1)[1].split("</section>", 1)[0]
-        primary, details = card.split('<details class="owner-details">', 1)
-        assert primary.index("data-weekly-fact") < primary.index("data-weekly-gaps")
-        assert "data-weekly-original-text" in details
-        assert "Свежесть обновления неизвестна" in primary
-        assert "По состоянию на" in primary
-        assert "Дневной сон и записи с неопределённой ролью" not in primary
-        assert "Проверьте дату воскресенья" in http.get(url.replace(
-            "weekly_end=2099-01-04", "weekly_end=2099-01-02")).text
+        assert 'data-weekly-preview' not in response.text
+        assert "Итог недели · preview" not in response.text
+        assert response.context["weekly_digest"]["version"] == weekly.VERSION
+        invalid = http.get(url.replace("weekly_end=2099-01-04", "weekly_end=2099-01-02"))
+        assert "Проверьте дату воскресенья" in invalid.context["weekly_error"]
+        assert 'data-weekly-preview' not in invalid.text
         # Optional local visual evidence, never a runtime launch or real profile.
         if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
             output = Path(target)
@@ -469,9 +459,8 @@ def test_dense_persisted_sleep_compact_adapter_overview_mcp(profile, monkeypatch
     with TestClient(app, base_url="http://127.0.0.1:8120") as http:
         response = http.get(url)
         assert response.status_code == 200
-        assert 'data-weekly-preview' in response.text
-        encoded = response.text.split("data-weekly-preview>", 1)[1].split("<pre", 1)[1]
-        overview = json.loads(unescape(encoded.split(">", 1)[1].split("</pre>", 1)[0]))
+        assert 'data-weekly-preview' not in response.text
+        overview = response.context["weekly_digest"]
         assert overview["evidence"]["sections"] == packet["evidence"]["sections"]
         assert overview["period"] == packet["period"]
         assert overview["text"] == packet["text"]
@@ -510,8 +499,8 @@ def test_overview_weekly_failure_reason_is_truthful(profile, monkeypatch, reason
     with TestClient(app, base_url="http://127.0.0.1:8120") as http:
         response = http.get("/brief?weekly_end=2099-01-04")
         assert response.status_code == 200
-        assert expected in response.text
-        assert 'data-weekly-preview' in response.text
+        assert expected in response.context["weekly_error"]
+        assert 'data-weekly-preview' not in response.text
         assert '<pre style="white-space:pre-wrap' not in response.text
         if reason == "output_exceeds_byte_limit":
             assert "Проверьте дату" not in response.text

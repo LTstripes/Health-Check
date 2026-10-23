@@ -1092,8 +1092,6 @@ def test_sleep_regularity_sparse_table_collapses_identical_states(tmp_path, monk
     (date(2025, 1, 5), 7), (date(2025, 1, 5), 30),
 ])
 def test_historical_sleep_period_controls_share_existing_snapshot(tmp_path, monkeypatch, end, days):
-    from html import unescape
-
     from healthcheck.web import pages
 
     app, _, _ = _ui(tmp_path)
@@ -1121,8 +1119,7 @@ def test_historical_sleep_period_controls_share_existing_snapshot(tmp_path, monk
     assert '<button type="submit">Показать</button>' in form
     assert f'aria-current="true" href="/sleep?view=timeline&amp;days={days}' in response.text
     assert f'<strong>{days} дней <span aria-hidden="true">✓</span></strong>' in response.text
-    assert f'/imports?export_end_date={end}&export_days={days}#analysis-export' in unescape(
-        response.text)
+    assert "data-sleep-export" not in response.text
 
 
 def test_historical_sleep_keeps_explicit_source_in_date_form_and_period_links(tmp_path):
@@ -1146,9 +1143,7 @@ def test_historical_sleep_keeps_explicit_source_in_date_form_and_period_links(tm
 
     handoff = HandoffParser()
     handoff.feed(response.text)
-    assert handoff.hrefs == [
-        "/imports?export_end_date=2099-01-02&export_days=7#analysis-export"]
-    assert 'google_sleep_source_id' not in handoff.hrefs[0] and family not in handoff.hrefs[0]
+    assert handoff.hrefs == []
 
 
 @pytest.mark.parametrize("value", ["invalid-private-date", "2025-02-29", "0001-01-01"])

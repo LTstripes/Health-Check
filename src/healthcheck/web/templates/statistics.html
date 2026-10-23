@@ -22,7 +22,6 @@
     <label>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
     <button type="submit">Показать</button>
   </form>
-  <p class="statistics-selected-period">Выбранный период: {{ period_labels[selected_period] }}{% if selected_period == 'calendar_year' %} {{ selected_year }}{% endif %}.</p>
   <p class="statistics-window">{{ packet.requested_window.start_date|owner_date }} — {{ packet.requested_window.end_date|owner_date }} · {{ packet.requested_window.inclusive_days }} дней включительно, по локальным датам источника.</p>
   {% call owner_ui.info_details("О периоде и источниках") %}
   <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выберите точный источник.</p>
@@ -38,8 +37,6 @@
     {% set selection_required = side.metrics.values()|selectattr('state', 'equalto', 'selection_required')|list or (side.position == 'left' and steps.reason == 'source_selection_required') %}
     <header data-statistics-side="{{ side.position }}">
       <h2>{{ provider }}</h2>
-      <p>{{ identity(side.source_identity) if side.source_identity else 'Источники указаны у показателей' if side.state == 'selection_required' and not selection_required else state_labels[side.state] }}</p>
-      <small>{{ side.requested_dates.start_date|owner_date }} — {{ side.requested_dates.end_date|owner_date }}</small>
       {% if incomplete or selection_required %}
       <p class="statistics-source-warning" role="status" data-source-attention>{{ 'Поиск сохранённых данных не завершён. Полнота и доступность неизвестны.' if incomplete else 'Нужен явный выбор источника. Данные источников не объединяются.' }}</p>
       {% endif %}
@@ -77,13 +74,11 @@
       <article data-statistics-side="{{ side.position }}">
         <h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
         {% if cell.cycling_selection is defined %}
-        {% if cell_source %}<p data-cycling-source>{{ identity(cell_source) }} · {{ 'Выбран явно' if cell.cycling_selection.mode == 'explicit' else 'Автоматически для этого периода' }}</p>{% endif %}
         {% if cell.state in ['selection_required', 'search_incomplete'] %}
         <p class="statistics-source-warning" role="status" data-cycling-source-attention>{{ 'Несколько пригодных источников или неоднозначные записи. Выберите Garmin-источник выше.' if cell.state == 'selection_required' else 'Поиск велодистанции не завершён; единственный пригодный источник не установлен.' }}</p>
         {% endif %}
         {% endif %}
         {% if cell.source_selection is defined %}
-        {% if cell_source %}<p data-sleep-source>{{ identity(cell_source) }}</p>{% endif %}
         {% if cell.state in ['selection_required', 'search_incomplete'] %}
         <p class="statistics-source-warning" role="status" data-sleep-source-attention>{{ 'Выберите источник сна.' if cell.state == 'selection_required' else 'Поиск сна не завершён.' }}</p>
         {% endif %}
@@ -97,13 +92,13 @@
         {% if value is none %}<p>{{ state_labels[cell.state] }}</p>{% endif %}
         {% if side.position == 'left' and code in session_links %}<p><a href="{{ session_links[code] }}" data-session-drilldown="{{ code }}">Сессии за выбранный период</a></p>{% endif %}
         {% if incomplete %}<p class="statistics-denominator">Поиск не завершён; итог недоступен.</p>
-        {% elif not unevaluated %}<p class="statistics-denominator">По {{ cell.aggregation.eligible_count }} {{ 'ночам' if cell.aggregation.denominator == 'eligible_saved_nights' else 'сохранённым сессиям' }}{% if not cell.coverage.complete %} · неполный период{% endif %}.</p>
-        {% endif %}
-        {% if code == 'sleep_duration_asleep_seconds' and cell.session_bound_validation is defined and cell.session_bound_validation.unverified_count %}
-        <p class="muted">Границы не проверены: {{ cell.session_bound_validation.unverified_count }} ночей.</p>
+
         {% endif %}
         <details class="statistics-details">
           <summary>ⓘ Данные и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }}</summary>
+        {% if code == 'sleep_duration_asleep_seconds' and cell.session_bound_validation is defined and cell.session_bound_validation.unverified_count %}
+        <p class="muted">Границы не проверены: {{ cell.session_bound_validation.unverified_count }} ночей.</p>
+        {% endif %}
           {% if code == 'activity_session_count' %}<pre class="provenance" data-activity-type-evidence="{{ side.position }}">{{ side.metrics.activity_type_counts | tojson(indent=2) }}</pre>{% if code in session_links %}<p><a href="{{ session_links.activity_type_counts }}">Записи по видам активности</a></p>{% endif %}{% endif %}
           {% if incomplete %}<p>Официальный итог и знаменатель недоступны; пропуски и полнота сбора неизвестны.</p>
           {% elif unevaluated %}<p>Наблюдения и знаменатель не оценены; это не ноль событий.</p>

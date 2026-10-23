@@ -163,13 +163,13 @@ def test_overview_is_primary_entry_and_data_owns_simple_export(client):
     assert overview.status_code == 200
     assert 'id="analysis-export-form"' not in overview.text
     assert '/static/analysis_export.js' not in overview.text
-    assert '/imports#analysis-export' in overview.text
-    assert '<h3><a href="/weight">Вес</a></h3>' in overview.text
+    assert '/imports#analysis-export' not in overview.text
+    assert '<a href="/weight">Последнее измерение веса</a>' in overview.text
     data = client.get("/imports")
     assert data.status_code == 200
     for text in ('Скачать данные', 'id="analysis-export-form"',
                  'id="analysis-export-text"', 'id="analysis-export-json"',
-                 '/static/analysis_export.js', '2 MiB', 'ваши комментарии',
+                 '/static/analysis_export.js', 'ваши комментарии',
                  'name="days"', 'name="end_date"', '>Скачать</button>'):
         assert text in data.text
     assert 'Сформировать</button>' not in data.text
@@ -235,8 +235,8 @@ def test_completed_export_api_mode_and_legacy_default(client, profile, monkeypat
 def test_completed_export_ui_declares_mode_and_effective_days(client):
     response = client.get("/imports")
     assert 'name="steps_view"' in response.text
-    assert '<option value="completed" selected>' in response.text
-    assert '<option value="observed">' in response.text
+    assert '<input type="hidden" name="steps_view" value="completed">' in response.text
+    assert '<option value="observed">' not in response.text
     script = client.get("/static/analysis_export.js").text
     assert 'steps_view: values.get("steps_view")' in script
     assert "effective_completed_range" in script and "completed_day_count" in script
@@ -247,9 +247,6 @@ def test_completed_export_ui_declares_mode_and_effective_days(client):
 ])
 def test_sleep_period_handoff_prefills_only_then_exports_exact_range(
         client, profile, monkeypatch, end, days):
-    from html import unescape
-    from re import search
-
     calls = []
     original = ui.read_combined_evidence
 
@@ -259,10 +256,8 @@ def test_sleep_period_handoff_prefills_only_then_exports_exact_range(
 
     monkeypatch.setattr(ui, "read_combined_evidence", capture)
     sleep = client.get(f"/sleep?wake_date={end}&days={days}")
-    link = search(r'href="([^"]+)" data-sleep-export', sleep.text)
-    assert link
-    target = unescape(link.group(1))
-    assert target == f"/imports?export_end_date={end}&export_days={days}#analysis-export"
+    assert 'data-sleep-export' not in sleep.text
+    target = f"/imports?export_end_date={end}&export_days={days}#analysis-export"
     page = client.get(target)
     assert page.status_code == 200
     assert calls == []  # GET never generates an export.
@@ -270,7 +265,7 @@ def test_sleep_period_handoff_prefills_only_then_exports_exact_range(
     assert f'<option value="{days}" selected>' in page.text
     assert f'name="end_date" value="{end}"' in page.text
     assert f'Период: {start} — {end} (включительно).' in page.text
-    assert "Скачайте и приложите в личный чат" in page.text
+    assert "Скачайте и приложите в личный чат" not in page.text
     response = client.post("/api/analysis-export", json=selection(profile, days=days, end_date=end))
     assert response.status_code == 200
     assert len(calls) == 1 and calls[0].days == days and str(calls[0].end_date) == end

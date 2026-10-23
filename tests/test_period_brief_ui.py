@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, date, datetime, timedelta
 from html.parser import HTMLParser
 from tempfile import TemporaryDirectory
@@ -117,8 +116,8 @@ def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_
     assert "weight_rate_kg_per_week" not in primary
     assert "sleep_agreement_mode" not in primary
     assert "activity_comparison_state" not in primary
-    assert "weight_rate_kg_per_week" in page.text
-    assert "period-brief-v2" in page.text
+    assert "weight_rate_kg_per_week" not in page.text
+    assert page.context["packet"]["contract_version"] == "period-brief-v2"
     assert "Traceback" not in page.text
     assert "SELECT " not in page.text
     assert "password" not in page.text.lower()
@@ -181,12 +180,11 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
         _hidden, after = remaining.split("</details>", 1)
         primary_html = before + after
     primary = _visible_text(primary_html.split("Технические детали", 1)[0])
-    technical = _visible_text(page.text.split("Технические детали", 1)[1])
-    assert "Garmin Connect · Vivoactive 5" in primary
-    assert source_id not in primary
-    assert source_instance_id not in primary
-    assert source_id in technical
-    assert source_instance_id in technical
+    assert "Garmin" in primary
+    assert source_id not in primary and source_instance_id not in primary
+    assert 'brief-provenance' not in page.text
+    selected = page.context["source_selection"]["selected_source"]
+    assert selected["id"] == source_id and selected["source_instance_id"] == source_instance_id
 
 
 @pytest.mark.parametrize("kind", ["default", "preset", "day", "window", "wrong_source"])
@@ -248,7 +246,8 @@ def test_393_existing_rhr_card_uses_real_period_reader_and_keeps_period_packet(
             assert dto["state"] == "observed" and dto["mean_display"] == 52
             assert dto["last_observation"]["source_local_date"] == "2099-01-02"
             assert dto["last_observation"]["observation_age_days"] == 8
-            assert "по 1 из 30 дней" in response.text and "одно наблюдение" in response.text
+            assert "по 1 из 30 дней" not in response.text
+            assert dto["eligible_day_count"] == 1 and dto["requested_day_count"] == 30
         else:
             assert dto["state"] == "no_eligible_in_period" and dto["mean_display"] is None
         assert dto["query"]["requested_start_date"] == (
@@ -391,10 +390,11 @@ def test_period_brief_rendered_summary_deduplicates_warning_and_notables(tmp_pat
         page = client.get("/brief", params={"start_date": "2099-01-01", "end_date": "2099-01-02"})
 
     assert page.status_code == 200
-    assert page.text.count("Принадлежность устройству и роль записи сна могут быть неизвестны") == 1
+    assert "Принадлежность устройству и роль записи сна могут быть неизвестны" not in page.text
     assert page.text.count("Обнаружено отклонение от личной базовой линии Garmin.") == 1
     assert "Есть исследовательские данные сна с неопределённой атрибуцией." not in page.text
-    assert "Источник: Источник данных недоступен" in page.text
+    assert "Источник: Источник данных недоступен" not in page.text
+    assert page.context["packet"] == packet
 
 
 @pytest.mark.parametrize(
@@ -613,39 +613,14 @@ def test_stage3_owner_presentation_keeps_packet_and_all_distinct_sleep_rows(tmp_
         page = client.get("/brief?start_date=2099-01-01&end_date=2099-01-07")
     assert page.status_code == 200
     assert result == before
-    primary, technical = page.text.split("Технические детали", 1)
-    text = _visible_text(primary)
-    assert "Уверенность и покрытие" not in text
-    assert "Полнота данных" not in text
-    assert "sleep_agreement_mode" not in primary
-    assert "Synthetic technical sparse" not in primary
-    for label in [
-        "Длительность и время",
-        "Стадии сна",
-        "Сопутствующие показатели за день",
-        "Со стадиями сна",
-        "Без стадий сна",
-        "Google минус Garmin",
-        "п.п.",
-        "уд/мин",
-    ]:
-        assert label in text
-    assert primary.count('class="brief-comparison"') == 7
-    assert "−2 мин" in text and "0 мин" in text and "3 мин" in text
-    assert "999" not in text  # unknown units are not guessed
-    assert "Пригодных наблюдений: —" in text
-    assert "Принятое сравнение недоступно" in text
-    assert "не оценка точности" in text
-    assert "0 шт." in text  # explicit confirmed-empty count survives
-    assert "Недостаточно данных" in text
-    assert "Свежесть неизвестна" in text and "Данные недоступны" in text
-    assert "Полнота данных и происхождение" in technical
-    assert "synthetic-run-0" not in primary and "synthetic-run-0" in technical
-    assert "future_metric" in technical and "999" in technical
-    assert "synthetic-result-hash" in technical
-    assert "source_freshness_attention" not in primary
-    assert technical.count('"source_freshness_attention"') == 5
-    assert 'class="card owner-details brief-provenance" open' not in page.text
+    assert page.context["packet"] == before["packet"]
+    assert page.context["brief"] == before["display"]
+    assert len(page.context["brief"]["sections"]["sleep"]["groups"]) == 7
+    assert 'class="brief-comparison"' not in page.text
+    assert 'brief-provenance' not in page.text and 'brief-sleep' not in page.text
+    assert 'synthetic-result-hash' not in page.text
+    assert 'Полнота данных и происхождение' not in page.text
+    assert 'Что нужно сделать' in page.text and 'Повторите вход' in page.text
 
 
 def test_stage3_actions_group_same_work_but_keep_provider_and_distinct_remediation():
@@ -867,21 +842,13 @@ def test_overview_sleep_summarizes_primary_evidence_and_source_status(tmp_path, 
         page = client.get("/brief?start_date=2099-01-01&end_date=2099-01-07")
 
     assert page.status_code == 200
-    primary, _technical = page.text.split("Технические детали", 1)
-    assert 'href="/sleep"' in primary
-    assert "Последняя длительность сна" in primary
-    assert "7 ч 30 мин" in primary
-    assert "Ночей с длительностью" in primary
-    assert "Последняя оценка сна Garmin" in primary
-    assert "Источники: Garmin: Данные доступны · Google: Данные доступны частично" in primary
-    assert "За выбранный период нет доступных данных" not in primary
-    assert 'class="card owner-details brief-sleep"' in primary
-    assert 'class="card owner-details brief-sleep" open' not in primary
-    assert "status-chip owner-state present" not in primary
-    overview = primary.split('class="brief-overview-list"', 1)[1]
-    sleep_card = overview.split('href="/sleep"', 1)[1].split("</li>", 1)[0]
-    assert "2 января 2099" in sleep_card
-    assert "Подробности доступны в технических данных" not in sleep_card
+    assert 'href="/sleep"' in page.text
+    assert 'Последняя длительность сна' in page.text
+    assert '7 ч 30 мин' in page.text
+    assert 'За выбранный период нет доступных данных' not in page.text
+    assert 'class="card owner-details brief-sleep"' not in page.text
+    assert 'Источники: Garmin:' not in page.text
+    assert page.context["packet"]["sections"]["sleep"] == packet["sections"]["sleep"]
 
 
 def seed_overview_v2(paths):
@@ -937,25 +904,15 @@ def test_overview_v2_real_read_is_source_explicit_bounded_and_read_only(tmp_path
         )
         response = client.get("/brief?start_date=2099-01-01&end_date=2099-01-02")
         assert response.status_code == 200
-        primary, technical = response.text.split('class="card owner-details brief-provenance"', 1)
-        assert 'data-overview-vitals' in primary
-        assert "52 уд/мин" in primary and "55 уд/мин" in primary
-        assert "60.12 мс" in primary and "42.5 мс" in primary
-        assert "98 %" in primary and "97 %" in primary and "96 %" in primary
-        assert "14.12 вдохов/мин" in primary and "13.5 вдохов/мин" in primary
-        assert "Google: явный ноль" in primary and "0 баллы" in primary
-        assert "среднее за неделю" in primary and "за день" in primary
-        assert "Снимок; суточное среднее не подтверждено" in primary
-        assert "Google · Пульс в покое: нет текущих записей" in primary
-        assert "Источник передал пустое значение" in primary
-        assert "За выбранный период нет доступных данных" not in primary
-        assert "r297-google-daily-vitals-read-v1" in technical
-        assert "60.123456" in technical  # source precision retained
+        assert 'data-overview-vitals' not in response.text
+        assert '60.12 мс' in response.text
+        assert 'HRV Garmin · последнее среднее за неделю' in response.text
+        technical = response.context["overview"]["technical"]
+        assert any(str(row["value"]) == "60.123456" for row in technical["garmin"])
+        assert technical["google"]  # Google evidence remains available to its dedicated UI/backend.
         outside = client.get("/brief?start_date=2099-01-04&end_date=2099-01-05")
-        visible = outside.text.split('class="card owner-details brief-provenance"', 1)[0]
-        assert "52 уд/мин" not in visible and "42.5 мс" not in visible
-        assert "Garmin: нет записи этого показателя в выбранном периоде" in visible
-        assert "Google · HRV: нет текущих записей в выбранном периоде" in visible
+        assert '60.12 мс' not in outside.text
+        assert outside.context["overview"]["garmin"]["hrv_weekly_average_ms"]["value"] is None
     assert "BEGIN" in statements
     assert not any(sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
                    for sql in statements)
@@ -971,8 +928,8 @@ def test_overview_v2_google_only_does_not_look_globally_empty(tmp_path):
         page = client.get("/brief?start_date=2099-01-01&end_date=2099-01-02")
     assert page.status_code == 200
     primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
-    assert "42.5 мс" in primary
-    assert "Garmin: источник не сохранён" in primary
+    assert page.context["overview"]["google"]["sources"]
+    assert "Источник Garmin не сохранён" in primary
     assert "За выбранный период нет доступных данных" not in primary
 
 
@@ -1002,17 +959,15 @@ def test_overview_v2_custom_period_bounds_only_google_display(tmp_path, days):
     assert page.status_code == 200
     assert page.context["brief"]["period"]["calendar_days"] == days
     primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
-    assert ("57 уд/мин" in primary) == (days == 400)
-    assert ("42.5 мс" in primary) == (days <= 401)
-    assert ('data-overview-google-window' in primary) == (days > 400)
+    assert "42.5 мс" not in primary
+    assert page.context["overview"]["google"]["window_limited"] == (days > 400)
     google_start = start if days == 400 else end - timedelta(days=399)
     for result in page.context["overview"]["technical"]["google"]:
         assert result["start_date"] == google_start.isoformat()
         assert result["end_date"] == end.isoformat()
     if days > 400:
-        assert "последние 400 дней выбранного периода" in primary
-        assert "Google · Пульс в покое: нет текущих записей в окне Google" in primary
-        assert "нет текущих записей в выбранном периоде" not in primary
+        assert "data-overview-google-window" not in primary
+        assert page.context["overview"]["google"]["window_limited"]
     if days == 800:
         assert not page.context["overview"]["google"]["sources"]
 
@@ -1026,9 +981,10 @@ def test_overview_v2_long_period_keeps_garmin_outside_google_window(tmp_path):
         page = client.get("/brief?start_date=2099-01-01&end_date=2101-01-01")
     assert page.status_code == 200
     primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
-    assert "52 уд/мин" in primary and "60.12 мс" in primary
+    assert "60.12 мс" in primary
+    assert page.context["overview"]["garmin"]["resting_heart_rate_bpm"]["value"] == 52
     assert "42.5 мс" not in primary and "55 уд/мин" not in primary
-    assert "Google: нет текущих записей в окне Google" in primary
+    assert not page.context["overview"]["google"]["sources"]
     assert "За выбранный период нет доступных данных" not in primary
 
 
@@ -1275,7 +1231,7 @@ def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path, complet
         assert charts['activity']['points'][0]['value'] == 1
         assert page.context['packet']['sections']['activity']['coverage']['sessions_in_period'] == 3
         assert 'EWMA, 21 день' in page.text
-        assert 'Все показатели по источникам' in page.text
+        assert 'Все показатели по источникам' not in page.text
         assert page.text.count('class="overview-info"') == 3
         assert page.context['charts']['sleep_error'] is False
         later = client.get('/brief?start_date=2099-01-01&end_date=2099-01-09')
@@ -1423,8 +1379,8 @@ def test_source_notice_visibility_and_disclosure_preserve_packet(
             'class="brief-overview"'
         )
     elif context:
-        limitations = response.text.split('class="owner-details brief-limitations"', 1)[1]
-        assert context in limitations
+        assert 'class="owner-details brief-limitations"' not in response.text
+        assert response.context["packet"]["owner_actions"] == actions
 
 
 def test_mixed_sources_keep_distinct_errors_and_pending_action_once(tmp_path, monkeypatch):
@@ -1497,14 +1453,16 @@ def test_selected_garmin_missing_rhr_hrv_remains_source_and_date_specific(tmp_pa
         assert cell["value"] is None
         assert cell["state"] == ("unavailable" if mode == "incompatible" else "unknown")
         assert cell["date"] == ("2099-01-02" if mode == "incompatible" else None)
-        assert cell["note"] in response.text
+        if code == "hrv_weekly_average_ms":
+            assert cell["note"] in response.text
     secondary = response.text.split('class="overview-secondary"', 1)[1].split("</section>", 1)[0]
     assert "52 уд/мин" not in secondary and "60.12 мс" not in secondary
     assert "42.5 мс" not in secondary and "55 уд/мин" not in secondary
-    assert "HRV · среднее за неделю" in secondary
+    assert "HRV Garmin · последнее среднее за неделю" in secondary
     if mode != "outside_window":
         # Google daily values remain separate, never fill Garmin's missing cell.
-        assert "42.5 мс" in response.text and "55 уд/мин" in response.text
+        assert "42.5 мс" not in secondary
+        assert response.context["overview"]["google"]["sources"]
 
 
 @pytest.mark.parametrize("days,mode", [
@@ -1716,7 +1674,7 @@ def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(
     assert page.context['packet']['result_hash'] == page.context['brief']['source_result_hash']
     # Refresh diagnostics are centralized, not repeated on saved-history cards.
     assert 'data-freshness-scope=' not in page.text
-    assert 'href="/imports#data-status"' in page.text
-    encoded = page.text.split('<pre class="brief-packet">', 1)[1].split('</pre>', 1)[0]
-    assert json.loads(encoded) == page.context['packet']
+    assert 'href="/imports"' in page.text
+    assert '<pre class="brief-packet">' not in page.text
+    assert page.context['packet']['sections']['sleep']
     assert '5 ч 28 мин' in page.text

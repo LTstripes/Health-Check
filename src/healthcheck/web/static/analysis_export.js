@@ -128,17 +128,19 @@
       if (googleRows.length === 1) google.value = googleRows[0].id;
       // A sole saved identity is only a selector default. The existing reader,
       // not inventory size, determines metric eligibility and missing states.
-      options.open = garminRows.length !== 1 || googleRows.length > 1;
+      options.hidden = garminRows.length <= 1 && googleRows.length <= 1;
+      options.open = !options.hidden;
+      form.querySelector('[data-export-garmin-choice]').hidden = garminRows.length <= 1;
+      form.querySelector('[data-export-google-choice]').hidden = googleRows.length <= 1;
       sourcesReady = true;
       garmin.disabled = false;
       google.disabled = false;
       submit.disabled = !garmin.value || !updateRange();
       status.textContent = !garminRows.length
         ? "Сохранённых источников Garmin нет. Проверьте источники в разделе «Данные»."
-        : garmin.value ? "Выберите период и нажмите «Скачать»." : "Выберите источник Garmin.";
-      reload.hidden = false;
+        : garmin.value ? (googleRows.length > 1 ? "Google HRV: выберите источник, чтобы включить его в файл." : "") : "Выберите источник Garmin.";
     } catch (_) {
-      options.open = true;
+      options.hidden = true;
       status.textContent = "Источники недоступны. Проверьте локальные данные и повторите загрузку.";
       reload.hidden = false;
     }
@@ -159,7 +161,7 @@
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({days: Number(values.get("days")), end_date: values.get("end_date"),
           garmin_source_id: values.get("garmin_source_id"),
-          steps_view: values.get("steps_view") || "observed",
+          steps_view: values.get("steps_view") || "completed",
           google_hrv_source_id: values.get("google_hrv_source_id") || null}),
       });
       const data = await response.json();
@@ -186,7 +188,7 @@
       showSummary(data.disclosures);
       result.hidden = false;
       document.getElementById("analysis-export-text").click();
-      status.textContent = "Файл готов. Скачивание текста началось. Скачайте и приложите в личный чат; JSON и подробности доступны ниже.";
+      status.textContent = "Файл готов. Скачивание текста началось.";
     } catch (error) {
       if (current !== generation || error.name === "AbortError") return;
       clear();

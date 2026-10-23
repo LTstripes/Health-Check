@@ -15,28 +15,45 @@ def _mean(total: int, count: int) -> str:
     return "<0.1" if total > 0 and tenths == 0 else f"{tenths // 10}.{tenths % 10}"
 
 
+def _group(value: str | None) -> str | None:
+    """Group a decimal string without passing exact counts through a float."""
+    if value is None:
+        return None
+    integer, dot, fraction = value.partition('.')
+    groups = []
+    while integer:
+        groups.append(integer[-3:])
+        integer = integer[:-3]
+    return "\u202f".join(reversed(groups)) + (dot + fraction if dot else "")
+
+
 def _chart(cells: list[dict]) -> dict:
     """Only bounded geometry is numeric in browser data; counts stay strings."""
     maximum = max((c["value"] for c in cells if c["state"] == "value"), default=0)
+    scale = max(1, maximum)
+    left = 340 if len(str(scale)) > 12 else 100
+    ticks = [{"value": str(value), "label": _group(str(value)),
+              "y": 150 - value * 130 // scale}
+             for value in sorted({0, scale // 2, scale})]
     rows, segments = [], []
     previous = None
     for index, cell in enumerate(cells):
         value = cell["value"] if cell["state"] == "value" else None
-        x = 20 + index * 860 // max(1, len(cells) - 1)
+        x = left + index * (880 - left) // max(1, len(cells) - 1)
         y = 150 - value * 130 // max(1, maximum) if value is not None else None
         row = {
             "date": cell["date"].isoformat(), "state": cell["state"],
             "value": str(value) if value is not None else None,
+            "display": _group(str(value)) if value is not None else None,
             "x": x, "y": y, "index": index,
         }
         rows.append(row)
         if previous is not None and y is not None:
             segments.append({"x1": previous["x"], "y1": previous["y"], "x2": x, "y2": y})
         previous = row if y is not None else None
-    selected = next((i for i in range(len(rows) - 1, -1, -1)
-                     if rows[i]["value"] is not None), len(rows) - 1)
-    return {"rows": rows, "segments": segments, "selected_index": selected,
-            "selected": rows[selected] if rows else None}
+    return {"rows": rows, "segments": segments, "selected_index": None,
+            "selected": None, "ticks": ticks, "left": left}
+
 
 
 def google_steps_view(packet) -> dict | None:
@@ -51,6 +68,8 @@ def google_steps_view(packet) -> dict | None:
     return {
         "provider": "Google", "assessed": assessed,
         "total": summary["total_display"], "mean": summary["mean_display"],
+        "total_display": _group(summary["total_display"]),
+        "mean_display": _group(summary["mean_display"]),
         "count": summary["observed_day_count"], "days": summary["requested_day_count"],
         "contract": summary["contract_version"], "reason": summary["reason"],
         "start": summary["start_date"], "end": summary["end_date"],
@@ -61,6 +80,7 @@ def google_steps_view(packet) -> dict | None:
 
 def garmin_steps_view(packet) -> dict:
     result = {"provider": "Garmin", "assessed": False, "total": None, "mean": None,
+              "total_display": None, "mean_display": None,
               "count": None, "days": None, "start": packet.start_date, "end": packet.end_date,
               "contract": "garmin-completed-steps-summary-v1", "reason": packet.reason,
               "invalid_days": 0, **_chart([])}
@@ -90,6 +110,9 @@ def garmin_steps_view(packet) -> dict:
         "total": str(summary.total) if summary.total is not None else None,
         "mean": (_mean(summary.total, summary.eligible_day_count)
                  if summary.total is not None else None),
+        "total_display": _group(str(summary.total)) if summary.total is not None else None,
+        "mean_display": (_group(_mean(summary.total, summary.eligible_day_count))
+                         if summary.total is not None else None),
         "count": summary.eligible_day_count, "days": summary.calendar_day_count,
         "invalid_days": sum(row["state"] in {"invalid", "ambiguous"} for row in chart["rows"]),
         **chart,

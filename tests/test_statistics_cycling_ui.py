@@ -84,7 +84,8 @@ def test_exact_unique_metric_source_and_packet_preservation(statistics_ui, perio
     parsed = MetricParser(response.text)
     assert parsed.values[METRIC_CODE, "left"].strip() == format_statistics_value(
         METRIC_CODE, distance)
-    assert "Автоматически для этого периода" in parsed.cells[METRIC_CODE, "left"]
+    assert "automatic" in parsed.details[METRIC_CODE, "left"]
+    assert "Автоматически для этого периода" not in parsed.cells[METRIC_CODE, "left"]
     assert source.id in parsed.details[METRIC_CODE, "left"]
     assert (METRIC_CODE, "right") not in parsed.cells
     assert SourceFormParser(response.text).selected["garmin_source_id"] == ""
@@ -158,7 +159,8 @@ def test_existing_explicit_override_never_falls_back(statistics_ui, monkeypatch,
         assert parsed.values[METRIC_CODE, "left"].strip() == format_statistics_value(
             METRIC_CODE, expected)
         assert SourceFormParser(response.text).selected["garmin_source_id"] == chosen.id
-        assert "Выбран явно" in parsed.cells[METRIC_CODE, "left"]
+        assert "explicit" in parsed.details[METRIC_CODE, "left"]
+        assert "Выбран явно" not in parsed.cells[METRIC_CODE, "left"]
         export(response, f"explicit-{'value' if chosen == first else 'empty'}-{period}")
 
 
@@ -293,7 +295,8 @@ def test_completed_discovery_supplies_labels_after_summary_deadline(
     assert response.status_code == 200
     parsed = MetricParser(response.text)
     text = parsed.cells[METRIC_CODE, "left"]
-    assert "Garmin · Vivoactive 5" in text
+    assert "data-cycling-source" not in text
+    assert "Источник / поле" in parsed.details[METRIC_CODE, "left"]
     assert parsed.values[METRIC_CODE, "left"].strip() == ("Недоступно" if multiple else "21 км")
     # Other cells keep the first budget's failure; successful cycling identities
     # support a labelled selector but do not rewrite that shared packet.

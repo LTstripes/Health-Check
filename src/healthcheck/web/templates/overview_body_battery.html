@@ -25,8 +25,6 @@
   <p class="overview-source">Среднее дневных максимумов</p>
     <div data-bb-window="selected" data-bb-window-state="{{ selected.state if selected else 'no_completed_days' }}">
       <strong>{{ selected.mean_display ~ ' балл.' if selected and selected.mean_display is not none else '—' }}</strong>
-      <p class="overview-source">{{ period_range(overview.completed_window) }}</p>
-      {% if selected and selected.eligible_day_count is not none %}<p class="overview-source" data-period-coverage>{{ selected.eligible_day_count }}/{{ selected.requested_day_count }} дней</p>{% endif %}
       {% if selected and selected.reason %}<p class="muted">{{ reasons.get(selected.reason, selected.reason) }}</p>{% endif %}
     </div>
   {% if bb.figure and bb.figure.points | selectattr('value', 'ne', none) | list %}

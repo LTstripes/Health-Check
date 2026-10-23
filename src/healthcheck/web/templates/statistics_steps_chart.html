@@ -1,23 +1,23 @@
 <div class="steps-compact" data-steps-chart="{{ view.provider|lower }}">
   {% if view.assessed %}
   <dl class="steps-headlines">
-    <div><dt>Сумма по сохранённым дням</dt><dd data-steps-total>{{ view.total if view.total is not none else 'Недоступно' }}</dd></div>
-    <div><dt>В среднем за день с данными</dt><dd data-steps-mean>{{ view.mean if view.mean is not none else 'Недоступно' }}</dd></div>
+    <div><dt>Сумма по сохранённым дням</dt><dd data-steps-total>{{ view.total_display if view.total is not none else 'Недоступно' }}</dd></div>
+    <div><dt>В среднем за день с данными</dt><dd data-steps-mean>{{ view.mean_display if view.mean is not none else 'Недоступно' }}</dd></div>
   </dl>
-  <p class="steps-scope" data-steps-scope>{{ view.count }} из {{ view.days }} дней с данными · {% if view.provider == 'Google' %}полнота суток не подтверждена{% else %}только завершённые дни по МСК{% endif %}.</p>
   {% if view.invalid_days %}<p role="status">Есть противоречивые или недопустимые наблюдения ({{ view.invalid_days }}); они исключены из итога.</p>{% endif %}
   {% if view.rows %}
-  <p class="steps-selected" aria-live="polite" aria-atomic="true"><time data-steps-selected-date datetime="{{ view.selected.date }}">{{ view.selected.date|owner_date }}</time>: <strong data-steps-selected-value>{{ view.selected.value if view.selected.value is not none else 'Нет допустимого значения' }}</strong> <span data-steps-selected-unit>{{ 'шагов' if view.selected.value is not none else '' }}</span></p>
   <svg class="steps-daily-chart" viewBox="0 0 900 175" role="img" aria-label="{{ view.provider }}: шаги по дням. Пропуски показаны разрывами; точные значения в таблице ниже.">
-    <line class="steps-axis" x1="20" y1="150" x2="880" y2="150" />
+    <line class="steps-axis" x1="{{ view.left }}" y1="150" x2="880" y2="150" />
+    {% for tick in view.ticks %}<line class="steps-grid" x1="{{ view.left }}" y1="{{ tick.y }}" x2="880" y2="{{ tick.y }}"/><text class="steps-tick" x="{{ view.left - 12 }}" y="{{ tick.y + 6 }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}
     {% for segment in view.segments %}<line class="steps-line" x1="{{ segment.x1 }}" y1="{{ segment.y1 }}" x2="{{ segment.x2 }}" y2="{{ segment.y2 }}" />{% endfor %}
-    {% for row in view.rows %}{% if row.y is not none %}<circle class="steps-point" cx="{{ row.x }}" cy="{{ row.y }}" r="4"><title>{{ row.date }}: {{ row.value }} шагов</title></circle>{% else %}<path class="steps-gap" d="M{{ row.x - 3 }} 160 l6 6 m-6 0 l6 -6"><title>{{ row.date }}: нет допустимого значения</title></path>{% endif %}{% endfor %}
-    <line class="steps-cursor" data-steps-cursor x1="{{ view.selected.x }}" x2="{{ view.selected.x }}" y1="10" y2="170" />
+    {% for row in view.rows %}{% if row.y is not none %}<circle class="steps-point" cx="{{ row.x }}" cy="{{ row.y }}" r="4"><title>{{ row.date }}: {{ row.display }} шагов</title></circle>{% else %}<path class="steps-gap" d="M{{ row.x - 3 }} 160 l6 6 m-6 0 l6 -6"><title>{{ row.date }}: нет допустимого значения</title></path>{% endif %}{% endfor %}
+    <line class="steps-cursor" data-steps-cursor hidden x1="0" x2="0" y1="10" y2="170" />
   </svg>
   <div class="steps-day-controls" data-steps-day-controls hidden>
     <button type="button" data-steps-previous aria-label="Предыдущий день">←</button>
-    <label>День <select data-steps-day aria-label="{{ view.provider }}: выбрать день">{% for row in view.rows %}<option{% if loop.index0 == view.selected_index %} selected{% endif %}>{{ row.date|owner_date }}</option>{% endfor %}</select></label>
+    <label>День <select data-steps-day aria-label="{{ view.provider }}: выбрать день"><option value="" selected disabled>Выберите день</option>{% for row in view.rows %}<option value="{{ loop.index0 }}">{{ row.date|owner_date }}</option>{% endfor %}</select></label>
     <button type="button" data-steps-next aria-label="Следующий день">→</button>
+  <span class="steps-selected" aria-live="polite" aria-atomic="true"><time data-steps-selected-date class="visually-hidden" hidden></time><span data-steps-selected-separator class="visually-hidden" hidden>: </span><strong data-steps-selected-value></strong> <span data-steps-selected-unit></span></span>
   </div>
   <script type="application/json" data-steps-chart-data>{{ view.rows|tojson }}</script>
   <noscript><p>Выберите дату в таблице «Дни и подробности» ниже.</p></noscript>
