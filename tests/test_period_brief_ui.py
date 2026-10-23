@@ -1185,14 +1185,26 @@ def test_334_weight_figure_preserves_source_values_and_sparse_days(tmp_path, day
         assert [p['date'] for p in chart['points']] == [f'2099-01-{day:02d}' for day in days]
         assert [p['value'] for p in chart['points']] == [75 - day / 10 for day in days]
         assert len(chart['segments']) == sum(b - a == 1 for a, b in zip(days, days[1:]))
+        import os
+        from pathlib import Path
+        if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
+            Path(target).mkdir(parents=True, exist_ok=True)
+            Path(target, f"weight-persisted-{len(days)}.html").write_text(
+                page.text, encoding="utf-8")
         assert len(chart['value_ticks']) == (3 if days else 0)
         assert [tick['label'] for tick in chart['date_ticks']] == ['1 янв', '16 янв', '31 янв']
-        weight_html = page.text.split('data-overview-chart="weight"', 1)[1].split('</figure>', 1)[0]
-        assert 'дневные медианы' in weight_html
-        assert 'EWMA, 21 день' in weight_html
-        assert 'это не ноль' in weight_html
-        assert weight_html.count('class="overview-weight-latest"') == bool(days)
-        assert ('Нет измерений' in weight_html) == (not days)
+        if days:
+            weight_html = page.text.split('data-overview-chart="weight"', 1)[1].split(
+                '</figure>', 1)[0]
+            assert 'дневные медианы' in weight_html
+            assert ('EWMA, 21 день' in weight_html) == any(
+                p['trend_y'] is not None for p in chart['points'])
+            assert 'это не ноль' in weight_html
+            assert weight_html.count('class="overview-weight-latest"') == 1
+        else:
+            assert 'data-overview-chart="weight"' not in page.text
+            assert 'data-overview-empty="weight"' in page.text
+            assert f"{owner_date(date(2099, 1, 1))} — {owner_date(date(2099, 1, 31))}" in page.text
         if days:
             assert chart['low'] < min(p['value'] for p in chart['points'])
             assert chart['high'] > max(p['value'] for p in chart['points'])

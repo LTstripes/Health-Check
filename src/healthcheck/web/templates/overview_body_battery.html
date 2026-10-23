@@ -29,7 +29,9 @@
       {% if selected and selected.eligible_day_count is not none %}<p class="overview-source" data-period-coverage>{{ selected.eligible_day_count }}/{{ selected.requested_day_count }} дней</p>{% endif %}
       {% if selected and selected.reason %}<p class="muted">{{ reasons.get(selected.reason, selected.reason) }}</p>{% endif %}
     </div>
+  {% if bb.figure and bb.figure.points | selectattr('value', 'ne', none) | list %}
   {{ period_chart(bb.figure, 'body-battery', 'Максимумы Body Battery') }}
+  {% elif selected and selected.search.complete %}<p class="overview-qualifier" data-overview-empty="body-battery">Нет пригодных измерений Body Battery за период. Пропуски — не ноль.</p>{% endif %}
   {% if selected %}
   <details class="owner-details" data-bb-evidence><summary>Измерения и подробности · Body Battery</summary>
     <p>Сначала максимум пригодных сохранённых измерений каждого дня, затем среднее с равным весом дней. Пропуски не заменяются нулём. Это не подтверждённый итог Garmin за полные сутки и не утреннее значение.</p>
