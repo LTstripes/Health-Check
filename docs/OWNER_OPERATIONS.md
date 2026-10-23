@@ -340,6 +340,18 @@ deployment, provider request or release/tag publication was executed by this doc
 task.** Operations below require an assignment with exact private paths. Examples
 alone grant no authority.
 
+**Public closeout - 24 October:** [Health-Check v0.1.0](https://github.com/LTstripes/Health-Check/releases/tag/v0.1.0)
+is published at `6f3deeb47366befdfeee9760553ace560a7312ea`. The
+[23 October Owner authorization](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6373171627)
+and [Wiki source/CI/scope pointers](PROJECT_WIKI.md#current-canonical-state) record
+the public decision and released code. Publication does not prove a loaded runtime;
+current operational receipts remain private. Failed process PR #514 is excluded;
+future interface compactness is backlog #515. No new provider access, transport,
+automatic delivery or automatic history rewrite is implied.
+
+Historical rehearsal and gate records follow unchanged. Their earlier NO-GO and
+pending-UAT wording belongs to those dated candidates, not the later publication.
+
 The later separately authorized [technical rehearsal receipt](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6320839634)
 records backup/verify/restore, copy-only migration/integrity/FK/artifact closure,
 recovery and guarded offline UI PASS for candidate
