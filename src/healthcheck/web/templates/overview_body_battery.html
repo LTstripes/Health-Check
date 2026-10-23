@@ -1,4 +1,4 @@
-{% from 'overview_period_chart.html' import period_chart, period_range with context %}
+{% from 'overview_period_chart.html' import period_chart, period_values with context %}
 {% set bb = overview.body_battery %}
 {% set selected = bb.selected %}
 {% set reasons = {
@@ -22,6 +22,18 @@
   'record_invalid': 'Запись источника непригодна.'
 } %}
 <div data-overview-body-battery data-bb-state="{{ selected.state if selected else 'no_completed_days' }}">
+  <div class="overview-metric-heading"><h3>Body Battery Garmin</h3>
+    {% if selected %}<details class="overview-info" data-bb-evidence><summary aria-label="Данные и метод · Body Battery Garmin">ⓘ</summary><div>
+    <p>Сначала максимум пригодных сохранённых измерений каждого дня, затем среднее с равным весом дней. Пропуски не заменяются нулём. Это не подтверждённый итог Garmin за полные сутки и не утреннее значение.</p>
+    <p>Карточка использует завершённые дни по Москве; фактический диапазон доступен в подсказке выбранного периода. Используется сохранённая дата источника; часовой пояс измерения не пересчитывается. Полнота суток неизвестна; это максимум среди сохранённых измерений. Обновление и полнота сбора не подтверждаются сохранёнными числами.</p>
+    {% if source_selection.selected_source %}<p>Источник: {{ brief_source_label(source_selection.selected_source) }}</p>{% endif %}
+      {% set dto = selected %}
+      <p>Поиск {{ 'завершён' if dto.search.complete else 'не завершён' }} · записей {{ dto.search.records_examined }} · групп {{ dto.search.groups_examined }}. Лимиты: {{ dto.search.candidate_record_cap }} записей периода, {{ dto.search.per_day_record_cap }} за день.</p>
+      {% if dto.mean_exact %}<p>Точное среднее: {{ dto.mean_exact.numerator }} / {{ dto.mean_exact.denominator }} баллы. Для показа используется обычный формат до двух знаков.</p>{% endif %}
+      {% for point in dto.daily_maxima %}<p>{{ point.source_local_date | owner_date }}: {{ overview_number(point.value) }} баллы · пригодных измерений {{ point.eligible_sample_count }}{% if point.is_zero %} · явный ноль{% endif %}{% if point.evidence | selectattr('temporal_precision', 'equalto', 'date') | list %} · дата без времени; UTC-хронология неизвестна{% endif %}.</p>{% endfor %}
+      {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}</p>{% endfor %}
+  {{ period_values(bb.figure, 'Максимумы Body Battery') }}</div></details>{% endif %}
+  </div>
   <p class="overview-source">Среднее дневных максимумов</p>
     <div data-bb-window="selected" data-bb-window-state="{{ selected.state if selected else 'no_completed_days' }}">
       <strong>{{ selected.mean_display ~ ' балл.' if selected and selected.mean_display is not none else '—' }}</strong>
@@ -30,16 +42,5 @@
   {% if bb.figure and bb.figure.points | selectattr('value', 'ne', none) | list %}
   {{ period_chart(bb.figure, 'body-battery', 'Максимумы Body Battery') }}
   {% elif selected and selected.search.complete %}<p class="overview-qualifier" data-overview-empty="body-battery">Нет пригодных измерений Body Battery за период. Пропуски — не ноль.</p>{% endif %}
-  {% if selected %}
-  <details class="owner-details" data-bb-evidence><summary>Измерения и подробности · Body Battery</summary>
-    <p>Сначала максимум пригодных сохранённых измерений каждого дня, затем среднее с равным весом дней. Пропуски не заменяются нулём. Это не подтверждённый итог Garmin за полные сутки и не утреннее значение.</p>
-    <p>Карточка использует завершённые дни по Москве; фактический диапазон показан выше. Используется сохранённая дата источника; часовой пояс измерения не пересчитывается. Полнота суток неизвестна; это максимум среди сохранённых измерений. Обновление и полнота сбора не подтверждаются сохранёнными числами.</p>
-    {% if source_selection.selected_source %}<p>Источник: {{ brief_source_label(source_selection.selected_source) }}</p>{% endif %}
-      {% set dto = selected %}
-      <p>Поиск {{ 'завершён' if dto.search.complete else 'не завершён' }} · записей {{ dto.search.records_examined }} · групп {{ dto.search.groups_examined }}. Лимиты: {{ dto.search.candidate_record_cap }} записей периода, {{ dto.search.per_day_record_cap }} за день.</p>
-      {% if dto.mean_exact %}<p>Точное среднее: {{ dto.mean_exact.numerator }} / {{ dto.mean_exact.denominator }} баллы. Для показа используется обычный формат до двух знаков.</p>{% endif %}
-      {% for point in dto.daily_maxima %}<p>{{ point.source_local_date | owner_date }}: {{ overview_number(point.value) }} баллы · пригодных измерений {{ point.eligible_sample_count }}{% if point.is_zero %} · явный ноль{% endif %}{% if point.evidence | selectattr('temporal_precision', 'equalto', 'date') | list %} · дата без времени; UTC-хронология неизвестна{% endif %}.</p>{% endfor %}
-      {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}</p>{% endfor %}
-  </details>
-  {% endif %}
+
 </div>

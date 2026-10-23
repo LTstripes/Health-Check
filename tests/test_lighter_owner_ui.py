@@ -68,6 +68,11 @@ def test_one_period_description_replaces_card_ranges_without_changing_windows(
                     "brief-limitations", "brief-sleep", "brief-provenance"]:
         assert removed not in response.text
     assert '/static/overview.js' in response.text
+    assert 'Наблюдения и подробности ·' not in response.text
+    assert 'Покрытие дней не подтверждено полностью. Дни без записи — не ноль.' not in response.text
+    assert '<a href="/weight">Последнее измерение веса</a></h3>' in response.text
+    assert 'class="owner-details overview-chart-values"' not in response.text
+    assert 'class="overview-info" data-stress-evidence' in response.text
     capture(f"overview-{mode}.html", response.text)
     capture("overview-no-completed.html", empty.text)
 
@@ -108,7 +113,8 @@ def test_simplified_export_defaults_bind_existing_full_packet(sleep_profile, mon
     capture("export-response.json", json.dumps(response.json()))
 
 
-@pytest.mark.parametrize("mode", ["filled", "empty", "partial", "zero", "large"])
+@pytest.mark.parametrize("mode", ["filled", "empty", "partial", "zero", "large",
+                                  "eight-digits", "nine-digits", "twelve-digits"])
 def test_statistics_steps_keep_exact_values_and_explicit_day_choice(
     statistics_ui, monkeypatch, mode,
 ):
@@ -121,7 +127,9 @@ def test_statistics_steps_keep_exact_values_and_explicit_day_choice(
     monkeypatch.setattr("healthcheck.web.statistics.steps_evaluation_instant",
                         lambda: NOW + timedelta(days=7))
     values = {"filled": [12345, 17890, 0, 15000], "partial": [12345, None, True, 0],
-              "zero": [0, 0, 0], "large": [9223372036854775807, 0], "empty": []}[mode]
+              "zero": [0, 0, 0], "large": [9223372036854775807, 0], "empty": [],
+              "eight-digits": [99999999, 0], "nine-digits": [999999999, 0],
+              "twelve-digits": [999999999999, 0]}[mode]
     source = None
     store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
     for index, value in enumerate(values):
@@ -135,6 +143,11 @@ def test_statistics_steps_keep_exact_values_and_explicit_day_choice(
     header = header.split('<details', 1)[0]
     assert '<h2>Garmin</h2>' in header and 'source_instance_id' not in header
     assert 'statistics-denominator' not in response.text
+    assert 'statistics-source-choice' not in response.text
+    assert 'type="hidden" form="statistics-controls" name="garmin_source_id"' in response.text
+    assert 'data-steps-info="garmin"' in response.text
+    assert 'Дни и подробности Garmin' not in response.text
+    assert 'Источник и границы чтения шагов</summary>' not in response.text
     if values:
         view = response.context["garmin_steps_view"]
         assert view["selected"] is None and view["selected_index"] is None

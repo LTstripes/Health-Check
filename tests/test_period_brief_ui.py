@@ -172,7 +172,7 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
     assert '<select name="garmin_source_id">' not in page.text
     # #393 adds source provenance inside its own collapsed disclosure. The
     # primary text check must exclude that disclosure's hidden contents.
-    disclosure = '<details class="owner-details" data-rhr-evidence>'
+    disclosure = '<details class="overview-info" data-rhr-evidence>'
     assert disclosure in page.text
     primary_html = page.text
     while disclosure in primary_html:
@@ -1232,7 +1232,8 @@ def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path, complet
         assert page.context['packet']['sections']['activity']['coverage']['sessions_in_period'] == 3
         assert 'EWMA, 21 день' in page.text
         assert 'Все показатели по источникам' not in page.text
-        assert page.text.count('class="overview-info"') == 3
+        assert page.text.count('class="overview-info"') >= 6
+        assert "Покрытие дней не подтверждено полностью" not in page.text
         assert page.context['charts']['sleep_error'] is False
         later = client.get('/brief?start_date=2099-01-01&end_date=2099-01-09')
         assert later.status_code == 200

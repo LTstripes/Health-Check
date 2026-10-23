@@ -19,6 +19,7 @@ from healthcheck.web.statistics import format_statistics_value
 from test_sleep_account_cohort import _garmin, _google
 from test_statistics_ui import (
     MetricParser,
+    SourceFormParser,
     seed,
 )
 from test_statistics_ui import (
@@ -199,8 +200,9 @@ def test_annual_selection_is_explicit_bounded_and_retained(statistics_ui, monkey
         params.update(garmin_source_id=garmin.id, google_source_id=google.id)
         response = client.get("/statistics", params=params)
         assert response.status_code == 200
-        for source in (garmin, google):
-            assert f'value="{source.id}" selected' in response.text
+        selected = SourceFormParser(response.text).selected
+        assert selected["garmin_source_id"] == garmin.id
+        assert selected["google_source_id"] == google.id
         window = {"period_type": period, "calendar_year": 2099} if period == "calendar_year" else {
             "period_type": period, "end_date": date(2099, 1, 8),
         }

@@ -52,13 +52,7 @@
     <button type="submit">Применить период</button>
   </form>
   </details>
-  {% call owner_ui.info_details("О сохранённых источниках") %}
-  <p class="muted" data-overview-sources>Вес: {{ brief_owner_state(weight.state) }} ·
-    Garmin: {% if source_selection.status == 'selected' %}{{ brief_source_label(source_selection.selected_source) }}{% elif source_selection.status == 'require_selection' %}нужен выбор источника{% else %}источник не сохранён{% endif %} ·
-    Google: {% if overview.google.sources %}источников с текущими записями {% if overview.google.window_limited %}в окне Google{% else %}в периоде{% endif %} — {{ overview.google.sources | length }}{% else %}нет текущих записей {{ google_scope }}{% endif %}.
-    {% if overview.google.window_limited %}Окно Google: {{ overview.google.start_date | owner_date }} → {{ overview.google.end_date | owner_date }}.{% endif %}
-  </p>
-  {% endcall %}
+
   {% if source_selection.sources | length > 1 %}
   <details class="owner-details brief-source"{% if source_selection.status == "require_selection" %} open{% endif %}>
     <summary>Источник Garmin{% if source_selection.status == "selected" %}: {{ brief_source_label(source_selection.selected_source) }}{% endif %}</summary>

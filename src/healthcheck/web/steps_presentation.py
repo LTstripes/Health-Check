@@ -31,10 +31,14 @@ def _chart(cells: list[dict]) -> dict:
     """Only bounded geometry is numeric in browser data; counts stay strings."""
     maximum = max((c["value"] for c in cells if c["state"] == "value"), default=0)
     scale = max(1, maximum)
-    left = 340 if len(str(scale)) > 12 else 100
     ticks = [{"value": str(value), "label": _group(str(value)),
               "y": 150 - value * 130 // scale}
              for value in sorted({0, scale // 2, scale})]
+    # At 20px, reserve a conservative advance for each digit/separator plus
+    # padding. The browser verifies actual glyph bounds at supported widths.
+    label_width = max(sum(6 if char == "\u202f" else 13 for char in tick["label"])
+                      for tick in ticks)
+    left = max(100, label_width + 24)
     rows, segments = [], []
     previous = None
     for index, cell in enumerate(cells):

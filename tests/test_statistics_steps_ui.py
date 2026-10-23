@@ -417,8 +417,9 @@ def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary
     assert 'data-steps-total>20</dd>' in html and 'data-steps-mean>6.7</dd>' in html
     assert '3 из 7 дней с данными' not in html
     assert 'data-steps-cursor hidden' in html and 'Выберите день' in html
-    assert ('<details class="statistics-details steps-daily-details">'
-            '<summary>Дни и подробности Garmin</summary>') in html
+    assert 'data-steps-info="garmin"' in html
+    assert "Точное среднее: 20 / 3" in html
+    assert 'role="region" aria-label="Шаги Garmin по завершённым дням"' in html
     assert 'data-steps-chart="garmin"' in html
     primary = html.split('<details class="owner-info">', 1)[0]
     assert 'только завершённые дни по МСК' not in primary

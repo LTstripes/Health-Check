@@ -119,7 +119,9 @@ def test_google_full_observed_grid_still_discloses_unknown_coverage_and_exact_st
     assert "Выберите день" in html and "data-steps-cursor hidden" in html
     assert "64\u202f563\u202f604\u202f257\u202f983\u202f430\u202f649" in html
     assert view["total"] == "64563604257983430649"
-    assert '<details class="owner-info">' in html and "Точное среднее" in html
+    info = env.get_template("statistics_steps_chart.html").module.steps_info(view)
+    assert "Точное среднее" in info and "64563604257983430649 / 7" in info
+    assert "<details" not in html  # The existing provider icon owns this content.
     assert "<noscript>" in html
     payload = html.split('data-steps-chart-data>', 1)[1].split("</script>", 1)[0]
     assert all(row["value"] == "9223372036854775807" for row in json.loads(payload))
@@ -134,6 +136,7 @@ def test_no_javascript_count_arithmetic_or_date_timezone_conversion():
 
 @pytest.mark.parametrize("factory", [packet, garmin_packet])
 @pytest.mark.parametrize("values", [(0, 0), (17, 0, None, 12345),
+                                      (99999999, 0), (999999999, 0), (999999999999, 0),
                                       (9223372036854775807, 0, None)])
 def test_numeric_ticks_share_exact_geometry_and_day_starts_unselected(factory, values):
     original = factory(*values)

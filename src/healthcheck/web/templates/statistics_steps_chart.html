@@ -1,3 +1,11 @@
+{% macro steps_info(view) %}
+
+    <p>Источники не складываются. Среднее рассчитано только по дням с допустимым сохранённым значением, включая явный ноль. Пропуски не равны нулю. Это не подтверждение полного сбора или окончательности данных.</p>
+    {% if view.assessed %}<p>{{ view.start|owner_date }} — {{ view.end|owner_date }}. Точное среднее: {{ view.total if view.total is not none else 'недоступно' }} / {{ view.count }}; округление только при показе.</p>{% endif %}
+    <p>{{ view.contract }}{% if view.reason %} · {{ view.reason }}{% endif %}</p>
+
+{% endmacro %}
+{% if view is defined %}
 <div class="steps-compact" data-steps-chart="{{ view.provider|lower }}">
   {% if view.assessed %}
   <dl class="steps-headlines">
@@ -6,7 +14,7 @@
   </dl>
   {% if view.invalid_days %}<p role="status">Есть противоречивые или недопустимые наблюдения ({{ view.invalid_days }}); они исключены из итога.</p>{% endif %}
   {% if view.rows %}
-  <svg class="steps-daily-chart" viewBox="0 0 900 175" role="img" aria-label="{{ view.provider }}: шаги по дням. Пропуски показаны разрывами; точные значения в таблице ниже.">
+  <svg class="steps-daily-chart" viewBox="0 0 900 175" role="img" aria-label="{{ view.provider }}: шаги по дням. Пропуски показаны разрывами; точные значения доступны через значок информации у названия источника.">
     <line class="steps-axis" x1="{{ view.left }}" y1="150" x2="880" y2="150" />
     {% for tick in view.ticks %}<line class="steps-grid" x1="{{ view.left }}" y1="{{ tick.y }}" x2="880" y2="{{ tick.y }}"/><text class="steps-tick" x="{{ view.left - 12 }}" y="{{ tick.y + 6 }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}
     {% for segment in view.segments %}<line class="steps-line" x1="{{ segment.x1 }}" y1="{{ segment.y1 }}" x2="{{ segment.x2 }}" y2="{{ segment.y2 }}" />{% endfor %}
@@ -20,12 +28,10 @@
   <span class="steps-selected" aria-live="polite" aria-atomic="true"><time data-steps-selected-date class="visually-hidden" hidden></time><span data-steps-selected-separator class="visually-hidden" hidden>: </span><strong data-steps-selected-value></strong> <span data-steps-selected-unit></span></span>
   </div>
   <script type="application/json" data-steps-chart-data>{{ view.rows|tojson }}</script>
-  <noscript><p>Выберите дату в таблице «Дни и подробности» ниже.</p></noscript>
+  <noscript><p>Точные даты и значения доступны через значок информации у названия источника.</p></noscript>
   {% endif %}
   {% else %}<p data-steps-summary-unavailable>Итог по сохранённым дням пока недоступен. Выберите источник или проверьте подробности ниже.</p>{% endif %}
-  <details class="owner-info"><summary>ⓘ Об итогах {{ view.provider }}</summary>
-    <p>Источники не складываются. Среднее рассчитано только по дням с допустимым сохранённым значением, включая явный ноль. Пропуски не равны нулю. Это не подтверждение полного сбора или окончательности данных.</p>
-    {% if view.assessed %}<p>{{ view.start|owner_date }} — {{ view.end|owner_date }}. Точное среднее: {{ view.total if view.total is not none else 'недоступно' }} / {{ view.count }}; округление только при показе.</p>{% endif %}
-    <p>{{ view.contract }}{% if view.reason %} · {{ view.reason }}{% endif %}</p>
-  </details>
+
 </div>
+
+{% endif %}
