@@ -504,6 +504,7 @@ main, .legal { max-width: var(--owner-content-width); }
 .data-primary-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .data-saved-diagnostics { margin: 24px 0; }
 .data-saved-diagnostics > summary { font-weight: 600; cursor: pointer; padding: 12px 0; }
+#analysis-export { scroll-margin-top: 6rem; }
 .export-source-options { flex-basis: 100%; }
 .export-source-options[open] { padding: 8px 0; }
 .export-source-options label { display: inline-flex; flex-direction: column; gap: 6px; margin: 8px 16px 8px 0; }
