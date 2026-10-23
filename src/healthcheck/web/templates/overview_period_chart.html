@@ -24,13 +24,19 @@
   </svg>
   <figcaption>{{ 'Часы сна · дата пробуждения' if duration else 'Дневные максимумы · баллы' }}</figcaption>
 </figure>
-<details class="owner-details overview-chart-values"><summary>{{ label }} · таблица</summary>
+
+{% endif %}
+{% endmacro %}
+
+{% macro period_values(figure, label, duration=false) %}
+{% if figure %}
+
   <div class="table-scroll" role="region" tabindex="0" aria-label="{{ label }}: значения графика">
     <table><thead><tr><th>Дата</th><th>{{ 'Длительность' if duration else 'Максимум, баллы' }}</th><th>Состояние</th></tr></thead><tbody>
       {% for point in figure.points %}<tr><td>{{ point.date | owner_date }}</td><td>{{ '—' if point.value is none else (metric_value('sleep_duration_seconds', point.value) if duration else overview_number(point.value)) }}</td><td>{{ brief_owner_state(point.state) }}{% if point.ambiguous | default(false) %} · несколько записей{% endif %}</td></tr>{% endfor %}
       {% for gap in figure.gaps %}<tr><td>{{ gap.start | owner_date }} — {{ gap.end | owner_date }}</td><td>—</td><td>Нет наблюдений</td></tr>{% endfor %}
     </tbody></table>
   </div>
-</details>
+
 {% endif %}
 {% endmacro %}

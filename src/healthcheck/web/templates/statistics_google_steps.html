@@ -1,23 +1,9 @@
+{% from 'statistics_steps_chart.html' import steps_info with context %}
 <div class="statistics-google-steps" role="group" aria-label="Шаги Google" data-google-steps>
-  <h3>Google</h3>
-  {% if google_steps is none %}
-  <p data-google-steps-reason="unsupported_window">Сохранённые наблюдения Google доступны для выбранного периода 7 или 30 дней. Вся история и длинные периоды здесь не поддерживаются.</p>
-  {% else %}
-  {% with view=google_steps_view %}{% include "statistics_steps_chart.html" %}{% endwith %}
-  {% if google_steps.source_choices %}
-  <details class="owner-info" data-google-steps-sources{% if google_steps.reason %} open{% endif %}><summary>Источник Google</summary>
-  <nav aria-label="Источник сохранённых шагов Google">
-    {% for choice in google_steps.source_choices %}
-    <a href="{{ request.url.include_query_params(google_steps_source_id=choice.source_id) }}"{% if google_steps.source_id == choice.source_id %} aria-current="true"{% endif %}>Google · {{ choice.family_label }}</a>{% if not loop.last %} · {% endif %}
-    {% endfor %}
-  </nav>
-  </details>
-  {% endif %}
-  {% if google_steps.reason %}
-  <p class="statistics-steps-warning" role="status" data-google-steps-reason="{{ google_steps.reason }}">{% if not google_steps.search_complete %}Поиск сохранённых данных не завершён; все значения скрыты.{% elif google_steps.reason == 'source_selection_required' %}Выберите один источник Google. Источники не суммируются.{% elif google_steps.reason == 'no_saved_source' %}Нет сохранённого источника шагов Google. Это не доказывает отсутствие шагов или данных у провайдера.{% else %}Выбранный источник не подтверждён для шагов Google. Выберите сохранённый источник.{% endif %}</p>
-  {% endif %}
-  {% if google_steps.cells %}
-  <details class="statistics-details steps-daily-details"><summary>Дни и подробности Google</summary>
+  <div class="metric-heading"><h3>Google</h3>
+  {% if google_steps is not none %}<details class="statistics-info" data-steps-info="google"><summary aria-label="Данные шагов Google">ⓘ</summary><div class="statistics-info-content">
+    {{ steps_info(google_steps_view) }}
+    {% if google_steps.cells %}
   <div class="table-scroll statistics-steps-table" tabindex="0" role="region" aria-label="Сохранённые наблюдения шагов Google">
     <table>
       <caption>{{ google_steps.start_date|owner_date }} — {{ google_steps.end_date|owner_date }} · покрытие неизвестно, пропуски не равны нулю.</caption>
@@ -46,12 +32,36 @@
       </tbody>
     </table>
   </div>
-  </details>
   {% endif %}
-  <details class="statistics-details">
-    <summary>Источник и границы поиска Google</summary>
+
     <p>{{ google_steps.source_identity or 'Источник не выбран' }}</p>
     <p>{{ google_steps.contract_version }} · current records: {{ google_steps.records_examined }} · search_complete: {{ google_steps.search_complete }}. Это полнота ограниченного поиска, не полнота данных Google.</p>
-  </details>
+
+    {% if google_steps.source_choices and not google_steps.reason %}
+  <nav aria-label="Источник сохранённых шагов Google">
+    {% for choice in google_steps.source_choices %}
+    <a href="{{ request.url.include_query_params(google_steps_source_id=choice.source_id) }}"{% if google_steps.source_id == choice.source_id %} aria-current="true"{% endif %}>Google · {{ choice.family_label }}</a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </nav>
+  {% endif %}
+  </div></details>{% endif %}</div>
+  {% if google_steps is none %}
+  <p data-google-steps-reason="unsupported_window">Сохранённые наблюдения Google доступны для выбранного периода 7 или 30 дней. Вся история и длинные периоды здесь не поддерживаются.</p>
+  {% else %}
+  {% with view=google_steps_view %}{% include "statistics_steps_chart.html" %}{% endwith %}
+  {% if google_steps.source_choices and google_steps.reason in ['source_selection_required', 'source_not_found', 'source_not_evidenced'] %}
+
+  <nav aria-label="Источник сохранённых шагов Google">
+    {% for choice in google_steps.source_choices %}
+    <a href="{{ request.url.include_query_params(google_steps_source_id=choice.source_id) }}"{% if google_steps.source_id == choice.source_id %} aria-current="true"{% endif %}>Google · {{ choice.family_label }}</a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </nav>
+
+  {% endif %}
+  {% if google_steps.reason %}
+  <p class="statistics-steps-warning" role="status" data-google-steps-reason="{{ google_steps.reason }}">{% if not google_steps.search_complete %}Поиск сохранённых данных не завершён; все значения скрыты.{% elif google_steps.reason == 'source_selection_required' %}Выберите один источник Google. Источники не суммируются.{% elif google_steps.reason == 'no_saved_source' %}Нет сохранённого источника шагов Google. Это не доказывает отсутствие шагов или данных у провайдера.{% else %}Выбранный источник не подтверждён для шагов Google. Выберите сохранённый источник.{% endif %}</p>
+  {% endif %}
+
+
   {% endif %}
 </div>

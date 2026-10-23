@@ -227,7 +227,8 @@ def test_route_preserves_requested_packet_and_form_but_shows_completed_card_rang
         assert response.context["overview"]["rhr"]  # Existing independent RHR path retained.
         today = client.get("/brief?start_date=2099-01-08&end_date=2099-01-08")
         assert today.status_code == 200
-        assert today.text.count("В выбранном периоде нет завершённых дней") == 3
+        assert today.text.count("в выбранном периоде нет завершённых дней по МСК") == 1
+        assert 'aria-describedby="overview-period-scope"' in today.text
 
 
 @pytest.mark.parametrize("mode", ["empty", "zero", "partial", "invalid", "withheld"])

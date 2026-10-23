@@ -415,11 +415,14 @@ def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary
     html = steps_html(response)
     # Latest correction 7→3, explicit zero included; null/missing/invalid excluded.
     assert 'data-steps-total>20</dd>' in html and 'data-steps-mean>6.7</dd>' in html
-    assert '3 из 7 дней с данными' in html
-    assert ('<details class="statistics-details steps-daily-details">'
-            '<summary>Дни и подробности Garmin</summary>') in html
+    assert '3 из 7 дней с данными' not in html
+    assert 'data-steps-cursor hidden' in html and 'Выберите день' in html
+    assert 'data-steps-info="garmin"' in html
+    assert "Точное среднее: 20 / 3" in html
+    assert 'role="region" aria-label="Шаги Garmin по завершённым дням"' in html
     assert 'data-steps-chart="garmin"' in html
     primary = html.split('<details class="owner-info">', 1)[0]
-    assert 'только завершённые дни по МСК' in primary
+    assert 'только завершённые дни по МСК' not in primary
+    assert 'garmin-completed-steps-summary-v1' in html
     assert StepsParser(html).values[str(DAY + timedelta(days=5))].strip() == '3'
     assert '/static/statistics_steps.js' in response.text

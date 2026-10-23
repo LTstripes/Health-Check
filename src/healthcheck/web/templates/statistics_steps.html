@@ -1,21 +1,13 @@
+{% from 'statistics_steps_chart.html' import steps_info with context %}
 <section class="statistics-steps" aria-labelledby="statistics-steps-title" data-statistics-steps>
   <h2 id="statistics-steps-title">Шаги</h2>
   <div class="statistics-steps-panels{% if compact_steps %} statistics-steps-panels--compact{% endif %}">
   <div class="statistics-garmin-steps">
-  <h3>Garmin</h3>
-  {% if not compact_steps %}<p>Последнее полученное значение после окончания дня по московскому времени. Garmin может позже исправить его; окончательный итог не подтверждён.</p>{% endif %}
-  {% if selected_steps_period == 'all_time' %}
-    {% include "statistics_steps_all_time.html" %}
-  {% else %}
-  {% if compact_steps %}{% with view=garmin_steps_view %}{% include "statistics_steps_chart.html" %}{% endwith %}{% endif %}
-  {% if steps.reason in ['source_selection_required', 'source_not_evidenced', 'source_not_found'] %}
-  <p data-steps-selection="required">{% if steps.source_choices %}Выберите источник Garmin для шагов.{% else %}Нет подтверждённого источника Garmin за выбранный период.{% endif %}</p>
-  {% for choice in steps.source_choices %}<p><a href="{{ request.url.include_query_params(garmin_source_id=choice.source_id) }}">Garmin — источник {{ loop.index }}</a></p>{% endfor %}
-  {% endif %}
-  {% if not steps.search_complete %}<p class="statistics-steps-warning" role="status">Поиск сохранённых получений не завершён. Итоги недоступны; подробности ниже.</p>{% endif %}
-  {% if steps.reason == 'no_completed_days' %}<p>В выбранном периоде ещё нет завершённых дней по московскому времени.</p>{% endif %}
-  {% if steps.cells %}
-  {% if compact_steps %}<details class="statistics-details steps-daily-details"><summary>Дни и подробности Garmin</summary>{% endif %}
+  <div class="metric-heading"><h3>Garmin</h3>
+  {% if selected_steps_period != 'all_time' %}
+  <details class="statistics-info" data-steps-info="garmin"><summary aria-label="Данные шагов Garmin">ⓘ</summary><div class="statistics-info-content">
+    {% if compact_steps %}{{ steps_info(garmin_steps_view) }}{% endif %}
+    {% if steps.cells %}
   <div class="table-scroll statistics-steps-table" tabindex="0" role="region" aria-label="Шаги Garmin по завершённым дням">
     <table>
       <caption>{{ steps.start_date|owner_date }} — {{ steps.end_date|owner_date }}. Сегодняшний и будущие дни исключены.</caption>
@@ -50,17 +42,29 @@
       </tbody>
     </table>
   </div>
-  {% if compact_steps %}</details>{% endif %}
   {% endif %}
-  <details class="statistics-details">
-    <summary>Источник и границы чтения шагов</summary>
+
     <dl>
       <dt>Источник</dt><dd>{{ steps.source_id or 'не выбран' }}{% if steps.source_identity %} / {{ steps.source_identity.provider_code }} / {{ steps.source_identity.source_kind }} / {{ steps.source_identity.source_instance_id }}{% endif %}</dd>
       <dt>Контракт / snapshot UTC / политика</dt><dd>{{ steps.contract_version }} / {{ steps.evaluated_at.isoformat() }} / {{ steps.display_zone }}</dd>
       <dt>Полнота / причина</dt><dd>{{ 'полная в пределах поиска' if steps.search_complete else 'не доказана' }} / {{ steps.reason or 'нет' }}</dd>
       <dt>Оригиналы / observations / прочитанные артефакты / bytes</dt><dd>{{ steps.candidates_examined }} / {{ steps.provenance_examined }} / {{ steps.artifacts_examined }} / {{ steps.bytes_examined }}</dd>
     </dl>
-  </details>
+    </div></details>
+  {% endif %}</div>
+  {% if not compact_steps %}<p>Последнее полученное значение после окончания дня по московскому времени. Garmin может позже исправить его; окончательный итог не подтверждён.</p>{% endif %}
+  {% if selected_steps_period == 'all_time' %}
+    {% include "statistics_steps_all_time.html" %}
+  {% else %}
+  {% if compact_steps %}{% with view=garmin_steps_view %}{% include "statistics_steps_chart.html" %}{% endwith %}{% endif %}
+  {% if steps.reason in ['source_selection_required', 'source_not_evidenced', 'source_not_found'] %}
+  <p data-steps-selection="required">{% if steps.source_choices %}Выберите источник Garmin для шагов.{% else %}Нет подтверждённого источника Garmin за выбранный период.{% endif %}</p>
+  {% for choice in steps.source_choices %}<p><a href="{{ request.url.include_query_params(garmin_source_id=choice.source_id) }}">Garmin — источник {{ loop.index }}</a></p>{% endfor %}
+  {% endif %}
+  {% if not steps.search_complete %}<p class="statistics-steps-warning" role="status">Поиск сохранённых получений не завершён. Итоги недоступны; подробности ниже.</p>{% endif %}
+  {% if steps.reason == 'no_completed_days' %}<p>В выбранном периоде ещё нет завершённых дней по московскому времени.</p>{% endif %}
+
+
   {% endif %}
   </div>
   {% if selected_steps_period != 'all_time' %}{% include "statistics_google_steps.html" %}{% endif %}

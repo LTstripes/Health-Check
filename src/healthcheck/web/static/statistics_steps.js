@@ -12,27 +12,32 @@
     const show = (index) => {
       index = Math.max(0, Math.min(rows.length - 1, index));
       const row = rows[index];
-      select.selectedIndex = index;
+      select.value = String(index);
       const date = panel.querySelector("[data-steps-selected-date]");
+      date.hidden = false;
+      panel.querySelector("[data-steps-selected-separator]").hidden = false;
       date.dateTime = row.date;
       const [year, month, day] = row.date.split("-");
       date.textContent = `${day}.${month}.${year}`;
-      panel.querySelector("[data-steps-selected-value]").textContent = row.value === null ? "Нет допустимого значения" : row.value;
+      panel.querySelector("[data-steps-selected-value]").textContent = row.value === null ? "Нет допустимого значения" : row.display;
       panel.querySelector("[data-steps-selected-unit]").textContent = row.value === null ? "" : "шагов";
       const cursor = panel.querySelector("[data-steps-cursor]");
+      cursor.hidden = false;
+      cursor.removeAttribute("hidden");
       cursor.setAttribute("x1", row.x);
       cursor.setAttribute("x2", row.x);
       previous.disabled = index === 0;
       next.disabled = index === rows.length - 1;
     };
-    select.addEventListener("change", () => show(select.selectedIndex));
-    previous.addEventListener("click", () => show(select.selectedIndex - 1));
-    next.addEventListener("click", () => show(select.selectedIndex + 1));
+    const selected = () => select.value === "" ? -1 : rows.findIndex(row => String(row.index) === select.value);
+    select.addEventListener("change", () => show(selected()));
+    previous.addEventListener("click", () => show(selected() - 1));
+    next.addEventListener("click", () => show(selected() + 1));
     svg.tabIndex = 0;
     svg.setAttribute("role", "group");
     svg.setAttribute("aria-label", `${panel.dataset.stepsChart}: график по дням. Стрелки выбирают день, Home и End — края периода.`);
     svg.addEventListener("keydown", (event) => {
-      const target = {ArrowLeft: select.selectedIndex - 1, ArrowRight: select.selectedIndex + 1,
+      const target = {ArrowLeft: selected() - 1, ArrowRight: selected() + 1,
         Home: 0, End: rows.length - 1}[event.key];
       if (target === undefined) return;
       event.preventDefault();
@@ -48,6 +53,6 @@
       show(nearest);
     });
     panel.querySelector("[data-steps-day-controls]").hidden = false;
-    show(select.selectedIndex);
+
   }
 })();

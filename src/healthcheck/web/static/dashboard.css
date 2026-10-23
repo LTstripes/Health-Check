@@ -518,7 +518,7 @@ main, .legal { max-width: var(--owner-content-width); }
 .steps-headlines dt { font-size: .9rem; font-weight: 400; }
 .steps-headlines dd { margin: .3rem 0; font-size: clamp(1.15rem, 2vw, 1.65rem); font-weight: 600; overflow-wrap: anywhere; }
 .steps-scope { font-size: .9rem; color: var(--muted, #586174); }
-.steps-selected { min-height: 2.5rem; overflow-wrap: anywhere; }
+.steps-selected { margin: 0; align-self: center; overflow-wrap: anywhere; }
 .steps-daily-chart { display: block; width: 100%; min-height: 110px; touch-action: manipulation; }
 .steps-axis { stroke: #aab4c5; stroke-width: 1; }
 .steps-line { stroke: #4774c7; stroke-width: 3; }
@@ -532,3 +532,22 @@ main, .legal { max-width: var(--owner-content-width); }
 .steps-daily-details > summary { min-height: 44px; box-sizing: border-box; padding: .7rem .2rem; }
 .steps-daily-details .statistics-steps-table { max-height: none; }
 @media (max-width: 1100px) { .statistics-steps-panels--compact { grid-template-columns: minmax(0, 1fr); } }
+
+.steps-grid { stroke: #dce3eb; stroke-width: 1; }
+.steps-tick { fill: #516176; font-size: 20px; }
+.steps-cursor[hidden] { display: none; }
+
+.export-source-options label[hidden] { display: none; }
+
+/* Existing evidence disclosures stay next to their provider/card heading. */
+.metric-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.metric-heading > h3 { margin: 0; }
+.statistics-info { position: relative; flex: none; margin: 0; }
+.statistics-info > summary { display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; list-style: none; color: var(--muted); cursor: pointer; }
+.statistics-info > summary::-webkit-details-marker { display: none; }
+.statistics-info-content { position: absolute; z-index: 5; top: 44px; right: 0; width: min(28rem, 80vw); max-height: 65vh; overflow: auto; padding: 1rem; background: var(--card); border: 1px solid var(--accent); font-size: .8125rem; font-weight: 400; }
+.statistics-period-control { position: relative; align-items: end; }
+.statistics-period-control > .statistics-info { position: static; }
+.statistics-period-control .statistics-info-content { top: 100%; left: 0; right: auto; }
+.statistics-period-control > label { flex: 1; min-width: 0; }
+.statistics-steps-panels .statistics-info-content table { min-width: 30rem; }

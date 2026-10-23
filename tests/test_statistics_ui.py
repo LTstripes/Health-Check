@@ -109,6 +109,9 @@ class SourceFormParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if (tag == "input" and attrs.get("type") == "hidden"
+                and attrs.get("form") == "statistics-controls"):
+            self.selected[attrs.get("name")] = attrs.get("value", "")
         if tag == "select":
             self.name = attrs.get("name")
         if tag == "option" and "selected" in attrs and self.name:
@@ -442,16 +445,22 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
     # form even when their native details elements are collapsed.
     controls = response.text.split('<form id="statistics-controls"', 1)[1].split("</form>", 1)[0]
     assert "_source_id" not in controls
-    assert response.text.count('class="statistics-details statistics-source-choice"') == 2
+    assert response.text.count('class="statistics-details statistics-source-choice"') == (
+        2 if case == "ambiguous" else 0)
     for provider, side in zip(("garmin", "google"), packet["sides"], strict=True):
         assert f'form="statistics-controls" name="{provider}_source_id"' in response.text
         header = response.text.split(f'<header data-statistics-side="{side["position"]}">', 1)[1]
         header = header.split("</header>", 1)[0]
-        opening = header.split('<details class="statistics-details statistics-source-choice"', 1)[1]
-        assert (" open" in opening.split(">", 1)[0]) == (case == "ambiguous")
-        assert ('data-source-attention' in header) == (case == "ambiguous")
-        for source in side["available_sources"]:
-            assert source["source_id"] in opening
+        if case == "ambiguous":
+            opening = header.split(
+                '<details class="statistics-details statistics-source-choice"', 1)[1]
+            assert " open" in opening.split(">", 1)[0]
+            assert 'data-source-attention' in header
+            for source in side["available_sources"]:
+                assert source["source_id"] in opening
+        else:
+            assert 'statistics-source-choice' not in header
+            assert f'type="hidden" form="statistics-controls" name="{provider}_source_id"' in header
     if case == "ambiguous":
         assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
         assert "Выбери источник" in cells[SLEEP_CODE, "right"]
@@ -501,8 +510,9 @@ def test_explicit_independent_selection_and_period_persistence(statistics_ui):
     )
     response = client.get("/statistics", params=params)
     assert response.status_code == 200
-    assert f'value="{garmin.id}" selected' in response.text
-    assert f'value="{google.id}" selected' in response.text
+    selected = SourceFormParser(response.text).selected
+    assert selected["garmin_source_id"] == garmin.id
+    assert selected["google_source_id"] == google.id
     cells = MetricParser(response.text).cells
     assert "ambiguous_google_main: 2" in cells[SLEEP_CODE, "right"]
     assert "Недоступно" in cells[SLEEP_CODE, "right"]
