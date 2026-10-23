@@ -14,7 +14,41 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 <a id="current-canonical-state--current-canonical-state--2026-10-21"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-22"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-23"></a>
-## Current canonical state - 2026-10-23 (Europe/Moscow)
+<a id="current-canonical-state--current-canonical-state--2026-10-24"></a>
+## Current canonical state - 2026-10-24 (Europe/Moscow)
+
+**Published 24 October: [Health-Check v0.1.0](https://github.com/LTstripes/Health-Check/releases/tag/v0.1.0)**
+targets `6f3deeb47366befdfeee9760553ace560a7312ea`. Owner accepted the lighter UI
+on `0c1824c4` and authorized Stable rollout/publication on **23 October**;
+[the Owner-authorization record](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6373171627)
+is separate from [engineering UI acceptance](https://github.com/LTstripes/Health-Check/pull/509#issuecomment-6371998114).
+The release product source and lockfile match that accepted UI candidate.
+[UI post-main 39998633811](https://github.com/LTstripes/Health-Check/actions/runs/39998633811)
+verified 5,792 passed / three declared skips; [release post-main 40004997165](https://github.com/LTstripes/Health-Check/actions/runs/40004997165)
+verified 5,805 passed / three declared skips. Original ZIP evidence and official
+same-attempt/Linux/Windows gates were verified for each. Publication identifies
+released source; it does not establish a loaded runtime. Current operational
+receipts remain private and are not reproduced in these books.
+
+The [#507 runner engineering closeout](https://github.com/LTstripes/Health-Check/issues/507#issuecomment-6369752798)
+and [post-main 39983838507](https://github.com/LTstripes/Health-Check/actions/runs/39983838507)
+are verified; the one separately authorized copy read described there was completed
+and was not repeated for this closeout. No new transport or automatic delivery is
+activated. The accepted UI removes Overview's weekly preview and Overview/Sleep
+download CTAs; Data retains the supported fallback without promising Google Steps
+or complete medical history. The future Sunday chat request remains open.
+
+Failed [process PR #514](https://github.com/LTstripes/Health-Check/pull/514) is excluded;
+future interface compactness is [backlog #515](https://github.com/LTstripes/Health-Check/issues/515).
+[#380](https://github.com/LTstripes/Health-Check/issues/380#issuecomment-6359590905)
+remains paused: new annual Sleep is outside this release, custom is optional and
+90-day Sleep UI is not delivered. No new provider access or automatic history
+rewrite is implied. Unexercised Labs/PDF/import and transport UAT remain separate.
+
+### Historical engineering/UAT checkpoint - 23 October, before later Owner acceptance
+
+The earlier checkpoint below is retained unchanged with its original receipts.
+Its pending/NO-GO wording describes that checkpoint, not the published release.
 
 **Release #479 is NO-GO: the Owner also marked the 23 October UAT on
 `726b1651e70006309bba95268b92ff3d30e6028a` UX NOT ACCEPTED.**
@@ -205,6 +239,13 @@ See [the reader contract](ARCHITECTURE.md#saved-google-steps-read-392).
 <a id="release-2026-10-22"></a>
 ## Release preparation — evening 22 October 2026, Europe/Moscow
 
+**24 October public closeout:** [v0.1.0](https://github.com/LTstripes/Health-Check/releases/tag/v0.1.0)
+is published at the frozen `6f3deeb47366befdfeee9760553ace560a7312ea`.
+[Current public source/CI/authorization pointers](#current-canonical-state) supersede
+the dated pending-release wording below. Publication does not certify a loaded
+runtime; operational receipts remain private. The following preparation baseline
+and earlier failed audit/UAT records are historical and retained unchanged.
+
 **Prepared scope; no published release or Stable rollout.**
 [Tracker #479](https://github.com/LTstripes/Health-Check/issues/479) designates this
 section and the [Operations checklist](OWNER_OPERATIONS.md#release-preflight-2026-10-22).
@@ -381,6 +422,11 @@ separate approval. Green CI/documentation merge grants neither action.
 
 Do not repeat delivered slices because an umbrella issue is OPEN. No backlog row
 authorizes a Worker, provider call, replay, Stable write or new transport.
+
+The rows retain earlier task checkpoints. The later #509 presentation acceptance
+[recorded above](#current-canonical-state) supersedes their pending repeat-UI-UAT
+wording; it does not accept additional workflows. Future compactness is #515,
+and failed/excluded #514 process work is not part of v0.1.0.
 
 | Subject | Next bounded delta / dependencies |
 | --- | --- |
