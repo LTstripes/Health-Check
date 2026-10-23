@@ -33,6 +33,7 @@ from healthcheck.web.source_freshness import router as source_freshness_router
 from healthcheck.web.statistics import router as statistics_router
 from healthcheck.web.ui_guard import ui_guard_middleware
 from healthcheck.web.weight import router as weight_router
+from healthcheck.weekly_digest import WeeklyDigestConfig
 
 WEB_DIR = Path(__file__).resolve().parent
 
@@ -41,6 +42,8 @@ def create_ui_app(
     settings: Settings | None = None,
     *,
     photo_extractor: ImageMeasurementExtractor | None = None,
+    weekly_digest: WeeklyDigestConfig | None = None,
+    profile_kind: str | None = None,
 ) -> tuple[FastAPI, object]:
     resolved = settings or Settings()
     app, paths = create_base_app(
@@ -48,6 +51,16 @@ def create_ui_app(
         service="loopback-ui",
         title="Health-Check local runtime",
     )
+    if weekly_digest is not None:
+        from datetime import date
+
+        from healthcheck.chat_evidence import PROFILE_KINDS
+
+        weekly_digest.request(date(2099, 1, 4))
+        if profile_kind not in PROFILE_KINDS:
+            raise ValueError("explicit_profile_classification_required")
+    app.state.weekly_digest = weekly_digest
+    app.state.weekly_profile_kind = profile_kind
     app.state.photo_extractor = (
         photo_extractor if photo_extractor is not None else build_photo_extractor(resolved)
     )

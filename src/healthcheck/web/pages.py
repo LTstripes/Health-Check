@@ -22,6 +22,7 @@ from healthcheck.analytics.sleep_source_view import (
     read_source_sleep_night,
     read_source_sleep_range,
 )
+from healthcheck.chat_evidence import EvidenceError
 from healthcheck.collection_policy import resolve_profile_collection_policy
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import ImportCandidate, IngestEvent
@@ -84,6 +85,11 @@ from healthcheck.web.sleep_view import (
     source_sleep_label,
     source_sleep_note,
     source_sleep_value,
+)
+from healthcheck.weekly_digest import (
+    MOSCOW,
+    encode_weekly_digest,
+    get_weekly_digest_evidence,
 )
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -1053,6 +1059,7 @@ def period_brief_page(
     end_date: str | None = None,
     garmin_source_id: str | None = None,
     google_rhr_source_id: str | None = None,
+    weekly_end: str | None = None,
 ) -> HTMLResponse:
     try:
         start, end, selected_preset = _brief_period(
@@ -1111,10 +1118,41 @@ def period_brief_page(
             message="database is not ready",
             status_code=503,
         )
+    weekly = None
+    weekly_error = None
+    weekly_config = getattr(request.app.state, "weekly_digest", None)
+    last_day = datetime.now(UTC).astimezone(MOSCOW).date()
+    last_sunday = last_day - timedelta(days=(last_day.weekday() + 1) % 7)
+    if weekly_config is not None and weekly_end is not None:
+        try:
+            weekly = get_weekly_digest_evidence(
+                profile=request.app.state.runtime_paths.root,
+                profile_kind=request.app.state.weekly_profile_kind,
+                config=weekly_config, week_end=date.fromisoformat(weekly_end),
+                evaluated_at_utc=datetime.now(UTC))
+        except (EvidenceError, ValueError) as exc:
+            reason = str(exc)
+            if not isinstance(exc, EvidenceError) or reason in {
+                "weekly_end_must_be_sunday", "future_week_not_available",
+            }:
+                weekly_error = "Не удалось собрать недельный итог. Проверьте дату воскресенья."
+            elif reason == "selected_source_unavailable":
+                weekly_error = "Не удалось собрать недельный итог: выбранный источник недоступен."
+            elif reason == "output_exceeds_byte_limit":
+                weekly_error = ("Не удалось собрать недельный итог: объём подтверждений "
+                                "превышает допустимый размер. Итог не сформирован.")
+            else:
+                weekly_error = ("Не удалось прочитать сохранённые данные для недельного итога. "
+                                "Итог не сформирован; попробуйте повторить чтение позже.")
     return render(
         request,
         "period_brief.html",
         {
+            "weekly_preview_available": weekly_config is not None,
+            "weekly_default_end": last_sunday.isoformat(),
+            "weekly_digest": weekly,
+            "weekly_evidence": encode_weekly_digest(weekly) if weekly else None,
+            "weekly_error": weekly_error,
             "brief": result["display"],
             "packet": result["packet"],
             "source_selection": source_selection,

@@ -31,6 +31,14 @@ from healthcheck.chat_evidence import (
     encode_evidence,
     read_period_evidence,
 )
+from healthcheck.weekly_digest import (
+    VERSION as WEEKLY_VERSION,
+)
+from healthcheck.weekly_digest import (
+    WeeklyDigestConfig,
+    encode_weekly_digest,
+    get_weekly_digest_evidence,
+)
 
 PROTOCOL_VERSIONS = ("2025-06-18",)
 MAX_REQUEST_BYTES = 8192
@@ -50,6 +58,11 @@ class PeriodArguments(BaseModel):
     domains: list[Literal["weight", "context"]] = Field(min_length=1, max_length=2)
 
 
+class WeeklyArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    week_end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 @dataclass(frozen=True)
 class MCPConfig:
     profile: Path
@@ -60,6 +73,7 @@ class MCPConfig:
     # Internal proxy credential, NOT a ChatGPT API key or an OAuth access token.
     gateway_token: str | None = field(default=None, repr=False)
     allowed_origins: tuple[str, ...] = ()
+    weekly_digest: WeeklyDigestConfig | None = None
 
     def validate(self) -> None:
         if self.profile_kind not in PROFILE_KINDS:
@@ -77,6 +91,8 @@ class MCPConfig:
             raise ValueError("invalid_gateway_credential")
         if self.profile_kind != "synthetic" and not self.gateway_token:
             raise ValueError("owner_profile_requires_authenticated_gateway")
+        if self.weekly_digest is not None:
+            self.weekly_digest.request(date(2099, 1, 4))
         # No private or synthetic runtime under a source checkout, including worktrees.
         profile = self.profile.expanduser().resolve()
         for ancestor in (profile, *profile.parents):
@@ -106,6 +122,37 @@ def _tool(config: MCPConfig) -> dict:
         "securitySchemes": security,
         "_meta": {"securitySchemes": security},
     }
+
+
+def _weekly_tool(config: MCPConfig) -> dict:
+    tool = _tool(config)
+    return {**tool, "name": "get_weekly_digest_evidence",
+            "title": "Preview saved weekly health evidence",
+            "description": (
+                "Read exactly seven saved calendar dates ending on a Sunday. "
+                "Sources and profile are trusted configuration; no refresh or delivery. "
+                "Actual read as-of, never historical Sunday-20 time travel. "
+                "Keep providers, missingness, coverage and quality separate."),
+            "inputSchema": WeeklyArguments.model_json_schema(),
+            "outputSchema": {"type": "object", "properties": {"version": {"const": WEEKLY_VERSION}},
+                             "required": ["version"], "additionalProperties": True}}
+
+
+def _read_weekly(config: MCPConfig, arguments: WeeklyArguments) -> dict:
+    try:
+        packet = get_weekly_digest_evidence(
+            profile=config.profile, profile_kind=config.profile_kind,
+            config=config.weekly_digest, week_end=date.fromisoformat(arguments.week_end),
+            evaluated_at_utc=datetime.now(UTC))
+        encoded = encode_weekly_digest(packet)
+        return {"content": [{"type": "text", "text": packet["text"]}],
+                "structuredContent": json.loads(encoded), "isError": False}
+    except EvidenceError as exc:
+        return _tool_error(str(exc))
+    except ValueError:
+        return _tool_error("invalid_calendar_date")
+    except Exception:
+        return _tool_error("evidence_read_failed")
 
 
 def _error(request_id: int | str | None, code: int, message: str,
@@ -150,7 +197,7 @@ def create_app(config: MCPConfig) -> FastAPI:
     config = MCPConfig(
         config.profile.expanduser().resolve(), config.profile_kind, config.timezone,
         config.row_limit, config.weight_cadence_days, config.gateway_token,
-        config.allowed_origins,
+        config.allowed_origins, config.weekly_digest,
     )
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.router.redirect_slashes = False
@@ -226,26 +273,34 @@ def create_app(config: MCPConfig) -> FastAPI:
                                     else PROTOCOL_VERSIONS[-1]),
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "health-check-evidence", "version": "1"},
-                "instructions": INSTRUCTIONS,
+                "instructions": (INSTRUCTIONS if config.weekly_digest is None else
+                                 "Read bounded saved evidence only. Weekly sources are trusted "
+                                 "configuration. No refresh, delivery or causal claims. "
+                                 "Preserve source separation, quality and missingness."),
             }
         elif method == "ping":
             result = {}
         elif method == "tools/list":
-            result = {"tools": [_tool(config)]}
+            result = {"tools": [_tool(config)] + (
+                [_weekly_tool(config)] if config.weekly_digest is not None else [])}
         elif method == "tools/call":
             if set(params) - {"name", "arguments", "_meta"}:
                 return _error(request_id, -32602, "invalid_tool_params")
-            if params.get("name") != "get_period_evidence":
+            name = params.get("name")
+            weekly = name == "get_weekly_digest_evidence" and config.weekly_digest is not None
+            if name != "get_period_evidence" and not weekly:
                 return _error(request_id, -32602, "unknown_tool")
             try:
-                arguments = PeriodArguments.model_validate(params.get("arguments"))
+                schema = WeeklyArguments if weekly else PeriodArguments
+                arguments = schema.model_validate(params.get("arguments"))
             except ValidationError:
                 # Pydantic errors contain original values: never return/log them.
                 return _error(request_id, -32602, "invalid_tool_arguments")
             if read_lock.locked():
                 return _error(request_id, -32000, "evidence_busy", 429)
             async with read_lock:
-                result = await run_in_threadpool(_read, config, arguments)
+                result = await run_in_threadpool(
+                    _read_weekly if weekly else _read, config, arguments)
         else:
             return _error(request_id, -32601, "method_not_found")
         response = JSONResponse({"jsonrpc": "2.0", "id": request_id, "result": result})

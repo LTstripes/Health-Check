@@ -118,3 +118,35 @@ def read_weight(session, start, end, profile_kind, clock, local_date, profile):
                      "trend_is_derived_not_a_measurement_on_missing_dates",
                      "missing_is_not_zero", "no_cross_domain_causal_join"],
     }
+
+
+GOOGLE_STEPS_SCHEMA = {
+    **_fields("contract_version start_date end_date source_id search_complete reason "
+              "coverage pagination timezone finality records_examined"),
+    "source_identity": _fields("source_id provider_code source_kind family"),
+    "cells": [{
+        **_fields("calendar_date state value reason"),
+        "evidence": [_fields("record_id observation_id raw_payload_id as_of start end")],
+    }],
+}
+
+
+def read_google_steps(session, source_id, start, end):
+    """Exact saved family; inventory/raw bodies never cross the export boundary."""
+    from healthcheck.google import steps_read
+
+    result = steps_read.read_saved_steps_window(
+        session, source_id=source_id, start_date=start, end_date=end)
+    if not result["search_complete"]:
+        raise EvidenceError("google_steps_search_incomplete")
+    return {
+        **_project(result, GOOGLE_STEPS_SCHEMA),
+        "aggregate": None, "unit": "count", "source_pooling": "not_performed",
+        "acquisition_coverage_state": "unknown",
+        "meaning": "saved_google_civil_day_observation_not_completed_daily_total",
+        "limits": {"source_cap": steps_read.MAX_SOURCES,
+                   "record_cap": steps_read.MAX_RECORDS,
+                   "child_cap": steps_read.MAX_CHILDREN,
+                   "text_bytes": steps_read.MAX_TEXT_BYTES,
+                   "cooperative_seconds": steps_read.COOPERATIVE_SECONDS},
+    }

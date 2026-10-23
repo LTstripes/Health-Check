@@ -1003,6 +1003,32 @@ missing/null/zero, date precision, provenance and causal limits are unchanged.
 
 
 
+
+### Weekly preview and remaining delivery gate (#488)
+
+The code-only preview is available through the existing Overview when a trusted
+caller explicitly supplies `WeeklyDigestConfig` and `profile_kind` to
+`create_ui_app`; it is disabled by default. The same source configuration can be
+passed as `MCPConfig.weekly_digest`, exposing only the Sunday `week_end` argument.
+Use external synthetic profiles for tests. The accepted semantics and frozen
+packet contract are in [Architecture](ARCHITECTURE.md#weekly-digest-preview-488).
+Neither factory call installs or starts a service. Existing CLI/runtime settings
+are unchanged; choosing real source IDs or enabling access remains separate.
+
+The agreed target is Sunday 20:00 Europe/Moscow. **No schedule or automatic chat
+delivery is active.** Before enabling it, verify the authenticated end-to-end
+bounded read and existing personal-chat destination, trusted source configuration,
+profile availability, privacy, and an explicit offline/late-delivery policy. An
+offline laptop cannot provide fresh evidence: report unavailability rather than
+inventing values. A late read must display actual as-of, never pretend to restore
+the earlier Sunday snapshot. Future transport must freeze the report before
+sending, reuse that exact packet/hash on retry, deduplicate delivery, and require
+an explicit revision for new evidence. Those transport behaviors are still
+unimplemented and require their own verification; the envelope is only their
+connection contract. No new credentials, provider calls or Stable changes follow
+from this preview.
+
+
 <a id="combined-cli"></a>
 
 <a id="combined-cli--combined-standalone-cli"></a>
