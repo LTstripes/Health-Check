@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from healthcheck.db.models import GoogleSource
 from healthcheck.google.contracts import FAMILY_GOOGLE_WEARABLES
+from healthcheck.web.sleep_regularity import build_sleep_regularity
 from healthcheck.web.sleep_view import source_sleep_label, source_sleep_note
 
 SLEEP_TIMELINE_CONTRACT_VERSION = "sleep-timeline-ui-v1"
@@ -368,6 +369,9 @@ def build_sleep_timeline(
         "providers": providers,
         "series": series,
         "display_series": display_series,
+        "regularity": build_sleep_regularity(
+            ranges, display_series, google_selection=google_selection, days=days, end_date=end_date,
+        ),
         "google_selection": google_selection,
         "google_source_inventory": inventory,
         "table_rows": [
