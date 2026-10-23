@@ -405,7 +405,14 @@ def test_independent_summary_bounds_reach_statistics_and_exports(
                 if legacy:
                     qualifier = r"Границы не проверены:\s*1\b"
                     assert re.search(qualifier, parser.cells[SLEEP_CODE, "left"])
-                    assert not re.search(qualifier, parser.details[SLEEP_CODE, "left"])
+                    # Owner moved the retained legacy-A qualifier into the closed
+                    # heading info; numerical/boundary evidence stays unchanged.
+                    details = parser.details[SLEEP_CODE, "left"]
+                    assert re.search(qualifier, details)
+                    primary = parser.cells[SLEEP_CODE, "left"].replace(details, "", 1)
+                    assert not re.search(qualifier, primary)
+                else:
+                    assert "Границы не проверены" not in parser.cells[SLEEP_CODE, "left"]
             actual[f"html{days}"] = html
             if expected is None:
                 actual[f"reason{days}"] = (

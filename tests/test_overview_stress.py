@@ -1,6 +1,7 @@
 """#357 Overview slice through the real stress reader and route, synthetic only."""
 
 from datetime import UTC, date, datetime, timedelta
+from html.parser import HTMLParser
 
 import pytest
 from fastapi.testclient import TestClient
@@ -80,7 +81,39 @@ def page(database, source_id, *, start=None, end=D):
 
 
 def card(response):
-    return response.text.split("<div data-overview-stress ", 1)[1].split("</div>", 1)[0]
+    class Bounds(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.depth = 0
+            self.start = self.end = None
+
+        def handle_starttag(self, tag, attrs):
+            if tag != "div":
+                return
+            if "data-overview-stress" in dict(attrs):
+                assert self.start is None, "Duplicate Stress card"
+                self.start = self.getpos()
+                self.depth = 1
+            elif self.depth:
+                self.depth += 1
+
+        def handle_endtag(self, tag):
+            if tag == "div" and self.depth:
+                self.depth -= 1
+                if not self.depth:
+                    self.end = self.getpos()
+
+    parser = Bounds()
+    parser.feed(response.text)
+    parser.close()
+    assert parser.start is not None and parser.end is not None and parser.depth == 0
+    lines = response.text.splitlines(keepends=True)
+
+    def offset(position):
+        line, column = position
+        return sum(map(len, lines[:line - 1])) + column
+
+    return response.text[offset(parser.start):offset(parser.end) + len("</div>")]
 
 
 @pytest.mark.parametrize(
