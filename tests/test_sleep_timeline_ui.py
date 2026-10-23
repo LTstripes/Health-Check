@@ -1058,3 +1058,29 @@ def test_sleep_regularity_production_http_packet_and_period_switch(tmp_path, day
     assert 'circular_sd' not in primary and 'complete_stage_boundary' not in primary
     assert 'social_jetlag' not in json.dumps(packet["regularity"])
     assert packet["start_date"] == (END - timedelta(days=days - 1)).isoformat()
+    assert 'aria-label="Регулярность сна по источникам"' in primary
+    assert primary.count("Засыпание") == 1 and primary.count("Подъём") == 1
+
+
+def test_sleep_regularity_sparse_table_collapses_identical_states(tmp_path, monkeypatch):
+    from healthcheck.web import pages
+
+    app, _, _ = _ui(tmp_path)
+    packet = _regularity_packet(count=2)
+    empty = _regularity_packet("garmin", count=0)
+    monkeypatch.setattr(pages, "read_source_sleep_range", lambda _session, **kw:
+        packet if kw["provider"] == "google" else empty)
+    with client_for(app) as client:
+        response = client.get("/sleep?days=7&wake_date=2026-10-08")
+    assert response.status_code == 200
+    primary = response.text.split('data-sleep-regularity>', 1)[1].split('<details', 1)[0]
+    assert primary.count("Недостаточно ночей") == 1
+    assert 'colspan="2"' in primary
+    snapshot = _timeline_json(response.text)
+    google = next(row for row in snapshot["regularity"]["sources"]
+                  if row["provider"] == "google")
+    assert google["groups"][0]["nights"] == 2
+    from healthcheck.web.sleep_regularity import build_sleep_regularity
+    result = build_sleep_regularity({}, [], google_selection={"status": "require_selection"},
+        days=7, end_date=date(2026, 10, 8))
+    assert result["empty_text"] == "Выберите источник Google."

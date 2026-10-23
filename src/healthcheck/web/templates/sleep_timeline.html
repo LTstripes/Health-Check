@@ -20,22 +20,26 @@
     <h3>Регулярность сна</h3>
     <p class="muted">Разброс времени · {{ start_date | owner_date }} — {{ wake_date | owner_date }}</p>
     {% if timeline and timeline.regularity.sources %}
-    {% for source in timeline.regularity.sources %}
-    <section data-regularity-source="{{ source.provider }}">
-      <h4>{{ source.label }}</h4>
-      {% if source.state == 'unavailable' %}<p>Не удалось оценить этот период.</p>
-      {% elif not source.groups %}<p>Пока недостаточно подходящих ночей.</p>
-      {% else %}
-      {% for group in source.groups %}
-      {% if source.groups | length > 1 %}<p class="muted">Группа {{ loop.index }}</p>{% endif %}
-      <div class="grid" data-regularity-group>
-        <div><p class="muted">Засыпание</p><strong>{{ group.start.text }}</strong></div>
-        <div><p class="muted">Подъём</p><strong>{{ group.end.text }}</strong></div>
-      </div>
+    <div class="table-scroll"><table aria-label="Регулярность сна по источникам">
+      <thead><tr><th scope="col">Источник</th><th scope="col">Засыпание</th><th scope="col">Подъём</th></tr></thead>
+      <tbody>
+      {% for source in timeline.regularity.sources %}
+        {% if source.state == 'unavailable' or not source.groups %}
+        <tr data-regularity-source="{{ source.provider }}"><th scope="row">{{ source.label }}</th>
+          <td colspan="2">{{ 'Не удалось оценить этот период.' if source.state == 'unavailable' else 'Пока недостаточно подходящих ночей.' }}</td></tr>
+        {% else %}
+        {% for group in source.groups %}
+        <tr data-regularity-source="{{ source.provider }}" data-regularity-group>
+          <th scope="row">{{ source.label }}{% if source.groups | length > 1 %} · группа {{ loop.index }}{% endif %}</th>
+          {% if group.start.state != 'sufficient' and group.start.text == group.end.text %}
+          <td colspan="2">{{ group.start.text }}</td>
+          {% else %}<td><strong>{{ group.start.text }}</strong></td><td><strong>{{ group.end.text }}</strong></td>{% endif %}
+        </tr>
+        {% endfor %}
+        {% endif %}
       {% endfor %}
-      {% endif %}
-    </section>
-    {% endfor %}
+      </tbody>
+    </table></div>
     {% else %}<p>{{ timeline.regularity.empty_text if timeline else 'Не удалось оценить этот период.' }}</p>{% endif %}
     {% call owner_ui.info_details("О регулярности сна") %}
     <p>Меньше разброс — стабильнее время сна. Это стандартное отклонение местного времени начала и конца подходящей основной сессии сна, а не оценка здоровья.</p>

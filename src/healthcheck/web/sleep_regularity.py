@@ -99,7 +99,7 @@ def build_sleep_regularity(
     if result["sources"]:
         result["state"] = "sources"
     elif google_selection.get("status") in {"require_selection", "invalid_selection"}:
-        result.update(state="source_required", empty_text="Выберите источник Google выше.")
+        result.update(state="source_required", empty_text="Выберите источник Google.")
     elif not all(complete.values()):
         result.update(state="unavailable", empty_text="Не удалось оценить этот период.")
     return result
