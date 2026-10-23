@@ -1,40 +1,30 @@
 <section class="card analysis-export" id="analysis-export" aria-labelledby="analysis-export-heading">
   <h2 id="analysis-export-heading">Скачать данные</h2>
   <p>Сохранённые показатели и ваши комментарии в одном локальном файле.</p>
-  <p>Скачайте и приложите в личный чат.</p>
   <p id="analysis-export-preview" aria-live="polite">Период: {{ export_start_date }} — {{ export_end_date }} (включительно).</p>
   <form id="analysis-export-form" class="inline-edit owner-controls">
     <label>Период <select name="days"><option value="7"{% if export_days == 7 %} selected{% endif %}>7 дней</option><option value="30"{% if export_days == 30 %} selected{% endif %}>30 дней</option></select></label>
     <label>По дату включительно <input type="date" name="end_date" value="{{ export_end_date }}" max="9999-12-30" required></label>
     <button type="submit" disabled>Скачать</button>
-    <details class="owner-info export-source-options" id="analysis-export-options">
-      <summary><span aria-hidden="true">ⓘ</span> Источники и состав файла</summary>
-      <label>Источник Garmin
+    <details class="owner-info export-source-options" id="analysis-export-options" hidden>
+      <summary>Выбрать источник</summary>
+      <label data-export-garmin-choice hidden>Источник Garmin
         <select name="garmin_source_id" required disabled><option value="">Загрузка источников…</option></select>
       </label>
-      <label>Шаги Garmin <select name="steps_view"><option value="completed" selected>Завершённые дни, МСК</option><option value="observed">Сохранённые наблюдения</option></select></label>
-      <label>Google HRV <select name="google_hrv_source_id" disabled><option value="">Не включать</option></select></label>
-      <details class="owner-info"><summary>ⓘ Состав и ограничения файла</summary>
-      <p>Сон, активности, Stress, Body Battery, HRV, пульс в покое, шаги Garmin, вес и текущие комментарии — в пределах поддерживаемых сохранённых данных. Google Sleep и пульс в покое используют существующий выбор по пригодности; конфликт остаётся конфликтом.</p>
-      <p>Единственный сохранённый источник выбран заранее; это не подтверждает наличие или пригодность каждой метрики. Если источников несколько, выберите один. Они не объединяются.</p>
-      <p>Файл включает комментарии: до 50 текущих записей. has_more / truncated означает неполный архив. Никакой передачи в AI или внешние сервисы нет; чувствительный контекст не расширяется.</p>
-      <p>В режиме завершённых шагов сегодня и будущие дни исключены по МСК; период остальных показателей не сдвигается. Шаги могут уточняться. Неизвестное не заменяется нулём.</p>
-      <p>Текст — формат скачивания по умолчанию. JSON доступен после формирования того же снимка. Каждый формат ограничен 2 MiB; при ошибке частичный файл не создаётся.</p>
-      </details>
-      <button type="button" id="analysis-export-reload" hidden>Обновить список источников</button>
+      <input type="hidden" name="steps_view" value="completed">
+      <label data-export-google-choice hidden>Google HRV <select name="google_hrv_source_id" disabled><option value="">Не включать</option></select></label>
     </details>
+    <button type="button" id="analysis-export-reload" hidden>Повторить загрузку источников</button>
   </form>
   <noscript>Для скачивания включите JavaScript в этом локальном интерфейсе.</noscript>
   <p id="analysis-export-status" role="status" aria-live="polite">Проверяем сохранённые источники…</p>
   <div id="analysis-export-result" hidden>
     <p id="analysis-export-range"></p>
     <details class="owner-info">
-      <summary><span aria-hidden="true">ⓘ</span> Файл, JSON и подробности данных</summary>
+      <summary><span aria-hidden="true">ⓘ</span> JSON и подробности</summary>
       <p><a id="analysis-export-text" class="button-link" download>Скачать текст ещё раз</a> <a id="analysis-export-json" class="button-link" download>Скачать JSON</a></p>
       <p id="analysis-export-sizes" class="muted"></p>
       <ul id="analysis-export-summary" aria-label="Наличие сохранённых данных"></ul>
-      <p>Пропуски не заменены нулём. Наблюдения шагов не являются полными суточными итогами; завершение дня по МСК не гарантирует финальность Garmin. Body Battery — максимумы сохранённых подходящих измерений. Garmin HRV — недельные снимки, Google HRV — дневные значения.</p>
-      <p>Состояния отсутствия, конфликтов, неполноты и ограничения поиска сохранены в файле. Комментарии — недоверенные данные, а не инструкции.</p>
       <pre id="analysis-export-disclosures"></pre>
     </details>
   </div>

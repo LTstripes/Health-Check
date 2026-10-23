@@ -32,7 +32,7 @@
 .overview-info { position: relative; }
 .overview-info summary { min-width: 44px; min-height: 44px; display: grid; place-items: center; color: var(--muted); cursor: pointer; list-style: none; font-size: 1.125rem; }
 .overview-info summary::-webkit-details-marker { display: none; }
-.overview-info[open] > div { position: absolute; top: 44px; right: 0; width: 260px; max-height: 450px; overflow-y: auto; padding: 16px; background: var(--card); border: 1px solid var(--accent); z-index: 2; font-size: .8125rem; }
+.overview-info[open] > div { position: absolute; top: 44px; right: 0; width: min(32rem, 80vw); box-sizing: border-box; max-height: 450px; overflow-y: auto; padding: 16px; background: var(--card); border: 1px solid var(--accent); z-index: 2; font-size: .8125rem; }
 .overview-a-plus .overview-value { margin: 4px 0 8px; font: 2.55rem/1.12 var(--owner-heading-font); letter-spacing: -.035em; font-variant-numeric: lining-nums tabular-nums; }
 .overview-value span { font: 1rem var(--owner-sans); letter-spacing: normal; }
 .overview-source { margin: 4px 0; color: var(--muted); font-size: .75rem; }
@@ -103,3 +103,15 @@
 .overview-secondary .overview-chart-values table { min-width: 340px; }
 .overview-secondary [data-bb-window] > strong,
 .overview-secondary [data-overview-stress] > strong { display: block; font-size: 1.5rem; line-height: 1.3; }
+
+.brief-period { position: relative; width: fit-content; cursor: help; }
+.overview-period-tooltip { position: absolute; z-index: 10; left: 0; top: 100%; width: min(30rem, 80vw); padding: .8rem 1rem; background: #fff; color: #334155; border: 1px solid #cbd5e1; border-radius: .6rem; box-shadow: 0 4px 16px #0f172a20; font-size: .9rem; font-weight: 400; line-height: 1.5; visibility: hidden; opacity: 0; }
+.overview-period-tooltip > span { display: block; }
+.brief-period:hover .overview-period-tooltip, .brief-period:focus .overview-period-tooltip { visibility: visible; opacity: 1; }
+
+.brief-period[data-tooltip-dismissed] .overview-period-tooltip { visibility: hidden; opacity: 0; }
+
+.overview-info table { min-width: 400px; }
+.overview-info th:first-child, .overview-info td:first-child { min-width: 80px; }
+.brief-overview-list > li:first-child .overview-info[open] > div,
+.overview-secondary > article:first-child .overview-info[open] > div { left: 0; right: auto; }

@@ -21,11 +21,28 @@
   {% for item in overview.rhr['items'] %}
     {% set dto = item.dto %}{% set point = dto.last_observation %}{% set source = dto.source_identity %}
     <div data-rhr-provider="{{ item.label }}" data-rhr-state="{{ dto.state }}">
+      <div class="overview-metric-heading"><span class="overview-source">{{ item.label }}</span>
+        <details class="overview-info" data-rhr-evidence><summary aria-label="Данные пульса в покое · {{ item.label }}">ⓘ</summary><div>
+
+        <p>Среднее сохранённых наблюдений не доказывает типичный пульс или полноту ношения устройства. Дни без пригодных значений не заменяются нулём; источники не объединяются.</p>
+        <p>Выбранный период: {{ dto.query.requested_start_date | owner_date }} — {{ dto.query.requested_end_date | owner_date }} · {{ dto.requested_day_count }} календарных дней. Даты сохранены по источнику.</p>
+        {% if dto.mean_exact %}<p>Среднее до округления: {{ dto.mean_exact.decimal }} уд/мин; точное значение {{ dto.mean_exact.numerator }} / {{ dto.mean_exact.denominator }} уд/мин. Округляется только итоговое среднее до целого, .5 вверх.</p>{% endif %}
+        {% if point %}<p>Последнее пригодное сохранённое наблюдение: {{ overview_number(point.value) }} уд/мин · {{ point.source_local_date | owner_date }} · {{ point.observation_age_days }} дней назад.</p>{% endif %}
+        {% if source %}<p>Источник: {{ source.source_id }} · {{ source.source_kind }} · {{ 'устройство подтверждено' if source.device_attributed else 'устройство не подтверждено' }}.</p>{% endif %}
+        <p>Проверено: {{ dto.query.evaluation_local_date | owner_date }}. Покрытие сбора: неизвестно. Происхождение клона: неизвестно; дата снимка: {{ dto.snapshot_as_of or 'неизвестна' }}.</p>
+        <p>Поиск {{ 'завершён для всего периода' if dto.search.complete else 'не завершён' }}; проверено групп {{ dto.search.groups_examined }}, записей {{ dto.search.records_examined }}. Лимиты: {{ dto.search.candidate_record_cap }} записей за период, {{ dto.search.per_day_record_cap }} на день.</p>
+        {% if dto.search.incomplete_group_date %}<p>Неполная группа: {{ dto.search.incomplete_group_date | owner_date }}.</p>{% endif %}
+        {% if dto.excluded_day_count is not none %}<p>Исключено дней: {{ dto.excluded_day_count }}.</p>{% endif %}
+        {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}{% if exclusion.candidate_count is not none %} · записей {{ exclusion.candidate_count }}{% endif %}</p>{% endfor %}
+        {% for observation in dto.observations %}<p>{{ observation.source_local_date | owner_date }}: {{ overview_number(observation.value) }} уд/мин{% if observation.is_zero %} · источник передал явный ноль{% endif %}{% if observation.record_status == 'partial' %} · запись источника частичная{% endif %} · {{ observation.record_id }}.</p>{% endfor %}
+        <p>Последняя попытка обновления потока: {{ dto.refresh.last_attempt_utc or 'неизвестна' }}. Последнее успешное обновление: {{ dto.refresh.last_successful_refresh_utc or 'неизвестно' }}. Сохранённое число не подтверждает успешное обновление или полноту сбора.</p>
+        {% if dto.refresh.terminal_status %}<p>Состояние потока провайдера: {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'failed': 'ошибка обновления', 'succeeded': 'обновление завершено'}.get(dto.refresh.terminal_status, dto.refresh.terminal_status) }}.</p>{% endif %}
+        {% for fact in item.freshness %}<p>Свежесть потока провайдера: {{ {'fresh': 'свежие данные', 'quiet': 'нет новых событий', 'stale': 'давно не обновлялся', 'unavailable': 'недоступна', 'unknown': 'неизвестна', 'not_requested': 'не запрашивалась'}.get(fact.state, 'неизвестна') }} · {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'refresh_overdue': 'просрочено обновление', 'disabled': 'сбор отключён', 'not_requested': 'сбор не запрашивался', 'never_observed': 'свидетельства свежести отсутствуют', 'coverage_unknown': 'покрытие неизвестно', 'future_chronology': 'хронология обновления в будущем', 'acquisition_incomplete': 'сбор неполный', 'evidence_current': 'есть текущие свидетельства'}.get(fact.reason_code, 'причина указана в технических деталях') }}.</p>{% endfor %}
+              </div></details>
+      </div>
       {% if dto.mean_display is not none %}
-        <strong>Средний пульс в покое · {{ dto.mean_display }} уд/мин</strong>
-        <p class="overview-source">{{ item.source_labels.get(source.source_id, item.label) if source else item.label }} · по {{ dto.eligible_day_count }} из {{ dto.requested_day_count }} дней{% if dto.eligible_day_count == 1 %} · одно наблюдение{% endif %}</p>
+        <strong>{{ dto.mean_display }} уд/мин</strong>
       {% else %}
-        <p class="overview-source">{{ item.source_labels.get(source.source_id, item.label) if source else item.label }}{% if dto.eligible_day_count is not none %} · по {{ dto.eligible_day_count }} из {{ dto.requested_day_count }} дней{% endif %}</p>
         {% if dto.state == 'no_eligible_in_period' %}<p>Нет пригодных наблюдений в выбранном периоде.</p>
         {% elif dto.state == 'search_incomplete' %}<p>Поиск не завершён. {{ reasons.get(dto.reason, dto.reason) }}</p>
         {% else %}<p>{{ reasons.get(dto.reason, 'Среднее недоступно.') }}</p>{% endif %}
@@ -41,22 +58,7 @@
           </select></label><button type="submit">Показать</button>
         </form>
       {% endif %}
-      <details class="owner-details" data-rhr-evidence><summary>Наблюдения и подробности · {{ item.label }}</summary>
-        <p>Среднее сохранённых наблюдений не доказывает типичный пульс или полноту ношения устройства. Дни без пригодных значений не заменяются нулём; источники не объединяются.</p>
-        <p>Выбранный период: {{ dto.query.requested_start_date | owner_date }} — {{ dto.query.requested_end_date | owner_date }} · {{ dto.requested_day_count }} календарных дней. Даты сохранены по источнику.</p>
-        {% if dto.mean_exact %}<p>Среднее до округления: {{ dto.mean_exact.decimal }} уд/мин; точное значение {{ dto.mean_exact.numerator }} / {{ dto.mean_exact.denominator }} уд/мин. Округляется только итоговое среднее до целого, .5 вверх.</p>{% endif %}
-        {% if point %}<p>Последнее пригодное сохранённое наблюдение: {{ overview_number(point.value) }} уд/мин · {{ point.source_local_date | owner_date }} · {{ point.observation_age_days }} дней назад.</p>{% endif %}
-        {% if source %}<p>Источник: {{ source.source_id }} · {{ source.source_kind }} · {{ 'устройство подтверждено' if source.device_attributed else 'устройство не подтверждено' }}.</p>{% endif %}
-        <p>Проверено: {{ dto.query.evaluation_local_date | owner_date }}. Покрытие сбора: неизвестно. Происхождение клона: неизвестно; дата снимка: {{ dto.snapshot_as_of or 'неизвестна' }}.</p>
-        <p>Поиск {{ 'завершён для всего периода' if dto.search.complete else 'не завершён' }}; проверено групп {{ dto.search.groups_examined }}, записей {{ dto.search.records_examined }}. Лимиты: {{ dto.search.candidate_record_cap }} записей за период, {{ dto.search.per_day_record_cap }} на день.</p>
-        {% if dto.search.incomplete_group_date %}<p>Неполная группа: {{ dto.search.incomplete_group_date | owner_date }}.</p>{% endif %}
-        {% if dto.excluded_day_count is not none %}<p>Исключено дней: {{ dto.excluded_day_count }}.</p>{% endif %}
-        {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}{% if exclusion.candidate_count is not none %} · записей {{ exclusion.candidate_count }}{% endif %}</p>{% endfor %}
-        {% for observation in dto.observations %}<p>{{ observation.source_local_date | owner_date }}: {{ overview_number(observation.value) }} уд/мин{% if observation.is_zero %} · источник передал явный ноль{% endif %}{% if observation.record_status == 'partial' %} · запись источника частичная{% endif %} · {{ observation.record_id }}.</p>{% endfor %}
-        <p>Последняя попытка обновления потока: {{ dto.refresh.last_attempt_utc or 'неизвестна' }}. Последнее успешное обновление: {{ dto.refresh.last_successful_refresh_utc or 'неизвестно' }}. Сохранённое число не подтверждает успешное обновление или полноту сбора.</p>
-        {% if dto.refresh.terminal_status %}<p>Состояние потока провайдера: {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'failed': 'ошибка обновления', 'succeeded': 'обновление завершено'}.get(dto.refresh.terminal_status, dto.refresh.terminal_status) }}.</p>{% endif %}
-        {% for fact in item.freshness %}<p>Свежесть потока провайдера: {{ {'fresh': 'свежие данные', 'quiet': 'нет новых событий', 'stale': 'давно не обновлялся', 'unavailable': 'недоступна', 'unknown': 'неизвестна', 'not_requested': 'не запрашивалась'}.get(fact.state, 'неизвестна') }} · {{ {'reauth_required': 'нужен повторный вход', 'refresh_failed': 'ошибка обновления', 'refresh_overdue': 'просрочено обновление', 'disabled': 'сбор отключён', 'not_requested': 'сбор не запрашивался', 'never_observed': 'свидетельства свежести отсутствуют', 'coverage_unknown': 'покрытие неизвестно', 'future_chronology': 'хронология обновления в будущем', 'acquisition_incomplete': 'сбор неполный', 'evidence_current': 'есть текущие свидетельства'}.get(fact.reason_code, 'причина указана в технических деталях') }}.</p>{% endfor %}
-      </details>
+
     </div>
   {% endfor %}
 </div>

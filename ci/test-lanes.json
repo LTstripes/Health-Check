@@ -83,6 +83,7 @@
     ],
     "app-ingest": [
       "tests/test_analysis_export_ui.py",
+      "tests/test_lighter_owner_ui.py",
       "tests/test_bootstrap.py",
       "tests/test_context_ui.py",
       "tests/test_owner_presentation.py",

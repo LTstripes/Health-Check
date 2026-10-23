@@ -236,12 +236,17 @@ def test_actual_statistics_route_exact_integer_dates_and_unknowns(statistics_ui,
     html = response.text.split("data-google-steps>", 1)[1]
     assert str(INT64_MAX) in html
     assert 'data-google-steps-date="2099-01-02" data-google-steps-state="value"' in html
-    assert "полнота суток не подтверждена" in html
-    assert f'data-steps-total>{INT64_MAX}</dd>' in html
-    assert 'data-steps-mean>9223372036854775807.0</dd>' in html
-    assert f'1 из {days} дней с данными' in html
-    assert ('<details class="statistics-details steps-daily-details">'
-            '<summary>Дни и подробности Google</summary>') in html
+    view = response.context["google_steps_view"]
+    assert response.context["google_steps"]["coverage"] == "unknown"
+    assert view["total"] == str(INT64_MAX) and view["mean"] == f"{INT64_MAX}.0"
+    assert view["count"] == 1 and view["days"] == days
+    grouped = "9\u202f223\u202f372\u202f036\u202f854\u202f775\u202f807"
+    assert f'data-steps-total>{grouped}</dd>' in html
+    assert f'data-steps-mean>{grouped}.0</dd>' in html
+    assert f'1 из {days} дней с данными' not in html
+    assert 'data-steps-info="google"' in html
+    assert f"Точное среднее: {INT64_MAX} / 1" in html
+    assert "Это не подтверждение полного сбора" in html
     assert "Поле шагов отсутствует" not in html
     assert f'name="google_steps_source_id" value="{got.source.id}"' in response.text
 

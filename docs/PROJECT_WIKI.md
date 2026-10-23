@@ -19,8 +19,10 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 **Release #479 is NO-GO: the Owner also marked the 23 October UAT on
 `726b1651e70006309bba95268b92ff3d30e6028a` UX NOT ACCEPTED.**
 The [latest bounded UI follow-up](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6367860207)
-removes ordinary Overview/Statistics noise without changing data semantics; its
-new candidate is not accepted by this runner change. The existing guarded test
+removes ordinary Overview/Statistics noise without changing data semantics.
+Corrective source/visual review ACCEPT is bound to `b0a6def` after returned
+`c9821d0`; 36 synthetic Chrome captures cover 1024/1440 and 26 interaction groups.
+The integrated lighter-UI candidate still requires exact CI and post-main gates. The existing guarded test
 runtime/copy remains pinned and unchanged. The prior exact #506 engineering gates
 and [fresh copy preparation](https://github.com/LTstripes/Health-Check/issues/479#issuecomment-6363351834)
 retain their scopes; numeric regularity on that retained snapshot remains unverified.
@@ -29,10 +31,15 @@ Separately authorized [#507](https://github.com/LTstripes/Health-Check/issues/50
 adds local operator-bound 7/30-day compact reading for the assistant, with saved
 Google Steps and existing supported domains. It creates no listener/access channel
 or weekly sending. Independent source review and 103 focused/compact/entry checks
-passed for the two-file implementation. Final exact-candidate CI and integration
-gates remain pending; receipts will be recorded in the issue/PR. Any real-copy
-query remains separately gated and is not
-claimed executed here. [Invocation and refusal rules](OWNER_OPERATIONS.md#assistant-period-runner)
+passed for the two-file implementation. [PR #508](https://github.com/LTstripes/Health-Check/pull/508)
+merged as `7e7603bb5443a6a079d27f71d12283a775c2578e`; exact push/PR attempt 1
+each passed 5,768 tests with three declared manifest skips, including original ZIP
+digests and official same-attempt/Linux/Windows verification.
+[Post-main](https://github.com/LTstripes/Health-Check/actions/runs/39983838507)
+is still pending at this checkpoint. One separately authorized seven-day copy read
+passed complete packet/frame validation below the unchanged cap, with unchanged
+DB/WAL bytes and no network/non-database profile opens. Its real packet, bindings
+and receipts remain private; unbound optional Google HRV/RHR were not requested. [Invocation and refusal rules](OWNER_OPERATIONS.md#assistant-period-runner)
 stay in Operations; [durable contract](ARCHITECTURE.md#assistant-period-read) stays
 in Architecture. Repeat Owner acceptance and separate release authority are pending.
 
@@ -48,9 +55,11 @@ the approved UX sequence #492/#495, #493, #392, then bounded #380. Only actual
 accepted gates establish delivered scope; failed or pending work is not promised.
 Repeat Owner UAT follows the accepted fixes. #494 stays deferred. Separately
 approved additions are [#501 Sleep regularity](https://github.com/LTstripes/Health-Check/issues/501)
-and [#488 weekly preview](https://github.com/LTstripes/Health-Check/pull/500). Their
+and [#488 weekly digest backend](https://github.com/LTstripes/Health-Check/pull/500). Their
 implementation/review and exact integration receipts are tracked in those issues;
-no automation, Owner runtime or release is activated by a source change.
+no automation, Owner runtime or release is activated by a source change. The
+current lighter-UI candidate removes the weekly Overview trigger; the future
+Sunday 20:00 Moscow chat request remains open, with delivery still unimplemented.
 The Owner chose to keep scalar-valid legacy nights in calculations with an
 explicit "boundaries not checked" disclosure. Missing preserved boundaries alone
 do not remove a night; negative values and proven contradictions remain excluded.

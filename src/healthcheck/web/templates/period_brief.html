@@ -37,7 +37,7 @@
 
 <section class="brief-controls" aria-labelledby="brief-period-heading">
   <h2 id="brief-period-heading" class="visually-hidden">Выбранный период</h2>
-  <p class="brief-period">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span></p>
+  <p class="brief-period" tabindex="0" aria-describedby="overview-period-scope">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span><span class="overview-period-tooltip" id="overview-period-scope" role="tooltip"><span>Вес и активности: {{ brief.period.start_date | owner_date }} — {{ brief.period.end_date | owner_date }}.</span><span>Сон, стресс и Body Battery: {% if overview.completed_window.empty %}в выбранном периоде нет завершённых дней по МСК{% else %}{{ overview.completed_window.start_date | owner_date }} — {{ overview.completed_window.end_date | owner_date }} · завершённые дни, МСК{% endif %}.</span></span></p>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
     <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if overview.rhr.google_source_id %}&amp;google_rhr_source_id={{ overview.rhr.google_source_id }}{% endif %}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
@@ -52,13 +52,7 @@
     <button type="submit">Применить период</button>
   </form>
   </details>
-  {% call owner_ui.info_details("О сохранённых источниках") %}
-  <p class="muted" data-overview-sources>Вес: {{ brief_owner_state(weight.state) }} ·
-    Garmin: {% if source_selection.status == 'selected' %}{{ brief_source_label(source_selection.selected_source) }}{% elif source_selection.status == 'require_selection' %}нужен выбор источника{% else %}источник не сохранён{% endif %} ·
-    Google: {% if overview.google.sources %}источников с текущими записями {% if overview.google.window_limited %}в окне Google{% else %}в периоде{% endif %} — {{ overview.google.sources | length }}{% else %}нет текущих записей {{ google_scope }}{% endif %}.
-    {% if overview.google.window_limited %}Окно Google: {{ overview.google.start_date | owner_date }} → {{ overview.google.end_date | owner_date }}.{% endif %}
-  </p>
-  {% endcall %}
+
   {% if source_selection.sources | length > 1 %}
   <details class="owner-details brief-source"{% if source_selection.status == "require_selection" %} open{% endif %}>
     <summary>Источник Garmin{% if source_selection.status == "selected" %}: {{ brief_source_label(source_selection.selected_source) }}{% endif %}</summary>
@@ -88,7 +82,6 @@
   {% else %}<p class="muted">Источник Garmin не сохранён. <a href="/imports">Проверить источники</a></p>{% endif %}
 </section>
 
-<p class="overview-download"><a href="/imports#analysis-export">Скачать данные за период →</a></p>
 
 {% if source_actions %}
 <section class="brief-source-attention" aria-label="Источники требуют внимания">
@@ -115,26 +108,6 @@
 </section>
 {% endif %}
 
-{% if weekly_preview_available %}
-<section class="card" aria-labelledby="weekly-heading" data-weekly-preview>
-  <h2 id="weekly-heading">Итог недели · preview</h2>
-  {% if weekly_digest %}
-    {% set weekly_presentation = weekly_preview_presentation(weekly_digest) %}
-    {% for fact in weekly_presentation.facts %}<p data-weekly-fact>{{ fact }}</p>{% endfor %}
-    {% if weekly_presentation.gaps %}<p class="muted" data-weekly-gaps>{{ weekly_presentation.gaps | join(' ') }}</p>{% endif %}
-    {% for notice in weekly_presentation.notices %}<p class="muted" data-weekly-notice>{{ notice }}</p>{% endfor %}
-    <details class="owner-details"><summary>Подробности и основания</summary>
-      <p>Проверяемый сохранённый срез; даты, источники, ограничения и исключения.</p>
-      <div data-weekly-original-text style="white-space:pre-wrap">{{ weekly_digest.text }}</div>
-      <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:24rem;overflow:auto">{{ weekly_evidence }}</pre>
-    </details>
-  {% elif weekly_error %}<p role="status">{{ weekly_error }}</p>
-  {% else %}<p>Короткий итог занятий, шагов и сна по сохранённым данным. Автоматическая отправка не включена.</p>
-    <a href="/brief?weekly_end={{ weekly_default_end }}">Посмотреть итог последней недели</a>
-  {% endif %}
-</section>
-{% endif %}
-
 {% include 'overview_primary.html' %}
 
 {% include 'overview_values.html' %}
@@ -147,70 +120,7 @@
   </section>{% endif %}
 </div>
 
-{% if coverage_warning or source_status or quiet_actions %}
-<details class="owner-details brief-limitations">
-  <summary>Состояние источников и ограничения</summary>
-  {% if coverage_warning %}<p>{{ coverage_warning }}</p>{% endif %}
-  {% if source_status %}<p>Источники: {{ source_status }}</p>{% endif %}
-  {% for action in quiet_actions %}<p>{{ action.text }}{% if action.contexts %} {{ action.contexts | join(' · ') }}.{% endif %} <a href="{{ action.link }}">{{ action.link_label }}</a></p>{% endfor %}
-  <a href="/imports#data-status">Проверить состояние источников</a>
-</details>
-{% endif %}
-
-<details class="card owner-details brief-sleep">
-  <summary>Сравнение сна · исследовательские детали</summary>
-  <p><a href="/agreement">Открыть сравнение сна</a></p>
-  <p>Показаны различия между сохранёнными наблюдениями, а не оценка качества сна. Средняя разность учитывает знак (Google минус Garmin); среднее абсолютное различие показывает величину расхождения без знака.</p>
-  {% if sleep_uncertainty %}<p class="uncertainty-note">{{ sleep_uncertainty }}</p>{% endif %}
-  {% if sleep.groups %}<p class="muted">Несколько сравнений возникают из разных показателей, вариантов записи и наборов источников. Каждый расчёт показан отдельно: числа наблюдений не складываются.</p>{% endif %}
-  {% for bucket in brief_sleep_groups(sleep.groups) %}
-  <section class="brief-subsection">
-    <h3>{{ bucket.label }}</h3>
-    {% if bucket.label == 'Сопутствующие показатели за день' %}<p class="muted">Это суточные показатели, а не измерения внутри сна.</p>{% endif %}
-    <div class="brief-grid">
-    {% for row in bucket.rows %}{% set group = row.group %}
-    <article class="brief-comparison">
-      <h4>{{ row.label }}</h4>
-      <p class="muted">{{ brief_owner_cohort(group.cohort_label) }} · {{ row.variant }} · сравнение {{ loop.index }}</p>
-      <p>Пригодных наблюдений: {{ group.n if group.n is not none else '—' }} · сопоставленных ночей: {{ group.paired_nights if group.paired_nights is not none else '—' }}</p>
-      {% if group.statistics_available and row.unit %}
-      <dl class="brief-statistics">
-        <div><dt>Средняя разность</dt><dd>{{ brief_owner_value(group.bias, row.unit, 'unknown') }}</dd></div>
-        <div><dt>Среднее абсолютное различие</dt><dd>{{ brief_owner_value(group.mae, row.unit, 'unknown') }}</dd></div>
-      </dl>
-      <p class="muted">Наблюдений в расчёте: {{ group.accepted_statistics_n if group.accepted_statistics_n is not none else '—' }}. Это исследовательское сравнение; оно не подтверждает точность или взаимозаменяемость устройств.</p>
-      {% elif not row.unit %}<p class="muted">Смысл и единицы показателя не определены. Значения доступны в технических деталях.</p>
-      {% else %}<p class="muted">Принятое сравнение недоступно. Наличие сопоставленных ночей само по себе не подтверждает пригодность данных для статистики.</p>{% endif %}
-    </article>
-    {% endfor %}
-    </div>
-  </section>
-  {% else %}<p class="muted">За этот период нет доступного сравнения сна.</p>{% endfor %}
-</details>
-
-{% call owner_ui.technical_details('brief-provenance') %}
-  <h3>Полнота данных и происхождение</h3>
-  <p>Доступность данных, их полнота и свежесть — разные сведения. Состояния разделов не подтверждают ежедневное покрытие.</p>
-  <dl>
-    <div><dt>Контракт</dt><dd><code>{{ packet.contract_version }}</code></dd></div>
-    <div><dt>Алгоритм</dt><dd><code>{{ packet.algorithm }}</code></dd></div>
-    <div><dt>Хеш результата</dt><dd><code>{{ packet.result_hash }}</code></dd></div>
-    <div><dt>Хеш отображения</dt><dd><code>{{ brief.source_result_hash }}</code></dd></div>
-    {% if source_selection.selected_source %}
-    <div><dt>Выбранный source ID</dt><dd><code>{{ source_selection.selected_source.id }}</code></dd></div>
-    <div><dt>Технический instance ID</dt><dd><code>{{ source_selection.selected_source.source_instance_id }}</code></dd></div>
-    {% endif %}
-  </dl>
-  <p>Полный исходный пакет сохраняет все показатели, варианты, группы, действия, coverage, причины и связанные контракты. Списки измерений на экране могут быть сокращены только для отображения.</p>
-  <pre class="brief-packet">{{ packet | tojson(indent=2) }}</pre>
-  <h3>Исходные значения Garmin и Google</h3>
-  <pre>{{ overview.technical | tojson(indent=2) }}</pre>
-  <h3>Пульс в покое · поиск сохранённых наблюдений</h3>
-  <pre data-rhr-dto>{{ overview.rhr | tojson(indent=2) }}</pre>
-  <pre>{{ overview.training | tojson(indent=2) }}</pre>
-  <h3>Ряды графиков</h3><pre>{{ charts.technical | tojson(indent=2) }}</pre>
-{% endcall %}
 </div>
 {% endblock %}
 
-{% block scripts %}{% endblock %}
+{% block scripts %}<script src="/static/overview.js"></script>{% endblock %}
