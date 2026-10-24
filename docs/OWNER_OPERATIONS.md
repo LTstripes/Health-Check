@@ -659,6 +659,26 @@ reentrant profile lock across grant reload/startup refresh, HTTP and persistence
 missing-grant cached preflight creates no runtime. The existing request/size caps
 and immutable correction persistence apply.
 
+The separate `--google-steps-catchup` opt-in requires `--include-google-steps` and
+rejects historical `--date` override. After policy validation, under the same
+profile lock and before auth/provider work, its first invocation records yesterday
+in Europe/Moscow as its activation floor. Old observations or consent do not set
+that floor. A Steps-only versioned sync cursor retains exact declared source,
+family, query/contract and immutable successful acquisition linkage; it never
+certifies coverage. Cursor and successful observation/run advancement commit
+atomically. Corrupt/incompatible state fails closed rather than resetting history.
+
+At most seven distinct pending dates are attempted oldest-first per invocation,
+with unchanged per-date retries: at most 21 data POST attempts and seven startup
+refresh calls. Stop on the first unsuccessful date; show unattempted dates and a
+bounded remaining range/count. A longer gap remains pending, and recent dates can
+wait behind it. Starting caught up reacquires yesterday once; reaching yesterday
+in the batch does not acquire it twice. Valid empty/missing/null outcomes retain
+their states; successful acquisition is not complete provider-day coverage. Older
+successful dates are not automatically revisited for late corrections. Include-only
+previous-day behavior stays unchanged. This is distinct from #522 historical
+backfill and does not activate a wrapper, schedule, OAuth or live catch-up.
+
 Normal Google stream selection does not turn off Garmin, Garmin Training or fixed wearables sleep. Overall success requires required substeps to converge as succeeded/empty under their contracts. Preserve partial/failed/reauth and actual freshness honestly.
 
 #395/PR #398 wires the accepted Garmin v1 Steps projector only after successful
@@ -666,6 +686,16 @@ persisted routine daily-summary acquisition, preserving exact source/calendarDat
 conflicts, bounds and transaction ownership. This is delivered wiring, not a new
 refresh/replay assignment. The separate #410 completed-day display is read-only
 and never projects from GET; it does not certify a final Garmin total.
+
+For a later authorized #523 deployment, retain verified backup/recovery and test
+the additive schema on a disposable copy first. If legacy Garmin originals exceed
+the retained unknown bound, deployment alone leaves projection blocked. The
+explicit saved-byte date-index API above requires a separately authorized profile,
+exact source, caller-owned transaction and bounded batch. Commit before retaining
+its continuation; retain rollback evidence and safe unknown/error counts. Do not
+loop unboundedly, raise caps, create acquisition success, rewrite Steps/history or
+issue provider requests to make indexing look complete. Current code preparation
+does not authorize real indexing or another Stable rollout.
 
 When selected in list mode, high-frequency `heart_rate` is split into civil days, newest first, with individual checkpoint/staging epochs. Each day may use at most two bounded continuation calls after the initial operation; head-page revalidation and 40-page/80-request per-call limits remain. Aggregate counters can exceed one call's limit. A final attempt entry is not a count of all continuation operations. Nonconverged days remain resumable/unknown and stop older-day work.
 
