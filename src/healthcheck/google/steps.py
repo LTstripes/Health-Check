@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.config import Settings
 from healthcheck.db.models import GooglePayloadStatus
 from healthcheck.db.repositories import repositories_for
+from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.google.auth import (
     GoogleAuthService,
     GoogleHttpTransport,
@@ -38,6 +39,7 @@ from healthcheck.google.normalization import (
 )
 from healthcheck.google.persistence import google_persistence_for
 from healthcheck.google.sync import _google_execution_resources
+from healthcheck.runtime import resolve_runtime_paths
 
 ACQUISITION_CONTRACT = "google-steps-acquisition-v1"
 ACQUISITION_NORMALIZATION = "google-steps-acquisition-normalization-v1"
@@ -226,6 +228,27 @@ def acquire_steps(
     """Explicit apply: cached grant preflight, one startup refresh, bounded data POST."""
     # Validate direct callers too, before accessing credentials.
     StepsPlan.build(plan.day.isoformat(), FAMILY_GOOGLE_WEARABLES)
+    cached_token, cached_auth = auth_service.load_steps_access_token()
+    if not cached_token or not cached_auth.ok:
+        return _report(
+            "blocked", "steps_grant_required", 0,
+            auth_refresh_attempted=cached_auth.refresh_attempted,
+            auth_refresh_succeeded=cached_auth.refresh_succeeded,
+            auth_error=cached_auth.error.as_dict() if cached_auth.error else None,
+        )
+    paths = resolve_runtime_paths(settings)
+    # A stored grant already has a profile parent; never bootstrap one for locking.
+    with ExternalRuntimeOperationLock(paths):
+        return _acquire_steps_locked(
+            settings, plan, auth_service=auth_service, transport=transport,
+            sleeper=sleeper, clock=clock,
+        )
+
+
+def _acquire_steps_locked(
+    settings, plan, *, auth_service, transport, sleeper, clock,
+) -> dict:
+    # Reload the grant under the shared profile lock before any mutable auth/HTTP.
     token, auth = auth_service.load_steps_access_token(refresh_if_needed=True)
 
     def report(status: str, reason: str, requests: int, **counts) -> dict:

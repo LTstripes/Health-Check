@@ -32,7 +32,7 @@ from healthcheck.runtime import RuntimePaths, resolve_runtime_paths
 COLLECTION_POLICY_FILENAME = "collection-policy.json"
 COLLECTION_POLICY_CONTRACT_VERSION = "healthcheck-collection-policy-v1"
 COLLECTION_POLICY_PROVENANCE = "owner-explicit"
-ALLOWED_DISABLED_SCOPES = frozenset({"google:heart_rate"})
+ALLOWED_DISABLED_SCOPES = frozenset({"google:heart_rate", "google:steps"})
 MAX_POLICY_BYTES = 64 * 1024
 MAX_POLICY_NESTING_DEPTH = 32
 ALLOWED_POLICY_PROBLEM_CODES = frozenset(

@@ -194,6 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--replace", action="store_true")
     parser.add_argument("--force-reauth", action="store_true")
     parser.add_argument("--include-steps", action="store_true")
+    parser.add_argument("--include-google-steps", action="store_true")
     parser.add_argument("--is-cn", action="store_true")
     parser.add_argument("--date", action="append", dest="dates")
     parser.add_argument("--max-range", action="append", nargs=2, dest="max_ranges")
@@ -261,6 +262,9 @@ def _settings(args: argparse.Namespace) -> Settings:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.include_google_steps and args.command != "owner-refresh":
+        print("--include-google-steps requires owner-refresh", file=sys.stderr)
+        return 2
     if args.include_steps and args.command != "google-auth":
         print("--include-steps requires google-auth", file=sys.stderr)
         return 2
@@ -1011,11 +1015,15 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
             streams=args.streams,
             query_mode=args.query_mode,
             data_source_family=args.family,
+            **({"include_google_steps": True} if args.include_google_steps else {}),
         )
     except OwnerRefreshBusyError:
         print(
             json.dumps(
-                _owner_refresh_error_payload("refresh_already_running", "runtime"),
+                _owner_refresh_error_payload(
+                    "refresh_already_running", "runtime",
+                    include_google_steps=args.include_google_steps
+                ),
                 sort_keys=True,
             )
         )
@@ -1024,7 +1032,9 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
         error_class = "input" if exc.error_code == "collection_policy_conflict" else "runtime"
         print(
             json.dumps(
-                _owner_refresh_error_payload(exc.error_code, error_class),
+                _owner_refresh_error_payload(
+                    exc.error_code, error_class, include_google_steps=args.include_google_steps
+                ),
                 sort_keys=True,
             )
         )
@@ -1032,7 +1042,9 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
     except OwnerRefreshRuntimeError as exc:
         print(
             json.dumps(
-                _owner_refresh_error_payload(exc.error_code, "runtime"),
+                _owner_refresh_error_payload(
+                    exc.error_code, "runtime", include_google_steps=args.include_google_steps
+                ),
                 sort_keys=True,
             )
         )
@@ -1040,7 +1052,10 @@ def _run_owner_refresh(args: argparse.Namespace, settings: Settings) -> int:
     except (OSError, ValueError):
         print(
             json.dumps(
-                _owner_refresh_error_payload("invalid_refresh_request", "input"),
+                _owner_refresh_error_payload(
+                    "invalid_refresh_request", "input",
+                    include_google_steps=args.include_google_steps
+                ),
                 sort_keys=True,
             )
         )
@@ -1065,9 +1080,14 @@ def _run_owner_weight_screenshot_import(args: argparse.Namespace, settings: Sett
     return result.exit_code
 
 
-def _owner_refresh_error_payload(error_code: str, error_class: str) -> dict[str, object]:
+def _owner_refresh_error_payload(
+    error_code: str, error_class: str, *, include_google_steps: bool = False,
+) -> dict[str, object]:
     return {
-        "contract_version": "healthcheck-owner-refresh-v1",
+        "contract_version": (
+            "healthcheck-owner-refresh-v2"
+            if include_google_steps else "healthcheck-owner-refresh-v1"
+        ),
         "operation": "owner-refresh",
         "error": {
             "error_class": error_class,
