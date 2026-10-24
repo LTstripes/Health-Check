@@ -153,7 +153,7 @@ Android phone                                           read tools
 └──────────────────────────────────────────────┘
 ```
 
-One local codebase and database are enough. The loopback UI/read/import ASGI app and optional LAN ingest-only ASGI app run as separate listeners/processes so LAN binding cannot expose dashboard or write/admin routes; both reuse the same application services and SQLite WAL. Do not add Redis, Celery, Kafka, Postgres, containers, Kubernetes, multi-tenancy, or SaaS authentication without a measured need. Long sync/report jobs run as idempotent CLI/application-service commands invoked by Windows Task Scheduler.
+One local codebase and database are enough. The UI/read/import ASGI app defaults to loopback; its explicit protected home-server mode is defined below. The optional LAN ingest-only ASGI app remains a separate listener/process and never exposes dashboard or write/admin routes. Both reuse the same application services and SQLite WAL. Do not add Redis, Celery, Kafka, Postgres, containers, Kubernetes, multi-tenancy, or SaaS authentication without a measured need. Long sync/report jobs run as idempotent CLI/application-service commands invoked by Windows Task Scheduler.
 
 <a id="system-and-runtime--2-runtime-responsibilities"></a>
 ### 2. Runtime responsibilities
@@ -163,12 +163,57 @@ One local codebase and database are enough. The loopback UI/read/import ASGI app
 
 - Python 3.12+, FastAPI/Uvicorn, SQLAlchemy/Alembic, SQLite WAL.
 - Runtime state is configurable and always outside the checkout. The selected durable Owner profile and code/control roles are defined in [Owner Operations](OWNER_OPERATIONS.md#machine-layout); `%LOCALAPPDATA%\Health-Check` remains the product default for generic/bootstrap use.
-- Dashboard/read/import listener bound only to loopback.
+- Dashboard/read/import defaults to loopback. Only explicit `home-server` mode may bind a single RFC1918 IPv4; it requires direct HTTPS and single-owner browser authentication under [Home-server boundary](#home-server-boundary). No public or wildcard bind is supported.
 - Optional separate private-LAN ingest-only listener/port exposing only webhook plus non-sensitive liveness; stable sender UUID and rotatable credential are independent.
 - Prefer HTTPS or a trusted encrypted private overlay. Plain trusted-LAN HTTP requires explicit opt-in and a confidentiality warning; public exposure is unsupported.
 - Provider tokens/secrets outside Git, ultimately in Windows Credential Manager/DPAPI or an equivalently user-scoped secret store.
 - Source artifacts such as images, raw JSON, and FIT files in a content-addressed local artifact directory with database references.
 - Stable is persistent owner data. Release/UAT profiles are disposable verified backup/restore clones; candidate validation never resets or repurposes Stable.
+
+<a id="home-server-boundary"></a>
+#### Opt-in single-owner home server (#526)
+
+`ui_mode=loopback` remains the default and keeps its existing HTTP Host/Origin
+contract. `ui_mode=home-server` uses the same UI routers, services and database;
+it is not the ingest listener and does not reuse the ingest HTTP opt-in. It accepts
+only one explicit RFC1918 IPv4 (127.0.0.1 is also allowed for local verification),
+never wildcard, public, hostname, link-local or overlay binds. Supported launch is
+the CLI's direct Uvicorn TLS listener, with proxy-header trust and access logging
+disabled. TLS certificate/key are required, externally supplied, currently valid
+and matching the selected IP; certificate trust on each client is an operator gate.
+No plaintext home-server mode, redirect listener or proxy Host rewriting exists.
+
+The single Owner sets a local passphrase through an interactive terminal. Only a
+salted scrypt verifier (N=131072, r=8, p=1, 16-byte salt) is stored. Verifier and TLS
+files must be outside both checkout and data profile, so profile backups/restores
+do not transfer access. There are no usernames, roles, provider/OAuth logins,
+passwords in command arguments/environment, or automatic credential creation.
+
+Global authentication precedes every page, API, export, document, error and static
+route. Only exact `/login` and nonsensitive `/healthz` are public over the configured
+HTTPS authority. Login does not accept query parameters or return URLs. All unsafe
+methods including login/logout require one exact HTTPS Origin, same-origin Referer
+when present, and same-origin Fetch Metadata when present. Duplicate authority,
+Origin or session-cookie ambiguity is rejected. Existing browser forms/fetches keep
+their same-origin flow; the default loopback compatibility probe exception is not
+an exception in home-server mode.
+
+Successful login replaces any current cookie with a fresh 256-bit opaque token;
+only its SHA256 key and timestamps are held in a bounded 16-session process-local
+store. Cookie is `__Host-healthcheck`, Secure, HttpOnly, SameSite=Strict, Path=/,
+without Domain. Session idle timeout is 30 minutes and absolute lifetime 12 hours.
+POST logout revokes the token. Restart revokes all sessions. Verifier replacement
+or unreadability fails closed immediately and requires restart to load a new one.
+Login attempts are globally limited to five per minute before KDF work, and form
+body is capped at 4096 bytes and must arrive within ten seconds. This small global
+limit trades availability under hostile LAN traffic for bounded CPU; the Owner may
+need to wait one minute.
+
+Home-server responses, including login and failures, are no-store and prevent
+framing/referrer disclosure. Passwords, cookies, raw request bodies and URLs are
+never application log fields. OS/user access controls still protect local files;
+network login does not protect against a compromised server account. A synthetic
+ASGI HTTPS check does not prove trusted browser TLS login or access from HONOR.
 
 <a id="system-and-runtime--android-phone"></a>
 #### Android phone
@@ -718,7 +763,7 @@ The rule is serialized, hashed, and tested with reordered input. Identical input
 - Do not log authorization headers, tokens, raw photos, or extracted personal values.
 - Use a stable sender UUID plus a separate high-entropy rotatable webhook credential. An environment override is allowed; persisted secrets must live outside Git and be documented.
 - Limit upload size and accepted media types; generate storage names rather than trusting filenames.
-- Keep UI/read/import routes loopback-only. The optional LAN listener is ingest-only, uses a separate port/app, and follows the explicit encrypted-overlay/HTTPS or warned trusted-LAN transport mode; public exposure is unsupported.
+- Keep UI/read/import routes loopback by default; the explicit authenticated HTTPS [home-server boundary](#home-server-boundary) is the sole private-LAN exception. The separate ingest listener uses its own port/app and unchanged transport/auth contract; public exposure is unsupported.
 - No analytics or import endpoint may accept an arbitrary filesystem path.
 - The UI must warn that consumer BIA is non-clinical and method-sensitive.
 
@@ -4406,7 +4451,7 @@ No Health-Check Recovery Score is currently justified. Preserve Garmin/Fitbit si
 
 - Real data, payloads, documents, databases, and secrets never enter Git or synthetic fixtures. Assigned Owner read-only analysis and presentation in the authorized AI conversation follow [Owner data workflow](OWNER_OPERATIONS.md#owner-data-boundary); this does not authorize data/runtime mutations.
 - The durable Owner Stable profile is never a development-agent workspace. Owner UAT uses a separate disposable restore/clone.
-- Dashboard/read/import is loopback-only; the separate LAN ingest app has no product routes, uses a stable sender UUID plus independent high-entropy rotatable credential, and has an encrypted-overlay/HTTPS or explicitly warned trusted-private-LAN transport boundary.
+- Dashboard/read/import defaults to loopback; private-LAN use requires the explicit authenticated HTTPS [home-server boundary](#home-server-boundary). The separate LAN ingest app has no product routes, uses a stable sender UUID plus independent high-entropy rotatable credential, and retains its encrypted-overlay/HTTPS or explicitly warned trusted-private-LAN transport boundary.
 - Log identifiers/counts/status, not authorization material or raw health values by default.
 - Use typed access capabilities: read, ingest, context/import write, and admin are distinct.
 - openScale/openScale-sync remain external GPL programs; do not claim this eliminates every legal obligation for every distribution arrangement.

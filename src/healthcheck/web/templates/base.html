@@ -30,6 +30,9 @@
       <a href="{{ item[1] }}"{% if section == key %} class="active" aria-current="page"{% endif %}>{{ item[0] }}</a>
       {% endfor %}
     </nav>
+    {% if request.state.home_server|default(false) %}
+    <form action="/logout" method="post"><button type="submit">Выйти</button></form>
+    {% endif %}
   </header>
   <main id="owner-main" tabindex="-1">
     <header class="owner-page-header">

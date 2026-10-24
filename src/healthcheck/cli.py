@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import sys
 from collections.abc import Sequence
@@ -126,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
             "prepare-runtime",
             "migrate",
             "serve",
+            "ui-password",
             "seed-demo",
             "smoke",
             "backup-profile",
@@ -165,6 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir")
     parser.add_argument("--port", type=int)
     parser.add_argument("--host")
+    parser.add_argument("--ui-mode", choices=("loopback", "home-server"))
+    parser.add_argument("--ui-host")
+    parser.add_argument("--auth-file", type=Path)
+    parser.add_argument("--tls-certfile", type=Path)
+    parser.add_argument("--tls-keyfile", type=Path)
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--ui-url", default="http://127.0.0.1:8120")
     parser.add_argument("--ingest-url")
@@ -252,6 +259,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _settings(args: argparse.Namespace) -> Settings:
     values = {}
+    for argument, setting in (
+        ("ui_mode", "ui_mode"), ("ui_host", "ui_host"), ("auth_file", "ui_auth_file"),
+        ("tls_certfile", "ui_tls_certfile"), ("tls_keyfile", "ui_tls_keyfile"),
+    ):
+        value = getattr(args, argument)
+        if value is not None:
+            values[setting] = value
     if args.data_dir is not None:
         values["data_dir"] = args.data_dir
     if args.port is not None:
@@ -295,6 +309,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command.startswith("offsite-"):
         return _run_offsite(args)
+
+    if args.command == "ui-password":
+        from healthcheck.web.home_auth import HomeServerError, write_password
+
+        if not args.data_dir or not Path(args.data_dir).is_absolute() or args.auth_file is None:
+            print("ui-password: explicit --data-dir and --auth-file required", file=sys.stderr)
+            return 2
+        if not sys.stdin.isatty():
+            print("ui-password: use an interactive local terminal", file=sys.stderr)
+            return 2
+        try:
+            password = getpass.getpass("New Health-Check owner password: ")
+            confirmation = getpass.getpass("Confirm password: ")
+            if password != confirmation:
+                raise HomeServerError("password_confirmation_mismatch")
+            write_password(args.auth_file, Settings(data_dir=args.data_dir), password,
+                           replace=args.replace)
+        except (HomeServerError, OSError, EOFError):
+            print("ui-password: setup failed; check paths, confirmation and password length",
+                  file=sys.stderr)
+            return 2
+        print("ui-password: configured; restart home-server to activate")
+        return 0
 
     if args.command == "backup-profile":
         if not args.output:
@@ -407,6 +444,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
 
+    home_app = None
+    if args.command == "serve" and args.app == "ui" and settings.ui_mode == "home-server":
+        from healthcheck.web.home_auth import HomeServerError
+
+        if not args.data_dir or not Path(args.data_dir).is_absolute():
+            print("home-server: explicit absolute --data-dir required", file=sys.stderr)
+            return 2
+        try:
+            home_app, _ = create_ui_app(settings)
+        except HomeServerError as exc:
+            print(f"home-server: {exc}", file=sys.stderr)
+            return 2
+
     paths = prepare_runtime(settings)
 
     if args.command == "prepare-runtime":
@@ -420,10 +470,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.app == "ui":
-        app, _ = create_ui_app(settings)
-        host = "127.0.0.1"
+        app = home_app if home_app is not None else create_ui_app(settings)[0]
+        host = settings.ui_host
         port = settings.ui_port
-        service = "loopback-ui"
+        service = "home-server-ui" if home_app is not None else "loopback-ui"
     else:
         decision = evaluate_ingest_binding(
             settings.ingest_host,
@@ -453,7 +503,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         port = settings.ingest_port
         service = "ingest"
     log_event("runtime_starting", operation="serve", service=service, status="ok")
-    uvicorn.run(app, host=host, port=port, log_config=None)
+    tls_options = {}
+    if home_app is not None:
+        tls_options = {
+            "ssl_certfile": str(settings.ui_tls_certfile),
+            "ssl_keyfile": str(settings.ui_tls_keyfile),
+            "proxy_headers": False,
+            "access_log": False,
+        }
+    uvicorn.run(app, host=host, port=port, log_config=None, **tls_options)
     return 0
 
 

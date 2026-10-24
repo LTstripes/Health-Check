@@ -24,6 +24,7 @@ from healthcheck.web.analysis_export import router as analysis_export_router
 from healthcheck.web.common import wants_html
 from healthcheck.web.context import router as context_router
 from healthcheck.web.garmin import router as garmin_router
+from healthcheck.web.home_auth import HomeAuth, home_guard
 from healthcheck.web.imports import router as import_router
 from healthcheck.web.labs import router as labs_router
 from healthcheck.web.pages import html_http_error, render_error, templates
@@ -48,11 +49,13 @@ def create_ui_app(
     profile_kind: str | None = None,
 ) -> tuple[FastAPI, object]:
     resolved = settings or Settings()
+    home_auth = HomeAuth.configure(resolved) if resolved.ui_mode == "home-server" else None
     app, paths = create_base_app(
         resolved,
-        service="loopback-ui",
+        service="home-server-ui" if home_auth is not None else "loopback-ui",
         title="Health-Check local runtime",
     )
+    app.state.home_auth = home_auth
     if weekly_digest is not None:
         from datetime import date
 
@@ -80,7 +83,7 @@ def create_ui_app(
     app.include_router(statistics_router)
     app.include_router(pages_router)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
-    app.middleware("http")(ui_guard_middleware)
+    app.middleware("http")(home_guard if home_auth is not None else ui_guard_middleware)
 
     @app.exception_handler(PhotoImportError)
     async def photo_import_error_handler(request: Request, exc: PhotoImportError) -> JSONResponse:
@@ -156,4 +159,8 @@ def create_ui_app(
     return app, paths
 
 
-app, _runtime_paths = create_ui_app()
+def __getattr__(name: str):
+    # Preserve the ASGI :app entrypoint without constructing an app on CLI import.
+    if name == "app":
+        return create_ui_app()[0]
+    raise AttributeError(name)

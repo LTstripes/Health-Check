@@ -118,6 +118,7 @@
       "tests/test_lab_intake.py",
       "tests/test_offsite_backup.py",
       "tests/test_ui_host_origin_guard.py",
+      "tests/test_home_server.py",
       "tests/test_saved_values.py",
       "tests/test_saved_rhr_period.py",
       "tests/test_body_battery_read.py",

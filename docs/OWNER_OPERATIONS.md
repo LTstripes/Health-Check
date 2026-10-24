@@ -15,8 +15,79 @@ bindings. Technical source/envelope meanings are in Architecture.
 | Import Weight screenshot | [Screenshot workflow](#screenshot-import) | Trusted original, exact metadata, review and authorized confirmation |
 | Export saved evidence | [Analysis export](#analysis-export) | Explicit source/profile/window and read-only evidence boundary |
 | Run MCP | [MCP service](#mcp-service) | Explicit existing profile, host/auth/connection decision |
+| Run protected home UI | [Home-server setup](#home-server-setup) | Separate approval for TLS trust, real credentials, bind and firewall; no public exposure |
 | Use or retire a task checkout | [Lifecycle](#workspace-lifecycle), [v2 retirement](#workspace-retirement) | Actual accepted installed consumer, current claim and separate cleanup authority |
 
+
+<a id="home-server-setup"></a>
+## Protected home dashboard (#526)
+
+This is an optional deployment decision, not an automatic upgrade to Stable.
+Default `scripts/start.ps1` remains the loopback launcher. Use the CLI below for
+the protected mode; do not change its Host/Origin checks or expose the ingest app
+as a dashboard. The governing security contract is
+[Architecture](ARCHITECTURE.md#home-server-boundary).
+
+Before real deployment, explicitly approve the selected existing profile/code,
+private IP/port, certificate issuance/trust, credential setup and temporary firewall
+rule. No setup example grants that approval. Do not ask for a password in chat.
+No new dependency is needed: existing Uvicorn provides TLS, stdlib provides the
+password KDF/session randomness, and existing FastAPI/Starlette serves the UI.
+
+1. Select one explicit home Wi-Fi IPv4 and port (proposed Tecno `192.168.3.43:8443`,
+   only after rechecking its address and that the port is free). Public/wildcard
+   binding, port forwarding, plaintext dashboard, Tailscale/SSH/RDP and unattended
+   startup are outside this task.
+2. Obtain a currently valid server certificate whose IP SAN is exactly that IP.
+   Keep certificate, private key and password verifier in a user-protected access
+   directory outside both source and data profile, e.g. an explicitly approved
+   `%LOCALAPPDATA%\Health-Check-Access\tecno` directory. The key must be readable by
+   the server account, never copied to HONOR. A local CA is possible, but creating
+   real keys and installing CA trust on HONOR are separate OS/security approvals.
+   Verify the CA certificate fingerprint through the local trusted workflow before
+   importing it; do not click through a browser warning or disable TLS validation.
+   HTTPS on the numeric IP needs no DNS changes. Expired/wrong-IP certs are rejected.
+3. Stop the selected server before password setup/reset. In an interactive local
+   terminal, run the following with the chosen external paths. The command prompts
+   twice without echo, requires at least 12 characters (at most 1024 UTF-8 bytes),
+   and requires an existing explicit profile. Never put the password in shell text,
+   environment, a URL, a screenshot or a chat. `--replace` is the explicit local
+   reset option; replacement invalidates the running process's access until restart.
+
+   ```powershell
+   uv run python -m healthcheck.cli ui-password --data-dir <existing-profile> --auth-file <external-password.json>
+   ```
+
+4. Start the accepted code in the foreground, using explicit paths:
+
+   ```powershell
+   uv run python -m healthcheck.cli serve --app ui --data-dir <existing-profile> --ui-mode home-server --ui-host 192.168.3.43 --port 8443 --auth-file <external-password.json> --tls-certfile <external-cert.pem> --tls-keyfile <external-key.pem>
+   ```
+
+   Equivalent `HEALTHCHECK_UI_MODE`, `UI_HOST`, `UI_AUTH_FILE`, `UI_TLS_CERTFILE`,
+   `UI_TLS_KEYFILE` settings are supported, each with the `HEALTHCHECK_` prefix;
+   explicit absolute `--data-dir` is still required for home-server CLI startup.
+   Passwords are not environment settings. Do not wrap this with a proxy or a second
+   HTTP listener. Configuration failure is sanitized and fails before runtime prep.
+5. Only after separately authorizing network exposure, allow inbound TCP 8443 for
+   Private profile, LocalAddress 192.168.3.43, RemoteAddress equal to the verified
+   HONOR IPv4, and the actual server Python executable. Confirm the active Wi-Fi
+   profile is still Private. Do not allow the whole subnet or Public profile. No
+   firewall rule is installed by the application.
+6. HONOR opens `https://192.168.3.43:8443/`. Verify trusted HTTPS first; the browser
+   must show the login before data. Owner enters the password locally in that
+   browser. Check read, export, one approved synthetic mutation and logout; verify
+   anonymous/expired sessions cannot retrieve data. Record actual second-device
+   evidence before LAN PASS. Shared browser users can use a session until logout
+   or expiry; logout before handing over the device.
+7. For the initial synthetic test, stop only the identified foreground server and
+   remove its one temporary firewall rule afterward. Retain the approved loopback
+   rollback. Do not enable jobs or migrate personal Stable as part of this check.
+
+Sessions expire after 30 idle minutes or 12 hours, and on restart/logout. Password
+reset/rotation requires local access; no network reset, recovery email or persistent
+login exists. Restoring a profile does not restore its password/certificate: configure
+access locally again. A missing/unreadable verifier denies home-server access.
 
 <a id="owner-data-boundary"></a>
 

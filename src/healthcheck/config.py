@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
 from typing import Literal, Self
 
@@ -35,6 +36,11 @@ class Settings(BaseSettings):
 
     data_dir: Path = Field(default_factory=default_data_dir)
     ui_port: int = Field(default=8120, ge=1, le=65535)
+    ui_mode: Literal["loopback", "home-server"] = "loopback"
+    ui_host: str = "127.0.0.1"
+    ui_auth_file: Path | None = None
+    ui_tls_certfile: Path | None = None
+    ui_tls_keyfile: Path | None = None
     ingest_enabled: bool = False
     ingest_host: str = "127.0.0.1"
     ingest_port: int = Field(default=8121, ge=1, le=65535)
@@ -110,6 +116,24 @@ class Settings(BaseSettings):
         if value <= 0 or value != value or value == float("inf") or value == float("-inf"):
             raise ValueError("HEALTHCHECK_WEIGHT_GOAL_KG must be a finite positive number")
         return value
+
+    @model_validator(mode="after")
+    def reject_unsafe_ui_binds(self) -> Self:
+        if self.ui_mode == "loopback":
+            if self.ui_host != "127.0.0.1":
+                raise ValueError("non-loopback UI requires explicit home-server mode")
+            return self
+        try:
+            address = IPv4Address(self.ui_host)
+        except ValueError:
+            raise ValueError("home-server requires an explicit RFC1918 or loopback IPv4") from None
+        allowed = address == IPv4Address("127.0.0.1") or any(
+            address in IPv4Network(network)
+            for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+        )
+        if not allowed or str(address) != self.ui_host:
+            raise ValueError("public, wildcard and special UI addresses are unsupported")
+        return self
 
     @model_validator(mode="after")
     def reject_unsafe_ingest_binds(self) -> Self:
