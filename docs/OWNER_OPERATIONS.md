@@ -668,6 +668,10 @@ family, query/contract and immutable successful acquisition linkage; it never
 certifies coverage. Cursor and successful observation/run advancement commit
 atomically. Corrupt/incompatible state fails closed rather than resetting history.
 
+The activation floor survives auth failure and invocations that omit the catch-up
+flag. Catch-up alone emits report v3; default-OFF and include-only retain their
+existing report contracts. Any remaining backlog makes the Steps status `partial`.
+
 At most seven distinct pending dates are attempted oldest-first per invocation,
 with unchanged per-date retries: at most 21 data POST attempts and seven startup
 refresh calls. Stop on the first unsuccessful date; show unattempted dates and a

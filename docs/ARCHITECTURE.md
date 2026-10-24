@@ -1522,6 +1522,11 @@ The retained originals are reverified before projection; old same-day conflicts
 remain eligible regardless of request windows or receipt time. Completed-day and
 read-only materialized-window contracts are unchanged.
 
+Ordinary `project_saved_summary` / `project_day` projection also shares one
+cooperative SQL budget across retained selection, observation enumeration and
+flush. A nested call does not reset that budget; failure rolls back the enclosing
+derivation savepoint, including proofs and Steps rows.
+
 The additive migration creates an empty proof table, not inferred legacy dates.
 Normal sync never bootstraps it automatically. More than 1,000 unproven legacy
 originals therefore still fail closed until an independently authorized saved-byte

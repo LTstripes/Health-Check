@@ -32,6 +32,7 @@
       "tests/test_garmin_training_owner_view.py",
       "tests/test_google_sync_backfill.py",
       "tests/test_google_steps_acquisition.py",
+      "tests/test_google_steps_refresh.py",
       "tests/test_sync_run_recovery.py"
     ],
     "core-sleep": [
