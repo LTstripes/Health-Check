@@ -7,6 +7,7 @@ import json
 import zipfile
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -23,6 +24,7 @@ from healthcheck.db.engine import migrate_database
 from healthcheck.profile_backup import create_backup, restore_profile
 from healthcheck.runtime import prepare_runtime
 from healthcheck.web import home_auth
+from healthcheck.web import labs as labs_web
 from healthcheck.web.home_auth import COOKIE, HomeAuth, HomeServerError
 from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
@@ -275,6 +277,22 @@ def test_authenticated_mutation_reaches_existing_handler_and_error_is_no_store(h
         error = client.get("/synthetic-error")
         assert error.status_code == 500
         assert "secret" not in error.text and error.headers["cache-control"] == "no-store"
+
+
+def test_original_pdf_keeps_its_sandbox_alongside_home_csp(home, monkeypatch):
+    app, _, _ = home
+    monkeypatch.setattr(labs_web, "service", lambda _: SimpleNamespace(
+        original=lambda _: b"%PDF-1.7\nsynthetic-original-only\n"
+    ))
+    with client_for(app) as client:
+        assert login(client).status_code == 303
+        response = client.get("/labs/synthetic-report/original")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.headers.get_list("content-security-policy") == [
+            "sandbox; default-src 'none'", home_auth.SECURITY_HEADERS["Content-Security-Policy"],
+        ]
+        assert response.headers["cache-control"] == "no-store"
 
 
 def test_verifier_must_be_external_and_backup_restores_without_access(home, tmp_path):

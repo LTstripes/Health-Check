@@ -289,7 +289,12 @@ async def home_guard(request: Request, call_next) -> Response:
         log_event("home_request_failed", operation="request", status="error",
                   reason=type(exc).__name__)
         response = _response("internal_error", 500)
-    response.headers.update(SECURITY_HEADERS)
+    # Enforce both policies: replacing a document's own CSP could remove its sandbox.
+    for name, value in SECURITY_HEADERS.items():
+        if name == "Content-Security-Policy":
+            response.headers.append(name, value)
+        else:
+            response.headers[name] = value
     return response
 
 
