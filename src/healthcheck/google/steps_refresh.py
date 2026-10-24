@@ -175,13 +175,22 @@ def activate_steps_refresh(settings: Settings, *, as_of: date) -> StepsRefreshPr
         raise StepsRefreshStateError()
     with _google_execution_resources(settings) as resources, resources.factory() as session:
         source = google_persistence_for(session).sources.get_or_create(IDENTITY)
-        state = session.scalar(
-            select(SyncStreamState).where(
-                SyncStreamState.provider_id == source.provider_id,
-                SyncStreamState.acquisition_source_id == source.acquisition_source_id,
-                SyncStreamState.stream_code == STEPS_REFRESH_STATE_CODE,
+        # This namespace belongs to one explicit Steps identity per profile.
+        # Filtering by today's source/provider would hide displaced state and
+        # silently abandon its activation floor/backlog. Inspect at most two
+        # candidates, reject ambiguity, then validate the exact binding below.
+        candidates = list(
+            session.scalars(
+                select(SyncStreamState)
+                .where(
+                    SyncStreamState.stream_code == STEPS_REFRESH_STATE_CODE,
+                )
+                .limit(2)
             )
         )
+        if len(candidates) > 1:
+            raise StepsRefreshStateError()
+        state = candidates[0] if candidates else None
         if state is None:
             floor = (as_of - timedelta(days=1)).isoformat()
             state = repositories_for(session).sync.get_or_create_state(

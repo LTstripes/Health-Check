@@ -17,6 +17,7 @@ from healthcheck.db.models import (
     SyncRun,
     SyncStreamState,
 )
+from healthcheck.db.repositories import repositories_for
 from healthcheck.google import steps, steps_refresh
 from healthcheck.google.auth import GoogleAuthResult, GoogleAuthStatus, GoogleHttpResponse
 from healthcheck.google.steps_refresh import (
@@ -586,3 +587,93 @@ def test_invalid_count_never_advances_acquisition_progress(monkeypatch, syntheti
     assert report["attempts"][0]["acquisition"]["status"] == "rejected"
     assert state(synthetic)["next_date"] == "2099-03-29"
     assert state(synthetic)["receipt"] is None
+
+
+@pytest.mark.parametrize("displacement", ["null", "acquisition", "provider", "ambiguous"])
+def test_displaced_namespace_cannot_reset_activation_or_backlog(
+    monkeypatch, synthetic, displacement
+):
+    activate_steps_refresh(synthetic, as_of=date(2099, 3, 30))
+    expected_rows = {}
+
+    def displace(session):
+        row = session.scalar(
+            select(SyncStreamState).where(SyncStreamState.stream_code == STEPS_REFRESH_STATE_CODE)
+        )
+        if displacement == "null":
+            row.acquisition_source_id = None
+        elif displacement == "acquisition":
+            row.acquisition_source_id = (
+                repositories_for(session)
+                .acquisition_sources.get_or_create(
+                    provider_id=row.provider_id,
+                    input_method="provider_api",
+                    source_application="synthetic-rebound",
+                    source_instance_id=uuid4(),
+                )
+                .id
+            )
+        elif displacement == "provider":
+            row.provider_id = (
+                repositories_for(session)
+                .providers.get_or_create(
+                    "synthetic-other",
+                    "Synthetic Other",
+                    "health_api",
+                )
+                .id
+            )
+        else:
+            session.add(
+                SyncStreamState(
+                    provider_id=row.provider_id,
+                    acquisition_source_id=None,
+                    stream_code=STEPS_REFRESH_STATE_CODE,
+                    cursor=row.cursor,
+                )
+            )
+        session.flush()
+        for candidate in session.scalars(
+            select(SyncStreamState).where(SyncStreamState.stream_code == STEPS_REFRESH_STATE_CODE)
+        ):
+            expected_rows[candidate.id] = candidate.cursor
+
+    mutate(synthetic, displace)
+    set_clock(monkeypatch, date(2099, 4, 9))
+
+    def forbidden_auth(*args, **kwargs):
+        floors = []
+
+        def read(session):
+            floors.extend(
+                json.loads(row.cursor)["activation_floor"]
+                for row in session.scalars(
+                    select(SyncStreamState).where(
+                        SyncStreamState.stream_code == STEPS_REFRESH_STATE_CODE
+                    )
+                )
+            )
+
+        mutate(synthetic, read)
+        pytest.fail("auth reached after incompatible state; floors=" + repr(floors))
+
+    monkeypatch.setattr(owner_refresh, "GarminAuthService", forbidden_auth)
+    monkeypatch.setattr(owner_refresh, "GoogleAuthService", forbidden_auth)
+    with pytest.raises(OwnerRefreshRuntimeError, match="steps_catchup_state_invalid"):
+        run(synthetic)
+
+    def unchanged(session):
+        actual = {
+            row.id: row.cursor
+            for row in session.scalars(
+                select(SyncStreamState).where(
+                    SyncStreamState.stream_code == STEPS_REFRESH_STATE_CODE
+                )
+            )
+        }
+        assert actual == expected_rows
+        assert all(
+            json.loads(cursor)["activation_floor"] == "2099-03-29" for cursor in actual.values()
+        )
+
+    mutate(synthetic, unchanged)
