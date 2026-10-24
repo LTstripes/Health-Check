@@ -586,7 +586,7 @@ def test_garmin_migration_downgrade_and_upgrade_are_linear(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0018_google_offline_steps"
+        == "0019_garmin_summary_date_proofs"
     )
 
     engine = create_sqlite_engine(paths)
@@ -614,7 +614,7 @@ def test_garmin_migration_downgrade_and_upgrade_are_linear(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0018_google_offline_steps"
+            == "0019_garmin_summary_date_proofs"
         )
         assert "garmin_sleep_stage_intervals" in inspect(engine).get_table_names()
     finally:

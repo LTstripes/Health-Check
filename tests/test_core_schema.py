@@ -64,6 +64,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
         "garmin_raw_payloads",
         "garmin_payload_observations",
         "garmin_daily_summary_acquisition_receipts",
+        "garmin_daily_summary_date_proofs",
         "garmin_source_records",
         "garmin_daily_records",
         "garmin_sleep_records",
@@ -111,7 +112,7 @@ def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_datab
     assert database_readiness(paths) == {
         "journal_mode": "wal",
         "foreign_keys": 1,
-        "migration_revision": "0018_google_offline_steps",
+        "migration_revision": "0019_garmin_summary_date_proofs",
         "ready": True,
     }
 
@@ -801,12 +802,12 @@ def test_linear_alembic_chain_canonical_then_photo(tmp_path):
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0018_google_offline_steps"
+        == "0019_garmin_summary_date_proofs"
     )
     command.upgrade(config, "head")
     assert (
         database_readiness(paths)["migration_revision"]
-        == "0018_google_offline_steps"
+        == "0019_garmin_summary_date_proofs"
     )
 
     engine = create_sqlite_engine(paths)
@@ -896,7 +897,7 @@ def test_existing_canonical_database_upgrades_to_photo_and_roundtrips(tmp_path):
         command.upgrade(config, "head")
         assert (
             database_readiness(paths)["migration_revision"]
-            == "0018_google_offline_steps"
+            == "0019_garmin_summary_date_proofs"
         )
     finally:
         engine.dispose()

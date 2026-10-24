@@ -22,6 +22,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import (
     CoverageInterval,
+    GarminDailySummaryDateProof,
     GarminPayloadObservation,
     GarminRawPayload,
     GarminRecordMetric,
@@ -2236,7 +2237,14 @@ def test_normal_steps_conflicts_include_old_acquisition_window_and_exact_source(
     ("artifacts", 999, True), ("artifacts", 1000, False),
     ("observations", 4095, True), ("observations", 4096, False),
 ])
-def test_normal_steps_exact_caps_rollback_before_projection(tmp_path, kind, seed_count, ok):
+def test_normal_steps_exact_caps_rollback_before_projection(
+    tmp_path, monkeypatch, kind, seed_count, ok
+):
+    from healthcheck.garmin import observed_steps as implementation
+
+    # Isolate the structural count boundary from filesystem/host speed. Real
+    # deadline failures remain separately tested; this claims no I/O capacity.
+    monkeypatch.setattr(implementation, "monotonic", lambda: 0.0)
     source_id = _seed_steps_history(tmp_path, **{kind: seed_count})
     report = _run(tmp_path, _steps_client())
     attempt = next(item for item in report.attempts if item.surface == "daily_summary")
@@ -2439,3 +2447,114 @@ def test_normal_steps_does_not_promote_adapted_date_alias(tmp_path):
     }))
     assert report.status is GarminSyncStatus.SUCCEEDED
     assert _steps_window(tmp_path).cells[0].state == "projection_unavailable"
+
+
+@pytest.mark.parametrize("days", [1, 14])
+def test_normal_steps_beyond_lifetime_artifact_cap_after_explicit_bounded_index(
+    tmp_path, monkeypatch, days
+):
+    source_id = _seed_steps_history(tmp_path, artifacts=1001)
+    engine, factory = _engine_factory(tmp_path)
+    read_paths = []
+    try:
+        paths = resolve_runtime_paths(Settings(data_dir=tmp_path / "runtime"))
+        store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+        with factory() as session:
+            persistence = GarminPersistenceRepository(session, payload_store=store)
+            # A proven returned target day must survive despite an old request window.
+            for identity, value in [
+                (garmin_source_identity(source_kind=PROVIDER_SOURCE_KIND), 7),
+                (garmin_source_identity(source_kind="synthetic"), 999),
+            ]:
+                payload = {"calendarDate": AS_OF.isoformat(), "totalSteps": value}
+                persistence.persist_result(
+                    normalize_garmin_payload(
+                        payload, stream="daily_health", source_identity=identity
+                    ),
+                    payload=payload, source_filename="daily_summary.json",
+                    source_window_start_utc=datetime(2089, 1, 1, tzinfo=UTC),
+                    source_window_end_utc=datetime(2089, 1, 2, tzinfo=UTC),
+                )
+            session.commit()
+            cursor, indexed, batches = None, 0, 0
+            while True:
+                repository = SavedDailyStepsRepository(session, payload_store=store)
+                batch = repository.index_saved_summary_dates(source_id, after_raw_id=cursor)
+                assert batch.examined_raws <= 64 and batch.inspected_observations <= 4096
+                assert batch.read_allowance_bytes <= 16 * 1024 * 1024 and not batch.unproven
+                session.commit()
+                cursor = batch.proposed_after_raw_id
+                indexed += batch.inserted_proofs
+                batches += 1
+                if batch.exhausted_after_cursor:
+                    break
+                assert batches < 20
+            assert indexed == 1002 and batches > 1
+            assert session.scalar(select(func.count(GarminSourceRecord.id)).where(
+                GarminSourceRecord.surface_code == METRIC_CODE
+            )) == 0
+            assert session.scalar(select(func.count(
+                GarminDailySummaryDateProof.raw_payload_id
+            ))) == 1002
+            session.commit()
+        original_read = ContentAddressedGarminPayloadStore.read
+        def counted_read(selected, path, **kwargs):
+            read_paths.append(path)
+            return original_read(selected, path, **kwargs)
+        monkeypatch.setattr(ContentAddressedGarminPayloadStore, "read", counted_read)
+        report = _run(
+            tmp_path, _steps_client(lambda day: {"calendarDate": day, "totalSteps": 9}),
+            trailing_window_days=days,
+        )
+        assert report.status is GarminSyncStatus.SUCCEEDED
+        cells = _steps_window(
+            tmp_path, start=AS_OF - timedelta(days=days - 1), source_id=source_id
+        ).cells
+        assert len(cells) == days and all(cell.value == 9 for cell in cells[:-1])
+        assert cells[-1].state == "ambiguous"
+        assert {item.value for item in cells[-1].evidence} == {7, 9}
+        assert all(item.projection_status == "current" for item in cells[-1].evidence)
+        # Only new originals and the one relevant old-day conflict are read.
+        assert len(read_paths) <= 2 * days + 1
+        with factory() as session:
+            state = session.scalar(select(SyncStreamState).where(
+                SyncStreamState.stream_code == "daily_summary"
+            ))
+            assert state.last_success_at is not None and state.cursor == AS_OF.isoformat()
+            assert session.scalar(select(func.count(GarminPayloadObservation.id)).where(
+                GarminPayloadObservation.garmin_source_id == source_id,
+                GarminPayloadObservation.source_filename == "daily_summary.json",
+            )) == 1002 + days
+    finally:
+        engine.dispose()
+
+
+def test_normal_steps_nested_projection_uses_one_physical_byte_budget(tmp_path, monkeypatch):
+    from healthcheck.garmin import observed_steps as implementation
+
+    payload = {"calendarDate": AS_OF.isoformat(), "totalSteps": 17}
+    # The acquisition callback reads the original before invoking project_day;
+    # resetting the budget at that nested call would incorrectly permit success.
+    monkeypatch.setattr(
+        implementation, "MAX_TOTAL_READ_BYTES", len(serialize_garmin_payload(payload)) + 1
+    )
+    report = _run(tmp_path, _steps_client(payload))
+    attempt = next(item for item in report.attempts if item.surface == "daily_summary")
+    assert attempt.status is GarminSyncStatus.FAILED
+    assert attempt.failure_stage == "steps_projection"
+    assert attempt.error.error_code == "saved_steps_projection_failed"
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            assert session.scalar(select(func.count(
+                GarminDailySummaryDateProof.raw_payload_id
+            ))) == 0
+            assert session.scalar(select(func.count(GarminPayloadObservation.id)).where(
+                GarminPayloadObservation.source_filename == "daily_summary.json"
+            )) == 0
+            state = session.scalar(select(SyncStreamState).where(
+                SyncStreamState.stream_code == "daily_summary"
+            ))
+            assert state.last_success_at is None and state.watermark is None
+    finally:
+        engine.dispose()
