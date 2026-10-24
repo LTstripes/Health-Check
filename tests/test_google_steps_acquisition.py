@@ -23,6 +23,7 @@ from healthcheck.db.models import (
     SyncRun,
     SyncStreamState,
 )
+from healthcheck.external_runtime_lock import EXTERNAL_RUNTIME_LOCK_FILENAME
 from healthcheck.google import auth, steps
 from healthcheck.google.auth import (
     DEFAULT_SCOPE_ORDER,
@@ -58,6 +59,13 @@ class Transport:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+def _existing_settings(path):
+    # Real cached grants already have profile ancestors. Fakes provide that parent
+    # explicitly so acquisition never has to bootstrap a profile to take its lock.
+    path.mkdir(parents=True, exist_ok=True)
+    return Settings(data_dir=path)
 
 
 def tokens(scopes=DEFAULT_SCOPE_ORDER):
@@ -199,11 +207,11 @@ def test_steps_apply_refreshes_one_snapshot_and_uses_fresh_access(tmp_path, omit
     svc._read_tokens = read_once
     data = Transport(response(payload()))
     report = acquire_steps(
-        Settings(data_dir=tmp_path / "synthetic-runtime"), plan(), auth_service=svc, transport=data
+        _existing_settings(tmp_path / "synthetic-runtime"), plan(), auth_service=svc, transport=data
     )
     assert report["status"] == "observed" and report["request_count"] == 1
     assert report["auth_refresh_attempted"] and report["auth_refresh_succeeded"]
-    assert report["auth_error"] is None and len(reads) == len(oauth.calls) == 1
+    assert report["auth_error"] is None and len(reads) == 2 and len(oauth.calls) == 1
     assert oauth.calls[0][0:2] == ("POST", auth.GOOGLE_TOKEN_ENDPOINT)
     assert oauth.calls[0][2]["form"]["grant_type"] == "refresh_token"
     assert data.calls[0][2]["headers"]["Authorization"] == "Bearer synthetic-new"
@@ -281,14 +289,15 @@ def test_steps_refresh_failure_preserves_session_and_blocks_data(tmp_path, monke
     monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
     data = Transport()
     report = acquire_steps(
-        Settings(data_dir=tmp_path / "none"), plan(), auth_service=svc, transport=data
+        _existing_settings(tmp_path / "none"), plan(), auth_service=svc, transport=data
     )
     assert report["reason"] == "steps_auth_failed" and report["request_count"] == 0
     assert report["auth_refresh_attempted"] and not report["auth_refresh_succeeded"]
     assert report["auth_error"] is not None and SECRET not in json.dumps(report)
     assert len(saved) == 1 and saved[0].as_storage_dict() == original
     assert len(oauth.calls) == (0 if failure == "missing_refresh" else 1)
-    assert not browser and not data.calls and not (tmp_path / "none").exists()
+    assert not browser and not data.calls
+    assert {p.name for p in (tmp_path / "none").iterdir()} == {EXTERNAL_RUNTIME_LOCK_FILENAME}
 
 
 def test_unexpected_cached_scope_stops_before_refresh(tmp_path):
@@ -344,7 +353,7 @@ def test_steps_rejection_after_startup_refresh_never_refreshes_or_reposts(
     data = Transport(GoogleHttpResponse(status, SECRET.encode()))
     monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
     report = acquire_steps(
-        Settings(data_dir=tmp_path / "none"), plan(), auth_service=svc, transport=data
+        _existing_settings(tmp_path / "none"), plan(), auth_service=svc, transport=data
     )
     assert report["reason"] == "provider_rejected" and report["http_status"] == status
     assert report["auth_refresh_succeeded"] and report["request_count"] == 1
@@ -508,7 +517,7 @@ def test_rejection_retry_budget_no_auth_recovery_or_runtime(tmp_path, monkeypatc
     waits = []
     monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
     report = acquire_steps(
-        Settings(data_dir=tmp_path / "none"),
+        _existing_settings(tmp_path / "none"),
         plan(),
         auth_service=granted(),
         transport=transport,
@@ -549,7 +558,7 @@ def test_rejected_boundary_or_bucket_response_stays_rejected_after_replay(tmp_pa
         }
     else:
         raw["rollupDataPoints"] *= 2
-    settings = Settings(data_dir=tmp_path / "synthetic-runtime")
+    settings = _existing_settings(tmp_path / "synthetic-runtime")
     report = acquire_steps(
         settings, plan(), auth_service=granted(), transport=Transport(response(raw))
     )
@@ -584,7 +593,7 @@ def test_rejected_boundary_or_bucket_response_stays_rejected_after_replay(tmp_pa
     ],
 )
 def test_acquisition_exact_readback_and_immutable_request_provenance(tmp_path, value, state):
-    settings = Settings(data_dir=tmp_path / "synthetic-runtime")
+    settings = _existing_settings(tmp_path / "synthetic-runtime")
     transport = Transport(response(payload(value)))
     report = acquire_steps(settings, plan(), auth_service=granted(), transport=transport)
     assert report["coverage"] == report["pagination"] == "unknown"
@@ -624,7 +633,7 @@ def test_acquired_replay_context_missing_or_malformed_fails_closed(bad):
 def test_response_oversize_never_persists(tmp_path, monkeypatch):
     monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
     report = acquire_steps(
-        Settings(data_dir=tmp_path / "none"),
+        _existing_settings(tmp_path / "none"),
         plan(),
         auth_service=granted(),
         transport=Transport(response(b"x" * (steps.MAX_RESPONSE_BYTES + 1))),
@@ -675,7 +684,7 @@ def test_retry_success_uses_same_request_and_still_has_unknown_coverage(tmp_path
         response({"rollupDataPoints": []}),
     )
     waits = []
-    settings = Settings(data_dir=tmp_path / "synthetic-runtime")
+    settings = _existing_settings(tmp_path / "synthetic-runtime")
     report = acquire_steps(
         settings, plan(), auth_service=granted(), transport=transport, sleeper=waits.append
     )
@@ -698,7 +707,7 @@ def test_transport_unavailability_is_bounded_and_sanitized(tmp_path, monkeypatch
     monkeypatch.setattr(steps, "_google_execution_resources", lambda *a: pytest.fail("runtime"))
     transport = Transport(*(OSError(SECRET) for _ in range(3)))
     report = acquire_steps(
-        Settings(data_dir=tmp_path / "none"),
+        _existing_settings(tmp_path / "none"),
         plan(),
         auth_service=granted(),
         transport=transport,
@@ -710,7 +719,7 @@ def test_transport_unavailability_is_bounded_and_sanitized(tmp_path, monkeypatch
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "malformed", "unknown_version"])
 def test_recognized_acquired_observation_cannot_replay_without_valid_context(tmp_path, mutation):
-    settings = Settings(data_dir=tmp_path / "synthetic-runtime")
+    settings = _existing_settings(tmp_path / "synthetic-runtime")
     raw = response(payload()).body
     result = normalize_acquired_steps(raw, context=plan().context(1))
     contexts = () if mutation == "missing" else (plan().context(1),)
@@ -743,7 +752,7 @@ def test_request_context_rejects_bool_and_float_integer_lookalikes(value):
 
 
 def test_later_acquired_correction_missing_and_stale_replay_preserve_history(tmp_path):
-    settings = Settings(data_dir=tmp_path / "synthetic-runtime")
+    settings = _existing_settings(tmp_path / "synthetic-runtime")
     start = datetime(2099, 4, 1, tzinfo=UTC)
     raws = [payload("9"), payload("2"), payload()]
     raws[-1]["rollupDataPoints"][0]["steps"] = {}
@@ -781,7 +790,7 @@ def test_later_acquired_correction_missing_and_stale_replay_preserve_history(tmp
 
 
 def test_equal_epoch_acquired_conflict_does_not_publish_a_count(tmp_path):
-    settings = Settings(data_dir=tmp_path / "synthetic-runtime")
+    settings = _existing_settings(tmp_path / "synthetic-runtime")
     for count in ["1", "2"]:
         acquire_steps(
             settings,

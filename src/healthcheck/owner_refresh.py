@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from time import monotonic_ns
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -36,6 +37,7 @@ from healthcheck.garmin.sync import (
 from healthcheck.garmin.training import TRAINING_CONTRACT_VERSION, GarminTrainingSync
 from healthcheck.google.auth import GoogleAuthService
 from healthcheck.google.contracts import GoogleQueryMode, GoogleStream
+from healthcheck.google.steps import StepsPlan, acquire_steps
 from healthcheck.google.sync import (
     PRODUCTION_SYNC_SURFACES,
     GoogleHrPhaseTiming,
@@ -60,6 +62,8 @@ from healthcheck.source_freshness_consumer import (
 )
 
 OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
+OWNER_REFRESH_STEPS_CONTRACT_VERSION = "healthcheck-owner-refresh-v2"
+OWNER_REFRESH_STEPS_SELECTION_ZONE = "Europe/Moscow"
 FRESHNESS_EVALUATION_FAILED_REASON = "freshness_evaluation_failed"
 
 # Fixed second Google layer required by R05 account_wearables_sleep_observations_v1.
@@ -151,8 +155,10 @@ class OwnerRefreshReport:
     freshness: dict[str, Any]
     timing: dict[str, Any] = field(default_factory=dict)
 
+    google_steps: dict[str, Any] | None = None
+
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "contract_version": OWNER_REFRESH_CONTRACT_VERSION,
             "operation": "owner-refresh",
             "refresh": {
@@ -177,6 +183,11 @@ class OwnerRefreshReport:
                 "string_encoded_numerics_logged_as_values": False,
             },
         }
+
+        if self.google_steps is not None:
+            result["contract_version"] = OWNER_REFRESH_STEPS_CONTRACT_VERSION
+            result["google_steps"] = self.google_steps
+        return result
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), ensure_ascii=True, indent=2, sort_keys=True) + "\n"
@@ -262,6 +273,18 @@ def _combined_status(
     if any(status in good for status in values):
         return OwnerRefreshStatus.PARTIAL
     return OwnerRefreshStatus.FAILED
+
+
+def _steps_operational_status(report: dict[str, Any]) -> str:
+    """Map acquisition evidence without treating generic access failures as consent."""
+    error = report.get("auth_error")
+    if (
+        isinstance(error, dict)
+        and error.get("error_class") == "authentication"
+        and error.get("error_code") in {"scope_required", "scope_unexpected", "invalid_grant"}
+    ):
+        return "reauth_required"
+    return {"observed": "succeeded", "rejected": "partial"}.get(report.get("status"), "failed")
 
 
 def _safe_garmin_training_report(report: dict[str, Any]) -> dict[str, Any]:
@@ -604,6 +627,7 @@ def run_owner_refresh(
     streams: list[str] | None = None,
     query_mode: str | None = None,
     data_source_family: str | None = None,
+    include_google_steps: bool = False,
 ) -> OwnerRefreshReport:
     """Run Garmin plus both Google refresh layers over one local-date window.
 
@@ -626,6 +650,17 @@ def run_owner_refresh(
     paths = require_established_runtime(settings)
     as_of_date = validate_sync_date(as_of)
     window_days = validate_trailing_window_days(trailing_window_days)
+    steps_as_of = None
+    steps_plan = None
+    if include_google_steps:
+        steps_as_of = (
+            as_of_date if as_of is not None
+            else datetime.now(ZoneInfo(OWNER_REFRESH_STEPS_SELECTION_ZONE)).date()
+        )
+        if steps_as_of == date.min:
+            raise ValueError("Steps previous civil date must be representable")
+        steps_plan = StepsPlan(steps_as_of - timedelta(days=1))
+    google_steps = None
     window_start, window_end = compute_sync_window(as_of_date, window_days)
 
     with OwnerRefreshLock(paths):
@@ -643,6 +678,12 @@ def run_owner_refresh(
             )
             if scope_key.startswith("google:")
         }
+        if include_google_steps and "steps" in disabled_google_streams:
+            raise OwnerRefreshPolicyError("collection_policy_conflict")
+        # Steps is an independent opt-in, never a normal Google sync surface.
+        disabled_google_streams.intersection_update(
+            surface.code for surface in PRODUCTION_SYNC_SURFACES
+        )
         if disabled_google_streams:
             if not streams:
                 # VALID OFF: the routine profile defaults exclude disabled streams.
@@ -714,6 +755,25 @@ def run_owner_refresh(
             google.status,
             google_wearables_sleep.status,
         )
+        if steps_plan is not None:
+            steps_started_ns = monotonic_ns()
+            steps_report = acquire_steps(
+                settings, steps_plan,
+                auth_service=GoogleAuthService(settings, include_steps=True),
+            )
+            steps_duration_ms = _elapsed_milliseconds(steps_started_ns)
+            steps_status = _steps_operational_status(steps_report)
+            google_steps = {
+                "as_of": steps_as_of.isoformat(),
+                "requested_date": steps_plan.day.isoformat(),
+                "selection_zone": OWNER_REFRESH_STEPS_SELECTION_ZONE,
+                "status": steps_status,
+                "acquisition": steps_report,
+            }
+            refresh_status = _combined_status(
+                garmin.status, garmin_training["status"], google.status,
+                google_wearables_sleep.status, steps_status,
+            )
         freshness_started_ns = monotonic_ns()
         try:
             freshness = read_consumer_freshness_projection_from_database(
@@ -740,6 +800,7 @@ def run_owner_refresh(
         google=google,
         google_wearables_sleep=google_wearables_sleep,
         freshness=freshness,
+        google_steps=google_steps,
         timing={
             "clock": "monotonic",
             "unit": "milliseconds",
@@ -754,6 +815,10 @@ def run_owner_refresh(
                     "duration_ms": google_wearables_sleep_duration_ms,
                     **_google_timing_counts(google_wearables_sleep),
                 },
+                **({"google_steps": {
+                    "duration_ms": steps_duration_ms,
+                    "request_count": steps_report["request_count"],
+                }} if google_steps is not None else {}),
                 "freshness_evaluation": {"duration_ms": freshness_duration_ms},
                 "owner_refresh_total": {
                     "duration_ms": _elapsed_milliseconds(owner_refresh_started_ns)

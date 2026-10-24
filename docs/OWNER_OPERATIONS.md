@@ -641,6 +641,24 @@ Under the established-runtime overlap lock the command runs:
 3. Normal Google refresh, using default production streams/list semantics unless optional CLI stream/query overrides select this layer.
 4. Fixed sleep-only Google refresh with `query_mode=reconcile` and `dataSourceFamily=google-wearables`, maintaining the R05 exploratory sleep layer.
 
+`owner-refresh --include-google-steps` explicitly adds one bounded Steps acquisition
+for the civil date before `--date`. Without `--date`, only Steps selects today's
+`Europe/Moscow` date as its basis; the existing normal seven-day window keeps its
+machine-local date. The fixed source is `google-wearables`, independent of normal
+`--stream`, query and family selection. `google:steps` collection policy OFF
+conflicts with this opt-in before provider work; without the flag, that policy key
+does not change normal stream selection. Steps stays outside production streams.
+The opt-in report uses `healthcheck-owner-refresh-v2`, with separate Steps basis,
+requested date, selection zone (not provider timezone), operational status and
+original sanitized acquisition report. Observed evidence means acquisition
+succeeded; coverage/pagination remain unknown and missing counts never become zero.
+Only classified scope/invalid-grant auth errors require reauth. The default flag-OFF
+calls, report v1 and normal stages remain unchanged. No history/catch-up or local
+scheduler/wrapper rollout is implied. Eligible Steps acquisitions hold the shared
+reentrant profile lock across grant reload/startup refresh, HTTP and persistence;
+missing-grant cached preflight creates no runtime. The existing request/size caps
+and immutable correction persistence apply.
+
 Normal Google stream selection does not turn off Garmin, Garmin Training or fixed wearables sleep. Overall success requires required substeps to converge as succeeded/empty under their contracts. Preserve partial/failed/reauth and actual freshness honestly.
 
 #395/PR #398 wires the accepted Garmin v1 Steps projector only after successful
