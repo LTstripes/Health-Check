@@ -1,5 +1,11 @@
 # Health-Check
 
+The UI defaults to loopback. An optional single-owner home-server mode uses the
+same dashboard with mandatory HTTPS and browser login; see
+[protected home dashboard setup](docs/OWNER_OPERATIONS.md#home-server-setup).
+Network exposure, certificate trust and real credential setup require separate
+Owner approval; no private data is migrated automatically.
+
 Personal health evidence from Garmin, Google and Xiaomi: preserved originals,
 source-specific observations and deterministic analytics with explicit provenance,
 coverage and uncertainty. Desktop A+ views and bounded evidence exports keep
