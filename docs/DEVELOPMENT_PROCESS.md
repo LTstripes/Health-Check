@@ -1395,4 +1395,3 @@ Required suites:
 - repository hygiene check for database/image/payload/secret patterns.
 
 Use generated/synthetic data only. A private owner UAT data directory may validate real screenshots and the live phone path, but its contents and output never enter Git or test artifacts.
-
