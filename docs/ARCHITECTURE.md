@@ -1469,11 +1469,13 @@ An absent leaf means only `field_absent_in_payload`, never no steps in history.
 Other fields, activity data, distance and nested envelopes cannot supply Steps.
 
 The service verifies immutable raw/artifact/observation links, byte size and
-SHA-256 before writing a typed record. It scans all eligible saved artifacts for
-that source, because acquisition-window filtering could hide a conflicting
-returned date. A configurable artifact bound (default 1,000) or per-artifact
-byte bound (default 1 MiB), unreadable bytes or inconsistent provenance fails
-closed before inserting any Steps records. Unsupported dates, malformed JSON,
+SHA-256 before writing a typed record. Relevant evidence includes every original
+with the requested strict returned day and every original whose day remains
+unproven. The raw-date proof below may exclude a different proved returned day;
+acquisition windows and mutable normalized dates cannot. Existing 1,000-original
+and 4,096-observation limits apply to these retained groups with cap+1 detection;
+the 1 MiB/original bound, unreadable bytes and inconsistent provenance still fail
+closed before inserting Steps records. Unsupported dates, malformed JSON,
 duplicate JSON keys and unsupported shapes are returned as explicit exclusions
 with saved observation references. They do not acquire a guessed date.
 
@@ -1484,8 +1486,9 @@ Their metric state and provenance persist in the existing Garmin daily-record
 tables, on a distinct `observed_daily_steps` surface so ordinary daily-summary
 reconciliation cannot replace or retire the evidence. Existing records are not
 updated on replay. Original raw payloads and acquisition observations remain
-unchanged. No schema change is needed. To avoid floating-point rounding, valid
-counts use the existing metric `value_text` slot as a canonical decimal integer;
+unchanged. The original v1 projection needed no schema addition; the later raw-date
+proof adds only interpretation metadata, without rewriting this history. To avoid
+floating-point rounding, valid counts use the existing metric `value_text` slot as a canonical decimal integer;
 the service returns a typed Python integer.
 
 One distinct valid count yields that observed value, even if repeated in different
@@ -1505,6 +1508,50 @@ separation, date-only precision, unsupported dates and shapes, fail-closed bound
 and artifact integrity, and ordinary reconciliation retaining Steps evidence.
 Google Steps, device fusion, correction selection, timezone conversion, statistics
 cards and Calories/Energy are outside this contract.
+
+<a id="garmin-steps--bounded-raw-date-proof"></a>
+### Bounded raw-date proof and explicit bootstrap (#523)
+
+The append-only proof is FK-bound to the immutable saved raw payload. It certifies
+only strict original JSON `calendarDate` after byte/hash/source/artifact and
+eligible observation validation. It is not acquisition success, coverage, Steps,
+correction authority or a replacement for original evidence. Missing, malformed,
+unreadable or incompatible evidence receives no invented date proof. An
+outside-day proof cannot hide a contradictory source/artifact observation link.
+The retained originals are reverified before projection; old same-day conflicts
+remain eligible regardless of request windows or receipt time. Completed-day and
+read-only materialized-window contracts are unchanged.
+
+Ordinary `project_saved_summary` / `project_day` projection also shares one
+cooperative SQL budget across retained selection, observation enumeration and
+flush. A nested call does not reset that budget; failure rolls back the enclosing
+derivation savepoint, including proofs and Steps rows.
+
+The additive migration creates an empty proof table, not inferred legacy dates.
+Normal sync never bootstraps it automatically. More than 1,000 unproven legacy
+originals therefore still fail closed until an independently authorized saved-byte
+bootstrap has committed enough strict proofs. Migration or deployment alone does
+not establish that the old source is repaired.
+
+`SavedDailyStepsRepository.index_saved_summary_dates` is an explicit bounded API
+on a fresh caller-owned writer session. Its default batch is 64 originals, with
+an allowed maximum of 1,000, up to 4,096 associated observations, 1 MiB/original
+and 16 MiB aggregate physical reads including sentinel bytes. One cooperative
+five-second/20-million-SQL-step budget covers candidate selection, associated
+observations and proof flushes. The guard owns its known callback, clears it in
+`finally` and restores `busy_timeout`; it cannot restore an arbitrary untracked
+SQLite callback. This bounds work cooperatively, not a hard file-I/O deadline.
+The guarded anti-join can still hit a lifetime metadata budget as history grows;
+there is no constant-work or unlimited-history promise.
+
+Malformed/unreadable/unproven rows remain unknown to the ordinary projector. A
+safe per-row result and operator cursor can advance past them without creating
+proof, so later rows do not starve. A cursor is reusable only after caller commit;
+fatal SQL/time/flush/interruption invalidates the entire batch and requires its
+input cursor after rollback. Suffix exhaustion describes that snapshot only. A
+new sweep from the beginning catches lower-ID arrivals and unresolved originals;
+cursor movement never removes unknown evidence from projection. No persistent
+cursor, CLI mode, registry, provider call or Steps/checkpoint write is added.
 
 <a id="garmin-steps--read-only-materialized-window"></a>
 ### Read-only materialized window

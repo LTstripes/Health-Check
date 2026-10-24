@@ -10,6 +10,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import (
     GarminDailyRecord,
+    GarminDailySummaryDateProof,
     GarminPayloadObservation,
     GarminRawPayload,
     GarminRecordMetric,
@@ -791,7 +792,8 @@ def test_projector_observation_cap_precedes_artifact_reads_and_writes(
     monkeypatch.setattr(store, "read", read)
     if count == 4096:
         assert project(session, store, saved.source.id).value == 0
-        assert reads == [1024 * 1024]
+        artifact = session.get(RawArtifact, saved.raw_payload.raw_artifact_id)
+        assert reads == [artifact.byte_size]
     else:
         with pytest.raises(SavedStepsEvidenceError, match="observation bound"):
             project(session, store, saved.source.id)
@@ -823,7 +825,7 @@ def test_corrupt_actual_file_cannot_bypass_byte_cap_with_small_metadata(
 
         def read(size=-1):
             read_sizes.append(size)
-            assert size == 1024 * 1024 + 1
+            assert size == artifact.byte_size + 1
             return handle.read(size)
 
         wrapper.read.side_effect = read
@@ -832,7 +834,7 @@ def test_corrupt_actual_file_cannot_bypass_byte_cap_with_small_metadata(
     monkeypatch.setattr(Path, "open", bounded_open)
     with pytest.raises(SavedStepsEvidenceError, match="unreadable"):
         project(session, store, saved.source.id)
-    assert read_sizes == [1024 * 1024 + 1]
+    assert read_sizes == [artifact.byte_size + 1]
     assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0
 
 
@@ -856,3 +858,324 @@ def test_saved_refresh_rejects_acquisition_source_mismatch(saved_database):
             "another-source", saved.observation.id, start_date=DAY, end_date=DAY
         )
     assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0
+
+
+@pytest.mark.parametrize("value", [0, 1001, True, 1.5])
+def test_saved_date_bootstrap_rejects_invalid_batch_before_reads(saved_database, value):
+    session, store = saved_database
+    with pytest.raises(ValueError):
+        SavedDailyStepsRepository(session, payload_store=store).index_saved_summary_dates(
+            "source", max_artifacts=value
+        )
+    assert not session.in_transaction()
+
+
+def test_saved_date_bootstrap_is_explicit_and_does_not_project_or_commit(saved_database):
+    from healthcheck.garmin.observed_steps import DATE_PROOF_VERSION
+
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 0})
+    source_id, raw_id = saved.source.id, saved.raw_payload.id
+    session.commit()
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    batch = repository.index_saved_summary_dates(source_id)
+    assert batch.input_after_raw_id is None and batch.proposed_after_raw_id == raw_id
+    assert batch.inserted_proofs == batch.examined_raws == batch.inspected_observations == 1
+    assert batch.exhausted_after_cursor and batch.stop_reason == "suffix_exhausted"
+    assert not batch.unproven
+    proof = session.get(GarminDailySummaryDateProof, raw_id)
+    assert (proof.contract_version, proof.original_calendar_date) == (DATE_PROOF_VERSION, DAY)
+    assert session.scalar(select(func.count(GarminSourceRecord.id))) == 0
+    session.rollback()
+    assert session.get(GarminDailySummaryDateProof, raw_id) is None
+    # A cursor from an uncommitted batch must not be used to skip this original.
+    repeated = repository.index_saved_summary_dates(source_id)
+    assert repeated.inserted_proofs == 1
+    session.commit()
+    assert repository.index_saved_summary_dates(source_id).examined_raws == 0
+
+
+def test_saved_date_bootstrap_advances_past_invalid_and_unreadable_without_proof(saved_database):
+    session, store = saved_database
+    bad_json = save(session, store, b"{synthetic-malformed")
+    unsupported = save(session, store, {"date": DAY.isoformat(), "totalSteps": 4})
+    unreadable = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 5})
+    good = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 7})
+    artifact = session.get(RawArtifact, unreadable.raw_payload.raw_artifact_id)
+    missing_path = store._resolve(artifact.relative_storage_path)
+    original = missing_path.read_bytes()
+    missing_path.unlink()
+    source_id = good.source.id
+    unknown_ids = {item.raw_payload.id for item in (bad_json, unsupported, unreadable)}
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    cursor, encountered = None, set()
+    for _ in range(4):
+        batch = repository.index_saved_summary_dates(
+            source_id, after_raw_id=cursor, max_artifacts=1
+        )
+        encountered.update(item.raw_payload_id for item in batch.unproven)
+        session.commit()
+        assert batch.proposed_after_raw_id != cursor
+        cursor = batch.proposed_after_raw_id
+    assert encountered == unknown_ids
+    assert session.scalar(select(func.count(GarminDailySummaryDateProof.raw_payload_id))) == 1
+    assert repository.index_saved_summary_dates(source_id, after_raw_id=cursor).examined_raws == 0
+    # An exhausted suffix does not certify the unknown rows or remove them from projection.
+    with pytest.raises(SavedStepsEvidenceError, match="unreadable"):
+        project(session, store, source_id)
+    missing_path.write_bytes(original)
+    result = project(session, store, source_id)
+    assert result.state == "ambiguous" and {item.value for item in result.evidence} == {5, 7}
+    assert {item.raw_payload_id for item in result.excluded_artifacts} == {
+        bad_json.raw_payload.id, unsupported.raw_payload.id,
+    }
+
+
+def test_saved_date_bootstrap_does_not_starve_after_oversized_observation_group(saved_database):
+    session, store = saved_database
+    entries = [save(session, store, {"calendarDate": DAY.isoformat(), "extra": i})
+               for i in range(2)]
+    entries.sort(key=lambda item: item.raw_payload.id)
+    duplicate_provenance(session, entries[0], 4097)
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    first = repository.index_saved_summary_dates(entries[0].source.id)
+    assert first.examined_raws == 1 and first.inspected_observations == 4097
+    assert first.inserted_proofs == 0 and first.unproven[0].reason == "observation_bound"
+    assert first.proposed_after_raw_id == entries[0].raw_payload.id
+    session.commit()
+    second = repository.index_saved_summary_dates(
+        entries[0].source.id, after_raw_id=first.proposed_after_raw_id
+    )
+    assert second.inserted_proofs == 1 and second.exhausted_after_cursor
+    session.commit()
+    with pytest.raises(SavedStepsEvidenceError, match="observation bound"):
+        project(session, store, entries[0].source.id)
+
+
+def test_saved_date_bootstrap_total_physical_allowance_stops_before_next_read(
+    saved_database, monkeypatch
+):
+    from healthcheck.garmin import observed_steps as implementation
+
+    session, store = saved_database
+    entries = [save(session, store, {"calendarDate": DAY.isoformat(), "extra": i})
+               for i in range(2)]
+    entries.sort(key=lambda item: item.raw_payload.id)
+    artifact = session.get(RawArtifact, entries[0].raw_payload.raw_artifact_id)
+    allowance = artifact.byte_size + 1
+    monkeypatch.setattr(implementation, "MAX_TOTAL_READ_BYTES", allowance)
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    batch = repository.index_saved_summary_dates(entries[0].source.id)
+    assert batch.read_allowance_bytes == allowance and batch.inserted_proofs == 1
+    assert batch.stop_reason == "byte_batch_bound" and not batch.exhausted_after_cursor
+    assert batch.proposed_after_raw_id == entries[0].raw_payload.id
+    session.commit()
+    next_batch = repository.index_saved_summary_dates(
+        entries[0].source.id, after_raw_id=batch.proposed_after_raw_id
+    )
+    assert next_batch.inserted_proofs == 1
+
+
+@pytest.mark.parametrize("failure", ["interrupt", "flush", "deadline"])
+def test_saved_date_bootstrap_fatal_failure_rolls_back_batch_and_reuses_input(
+    saved_database, monkeypatch, failure
+):
+    from healthcheck.garmin import observed_steps as implementation
+
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 7})
+    source_id, raw_id = saved.source.id, saved.raw_payload.id
+    session.commit()
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    original_read, original_flush = store.read, session.flush
+    with monkeypatch.context() as patch:
+        if failure == "interrupt":
+            def interrupted(*_args, **_kwargs):
+                raise KeyboardInterrupt("synthetic interruption")
+            patch.setattr(store, "read", interrupted)
+            expected = KeyboardInterrupt
+        elif failure == "flush":
+            def failed_flush(*_args, **_kwargs):
+                original_flush()
+                raise RuntimeError("synthetic post-flush failure")
+            patch.setattr(session, "flush", failed_flush)
+            expected = RuntimeError
+        else:
+            def expired(*args, **kwargs):
+                result = original_read(*args, **kwargs)
+                repository._active_budget.deadline = 0
+                return result
+            patch.setattr(store, "read", expired)
+            expected = implementation.SavedStepsBudgetError
+        with pytest.raises(expected):
+            repository.index_saved_summary_dates(source_id)
+    assert not session.in_transaction()
+    assert session.get(GarminDailySummaryDateProof, raw_id) is None
+    assert repository.index_saved_summary_dates(source_id).inserted_proofs == 1
+
+
+@pytest.mark.parametrize("surface", ["candidates", "observations"])
+def test_saved_steps_sql_budget_covers_both_metadata_enumerations_and_restores_connection(
+    saved_database, monkeypatch, surface
+):
+    from healthcheck.garmin import observed_steps as implementation
+
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 7})
+    duplicate_provenance(session, saved, 512)
+    source_id, raw_id = saved.source.id, saved.raw_payload.id
+    session.commit()
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    driver = session.connection().connection.driver_connection
+    original_timeout = driver.execute("PRAGMA busy_timeout").fetchone()[0]
+    reads = []
+    monkeypatch.setattr(store, "read", lambda *_args, **_kwargs: reads.append(True))
+    monkeypatch.setattr(implementation, "MAX_SQL_STEPS", 1000)
+    if surface == "observations":
+        from sqlalchemy import literal
+        monkeypatch.setattr(repository, "_raw_candidates", lambda *_args, **_kwargs: select(
+            literal(raw_id)
+        ))
+    with pytest.raises(implementation.SavedStepsBudgetError, match="SQL work bound"):
+        repository.project_day(source_id, DAY)
+    assert not reads
+    assert driver.execute("PRAGMA busy_timeout").fetchone()[0] == original_timeout
+    # This statement would be interrupted if the expired callback leaked.
+    assert driver.execute(
+        "WITH RECURSIVE x(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM x WHERE n<2000) "
+        "SELECT sum(n) FROM x"
+    ).fetchone()[0] == 2001000
+    session.rollback()
+    assert session.scalar(select(func.count(GarminDailySummaryDateProof.raw_payload_id))) == 0
+
+
+def test_saved_date_proof_never_hides_bad_observation_artifact_link(saved_database):
+    from healthcheck.garmin.observed_steps import DATE_PROOF_VERSION
+
+    session, store = saved_database
+    old = save(session, store, {"calendarDate": "2090-01-01", "totalSteps": 3})
+    other = save(session, store, {"calendarDate": "2090-01-02", "totalSteps": 4})
+    SavedDailyStepsRepository(session, payload_store=store).index_saved_summary_dates(old.source.id)
+    session.commit()
+    fields = {column.name: getattr(old.observation, column.name)
+              for column in GarminPayloadObservation.__table__.columns}
+    session.execute(insert(GarminPayloadObservation).values(**(fields | {
+        "id": "523-contradictory-observation", "observation_key": "523" * 22,
+        "raw_artifact_id": other.raw_payload.raw_artifact_id,
+    })))
+    proof = session.get(GarminDailySummaryDateProof, old.raw_payload.id)
+    assert proof.contract_version == DATE_PROOF_VERSION
+    with pytest.raises(SavedStepsEvidenceError, match="provenance mismatch"):
+        project(session, store, old.source.id)
+    assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0
+
+
+def test_unknown_date_proof_version_is_retained_and_fails_closed(saved_database):
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": "2090-01-01", "totalSteps": 3})
+    session.add(GarminDailySummaryDateProof(
+        raw_payload_id=saved.raw_payload.id, contract_version="unrecognized",
+        original_calendar_date=date(2090, 1, 1),
+    ))
+    session.flush()
+    with pytest.raises(SavedStepsEvidenceError, match="date proof mismatch"):
+        project(session, store, saved.source.id)
+
+
+def test_saved_date_index_migration_is_empty_and_preserves_legacy(tmp_path):
+    from alembic import command
+    from sqlalchemy import inspect
+
+    from healthcheck.db.engine import _alembic_config
+
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "synthetic-migration-runtime"))
+    config = _alembic_config(paths)
+    command.upgrade(config, "0018_google_offline_steps")
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 9})
+            identity = saved.raw_payload.id, saved.observation.id, saved.raw_payload.content_hash
+            session.commit()
+        command.upgrade(config, "head")
+        with create_session_factory(engine)() as session:
+            assert session.scalar(select(func.count(
+                GarminDailySummaryDateProof.raw_payload_id
+            ))) == 0
+            assert session.get(GarminRawPayload, identity[0]).content_hash == identity[2]
+            assert session.get(GarminPayloadObservation, identity[1]) is not None
+        foreign = inspect(engine).get_foreign_keys(GarminDailySummaryDateProof.__tablename__)
+        assert len(foreign) == 1 and foreign[0]["referred_table"] == "garmin_raw_payloads"
+        assert foreign[0]["options"]["ondelete"] == "RESTRICT"
+        with engine.connect() as connection:
+            assert not list(connection.exec_driver_sql("PRAGMA foreign_key_check"))
+        command.downgrade(config, "0018_google_offline_steps")
+        assert GarminDailySummaryDateProof.__tablename__ not in inspect(engine).get_table_names()
+        command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("action", ["update", "delete", "duplicate", "foreign", "date", "version"])
+def test_saved_date_proof_schema_rejects_mutation_and_invalid_values(saved_database, action):
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    from healthcheck.garmin.observed_steps import DATE_PROOF_VERSION
+
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 7})
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    repository.index_saved_summary_dates(saved.source.id)
+    session.commit()
+    second = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 9})
+    table = GarminDailySummaryDateProof.__tablename__
+    with pytest.raises(IntegrityError), session.begin_nested():
+        if action == "update":
+            session.execute(text(f"UPDATE {table} SET contract_version='changed'"))
+        elif action == "delete":
+            session.execute(text(f"DELETE FROM {table}"))
+        else:
+            raw_id = saved.raw_payload.id if action == "duplicate" else "missing-raw"
+            if action in {"date", "version"}:
+                # The raw exists, so these fail their own CHECK rather than just FK.
+                raw_id = second.raw_payload.id
+            session.execute(text(
+                f"INSERT INTO {table}(raw_payload_id,contract_version,original_calendar_date) "
+                "VALUES (:raw,:version,:day)"
+            ), {"raw": raw_id, "version": "" if action == "version" else DATE_PROOF_VERSION,
+                "day": "2099-02-31" if action == "date" else DAY.isoformat()})
+
+
+
+def test_final_saved_steps_budget_failure_rolls_back_proof_and_projection_savepoint(
+    saved_database, monkeypatch
+):
+    from healthcheck.garmin.observed_steps import SavedStepsBudgetError
+
+    session, store = saved_database
+    saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 7})
+    source_id, raw_id, observation_id = (
+        saved.source.id, saved.raw_payload.id, saved.observation.id
+    )
+    session.commit()
+    repository = SavedDailyStepsRepository(session, payload_store=store)
+    original_upsert = repository.records.upsert
+
+    def upsert_then_expire(**kwargs):
+        result = original_upsert(**kwargs)
+        repository._active_budget.deadline = 0
+        return result
+
+    monkeypatch.setattr(repository.records, "upsert", upsert_then_expire)
+    with pytest.raises(SavedStepsBudgetError, match="work bound"):
+        repository.project_day(source_id, DAY)
+    # Even a caller that catches the service error and commits cannot publish
+    # derived rows from the failed operation. Pre-existing raw evidence survives.
+    session.commit()
+    assert session.get(GarminDailySummaryDateProof, raw_id) is None
+    assert session.scalar(select(func.count(GarminRecordMetric.id))) == 0
+    assert session.scalar(select(func.count(GarminSourceRecord.id))) == 0
+    assert session.get(GarminRawPayload, raw_id) is not None
+    assert session.get(GarminPayloadObservation, observation_id) is not None

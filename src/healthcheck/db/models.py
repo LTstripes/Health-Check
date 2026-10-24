@@ -654,6 +654,31 @@ class GarminDailySummaryAcquisitionReceipt(Base):
     original_calendar_date: Mapped[date] = mapped_column(Date, nullable=False)
 
 
+class GarminDailySummaryDateProof(Base):
+    """Strict returned day verified from immutable saved bytes, not fetch success."""
+
+    __tablename__ = "garmin_daily_summary_date_proofs"
+    __table_args__ = (
+        CheckConstraint("length(contract_version) > 0", name="version_nonempty"),
+        CheckConstraint(
+            "length(original_calendar_date) = 10 "
+            "AND original_calendar_date >= '0001-01-01' "
+            "AND original_calendar_date <= '9999-12-31' "
+            "AND date(original_calendar_date, '+0 days') IS NOT NULL "
+            "AND date(original_calendar_date, '+0 days') = original_calendar_date",
+            name="strict_calendar_date",
+        ),
+    )
+
+    raw_payload_id: Mapped[str] = mapped_column(
+        String(ID_LENGTH),
+        ForeignKey("garmin_raw_payloads.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    contract_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    original_calendar_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+
 class GarminSourceRecord(Base):
     """Current typed projection of one stable Garmin source-record identity."""
 

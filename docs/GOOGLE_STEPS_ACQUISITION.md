@@ -160,3 +160,52 @@ background collection or fallback source is implied. Explicit apply performs
 the bounded startup refresh above; no live action is authorized by these examples.
 Successful observed evidence still has unknown coverage and pagination;
 #392 remains OPEN pending real UAT.
+
+## Bounded owner-refresh catch-up (#524)
+
+`owner-refresh --include-google-steps --google-steps-catchup` opts into bounded
+missed-day recovery within the existing owner refresh/profile lock. The existing
+include-only previous-day mode and default-OFF calls/reports remain unchanged.
+Catch-up rejects `--date`; it uses the current Europe/Moscow civil date as a
+selection basis, without claiming that zone is the provider's timezone.
+
+After collection-policy validation and before any provider/auth work, first
+activation commits yesterday as the activation floor and the adapter's explicit
+`google-wearables` family-aggregate identity. Stored values, old acquisitions and
+consent do not choose a source, move the floor or seed progress. An unavailable
+grant or later interruption retains this activation. Policy OFF conflicts before
+auth/network or activation. Omitting the flag does not erase prior progress.
+
+Select at most seven distinct pending civil dates, oldest first, through yesterday.
+Each reuses the exact one-day acquisition above: at most three data attempts and
+one existing startup OAuth refresh. Therefore one catch-up invocation adds at most
+21 data attempts plus seven startup refresh requests (28 Steps HTTP requests).
+Other streams retain their budgets. No pagination, broader scope or new job is
+introduced. On the first unsuccessful date, stop and report later selected dates
+as not run. Preserve the existing per-date retry policy. Larger gaps remain pending
+for later invocations; recent dates can remain unavailable until the older backlog
+has been handled. A batch that reaches yesterday requests it only once. An invocation
+that starts caught up reacquires yesterday once for ordinary corrections; older
+successful dates are not automatically rescanned for later corrections.
+
+One small versioned record in existing `sync_stream_state.cursor`, under its own
+Steps namespace, holds the immutable activation floor, next pending date, explicit
+source/family/query/contracts and latest successful observation/run receipt. It is
+acquisition progress, never coverage, UTC watermark or provider finality. Progress
+advances in the same transaction as the exact request-context observation and its
+succeeded acquisition run. Valid empty/missing/null results count as successfully
+handled acquisition, retaining their actual states; none becomes zero. Rejected,
+partial, failed or unavailable acquisitions do not advance. Before commit/resume,
+validate the exact day, observation, succeeded run and fixed source/family/query/
+contracts. Corrupt/mismatched/unavailable state fails closed without a new floor,
+source choice or inferred skip. Interruption before commit leaves the date pending;
+after commit, the durable receipt/cursor resumes at the next date.
+
+Catch-up uses `healthcheck-owner-refresh-v3`, with separate per-date original
+acquisition results/status, requested dates, activation floor, bounded request
+counts and remaining pending count/range. Pending backlog prevents Steps success,
+even when all attempted dates succeeded. A stopped batch preserves the actual
+failure/reauth status and marks later selected dates not run. Internal receipt IDs
+are not emitted. Full coverage/pagination/provider timezone/finality remain unknown.
+This implementation authorizes no real collection, OAuth changes, Stable rollout,
+wrapper/schedule changes or historical backfill #522.

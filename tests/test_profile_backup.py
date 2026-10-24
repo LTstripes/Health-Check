@@ -611,3 +611,55 @@ def test_large_sparse_profile_above_one_gib_backup_verify_restore(
         assert restored_db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     finally:
         restored_db.close()
+
+
+
+def test_saved_summary_date_proof_backup_restore_preserves_raw_and_append_only_guards(
+    external_tmp_path: Path,
+) -> None:
+    from sqlalchemy import func, select, text
+    from sqlalchemy.exc import IntegrityError
+
+    from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+    from healthcheck.db.models import GarminDailySummaryDateProof, GarminPayloadObservation
+    from healthcheck.garmin.observed_steps import SavedDailyStepsRepository
+    from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+    from test_garmin_observed_steps import DAY, save
+
+    paths = prepare_runtime(Settings(data_dir=external_tmp_path / "source"))
+    migrate_database(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with create_session_factory(engine)() as session:
+            store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            saved = save(session, store, {"calendarDate": DAY.isoformat(), "totalSteps": 7})
+            raw_id, source_id = saved.raw_payload.id, saved.source.id
+            observation_id = saved.observation.id
+            repository = SavedDailyStepsRepository(session, payload_store=store)
+            batch = repository.index_saved_summary_dates(source_id)
+            assert batch.inserted_proofs == 1
+            session.commit()
+    finally:
+        engine.dispose()
+    archive = external_tmp_path / "saved-date-profile.zip"
+    create_backup(paths.root, archive)
+    assert verify_backup(archive).migration_revision == "0019_garmin_summary_date_proofs"
+    target = external_tmp_path / "restored"
+    restore_profile(archive, target)
+    restored_paths = prepare_runtime(Settings(data_dir=target))
+    restored_engine = create_sqlite_engine(restored_paths)
+    try:
+        with create_session_factory(restored_engine)() as session:
+            proof = session.get(GarminDailySummaryDateProof, raw_id)
+            assert proof.original_calendar_date == DAY
+            assert session.scalar(select(func.count(GarminPayloadObservation.id))) == 1
+            assert session.get(GarminPayloadObservation, observation_id) is not None
+            store = ContentAddressedGarminPayloadStore(target / "artifacts")
+            repository = SavedDailyStepsRepository(session, payload_store=store)
+            result = repository.project_day(source_id, DAY)
+            assert result.state == "value" and result.value == 7
+            assert result.evidence[0].raw_payload_id == raw_id
+            with pytest.raises(IntegrityError), session.begin_nested():
+                session.execute(text("DELETE FROM garmin_daily_summary_date_proofs"))
+    finally:
+        restored_engine.dispose()

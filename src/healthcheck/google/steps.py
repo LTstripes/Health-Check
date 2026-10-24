@@ -8,6 +8,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -40,6 +41,9 @@ from healthcheck.google.normalization import (
 from healthcheck.google.persistence import google_persistence_for
 from healthcheck.google.sync import _google_execution_resources
 from healthcheck.runtime import resolve_runtime_paths
+
+if TYPE_CHECKING:
+    from healthcheck.google.steps_refresh import StepsRefreshProgress
 
 ACQUISITION_CONTRACT = "google-steps-acquisition-v1"
 ACQUISITION_NORMALIZATION = "google-steps-acquisition-normalization-v1"
@@ -224,6 +228,7 @@ def acquire_steps(
     transport: GoogleHttpTransport | None = None,
     sleeper=time.sleep,
     clock=lambda: datetime.now(UTC),
+    refresh_progress: StepsRefreshProgress | None = None,
 ) -> dict:
     """Explicit apply: cached grant preflight, one startup refresh, bounded data POST."""
     # Validate direct callers too, before accessing credentials.
@@ -241,12 +246,12 @@ def acquire_steps(
     with ExternalRuntimeOperationLock(paths):
         return _acquire_steps_locked(
             settings, plan, auth_service=auth_service, transport=transport,
-            sleeper=sleeper, clock=clock,
+            sleeper=sleeper, clock=clock, refresh_progress=refresh_progress,
         )
 
 
 def _acquire_steps_locked(
-    settings, plan, *, auth_service, transport, sleeper, clock,
+    settings, plan, *, auth_service, transport, sleeper, clock, refresh_progress=None,
 ) -> dict:
     # Reload the grant under the shared profile lock before any mutable auth/HTTP.
     token, auth = auth_service.load_steps_access_token(refresh_if_needed=True)
@@ -324,6 +329,13 @@ def _acquire_steps_locked(
                 accepted_count=len(outcome.records),
                 diagnostic_reason="observed_only_coverage_unknown",
             )
+            if refresh_progress is not None and not invalid:
+                from healthcheck.google.steps_refresh import advance_steps_refresh
+
+                advance_steps_refresh(
+                    session, refresh_progress, plan=plan, source=outcome.source,
+                    observation=outcome.observation, run=run,
+                )
             session.commit()
     except (OSError, ValueError, SQLAlchemyError):
         return report("failed", "persistence_failed", count)

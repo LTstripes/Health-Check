@@ -38,6 +38,12 @@ from healthcheck.garmin.training import TRAINING_CONTRACT_VERSION, GarminTrainin
 from healthcheck.google.auth import GoogleAuthService
 from healthcheck.google.contracts import GoogleQueryMode, GoogleStream
 from healthcheck.google.steps import StepsPlan, acquire_steps
+from healthcheck.google.steps_refresh import (
+    MAX_REFRESH_DATES,
+    STEPS_REFRESH_CONTRACT,
+    StepsRefreshProgress,
+    activate_steps_refresh,
+)
 from healthcheck.google.sync import (
     PRODUCTION_SYNC_SURFACES,
     GoogleHrPhaseTiming,
@@ -63,6 +69,7 @@ from healthcheck.source_freshness_consumer import (
 
 OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
 OWNER_REFRESH_STEPS_CONTRACT_VERSION = "healthcheck-owner-refresh-v2"
+OWNER_REFRESH_STEPS_CATCHUP_CONTRACT_VERSION = "healthcheck-owner-refresh-v3"
 OWNER_REFRESH_STEPS_SELECTION_ZONE = "Europe/Moscow"
 FRESHNESS_EVALUATION_FAILED_REASON = "freshness_evaluation_failed"
 
@@ -185,7 +192,11 @@ class OwnerRefreshReport:
         }
 
         if self.google_steps is not None:
-            result["contract_version"] = OWNER_REFRESH_STEPS_CONTRACT_VERSION
+            result["contract_version"] = (
+                OWNER_REFRESH_STEPS_CATCHUP_CONTRACT_VERSION
+                if self.google_steps.get("mode") == "catchup"
+                else OWNER_REFRESH_STEPS_CONTRACT_VERSION
+            )
             result["google_steps"] = self.google_steps
         return result
 
@@ -285,6 +296,64 @@ def _steps_operational_status(report: dict[str, Any]) -> str:
     ):
         return "reauth_required"
     return {"observed": "succeeded", "rejected": "partial"}.get(report.get("status"), "failed")
+
+
+def _run_steps_catchup(
+    settings: Settings, progress: StepsRefreshProgress, *, as_of: date,
+) -> dict[str, Any]:
+    """Run an oldest-first finite acquisition batch; never claim coverage."""
+    selected = progress.dates(as_of)
+    attempts: list[dict[str, Any]] = []
+    auth = GoogleAuthService(settings, include_steps=True)
+    request_count = refresh_count = 0
+    stop_status = None
+    progress_unavailable = False
+    for day in selected:
+        if stop_status is not None:
+            attempts.append({"requested_date": day.isoformat(), "status": "not_run",
+                             "reason": "earlier_date_unsuccessful"})
+            continue
+        acquisition = acquire_steps(
+            settings, StepsPlan(day), auth_service=auth, refresh_progress=progress,
+        )
+        request_count += acquisition["request_count"]
+        refresh_count += int(acquisition.get("auth_refresh_attempted", False))
+        status = _steps_operational_status(acquisition)
+        attempt = {"requested_date": day.isoformat(), "status": status,
+                   "acquisition": acquisition}
+        attempts.append(attempt)
+        if status == "succeeded":
+            try:
+                progress = activate_steps_refresh(settings, as_of=as_of)
+            except (OSError, SQLAlchemyError, ValueError):
+                # A successful acquisition with an unreadable receipt is not a
+                # license to guess a cursor or continue to another date.
+                status = "failed"
+                attempt.update(status=status, reason="steps_catchup_progress_unavailable")
+                progress_unavailable = True
+        if status != "succeeded":
+            stop_status = status
+    pending = None if progress_unavailable else max(0, (as_of - progress.next_date).days)
+    status = stop_status or ("partial" if pending else "succeeded")
+    return {
+        "contract_version": STEPS_REFRESH_CONTRACT, "mode": "catchup",
+        "as_of": as_of.isoformat(), "selection_zone": OWNER_REFRESH_STEPS_SELECTION_ZONE,
+        "activation_floor": progress.activation_floor.isoformat(),
+        "selected_dates": [day.isoformat() for day in selected],
+        "status": status, "attempts": attempts,
+        "request_count": request_count, "startup_refresh_count": refresh_count,
+        "attempted_date_count": sum(item["status"] != "not_run" for item in attempts),
+        "next_pending_date": (
+            progress.next_date.isoformat() if pending else None
+        ),
+        "pending_date_count": pending,
+        "pending_end": (as_of - timedelta(days=1)).isoformat() if pending else None,
+        "progress_available": not progress_unavailable,
+        "coverage": "unknown", "pagination": "unknown", "finality": "unknown",
+        "source_family": "google-wearables",
+        "limits": {"max_dates": MAX_REFRESH_DATES, "max_data_requests": 21,
+                   "max_startup_refreshes": 7, "max_steps_http_requests": 28},
+    }
 
 
 def _safe_garmin_training_report(report: dict[str, Any]) -> dict[str, Any]:
@@ -628,6 +697,7 @@ def run_owner_refresh(
     query_mode: str | None = None,
     data_source_family: str | None = None,
     include_google_steps: bool = False,
+    google_steps_catchup: bool = False,
 ) -> OwnerRefreshReport:
     """Run Garmin plus both Google refresh layers over one local-date window.
 
@@ -646,6 +716,8 @@ def run_owner_refresh(
     validated Garmin window and retain their own refresh/checkpoint semantics.
     """
 
+    if google_steps_catchup and (not include_google_steps or as_of is not None):
+        raise ValueError("Steps catch-up requires include Steps and the current Moscow date")
     owner_refresh_started_ns = monotonic_ns()
     paths = require_established_runtime(settings)
     as_of_date = validate_sync_date(as_of)
@@ -661,6 +733,7 @@ def run_owner_refresh(
             raise ValueError("Steps previous civil date must be representable")
         steps_plan = StepsPlan(steps_as_of - timedelta(days=1))
     google_steps = None
+    steps_progress = None
     window_start, window_end = compute_sync_window(as_of_date, window_days)
 
     with OwnerRefreshLock(paths):
@@ -697,6 +770,13 @@ def run_owner_refresh(
                 for item in parse_google_streams(streams)
             ):
                 raise OwnerRefreshPolicyError("collection_policy_conflict")
+
+        if google_steps_catchup:
+            try:
+                # Persist activation before ANY Garmin/Google auth/provider work.
+                steps_progress = activate_steps_refresh(settings, as_of=steps_as_of)
+            except (OSError, SQLAlchemyError, ValueError) as exc:
+                raise OwnerRefreshRuntimeError("steps_catchup_state_invalid") from exc
 
         garmin_started_ns = monotonic_ns()
         garmin_auth = GarminAuthService(settings, is_cn=is_cn)
@@ -757,19 +837,25 @@ def run_owner_refresh(
         )
         if steps_plan is not None:
             steps_started_ns = monotonic_ns()
-            steps_report = acquire_steps(
-                settings, steps_plan,
-                auth_service=GoogleAuthService(settings, include_steps=True),
-            )
+            if steps_progress is not None:
+                google_steps = _run_steps_catchup(settings, steps_progress, as_of=steps_as_of)
+                steps_status = google_steps["status"]
+                steps_request_count = google_steps["request_count"]
+            else:
+                steps_report = acquire_steps(
+                    settings, steps_plan,
+                    auth_service=GoogleAuthService(settings, include_steps=True),
+                )
+                steps_status = _steps_operational_status(steps_report)
+                steps_request_count = steps_report["request_count"]
+                google_steps = {
+                    "as_of": steps_as_of.isoformat(),
+                    "requested_date": steps_plan.day.isoformat(),
+                    "selection_zone": OWNER_REFRESH_STEPS_SELECTION_ZONE,
+                    "status": steps_status,
+                    "acquisition": steps_report,
+                }
             steps_duration_ms = _elapsed_milliseconds(steps_started_ns)
-            steps_status = _steps_operational_status(steps_report)
-            google_steps = {
-                "as_of": steps_as_of.isoformat(),
-                "requested_date": steps_plan.day.isoformat(),
-                "selection_zone": OWNER_REFRESH_STEPS_SELECTION_ZONE,
-                "status": steps_status,
-                "acquisition": steps_report,
-            }
             refresh_status = _combined_status(
                 garmin.status, garmin_training["status"], google.status,
                 google_wearables_sleep.status, steps_status,
@@ -817,7 +903,7 @@ def run_owner_refresh(
                 },
                 **({"google_steps": {
                     "duration_ms": steps_duration_ms,
-                    "request_count": steps_report["request_count"],
+                    "request_count": steps_request_count,
                 }} if google_steps is not None else {}),
                 "freshness_evaluation": {"duration_ms": freshness_duration_ms},
                 "owner_refresh_total": {
