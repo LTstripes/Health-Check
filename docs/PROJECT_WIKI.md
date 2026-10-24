@@ -59,6 +59,22 @@ remains paused: new annual Sleep is outside this release, custom is optional and
 90-day Sleep UI is not delivered. No new provider access or automatic history
 rewrite is implied. Unexercised Labs/PDF/import and transport UAT remain separate.
 
+### Bounded Steps reliability increment - 24 October
+
+[#523](https://github.com/LTstripes/Health-Check/issues/523) adds saved-byte Garmin
+returned-date proof and explicit bounded indexing; additive schema `0019` does not
+infer legacy dates. Deployment alone cannot repair an over-cap unknown history.
+[#524](https://github.com/LTstripes/Health-Check/issues/524) adds a separate opt-in
+for at most seven missed Google dates per refresh, from its recorded activation
+floor. Existing include-only previous-day behavior stays compatible. Source/date,
+unknown/zero, correction and resource guards remain in the governing contracts.
+This code increment does not activate either operation on Stable; real indexing,
+catch-up and another deployment require their separate operational acceptance.
+Historical Google backfill [#522](https://github.com/LTstripes/Health-Check/issues/522)
+stays backlog. [#348 synthetic intake verification](https://github.com/LTstripes/Health-Check/issues/348#issuecomment-6382426637)
+reused the existing local PDF review/import boundary without product changes;
+real chat-attachment transport and actual-document import remain unverified.
+
 ### Historical engineering/UAT checkpoint - 23 October, before later Owner acceptance
 
 The earlier checkpoint below is retained unchanged with its original receipts.
