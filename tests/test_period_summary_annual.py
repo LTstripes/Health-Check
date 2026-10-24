@@ -505,12 +505,18 @@ def test_annual_matches_legacy_fields_with_corrections_roles_and_date_only(proje
 
 
 @pytest.mark.parametrize("count", [4095, 4096, 4097])
-def test_actual_activity_capacity_boundaries_preserve_independent_sleep(projection_database, count):
+def test_actual_activity_capacity_boundaries_preserve_independent_sleep(
+    projection_database,
+    count,
+    monkeypatch,
+):
     session, paths = projection_database
     _activity(session, paths, day=START, attributed=False, distance=2)
     clone_rows(session, GarminSourceRecord, "activity", count, children=(GarminRecordMetric,))
     _garmin(session, paths, END)
     session.commit()
+    # Record-capacity semantics are separate from the dedicated deadline contracts.
+    monkeypatch.setattr(bounded, "monotonic", lambda: 0.0)
     packet = annual(session)
     activity = cell(packet, "activity_session_count")
     if count <= 4096:
@@ -518,7 +524,8 @@ def test_actual_activity_capacity_boundaries_preserve_independent_sleep(projecti
         assert cell(packet, "cycling_distance_meters")["aggregation"]["value"] == count * 2
     else:
         assert_incomplete(activity, "candidate_record_limit_exceeded")
-    assert cell(packet)["aggregation"]["value"] == 28800
+    sleep = cell(packet)
+    assert sleep["aggregation"]["value"] == 28800, sleep
 
 
 def assert_incomplete(value, reason):
