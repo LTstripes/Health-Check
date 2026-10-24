@@ -38,8 +38,22 @@ activated. The accepted UI removes Overview's weekly preview and Overview/Sleep
 download CTAs; Data retains the supported fallback without promising Google Steps
 or complete medical history. The future Sunday chat request remains open.
 
-Failed [process PR #514](https://github.com/LTstripes/Health-Check/pull/514) is excluded;
-future interface compactness is [backlog #515](https://github.com/LTstripes/Health-Check/issues/515).
+Process-only integration after publication is tracked in [#514](https://github.com/LTstripes/Health-Check/pull/514),
+its bounded [#518 correction](https://github.com/LTstripes/Health-Check/pull/518),
+and [#519](https://github.com/LTstripes/Health-Check/pull/519). Exact main
+`40c432d64be95d48b81c5b20e095092c48b00d0f` has verified
+[post-main 40048380420, attempt 2](https://github.com/LTstripes/Health-Check/actions/runs/40048380420/attempts/2):
+5,928 passed / three declared skips, 5,931 exact nodeids, original ZIP and official
+same-attempt/Linux/Windows verification. The earlier failed attempt is retained
+in the linked PR. These process changes are outside the published `6f3deeb` release.
+[Evidence reuse](https://github.com/LTstripes/Health-Check/issues/511) is available
+for independently pinned, unchanged receipts; recorded warm freshness checks used
+no second artifact download or content-validator execution. The
+[Development rule](DEVELOPMENT_PROCESS.md#13-ci-evidence-and-complete-suite-gates)
+keeps the detailed contract. [#366](https://github.com/LTstripes/Health-Check/issues/366)
+owns current routing receipts and the remaining long-running/late full-code PR
+limitation; no broader savings are claimed. Future interface compactness stays
+[backlog #515](https://github.com/LTstripes/Health-Check/issues/515).
 [#380](https://github.com/LTstripes/Health-Check/issues/380#issuecomment-6359590905)
 remains paused: new annual Sleep is outside this release, custom is optional and
 90-day Sleep UI is not delivered. No new provider access or automatic history
