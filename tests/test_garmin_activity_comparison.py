@@ -37,7 +37,7 @@ from healthcheck.garmin.analytic_contract import (
     substitute_aggregate_is_forbidden,
 )
 from healthcheck.garmin.normalization import (
-    ACTIVITY_QUALITY_CONTRACT_VERSION,
+    ACTIVITY_NORMALIZATION_CONTRACT_VERSION,
     normalize_garmin_payload,
 )
 from healthcheck.garmin.persistence import PROJECTION_RETIRED, GarminPersistenceRepository
@@ -950,6 +950,7 @@ def test_unreviewed_source_field_fail_closed(comparison_database) -> None:
 
 def test_all_reviewed_metric_codes_listed() -> None:
     assert ACTIVITY_COMPARISON_METRIC_CODES == (
+        "session_total_calories",
         "duration_seconds",
         "distance_meters",
         "speed_mps",
@@ -963,7 +964,7 @@ def test_all_reviewed_metric_codes_listed() -> None:
     )
     assert len(set(ACTIVITY_COMPARISON_METRIC_CODES)) == len(ACTIVITY_COMPARISON_METRIC_CODES)
     assert SURFACE_ANALYTIC_METRIC_CODES["activities"] == ACTIVITY_COMPARISON_METRIC_CODES
-    assert R03_02_RULE_VERSION == "r03-02-v3"
+    assert R03_02_RULE_VERSION == "r03-02-v4"
     assert ANALYTIC_RULE_VERSION == "r03-garmin-analytic-rules-v2"
 
 
@@ -1031,7 +1032,8 @@ def test_typed_session_comparison_preserves_distinct_values_and_provenance(
                 session, metric_row_id=row.id, operational_surface_present=True
             )
             assert dto.rule_version == f"{ANALYTIC_RULE_VERSION}:activity-quality-v1"
-            assert dto.evidence.normalization_contract_version == ACTIVITY_QUALITY_CONTRACT_VERSION
+            assert (dto.evidence.normalization_contract_version
+                    == ACTIVITY_NORMALIZATION_CONTRACT_VERSION)
             assert dto.evidence.raw_payload_id
             assert dto.evidence.content_hash
             assert dto.evidence.observation_id
@@ -1112,7 +1114,7 @@ def test_pre_v2_projection_keeps_missing_new_metrics_unavailable(comparison_data
         activity_record_ids=[left.id, right.id],
         reference_activity_id=left.id,
     )
-    assert result.rule_version == "r03-02-v3"
+    assert result.rule_version == "r03-02-v4"
     for code in ("max_heart_rate_bpm", "anaerobic_training_effect"):
         assert _metric_map(result.sessions[0])[code].reason == "metric_absent_from_projection"
         assert _metric_map(result.sessions[1])[code].status == "missing"
@@ -1186,7 +1188,7 @@ def test_v2_correction_does_not_rewrite_frozen_v1_comparison(
     assert original.as_dict() == frozen
     assert frozen["rule_version"] == "r03-02-v1"
     assert frozen["query"]["metric_codes"] == list(original_codes)
-    assert rebuilt.rule_version == "r03-02-v3"
+    assert rebuilt.rule_version == "r03-02-v4"
     assert rebuilt.query.metric_codes == ACTIVITY_COMPARISON_METRIC_CODES
     assert rebuilt.result_hash != frozen["result_hash"]
     assert _metric_map(rebuilt.sessions[0])["max_heart_rate_bpm"].value == 160

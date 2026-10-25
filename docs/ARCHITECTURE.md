@@ -1216,8 +1216,28 @@ be compared without claiming a verified device producer.
 
 The reconciliation contract and SQLite schema are unchanged. This version bump
 does not reprocess historical projections. Replay requires separate explicit
-Owner authorization. `calories` and `bmrCalories` remain outside normalization
-and the analytic registry pending reviewed unit/composition evidence.
+Owner authorization. The later #319 session-total slice below supersedes the
+historical exclusion of `calories`; `bmrCalories` remains outside the registry.
+
+#### Session total calories (#319)
+
+Owner accepts Garmin's reported total for one recorded activity. Normalize only
+the exact activity-list `calories` leaf as `session_total_calories` (session total,
+including resting energy), with no alias, sum, BMR subtraction or daily-energy
+substitution. Keep its native number and `unit=None`: the retained source has no
+explicit unit, so no kcal conversion or elapsed/moving/pause basis is asserted.
+The compact session card is labelled “Калории за занятие, всего”; exact unit and
+provenance remain in technical details. This is source evidence, not a verified
+device capability or an active-only energy contract.
+
+Absent, null, invalid and explicit zero retain their distinct states. Negative,
+non-finite, boolean and nonnumeric values are unavailable, never replaced by zero.
+An absent optional field does not downgrade an otherwise complete activity.
+Activity projections use `garmin-activity-normalization-v2`, retaining quality
+rules `garmin-activity-quality-v1`; comparison uses `r03-02-v4`. Existing bounded
+`garmin-reprocess --stream activities` recognizes older projections and derives
+the new metric from retained raw without a provider call or raw rewrite. It is
+explicit, not automatic, and still requires separate Owner operational authority.
 
 Absent new optional fields do not downgrade an otherwise complete activity
 record; their own metric-level availability remains `missing`.

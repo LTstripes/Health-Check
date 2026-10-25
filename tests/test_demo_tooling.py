@@ -22,6 +22,7 @@ from healthcheck.db.models import (
     GarminActivityRecord,
     GarminRecordMetric,
     GarminSleepRecord,
+    GarminSourceRecord,
     GoogleRecordMetric,
     GoogleSleepRecord,
     GoogleSourceRecord,
@@ -32,6 +33,7 @@ from healthcheck.demo import (
     DEMO_SEED_ID,
     DEMO_SOURCE_APPLICATION,
     DemoSeedError,
+    _persist_garmin_activities,
     _synthetic_uploads,
     seed_demo,
 )
@@ -184,6 +186,27 @@ def test_seed_demo_is_idempotent_and_exposes_dashboard_data(tmp_path: Path) -> N
     assert marker_data["anchor_date"] == DEMO_ANCHOR_DATE.isoformat()
 
 
+@pytest.mark.parametrize(("value", "state"), [(0, "value"), (None, "null")])
+def test_frozen_demo_projection_does_not_drop_supplied_calories(tmp_path, value, state):
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "synthetic-demo"))
+    migrate_database(paths)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            _persist_garmin_activities(session, paths, [{
+                "activityId": "synthetic-unexpected-calories", "calendarDate": "2099-01-02",
+                "duration": 3600, "calories": value,
+            }])
+            metric = session.scalar(select(GarminRecordMetric).where(
+                GarminRecordMetric.metric_code == "session_total_calories",
+            ))
+            assert metric is not None and metric.state == state
+            assert metric.value_number == value
+            assert metric.unit is None
+    finally:
+        engine.dispose()
+
+
 def test_seed_demo_is_reproducible_across_fresh_runtimes(tmp_path: Path) -> None:
     first = seed_demo(Settings(data_dir=tmp_path / "demo-a"))
     second = seed_demo(Settings(data_dir=tmp_path / "demo-b"))
@@ -229,6 +252,17 @@ def test_seed_demo_keeps_missing_and_partial_days_honest(tmp_path: Path) -> None
             assert garmin_duration_values == 25
             assert garmin_score_values == 22
             assert google_asleep_values == 25
+            # Keep the original Garmin demo v2 reset certificate too: no calorie
+            # values exist in these fixed payloads, and its manifest stays strict.
+            assert set(session.scalars(select(
+                GarminSourceRecord.normalization_contract_version,
+            ).where(GarminSourceRecord.stream_code == "activity"))) == {
+                "garmin-activity-quality-v1",
+            }
+            assert session.scalar(select(func.count()).select_from(GarminRecordMetric)) == 190
+            assert session.scalar(select(func.count()).select_from(GarminRecordMetric).where(
+                GarminRecordMetric.metric_code == "session_total_calories",
+            )) == 0
             # Demo v2 is a frozen reset certificate, separate from current Sleep v3.
             assert set(session.scalars(select(
                 GoogleSourceRecord.normalization_contract_version
