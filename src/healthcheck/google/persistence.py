@@ -1070,6 +1070,12 @@ class GoogleSourceRecordRepository:
         ):
             return existing, False, False
 
+        if record.stream is GoogleStream.EXERCISE:
+            from healthcheck.google.exercise import exercise_revision_can_replace
+
+            if not exercise_revision_can_replace(self.session, existing, record):
+                return existing, False, False
+
         projected = _datetime_key(existing.projection_observed_at) or _datetime_key(
             existing.last_seen_at
         )
@@ -1083,7 +1089,7 @@ class GoogleSourceRecordRepository:
                 )
             )
         )
-        incoming_epoch_is_newer = False
+        incoming_epoch_is_newer = record.stream is GoogleStream.EXERCISE
         if path_free_identity:
             existing_sync, existing_epoch, existing_observation_id = (
                 heart_rate_page.epochs[existing.id]
@@ -1367,6 +1373,7 @@ class GoogleSourceRecordRepository:
                 metric.state is GoogleMetricState.MISSING
                 and stored is not None
                 and metric.metric_code != STEPS_COUNT_SUM
+                and not metric.metric_code.startswith("exercise_")
             ):
                 continue
             values = {
@@ -1868,7 +1875,7 @@ def _upsert_record_interval(
     session: Session, *, record_id: str, interval: GoogleIntervalDTO
 ) -> None:
     kind = interval.interval_kind.value
-    if kind not in {"roll_up", "daily_roll_up"}:
+    if kind not in {"roll_up", "daily_roll_up", "exercise_session"}:
         raise ValueError("Google record intervals must be roll-up intervals")
     row = session.scalar(
         select(GoogleRecordInterval).where(
@@ -2191,6 +2198,11 @@ def build_google_record_identity_key(
     normalized_external_id = (
         external_record_id.strip() if isinstance(external_record_id, str) else None
     )
+    if stream is GoogleStream.EXERCISE:
+        if not normalized_external_id:
+            raise ValueError("exercise requires provider session identity")
+        digest = hashlib.sha256(normalized_external_id.encode()).hexdigest()
+        return f"google-exercise-logical-session-v1:{digest}"
     if stream is GoogleStream.SLEEP and normalized_external_id:
         payload = {
             "version": "google-sleep-logical-session-v1",

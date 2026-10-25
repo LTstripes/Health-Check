@@ -79,6 +79,8 @@ class GoogleStream(StrEnum):
     DAILY_RESPIRATORY_RATE = "daily_respiratory_rate"
     # Offline normalization/persistence only; absent from acquisition registries.
     STEPS = "steps"
+    # Offline exercise sessions; never selected by the production sync registry.
+    EXERCISE = "exercise"
 
 
 class GoogleTemporalPrecision(StrEnum):
@@ -95,6 +97,7 @@ class GoogleIntervalKind(StrEnum):
     DAILY_ROLL_UP = "daily_roll_up"
     SLEEP_SESSION = "sleep_session"
     SLEEP_OUT_OF_BED = "sleep_out_of_bed"
+    EXERCISE_SESSION = "exercise_session"
 
 
 @dataclass(frozen=True, slots=True)

@@ -109,7 +109,7 @@ class GoogleNormalizationReplayer:
             # The strict normalizer below validates exact family and shape;
             # nameless civil buckets must not enter list-record partitioning.
             _ReplayPartition(frozenset(), all_points_selected=True)
-            if observation.stream_code == GoogleStream.STEPS.value
+            if observation.stream_code in {GoogleStream.STEPS.value, GoogleStream.EXERCISE.value}
             else _partition_replay_payload(
                 content,
                 query=query,
@@ -119,6 +119,11 @@ class GoogleNormalizationReplayer:
         )
         acquired_context = None
         contract = observation.source_contract_version or raw.source_contract_version
+        if observation.stream_code == GoogleStream.EXERCISE.value:
+            from healthcheck.google.exercise import CONTRACT
+
+            if contract != CONTRACT:
+                raise ValueError("unsupported exercise replay contract")
         if observation.stream_code == GoogleStream.STEPS.value and contract.startswith(
             "google-steps-acquisition-"
         ):
