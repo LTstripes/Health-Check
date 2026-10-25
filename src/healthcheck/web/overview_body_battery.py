@@ -5,7 +5,7 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from healthcheck.garmin.body_battery_read import BodyBatteryQuery, read_body_battery_period
-from healthcheck.web.overview_view import overview_number
+from healthcheck.web.overview_view import overview_whole_number
 
 
 def read_overview_body_battery(
@@ -16,5 +16,5 @@ def read_overview_body_battery(
         start, end, garmin_source_id, evaluated_at_utc,
     ))
     mean_value = dto.pop("mean_value")
-    dto["mean_display"] = overview_number(mean_value) if mean_value is not None else None
+    dto["mean_display"] = overview_whole_number(mean_value) if mean_value is not None else None
     return {"selected": dto}

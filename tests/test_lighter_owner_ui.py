@@ -56,10 +56,12 @@ def test_one_period_description_replaces_card_ranges_without_changing_windows(
     assert response.status_code == empty.status_code == 200
     assert response.context["packet"]["period"]["end_date"] == "2099-01-08"
     assert response.context["overview"]["completed_window"]["end_date"] == "2099-01-07"
+    assert response.context["overview"]["steps"]["window"] == response.context["overview"][
+        "completed_window"]
     assert response.text.count('id="overview-period-scope" role="tooltip"') == 1
     assert 'tabindex="0" aria-describedby="overview-period-scope"' in response.text
     tooltip = response.text.split('id="overview-period-scope"', 1)[1].split('</p>', 1)[0]
-    assert "Вес и активности:" in tooltip and "Сон, стресс и Body Battery:" in tooltip
+    assert "Вес и активности:" in tooltip and "Сон, шаги, стресс и Body Battery:" in tooltip
     assert "8 января 2099" in tooltip and "7 января 2099" in tooltip and "МСК" in tooltip
     assert "в выбранном периоде нет завершённых дней по МСК" in empty.text
     assert 'data-period-coverage' not in response.text

@@ -506,7 +506,7 @@ Open [index.html](design/owner-overview-a-plus/index.html) directly from disk. A
 | Compact navigation and period | Single top navigation, 7/30/90-day controls and alternative date range; no introductory hero |
 | Action only when needed | One short row for the illustrated failed Garmin freshness check; explicitly keeps saved data available |
 | Grok: immediately useful readings and charts | Weight, last Garmin night and saved sessions in three equal desktop columns; observed weight points separate from the trend, sleep history, dated daily activity strip and types |
-| A+: quieter supporting metrics | Resting pulse, nightly HRV, stress and Body Battery below the primary row, each with its own source/date/window and small history graphic |
+| A+: quieter supporting metrics | Four columns below the primary row: resting pulse, separate Garmin/Google daily Steps means for the completed selected period, Stress with the latest saved weekly HRV beneath it, and Body Battery. Stress/Body Battery means display whole numbers; each metric retains its source/date/window meaning |
 | Context on demand | Three keyboard-operable `ⓘ` disclosures, one source table and one technical disclosure; source/date/units and material gaps remain visible in the main view |
 | Honest availability | Missing weight/sleep observations; unknown activity coverage on 04 June; explicit zero saved sessions on covered days; explicit Google zero steps separately from absent Google pulse |
 | Source and window separation | Garmin and Google never pooled; provider sleep score separate from duration; last HRV night differs from last sleep night; partial-day stress differs from point-in-time Body Battery |

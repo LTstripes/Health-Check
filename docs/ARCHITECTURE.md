@@ -342,7 +342,7 @@ Sparse voluntary streams such as weekly weight use a configured cadence. Continu
 <a id="logical-model--completed-day-overview-presentation"></a>
 #### Completed-day Overview presentation
 
-Only the Overview Sleep, Stress and Body Battery cards use the completed Moscow
+The Overview Sleep, Steps, Stress and Body Battery cards use the completed Moscow
 window described above. Their source dates are not relabelled or recalculated.
 Sleep averages eligible Garmin durations once per existing local wake date;
 Stress averages the eligible daily `avgStressLevel` values once per source day.
@@ -353,8 +353,14 @@ read exposes no partial-prefix mean and a long window is not silently clipped.
 One eligible day is sufficient; missing days never become zero. The actual
 denominator and partial evidence remain in accessible details, without repeated
 coverage rows in ordinary cards. Sleep's final mean is rounded
-half-up to a whole second only for human duration display; Stress retains the
-existing up-to-two-decimal format. The selected-day 28-day Stress baseline reader
+half-up to a whole second only for human duration display. Stress and Body Battery
+means display whole numbers, half-up; reader/calculation precision and daily graph
+values remain unchanged. Steps reuses this exact completed window: Garmin uses its
+existing completed-day reader (up to 366 days), Google its exact 7/30-day saved
+observations reader. Unsupported spans remain unavailable, never clipped. Each
+source has its own eligible-day denominator; missing is not zero, observed zero
+remains eligible, incomplete reads withhold means and Google coverage stays unknown.
+The selected-day 28-day Stress baseline reader
 remains available separately and its interpretation is unchanged.
 
 Lag direction is named in APIs and evidence packets; ambiguous `correlation(metric_a, metric_b, lag=1)` contracts are forbidden.
@@ -872,7 +878,7 @@ correction selection remain the existing persistence/currentness contract.
 
 Each eligible saved `source_local_date` contributes its maximum among eligible
 measurements once. The Body Battery reader uses its entire supplied window unchanged.
-The Overview UI alone selects completed Moscow days for Sleep, Stress and Body
+The Overview UI selects completed Moscow days for Sleep, Steps, Stress and Body
 Battery: rolling presets end yesterday in `Europe/Moscow`, retaining their day
 count; a custom window retains its start and ends at the earlier of its selected
 end and yesterday. An empty intersection shows no number. The actual card range
