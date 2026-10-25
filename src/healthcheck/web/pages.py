@@ -31,6 +31,7 @@ from healthcheck.google.daily_vitals import (
     GOOGLE_DAILY_VITALS,
     read_google_daily_vitals,
 )
+from healthcheck.google.exercise_read import read_saved_exercise
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
@@ -1217,6 +1218,7 @@ def garmin_dashboard_page(
                 start_date=start_date,
                 end_date=end_date,
             )
+            google_exercise = read_saved_exercise(session)
     except GarminQueryError as exc:
         return render_error(
             request, code=exc.code, message=exc.message, status_code=exc.status_code
@@ -1227,7 +1229,11 @@ def garmin_dashboard_page(
         from healthcheck.web.garmin_query import unavailable_dashboard_payload
 
         payload = unavailable_dashboard_payload(reason="database_unavailable")
-    return render(request, "garmin.html", {"payload": payload, "page": "garmin"})
+        google_exercise = None
+    return render(
+        request, "garmin.html",
+        {"payload": payload, "google_exercise": google_exercise, "page": "garmin"},
+    )
 
 
 @router.get("/google/exercise", response_class=HTMLResponse)
@@ -1235,8 +1241,6 @@ def google_exercise_page(
     request: Request, source_id: str | None = None,
     start_date: date | None = None, end_date: date | None = None,
 ) -> HTMLResponse:
-    from healthcheck.google.exercise_read import read_saved_exercise
-
     try:
         with session_scope(request_engine(request)) as session:
             packet = read_saved_exercise(

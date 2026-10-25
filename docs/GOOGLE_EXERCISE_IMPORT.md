@@ -69,10 +69,15 @@ The reader optionally selects 1–30 civil start dates, without arbitrary histor
 stitching. These application bounds are not provider history limits.
 
 `GET /google/exercise` renders the saved reader and a reusable
-`google_exercise.html` partial. Sources remain separate from Garmin. The shared
-Activity template connection is intentionally held until the #530 integration;
-this candidate must not be described as a completed Activity entrypoint until
-that connection is integrated. No Garmin total or date-based deduplication changes.
+`google_exercise.html` partial. The existing Activity page (`GET /garmin`) includes
+that partial after its Garmin journal. Sources remain separate from Garmin and
+from each other; ambiguous Google sources require explicit selection. Google
+source/date forms open the dedicated saved view; Garmin's metric/date selection
+does not become a Google history filter. The Activity hook performs only the same
+bounded saved read, with no acquisition, auth or provider call. Human activity
+labels and dates reuse the existing presentation formatters, with no seconds in
+displayed timestamps and with source UTC offsets retained. No Garmin total or
+date-based deduplication changes.
 
 ## Explicit manual command
 
@@ -126,8 +131,12 @@ collection policy, scheduling or UI totals are changed.
 
 Migration `0020_google_exercise` follows `0019_garmin_summary_date_proofs`, adding
 exercise to four Google stream CHECKs and exercise_session to generic intervals.
-It recreates append-only triggers and refuses downgrade when exercise evidence
-exists. No existing history is relabeled, reprocessed or discarded. Only synthetic
+It recreates append-only triggers and blocks downgrade when exercise evidence
+exists. Before an authorized rollout, retain a verified recoverable pre-migration
+backup covering the profile and artifacts. Recovery after exercise evidence exists
+requires restoring that backup through the established recovery procedure, not
+free downgrade or evidence deletion. No existing history is relabeled, reprocessed
+or discarded. Only synthetic
 migration and backup/restore checks are permitted in this task; actual installation
 and operational documentation updates belong to the Integrator.
 

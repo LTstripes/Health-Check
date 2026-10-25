@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 from datetime import date
 
 import pytest
@@ -49,6 +50,11 @@ def payload(*, name="synthetic-session-1", update="2099-01-03T12:00:00Z", durati
 
 def normalize(raw):
     return normalize_exercise_payload(raw, source_identity=IDENTITY)
+
+
+def visible_exercise_text(html):
+    section = re.search(r'<section[^>]*id="google-exercise"[^>]*>(.*?)</section>', html, re.S)[1]
+    return re.sub(r"<[^>]+>", "", section)
 
 
 def metric(result, code):
@@ -325,6 +331,7 @@ def test_reader_bound_returns_incomplete_without_prefix(database, monkeypatch):
     assert packet["reason"] == "session_search_incomplete"
 
 
+@pytest.mark.parametrize("path", ["/google/exercise", "/garmin"])
 @pytest.mark.parametrize(
     "exercise_type,label",
     [
@@ -334,7 +341,9 @@ def test_reader_bound_returns_incomplete_without_prefix(database, monkeypatch):
         ("FUTURE_UNKNOWN_TYPE", "Другой вид активности"),
     ],
 )
-def test_ui_reads_saved_source_separately_and_null_is_unavailable(tmp_path, exercise_type, label):
+def test_ui_reads_saved_source_separately_and_null_is_unavailable(
+    tmp_path, exercise_type, label, path
+):
     from fastapi.testclient import TestClient
 
     from healthcheck.db.engine import create_sqlite_engine, session_scope
@@ -361,7 +370,7 @@ def test_ui_reads_saved_source_separately_and_null_is_unavailable(tmp_path, exer
         with TestClient(
             app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
         ) as client:
-            response = client.get("/google/exercise")
+            response = client.get(path)
             assert response.status_code == 200
             assert label in response.text and exercise_type not in response.text
             assert "Не предоставлено" in response.text
@@ -370,8 +379,76 @@ def test_ui_reads_saved_source_separately_and_null_is_unavailable(tmp_path, exer
             assert "UTC+03:00" in response.text
             assert "01:45:17" not in response.text and "02:20:18" not in response.text
             assert "Полнота истории неизвестна" in response.text
-            assert "999" not in response.text
+            assert "999" not in visible_exercise_text(response.text)
             assert client.get("/google/exercise?source_id=unknown").status_code == 400
+    finally:
+        engine.dispose()
+
+
+def test_activity_hook_keeps_garmin_and_ambiguous_google_sources_separate(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from healthcheck.db.engine import create_sqlite_engine, session_scope
+    from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+    from healthcheck.google.storage import ContentAddressedGooglePayloadStore
+    from test_garmin_training_owner_view import _seed_training, _ui
+
+    app, _, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+
+    def garmin_packet(html):
+        return json.loads(
+            re.search(r'<script id="garmin-dashboard-data"[^>]*>(.*?)</script>', html, re.S)[1]
+        )
+
+    try:
+        with session_scope(engine) as session:
+            garmin_source_id = _seed_training(
+                session, ContentAddressedGarminPayloadStore(paths.root / "artifacts")
+            )
+        with TestClient(
+            app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+        ) as client:
+            # Garmin filters do not silently become a Google history window.
+            url = (
+                f"/garmin?garmin_source_id={garmin_source_id}"
+                "&start_date=2099-01-01&end_date=2099-01-01"
+            )
+            empty = client.get(url)
+            assert empty.status_code == 200
+            original = garmin_packet(empty.text)
+            assert original["activities"]
+            assert "Сохранённых тренировок для этого выбора пока нет." in empty.text
+            with session_scope(engine) as session:
+                persist_exercise_page(
+                    session,
+                    payload_store=ContentAddressedGooglePayloadStore(paths.root / "artifacts"),
+                    payload=payload(),
+                )
+            single = client.get(url)
+            assert single.status_code == 200
+            assert garmin_packet(single.text) == original
+            assert single.text.count('data-google-exercise="') == 1
+            assert "3 января 2099, 01:45" in single.text
+            assert "999" not in visible_exercise_text(single.text)
+            other = payload(name="other-google-source")
+            other["dataPoints"][0]["dataSource"]["name"] = "users/me/dataSources/synthetic-other"
+            with session_scope(engine) as session:
+                persist_exercise_page(
+                    session,
+                    payload_store=ContentAddressedGooglePayloadStore(paths.root / "artifacts"),
+                    payload=other,
+                )
+                sources = read_saved_exercise(session)["sources"]
+            ambiguous = client.get(url)
+            assert ambiguous.status_code == 200
+            assert garmin_packet(ambiguous.text) == original
+            assert "Выбери источник Google." in ambiguous.text
+            assert 'data-google-exercise="' not in ambiguous.text
+            for source in sources:
+                selected = client.get("/google/exercise", params={"source_id": source["source_id"]})
+                assert selected.status_code == 200
+                assert selected.text.count('data-google-exercise="') == 1
     finally:
         engine.dispose()
 
