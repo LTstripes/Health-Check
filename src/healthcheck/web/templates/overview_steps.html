@@ -4,7 +4,7 @@
   {% for item in overview.steps['items'] %}
   <div data-steps-provider="{{ item.provider }}" data-steps-reason="{{ item.reason or '' }}">
     <div class="overview-metric-heading"><span class="overview-source">{{ item.provider }}</span>
-      <details class="overview-info"><summary aria-label="Средние шаги · {{ item.provider }}">?</summary><div>
+      <details class="overview-info"><summary aria-label="Средние шаги · {{ item.provider }}">ⓘ</summary><div>
         <p>Завершённые дни по Москве; текущий день исключён. Пропуски не считаются нулями, сохранённый ноль учитывается. Источники не объединяются.</p>
         {% if not overview.steps.window.empty %}<p>Период: {{ overview.steps.window.start_date | owner_date }} - {{ overview.steps.window.end_date | owner_date }}.</p>{% endif %}
         {% if item.provider == 'Garmin' %}<p>Среднее по дням с подтверждённым завершённым сбором Garmin.</p>
