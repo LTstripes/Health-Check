@@ -273,7 +273,8 @@ def test_route_mean_uses_selected_period_without_28_day_baseline(
         assert "Среднее за период" in text and "data-stress-mean" in text
         assert "data-stress-delta" not in text and "Выбранная дата" not in text
         assert "data-stress-evidence" in text
-    assert [item["mean_display"] for item in results] == ["2", "2", "1.05"]
+    assert [item["mean_display"] for item in results] == ["2", "2", "1"]
+    assert results[-1]["mean_value"] > 1  # Display rounding does not change the mean.
     assert [item["eligible_days"] for item in results] == [1, 1, 22]
     assert [item["days"] for item in results] == [1, 7, 30]
     assert calls == [(start, D, True) for start in (D, D - timedelta(days=6),

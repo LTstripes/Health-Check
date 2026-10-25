@@ -5,7 +5,7 @@ labelled; colliding Garmin snapshots never become one guessed value.
 """
 
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -39,6 +39,11 @@ def overview_number(value: int | float | Decimal) -> str:
     """At most two decimals for display; never alter the source value."""
     text = f"{value:.2f}".rstrip("0").rstrip(".")
     return "0" if text == "-0" else text
+
+
+def overview_whole_number(value: int | float | Decimal) -> str:
+    """Round only the displayed mean; retain the precise reader value."""
+    return str(int(Decimal(str(value)).to_integral_value(rounding=ROUND_HALF_UP)))
 
 
 def read_overview_values(

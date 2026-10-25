@@ -43,6 +43,7 @@ from healthcheck.web.imports import _batch_payload
 from healthcheck.web.overview_charts import read_overview_charts
 from healthcheck.web.overview_completed import read_completed_overview
 from healthcheck.web.overview_rhr import read_overview_rhr
+from healthcheck.web.overview_steps import read_overview_steps
 from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import (
     owner_activity_count,
@@ -1104,6 +1105,11 @@ def period_brief_page(
                 evaluated_at=evaluated_at,
                 sleep_series=charts["technical"]["sleep"].get("sleep_duration_seconds"),
             ))
+            overview["steps"] = read_overview_steps(
+                session, paths=request.app.state.runtime_paths,
+                window=overview["completed_window"],
+                source_id=source_selection.get("selected_source_id"), evaluated_at=evaluated_at,
+            )
     except GarminQueryError as exc:
         return render_error(
             request, code=exc.code, message=exc.message, status_code=exc.status_code
@@ -1166,6 +1172,7 @@ def period_brief_page(
             or bool(overview["body_battery"]["selected"]
                     and overview["body_battery"]["selected"]["mean_display"] is not None)
             or any(item["dto"]["last_observation"] is not None for item in overview["rhr"]["items"])
+            or any(item["mean_display"] is not None for item in overview["steps"]["items"])
             or any(cell["value"] is not None for cell in overview["garmin"].values())
             or any(
                 cell["latest"] is not None
