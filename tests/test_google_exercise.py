@@ -13,6 +13,7 @@ from healthcheck.google.exercise import (
     persist_exercise_page,
     revision_key,
 )
+from healthcheck.google.exercise_import import ExerciseImportPlan, acquire_exercise
 from healthcheck.google.exercise_read import read_saved_exercise
 from healthcheck.google.replay import replay_google_observations
 from healthcheck.google.sync import source_identity_from_point
@@ -467,3 +468,502 @@ def test_fallback_and_explicit_source_page_replay(database):
         )
         session.commit()
         assert len(read_saved_exercise(session, source_id=outcome.source.id)["sessions"]) == 1
+
+
+class ExerciseMockAuth:
+    def __init__(self, transport, *, missing=False, refresh_failure=False, on_refresh=None):
+        self.transport = transport
+        self.missing = missing
+        self.refresh_failure = refresh_failure
+        self.calls = []
+        self.on_refresh = on_refresh
+
+    def load_steps_access_token(self, *, refresh_if_needed=False):
+        from healthcheck.google.auth import GoogleAuthResult, GoogleAuthStatus
+
+        self.calls.append(refresh_if_needed)
+        if refresh_if_needed and self.on_refresh:
+            self.on_refresh()
+        fail = self.missing or (refresh_if_needed and self.refresh_failure)
+        return ("" if fail else "synthetic-access-never-display"), GoogleAuthResult(
+            status=GoogleAuthStatus.REAUTH_REQUIRED if fail else GoogleAuthStatus.AUTHENTICATED,
+            refresh_attempted=refresh_if_needed,
+            refresh_succeeded=refresh_if_needed and not fail,
+        )
+
+
+def import_plan():
+    return ExerciseImportPlan.build("2099-01-03", "2099-01-03", "google-wearables")
+
+
+def http_response(raw, status=200):
+    from healthcheck.google.auth import GoogleHttpResponse
+
+    return GoogleHttpResponse(status, raw if isinstance(raw, bytes) else json.dumps(raw).encode())
+
+
+def acquire(database, *responses, auth=None):
+    from healthcheck.config import Settings
+    from test_google_steps_acquisition import Transport
+
+    paths, session, _ = database
+    session.commit()
+    transport = Transport(*responses)
+    request = transport.request
+
+    def request_with_interrupt(method, url, **kwargs):
+        if transport.responses and isinstance(transport.responses[0], KeyboardInterrupt):
+            transport.calls.append((method, url, kwargs))
+            raise transport.responses.pop(0)
+        return request(method, url, **kwargs)
+
+    transport.request = request_with_interrupt
+    service = auth or ExerciseMockAuth(transport)
+    waits = []
+    report = acquire_exercise(
+        Settings(data_dir=paths.root),
+        import_plan(),
+        auth_service=service,
+        transport=transport,
+        sleeper=waits.append,
+    )
+    session.expire_all()
+    return report, transport, service, waits
+
+
+def test_scoped_cli_fetches_two_pages_with_existing_transport(database, monkeypatch, capsys):
+    from urllib.parse import parse_qs, urlparse
+
+    from healthcheck import cli
+    from healthcheck.google import auth as auth_module
+    from test_google_steps_acquisition import Transport
+
+    paths, session, _ = database
+    first = payload(duration=None)
+    token = "synthetic-next&?=/opaque-token"
+    first["nextPageToken"] = token
+    transport = Transport(
+        http_response(first), http_response(payload(name="second", duration="0s"))
+    )
+    constructed = []
+
+    def existing_transport(*, max_response_bytes):
+        assert max_response_bytes == 1024 * 1024
+        return transport
+
+    def auth_factory(settings, **kwargs):
+        assert settings.data_dir == paths.root
+        assert kwargs["include_steps"] is True and kwargs["transport"] is transport
+        service = ExerciseMockAuth(transport)
+        constructed.append(service)
+        return service
+
+    monkeypatch.setattr(auth_module, "UrllibGoogleHttpTransport", existing_transport)
+    monkeypatch.setattr(cli, "GoogleAuthService", auth_factory)
+    args = [
+        "google-exercise",
+        "--start",
+        "2099-01-03",
+        "--end",
+        "2099-01-03",
+        "--family",
+        "google-wearables",
+        "--apply",
+        "--data-dir",
+        str(paths.root),
+    ]
+    assert cli.main(args) == 0
+    output = capsys.readouterr().out
+    report = json.loads(output)
+    assert report["query_exhausted"] and report["page_count"] == 2
+    assert report["observed_count"] == report["inserted_count"] == 2
+    assert report["partial_record_count"] == 1
+    assert not report["provider_history_complete"]
+    assert constructed[0].calls == [False, True]
+    assert len(transport.calls) == 2
+    for method, url, kwargs in transport.calls:
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        assert (method, parsed.netloc, parsed.path) == (
+            "GET",
+            "health.googleapis.com",
+            "/v4/users/me/dataTypes/exercise/dataPoints",
+        )
+        assert query["pageSize"] == ["25"]
+        assert query["filter"] == [
+            'exercise.interval.civil_start_time >= "2099-01-03" AND '
+            'exercise.interval.civil_start_time < "2099-01-04"'
+        ]
+        assert kwargs["timeout"] == 30 and "json_body" not in kwargs and "form" not in kwargs
+    assert parse_qs(urlparse(transport.calls[1][1]).query)["pageToken"] == [token]
+    assert token not in output and "synthetic-access" not in output and "2099" not in output
+    session.expire_all()
+    packet = read_saved_exercise(session)
+    assert len(packet["sessions"]) == 2
+    assert {r["active_seconds"] for r in packet["sessions"]} == {None, 0}
+    from fastapi.testclient import TestClient
+
+    from healthcheck.config import Settings
+    from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
+    from healthcheck.web.ui_app import create_ui_app
+
+    app, _ = create_ui_app(
+        Settings(data_dir=paths.root), photo_extractor=FakeImageMeasurementExtractor()
+    )
+    with TestClient(
+        app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
+    ) as client:
+        page = client.get("/google/exercise")
+        assert page.status_code == 200 and page.text.count("data-google-exercise=") == 2
+    repeat, _, _, _ = acquire(
+        database, http_response(first), http_response(payload(name="second", duration="0s"))
+    )
+    assert repeat["inserted_count"] == repeat["updated_count"] == 0
+    assert repeat["observed_count"] == 2
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        [],
+        ["--dry-run", "--apply"],
+        ["--apply"],
+        ["--dry-run", "--force-reauth"],
+        ["--dry-run", "--stream", "sleep"],
+        ["--dry-run", "--reset"],
+        ["--dry-run", "--query-mode", "reconcile"],
+    ],
+)
+def test_cli_rejects_unscoped_requests_without_auth(extra, monkeypatch, capsys):
+    from healthcheck import cli
+
+    monkeypatch.setattr(cli, "GoogleAuthService", lambda *a, **k: pytest.fail("unexpected auth"))
+    assert (
+        cli.main(
+            [
+                "google-exercise",
+                "--start",
+                "2099-01-03",
+                "--end",
+                "2099-01-03",
+                "--family",
+                "google-wearables",
+                *extra,
+            ]
+        )
+        == 2
+    )
+    assert "invalid_exercise_request" in capsys.readouterr().out
+
+
+def test_dry_run_and_invalid_window_never_create_runtime(tmp_path, monkeypatch, capsys):
+    from healthcheck import cli
+
+    monkeypatch.setattr(cli, "GoogleAuthService", lambda *a, **k: pytest.fail("unexpected auth"))
+    root = tmp_path / "not-created"
+    args = [
+        "google-exercise",
+        "--start",
+        "2099-01-01",
+        "--end",
+        "2099-01-14",
+        "--family",
+        "google-wearables",
+        "--dry-run",
+        "--data-dir",
+        str(root),
+    ]
+    assert cli.main(args) == 0
+    assert json.loads(capsys.readouterr().out)["window_days"] == 14
+    assert not root.exists()
+    args[args.index("2099-01-14")] = "2099-01-15"
+    assert cli.main(args) == 2
+    assert not root.exists()
+
+
+def test_page_budget_and_continuation_cycle_are_partial(database):
+    first = payload()
+    responses = []
+    for index in range(4):
+        page = copy.deepcopy(first)
+        page["nextPageToken"] = f"synthetic-{index}"
+        responses.append(http_response(page))
+    report, transport, _, _ = acquire(database, *responses)
+    assert (report["reason"], report["page_count"], len(transport.calls)) == ("page_limit", 4, 4)
+    assert report["status"] == "partial" and not report["query_exhausted"]
+    first["nextPageToken"] = "same-synthetic-token"
+    report, transport, _, _ = acquire(database, http_response(first), http_response(first))
+    assert report["reason"] == "continuation_cycle" and len(transport.calls) == 2
+    assert not report["query_exhausted"]
+
+
+@pytest.mark.parametrize(
+    "status,reason,count",
+    [
+        (401, "provider_rejected", 1),
+        (403, "provider_rejected", 1),
+        (429, "rate_limited", 1),
+        (500, "retry_exhausted", 3),
+        (302, "provider_failed", 1),
+    ],
+)
+def test_terminal_http_and_retry_budget_never_auth_recover(database, status, reason, count):
+    report, transport, auth, _ = acquire(database, *[http_response(b"secret-body", status)] * count)
+    assert report["reason"] == reason and report["request_count"] == len(transport.calls) == count
+    assert not report["query_exhausted"]
+    assert auth.calls == [False, True]
+    assert "secret-body" not in json.dumps(report)
+
+
+def test_transport_retry_and_rate_limit_after_saved_page(database):
+    from healthcheck.google.auth import GoogleOAuthError
+
+    first = payload()
+    first["nextPageToken"] = "synthetic-next"
+    report, transport, _, waits = acquire(
+        database,
+        GoogleOAuthError("provider", "provider_unavailable"),
+        http_response(first),
+        http_response(b"ignored", 429),
+    )
+    assert report["status"] == "partial" and report["page_count"] == 1
+    assert report["reason"] == "rate_limited" and report["request_count"] == 3
+    assert waits == [0.25] and len(transport.calls) == 3
+    assert len(read_saved_exercise(database[1])["sessions"]) == 1
+
+
+def test_missing_grant_or_old_schema_stops_before_http_refresh(database):
+    from alembic import command
+
+    from healthcheck.db.engine import _alembic_config
+
+    paths, _, _ = database
+    missing = ExerciseMockAuth(None, missing=True)
+    report, transport, _, _ = acquire(database, auth=missing)
+    assert report["reason"] == "activity_grant_required" and missing.calls == [False]
+    assert not transport.calls
+    command.downgrade(_alembic_config(paths), "0019_garmin_summary_date_proofs")
+    report, transport, auth, _ = acquire(database)
+    assert report["reason"] == "current_schema_required" and auth.calls == [False]
+    assert not transport.calls
+
+
+def test_invalid_profile_and_failed_refresh_do_not_query_provider(database, tmp_path):
+    from healthcheck.config import Settings
+
+    service = ExerciseMockAuth(None)
+    root = tmp_path / "missing-profile"
+    report = acquire_exercise(Settings(data_dir=root), import_plan(), auth_service=service)
+    assert report["reason"] == "established_profile_required"
+    assert not service.calls and not root.exists()
+    failed = ExerciseMockAuth(None, refresh_failure=True)
+    report, transport, _, _ = acquire(database, auth=failed)
+    assert report["reason"] == "startup_auth_failed" and failed.calls == [False, True]
+    assert not transport.calls
+
+
+def test_request_window_validation_covers_all_source_partitions_and_replay(database):
+    from sqlalchemy import func, select
+
+    from healthcheck.db.models import GooglePayloadObservation, GoogleSourceRecord
+
+    _, session, store = database
+    first = payload()
+    other = payload(name="out-of-window")["dataPoints"][0]
+    other["dataSource"]["name"] = "users/me/dataSources/other-source"
+    other["exercise"]["interval"].update(
+        startTime="2099-01-01T12:00:00Z", endTime="2099-01-01T12:35:00Z"
+    )
+    first["dataPoints"].append(other)
+    report, _, _, _ = acquire(database, http_response(first))
+    assert report["reason"] == "response_invalid" and not report["query_exhausted"]
+    assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 0
+    observations = list(session.scalars(select(GooglePayloadObservation)))
+    assert len(observations) == 2
+    for observation in observations:
+        replay_google_observations(session, payload_store=store, observation_ids=[observation.id])
+    session.commit()
+    assert session.scalar(select(func.count()).select_from(GoogleSourceRecord)) == 0
+
+
+def test_acquired_replay_requires_context_without_offline_fallback(database):
+    from healthcheck.google.exercise_import import normalize_acquired_exercise
+    from healthcheck.google.persistence import GooglePersistenceRepository
+
+    _, session, store = database
+    raw = payload()
+    result = normalize_acquired_exercise(
+        json.dumps(raw).encode(), identity=IDENTITY, context=import_plan().context(1, 1)
+    )
+    outcome = GooglePersistenceRepository(session, payload_store=store).persist_result(
+        result, payload=raw
+    )  # deliberately missing immutable acquisition context
+    session.commit()
+    with pytest.raises(ValueError, match="immutable context"):
+        replay_google_observations(
+            session, payload_store=store, observation_ids=[outcome.observation.id]
+        )
+
+
+def test_acquired_replay_and_manual_attempt_have_no_coverage_checkpoint(database):
+    from sqlalchemy import func, select
+
+    from healthcheck.db.models import (
+        CoverageInterval,
+        GooglePayloadObservation,
+        SyncRun,
+        SyncStreamState,
+    )
+
+    _, session, store = database
+    report, _, _, _ = acquire(database, http_response(payload()))
+    assert report["query_exhausted"]
+    observation = session.scalar(select(GooglePayloadObservation))
+    replay_google_observations(session, payload_store=store, observation_ids=[observation.id])
+    session.commit()
+    run = session.scalar(select(SyncRun))
+    assert run.requested_start is None and run.requested_end is None
+    assert run.status == "succeeded"
+    assert session.scalar(select(func.count()).select_from(CoverageInterval)) == 0
+    assert session.scalar(select(func.count()).select_from(SyncStreamState)) == 0
+    assert len(read_saved_exercise(session)["sessions"]) == 1
+
+
+def test_interrupted_page_chain_restarts_idempotently(database):
+    first = payload()
+    first["nextPageToken"] = "synthetic-next"
+    report, _, _, _ = acquire(database, http_response(first), KeyboardInterrupt())
+    assert report["reason"] == "interrupted" and report["status"] == "partial"
+    assert not report["query_exhausted"] and report["page_count"] == 1
+    report, _, _, _ = acquire(database, http_response(first), http_response(payload(name="second")))
+    assert report["query_exhausted"] and report["inserted_count"] == 1
+    assert len(read_saved_exercise(database[1])["sessions"]) == 2
+
+
+def test_shared_lock_covers_refresh_http_and_persistence(database, monkeypatch):
+    from healthcheck.external_runtime_lock import (
+        ExternalRuntimeOperationBusyError,
+        ExternalRuntimeOperationLock,
+    )
+    from healthcheck.google.persistence import GooglePersistenceRepository
+    from test_google_steps_acquisition import Transport
+
+    paths, _, _ = database
+    phases = []
+
+    def probe(phase):
+        phases.append(phase)
+        with pytest.raises(ExternalRuntimeOperationBusyError):
+            with ExternalRuntimeOperationLock(paths, allow_reentrant=False):
+                pytest.fail("profile lock released too soon")
+
+    transport = Transport(http_response(payload()))
+    request = transport.request
+    transport.request = lambda *a, **k: (probe("http"), request(*a, **k))[1]
+    auth = ExerciseMockAuth(transport, on_refresh=lambda: probe("refresh"))
+    persist_result = GooglePersistenceRepository.persist_result
+
+    def persist_locked(self, *args, **kwargs):
+        probe("persist")
+        return persist_result(self, *args, **kwargs)
+
+    monkeypatch.setattr(GooglePersistenceRepository, "persist_result", persist_locked)
+    from healthcheck.config import Settings
+
+    result = acquire_exercise(Settings(data_dir=paths.root), import_plan(), auth_service=auth)
+    assert result["query_exhausted"] and phases == ["refresh", "http", "persist"]
+
+
+def test_complete_query_reports_current_conflict_as_unavailable(database):
+    from sqlalchemy import select
+
+    from healthcheck.db.models import SyncRun
+
+    persist(database, payload())
+    report, _, _, _ = acquire(database, http_response(payload(duration="1700s")))
+    assert report["query_exhausted"] and report["status"] == "partial"
+    assert report["observed_count"] == report["current_record_count"] == 1
+    assert report["current_unavailable_count"] == 1 and report["current_usable_count"] == 0
+    run = database[1].scalar(select(SyncRun))
+    assert run.status == "partial" and run.accepted_count == 0
+
+
+def test_full_attempt_budget_is_bounded_to_twelve_data_requests(database):
+    responses = []
+    for index in range(4):
+        page = payload()
+        page["nextPageToken"] = f"synthetic-page-{index}"
+        responses.extend(
+            [http_response(b"ignored", 503), http_response(b"ignored", 500), http_response(page)]
+        )
+    report, transport, _, waits = acquire(database, *responses)
+    assert report["reason"] == "page_limit" and len(transport.calls) == 12
+    assert report["request_count"] == 12 and waits == [0.25, 0.5] * 4
+    assert report["current_record_count"] == 1 and report["observed_count"] == 4
+
+
+def test_oversize_response_and_cursor_reject_without_typed_prefix(database):
+    from sqlalchemy import func, select
+
+    from healthcheck.db.models import GoogleSourceRecord
+
+    report, _, _, _ = acquire(database, http_response(b"x" * (1024 * 1024 + 1)))
+    assert report["reason"] == "response_limit" and report["page_count"] == 0
+    raw = payload()
+    raw["nextPageToken"] = "\u00e9" * 5000
+    report, _, _, _ = acquire(database, http_response(raw))
+    assert report["reason"] == "response_invalid" and not report["query_exhausted"]
+    assert database[1].scalar(select(func.count()).select_from(GoogleSourceRecord)) == 0
+
+
+def test_invalid_immutable_context_never_authorizes_replay():
+    from healthcheck.google.exercise_import import replay_context
+
+    context = import_plan().context(1, 1)
+    with pytest.raises(ValueError):
+        replay_context(json.dumps([context, context]))
+    context["pageToken"] = "synthetic-cursor-must-not-enter-context"
+    with pytest.raises(ValueError):
+        replay_context(json.dumps([context]))
+
+
+def test_second_page_persistence_failure_keeps_prior_commit(database, monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from healthcheck.google.persistence import GooglePersistenceRepository
+
+    first = payload()
+    first["nextPageToken"] = "synthetic-next"
+    persist_result = GooglePersistenceRepository.persist_result
+
+    def fail_second(self, *args, **kwargs):
+        if b"fail-page" in kwargs["payload"]:
+            raise SQLAlchemyError("synthetic-storage-error-never-display")
+        return persist_result(self, *args, **kwargs)
+
+    monkeypatch.setattr(GooglePersistenceRepository, "persist_result", fail_second)
+    report, _, _, _ = acquire(
+        database, http_response(first), http_response(payload(name="fail-page"))
+    )
+    assert report["status"] == "partial" and report["reason"] == "persistence_failed"
+    assert report["page_count"] == 1 and not report["query_exhausted"]
+    assert len(read_saved_exercise(database[1])["sessions"]) == 1
+    assert "synthetic-storage-error" not in json.dumps(report)
+
+
+def test_failed_current_count_read_stays_null_in_receipt_and_attempt(database, monkeypatch):
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from healthcheck.db.models import SyncRun
+    from healthcheck.google import exercise_import
+
+    def unavailable(*args, **kwargs):
+        raise SQLAlchemyError("synthetic-current-read-failure")
+
+    monkeypatch.setattr(exercise_import, "select", unavailable)
+    report, _, _, _ = acquire(database, http_response(payload()))
+    assert report["query_exhausted"] and report["status"] == "partial"
+    assert report["current_usable_count"] is None and report["current_unavailable_count"] is None
+    run = database[1].scalar(select(SyncRun))
+    assert run.accepted_count is None

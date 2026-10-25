@@ -1,10 +1,11 @@
-# Offline Google exercise sessions
+# Bounded Google exercise import
 
-This candidate adds a source-specific saved-evidence path, without provider
-requests, OAuth changes, collection activation or real-profile operations.
+This candidate adds explicit manual acquisition through the existing Google
+HTTP/auth boundary and a source-specific saved-evidence path. Development and CI
+use synthetic HTTP mocks only; no real provider/account operation is implied.
 `persist_exercise_page(session, payload_store=..., payload=...)` accepts one
 already-acquired Google Health v4 exercise list page in the caller's transaction.
-The input is bounded to 1 MiB and 25 sessions. It is not an acquisition command.
+The offline input is bounded to 1 MiB and 25 sessions.
 
 ## Verified provider surface
 
@@ -57,9 +58,10 @@ back to elapsed time. Source offsets, including different start/end offsets, dri
 local time; no IANA zone or fixed-day length is inferred. Calories, free-text names,
 notes, events, splits and telemetry are retained only in raw evidence.
 
-No provider paginator is implemented or run. A page with a continuation remains
-one page, and later pages can be imported independently/repeated safely. There is
-no coverage checkpoint or claim of complete acquisition. The reader always exposes
+The explicit command follows opaque continuation tokens on the fixed endpoint,
+within four pages and twelve total data attempts. A valid terminal page must be
+durably saved before `query_exhausted=true`; device/provider history completeness
+remains unknown. No coverage or saved cursor checkpoint is created. The reader exposes
 provider coverage/pagination/finality as unknown, including empty results.
 Saved search is bounded to 25 sources and 200 sessions in one selected source;
 overflow returns an explicitly incomplete packet without a successful prefix.
@@ -68,9 +70,57 @@ stitching. These application bounds are not provider history limits.
 
 `GET /google/exercise` renders the saved reader and a reusable
 `google_exercise.html` partial. Sources remain separate from Garmin. The shared
-Activity template connection is intentionally pending coordination with #319;
+Activity template connection is intentionally held until the #530 integration;
 this candidate must not be described as a completed Activity entrypoint until
 that connection is integrated. No Garmin total or date-based deduplication changes.
+
+## Explicit manual command
+
+```text
+healthcheck google-exercise --start 2099-01-03 --end 2099-01-03 --family google-wearables --dry-run
+healthcheck google-exercise --start YYYY-MM-DD --end YYYY-MM-DD --family google-wearables --apply --data-dir <explicit-absolute-existing-profile>
+```
+
+Exactly one mode is required. Dates are explicit, inclusive civil start dates,
+bounded to 1–14 days. Dry-run creates no auth/runtime objects or requests. Apply
+requires the current migrated external profile, checked through read-only SQLite
+metadata under the existing profile operation lock. It never bootstraps a profile
+or migrates one. The lock covers startup refresh, all HTTP and page persistence.
+
+The command shares one existing bounded `UrllibGoogleHttpTransport` with
+`GoogleAuthService`; it adds no transport implementation or consent path. It reuses
+the strict cached three-scope preflight and single startup refresh already used
+by Steps. Missing/partial/unexpected grants stop without browser consent. Data
+401/403 are terminal, with no recovery refresh. 429 stops for a later explicit
+retry; transport failures and selected 5xx have at most three attempts per page
+with 0.25/0.5-second backoff. Each response is at most 1 MiB and each attempt has
+the existing 30-second timeout. One startup OAuth refresh is additional to the
+twelve-data-attempt cap; it cannot expand scopes or fall back to cached access.
+
+`google-exercise-acquisition-v1` identifies acquired observations separately from
+offline inputs. Immutable allowlisted request context records the exact civil
+window, fixed method/path/family, page index and attempt count. No authenticated
+URL, access token or cursor is copied to diagnostics/output. A response cursor
+remains only within the existing private immutable raw response. Replay requires
+exactly one valid acquisition context and rechecks the window across **all** source
+partitions before any typed promotion; missing context cannot fall back to offline.
+
+Optional missing/null/invalid active duration does not prevent session retention
+or pagination. Invalid required evidence/window rejects the entire current page's
+typed projection while retaining bounded raw audit. Previously committed pages
+survive a later error, page/attempt budget, token cycle or interruption. Such runs
+are explicitly partial with `query_exhausted=false`; restart begins at the first
+page. Provider name/updateTime makes repeated projection idempotent. A 4-page
+ceiling cannot recover a larger unchanged window by repeating the same run; select
+a smaller explicit window instead. No automatic history traversal is introduced.
+
+Receipts distinguish observed occurrences, inserts, updates and unique involved
+current records. Equal-version conflicts can leave query exhaustion true but the
+result partial with an explicit unavailable-current count. Accepted attempt count
+includes only the final usable current records, not every received occurrence.
+Manual SyncRun UTC request windows remain NULL; its outcome is not a completeness
+or success checkpoint for the provider's history. No normal stream, owner refresh,
+collection policy, scheduling or UI totals are changed.
 
 ## Migration and follow-up
 

@@ -120,9 +120,10 @@ class GoogleNormalizationReplayer:
         acquired_context = None
         contract = observation.source_contract_version or raw.source_contract_version
         if observation.stream_code == GoogleStream.EXERCISE.value:
+            from healthcheck.google.exercise import ACQUISITION_CONTRACT as EXERCISE_ACQUISITION
             from healthcheck.google.exercise import CONTRACT
 
-            if contract != CONTRACT:
+            if contract not in {CONTRACT, EXERCISE_ACQUISITION}:
                 raise ValueError("unsupported exercise replay contract")
         if observation.stream_code == GoogleStream.STEPS.value and contract.startswith(
             "google-steps-acquisition-"
@@ -135,6 +136,20 @@ class GoogleNormalizationReplayer:
                 context=acquired_context,
                 query=query,
                 identity=identity,
+                normalization_contract_version=normalization_contract_version,
+            )
+        elif (observation.stream_code == GoogleStream.EXERCISE.value
+              and contract == EXERCISE_ACQUISITION):
+            from healthcheck.google.exercise_import import (
+                normalize_acquired_exercise,
+            )
+            from healthcheck.google.exercise_import import (
+                replay_context as exercise_replay_context,
+            )
+
+            acquired_context = exercise_replay_context(observation.diagnostics_json)
+            result = normalize_acquired_exercise(
+                content, context=acquired_context, query=query, identity=identity,
                 normalization_contract_version=normalization_contract_version,
             )
         else:

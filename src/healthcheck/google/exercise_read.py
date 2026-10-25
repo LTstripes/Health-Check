@@ -12,7 +12,7 @@ from healthcheck.db.models import (
 )
 from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.google.contracts import FAMILY_GOOGLE_WEARABLES
-from healthcheck.google.exercise import CONTRACT
+from healthcheck.google.exercise import ACQUISITION_CONTRACT, CONTRACT
 
 MAX_SOURCES = 25
 MAX_SESSIONS = 200
@@ -39,7 +39,7 @@ def read_saved_exercise(
         GoogleSourceRecord.stream_code == "exercise",
         GoogleSourceRecord.query_mode == "list",
         GoogleSourceRecord.data_source_family == FAMILY_GOOGLE_WEARABLES,
-        GoogleSourceRecord.source_contract_version == CONTRACT,
+        GoogleSourceRecord.source_contract_version.in_((CONTRACT, ACQUISITION_CONTRACT)),
         GoogleSourceRecord.normalization_contract_version == CONTRACT,
         GoogleSourceRecord.projection_status == "current",
     )

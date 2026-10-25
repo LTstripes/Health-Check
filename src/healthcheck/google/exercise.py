@@ -39,6 +39,7 @@ from healthcheck.google.normalization import (
 from healthcheck.google.sync import source_identity_from_point
 
 CONTRACT = "google-exercise-session-v1"
+ACQUISITION_CONTRACT = "google-exercise-acquisition-v1"
 MAX_PAGE_BYTES = 1024 * 1024
 MAX_PAGE_RECORDS = 25
 QUERY = GoogleQueryContext(GoogleQueryMode.LIST, FAMILY_GOOGLE_WEARABLES)
