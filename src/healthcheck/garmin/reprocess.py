@@ -31,7 +31,7 @@ from healthcheck.db.repositories import repositories_for, restore_stored_utc
 from healthcheck.external_runtime_lock import ExternalRuntimeOperationLock
 from healthcheck.garmin.capabilities import GARMIN_PROVIDER_CODE
 from healthcheck.garmin.normalization import (
-    ACTIVITY_QUALITY_CONTRACT_VERSION,
+    ACTIVITY_NORMALIZATION_CONTRACT_VERSION,
     HRV_CALENDAR_CONTRACT_VERSION,
     NORMALIZATION_CONTRACT_VERSION,
     SLEEP_TIMING_CONTRACT_VERSION,
@@ -731,7 +731,7 @@ def _window_already_current(
     expected_normalization = (
         HRV_CALENDAR_CONTRACT_VERSION if surface.code == "hrv_status"
         else SLEEP_TIMING_CONTRACT_VERSION if surface.code == "sleep"
-        else ACTIVITY_QUALITY_CONTRACT_VERSION if surface.code == "activities"
+        else ACTIVITY_NORMALIZATION_CONTRACT_VERSION if surface.code == "activities"
         else NORMALIZATION_CONTRACT_VERSION
     )
     with factory() as session:
