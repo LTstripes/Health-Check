@@ -30,17 +30,21 @@ def _job(name: str, next_name: str | None = None) -> str:
     return section if next_name is None else section.split(f"  {next_name}:\n", 1)[0]
 
 
-def test_ci_keeps_push_pull_request_and_lane_scoped_cancellation():
+def test_ci_requires_pr_for_task_branches_and_keeps_other_pushes():
     assert "  push:\n" in WORKFLOW
     assert "  pull_request:\n" in WORKFLOW
     assert "format('ci-pr-{0}', github.event.pull_request.number)" in WORKFLOW
-    assert "format('ci-task-{0}', github.ref)" in WORKFLOW
+    trigger = WORKFLOW.split("\nconcurrency:", 1)[0]
+    assert '    branches-ignore:\n      - "task/**"\n' in trigger
+    # Defining only branch filters would silently disable existing tag pushes.
+    assert '    tags:\n      - "**"\n' in trigger
+    assert trigger.count("branches-ignore:") == 1
+    assert "branches:" not in trigger and "paths" not in trigger
+    assert trigger.endswith("  pull_request:\n")
+    assert "ci-task-" not in WORKFLOW
     assert "format('ci-run-{0}', github.run_id)" in WORKFLOW
     assert "format('ci-push-{0}', github.ref)" not in WORKFLOW
-    assert (
-        "cancel-in-progress: ${{ github.event_name == 'pull_request' || "
-        "(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/task/')) }}"
-    ) in WORKFLOW
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in WORKFLOW
 
 
 def test_linux_python_patch_is_declared_once_at_workflow_scope():
@@ -72,8 +76,8 @@ def test_quality_and_three_serial_lanes_are_independent_and_locked():
 
     for job in (quality, test):
         assert "needs: classify" in job
-        assert "needs.classify.result != 'success' || (needs.classify.outputs.mode != 'docs'" in job
-        assert "&& needs.classify.outputs.delegated != 'true')" in job
+        assert "needs.classify.result != 'success' || needs.classify.outputs.mode != 'docs'" in job
+        assert "delegated" not in job
         assert "needs: quality" not in job
     assert "uv sync --locked" in quality
     assert "uv sync --locked" in test
@@ -142,10 +146,7 @@ def test_lane_artifacts_keep_timing_junit_metadata_and_distinct_provenance():
 def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
     checks = _job("checks")
 
-    assert checks.startswith(
-        "    if: ${{ always() && (needs.classify.result != 'success' || "
-        "needs.classify.outputs.delegated != 'true') }}\n"
-    )
+    assert checks.startswith("    if: ${{ always() }}\n")
     assert "      - quality\n" in checks
     assert "      - test\n" in checks
     assert "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0" in checks
@@ -222,27 +223,20 @@ def test_checks_enforces_full_rerun_only_before_content_verdicts():
     assert 'if [ "$attempt_status" -ne 0 ]' in checks
 
 
-def test_event_delegation_is_explicit_non_gate_and_keeps_evidence_sets_separate():
+def test_event_provenance_cannot_skip_candidate_gates_or_wait_for_another_run():
     classify = _job("classify", "docs")
     assert "scripts/ci_event_route.py" in classify
-    assert "delegated: ${{ steps.event-route.outputs.delegated }}" in classify
-    assert "GH_TOKEN: ${{ github.token }}" in classify
-    assert "contents: read" in classify
-    assert "pull-requests: read" in classify
-    assert "actions: read" in classify
+    assert "delegated" not in WORKFLOW
+    assert "GH_TOKEN" not in classify
     assert "name: event-decision-${{ github.run_id }}-${{ github.run_attempt }}" in classify
     for name in ("quality", "test", "windows-smoke"):
         assert (
             "always() && (needs.classify.result != 'success' || "
-            "(needs.classify.outputs.mode != 'docs' && "
-            "needs.classify.outputs.delegated != 'true'))"
+            "needs.classify.outputs.mode != 'docs')"
         ) in _job(name)
     checks = _job("checks")
-    assert (
-        "needs.classify.result != 'success' || needs.classify.outputs.delegated != 'true'"
-    ) in checks
-    assert "event-decision" not in checks
-    assert "if [ \"$route\" = docs ]; then" in checks
+    assert checks.startswith("    if: ${{ always() }}\n")
+    assert 'if [ "$route" = docs ]; then' in checks
     assert "verify-attempt" in checks and "ci_windows_smoke.py" in checks
 
 
