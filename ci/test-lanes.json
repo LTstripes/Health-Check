@@ -97,6 +97,7 @@
       "tests/test_dashboard_ui.py",
       "tests/test_demo_tooling.py",
       "tests/test_google_normalization.py",
+      "tests/test_google_exercise.py",
       "tests/test_google_steps_countsum.py",
       "tests/test_google_steps_summary.py",
       "tests/test_steps_presentation.py",

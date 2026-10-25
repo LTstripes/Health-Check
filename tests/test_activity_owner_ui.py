@@ -219,7 +219,9 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         assert "Последние сессии" in primary and "Сравнить сессии" in primary
         assert 'id="source-form"' not in primary
         assert 'id="garmin-source-id"' not in primary
-        assert "Сессии Google пока не загружаются" in primary
+        assert "Сохранённые сессии Garmin и Google / Fitbit показаны раздельно" in primary
+        assert 'id="google-exercise"' in primary
+        assert "Сохранённых тренировок для этого выбора пока нет." in primary
         assert 'id="activity-a"' in primary and 'id="activity-b"' in primary
         assert 'id="activity-ids"' not in primary and " multiple " not in primary
         assert "B минус A" in primary and "относительно A" in primary

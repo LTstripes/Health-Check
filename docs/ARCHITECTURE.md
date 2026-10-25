@@ -2148,6 +2148,35 @@ table and provenance as the no-JavaScript fallback. This changes presentation on
 not acquisition, reader caps, currentness, timezone evidence or export schemas.
 
 
+#### Bounded Google exercise sessions (#531)
+
+[Exercise import v1](GOOGLE_EXERCISE_IMPORT.md) adds an explicit `google-exercise`
+command using the existing Google Health v4 HTTP/auth boundary and the optional
+activity readonly scope already used by Steps. Default streams, consent scopes,
+collection scheduling and owner refresh are unchanged. Real access remains a
+separate operational check. The command selects `exercise/list/google-wearables`
+over explicit 1-14 civil start dates, following continuation tokens within four
+pages and twelve data attempts; a budget/error is partial, never complete history.
+
+Immutable acquisition context and raw pages retain evidence; source-specific
+provider resource names identify sessions and `updateTime` orders corrections.
+Stale revisions cannot replace newer ones; conflicting equal revisions invalidate
+the current projection until a newer correction. Replay validates the original
+window across all source partitions. Optional active duration remains distinct
+from elapsed duration and from missing/null/invalid/zero. Source UTC offsets drive
+local timestamps. Google calories are excluded pending an unambiguous contract.
+
+The existing Activity page includes a separate saved Google / Fitbit section;
+source/date selection opens `/google/exercise`. Its reader bounds the search to
+25 sources and 200 sessions in one exact source, optionally 1-30 civil start dates.
+Overflow is explicitly incomplete without a successful prefix; provider history,
+pagination and finality remain unknown. Garmin values, totals and comparison
+packets stay separate, with no date-based deduplication. Migration
+`0020_google_exercise` extends existing CHECKs and preserves append-only guards;
+downgrade is blocked after exercise evidence exists. Authorized rollout requires a
+verified recoverable pre-migration profile/artifact backup, restored through the
+established recovery procedure if rollback is needed.
+
 | Layer | Tables | Contract |
 | --- | --- | --- |
 | Raw bytes | `raw_artifacts` plus `artifacts/google/payloads/<aa>/<sha256>.<ext>` | Content-addressed reuse. |

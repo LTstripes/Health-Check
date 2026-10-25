@@ -31,6 +31,7 @@ from healthcheck.google.daily_vitals import (
     GOOGLE_DAILY_VITALS,
     read_google_daily_vitals,
 )
+from healthcheck.google.exercise_read import read_saved_exercise
 from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
@@ -48,6 +49,7 @@ from healthcheck.web.owner_presentation import (
     owner_activity_type,
     owner_activity_types,
     owner_date,
+    owner_duration,
     owner_number,
 )
 from healthcheck.web.period_brief_query import PeriodBriefService
@@ -95,6 +97,7 @@ from healthcheck.weekly_digest import (
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 templates.env.filters.update(owner_date=owner_date, owner_number=owner_number)
+templates.env.filters.update(owner_duration=owner_duration)
 templates.env.filters.update(owner_activity_count=owner_activity_count,
                              owner_activity_type=owner_activity_type,
                              owner_activity_types=owner_activity_types)
@@ -1215,6 +1218,7 @@ def garmin_dashboard_page(
                 start_date=start_date,
                 end_date=end_date,
             )
+            google_exercise = read_saved_exercise(session)
     except GarminQueryError as exc:
         return render_error(
             request, code=exc.code, message=exc.message, status_code=exc.status_code
@@ -1225,7 +1229,34 @@ def garmin_dashboard_page(
         from healthcheck.web.garmin_query import unavailable_dashboard_payload
 
         payload = unavailable_dashboard_payload(reason="database_unavailable")
-    return render(request, "garmin.html", {"payload": payload, "page": "garmin"})
+        google_exercise = None
+    return render(
+        request, "garmin.html",
+        {"payload": payload, "google_exercise": google_exercise, "page": "garmin"},
+    )
+
+
+@router.get("/google/exercise", response_class=HTMLResponse)
+def google_exercise_page(
+    request: Request, source_id: str | None = None,
+    start_date: date | None = None, end_date: date | None = None,
+) -> HTMLResponse:
+    try:
+        with session_scope(request_engine(request)) as session:
+            packet = read_saved_exercise(
+                session, source_id=source_id, start_date=start_date, end_date=end_date
+            )
+    except ValueError:
+        return render_error(request, code="invalid_google_exercise_selection",
+                            message="Выбери источник и период от 1 до 30 дней.", status_code=400)
+    except SQLAlchemyError as exc:
+        if not database_unavailable(exc):
+            return _persist_error(request, "google_exercise")
+        return render_error(request, code="database_unavailable",
+                            message="Сохранённые тренировки недоступны.", status_code=503)
+    return render(
+        request, "google_exercise_page.html", {"google_exercise": packet, "page": "garmin"}
+    )
 
 
 @router.get("/imports", response_class=HTMLResponse)

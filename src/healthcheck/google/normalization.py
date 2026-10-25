@@ -287,6 +287,19 @@ def normalize_google_payload(
     """
 
     normalized_stream = _normalize_stream(stream)
+    if normalized_stream is GoogleStream.EXERCISE:
+        from healthcheck.google.exercise import CONTRACT, normalize_exercise_payload
+
+        if normalization_contract_version not in {None, CONTRACT}:
+            raise ValueError("unsupported exercise normalization contract")
+        if source_identity is None:
+            raise ValueError("exercise requires explicit source identity")
+        if query is not None and query_context is not None and query != query_context:
+            raise ValueError("query and query_context cannot disagree")
+        return normalize_exercise_payload(
+            payload, source_identity=source_identity,
+            query=query or query_context or GoogleQueryContext(GoogleQueryMode.LIST),
+        )
     if normalization_contract_version is None:
         normalization_contract_version = (
             STEPS_CONTRACT_VERSION

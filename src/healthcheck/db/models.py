@@ -2050,7 +2050,7 @@ class GoogleRawPayload(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps', 'exercise')",
             name="stream_code_allowed",
         ),
         CheckConstraint("payload_format IN ('json', 'binary')", name="payload_format_allowed"),
@@ -2124,7 +2124,7 @@ class GooglePayloadObservation(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps', 'exercise')",
             name="stream_code_allowed",
         ),
         CheckConstraint(
@@ -2224,7 +2224,7 @@ class GoogleSourceRecord(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps', 'exercise')",
             name="stream_code_allowed",
         ),
         CheckConstraint(
@@ -2410,7 +2410,7 @@ class GoogleRecordInterval(Base):
             name="uq_google_record_intervals_kind_ordinal",
         ),
         CheckConstraint(
-            "interval_kind IN ('roll_up', 'daily_roll_up')",
+            "interval_kind IN ('roll_up', 'daily_roll_up', 'exercise_session')",
             name="interval_kind_allowed",
         ),
         CheckConstraint(
@@ -2612,7 +2612,7 @@ class GoogleNormalizationAttempt(Base):
         CheckConstraint(
             "stream_code IN ('sleep', 'heart_rate', 'hrv', 'daily_hrv', "
             "'daily_resting_hr', 'spo2', 'daily_spo2', "
-            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps')",
+            "'respiratory_rate_sleep', 'daily_respiratory_rate', 'steps', 'exercise')",
             name="stream_code_allowed",
         ),
         CheckConstraint(

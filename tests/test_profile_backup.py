@@ -643,7 +643,7 @@ def test_saved_summary_date_proof_backup_restore_preserves_raw_and_append_only_g
         engine.dispose()
     archive = external_tmp_path / "saved-date-profile.zip"
     create_backup(paths.root, archive)
-    assert verify_backup(archive).migration_revision == "0019_garmin_summary_date_proofs"
+    assert verify_backup(archive).migration_revision == "0020_google_exercise"
     target = external_tmp_path / "restored"
     restore_profile(archive, target)
     restored_paths = prepare_runtime(Settings(data_dir=target))

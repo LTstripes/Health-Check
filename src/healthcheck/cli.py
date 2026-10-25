@@ -146,6 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
             "garmin-reprocess",
             "google-auth",
             "google-steps",
+            "google-exercise",
             "google-capabilities",
             "google-sync",
             "google-backfill",
@@ -400,6 +401,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_google_auth(args, settings)
     if args.command == "google-steps":
         return _run_google_steps(args, settings)
+    if args.command == "google-exercise":
+        return _run_google_exercise(args, settings)
     if args.command == "google-capabilities":
         return _run_google_capabilities(args, settings)
     if args.command == "google-sync":
@@ -719,6 +722,39 @@ def _run_google_steps(args: argparse.Namespace, settings: Settings) -> int:
     except (OSError, ValueError):
         report = _google_error_payload(ACQUISITION_CONTRACT, "invalid_steps_request")
         print(json.dumps(report, sort_keys=True))
+        return 2
+    print(json.dumps(report, sort_keys=True))
+    return 0 if report["status"] in {"planned", "observed"} else 1
+
+
+def _run_google_exercise(args: argparse.Namespace, settings: Settings) -> int:
+    from healthcheck.google.auth import UrllibGoogleHttpTransport
+    from healthcheck.google.exercise import ACQUISITION_CONTRACT as EXERCISE_CONTRACT
+    from healthcheck.google.exercise import MAX_PAGE_BYTES
+    from healthcheck.google.exercise_import import ExerciseImportPlan, acquire_exercise
+
+    try:
+        if (args.dry_run == args.apply or args.dates or args.streams or args.query_mode
+                or args.force_reauth or args.reprocess or args.max_observations
+                or args.trailing_window_days or args.reset):
+            raise ValueError("explicit exercise import request required")
+        plan = ExerciseImportPlan.build(args.start, args.end, args.family)
+        if args.dry_run:
+            report = plan.preview()
+        else:
+            if not args.data_dir or not Path(args.data_dir).is_absolute():
+                raise ValueError("exercise apply requires explicit absolute profile")
+            http = UrllibGoogleHttpTransport(max_response_bytes=MAX_PAGE_BYTES)
+            report = acquire_exercise(settings, plan, auth_service=GoogleAuthService(
+                settings, include_steps=True, transport=http,
+            ))
+    except (ExternalRuntimeOperationBusyError, ExternalRuntimeOperationLockError) as exc:
+        return _report_external_runtime_operation_error(
+            exc, contract_version=EXERCISE_CONTRACT, operation="google-exercise"
+        )
+    except (OSError, ValueError, SQLAlchemyError):
+        print(json.dumps(_google_error_payload(EXERCISE_CONTRACT, "invalid_exercise_request"),
+                         sort_keys=True))
         return 2
     print(json.dumps(report, sort_keys=True))
     return 0 if report["status"] in {"planned", "observed"} else 1

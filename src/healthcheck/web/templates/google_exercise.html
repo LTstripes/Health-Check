@@ -1,0 +1,35 @@
+<section class="card" id="google-exercise" aria-label="Сохранённые тренировки Google / Fitbit">
+ <h2>Тренировки Google / Fitbit</h2>
+ {% if google_exercise.sources %}
+ <form method="get" action="/google/exercise">
+  <label>Источник <select name="source_id"><option value="">Выбери источник</option>
+   {% for source in google_exercise.sources %}<option value="{{ source.source_id }}"{% if source.source_id == google_exercise.selected_source_id %} selected{% endif %}>{{ source.label }}</option>{% endfor %}
+  </select></label>
+  {% if google_exercise.start_date %}<input type="hidden" name="start_date" value="{{ google_exercise.start_date }}"><input type="hidden" name="end_date" value="{{ google_exercise.end_date }}">{% endif %}
+  <button type="submit">Показать</button>
+ </form>
+ {% endif %}
+ {% if google_exercise.selected_source_id %}
+ <form method="get" action="/google/exercise">
+  <input type="hidden" name="source_id" value="{{ google_exercise.selected_source_id }}">
+  <label>С <input type="date" name="start_date" required value="{{ google_exercise.start_date or '' }}"></label>
+  <label>По <input type="date" name="end_date" required value="{{ google_exercise.end_date or '' }}"></label>
+  <button type="submit">Показать период до 30 дней</button>
+ </form>
+ {% endif %}
+ {% if google_exercise.reason == 'selection_required' %}<p>Выбери источник Google.</p>
+ {% elif not google_exercise.search_complete %}<p role="status">Список неполный. Выбери период до 30 дней.</p>
+ {% elif not google_exercise.sessions %}<p>Сохранённых тренировок для этого выбора пока нет.</p>{% endif %}
+ {% if google_exercise.sessions %}<div class="table-scroll" tabindex="0" role="region" aria-label="Сессии Google / Fitbit"><table>
+  <thead><tr><th>Тип</th><th>Начало · местное время</th><th>Окончание · местное время</th><th>В движении</th><th>С паузами</th></tr></thead>
+  <tbody>{% for item in google_exercise.sessions %}<tr data-google-exercise="{{ item.record_id }}">
+   <td>{{ ('cycling' if item.type == 'BIKING' else item.type|lower)|owner_activity_type if item.type else 'Недоступно' }}</td>
+   <td>{{ item.start_local|owner_date if item.start_local else 'Недоступно' }}{% if item.start_offset_label %}<small> UTC{{ item.start_offset_label }}</small>{% endif %}</td><td>{{ item.end_local|owner_date if item.end_local else 'Недоступно' }}{% if item.end_offset_label %}<small> UTC{{ item.end_offset_label }}</small>{% endif %}</td>
+   <td>{% if item.active_seconds is not none %}{{ item.active_seconds|owner_duration }}{% else %}Не предоставлено{% endif %}</td>
+   <td>{% if item.elapsed_seconds is not none %}{{ item.elapsed_seconds|owner_duration }}{% else %}Недоступно{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+ </table></div>{% endif %}
+ <p class="muted">Только сохранённые сессии выбранного источника. Полнота истории неизвестна. Ручные записи и Health Connect в этот выбор не входят.</p>
+ <details class="owner-details"><summary>ⓘ О времени и длительности</summary><p>«В движении» — активная длительность Google без пауз; «С паузами» — время между началом и окончанием. Время показано с исходными смещениями UTC, которые могут различаться в начале и конце. Данные Garmin и Google показаны отдельно.</p></details>
+</section>
+<script src="/static/google_exercise.js"></script>
