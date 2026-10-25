@@ -23,8 +23,8 @@
  {% if google_exercise.sessions %}<div class="table-scroll" tabindex="0" role="region" aria-label="Сессии Google / Fitbit"><table>
   <thead><tr><th>Тип</th><th>Начало · местное время</th><th>Окончание · местное время</th><th>В движении</th><th>С паузами</th></tr></thead>
   <tbody>{% for item in google_exercise.sessions %}<tr data-google-exercise="{{ item.record_id }}">
-   <td>{{ item.type or 'Недоступно' }}</td>
-   <td>{{ item.start_local|replace('T', ' ') if item.start_local else 'Недоступно' }}{% if item.start_offset_label %}<small> UTC{{ item.start_offset_label }}</small>{% endif %}</td><td>{{ item.end_local|replace('T', ' ') if item.end_local else 'Недоступно' }}{% if item.end_offset_label %}<small> UTC{{ item.end_offset_label }}</small>{% endif %}</td>
+   <td>{{ ('cycling' if item.type == 'BIKING' else item.type|lower)|owner_activity_type if item.type else 'Недоступно' }}</td>
+   <td>{{ item.start_local|owner_date if item.start_local else 'Недоступно' }}{% if item.start_offset_label %}<small> UTC{{ item.start_offset_label }}</small>{% endif %}</td><td>{{ item.end_local|owner_date if item.end_local else 'Недоступно' }}{% if item.end_offset_label %}<small> UTC{{ item.end_offset_label }}</small>{% endif %}</td>
    <td>{% if item.active_seconds is not none %}{{ item.active_seconds|owner_duration }}{% else %}Не предоставлено{% endif %}</td>
    <td>{% if item.elapsed_seconds is not none %}{{ item.elapsed_seconds|owner_duration }}{% else %}Недоступно{% endif %}</td>
   </tr>{% endfor %}</tbody>

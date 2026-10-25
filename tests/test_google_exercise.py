@@ -325,7 +325,16 @@ def test_reader_bound_returns_incomplete_without_prefix(database, monkeypatch):
     assert packet["reason"] == "session_search_incomplete"
 
 
-def test_ui_reads_saved_source_separately_and_null_is_unavailable(tmp_path):
+@pytest.mark.parametrize(
+    "exercise_type,label",
+    [
+        ("RUNNING", "Бег"),
+        ("BIKING", "Велосипед"),
+        ("WALKING", "Ходьба"),
+        ("FUTURE_UNKNOWN_TYPE", "Другой вид активности"),
+    ],
+)
+def test_ui_reads_saved_source_separately_and_null_is_unavailable(tmp_path, exercise_type, label):
     from fastapi.testclient import TestClient
 
     from healthcheck.db.engine import create_sqlite_engine, session_scope
@@ -336,17 +345,30 @@ def test_ui_reads_saved_source_separately_and_null_is_unavailable(tmp_path):
     engine = create_sqlite_engine(paths)
     try:
         with session_scope(engine) as session:
+            raw = payload(duration=None)
+            exercise = raw["dataPoints"][0]["exercise"]
+            exercise["exerciseType"] = exercise_type
+            exercise["interval"].update(
+                startTime="2099-01-02T22:45:17Z", endTime="2099-01-02T23:20:18Z"
+            )
             persist_exercise_page(
                 session,
                 payload_store=ContentAddressedGooglePayloadStore(paths.root / "artifacts"),
-                payload=payload(duration=None),
+                payload=raw,
             )
+            saved = read_saved_exercise(session)["sessions"][0]
+            assert saved["type"] == exercise_type and saved["start_local"].endswith("01:45:17")
         with TestClient(
             app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
         ) as client:
             response = client.get("/google/exercise")
             assert response.status_code == 200
-            assert "RUNNING" in response.text and "Не предоставлено" in response.text
+            assert label in response.text and exercise_type not in response.text
+            assert "Не предоставлено" in response.text
+            assert "3 января 2099, 01:45" in response.text
+            assert "3 января 2099, 02:20" in response.text
+            assert "UTC+03:00" in response.text
+            assert "01:45:17" not in response.text and "02:20:18" not in response.text
             assert "Полнота истории неизвестна" in response.text
             assert "999" not in response.text
             assert client.get("/google/exercise?source_id=unknown").status_code == 400
