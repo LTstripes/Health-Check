@@ -22,7 +22,11 @@ STREAMS = (
 
 def _change(include: bool) -> None:
     for table in TABLES:
-        with op.batch_alter_table(table, recreate="always") as batch:
+        # Reflect this table's FK definitions, not the recursively connected schema.
+        # Alembic's batch copier supplies referent metadata for the preserved FKs.
+        with op.batch_alter_table(
+            table, recreate="always", reflect_kwargs={"resolve_fks": False}
+        ) as batch:
             batch.drop_constraint(op.f(f"ck_{table}_stream_code_allowed"), type_="check")
             batch.create_check_constraint(
                 "stream_code_allowed",
@@ -35,7 +39,9 @@ def _change(include: bool) -> None:
                     f"BEFORE {action} ON {table} BEGIN "
                     f"SELECT RAISE(ABORT, '{table} are append-only'); END"
                 )
-    with op.batch_alter_table("google_record_intervals", recreate="always") as batch:
+    with op.batch_alter_table(
+        "google_record_intervals", recreate="always", reflect_kwargs={"resolve_fks": False}
+    ) as batch:
         batch.drop_constraint(
             op.f("ck_google_record_intervals_interval_kind_allowed"), type_="check"
         )

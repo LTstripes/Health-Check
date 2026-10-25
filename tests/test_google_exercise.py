@@ -490,7 +490,8 @@ def test_civil_precision_and_deep_json_fail_closed():
 
 def test_upgrade_preserves_existing_steps_and_safe_empty_downgrade(database):
     from alembic import command
-    from sqlalchemy import select, text
+    from sqlalchemy import event, inspect, select, text
+    from sqlalchemy.engine import Engine
 
     from healthcheck.db.engine import _alembic_config
     from healthcheck.db.models import GoogleRawPayload
@@ -501,9 +502,54 @@ def test_upgrade_preserves_existing_steps_and_safe_empty_downgrade(database):
     persist_steps(database, steps_payload("123"))
     before = [(r.id, r.content_hash) for r in session.scalars(select(GoogleRawPayload))]
     session.commit()
+    tables = (
+        "google_sources",
+        "google_raw_payloads",
+        "google_payload_observations",
+        "google_source_records",
+        "google_record_intervals",
+        "google_record_metrics",
+        "google_normalization_attempts",
+    )
+
+    def snapshot():
+        connection = session.connection()
+        inspector = inspect(connection)
+
+        def stable(items):
+            return sorted(items, key=lambda item: json.dumps(item, sort_keys=True, default=str))
+
+        return {
+            table: (
+                session.execute(text(f"SELECT * FROM {table} ORDER BY id")).all(),
+                stable(inspector.get_indexes(table)),
+                stable(inspector.get_foreign_keys(table)),
+                stable(inspector.get_check_constraints(table)),
+            )
+            for table in tables
+        }
+
+    schema_and_rows = snapshot()
+    session.commit()
+    reflected_tables = set()
+
+    def reflected(_connection, _cursor, statement, *_args):
+        match = re.search(
+            r'PRAGMA\s+(?:main|temp)\.table_(?:xinfo|info)\("([^"]+)"\)', statement, re.IGNORECASE
+        )
+        if match:
+            reflected_tables.add(match[1])
+
     config = _alembic_config(paths)
-    command.downgrade(config, "0019_garmin_summary_date_proofs")
-    command.upgrade(config, "head")
+    event.listen(Engine, "before_cursor_execute", reflected)
+    try:
+        command.downgrade(config, "0019_garmin_summary_date_proofs")
+        command.upgrade(config, "head")
+    finally:
+        event.remove(Engine, "before_cursor_execute", reflected)
+    changed = set(tables) - {"google_sources", "google_record_metrics"}
+    assert changed <= reflected_tables <= changed | {"alembic_version"}
+    assert snapshot() == schema_and_rows
     after = [(r.id, r.content_hash) for r in session.scalars(select(GoogleRawPayload))]
     assert after == before
     assert not session.execute(text("PRAGMA foreign_key_check")).all()
