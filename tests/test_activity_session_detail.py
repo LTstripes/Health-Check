@@ -104,6 +104,58 @@ def _seed_detail(paths):
     return _persist(paths, {"activities": _detail_activities()}, stream="activity")
 
 
+@pytest.mark.parametrize(("present", "value", "state"), [
+    (True, 350, "value"), (True, 0, "zero"), (True, None, "null"),
+    (False, None, "missing"), (True, -1, "invalid"),
+])
+def test_session_total_calories_card_preserves_native_value_and_state(
+    tmp_path, present, value, state,
+):
+    app, settings, paths = _ui(tmp_path)
+    activities = _detail_activities()
+    activities[0]["bmrCalories"] = 40
+    if present:
+        activities[0]["calories"] = value
+    activities[1]["calories"] = 0
+    source = _persist(paths, {"activities": activities}, stream="activity")
+    ids = _activity_ids(paths, source)
+    first, second = ids["detail-tennis-1"], ids["detail-tennis-2"]
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            detail = GarminQueryService(session, settings).activity_session_detail(
+                garmin_source_id=source, activity_record_id=first,
+            )
+            cards = [c for c in detail["cards"] if c["metric_code"] == "session_total_calories"]
+            assert len(cards) == 1
+            assert cards[0] == {"metric_code": "session_total_calories", "state": state,
+                                "value": value if state in {"value", "zero"} else None,
+                                "unit": None}
+            compared = compute_garmin_activity_comparison(
+                session, garmin_source_id=source, activity_record_ids=[first, second],
+                reference_activity_id=first, metric_codes=["session_total_calories"],
+            )
+            metric = compared.as_dict()["comparisons"][0]["metrics"][0]
+            assert metric["unit"] is None
+            assert metric["status"] == ("compared" if state in {"value", "zero"}
+                                          else "not_computable")
+    finally:
+        engine.dispose()
+    with client_for(app) as client:
+        page = client.get(
+            "/garmin/session", params={"garmin_source_id": source, "record_id": first},
+        )
+    assert page.status_code == 200
+    card = _card(page.text, "session_total_calories")
+    assert "Калории за занятие, всего" in card
+    assert "ккал" not in card and "Активные" not in card
+    assert "calories" not in card
+    if state in {"value", "zero"}:
+        assert f'data-owner-state="present">{value:.1f}</span>' in card
+    else:
+        assert 'data-owner-state="present"' not in card
+
+
 def _records(paths, source_id, *, stream_code="activity"):
     engine = create_sqlite_engine(paths)
     try:
@@ -338,7 +390,7 @@ def test_detail_read_matches_comparison_coverage_and_is_deterministic(tmp_path):
                 garmin_source_id=source, activity_record_id=first
             )
             assert detail == repeat
-            assert detail["contract_version"] == "garmin-activity-session-owner-view-v1"
+            assert detail["contract_version"] == "garmin-activity-session-owner-view-v2"
             assert detail["source"]["id"] == source
             body = detail["session"]
             coverage = {item["metric_code"]: item for item in body["metric_coverage"]}

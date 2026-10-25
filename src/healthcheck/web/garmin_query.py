@@ -135,8 +135,9 @@ DEFAULT_WINDOW_DAYS = 28
 
 # Owner saved-session detail (#345): core cards always render with exact states;
 # typed #319 extras render only when the persisted session actually has a value.
-ACTIVITY_SESSION_DETAIL_VIEW_CONTRACT = "garmin-activity-session-owner-view-v1"
+ACTIVITY_SESSION_DETAIL_VIEW_CONTRACT = "garmin-activity-session-owner-view-v2"
 _ACTIVITY_SESSION_DETAIL_CORE_CODES = (
+    "session_total_calories",
     "duration_seconds",
     "distance_meters",
     "heart_rate_bpm",

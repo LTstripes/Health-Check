@@ -216,6 +216,19 @@ ANALYTIC_METRIC_REGISTRY: dict[str, AnalyticMetricDefinition] = {
         source_field_paths=("distance", "distanceMeters"),
         description="Activity session total distance in meters.",
     ),
+    "session_total_calories": AnalyticMetricDefinition(
+        metric_code="session_total_calories",
+        capability_code="activities",
+        unit=None,
+        aggregate_kind=AggregateKind.SESSION_TOTAL,
+        window="activity_session",
+        source_field_paths=("calories",),
+        description=(
+            "Garmin-reported session total calories, including resting energy. "
+            "Native value with unspecified wire unit; no kcal conversion, BMR subtraction "
+            "or elapsed/moving time-basis inference."
+        ),
+    ),
     "speed_mps": AnalyticMetricDefinition(
         metric_code="speed_mps",
         capability_code="cycling_metrics",
@@ -310,6 +323,7 @@ SURFACE_ANALYTIC_METRIC_CODES: dict[str, tuple[str, ...]] = {
         "nap_duration_seconds",
     ),
     "activities": (
+        "session_total_calories",
         "duration_seconds",
         "distance_meters",
         "speed_mps",

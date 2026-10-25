@@ -12,6 +12,7 @@ import pytest
 from healthcheck.garmin.capabilities import CapabilityStatus, get_capability
 from healthcheck.garmin.contracts import load_synthetic_fixture
 from healthcheck.garmin.normalization import (
+    ACTIVITY_NORMALIZATION_CONTRACT_VERSION,
     SLEEP_TIMING_CONTRACT_VERSION,
     GarminFieldState,
     GarminParseStatus,
@@ -41,6 +42,7 @@ def raw_fixture(name: str) -> dict:
         ("maxHR", "max_heart_rate_bpm", "bpm"),
         ("aerobicTrainingEffect", "training_effect", "points"),
         ("anaerobicTrainingEffect", "anaerobic_training_effect", "points"),
+        ("calories", "session_total_calories", None),
     ],
 )
 @pytest.mark.parametrize(
@@ -72,7 +74,7 @@ def test_session_metrics_preserve_presence_and_typed_provenance(
             state, reason = "invalid", "nonpositive_heart_rate"
     result = normalize_garmin_payload(payload)
     metric = result.records[0].metric(code)
-    assert result.contract_version == "garmin-activity-quality-v1"
+    assert result.contract_version == ACTIVITY_NORMALIZATION_CONTRACT_VERSION
     assert metric.state.value == state
     assert metric.field_path == f"payload.activities.{leaf}"
     assert metric.unit == unit
@@ -81,7 +83,24 @@ def test_session_metrics_preserve_presence_and_typed_provenance(
     assert metric.is_zero is (state == "value" and value == 0)
     assert metric.source_device_attributed is False
     assert metric.device_evidence is False
-    assert metric.capability_status is (None if leaf == "maxHR" else CapabilityStatus.UNVERIFIED)
+    assert metric.capability_status is (
+        None if leaf in {"maxHR", "calories"} else CapabilityStatus.UNVERIFIED
+    )
+
+
+@pytest.mark.parametrize("value", [0, 0.5, 350, None, -1])
+def test_session_total_calories_never_combine_or_fall_back_to_bmr(value):
+    payload = raw_fixture("activity")
+    activity = payload["payload"]["activities"][0]
+    activity.update(calories=value, bmrCalories=40, activeCalories=310)
+    metric = normalize_garmin_payload(payload).records[0].metric("session_total_calories")
+    assert metric.state.value == ("null" if value is None else "invalid" if value < 0 else "value")
+    assert metric.value == (value if value is not None and value >= 0 else None)
+    assert metric.unit is None
+    del activity["calories"]
+    metric = normalize_garmin_payload(payload).records[0].metric("session_total_calories")
+    assert metric.state is GarminFieldState.MISSING
+    assert metric.value is None
 
 
 @pytest.mark.parametrize("primary", [None, 0, True, "bad", 2.3])

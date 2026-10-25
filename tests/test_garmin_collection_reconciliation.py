@@ -28,6 +28,7 @@ from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.auth import GarminAuthResult, GarminAuthStatus
 from healthcheck.garmin.backfill import run_garmin_historical_backfill
 from healthcheck.garmin.normalization import (
+    ACTIVITY_NORMALIZATION_CONTRACT_VERSION,
     NORMALIZATION_CONTRACT_VERSION,
     GarminSourceIdentity,
     normalize_garmin_payload,
@@ -56,6 +57,70 @@ from healthcheck.runtime import resolve_runtime_paths
 from test_garmin_incremental_sync import FakeSyncClient, _engine_factory
 
 AS_OF = date(2099, 1, 2)
+
+
+def test_offline_reprocess_adds_total_calories_to_saved_v1_and_converges(tmp_path, monkeypatch):
+    # Retained provider-shaped bytes contain the field, but the old projection did not.
+    activities = [dict(_activity(i), calories=value, bmrCalories=40)
+                  for i, value in [(101, 350), (102, 0), (103, None)]]
+    activities.append(_activity(104))
+    def old_normalize(*args, **kwargs):
+        result = normalize_garmin_payload(*args, **kwargs)
+        if result.stream.value != "activity":
+            return result
+        return replace(result, contract_version="garmin-activity-quality-v1", records=tuple(
+            replace(record, metrics=tuple(m for m in record.metrics
+                                          if m.metric_code != "session_total_calories"))
+            for record in result.records
+        ))
+
+    # Create genuine historical observations; the append-only guard remains enabled.
+    with monkeypatch.context() as patch:
+        patch.setattr("healthcheck.garmin.sync.normalize_garmin_payload", old_normalize)
+        _run(tmp_path, _client(activities=activities))
+    settings = Settings(data_dir=tmp_path / "runtime")
+    paths = resolve_runtime_paths(settings)
+    engine, factory = _engine_factory(tmp_path)
+    try:
+        with factory() as session:
+            rows = _activity_rows(session)
+            original_ids = {r.id for r in rows}
+            raw_ids = {r.raw_payload_id for r in rows}
+            assert all(r.normalization_contract_version == "garmin-activity-quality-v1"
+                       for r in rows)
+        raw_before = {p: p.read_bytes() for p in (paths.root / "artifacts").rglob("*")
+                      if p.is_file()}
+        dry = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF,
+                                  streams=["activities"], dry_run=True)
+        assert dry.processed_count == 0
+        with factory() as session:
+            assert not list(session.scalars(select(GarminRecordMetric).where(
+                GarminRecordMetric.record_id.in_(original_ids),
+                GarminRecordMetric.metric_code == "session_total_calories",
+            )))
+        report = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF, streams=["activities"])
+        assert report.status == "succeeded" and report.processed_count == 1
+        assert report.remaining_observation_count == 0
+        assert report.as_dict()["reprocess"]["provider_requests"] == 0
+        with factory() as session:
+            rows = _activity_rows(session)
+            assert {r.id for r in rows} == original_ids
+            assert {r.raw_payload_id for r in rows} == raw_ids
+            assert all(r.normalization_contract_version == ACTIVITY_NORMALIZATION_CONTRACT_VERSION
+                       for r in rows)
+            metrics = {r.external_record_id: session.scalar(select(GarminRecordMetric).where(
+                GarminRecordMetric.record_id == r.id,
+                GarminRecordMetric.metric_code == "session_total_calories",
+            )) for r in rows}
+            assert [(metrics[str(i)].state, metrics[str(i)].value_number)
+                    for i in (101, 102, 103, 104)] == [
+                        ("value", 350), ("value", 0), ("null", None), ("missing", None)]
+            assert all(m.unit is None for m in metrics.values())
+        again = run_garmin_reprocess(settings, start=AS_OF, end=AS_OF, streams=["activities"])
+        assert again.processed_count == 0 and again.remaining_observation_count == 0
+        assert {p: p.read_bytes() for p in raw_before} == raw_before
+    finally:
+        engine.dispose()
 
 
 def _hr(samples: list[Any], *, day: str = "2099-01-02") -> dict[str, Any]:
