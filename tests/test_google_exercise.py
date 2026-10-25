@@ -372,6 +372,7 @@ def test_ui_reads_saved_source_separately_and_null_is_unavailable(
         ) as client:
             response = client.get(path)
             assert response.status_code == 200
+            assert response.text.count('src="/static/google_exercise.js"') == 1
             assert label in response.text and exercise_type not in response.text
             assert "Не предоставлено" in response.text
             assert "3 января 2099, 01:45" in response.text
@@ -383,6 +384,18 @@ def test_ui_reads_saved_source_separately_and_null_is_unavailable(
             assert client.get("/google/exercise?source_id=unknown").status_code == 400
     finally:
         engine.dispose()
+
+
+def test_google_history_controls_match_applied_source_and_dates():
+    import subprocess
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["node", str(repo / "scripts/check_google_exercise_history.cjs")],
+        cwd=repo, check=True, capture_output=True, text=True, timeout=15,
+    )
+    assert "Back/Forward/reload/defaults/idempotence PASS" in result.stdout
 
 
 def test_activity_hook_keeps_garmin_and_ambiguous_google_sources_separate(tmp_path):
