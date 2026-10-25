@@ -201,7 +201,7 @@ def test_docs_routing_preserves_terminal_checks_and_full_fallback():
     assert "ci_docs_gate.py check" in docs
     for job in ("quality", "test", "windows-smoke"):
         assert "always() && (needs.classify.result != 'success'" in _job(job)
-    assert "always() && (needs.classify.result != 'success'" in checks
+    assert checks.startswith("    if: ${{ always() }}\n")
     assert "      - classify\n" in checks and "      - docs\n" in checks
     assert "CI_MODE: ${{ needs.classify.outputs.mode }}" in checks
     assert "CLASSIFY_RESULT: ${{ needs.classify.result }}" in checks
