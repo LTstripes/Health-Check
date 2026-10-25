@@ -17,7 +17,7 @@ import shutil
 import sqlite3
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -51,7 +51,11 @@ from healthcheck.db.models import (
     MeasurementSession,
     ScalarMeasurement,
 )
-from healthcheck.garmin.normalization import garmin_source_identity, normalize_garmin_payload
+from healthcheck.garmin.normalization import (
+    GarminFieldState,
+    garmin_source_identity,
+    normalize_garmin_payload,
+)
 from healthcheck.garmin.persistence import GarminPersistenceRepository
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.google.contracts import (
@@ -580,6 +584,17 @@ def _persist_garmin_activities(
     )
     payload = {"activities": sessions}
     normalized = normalize_garmin_payload(payload, stream="activity", source_identity=identity)
+    # Demo v2 is a frozen reset certificate, not a current provider projection.
+    # Its fixed payloads have no calories; retain the original missing-field shape
+    # and version, just as the Google v2 seed below retains its original shape.
+    normalized = replace(
+        normalized, contract_version="garmin-activity-quality-v1",
+        records=tuple(replace(record, metrics=tuple(
+            metric for metric in record.metrics
+            if metric.metric_code != "session_total_calories"
+            or metric.state is not GarminFieldState.MISSING
+        )) for record in normalized.records),
+    )
     repository.persist_result(
         normalized,
         payload=payload,
