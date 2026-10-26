@@ -86,9 +86,9 @@ def _period_mean(session, settings, *, window, source_id, metric_code, cached_se
 
 
 def read_completed_overview(session, settings, *, start, end, preset, source_id,
-                            evaluated_at, sleep_series=None):
+                            evaluated_at, sleep_series=None, window_at=None):
     window = completed_overview_window(start=start, end=end, preset=preset,
-                                       evaluated_at=evaluated_at)
+                                       evaluated_at=window_at or evaluated_at)
     sleep = _period_mean(session, settings, window=window, source_id=source_id,
                          metric_code="sleep_duration_seconds", cached_series=sleep_series)
     sleep["duration_display"] = metric_value(

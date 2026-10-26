@@ -363,6 +363,17 @@ remains eligible, incomplete reads withhold means and Google coverage stays unkn
 The selected-day 28-day Stress baseline reader
 remains available separately and its interpretation is unchanged.
 
+The #515 Overview detail navigation pins the selected window with an aware
+`period_at` query value: its original civil date anchors rolling controls and its
+Moscow date anchors completed days. Reader evaluation/freshness clocks remain current.
+Back/Reload and source changes retain that window; choosing a new period creates a
+new selection. Sleep drilldown passes the exact Garmin identity and completed 7/30
+dates to the existing source-range reader. Unsupported windows show a limitation
+instead of substituting 30 days. Activity drilldown uses the existing bounded
+`/statistics/sessions` reader with the original requested dates/source. Local return
+context survives filtering and session details; Statistics keeps its own return target.
+No reader limits, stored classifications, eligibility or aggregation rules change.
+
 Lag direction is named in APIs and evidence packets; ambiguous `correlation(metric_a, metric_b, lag=1)` contracts are forbidden.
 
 

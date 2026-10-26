@@ -132,8 +132,9 @@ def test_sleep_timeline_window_accepts_only_7_30_and_defaults_30():
     assert sleep_timeline_days(None) == SLEEP_TIMELINE_DEFAULT_DAYS
     assert sleep_timeline_days("7") == 7
     assert sleep_timeline_days("30") == 30
-    assert sleep_timeline_days("14") == 30
-    assert sleep_timeline_days("nope") == 30
+    for unsupported in ("14", "nope", "", "90", "0"):
+        with pytest.raises(ValueError):
+            sleep_timeline_days(unsupported)
 
 
 def test_timeline_point_note_keeps_states_distinct():
@@ -474,8 +475,8 @@ def test_sleep_timeline_windows_and_legacy_views_stay_available(tmp_path):
         assert 'aria-current="true" href="/sleep?view=timeline&amp;days=7' in week.text
         assert week.text.count("data-sleep-timeline-cell=") == 14
         invalid = client.get("/sleep?wake_date=2099-01-07&days=14")
-        assert invalid.status_code == 200
-        assert invalid.text.count("data-sleep-timeline-cell=") == 60
+        assert invalid.status_code == 400
+        assert "data-sleep-timeline-cell=" not in invalid.text
         assert "data-sleep-timeline" in client.get("/sleep?view=timeline&wake_date=2099-01-07").text
         assert "Выбранная ночь" in client.get(
             "/sleep?view=garmin&wake_date=2099-01-07"

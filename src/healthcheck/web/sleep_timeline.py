@@ -71,11 +71,9 @@ def sleep_timeline_days(value: str | None) -> int:
 
     if value is None:
         return SLEEP_TIMELINE_DEFAULT_DAYS
-    try:
-        days = int(value)
-    except (TypeError, ValueError):
-        return SLEEP_TIMELINE_DEFAULT_DAYS
-    return days if days in SLEEP_TIMELINE_WINDOWS else SLEEP_TIMELINE_DEFAULT_DAYS
+    if value not in {"7", "30"}:
+        raise ValueError("sleep timeline supports only 7 or 30 days")
+    return int(value)
 
 
 def timeline_point_note(point: Mapping[str, Any]) -> str:

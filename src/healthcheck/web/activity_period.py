@@ -1,4 +1,4 @@
-"""Statistics selection → saved sessions → unchanged #345 detail."""
+"""Overview/Statistics selection → saved sessions → unchanged #345 detail."""
 
 from datetime import date
 from pathlib import Path
@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from healthcheck.analytics.activity_period_sessions import read_activity_period_sessions
 from healthcheck.db.engine import session_scope
 from healthcheck.web.common import database_unavailable, request_engine
+from healthcheck.web.detail_navigation import local_return_href
 from healthcheck.web.owner_presentation import (
     owner_activity_count,
     owner_activity_type,
@@ -84,12 +85,14 @@ def activity_period_page(
     origin_end_date: date | None = None,
     google_source_id: str = "",
     origin_garmin_source_id: str | None = None,
+    return_to: str | None = None,
 ):
     if origin_period not in {"7", "30", "trailing365", "calendar_year", "year_to_date"}:
         return render_error(
             request, code="invalid_activity_period", message="Неверный период.", status_code=400
         )
     try:
+        overview_return = local_return_href(return_to, "/brief")
         with session_scope(request_engine(request)) as session:
             packet = read_activity_period_sessions(
                 session,
@@ -132,6 +135,9 @@ def activity_period_page(
     }
     if origin_garmin_source_id is not None:
         context_params["origin_garmin_source_id"] = origin_garmin_source_id
+    if overview_return:
+        context_params["return_to"] = overview_return
+    sessions_href = "/statistics/sessions?" + urlencode({**context_params, "sport": sport})
     for item in packet["sessions"]:
         item["detail_href"] = "/garmin/session?" + urlencode(
             {
@@ -142,19 +148,23 @@ def activity_period_page(
                 "origin_metric_code": metric_code,
                 "start_date": start_date,
                 "end_date": end_date,
+                "return_to": sessions_href,
             }
         )
     return templates.TemplateResponse(
         request=request,
         name="activity_period.html",
         context={
-            "page": "statistics",
+            "page": "brief" if overview_return else "statistics",
             "packet": packet,
             "metric_label": METRIC_LABELS[metric_code],
             "sport_labels": SPORT_LABELS,
             "context_params": context_params,
             "can_filter": metric_code in {"activity_session_count", "activity_type_counts"},
-            "back_href": "/statistics?" + urlencode(origin) + "#metric-" + metric_code,
+            "back_href": overview_return or (
+                "/statistics?" + urlencode(origin) + "#metric-" + metric_code),
+            "back_label": ("Вернуться к выбранному обзору" if overview_return
+                           else "Вернуться к выбранной статистике"),
         },
         headers={"Cache-Control": "no-store"},
     )

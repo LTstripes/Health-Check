@@ -4,6 +4,7 @@ import os
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ from healthcheck.web import pages
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.owner_presentation import owner_date
 from healthcheck.web.ui_app import create_ui_app
+from overview_html import parse_overview
 from test_body_battery_read import seed_battery
 from test_stress_baseline import acquire
 from test_stress_baseline import database as database
@@ -321,3 +323,193 @@ def test_weight_observed_gate_and_actual_ewma_legend(database, monkeypatch, valu
     if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):
         Path(target).mkdir(parents=True, exist_ok=True)
         Path(target, f"weight-{value}-{trend}.html").write_text(page.text, encoding="utf-8")
+
+
+def seed_detail_navigation(database):
+    source, settings = seed_completed(database)
+    repository = GarminPersistenceRepository(database[2], payload_store=database[3])
+    payload = {"activities": [
+        {"activityId": f"nav-{kind}", "activityType": {"typeKey": kind},
+         "calendarDate": f"2099-01-{day:02d}", "duration": 0 if kind == "cycling" else 3901.5,
+         **({"distance": 0} if kind == "cycling" else {})}
+        for kind, day in (("soccer", 3), ("football", 4), ("cycling", 5))
+    ]}
+    repository.persist_result(normalize_garmin_payload(payload, stream="activity",
+        source_identity=IDENTITY), payload=payload, received_at=NOW)
+    other = GarminSourceIdentity(source_kind="provider", provider_code="garmin_connect",
+        device_attributed=False, source_instance_id="synthetic-navigation-other")
+    payload = {"dailySleepDTO": {"calendarDate": "2099-01-03", "sleepTimeSeconds": 36000}}
+    repository.persist_result(normalize_garmin_payload(payload, stream="sleep",
+        source_identity=other), payload=payload, received_at=NOW)
+    database[2].commit()
+    return source, settings
+
+
+@pytest.mark.parametrize("days", [7, 30])
+def test_overview_sleep_sessions_and_return_keep_exact_selection(database, monkeypatch, days):
+    source, settings = seed_detail_navigation(database)
+    clock = [NOW + timedelta(hours=15)]  # Jan 8 requested, Jan 7 completed.
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0].astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
+    with TestClient(create_ui_app(settings)[0], base_url="http://127.0.0.1:8120") as client:
+        overview = client.get("/brief", params={"preset": str(days),
+            "period_at": clock[0].isoformat(), "garmin_source_id": source})
+        assert overview.status_code == 200
+        dom = parse_overview(overview.text)
+        frozen_href = dom.one("div", classes=("overview-a-plus",)).attrs["data-overview-href"]
+        links = {"sleep" if "сна" in link.text else "activity": link.attrs["href"]
+                 for link in dom.find("a", classes=("overview-detail-link",))}
+        sleep_query = parse_qs(urlsplit(links["sleep"]).query)
+        assert sleep_query["days"] == [str(days)]
+        assert sleep_query["wake_date"] == ["2099-01-07"]
+        assert sleep_query["garmin_source_id"] == [source]
+        assert sleep_query["return_to"] == [frozen_href]
+        sleep = client.get(links["sleep"])
+        assert sleep.status_code == 200
+        timeline = sleep.context["timeline"]
+        assert timeline["start_date"] == overview.context["overview"]["completed_window"][
+            "start_date"]
+        assert {series["source"]["source_id"] for series in timeline["series"]
+                if series["provider"] == "garmin"} == {source}
+        sleep_dom = parse_overview(sleep.text)
+        assert sleep_dom.one("a", **{"data-overview-return": None}).attrs["href"] == frozen_href
+        form = sleep_dom.one("form", **{"data-sleep-period-form": None})
+        assert form.one("input", name="garmin_source_id").attrs["value"] == source
+        assert form.one("input", name="return_to").attrs["value"] == frozen_href
+        # Re-enter the timeline through each existing Sleep mode, preserving the link context.
+        for tab in sleep_dom.one("nav", classes=("sleep-source-switch",)).find("a"):
+            mode = client.get(tab.attrs["href"])
+            assert mode.status_code == 200
+            timeline_link = parse_overview(mode.text).one(
+                "nav", classes=("sleep-source-switch",)).find("a")[0].attrs["href"]
+            restored = parse_qs(urlsplit(timeline_link).query)
+            assert restored["days"] == [str(days)] and restored["garmin_source_id"] == [source]
+            assert restored["return_to"] == [frozen_href]
+        sessions = client.get(links["activity"])
+        assert sessions.status_code == 200
+        sessions_dom = parse_overview(sessions.text)
+        rows = sessions_dom.find("tr", **{})
+        records = [row for row in rows if "data-session-record" in row.attrs]
+        assert len(records) == 3
+        assert "Футбол" in sessions_dom.text
+        assert "Поле отсутствует" in sessions_dom.text
+        assert "частичная запись" in sessions_dom.text
+        detail = client.get(records[0].one("a").attrs["href"])
+        assert detail.status_code == 200
+        back = parse_overview(detail.text).one(
+            "p", classes=("activity-session-back",)).one("a").attrs["href"]
+        returned_list = client.get(back)
+        assert len(returned_list.context["packet"]["sessions"]) == 3
+        assert returned_list.context["back_href"] == frozen_href
+        # Both source filter submission and detail return retain the original Overview.
+        filtered = dict(sessions.context["context_params"], sport="cycling")
+        cycling = client.get("/statistics/sessions?" + urlencode(filtered))
+        assert len(cycling.context["packet"]["sessions"]) == 1
+        cycle_detail = client.get(cycling.context["packet"]["sessions"][0]["detail_href"])
+        assert parse_qs(urlsplit(cycle_detail.context["back_href"]).query)["sport"] == ["cycling"]
+        assert client.get(cycle_detail.context["back_href"]).context["back_href"] == frozen_href
+        # A later Moscow day changes freshness evaluation, not the selected dates.
+        clock[0] += timedelta(days=1)
+        again = client.get(frozen_href)
+        assert again.context["packet"]["period"] == overview.context["packet"]["period"]
+        assert again.context["overview"]["completed_window"] == overview.context["overview"][
+            "completed_window"]
+        assert client.get(links["sleep"]).context["timeline"]["dates"] == timeline["dates"]
+        monkeypatch.setattr(
+            "healthcheck.analytics.activity_period_sessions.MAX_DISPLAY_SESSIONS", 2)
+        limited = client.get(links["activity"])
+        assert not limited.context["packet"]["complete"]
+        assert len(limited.context["packet"]["sessions"]) == 2
+        assert "Список неполный" in limited.text
+        assert limited.context["back_href"] == frozen_href
+
+
+@pytest.mark.parametrize("start,end,sleep_days,activity_available", [
+    ("2099-01-01", "2099-01-07", 7, True),
+    ("2098-12-09", "2099-01-07", 30, True),
+    ("2099-01-03", "2099-01-07", None, True),
+    ("2099-01-08", "2099-01-08", None, True),
+    ("2097-01-01", "2099-01-07", None, False),
+])
+def test_custom_detail_windows_never_reset_or_widen(
+    database, monkeypatch, start, end, sleep_days, activity_available,
+):
+    source, settings = seed_completed(database)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz)
+
+    monkeypatch.setattr(pages, "datetime", FrozenDatetime)
+    with TestClient(create_ui_app(settings)[0], base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief", params={"start_date": start, "end_date": end,
+                                          "garmin_source_id": source})
+        assert page.status_code == 200
+        links = page.context["overview_detail_links"]
+        assert bool(links["sleep"]) == (sleep_days is not None)
+        if sleep_days:
+            assert parse_qs(urlsplit(links["sleep"]).query)["days"] == [str(sleep_days)]
+        else:
+            card = parse_overview(page.text).one("div", **{"data-overview-period-sleep": None})
+            assert not card.find("a")
+        assert bool(links["activity"]) == activity_available
+        if activity_available:
+            query = parse_qs(urlsplit(links["activity"]).query)
+            assert (query["start_date"], query["end_date"]) == ([start], [end])
+        returned = client.get(page.context["overview_href"])
+        assert returned.context["overview"]["completed_window"] == page.context["overview"][
+            "completed_window"]
+
+
+def test_empty_navigation_and_invalid_context_do_not_substitute_sources(database):
+    settings = Settings(data_dir=database[0].root)
+    with TestClient(create_ui_app(settings)[0], base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief?start_date=2020-01-01&end_date=2020-01-07")
+        assert page.status_code == 200
+        assert page.context["overview_detail_links"] == {"sleep": None, "activity": None}
+        assert ("Данных за период для сводки пока нет. Это не означает нулевые значения."
+                in page.text)
+        for params in ({"days": "90"}, {"garmin_source_id": "unknown"},
+                       {"return_to": "https://example.com/brief"}):
+            assert client.get("/sleep", params=params).status_code == 400
+        for value in ("nope", "2020-01-01", "2999-01-01T00:00:00+00:00"):
+            assert client.get("/brief", params={"period_at": value}).status_code == 400
+
+
+@pytest.mark.parametrize("path,value", [
+    ("/brief", "//example.com/brief"),
+    ("/brief", "/brief?start_date=2020-01-01&start_date=2021-01-01"),
+    ("/brief", "/brief?unrecognized=7"),
+    ("/brief", "/brief#fragment"),
+    ("/statistics/sessions", "/statistics/sessions?return_to=https%3A%2F%2Fexample.com"),
+])
+def test_drilldown_return_is_a_bounded_local_selection(path, value):
+    from healthcheck.web.detail_navigation import local_return_href
+
+    with pytest.raises(ValueError):
+        local_return_href(value, path)
+
+
+def test_frozen_window_keeps_current_reader_evaluation_clock(database, monkeypatch):
+    source, settings = seed_completed(database)
+    observed = []
+    original = module.read_overview_body_battery
+
+    def capture(*args, **kwargs):
+        observed.append(kwargs["evaluated_at_utc"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, "read_overview_body_battery", capture)
+    now = NOW + timedelta(days=1)
+    result = module.read_completed_overview(database[2], settings, start=date(2099, 1, 2),
+        end=date(2099, 1, 8), preset="7", source_id=source, evaluated_at=now, window_at=NOW)
+    assert observed == [now]
+    assert result["completed_window"]["end_date"] == "2099-01-07"
+    assert result["period_sleep"]["eligible_days"] == 2
+    assert result["period_sleep"]["mean_value"] == 21600

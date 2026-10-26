@@ -47,7 +47,7 @@
   <ul class="brief-overview-list">
 {% for name, section, url, kind in [('Вес', weight, '/weight', 'weight'), ('Сон', sleep, '/sleep', 'sleep'), ('Сохранённые тренировки', activity, '/garmin', 'activity')] %}
     <li>
-      <div class="overview-metric-heading"><h3><a href="{{ url }}">{{ "Последнее измерение веса" if kind == "weight" else name }}</a></h3>
+      <div class="overview-metric-heading"><h3>{% set detail_href = url if kind == 'weight' else overview_detail_links[kind] %}{% if detail_href %}<a href="{{ detail_href }}">{% endif %}{{ "Последнее измерение веса" if kind == "weight" else name }}{% if detail_href %}</a>{% endif %}</h3>
       <details class="overview-info"><summary aria-label="Как читать {{ name }}">ⓘ</summary><div>
         {% if kind == 'weight' %}<p>Последнее подтверждённое измерение{% if charts.weight_current and charts.weight_current.value_kg is not none %} · {{ charts.weight_current.observed_date | owner_date }}{% endif %}. На графике дневные медианы и тренд EWMA с периодом полураспада 21 день. Обводка — последний день с измерениями. Штрих — нет наблюдений, это не ноль. Тонкая линия соединяет измерения; пунктир — дни без наблюдений. Значения между точками не вычисляются. Линия тренда только между соседними днями.</p>
         {% elif kind == 'sleep' %}<p>Средняя длительность пригодных ночей Garmin за завершённые дни по Москве. Дата ночи — существующая дата пробуждения источника. Пропуски не считаются нулями; несколько значений одной даты не объединяются. Среднее округляется до секунды только для показа.</p>
@@ -70,12 +70,12 @@
         {% set period_sleep = overview.period_sleep %}
         <div data-overview-period-sleep>
         <p class="overview-value">{{ period_sleep.duration_display or '—' }}</p>
-        <p class="overview-source">Средняя длительность</p>
+        <p class="overview-source">Garmin · средняя длительность</p>
         {% if period_sleep.reason == 'source_not_selected' %}<p class="overview-qualifier">Выберите источник Garmin.</p>
         {% elif period_sleep.reason == 'range_exceeds_max' %}<p class="overview-qualifier">Период длиннее доступного окна чтения (400 дней).</p>
         {% elif period_sleep.reason == 'read_unavailable' %}<p class="overview-qualifier">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}
         {{ period_chart(period_sleep.figure, 'sleep', 'История сна', true) }}
-        {% if not overview.completed_window.empty %}<a class="overview-detail-link" href="/sleep?wake_date={{ overview.completed_window.end_date }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">История и детали сна →</a>{% endif %}
+        {% if overview_detail_links.sleep %}<a class="overview-detail-link" href="{{ overview_detail_links.sleep }}">История и детали сна →</a>{% elif not overview.completed_window.empty and overview.completed_window.calendar_days not in [7, 30] %}<p class="overview-qualifier">Детали сна доступны для окна 7 или 30 завершённых дней. Выберите такой период в обзоре.</p>{% endif %}
         </div>
       {% else %}
         <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") | owner_activity_count if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }}</p>
@@ -83,7 +83,7 @@
         {{ freshness_note('garmin:activities') }}
         {{ chart(charts.activity, kind, 'Активность по дням', '') }}
 
-        <a class="overview-detail-link" href="/garmin?start_date={{ brief.period.start_date }}&amp;end_date={{ brief.period.end_date }}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">Детали активности →</a>
+        {% if overview_detail_links.activity %}<a class="overview-detail-link" href="{{ overview_detail_links.activity }}">Детали активности →</a>{% elif not source_selection.selected_source_id %}<p class="overview-qualifier">Выберите источник Garmin для списка сессий.</p>{% else %}<p class="overview-qualifier">Список сессий доступен для периода до 366 дней.</p>{% endif %}
       {% endif %}
     </li>
     {% endfor %}

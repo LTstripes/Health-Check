@@ -20,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from healthcheck.db.engine import session_scope
 from healthcheck.web.common import database_unavailable, request_engine
+from healthcheck.web.detail_navigation import local_return_href
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.owner_presentation import (
     owner_activity_type,
@@ -91,7 +92,13 @@ def garmin_session_detail_page(
     metric_code: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    return_to: str | None = None,
 ) -> HTMLResponse:
+    try:
+        sessions_return = local_return_href(return_to, "/statistics/sessions")
+    except ValueError:
+        return render_error(request, code="invalid_activity_return",
+                            message="Неверный возврат к списку сессий.", status_code=400)
     try:
         with session_scope(request_engine(request)) as session:
             service = GarminQueryService(session, request.app.state.settings)
@@ -126,7 +133,8 @@ def garmin_session_detail_page(
         context={
             "page": "garmin",
             "detail": detail,
-            "back_href": _back_href(detail, metric_code, start_date, end_date),
+            "back_href": sessions_return or _back_href(detail, metric_code, start_date, end_date),
+            "back_label": "К сессиям за период" if sessions_return else "К журналу активности",
         },
         headers={"Cache-Control": "no-store"},
     )

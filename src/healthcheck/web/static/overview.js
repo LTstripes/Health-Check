@@ -1,6 +1,8 @@
 /* The existing period indicator owns the shared scope description. */
 (() => {
   "use strict";
+  const selection = document.querySelector("[data-overview-href]");
+  if (selection) history.replaceState(history.state, "", selection.dataset.overviewHref + location.hash);
   const indicator = document.querySelector(".brief-period[aria-describedby]");
   if (!indicator) return;
   const reveal = () => indicator.removeAttribute("data-tooltip-dismissed");

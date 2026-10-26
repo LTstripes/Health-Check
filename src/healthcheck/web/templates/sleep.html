@@ -10,6 +10,9 @@
   <form method="get" action="/sleep" class="inline-edit owner-controls">
     <label>Дата пробуждения <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
     <input type="hidden" name="view" value="{{ sleep_view }}">
+    <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
+    {% if sleep_return_href %}<input type="hidden" name="return_to" value="{{ sleep_return_href }}">{% endif %}
+    {% if request.query_params.get('google_sleep_source_id') %}<input type="hidden" name="google_sleep_source_id" value="{{ request.query_params.get('google_sleep_source_id') }}">{% endif %}
     <input type="hidden" name="vitals_window" value="{{ google_vitals_window_days }}">
     {% if sleep_view == "garmin" and selection.sources | length > 1 %}
     <label>Источник Garmin
@@ -73,6 +76,9 @@
   {% else %}
     <form method="get" action="/sleep" class="inline-edit owner-controls">
       <input type="hidden" name="view" value="google">
+      <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
+      {% if sleep_return_href %}<input type="hidden" name="return_to" value="{{ sleep_return_href }}">{% endif %}
+      {% if request.query_params.get('google_sleep_source_id') %}<input type="hidden" name="google_sleep_source_id" value="{{ request.query_params.get('google_sleep_source_id') }}">{% endif %}
       <input type="hidden" name="wake_date" value="{{ wake_date }}">
       {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
       <label>Период Google
