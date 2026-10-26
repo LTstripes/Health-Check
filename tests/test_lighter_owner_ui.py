@@ -32,7 +32,10 @@ def capture(name, value):
 
 
 def assert_period_tooltip(html, *, empty=False):
-    document = parse_overview(html)
+    assert_period_tooltip_elements(parse_overview(html), empty=empty)
+
+
+def assert_period_tooltip_elements(document, *, empty=False):
     tooltip = document.one(id="overview-period-scope")
     assert tooltip.attrs.get("role") == "tooltip"
     trigger = document.one("p", classes={"brief-period"})
@@ -87,28 +90,27 @@ def test_one_period_description_replaces_card_ranges_without_changing_windows(
             'class="brief-period" tabindex="0" aria-describedby="overview-period-scope"',
             'aria-describedby="overview-period-scope" tabindex="0" class="extra brief-period"')
         assert_period_tooltip(harmless)
-        document = parse_overview(response.text)
-        tooltip_text = document.one(id="overview-period-scope").text
-        # Text moved outside the nested tooltip must never satisfy its contract.
-        start = response.text.index('<span class="overview-period-tooltip"')
-        end = response.text.index('</span></span>', start) + len('</span></span>')
-        mutations = {
-            "outside text": response.text[:start] +
-                '<span id="overview-period-scope" role="tooltip"></span>' +
-                tooltip_text + response.text[end:],
-            "wrong date": response.text[:start] +
-                response.text[start:end].replace('7 января 2099', '6 января 2099') +
-                response.text[end:],
-            "missing aria": response.text.replace(
-                'aria-describedby="overview-period-scope"', ''),
-            "wrong role": response.text.replace('role="tooltip"', 'role="note"'),
-            "duplicate target": response.text +
-                '<span id="overview-period-scope" role="tooltip"></span>',
-        }
-        for name, mutated in mutations.items():
-            assert mutated != response.text, name
-            with pytest.raises(AssertionError):
-                assert_period_tooltip(mutated)
+        # Mutate selected elements, independent of source attribute serialization.
+        for html in (response.text, harmless):
+            for mutation in ["outside text", "date", "missing aria", "role", "duplicate"]:
+                document = parse_overview(html)
+                tooltip = document.one(id="overview-period-scope")
+                trigger = document.one("p", classes={"brief-period"})
+                if mutation == "outside text":
+                    trigger.children.append(tooltip.text)
+                    tooltip.children = []
+                elif mutation == "date":
+                    target, = [span for span in tooltip.find("span")
+                               if "7 января 2099" in span.text]
+                    target.children = [target.text.replace("7 января 2099", "6 января 2099")]
+                elif mutation == "missing aria":
+                    trigger.attrs.pop("aria-describedby")
+                elif mutation == "role":
+                    tooltip.attrs["role"] = "note"
+                else:
+                    document.children.append(tooltip)
+                with pytest.raises(AssertionError):
+                    assert_period_tooltip_elements(document)
     assert 'data-period-coverage' not in response.text
     assert 'data-overview-chart="stress"' not in response.text
     for removed in ["data-weekly-preview", "overview-download", "overview-all-sources",

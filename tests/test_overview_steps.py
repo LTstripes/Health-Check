@@ -38,7 +38,10 @@ def seed(database):
 
 
 def assert_steps_html(html):
-    document = parse_overview(html)
+    return assert_steps_elements(parse_overview(html))
+
+
+def assert_steps_elements(document):
     secondary = document.one("section", classes={"overview-secondary"})
     columns = [child for child in secondary.children if getattr(child, "tag", None) == "article"]
     assert len(columns) == 4
@@ -185,26 +188,34 @@ def test_actual_route_shared_dates_and_four_columns_hrv_under_stress(database, m
     harmless = harmless.replace('data-steps-provider="Garmin" data-steps-reason=""',
                                 'data-steps-reason="" class="extra" data-steps-provider="Garmin"')
     assert_steps_html(harmless)
-    mutations = {
-        "wrong number": response.text.replace(
-            '<strong>5.0</strong>', '<strong>50.0</strong>'),
-        "wrong provider": response.text.replace('data-steps-provider="Garmin"',
-                                               'data-steps-provider="Other"'),
-        "wrong visible provider": response.text.replace('>Garmin</span>', '>Other</span>'),
-        "wrong denominator": response.text.replace('2 из 7.', '2 из 8.'),
-        "wrong date": response.text.replace('Период: 1 января 2099 - 7 января 2099.',
-                                           'Период: 1 января 2099 - 8 января 2099.'),
-        "duplicate value": response.text.replace('<strong>5.0</strong>',
-                                                 '<strong>5.0</strong><strong>5.0</strong>'),
-        "duplicate card": response.text.replace('<div data-overview-steps>',
-                                                '<div data-overview-steps></div>'
-                                                '<div data-overview-steps>'),
-        "missing summary label": response.text.replace('aria-label="Средние шаги · Garmin"', ''),
-    }
-    for name, mutated in mutations.items():
-        assert mutated != response.text, name
-        with pytest.raises(AssertionError):
-            assert_steps_html(mutated)
+    # Run the full mutation path on original and harmlessly changed markup.
+    for html in (response.text, harmless):
+        for mutation in ["number", "provider", "visible provider", "denominator", "date",
+                         "duplicate value", "duplicate card", "missing label"]:
+            document = parse_overview(html)
+            steps = document.one(**{"data-overview-steps": None})
+            garmin = steps.one(**{"data-steps-provider": "Garmin"})
+            if mutation == "number":
+                garmin.one("strong").children = ["50.0"]
+            elif mutation == "provider":
+                garmin.attrs["data-steps-provider"] = "Other"
+            elif mutation == "visible provider":
+                garmin.one("span", classes={"overview-source"}).children = ["Other"]
+            elif mutation in {"denominator", "date"}:
+                paragraphs = garmin.one("details").find("p")
+                old, new = (("2 из 7.", "2 из 8.") if mutation == "denominator" else
+                            ("7 января 2099", "8 января 2099"))
+                target, = [p for p in paragraphs if old in p.text]
+                target.children = [target.text.replace(old, new)]
+            elif mutation == "duplicate value":
+                garmin.children.append(garmin.one("strong"))
+            elif mutation == "duplicate card":
+                document.children.append(steps)
+            else:
+                garmin.one("summary").attrs.pop("aria-label")
+            with pytest.raises(AssertionError):
+                assert_steps_elements(document)
+
 
 
 @pytest.mark.parametrize("value,expected", [("0", "0"), ("10.49", "10"),
