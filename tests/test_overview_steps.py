@@ -1,8 +1,10 @@
 """Overview source denominators and shared completed periods, with synthetic storage."""
 
+import os
 from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,24 +17,51 @@ from healthcheck.web import overview_body_battery, overview_completed, overview_
 from healthcheck.web.overview_view import overview_whole_number
 from healthcheck.web.steps_presentation import steps_mean_display
 from healthcheck.web.ui_app import create_ui_app
+from overview_html import parse_overview
 from test_garmin_completed_steps import acquire
 from test_google_steps_countsum import civil, payload, persist
-from test_overview_completed import NOW, seed_completed
+from test_overview_completed import NOW
 from test_stress_baseline import database as database
 
 
 def seed(database):
     paths, _, session, store = database
-    source_id, settings = seed_completed(database)
     for day, value, status in [(1, 0, "succeeded"), (3, 10, "succeeded"),
                                (5, 999, "partial"), (8, 100000, "succeeded")]:
-        acquire(session, store, value, day=date(2099, 1, day),
+        saved = acquire(session, store, value, day=date(2099, 1, day),
                 at=NOW + timedelta(days=1) if day == 8 else NOW, status=status,
                 account="synthetic-stress-account", receipt=status == "succeeded")
     google_db = (paths, session, ContentAddressedGooglePayloadStore(paths.root / "artifacts"))
     for day, value in [(2, "0"), (4, "20"), (6, "40"), (8, "200000")]:
         persist(google_db, payload(value, start=civil(day), end=civil(day + 1)))
-    return source_id, settings
+    return saved.source.id, Settings(data_dir=paths.root)
+
+
+def assert_steps_html(html):
+    document = parse_overview(html)
+    secondary = document.one("section", classes={"overview-secondary"})
+    columns = [child for child in secondary.children if getattr(child, "tag", None) == "article"]
+    assert len(columns) == 4
+    for column, marker in zip(columns, ["data-overview-rhr", "data-overview-steps",
+                                       "data-overview-stress", "data-overview-body-battery"]):
+        column.one(**{marker: None})
+    stress = columns[2].one(**{"data-overview-stress": None})
+    hrv = columns[2].one(**{"data-overview-hrv": None})
+    assert columns[2].children.index(stress) < columns[2].children.index(hrv)
+    steps = document.one(**{"data-overview-steps": None})
+    assert len(steps.find(**{"data-steps-reason": ""})) == 2
+    # Independent synthetic arithmetic: (0+10)/2=5; (0+20+40)/3=20.
+    # Calendar denominator is seven completed days, not eight requested days.
+    for provider, mean, count in [("Garmin", "5.0", 2), ("Google", "20.0", 3)]:
+        item = steps.one(**{"data-steps-provider": provider})
+        assert item.one("span", classes={"overview-source"}).text.strip() == provider
+        assert item.one("strong").text.strip() == mean
+        disclosure = item.one("details", classes={"overview-info"})
+        assert disclosure.one("summary").attrs.get("aria-label")
+        paragraphs = [p.text.strip() for p in disclosure.find("p")]
+        assert f"Дней со значением: {count} из 7." in paragraphs
+        assert "Период: 1 января 2099 - 7 января 2099." in paragraphs
+    return columns
 
 
 def read(database, source_id, *, start=date(2099, 1, 1), end=date(2099, 1, 8), preset=None):
@@ -145,17 +174,37 @@ def test_actual_route_shared_dates_and_four_columns_hrv_under_stress(database, m
     assert response.status_code == 200
     overview = response.context["overview"]
     assert overview["steps"]["window"] == overview["completed_window"]
-    secondary = response.text.split('<section class="overview-secondary"', 1)[1].split(
-        "</section>", 1)[0]
-    columns = secondary.split("<article>")[1:]
-    assert len(columns) == 4
-    for column, marker in zip(columns, ["data-overview-rhr", "data-overview-steps",
-                                       "data-overview-stress", "data-overview-body-battery"]):
-        assert marker in column
-    assert columns[2].index("data-overview-stress") < columns[2].index("data-overview-hrv")
-    assert 'data-steps-provider="Garmin"' in columns[1]
-    assert 'data-steps-provider="Google"' in columns[1]
-    assert "последнее среднее за неделю" in columns[2]
+    columns = assert_steps_html(response.text)
+    assert "последнее среднее за неделю" in columns[2].text
+    if capture_dir := os.environ.get("HC535_CAPTURE_DIR"):
+        path = Path(capture_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "overview-steps.html").write_text(response.text, encoding="utf-8")
+    harmless = response.text.replace('class="overview-secondary"',
+                                     'data-extra="ok" class="extra overview-secondary"')
+    harmless = harmless.replace('data-steps-provider="Garmin" data-steps-reason=""',
+                                'data-steps-reason="" class="extra" data-steps-provider="Garmin"')
+    assert_steps_html(harmless)
+    mutations = {
+        "wrong number": response.text.replace(
+            '<strong>5.0</strong>', '<strong>50.0</strong>'),
+        "wrong provider": response.text.replace('data-steps-provider="Garmin"',
+                                               'data-steps-provider="Other"'),
+        "wrong visible provider": response.text.replace('>Garmin</span>', '>Other</span>'),
+        "wrong denominator": response.text.replace('2 из 7.', '2 из 8.'),
+        "wrong date": response.text.replace('Период: 1 января 2099 - 7 января 2099.',
+                                           'Период: 1 января 2099 - 8 января 2099.'),
+        "duplicate value": response.text.replace('<strong>5.0</strong>',
+                                                 '<strong>5.0</strong><strong>5.0</strong>'),
+        "duplicate card": response.text.replace('<div data-overview-steps>',
+                                                '<div data-overview-steps></div>'
+                                                '<div data-overview-steps>'),
+        "missing summary label": response.text.replace('aria-label="Средние шаги · Garmin"', ''),
+    }
+    for name, mutated in mutations.items():
+        assert mutated != response.text, name
+        with pytest.raises(AssertionError):
+            assert_steps_html(mutated)
 
 
 @pytest.mark.parametrize("value,expected", [("0", "0"), ("10.49", "10"),

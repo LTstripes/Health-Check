@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime, timedelta
 from html.parser import HTMLParser
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +14,7 @@ from healthcheck.web.garmin_query import GarminQueryService
 from healthcheck.web.overview_stress import read_overview_stress
 from healthcheck.web.overview_view import read_overview_values
 from healthcheck.web.ui_app import create_ui_app
+from overview_html import parse_overview
 from test_stress_baseline import ABSENT, NOW, D, acquire, metric
 from test_stress_baseline import database as database
 
@@ -114,6 +116,17 @@ def card(response):
         return sum(map(len, lines[:line - 1])) + column
 
     return response.text[offset(parser.start):offset(parser.end) + len("</div>")]
+
+
+def assert_stress_html(html, mean):
+    root = parse_overview(html)
+    stress = root.one(**{"data-overview-stress": None})
+    assert stress.attrs["data-stress-state"] == "available"
+    assert stress.one(**{"data-stress-mean": None}).text.strip() == f"{mean} балл."
+    details = stress.one("details", classes={"overview-info"},
+                         **{"data-stress-evidence": None})
+    assert details.one("summary").attrs.get("aria-label")
+    details.one("div", role="region", tabindex="0")
 
 
 @pytest.mark.parametrize(
@@ -266,10 +279,24 @@ def test_route_mean_uses_selected_period_without_28_day_baseline(
 
     monkeypatch.setattr(GarminQueryService, "scalar_series", capture)
     results = []
-    for start in (D, D - timedelta(days=6), D - timedelta(days=29)):
+    for start, mean in [(D, "2"), (D - timedelta(days=6), "2"),
+                        (D - timedelta(days=29), "1")]:
         response = page(database, saved.source.id, start=start)
         results.append(response.context["overview"]["period_stress"])
         text = card(response)
+        assert_stress_html(text, mean)
+        harmless = text.replace('<div data-overview-stress data-stress-state="available">',
+            '<div class="extra" data-stress-state="available" data-overview-stress>')
+        assert_stress_html(harmless, mean)
+        # Exercise the existing extraction parser too; do not replace it for uniformity.
+        assert card(SimpleNamespace(text=harmless)) == harmless
+        for mutated in [text.replace(f">{mean} балл.</strong>", ">999 балл.</strong>"),
+                        text + text]:
+            assert mutated != text
+            with pytest.raises(AssertionError):
+                assert_stress_html(mutated, mean)
+        with pytest.raises(AssertionError, match="Duplicate Stress card"):
+            card(SimpleNamespace(text=text + text))
         assert "Среднее за период" in text and "data-stress-mean" in text
         assert "data-stress-delta" not in text and "Выбранная дата" not in text
         assert "data-stress-evidence" in text
