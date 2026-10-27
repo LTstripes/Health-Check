@@ -1,7 +1,10 @@
 import importlib.util
 import json
+import os
 import re
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -149,11 +152,12 @@ def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
     assert checks.startswith("    if: ${{ always() }}\n")
     assert "      - quality\n" in checks
     assert "      - test\n" in checks
-    # Both mandatory CI and routing evidence use the reviewed, immutable v8 pin.
+    # One download retains named folders for the complete current-attempt set.
     assert checks.count(
         "uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2"
-    ) == 2
-    assert checks.count("merge-multiple: false") == 2
+    ) == 1
+    assert re.findall(r"^          merge-multiple: (.+)$", checks, re.MULTILINE) == ["false"]
+    assert "pattern: '*-${{ github.run_id }}-${{ github.run_attempt }}'" in checks
     assert "QUALITY_RESULT: ${{ needs.quality.result }}" in checks
     assert "TEST_RESULT: ${{ needs.test.result }}" in checks
     assert "Fail-closed final verdict" in checks
@@ -209,7 +213,7 @@ def test_docs_routing_preserves_terminal_checks_and_full_fallback():
     assert "CI_MODE: ${{ needs.classify.outputs.mode }}" in checks
     assert "CLASSIFY_RESULT: ${{ needs.classify.result }}" in checks
     assert "DOCS_RESULT: ${{ needs.docs.result }}" in checks
-    assert "pattern: docs-*-${{ github.run_id }}-${{ github.run_attempt }}" in checks
+    assert 'artifact.name.startswith(("ci-", "docs-"))' in checks
     assert 'ci_docs_gate.py route --artifacts-root "$evidence_root")" || exit 1' in checks
     assert "pytest and Windows were not run" in checks
     assert 'if [ "$route" = docs ]; then' in checks
@@ -220,10 +224,41 @@ def test_docs_routing_preserves_terminal_checks_and_full_fallback():
 
 def test_checks_enforces_full_rerun_only_before_content_verdicts():
     checks = _job("checks")
-    assert "pattern: ci-*-${{ github.run_id }}-${{ github.run_attempt }}" in checks
+    assert "pattern: '*-${{ github.run_id }}-${{ github.run_attempt }}'" in checks
     assert "scripts/ci_test_lanes.py verify-attempt" in checks
     assert '--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"' in checks
     assert 'if [ "$attempt_status" -ne 0 ]' in checks
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ["docs-decision-123-1", "docs-outcome-123-1", "event-decision-123-1"],
+        ["ci-quality-123-1", "docs-decision-123-1", "event-decision-123-1"],
+        ["ci-foreign-123-1", "docs-foreign-123-1", "event-decision-123-1"],
+    ],
+)
+def test_v8_staging_preserves_named_evidence_and_foreign_artifacts(tmp_path, names):
+    # v8 extracts one pattern match at the destination root. Downloading the
+    # complete attempt keeps the routing artifact named even in full CI mode.
+    staging = tmp_path / "downloaded-artifacts"
+    for name in names:
+        directory = staging / name
+        directory.mkdir(parents=True)
+        (directory / "evidence.json").write_text(name, encoding="utf-8")
+    step = _job("checks").split("      - name: Stage CI and docs evidence\n", 1)[1]
+    step = step.split("      - name: Fail-closed final verdict\n", 1)[0]
+    command = textwrap.dedent(step.split("        run: |\n", 1)[1])
+    subprocess.run(
+        [sys.executable, "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        check=True,
+    )
+    evidence = tmp_path / "downloaded-evidence"
+    expected = {name for name in names if name.startswith(("ci-", "docs-"))}
+    assert {path.name for path in evidence.iterdir()} == expected
+    for name in expected:
+        assert (evidence / name / "evidence.json").read_text(encoding="utf-8") == name
 
 
 def test_event_provenance_cannot_skip_candidate_gates_or_wait_for_another_run():
