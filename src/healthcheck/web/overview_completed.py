@@ -13,7 +13,7 @@ from healthcheck.analytics.garmin_baselines import MAX_SERIES_CALENDAR_DAYS
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.overview_body_battery import read_overview_body_battery
 from healthcheck.web.overview_charts import dated_chart
-from healthcheck.web.overview_view import overview_number
+from healthcheck.web.overview_view import overview_number, overview_whole_number
 from healthcheck.web.sleep_view import metric_value, night_metric
 
 
@@ -86,9 +86,9 @@ def _period_mean(session, settings, *, window, source_id, metric_code, cached_se
 
 
 def read_completed_overview(session, settings, *, start, end, preset, source_id,
-                            evaluated_at, sleep_series=None):
+                            evaluated_at, sleep_series=None, window_at=None):
     window = completed_overview_window(start=start, end=end, preset=preset,
-                                       evaluated_at=evaluated_at)
+                                       evaluated_at=window_at or evaluated_at)
     sleep = _period_mean(session, settings, window=window, source_id=source_id,
                          metric_code="sleep_duration_seconds", cached_series=sleep_series)
     sleep["duration_display"] = metric_value(
@@ -97,6 +97,8 @@ def read_completed_overview(session, settings, *, start, end, preset, source_id,
     ) if sleep["mean_value"] is not None else None
     stress = _period_mean(session, settings, window=window, source_id=source_id,
                           metric_code="stress_daily_average")
+    if stress["mean_value"] is not None:
+        stress["mean_display"] = overview_whole_number(stress["mean_value"])
     if window["empty"]:
         battery = {"selected": None, "figure": None}
     else:

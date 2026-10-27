@@ -1263,7 +1263,38 @@ Activity selection and omitted-provider behavior are unchanged. A blocked Google
 choice remains a labelled section with selection evidence and `source_range=null`,
 and is preserved in both JSON and text.
 
+<a id="combined-cli--selected-context-sleep"></a>
+### Selected Context events and following sleep
 
+For a manually selected set of saved Context events, add
+`--include-context-recovery` and repeat `--context-event EVENT_ID=REVISION_ID`
+on the existing bounded combined command. Take both IDs from the current
+`sections.context.rows` evidence for the same requested window; the export
+validates them again in its own read-only snapshot. For example, append:
+
+```text
+  --include-context-recovery \
+  --context-event <first-event-id>=<first-current-revision-id> \
+  --context-event <second-event-id>=<second-current-revision-id>
+```
+
+This selects exact events, without interpreting their comments or tags. Omit
+`--context-event` to retain the older pooled comparison of all timed Context
+events. The selected mode produces v8 JSON/text (also with `--projection compact`),
+with the selection bound in its envelope hash. Empty/malformed/duplicate IDs,
+unavailable snapshot events and stale revisions reject the whole request;
+stdout stays empty and file export creates no output directory. After an event
+correction, inspect its current revision and select it explicitly again.
+
+Pairing retains the default 24-hour window (`--context-pairing-hours 1..48`),
+explicit event instant or interval end, first eligible source night and unique
+night weighting. Other observed events linked by that same rule appear under
+`observed_context_by_night`, including on reference nights. The reference is not
+event-free; unrecorded/untimed/out-of-window context and complete category coverage
+remain unknown. Sparse groups yield insufficient evidence, not zero or a causal
+effect. Existing regularity and optional explicit work/free labels are unchanged;
+comments are never converted to day labels. See the
+[analysis contract](ARCHITECTURE.md#saved-sleep-analyses).
 
 
 <a id="export-completed-steps-v5"></a>

@@ -12,9 +12,7 @@
     unavailable: "Источник данных недоступен", insufficient: "Недостаточно данных",
     not_requested: "Не запрашивалось", loading: "Загрузка данных",
     error: "Не удалось выполнить запрос", no_change: "Изменений не обнаружено" };
-  const activityNames = { cycling: "Велотренировка", running: "Бег", walking: "Ходьба",
-    swimming: "Плавание", strength_training: "Силовая тренировка", tennis: "Теннис",
-    tennis_v2: "Теннис" };
+  const activityNames = JSON.parse(document.getElementById("activity-type-names").textContent);
   const units = { seconds: "с", meters: "м", "m/s": "м/с", bpm: "уд/мин",
     watts: "Вт", rpm: "об/мин", points: "баллы", percent: "%", "%": "%" };
 
@@ -134,7 +132,7 @@
     if (panel === "series") { setHtml("series-summary", ""); setHtml("series-coverage", ""); }
   }
   function activityLabel(activity, index) {
-    return "Сессия " + (index + 1) + " · " + (activityNames[activity.activity_type] || "Другой вид активности") + " · " + ownerDate(activity.source_local_date || activity.local_wall_time || activity.measured_at_utc);
+    return "Сессия " + (index + 1) + " · " + (activity.activity_type == null ? "Вид активности не указан" : (Object.hasOwn(activityNames, activity.activity_type) ? activityNames[activity.activity_type] : "Другой вид активности")) + " · " + ownerDate(activity.source_local_date || activity.local_wall_time || activity.measured_at_utc);
   }
   function populateActivities(activities) {
     ["activity-a", "activity-b"].forEach(id => {
@@ -213,7 +211,7 @@
         const field = id => (body.sessions || []).find(s => s.record_id === id)?.metric_coverage?.find(c => c.metric_code === m.metric_code);
         const usable = id => ["usable", "zero"].includes(field(id)?.status);
         // Presentation only: unusable optional metrics remain in exact evidence.
-        if (["power_watts", "cadence_rpm"].includes(m.metric_code) &&
+        if (["power_watts", "cadence_rpm", "session_total_calories"].includes(m.metric_code) &&
             !usable(block.reference_record_id) && !usable(block.compared_record_id)) return;
         const duration = m.metric_code === "duration_seconds" && m.unit === "seconds";
         const side = id => {
@@ -224,7 +222,7 @@
           return statusValue(coverage.status, coverage.value, 1);
         };
         const note = m.reason || m.percent_reason;
-        const unit = duration ? "" : " · " + (units[m.unit] || "единица не предоставлена");
+        const unit = duration || m.metric_code === "session_total_calories" ? "" : " · " + (units[m.unit] || "единица не предоставлена");
         const delta = m.status === "compared" ? (duration ? escapeHtml(humanDuration(m.absolute_delta, true)) : fmt(m.absolute_delta, 1)) : "Не вычисляется";
         html += '<tr data-metric-code="' + escapeHtml(m.metric_code) + '"><th scope="row">' + escapeHtml(metricName(m.metric_code) + unit) +
           (note ? '<span class="comparison-note">' + escapeHtml(reasonText(note)) + '</span>' : "") +

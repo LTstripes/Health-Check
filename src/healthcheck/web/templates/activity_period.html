@@ -2,7 +2,7 @@
 {% block title %}Сессии за период — Health-Check{% endblock %}
 {% block content %}
 <section aria-labelledby="sessions-title">
-  <p><a href="{{ back_href }}" data-statistics-return>Вернуться к выбранной статистике</a></p>
+  <p><a href="{{ back_href }}" data-statistics-return>{{ back_label }}</a></p>
   <h2 id="sessions-title">{{ sport_labels[packet.sport] }} · сессии за период</h2>
   <p>{{ packet.start_date|owner_date }} — {{ packet.end_date|owner_date }}, включительно по локальным датам источника Garmin.</p>
   <p>Исходный показатель: {{ metric_label }}. Показаны только сессии, допустимые для этого показателя.</p>

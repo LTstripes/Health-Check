@@ -1,21 +1,25 @@
-<section class="overview-secondary" aria-label="Дополнительные показатели Garmin">
-  {% for code, unit in [('resting_heart_rate_bpm', 'уд/мин'), ('hrv_weekly_average_ms', 'мс'), ('stress_daily_average', 'баллы'), ('body_battery', 'баллы')] %}
-  {% set cell = overview.garmin.get(code) %}
+<section class="overview-secondary" aria-label="Дополнительные показатели">
   <article>
-    {% if code not in ['stress_daily_average', 'body_battery'] %}
-    <h3{% if code == 'hrv_weekly_average_ms' and cell and cell.date %} title="Последнее сохранённое среднее за неделю · {{ cell.date | owner_date }}" aria-label="HRV Garmin · последнее среднее за неделю · {{ cell.date | owner_date }}"{% endif %}>{{ 'HRV Garmin · последнее среднее за неделю' if code == 'hrv_weekly_average_ms' else 'Пульс в покое' }}</h3>
-    {% endif %}
-    {% if code == 'resting_heart_rate_bpm' %}
+    <h3>Пульс в покое</h3>
     {% include 'overview_rhr.html' %}
-    {% elif code == 'body_battery' %}
-    {% include 'overview_body_battery.html' %}
-    {% elif code == 'stress_daily_average' %}
+  </article>
+  <article>
+    {% include 'overview_steps.html' %}
+  </article>
+  <article>
     {% include 'overview_stress.html' %}
-    {% else %}
+    <div class="overview-hrv" data-overview-hrv>
+      {% set code = 'hrv_weekly_average_ms' %}
+      {% set unit = 'мс' %}
+      {% set cell = overview.garmin.get(code) %}
+    <h3{% if code == 'hrv_weekly_average_ms' and cell and cell.date %} title="Последнее сохранённое среднее за неделю · {{ cell.date | owner_date }}" aria-label="HRV Garmin · последнее среднее за неделю · {{ cell.date | owner_date }}"{% endif %}>{{ 'HRV Garmin · последнее среднее за неделю' if code == 'hrv_weekly_average_ms' else 'Пульс в покое' }}</h3>
     {% if cell and cell.value is not none %}<strong>{{ overview_number(cell.value) }} {{ unit }}</strong>
     {% elif source_selection.status == 'require_selection' %}<p>Выберите источник Garmin выше.</p>
     {% else %}<p>{{ cell.note if cell and cell.note else "Нет пригодного сохранённого наблюдения." }}</p>{% endif %}
-    {% endif %}
+
+    </div>
   </article>
-  {% endfor %}
+  <article>
+    {% include 'overview_body_battery.html' %}
+  </article>
 </section>

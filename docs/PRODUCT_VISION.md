@@ -104,7 +104,7 @@ are owned by [Architecture](ARCHITECTURE.md#garmin-steps).
 - **Google Health API v4:** released ingestion for sleep and supported health metrics/measurements, with preserved source/device metadata and explicit source-family semantics.
 - **Google wearable / Fitbit evidence:** device-level agreement requires explicit persisted Fitbit/device attribution. Broader wearable-family and account observations are not automatically device evidence.
 - **Free-text context:** Context Capture v0 stores revisioned original text, dates/instants/intervals; the existing desktop portal, primary Comments navigation and city/IANA input are delivered. This is one revisioned note system; direct conversation access is a separate connection decision.
-- **Laboratory documents (#348):** the local PDF plus structured transcription draft intake is integrated, with review/correction, explicit confirmation, revisions and original download. Real Owner UAT and chat-to-local transport remain unverified; medication/supplement and other personal-health-record capabilities remain separately scoped.
+- **Laboratory documents (#348):** the local PDF plus structured transcription draft intake is integrated, with review/correction, explicit confirmation, revisions and original download. The bounded real-document isolated-copy flow and Owner screen acceptance are complete; generic chat-attachment transport and durable Stable import remain separate. Current receipts are in [Project Wiki](PROJECT_WIKI.md#current-canonical-state); medication/supplement and other personal-health-record capabilities remain separately scoped.
 
 Every source value remains available. A canonical rule may select one value for one metric/period, but selection never deletes competing evidence.
 
@@ -231,8 +231,10 @@ provenance. One PDF must contain one report for one patient; unresolved linkage
 blocks confirmation. Confirming selected rows may be explicitly partial and does
 not imply field-by-field source verification.
 
-#348 remains OPEN pending real Owner UAT. Chat-to-local transport is unverified;
-Stable rollout has not been performed. OCR, interpretation, charts, cloud bridge,
+#348 is closed after [bounded isolated-copy and Owner acceptance](https://github.com/LTstripes/Health-Check/issues/348#issuecomment-6446273624).
+This is not a durable Stable import or generic chat-attachment bridge;
+`source_match=unverified` still does not certify each transcribed field.
+OCR, interpretation, charts, cloud bridge,
 #341 export, medication/supplement timelines and longitudinal analysis remain
 outside this delivered slice. Transcribed or accepted data is not a diagnosis.
 
@@ -282,6 +284,14 @@ The `/context` primary navigation and city/IANA chooser are delivered. Statistic
 also includes saved-session drilldown; completed navigation/timezone/drilldown
 must not be reassigned. Provider-first presentation is integrated, while general
 per-metric eligible-source discovery/autoselection remains open.
+
+The bounded #515 Overview detail package retains the selected Garmin Sleep window
+for supported 7/30 completed days and returns through the original Overview
+selection. Unsupported windows explain the limit. Activity summaries open the
+existing period/source-bounded session list and details; Statistics retains its own
+return path. Journal, detail and comparison labels share the same activity names.
+These navigation changes do not expand the recent journal into complete history
+or move the Sleep graph. Integration/Stable status belongs in the Wiki.
 
 Overview prioritizes readings and period selection. Its download link opens the
 existing Data page at `/imports#analysis-export`; export controls do not occupy
@@ -506,7 +516,7 @@ Open [index.html](design/owner-overview-a-plus/index.html) directly from disk. A
 | Compact navigation and period | Single top navigation, 7/30/90-day controls and alternative date range; no introductory hero |
 | Action only when needed | One short row for the illustrated failed Garmin freshness check; explicitly keeps saved data available |
 | Grok: immediately useful readings and charts | Weight, last Garmin night and saved sessions in three equal desktop columns; observed weight points separate from the trend, sleep history, dated daily activity strip and types |
-| A+: quieter supporting metrics | Resting pulse, nightly HRV, stress and Body Battery below the primary row, each with its own source/date/window and small history graphic |
+| A+: quieter supporting metrics | Four columns below the primary row: resting pulse, separate Garmin/Google daily Steps means for the completed selected period, Stress with the latest saved weekly HRV beneath it, and Body Battery. Stress/Body Battery means display whole numbers; each metric retains its source/date/window meaning |
 | Context on demand | Three keyboard-operable `ⓘ` disclosures, one source table and one technical disclosure; source/date/units and material gaps remain visible in the main view |
 | Honest availability | Missing weight/sleep observations; unknown activity coverage on 04 June; explicit zero saved sessions on covered days; explicit Google zero steps separately from absent Google pulse |
 | Source and window separation | Garmin and Google never pooled; provider sleep score separate from duration; last HRV night differs from last sleep night; partial-day stress differs from point-in-time Body Battery |

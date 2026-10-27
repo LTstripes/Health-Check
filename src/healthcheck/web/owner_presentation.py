@@ -69,7 +69,7 @@ def owner_duration(value: object) -> str:
     return (f"{int(hours)} ч " if hours else "") + f"{int(minutes)} мин"
 
 
-_ACTIVITY_NAMES = {
+ACTIVITY_NAMES = {
     "cycling": "Велосипед", "running": "Бег", "walking": "Ходьба",
     "swimming": "Плавание", "strength_training": "Силовая тренировка",
     "tennis": "Теннис", "tennis_v2": "Теннис",
@@ -79,7 +79,7 @@ _ACTIVITY_NAMES = {
 
 def owner_activity_type(value: object) -> str:
     """Presentation aliases only; never classify or change persisted activity types."""
-    return _ACTIVITY_NAMES.get(value, "Другой вид активности") if isinstance(value, str) else (
+    return ACTIVITY_NAMES.get(value, "Другой вид активности") if isinstance(value, str) else (
         "Вид активности не указан")
 
 

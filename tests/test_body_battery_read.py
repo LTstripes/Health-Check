@@ -142,16 +142,15 @@ def test_inclusive_windows_use_saved_dates_without_calendar_cap(stored, days):
     assert result["daily_maxima"][0]["source_local_date"] == start.isoformat()
 
 
-@pytest.mark.parametrize("days,display,count", [(1, "60.12", 1), (7, "60.12", 2),
-                                              (30, "37.56", 4)])
-def test_overview_selected_window_and_existing_format(stored, days, display, count):
+@pytest.mark.parametrize("days,display,count", [(1, "60", 1), (7, "60", 2), (30, "38", 4)])
+def test_overview_selected_window_and_whole_display(stored, days, display, count):
     for offset, value in [(0, 60.125), (6, 60.125), (7, 20), (29, 10), (30, 100)]:
         seed_battery(*stored, day=DAY - timedelta(days=offset), values=(value,))
     q = query(stored)
     result = read_overview_body_battery(stored[0], start=DAY - timedelta(days=days - 1), end=DAY,
         garmin_source_id=q.source_id, evaluated_at_utc=NOW)
     selected = result["selected"]
-    assert selected["mean_display"] == display  # Existing format; no integer rounding.
+    assert selected["mean_display"] == display  # Only presentation is rounded.
     assert selected["eligible_day_count"] == count
     assert selected["requested_day_count"] == days
     if days in {1, 7}:
@@ -373,8 +372,8 @@ def test_fractional_daily_maxima_preserve_exact_sum(stored):
     assert result["mean_exact"]["denominator"] == str(mean.denominator)
 
 
-@pytest.mark.parametrize("value", [-10.5, 101, 1_000_000])
-def test_production_finite_contract_has_no_invented_product_range(stored, value):
+@pytest.mark.parametrize("value,display", [(-10.5, "-11"), (101, "101"), (1_000_000, "1000000")])
+def test_production_finite_contract_has_no_invented_product_range(stored, value, display):
     seed_battery(*stored, values=(value, value - 1))
     record, metric = sample(stored)
     assert metric.state == "value" and metric.value_number == value
@@ -388,7 +387,7 @@ def test_production_finite_contract_has_no_invented_product_range(stored, value)
     assert result["mean_exact"]["denominator"] == str(mean.denominator)
     dto = read_overview_body_battery(stored[0], start=DAY, end=DAY,
         garmin_source_id=record.garmin_source_id, evaluated_at_utc=NOW)["selected"]
-    assert dto["mean_display"] == str(value)
+    assert dto["mean_display"] == display
 
 
 @pytest.mark.parametrize("evaluation_hour,eligible", [(18, False), (20, True)])

@@ -863,6 +863,10 @@ def test_statistics_resolved_source_window_handoff_and_return(statistics_ui, per
             detail = client.get(href)
             assert detail.status_code == 200
             assert query["record_id"][0] in detail.text
+            returned = client.get(detail.context["back_href"])
+            assert returned.status_code == 200
+            assert returned.context["packet"] == drilldown.context["packet"]
+            assert returned.context["back_href"] == drilldown.context["back_href"]
         back = next(a["href"] for a in Links(drilldown.text).links if "data-statistics-return" in a)
         back_query = parse_qs(urlsplit(back).query)
         assert back_query["period"] == [period]

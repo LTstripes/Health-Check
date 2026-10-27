@@ -45,7 +45,7 @@ After release, the old integration branch is historical/staging-only; start the 
 <a id="book--task-branches"></a>
 ### Task branches
 
-Use the assigned `task/<issue>-<slug>` at the exact specified baseline. A Worker commits/pushes only that branch; Integrator creates PRs by default. Push CI does not require a Worker-created PR. Other Git permissions remain in [AGENTS.md](../AGENTS.md#git-ownership).
+Use the assigned `task/<issue>-<slug>` at the exact specified baseline. A Worker commits/pushes only that branch; Integrator creates PRs by default. Task pushes do not run CI; the Integrator must open a PR before acceptance, or the Worker may do so when explicitly authorized. No PR means no candidate gate and no merge readiness. Other Git permissions remain in [AGENTS.md](../AGENTS.md#git-ownership).
 
 <a id="book--parallel-work"></a>
 ### Parallel work
@@ -251,10 +251,12 @@ versions, budgets and exceptions. A move cannot introduce new semantics. Update
 affected links, examples, client prompts and templates when their own meaning is
 stale, including literal paths outside Markdown. Keep useful stable anchors.
 
-After integration, update the one Wiki snapshot with date, accepted commit and
-supporting evidence. Record installed-code proof and human UAT separately; a merge
-does not deploy Stable or pass human UAT. Detailed attempts and receipts stay in the
-issue/PR; link useful concise outcomes in Wiki. Existing archives are frozen.
+After integration, record the current outcome and exact evidence in the issue/PR.
+Update Wiki for a durable state change, release/operational milestone or with the
+next related candidate; a separate status-only commit/PR is not a closeout gate.
+Keep its snapshot dated and link the intervening issue/PR outcomes. Record
+installed-code proof and human UAT separately; a merge does not deploy Stable or
+pass human UAT. Existing archives are frozen.
 
 Check links/fragments, scope, privacy and the routes for implementation, independent
 review, an authorized Owner operation and selecting next work. Apply the required
@@ -276,9 +278,11 @@ need no extra form or repeated Owner approval.
 <a id="ci-gates--13-ci-evidence-and-complete-suite-gates"></a>
 ## 13. CI evidence and complete-suite gates
 
-The CI workflow keeps both `push` and `pull_request` coverage. Non-delegated pushes and
-code-mode PR candidate gates run the complete pytest collection and suite through
-the three ordinary serial Linux lanes in `ci/test-lanes.json`. The same checked-in
+The CI workflow runs every `pull_request` and every push except branches matching
+`task/**`. A task candidate must obtain the authoritative exact PR gate before
+acceptance. Main, integration, other branch and tag pushes retain full CI.
+Code-mode PR candidate gates and these pushes run the complete pytest collection
+and suite through the three ordinary serial Linux lanes in `ci/test-lanes.json`. The same checked-in
 manifest is the only file-assignment source for local and CI invocation. An
 independent unrestricted collection must equal the exact disjoint multiset
 union of lane nodeids, including parametrizations and duplicate multiplicity.
@@ -329,54 +333,53 @@ and explicit skips of quality, Linux lanes and Windows. Missing, stale, foreign,
 mixed or contradictory evidence and unexpected failure/cancellation/skip fail.
 Its terminal success explicitly says **docs-only; pytest and Windows were not run**.
 Classifier errors fall back to full CI; they never authorize missing full evidence.
-Full-mode evidence/verifiers, push events and same-attempt completeness remain
-unchanged for every non-delegated event.
+Full-mode evidence/verifiers and same-attempt completeness remain unchanged.
+Classifier failure on a PR or a covered push cannot waive any full evidence.
 
-Stage B permits a task push to delegate only to a current same-repository open
-PR targeting main, with the exact task head and an exact merge checkout tree
-equal to the task-head tree. `scripts/ci_event_route.py` records head/base/merge
-commits and trees separately. The PR classifier records its actual checkout in
-`event-decision-<run>-<attempt>/decision.json`; API head SHA alone is insufficient.
-The push selects the newest corresponding PR run. One initial discovery window
-of at most 30 seconds may find an ordinarily absent PR/run; all lookup, waiting
-and evidence processing shares the existing seven-minute deadline. API errors or
-ambiguity fall back immediately. The exact run/attempt must finish successfully.
-Full-code mode still requires classifier, quality, all three Linux lanes, Windows
-(including janitor), and final `checks` successful, with docs skipped.
+Stage B uses **PR-authoritative premerge CI**. Task pushes produce no CI run,
+no green skip and no merge-ready signal. There is no PR discovery, polling,
+cross-event delegation or task-push full fallback. This prospectively replaces
+the earlier full-push fallback contract, including the late/long PR case in
+[#366](https://github.com/LTstripes/Health-Check/issues/366). Push-before-PR simply
+waits for PR creation by the authorized role; it does not start another suite.
 
-A Stage A docs-only PR may instead supply exactly six completed jobs: classify,
-docs and checks successful; quality, aggregate `test` and Windows skipped. The
-push verifies the three unique same-attempt event-decision, docs-decision and
-docs-outcome ZIPs against their GitHub SHA256 digests using bounded JSON parsing.
-Complete raw diffs, allowlisted regular-file paths, ordered parents/trees,
-canonical policy/document hashes and decision/outcome digests must match the
-actual PR merge checkout. The task checkout remains the task head. Successful
-exact PR `checks` remains the content/link/privacy authority; delegation does not
-rerun those checks or combine/republish evidence. PR/head/base/merge/run identities
-and docs job/artifact identities are checked again after the reads.
+The mandatory fallback remains full CI **on the PR** whenever Stage A cannot
+prove docs-only eligibility. Code-mode requires classify, quality, all three
+Linux lanes, Windows (including DPAPI/janitor) and final `checks` successful,
+with docs skipped. A verified docs-only PR keeps its existing six-job outcome;
+neither path consumes a task-push result. `checks` always runs and fails on
+missing, cancelled, failed or inconsistent required evidence.
 
-Ambiguity, stale/foreign/closed PR, changed merge/base/head, different tree, API
-error, missing/expired/altered evidence, path/mode discrepancy, failed/cancelled
-or superseded run/attempt, or deadline expiry keeps the push full. A PR/run still
-absent after the one initial discovery window also keeps full CI.
-A delegated push skips its own quality/lanes/Windows and `checks`; its routing
-summary explicitly says it is **not a complete candidate gate** and identifies
-the PR run/attempt. Main/integration/other pushes and Stage A docs-only PR routing
-remain unchanged. A later changed candidate must obtain its own complete gate;
-delegation never makes a failed PR successful or erases earlier failures (#243).
+Before integration, the Integrator verifies the open PR's current target/base,
+head, merge ref and ordered parents/tree against the selected newest run/attempt
+and original artifacts, then reads the refs and run/attempt back after evidence
+inspection. [`ci_event_route.py`](../scripts/ci_event_route.py) retains actual PR
+checkout provenance in `event-decision-<run>-<attempt>/decision.json`; API head SHA
+alone is insufficient. Full same-attempt validation remains required; the existing
+independently pinned receipt rule below can reuse an unchanged verified result.
+No PR, closed/foreign PR, failed/cancelled/incomplete or superseded run, stale
+head/base/merge or a post-read race means **not merge-ready**. Changed candidates
+need their applicable exact PR checks; rebase/base movement invalidates affected
+proof and requires a current PR run. Do not substitute another branch's push,
+an older green attempt, or an unresolved skip. Earlier failures remain recorded.
+
+These are mandatory acceptance rules even where GitHub protection is unavailable;
+this change does not install or alter repository settings, rights or enforcement.
+Independent review follows risk; exact integration/main CI and relevant Owner UAT
+remain separate gates. A successful PR never substitutes for full post-main.
 
 Measured rollout results, live proofs and accepted limitations for #251/#246/#243/#242 are recorded in [CI Optimization Closeout — 2026-10-04](archive/closeouts/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md). No further CI optimization stage is implied by that closeout.
 
 | Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
 | --- | --- | --- | --- | --- |
-| Task push | task branch SHA | Same task branch only | Full gate, or explicit non-gate delegation to a complete exact-tree PR run/attempt | Changed tree/config/lock/manifest/selection or PR identity |
+| Task push | task branch SHA | No CI run | Mandatory current exact PR gate before acceptance; push itself supplies no evidence | No reusable push gate |
 | PR event | PR merge ref plus PR head SHA | Same PR number only | Full code-mode set or verified docs-only decision/outcome; merge checkout distinct from head | Any changed candidate/configuration |
 | Integration push | integration SHA | No task/PR cancellation | Exact integration checkout and complete gate | New integration commit |
 | Main push | main SHA | No task/PR cancellation | Exact post-main checkout and complete gate | New main commit |
 
-Concurrency is lane-scoped: PR runs share only their PR number, task-branch
-pushes share only their task ref, and integration/main/other refs do not opt in
-to cancellation. A PR merge ref's checked-out `HEAD` is recorded separately
+Concurrency is lane-scoped: PR runs share only their PR number;
+integration/main/other pushes do not opt in to cancellation. Task pushes have no
+run to cancel. A PR merge ref's checked-out `HEAD` is recorded separately
 from the PR head SHA. A canceled, timed-out or superseded run has no complete
 evidence for its SHA.
 
@@ -742,9 +745,9 @@ VCS integrity, build dependencies, exploitability, or live providers.
 No Owner or provider access was used.
 
 Ordinary CI pins action SHAs and defaults the token to `contents: read`.
-Only classify keeps `pull-requests: read` and `actions: read` for Stage B
-discovery. The audit workflow uses `contents: read` and the same pinned
-action SHAs. No write scopes were added.
+The existing classify `pull-requests: read` and `actions: read` scopes are
+retained unchanged; routing no longer uses remote discovery. The audit workflow
+uses `contents: read` and the same pinned action SHAs. No write scopes were added.
 
 <a id="synthetic-demo"></a>
 
@@ -1225,14 +1228,9 @@ Load only a relevant procedure skill; keep implicit delivery-loop invocation dis
 <a id="client-codex--managed-owner-local-task-checkout"></a>
 ### Managed Owner-local task checkout
 
-When the task explicitly selects managed lifecycle v1, use the executable
-`Invoke-WorkerLifecycle` consumer in the accepted installed helper and follow
-[worker checkout workflow](#worker-checkout-workflow--worker-checkout-workflow).
-The assignment supplies the helper path, client root, new child and unique owner;
-retain the current Claim/generation in the existing task checkpoint. Require
-CheckActive before work, Pause/Resume explicitly, and Complete after delivery.
-This does not hook platform task events or enroll an already-created checkout.
-Without configured/accepted support, use only the shared fresh-unmanaged fallback.
+Use the shared [worker checkout workflow](#worker-checkout-workflow--worker-checkout-workflow)
+when managed lifecycle v1 is explicitly assigned. Otherwise use the
+[fresh-unmanaged ownership fallback](#checkout-ownership--one-writer-per-physical-checkout).
 
 <a id="client-grok"></a>
 
@@ -1251,14 +1249,9 @@ Return the shared [completion report](../AGENTS.md#completion-reporting). Only e
 <a id="client-grok--managed-owner-local-task-checkout"></a>
 ### Managed Owner-local task checkout
 
-When the task explicitly selects managed lifecycle v1, use the executable
-`Invoke-WorkerLifecycle` consumer in the accepted installed helper and follow
-[worker checkout workflow](#worker-checkout-workflow--worker-checkout-workflow).
-The assignment supplies the helper path, client root, new child and unique owner;
-retain the current Claim/generation in the existing task checkpoint. Require
-CheckActive before work, Pause/Resume explicitly, and Complete after delivery.
-This does not hook platform task events or enroll an already-created checkout.
-Without configured/accepted support, use only the shared fresh-unmanaged fallback.
+Use the shared [worker checkout workflow](#worker-checkout-workflow--worker-checkout-workflow)
+when managed lifecycle v1 is explicitly assigned. Otherwise use the
+[fresh-unmanaged ownership fallback](#checkout-ownership--one-writer-per-physical-checkout).
 
 <a id="client-hermes"></a>
 
@@ -1287,14 +1280,9 @@ Hermes does not need the Codex-local `$delivery-loop` skill. Only explicit coord
 <a id="client-hermes--managed-owner-local-task-checkout"></a>
 ### Managed Owner-local task checkout
 
-When the task explicitly selects managed lifecycle v1, use the executable
-`Invoke-WorkerLifecycle` consumer in the accepted installed helper and follow
-[worker checkout workflow](#worker-checkout-workflow--worker-checkout-workflow).
-The assignment supplies the helper path, client root, new child and unique owner;
-retain the current Claim/generation in the existing task checkpoint. Require
-CheckActive before work, Pause/Resume explicitly, and Complete after delivery.
-This does not hook platform task events or enroll an already-created checkout.
-Without configured/accepted support, use only the shared fresh-unmanaged fallback.
+Use the shared [worker checkout workflow](#worker-checkout-workflow--worker-checkout-workflow)
+when managed lifecycle v1 is explicitly assigned. Otherwise use the
+[fresh-unmanaged ownership fallback](#checkout-ownership--one-writer-per-physical-checkout).
 
 <a id="accepted-ci-decisions"></a>
 

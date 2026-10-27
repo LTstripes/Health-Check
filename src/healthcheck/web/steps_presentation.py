@@ -27,6 +27,11 @@ def _group(value: str | None) -> str | None:
     return "\u202f".join(reversed(groups)) + (dot + fraction if dot else "")
 
 
+def steps_mean_display(total: int, count: int) -> str:
+    """Exact grouped daily mean, retaining positive values below display precision."""
+    return _group(_mean(total, count))
+
+
 def _chart(cells: list[dict]) -> dict:
     """Only bounded geometry is numeric in browser data; counts stay strings."""
     maximum = max((c["value"] for c in cells if c["state"] == "value"), default=0)
@@ -115,7 +120,7 @@ def garmin_steps_view(packet) -> dict:
         "mean": (_mean(summary.total, summary.eligible_day_count)
                  if summary.total is not None else None),
         "total_display": _group(str(summary.total)) if summary.total is not None else None,
-        "mean_display": (_group(_mean(summary.total, summary.eligible_day_count))
+        "mean_display": (steps_mean_display(summary.total, summary.eligible_day_count)
                          if summary.total is not None else None),
         "count": summary.eligible_day_count, "days": summary.calendar_day_count,
         "invalid_days": sum(row["state"] in {"invalid", "ambiguous"} for row in chart["rows"]),

@@ -31,13 +31,14 @@ from healthcheck.garmin.capabilities import GarminStream
 from healthcheck.garmin.persistence import PROJECTION_CURRENT
 
 R03_02_ALGORITHM = "r03-02-garmin-activity-comparison-v1"
-R03_02_RULE_VERSION = "r03-02-v3"
-R03_02_SESSION_DETAIL_CONTRACT_VERSION = "r03-02-garmin-activity-session-detail-v1"
+R03_02_RULE_VERSION = "r03-02-v4"
+R03_02_SESSION_DETAIL_CONTRACT_VERSION = "r03-02-garmin-activity-session-detail-v2"
 
 MIN_SELECTED_ACTIVITIES = 2
 MAX_SELECTED_ACTIVITIES = 20
 
 ACTIVITY_COMPARISON_METRIC_CODES: tuple[str, ...] = (
+    "session_total_calories",
     "duration_seconds",
     "distance_meters",
     "speed_mps",

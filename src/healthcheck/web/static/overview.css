@@ -69,6 +69,10 @@
 .overview-secondary h3 { margin: 0 0 8px; font-size: .8125rem; }
 .overview-secondary strong { display: block; font: 1.7rem var(--owner-heading-font); margin: 8px 0; }
 .overview-secondary [data-overview-rhr] strong { font-size: 1.125rem; line-height: 1.4; }
+.overview-secondary [data-overview-steps] strong { font-size: 1.125rem; line-height: 1.4; overflow-wrap: anywhere; }
+[data-overview-steps] .overview-info[open] > div { left: 0; right: auto; }
+.overview-secondary .overview-hrv { margin-top: 24px; }
+.overview-secondary .overview-hrv strong { font-size: 1.125rem; line-height: 1.4; }
 .overview-secondary [data-overview-body-battery] strong { font-size: 1.125rem; line-height: 1.4; }
 .overview-secondary [data-bb-window] strong { display: inline; font-size: 1rem; }
 .overview-secondary [data-overview-stress] strong { font-size: 1.125rem; line-height: 1.4; }

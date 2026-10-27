@@ -48,6 +48,7 @@ from healthcheck.garmin.contracts import (
 
 NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v2"
 ACTIVITY_QUALITY_CONTRACT_VERSION = "garmin-activity-quality-v1"
+ACTIVITY_NORMALIZATION_CONTRACT_VERSION = "garmin-activity-normalization-v2"
 SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v4"
 HRV_CALENDAR_CONTRACT_VERSION = "r02-garmin-hrv-calendar-normalization-v3"
 GARMIN_NORMALIZATION_CONTRACT_VERSION = NORMALIZATION_CONTRACT_VERSION
@@ -735,6 +736,8 @@ _DAILY_SCALARS = (
 )
 
 _ACTIVITY_SCALARS = (
+    # Provider-reported session total; raw unit is unspecified. Never subtract BMR.
+    _ScalarSpec("activities", "session_total_calories", ("calories",), "number"),
     _ScalarSpec("activity_training", "activityTrainingLoad", ("activityTrainingLoad",), "number"),
     _ScalarSpec("activity_training", "aerobicTrainingEffect", ("aerobicTrainingEffect",), "number"),
     _ScalarSpec(
@@ -798,6 +801,7 @@ _ACTIVITY_SCALARS = (
 
 _OPTIONAL_ACTIVITY_METRIC_CODES = frozenset(
     {
+        "session_total_calories",
         "activityTrainingLoad",
         "aerobicTrainingEffect",
         "anaerobicTrainingEffect",
@@ -1100,7 +1104,7 @@ def normalize_garmin_payload(
             and isinstance(payload, Mapping) and "hrvSummary" in payload
             else SLEEP_TIMING_CONTRACT_VERSION
             if normalized_stream is GarminStream.SLEEP
-            else ACTIVITY_QUALITY_CONTRACT_VERSION
+            else ACTIVITY_NORMALIZATION_CONTRACT_VERSION
             if normalized_stream is GarminStream.ACTIVITY
             else NORMALIZATION_CONTRACT_VERSION
         ),
@@ -1762,6 +1766,7 @@ def _parse_record(
                 source.device_attributed
                 and item.metric_code
                 not in {
+                    "session_total_calories",
                     "activityTrainingLoad",
                     "aerobicTrainingEffect",
                     "anaerobicTrainingEffect",
@@ -1904,7 +1909,7 @@ def activity_metric_quality_reason(
     """Validate activity summaries without medical/sport ceilings or GPS claims."""
     numeric_codes = {
         "duration_seconds", "distance_meters", "speed_mps", "heart_rate_bpm",
-        "max_heart_rate_bpm",
+        "max_heart_rate_bpm", "session_total_calories",
     }
     if metric_code not in numeric_codes:
         return training_numeric_quality_reason(metric_code, value)
@@ -2646,6 +2651,8 @@ def _contains_forbidden_key(value: Any) -> bool:
 
 
 def _scalar_capability_status(spec: _ScalarSpec) -> CapabilityStatus | None:
+    if spec.metric_code == "session_total_calories":
+        return None  # Source value, not a reviewed device/capability claim.
     # Session-max HR is source-factual, but cannot inherit the reviewed average
     # HR family's device claim until maxHR itself is in its reviewed fields.
     if spec.metric_code == "max_heart_rate_bpm":

@@ -342,7 +342,7 @@ Sparse voluntary streams such as weekly weight use a configured cadence. Continu
 <a id="logical-model--completed-day-overview-presentation"></a>
 #### Completed-day Overview presentation
 
-Only the Overview Sleep, Stress and Body Battery cards use the completed Moscow
+The Overview Sleep, Steps, Stress and Body Battery cards use the completed Moscow
 window described above. Their source dates are not relabelled or recalculated.
 Sleep averages eligible Garmin durations once per existing local wake date;
 Stress averages the eligible daily `avgStressLevel` values once per source day.
@@ -353,9 +353,26 @@ read exposes no partial-prefix mean and a long window is not silently clipped.
 One eligible day is sufficient; missing days never become zero. The actual
 denominator and partial evidence remain in accessible details, without repeated
 coverage rows in ordinary cards. Sleep's final mean is rounded
-half-up to a whole second only for human duration display; Stress retains the
-existing up-to-two-decimal format. The selected-day 28-day Stress baseline reader
+half-up to a whole second only for human duration display. Stress and Body Battery
+means display whole numbers, half-up; reader/calculation precision and daily graph
+values remain unchanged. Steps reuses this exact completed window: Garmin uses its
+existing completed-day reader (up to 366 days), Google its exact 7/30-day saved
+observations reader. Unsupported spans remain unavailable, never clipped. Each
+source has its own eligible-day denominator; missing is not zero, observed zero
+remains eligible, incomplete reads withhold means and Google coverage stays unknown.
+The selected-day 28-day Stress baseline reader
 remains available separately and its interpretation is unchanged.
+
+The #515 Overview detail navigation pins the selected window with an aware
+`period_at` query value: its original civil date anchors rolling controls and its
+Moscow date anchors completed days. Reader evaluation/freshness clocks remain current.
+Back/Reload and source changes retain that window; choosing a new period creates a
+new selection. Sleep drilldown passes the exact Garmin identity and completed 7/30
+dates to the existing source-range reader. Unsupported windows show a limitation
+instead of substituting 30 days. Activity drilldown uses the existing bounded
+`/statistics/sessions` reader with the original requested dates/source. Local return
+context survives filtering and session details; Statistics keeps its own return target.
+No reader limits, stored classifications, eligibility or aggregation rules change.
 
 Lag direction is named in APIs and evidence packets; ambiguous `correlation(metric_a, metric_b, lag=1)` contracts are forbidden.
 
@@ -872,7 +889,7 @@ correction selection remain the existing persistence/currentness contract.
 
 Each eligible saved `source_local_date` contributes its maximum among eligible
 measurements once. The Body Battery reader uses its entire supplied window unchanged.
-The Overview UI alone selects completed Moscow days for Sleep, Stress and Body
+The Overview UI selects completed Moscow days for Sleep, Steps, Stress and Body
 Battery: rolling presets end yesterday in `Europe/Moscow`, retaining their day
 count; a custom window retains its start and ends at the earlier of its selected
 end and yesterday. An empty intersection shows no number. The actual card range
@@ -1216,8 +1233,28 @@ be compared without claiming a verified device producer.
 
 The reconciliation contract and SQLite schema are unchanged. This version bump
 does not reprocess historical projections. Replay requires separate explicit
-Owner authorization. `calories` and `bmrCalories` remain outside normalization
-and the analytic registry pending reviewed unit/composition evidence.
+Owner authorization. The later #319 session-total slice below supersedes the
+historical exclusion of `calories`; `bmrCalories` remains outside the registry.
+
+#### Session total calories (#319)
+
+Owner accepts Garmin's reported total for one recorded activity. Normalize only
+the exact activity-list `calories` leaf as `session_total_calories` (session total,
+including resting energy), with no alias, sum, BMR subtraction or daily-energy
+substitution. Keep its native number and `unit=None`: the retained source has no
+explicit unit, so no kcal conversion or elapsed/moving/pause basis is asserted.
+The compact session card is labelled “Калории за занятие, всего”; exact unit and
+provenance remain in technical details. This is source evidence, not a verified
+device capability or an active-only energy contract.
+
+Absent, null, invalid and explicit zero retain their distinct states. Negative,
+non-finite, boolean and nonnumeric values are unavailable, never replaced by zero.
+An absent optional field does not downgrade an otherwise complete activity.
+Activity projections use `garmin-activity-normalization-v2`, retaining quality
+rules `garmin-activity-quality-v1`; comparison uses `r03-02-v4`. Existing bounded
+`garmin-reprocess --stream activities` recognizes older projections and derives
+the new metric from retained raw without a provider call or raw rewrite. It is
+explicit, not automatic, and still requires separate Owner operational authority.
 
 Absent new optional fields do not downgrade an otherwise complete activity
 record; their own metric-level availability remains `missing`.
@@ -1674,8 +1711,10 @@ The explicit Steps-only `steps_period=all_time` Statistics mode uses
 `garmin-completed-day-steps-moscow-all-time-v1` and the separate
 `garmin-completed-steps-all-time-budget-v1`. It requires one exact Garmin source;
 an omitted source asks for selection, without pooling or source guessing. The
-existing source-wide Statistics chooser remains available. Google Steps is
-separately `not_collected` pending #392; Garmin is never substituted for Google.
+existing source-wide Statistics chooser remains available. This all-time reader
+does not add Google Steps all-time support; the separately delivered Google
+[saved 7/30-day window](#saved-google-steps-read-392) retains its own contract.
+Garmin is never substituted for Google.
 
 The existing completed window entry point retains v2, 1–366 days and its
 1000-original cap. Combined export v1–v5 and other Statistics metrics/periods
@@ -2127,6 +2166,35 @@ selection share the same saved values. Closed native details retain the exact da
 table and provenance as the no-JavaScript fallback. This changes presentation only,
 not acquisition, reader caps, currentness, timezone evidence or export schemas.
 
+
+#### Bounded Google exercise sessions (#531)
+
+[Exercise import v1](GOOGLE_EXERCISE_IMPORT.md) adds an explicit `google-exercise`
+command using the existing Google Health v4 HTTP/auth boundary and the optional
+activity readonly scope already used by Steps. Default streams, consent scopes,
+collection scheduling and owner refresh are unchanged. Real access remains a
+separate operational check. The command selects `exercise/list/google-wearables`
+over explicit 1-14 civil start dates, following continuation tokens within four
+pages and twelve data attempts; a budget/error is partial, never complete history.
+
+Immutable acquisition context and raw pages retain evidence; source-specific
+provider resource names identify sessions and `updateTime` orders corrections.
+Stale revisions cannot replace newer ones; conflicting equal revisions invalidate
+the current projection until a newer correction. Replay validates the original
+window across all source partitions. Optional active duration remains distinct
+from elapsed duration and from missing/null/invalid/zero. Source UTC offsets drive
+local timestamps. Google calories are excluded pending an unambiguous contract.
+
+The existing Activity page includes a separate saved Google / Fitbit section;
+source/date selection opens `/google/exercise`. Its reader bounds the search to
+25 sources and 200 sessions in one exact source, optionally 1-30 civil start dates.
+Overflow is explicitly incomplete without a successful prefix; provider history,
+pagination and finality remain unknown. Garmin values, totals and comparison
+packets stay separate, with no date-based deduplication. Migration
+`0020_google_exercise` extends existing CHECKs and preserves append-only guards;
+downgrade is blocked after exercise evidence exists. Authorized rollout requires a
+verified recoverable pre-migration profile/artifact backup, restored through the
+established recovery procedure if rollback is needed.
 
 | Layer | Tables | Contract |
 | --- | --- | --- |
@@ -4210,6 +4278,35 @@ values and means/difference only with at least three unique nights per group.
 This first package pools timed Context events; it does not infer tags, cause,
 diagnosis, HRV/Body Battery recovery or post-workout pairs. Activity end is not
 persisted and is never synthesized.
+
+An additional opt-in selection (#462, approved 2026-10-27) uses
+`context_event_revisions=((event_id, revision_id), ...)` / repeatable CLI
+`--context-event EVENT_ID=REVISION_ID` with `include_context_recovery`. Omission
+retains the pooled v1 analysis and prior envelope versions. Explicit selection
+uses `saved-context-next-sleep-v2` and envelope v8 (compact v8), including when
+Google Steps is also selected. The exact requested IDs/revisions and mode are
+bound by the existing envelope hash. This is a manually chosen set, not an
+inferred or certified complete category of events.
+
+Accept 1–100 distinct event IDs with their current revision IDs. Reject empty,
+malformed or duplicate selections before reading; resolve every requested pair
+against the current Context rows already in the same bounded snapshot. Missing
+IDs (including outside-window or capped-out events), ambiguous rows and stale
+revisions fail the whole export, without an extra read, expansion or partial
+selection. An unavailable ID proves only absence from that snapshot. A valid
+selected date-only event still receives the existing timing exclusion.
+
+The first-night rule, pairing window, source/method/zone partitions, accepted
+sleep metrics and minimum counts above remain unchanged. Only nights paired to
+the selected events enter the selected group, once per unique night. Reference
+is the other compatible snapshot nights with exposure unknown. For both groups,
+`observed_context_by_night` links selected and other observed current Context
+revisions paired by the same rule; original Context evidence stays intact.
+Unselected events that cannot be paired have separate `other_event_exclusions`.
+This disclosure is not exhaustive confounder evidence or causal adjustment:
+unrecorded, untimed, capped and outside-window context remains unknown, including
+when a night's observed-event list is empty. No text/tag/category inference,
+work/free classification, activity join or additional recovery metric is added.
 
 Regularity explicitly means **circular local-clock population variability** for
 start/end and elapsed-UTC midpoint converted into the evidenced source local zone.
