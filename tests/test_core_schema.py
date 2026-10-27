@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from hashlib import sha256
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from alembic import command
 from sqlalchemy import func, inspect, select, text
+from sqlalchemy.exc import IntegrityError
 
+import fixture_database
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
     _alembic_config,
@@ -35,6 +40,103 @@ def migrated_database(tmp_path):
         yield paths, engine
     finally:
         engine.dispose()
+
+
+def test_schema_template_copies_preserve_transactions_paths_and_cleanup(
+    tmp_path, tmp_path_factory, monkeypatch,
+):
+    request = SimpleNamespace(config=SimpleNamespace(stash=pytest.Stash()))
+    migrated = []
+    migrate = fixture_database.migrate_database
+
+    def record_migration(paths):
+        migrated.append(paths)
+        migrate(paths)
+
+    monkeypatch.setattr(fixture_database, "migrate_database", record_migration)
+    paths_a, paths_b = (
+        prepare_runtime(Settings(data_dir=tmp_path / name)) for name in ("a", "b")
+    )
+    paths_a.config.write_text("# synthetic A config\n", encoding="utf-8")
+    fixture_database.copy_migrated_database(paths_a, request, tmp_path_factory)
+    assert len(migrated) == 1
+    template = migrated[0].database
+    template_hash = sha256(template.read_bytes()).hexdigest()
+    engine_a = create_sqlite_engine(paths_a)
+    engine_b = None
+    try:
+        with engine_a.connect() as first:
+            first.exec_driver_sql(
+                "INSERT INTO providers (id, code, display_name, provider_kind) "
+                "VALUES ('copy-a', 'copy-a', 'Synthetic A', 'test')"
+            )
+            first.commit()
+            # Keep A's connection and WAL live while another fixture copies the template.
+            assert Path(f"{paths_a.database}-wal").exists()
+            fixture_database.copy_migrated_database(paths_b, request, tmp_path_factory)
+            assert len(migrated) == 1
+            engine_b = create_sqlite_engine(paths_b)
+            with engine_b.connect() as second:
+                assert second.exec_driver_sql("PRAGMA journal_mode").scalar() == "wal"
+                assert second.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+                assert second.exec_driver_sql("PRAGMA busy_timeout").scalar() == 5000
+                assert second.exec_driver_sql("PRAGMA integrity_check").scalar() == "ok"
+                assert second.exec_driver_sql("SELECT COUNT(*) FROM providers").scalar() == 0
+                with pytest.raises(IntegrityError, match="FOREIGN KEY"):
+                    second.exec_driver_sql(
+                        "INSERT INTO acquisition_sources (id, provider_id, input_method) "
+                        "VALUES ('bad-copy-b', 'missing-provider', 'manual_import')"
+                    )
+                second.rollback()
+                first.exec_driver_sql(
+                    "INSERT INTO providers (id, code, display_name, provider_kind) "
+                    "VALUES ('rolled-back', 'rolled-back', 'Synthetic rollback', 'test')"
+                )
+                first.rollback()
+                assert first.exec_driver_sql("SELECT COUNT(*) FROM providers").scalar() == 1
+                assert second.exec_driver_sql("SELECT COUNT(*) FROM providers").scalar() == 0
+        assert paths_a.database != paths_b.database != template
+        assert paths_a.config.read_text(encoding="utf-8") == "# synthetic A config\n"
+        assert paths_b.config.read_text(encoding="utf-8") == ""
+        assert sha256(template.read_bytes()).hexdigest() == template_hash
+        assert not any(Path(f"{template}{suffix}").exists() for suffix in ("-wal", "-shm"))
+    finally:
+        engine_a.dispose()
+        if engine_b is not None:
+            engine_b.dispose()
+    # Unlink after disposal also exercises released SQLite handles on Windows.
+    for paths in (paths_a, paths_b):
+        paths.database.unlink()
+        assert not any(
+            Path(f"{paths.database}{suffix}").exists() for suffix in ("", "-wal", "-shm")
+        )
+
+
+def test_schema_template_is_config_local_and_never_overwrites_existing_state(
+    tmp_path, tmp_path_factory, monkeypatch,
+):
+    migrated = []
+    migrate = fixture_database.migrate_database
+
+    def record_migration(paths):
+        migrated.append(paths)
+        migrate(paths)
+
+    monkeypatch.setattr(fixture_database, "migrate_database", record_migration)
+    for name in ("first-session", "second-session"):
+        request = SimpleNamespace(config=SimpleNamespace(stash=pytest.Stash()))
+        paths = prepare_runtime(Settings(data_dir=tmp_path / name))
+        fixture_database.copy_migrated_database(paths, request, tmp_path_factory)
+        original = paths.database.read_bytes()
+        with pytest.raises(FileExistsError, match="must be new"):
+            fixture_database.copy_migrated_database(paths, request, tmp_path_factory)
+        assert paths.database.read_bytes() == original
+    assert len(migrated) == 2 and migrated[0].database != migrated[1].database
+    paths = prepare_runtime(Settings(data_dir=tmp_path / "orphan-sidecar"))
+    Path(f"{paths.database}-wal").write_bytes(b"synthetic orphan")
+    with pytest.raises(FileExistsError, match="must be new"):
+        fixture_database.copy_migrated_database(paths, request, tmp_path_factory)
+    assert not paths.database.exists() and len(migrated) == 2
 
 
 def test_empty_migration_is_idempotent_and_has_r01_and_r02_tables(migrated_database):

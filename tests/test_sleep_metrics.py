@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import func, select
 
+from fixture_database import copy_migrated_database
 from healthcheck.analytics.sleep_agreement import PersistedSleepAgreementService
 from healthcheck.analytics.sleep_agreement_report import SleepAgreementReportService
 from healthcheck.analytics.sleep_metrics import (
@@ -16,7 +17,7 @@ from healthcheck.analytics.sleep_metrics import (
     read_persisted_sleep_metric_projection,
 )
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import (
     AgreementRuleSet,
     AgreementRun,
@@ -279,9 +280,9 @@ def test_invalid_tib_without_session_does_not_claim_boundary_proof(projection_da
 
 
 @pytest.fixture
-def projection_database(tmp_path):
+def projection_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         with create_session_factory(engine)() as session:

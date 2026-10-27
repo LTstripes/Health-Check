@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import func, select
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
 from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
 from healthcheck.db.models import (
@@ -35,9 +36,9 @@ from healthcheck.runtime import prepare_runtime
 
 
 @pytest.fixture
-def training_database(tmp_path):
+def training_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         factory = create_session_factory(engine)

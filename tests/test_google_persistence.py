@@ -8,6 +8,7 @@ import pytest
 from alembic import command
 from sqlalchemy import func, inspect, select, text
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
     _alembic_config,
@@ -70,9 +71,9 @@ FITBIT_DATASOURCE = (
 
 
 @pytest.fixture
-def persistence_database(tmp_path):
+def persistence_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         factory = create_session_factory(engine)

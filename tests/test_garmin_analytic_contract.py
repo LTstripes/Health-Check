@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import GarminSourceRecord
 from healthcheck.db.repositories import repositories_for
 from healthcheck.garmin.analytic_contract import (
@@ -395,9 +396,9 @@ def test_resolve_aggregate_kind_field_path_fallback() -> None:
 
 
 @pytest.fixture
-def analytic_persistence_database(tmp_path):
+def analytic_persistence_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         factory = create_session_factory(engine)

@@ -6,8 +6,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import GoogleSourceRecord
 from healthcheck.google.contracts import (
     FAMILY_GOOGLE_SOURCES,
@@ -54,9 +55,9 @@ FITBIT_DATASOURCE = (
 
 
 @pytest.fixture
-def google_database(tmp_path):
+def google_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         with session_scope(engine) as session:

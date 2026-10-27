@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from fixture_database import copy_migrated_database
 from healthcheck.analytics.garmin_activity_comparison import (
     ACTIVITY_COMPARISON_METRIC_CODES,
     MAX_SELECTED_ACTIVITIES,
@@ -23,7 +24,7 @@ from healthcheck.analytics.garmin_activity_comparison import (
     source_field_matches_reviewed,
 )
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import GarminRecordMetric, GarminSourceRecord
 from healthcheck.db.repositories import repositories_for
 from healthcheck.garmin.analytic_contract import (
@@ -48,9 +49,9 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "garmin"
 
 
 @pytest.fixture
-def comparison_database(tmp_path):
+def comparison_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         factory = create_session_factory(engine)

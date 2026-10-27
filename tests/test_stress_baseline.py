@@ -2,13 +2,9 @@
 
 import copy
 import json
-import sqlite3
 import statistics
-from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
-from pathlib import Path
-from shutil import copyfile
 from types import SimpleNamespace
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,6 +13,7 @@ import pytest
 from sqlalchemy import insert, select
 from sqlalchemy.exc import InvalidRequestError
 
+from fixture_database import copy_migrated_database
 from healthcheck.analytics import stress_baseline as adapter
 from healthcheck.analytics.garmin_baselines import (
     R03_01_RULE_VERSION,
@@ -27,7 +24,7 @@ from healthcheck.analytics.garmin_baselines import (
     analyze_garmin_metric_series,
 )
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import (
     GarminPayloadObservation,
     GarminRecordMetric,
@@ -51,27 +48,12 @@ NOW = datetime(2099, 2, 1, tzinfo=UTC)
 ABSENT = object()
 MOSCOW_POLICY = adapter.MOSCOW_ANALYSIS_DAY_POLICY
 MEAN = adapter.ARITHMETIC_MEAN_COMPARISON
-_DATABASE_TEMPLATE_KEY = pytest.StashKey[Path]()
 
 
 @pytest.fixture
 def database(tmp_path, tmp_path_factory, request):
-    # This fixture is also imported by Overview tests: config-local storage
-    # shares one empty schema per session without sharing any test state.
-    template = request.config.stash.get(_DATABASE_TEMPLATE_KEY, None)
-    if template is None:
-        template_paths = prepare_runtime(
-            Settings(data_dir=tmp_path_factory.mktemp("stress-empty-schema") / "runtime")
-        )
-        migrate_database(template_paths)
-        # Copy only a checkpointed standalone database, after every connection
-        # is closed; each test then opens its own engine and WAL files.
-        with closing(sqlite3.connect(template_paths.database)) as connection:
-            assert connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone() == (0, 0, 0)
-        template = template_paths.database
-        request.config.stash[_DATABASE_TEMPLATE_KEY] = template
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    copyfile(template, paths.database)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     factory = create_session_factory(engine)
     try:

@@ -14,13 +14,14 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import DatabaseError
 
+from fixture_database import copy_migrated_database
 from healthcheck import chat_evidence
 from healthcheck import sleep_evidence as evidence
 from healthcheck.analytics import sleep_source_view
 from healthcheck.chat_evidence import EvidenceError
 from healthcheck.config import Settings
 from healthcheck.context import ContextService, parse_date_only, parse_interval, parse_timestamp
-from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import (
     GarminSource,
     GoogleRecordMetric,
@@ -38,9 +39,9 @@ CLOCK = datetime(2099, 1, 10, 12, tzinfo=UTC)
 
 
 @pytest.fixture
-def profile(tmp_path):
+def profile(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path.parent / ("s" + uuid4().hex[:8])))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     with session_scope(engine) as session:
         _persist_garmin(session, paths)

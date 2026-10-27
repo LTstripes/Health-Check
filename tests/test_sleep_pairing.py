@@ -11,13 +11,14 @@ from pathlib import Path
 import pytest
 from sqlalchemy import func, select
 
+from fixture_database import copy_migrated_database
 from healthcheck.analytics.sleep_pairing import (
     DEVICE_PAIR,
     SleepPairingQuery,
     read_persisted_sleep_pairing,
 )
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import GoogleSleepRecord, GoogleSource, GoogleSourceRecord
 from healthcheck.garmin.normalization import normalize_garmin_payload
 from healthcheck.garmin.persistence import GarminPersistenceRepository
@@ -41,9 +42,9 @@ FITBIT_SOURCE = "users/me/dataSources/raw:com.google.sleep:com.fitbit.Fitbit:syn
 
 
 @pytest.fixture
-def pairing_database(tmp_path):
+def pairing_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         with create_session_factory(engine)() as session:

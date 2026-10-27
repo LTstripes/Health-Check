@@ -6,8 +6,9 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import (
     GarminPayloadObservation,
     GarminRawPayload,
@@ -56,10 +57,10 @@ def normalize(body, source=None):
 
 
 @pytest.fixture
-def saved(tmp_path):
+def saved(tmp_path, request, tmp_path_factory):
     settings = Settings(data_dir=tmp_path / "synthetic-runtime")
     paths = prepare_runtime(settings)
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     factory = create_session_factory(engine)
     store = ContentAddressedGarminPayloadStore(paths.root / "artifacts")

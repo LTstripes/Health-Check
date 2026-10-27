@@ -6,9 +6,10 @@ import json
 
 import pytest
 
+from fixture_database import copy_migrated_database
 from healthcheck import cli
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import GooglePayloadStatus
 from healthcheck.google.contracts import (
     GoogleQueryContext,
@@ -25,10 +26,10 @@ from healthcheck.runtime import prepare_runtime
 
 
 @pytest.fixture
-def persisted_invalid_envelope(tmp_path):
+def persisted_invalid_envelope(tmp_path, request, tmp_path_factory):
     settings = Settings(data_dir=tmp_path / "runtime")
     paths = prepare_runtime(settings)
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     store = ContentAddressedGooglePayloadStore(paths.root / "artifacts")
     try:

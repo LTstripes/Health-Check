@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from fixture_database import copy_migrated_database
 from healthcheck.analytics import garmin_baselines as garmin_baselines_module
 from healthcheck.analytics.garmin_baselines import (
     MAX_SERIES_CALENDAR_DAYS,
@@ -26,7 +27,7 @@ from healthcheck.analytics.garmin_baselines import (
     type7_quantile,
 )
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import GarminSourceRecord
 from healthcheck.db.repositories import repositories_for
 from healthcheck.garmin.analytic_contract import (
@@ -43,9 +44,9 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "garmin"
 
 
 @pytest.fixture
-def baselines_database(tmp_path):
+def baselines_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         factory = create_session_factory(engine)
