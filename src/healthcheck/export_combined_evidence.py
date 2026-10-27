@@ -100,6 +100,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Use completed Moscow days for the exact --steps-garmin-source-id")
     parser.add_argument("--include-context-recovery", action="store_true",
                         help="Compare timed Context events with next eligible saved sleep")
+    parser.add_argument("--context-event", action="append", metavar="EVENT_ID=REVISION_ID",
+                        help="Select a current Context revision; repeat for a manual event set, "
+                             "requires --include-context-recovery")
     parser.add_argument("--include-sleep-regularity", action="store_true",
                         help="Circular local-clock variability of eligible saved sleep")
     parser.add_argument("--context-pairing-hours", type=int, default=24,
@@ -164,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
                 include_context_recovery=args.include_context_recovery,
                 include_sleep_regularity=args.include_sleep_regularity,
                 context_pairing_hours=args.context_pairing_hours,
+                context_event_revisions=(None if args.context_event is None else
+                                         tuple(tuple(item.split("="))
+                                               for item in args.context_event)),
                 sleep_day_types=tuple(tuple(item.split("=")) for item in args.sleep_day_type)),
             evaluated_at_utc=datetime.now(UTC), evaluation_local_date=args.evaluation_local_date,
         )

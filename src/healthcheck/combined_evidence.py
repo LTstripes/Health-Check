@@ -63,6 +63,7 @@ class CombinedEvidenceRequest:
     context_pairing_hours: int = 24
     sleep_day_types: tuple[tuple[str, str], ...] = ()
     steps_google_source_id: str | None = None
+    context_event_revisions: tuple[tuple[str, str], ...] | None = None
 
     def domain_requests(self):
         return (
@@ -410,6 +411,15 @@ def read_combined_evidence(
                                      else "health-chat-combined-evidence-v7")
                 if "projection" in packet:
                     packet["projection"]["detailed_version"] = "health-chat-combined-evidence-v7"
+            if request.context_event_revisions is not None:
+                packet["version"] = ("health-chat-combined-compact-evidence-v8"
+                                     if request.projection == "compact"
+                                     else "health-chat-combined-evidence-v8")
+                packet["request"]["analyses"]["context_event_revisions"] = [
+                    {"event_id": event_id, "revision_id": revision_id}
+                    for event_id, revision_id in request.context_event_revisions]
+                if "projection" in packet:
+                    packet["projection"]["detailed_version"] = "health-chat-combined-evidence-v8"
             packet["envelope_hash"] = hashlib.sha256(_json(packet).encode("utf-8")).hexdigest()
             encode_combined_evidence(packet)
             return packet

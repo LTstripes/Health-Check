@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from healthcheck.analytics.sleep_source_view import resolve_source_sleep_point
 from healthcheck.chat_evidence import EvidenceError, _json
+from healthcheck.db.models import ID_LENGTH
 
 MIN_NIGHTS = 3
 METRICS = ("sleep_duration_asleep_seconds", "sleep_time_in_bed_seconds",
@@ -29,6 +30,21 @@ def validate_options(request):
         raise EvidenceError("invalid_context_pairing_window")
     if request.include_context_recovery and not request.include_context:
         raise EvidenceError("context_analysis_requires_context")
+    selection = request.context_event_revisions
+    if selection is not None:
+        if type(selection) is not tuple or not 1 <= len(selection) <= 100:
+            raise EvidenceError("invalid_context_event_selection")
+        selected_ids = set()
+        for item in selection:
+            if (type(item) is not tuple or len(item) != 2
+                    or any(type(value) is not str or not 1 <= len(value) <= ID_LENGTH
+                           or any(c.isspace() for c in value) for value in item)):
+                raise EvidenceError("invalid_context_event_selection")
+            if item[0] in selected_ids:
+                raise EvidenceError("duplicate_context_event_selection")
+            selected_ids.add(item[0])
+        if not request.include_context_recovery:
+            raise EvidenceError("selection_requires_context_recovery")
     if type(request.sleep_day_types) is not tuple or len(request.sleep_day_types) > 30:
         raise EvidenceError("invalid_sleep_day_classification")
     seen = set()
@@ -250,11 +266,8 @@ def _numeric(cell):
             and type(cell.get("value")) in (int, float) and math.isfinite(cell["value"]))
 
 
-def _recovery(nights, context, request):
+def _context_pairs(nights, context, request):
     pairs, excluded = [], []
-    groups = defaultdict(list)
-    for night in nights:
-        groups[_json(night["partition"])].append(night)
     pairing_groups = defaultdict(list)
     for night in nights:
         pairing_groups[(night["provider"], night["source_id"])].append(night)
@@ -289,6 +302,55 @@ def _recovery(nights, context, request):
                               _instant(night["start"]["utc"]) - anchor).total_seconds() / 3600})
         if not found:
             excluded.append({**event, "reason": "no_eligible_night_in_bounded_snapshot_window"})
+    return pairs, excluded
+
+
+def _selected_context_ids(context, selection):
+    """Resolve only current rows already in this bounded snapshot; never reread."""
+    if selection is None:
+        return None
+    current = defaultdict(list)
+    for row in context["rows"]:
+        current[row["event_id"]].append(row)
+    for event_id, revision_id in selection:
+        rows = current[event_id]
+        if not rows:
+            raise EvidenceError("selected_context_event_unavailable_in_snapshot")
+        if len(rows) != 1:
+            raise EvidenceError("selected_context_event_ambiguous_in_snapshot")
+        if rows[0]["revision_id"] != revision_id:
+            raise EvidenceError("stale_context_event_revision")
+    return {event_id for event_id, _ in selection}
+
+
+def _observed_context_by_night(nights, pairs, selected_ids):
+    by_night = defaultdict(list)
+    for pair in pairs:
+        by_night[(_json(pair["partition"]), pair["record_id"])].append(pair)
+    results = []
+    for night in nights:
+        observed = by_night[(_json(night["partition"]), night["record_id"])]
+        results.append({
+            "partition": night["partition"], "record_id": night["record_id"],
+            "wake_date": night["wake_date"],
+            **{label: [{key: p[key] for key in ("event_id", "revision_id", "revision_number")}
+                       for p in observed if (p["event_id"] in selected_ids) == selected]
+               for label, selected in (("selected_events", True),
+                                       ("other_observed_events", False))},
+        })
+    return results
+
+
+def _recovery(nights, context, request):
+    selected_ids = _selected_context_ids(context, request.context_event_revisions)
+    all_pairs, all_excluded = _context_pairs(nights, context, request)
+    pairs, excluded = all_pairs, all_excluded
+    if selected_ids is not None:
+        pairs = [p for p in all_pairs if p["event_id"] in selected_ids]
+        excluded = [p for p in all_excluded if p["event_id"] in selected_ids]
+    groups = defaultdict(list)
+    for night in nights:
+        groups[_json(night["partition"])].append(night)
     comparisons = []
     for key, rows in groups.items():
         paired_ids = {p["record_id"] for p in pairs if _json(p["partition"]) == key}
@@ -326,7 +388,7 @@ def _recovery(nights, context, request):
         comparisons.append({"partition": rows[0]["partition"],
                             "paired_unique_nights": len(paired), "reference_nights": len(reference),
                             "metrics": metrics})
-    return {"version": "saved-context-next-sleep-v1", "pairing_window_hours": [
+    result = {"version": "saved-context-next-sleep-v1", "pairing_window_hours": [
         0, request.context_pairing_hours], "window_inclusive": True,
         "selection": "first_eligible_start_per_exact_source_then_partition_for_comparison",
         "reference": "other_compatible_snapshot_nights_exposure_unknown_not_event_free_controls",
@@ -335,6 +397,27 @@ def _recovery(nights, context, request):
         "min_unique_nights_per_comparison_group": MIN_NIGHTS,
         "context_coverage": {key: value for key, value in context.items() if key != "rows"},
         "pairs": pairs, "event_exclusions": excluded, "comparisons": comparisons}
+    if selected_ids is not None:
+        result.update(
+            version="saved-context-next-sleep-v2",
+            comparison="descriptive_selected_context_events_no_causal_or_diagnostic_inference",
+            event_selection={
+                "mode": "explicit_current_event_revisions_in_same_bounded_snapshot",
+                "events": [{"event_id": event_id, "revision_id": revision_id}
+                           for event_id, revision_id in request.context_event_revisions],
+                "category_completeness": "manual_set_not_inferred_or_certified",
+            },
+            observed_context_by_night=_observed_context_by_night(nights, all_pairs, selected_ids),
+            other_event_exclusions=[p for p in all_excluded if p["event_id"] not in selected_ids],
+            accompanying_context={
+                "relationship": "observed_events_paired_by_the_same_bounded_rule_only",
+                "evidence_reference": "sections.context.rows / event_id / revision_id",
+                "completeness": "unknown_including_unrecorded_untimed_or_out_of_window_events",
+                "adjustment": "none_no_isolated_effect_of_selected_events",
+                "empty_list": "no_observed_pair_not_proof_of_no_other_exposure",
+            },
+        )
+    return result
 
 
 def analyze_saved_sleep(sections, request):
