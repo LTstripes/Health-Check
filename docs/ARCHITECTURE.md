@@ -4277,6 +4277,35 @@ This first package pools timed Context events; it does not infer tags, cause,
 diagnosis, HRV/Body Battery recovery or post-workout pairs. Activity end is not
 persisted and is never synthesized.
 
+An additional opt-in selection (#462, approved 2026-10-27) uses
+`context_event_revisions=((event_id, revision_id), ...)` / repeatable CLI
+`--context-event EVENT_ID=REVISION_ID` with `include_context_recovery`. Omission
+retains the pooled v1 analysis and prior envelope versions. Explicit selection
+uses `saved-context-next-sleep-v2` and envelope v8 (compact v8), including when
+Google Steps is also selected. The exact requested IDs/revisions and mode are
+bound by the existing envelope hash. This is a manually chosen set, not an
+inferred or certified complete category of events.
+
+Accept 1–100 distinct event IDs with their current revision IDs. Reject empty,
+malformed or duplicate selections before reading; resolve every requested pair
+against the current Context rows already in the same bounded snapshot. Missing
+IDs (including outside-window or capped-out events), ambiguous rows and stale
+revisions fail the whole export, without an extra read, expansion or partial
+selection. An unavailable ID proves only absence from that snapshot. A valid
+selected date-only event still receives the existing timing exclusion.
+
+The first-night rule, pairing window, source/method/zone partitions, accepted
+sleep metrics and minimum counts above remain unchanged. Only nights paired to
+the selected events enter the selected group, once per unique night. Reference
+is the other compatible snapshot nights with exposure unknown. For both groups,
+`observed_context_by_night` links selected and other observed current Context
+revisions paired by the same rule; original Context evidence stays intact.
+Unselected events that cannot be paired have separate `other_event_exclusions`.
+This disclosure is not exhaustive confounder evidence or causal adjustment:
+unrecorded, untimed, capped and outside-window context remains unknown, including
+when a night's observed-event list is empty. No text/tag/category inference,
+work/free classification, activity join or additional recovery metric is added.
+
 Regularity explicitly means **circular local-clock population variability** for
 start/end and elapsed-UTC midpoint converted into the evidenced source local zone.
 For clock minutes `t`, `theta=2*pi*t/1440`, `R=abs(mean(exp(i*theta)))`, circular
