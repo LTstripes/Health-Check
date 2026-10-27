@@ -322,7 +322,13 @@ def test_tennis_v2_labels_cover_journal_summary_and_comparison(tmp_path):
         assert "Другой вид активности" not in primary
         script = client.get("/static/garmin_dashboard.js")
         assert script.status_code == 200
-        assert 'tennis_v2: "Теннис"' in script.text
+        from overview_html import parse_overview
+
+        names = json.loads(parse_overview(page.text).one("script", id="activity-type-names").text)
+        assert names["tennis_v2"] == names["tennis"] == "Теннис"
+        assert names["soccer"] == names["football"] == "Футбол"
+        assert names["cycling"] == "Велосипед"
+        assert 'getElementById("activity-type-names")' in script.text
         assert "activityNames[activity.activity_type]" in script.text
     app.state.engine.dispose()
 

@@ -16,7 +16,7 @@
 {% block content %}
 {% set session = detail.session %}{% set sel = detail.source %}
 <section class="card activity-session-detail" aria-label="Сохранённая сессия Garmin">
- <p class="muted activity-session-back"><a href="{{ back_href }}">К журналу активности</a></p>
+ <p class="muted activity-session-back"><a href="{{ back_href }}">{{ back_label }}</a></p>
  <h2>{{ session.activity_type | owner_activity_type }}</h2>
  <p class="muted">Сохранённая сессия Garmin{% if sel %} · {{ sel.device_model or 'Учётная запись' }}{% endif %} · {{ (session.source_local_date or session.local_wall_time or session.measured_at_utc) | owner_date }}</p>
  <details class="owner-info"><summary>ⓘ О показателях тренировки</summary><p>Средний и максимальный пульс — разные поля Garmin. Пропуски не заменяются нулём. Точные значения, единицы и происхождение — в технических деталях.</p></details>

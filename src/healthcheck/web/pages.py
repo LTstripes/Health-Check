@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -38,6 +39,7 @@ from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtra
 from healthcheck.logging import log_event
 from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
+from healthcheck.web.detail_navigation import local_return_href
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
 from healthcheck.web.overview_charts import read_overview_charts
@@ -46,6 +48,7 @@ from healthcheck.web.overview_rhr import read_overview_rhr
 from healthcheck.web.overview_steps import read_overview_steps
 from healthcheck.web.overview_view import overview_number, read_overview_values
 from healthcheck.web.owner_presentation import (
+    ACTIVITY_NAMES,
     owner_activity_count,
     owner_activity_type,
     owner_activity_types,
@@ -839,7 +842,15 @@ def sleep_page(
     view: str = "timeline",
     days: str | None = None,
     google_sleep_source_id: str | None = None,
+    return_to: str | None = None,
 ) -> HTMLResponse:
+    try:
+        timeline_days = sleep_timeline_days(days)
+        sleep_return = local_return_href(return_to, "/brief")
+    except ValueError:
+        return render_error(request, code="invalid_sleep_selection",
+                            message="Выберите 7 или 30 дней и корректный возврат к обзору.",
+                            status_code=400)
     try:
         end = date.fromisoformat(wake_date) if wake_date is not None else date.today()
     except ValueError:
@@ -856,11 +867,13 @@ def sleep_page(
     start = end - timedelta(days=29)
     view = view if view in {"timeline", "garmin", "google", "compare"} else "timeline"
     if view == "compare":
-        return _render_comparison(request, start=start, end=end, vitals_days=vitals_days)
+        return _render_comparison(request, start=start, end=end, vitals_days=vitals_days,
+                                  timeline_days=timeline_days, sleep_return=sleep_return)
     if view == "timeline":
         return _render_sleep_timeline(
-            request, end=end, days=sleep_timeline_days(days), vitals_days=vitals_days,
-            google_source_id=google_sleep_source_id,
+            request, end=end, days=timeline_days, vitals_days=vitals_days,
+            google_source_id=google_sleep_source_id, garmin_source_id=garmin_source_id,
+            sleep_return=sleep_return,
         )
     vitals_start = end - timedelta(days=vitals_days - 1)
     results: dict[str, Any] = {}
@@ -911,6 +924,7 @@ def sleep_page(
     return render(request, "sleep.html", {
         "page": "sleep", "wake_date": end, "start_date": start,
         "sleep_view": view, "history_rows": nightly_rows(results),
+        "sleep_timeline_days": timeline_days, "sleep_return_href": sleep_return,
         "selection": selection, "results": results, "sleep_metrics": SLEEP_METRICS,
         "night_metric": night_metric, "point_state": point_state,
         "metric_value": metric_value,
@@ -937,6 +951,7 @@ def sleep_page(
 def _render_sleep_timeline(
     request: Request, *, end: date, days: int, vitals_days: int,
     google_source_id: str | None = None,
+    garmin_source_id: str | None = None, sleep_return: str | None = None,
 ) -> HTMLResponse:
     """Primary #343 desktop view: independent 7/30 source ranges in one SSR snapshot.
 
@@ -947,12 +962,22 @@ def _render_sleep_timeline(
 
     timeline: dict[str, Any] | None = None
     timeline_technical: dict[str, Any] | None = None
+    selection = {"status": "no_data", "sources": []}
     try:
         with session_scope(request_engine(request)) as session:
             ensure_read_snapshot(session)
+            if garmin_source_id:
+                selection = GarminQueryService(
+                    session, request.app.state.settings).resolve_source(garmin_source_id)
+                if selection["status"] != "selected":
+                    raise GarminQueryError("unknown_garmin_source_id",
+                                           "Selected Garmin source is unavailable")
+                garmin_source_id = selection["selected_source_id"]
             ranges = {
                 provider: read_source_sleep_range(
-                    session, provider=provider, wake_date=end, days=days
+                    session, provider=provider, wake_date=end, days=days,
+                    **({"source_id": garmin_source_id}
+                       if provider == "garmin" and garmin_source_id else {}),
                 )
                 for provider in SLEEP_TIMELINE_PROVIDERS
             }
@@ -973,13 +998,17 @@ def _render_sleep_timeline(
                 ),
             )
             timeline_technical = sleep_timeline_technical(timeline)
+    except GarminQueryError as exc:
+        return render_error(request, code=exc.code,
+                            message="Выбранный источник Garmin недоступен.",
+                            status_code=exc.status_code)
     except SQLAlchemyError as exc:
         if not database_unavailable(exc):
             return _persist_error(request, "sleep_page")
     return render(request, "sleep.html", {
         "page": "sleep", "wake_date": end, "start_date": end - timedelta(days=days - 1),
         "sleep_view": "timeline", "sleep_timeline_days": days,
-        "selection": {"status": "no_data", "sources": []},
+        "selection": selection, "sleep_return_href": sleep_return,
         "google_vitals_window_days": vitals_days,
         "timeline": timeline,
         "timeline_freshness": timeline["freshness"] if timeline else None,
@@ -996,6 +1025,7 @@ def agreement_page(request: Request) -> HTMLResponse:
 def _render_comparison(
     request: Request, *, start: date | None = None, end: date | None = None,
     vitals_days: int = 30,
+    timeline_days: int = 30, sleep_return: str | None = None,
 ) -> HTMLResponse:
     details: dict[str, Any] = {}
     try:
@@ -1019,6 +1049,7 @@ def _render_comparison(
         "payload": payload, "page": "agreement", "sleep_groups": _brief_sleep_groups,
         "owner_cohort": _brief_owner_cohort, "owner_units": _BRIEF_UNIT_LABELS,
         "sleep_view": "compare", "wake_date": end, "start_date": start,
+        "sleep_timeline_days": timeline_days, "sleep_return_href": sleep_return,
         "google_vitals_window_days": vitals_days,
         "comparison_charts": comparison_charts, "comparison_value": comparison_value,
         "comparison_details": details,
@@ -1026,7 +1057,8 @@ def _render_comparison(
 
 
 def _brief_period(
-    *, preset: str | None, start_date: str | None, end_date: str | None
+    *, preset: str | None, start_date: str | None, end_date: str | None,
+    today: date | None = None,
 ) -> tuple[date, date, str | None]:
     """Resolve UI period controls without changing stored evidence semantics."""
 
@@ -1037,11 +1069,11 @@ def _brief_period(
             days = {"7": 7, "30": 30, "90": 90}[preset]
         except KeyError as exc:
             raise ValueError("preset must be 7, 30, or 90 days") from exc
-        end = date.today()
+        end = today or date.today()
         return end - timedelta(days=days - 1), end, preset
 
     if start_date is None and end_date is None:
-        end = date.today()
+        end = today or date.today()
         return end - timedelta(days=29), end, "30"
     if start_date is None or end_date is None:
         raise ValueError("custom period requires both start_date and end_date")
@@ -1064,10 +1096,21 @@ def period_brief_page(
     garmin_source_id: str | None = None,
     google_rhr_source_id: str | None = None,
     weekly_end: str | None = None,
+    period_at: str | None = None,
 ) -> HTMLResponse:
     try:
+        evaluated_at = datetime.now(UTC)
+        anchor = datetime.fromisoformat(period_at) if period_at is not None else None
+        # Freeze only the selected window; freshness still uses the current clock.
+        # Keeping the local offset also preserves the original requested civil date.
+        if anchor is not None and (
+            anchor.tzinfo is None or anchor.utcoffset() is None or anchor > evaluated_at
+        ):
+            raise ValueError("Момент выбора периода: прошедшее время с часовым поясом.")
+        period_clock = anchor or evaluated_at.astimezone()
         start, end, selected_preset = _brief_period(
-            preset=preset, start_date=start_date, end_date=end_date
+            preset=preset, start_date=start_date, end_date=end_date,
+            today=period_clock.date(),
         )
         with session_scope(request_engine(request)) as session:
             ensure_read_snapshot(session)
@@ -1083,7 +1126,6 @@ def period_brief_page(
                 session, start=start, end=end,
                 selected_id=source_selection.get("selected_source_id"),
             )
-            evaluated_at = datetime.now(UTC)
             overview["rhr"] = read_overview_rhr(
                 session, start=start, end=end,
                 explicit_period=any(value is not None for value in (preset, start_date, end_date)),
@@ -1102,7 +1144,7 @@ def period_brief_page(
             overview.update(read_completed_overview(
                 session, request.app.state.settings, start=start, end=end,
                 preset=selected_preset, source_id=source_selection.get("selected_source_id"),
-                evaluated_at=evaluated_at,
+                evaluated_at=evaluated_at, window_at=period_clock,
                 sleep_series=charts["technical"]["sleep"].get("sleep_duration_seconds"),
             ))
             overview["steps"] = read_overview_steps(
@@ -1127,6 +1169,30 @@ def period_brief_page(
             message="database is not ready",
             status_code=503,
         )
+    overview_params = ({"preset": selected_preset} if selected_preset else {
+        "start_date": start.isoformat(), "end_date": end.isoformat()})
+    overview_params["period_at"] = period_clock.isoformat()
+    if source_selection.get("selected_source_id"):
+        overview_params["garmin_source_id"] = source_selection["selected_source_id"]
+    if google_rhr_source_id:
+        overview_params["google_rhr_source_id"] = google_rhr_source_id
+    if weekly_end is not None:
+        overview_params["weekly_end"] = weekly_end
+    overview_href = "/brief?" + urlencode(overview_params)
+    detail_links = {"sleep": None, "activity": None}
+    source_id = source_selection.get("selected_source_id")
+    window = overview["completed_window"]
+    if source_id and window["calendar_days"] in {7, 30}:
+        detail_links["sleep"] = "/sleep?" + urlencode({
+            "days": window["calendar_days"], "wake_date": window["end_date"],
+            "garmin_source_id": source_id, "return_to": overview_href,
+        })
+    if source_id and 1 <= (end - start).days + 1 <= 366:
+        detail_links["activity"] = "/statistics/sessions?" + urlencode({
+            "garmin_source_id": source_id, "start_date": start.isoformat(),
+            "end_date": end.isoformat(), "metric_code": "activity_session_count",
+            "sport": "all", "return_to": overview_href,
+        })
     weekly = None
     weekly_error = None
     weekly_config = getattr(request.app.state, "weekly_digest", None)
@@ -1166,6 +1232,8 @@ def period_brief_page(
             "packet": result["packet"],
             "source_selection": source_selection,
             "selected_preset": selected_preset,
+            "overview_href": overview_href, "overview_params": overview_params,
+            "overview_detail_links": detail_links,
             "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"])
             or overview["period_sleep"]["mean_value"] is not None
             or overview["period_stress"]["mean_value"] is not None
@@ -1239,7 +1307,8 @@ def garmin_dashboard_page(
         google_exercise = None
     return render(
         request, "garmin.html",
-        {"payload": payload, "google_exercise": google_exercise, "page": "garmin"},
+        {"payload": payload, "google_exercise": google_exercise, "page": "garmin",
+         "activity_type_names": ACTIVITY_NAMES},
     )
 
 

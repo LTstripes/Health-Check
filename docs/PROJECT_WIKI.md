@@ -15,7 +15,26 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 <a id="current-canonical-state--current-canonical-state--2026-10-22"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-23"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-24"></a>
-## Current canonical state - 2026-10-24 (Europe/Moscow)
+<a id="current-canonical-state--current-canonical-state--2026-10-26"></a>
+## Current canonical state - 2026-10-26 (Europe/Moscow)
+
+Main is `2256fb0709aa7c82cf9184037864fe76d7f61236`, the merge of
+[#536 / #535](https://github.com/LTstripes/Health-Check/pull/536).
+[Post-main CI 40394772705, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/40394772705)
+succeeded. This test-only increment hardens Overview assertions and reuses an empty
+migrated test template with independent per-test stores; product code is unchanged.
+The Integrator's 26 October handoff reports Stable still at
+`396983e3edc835303bbd75e90828ad2154712eec`; this task does not inspect or update its runtime.
+
+The [approved #515 Overview → details package](https://github.com/LTstripes/Health-Check/issues/515#issuecomment-6424392266)
+is candidate work on `task/515-overview-details`, targeting this main. It preserves
+the supported Sleep window/source, uses the existing bounded session list and return
+context, and shares activity labels. Draft delivery, independent source/pixel review
+and exact PR CI precede Integrator acceptance. It is not merged or deployed;
+post-main and Stable status must be updated only after those actions actually occur.
+The broader #515 compactness backlog stays open.
+
+### Historical publication and 24 October checkpoint
 
 **Published 24 October: [Health-Check v0.1.0](https://github.com/LTstripes/Health-Check/releases/tag/v0.1.0)**
 targets `6f3deeb47366befdfeee9760553ace560a7312ea`. Owner accepted the lighter UI

@@ -15,13 +15,15 @@
   <form method="get" action="/sleep" class="inline-edit owner-controls" data-sleep-period-form>
     <label>По дату включительно <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
     <input type="hidden" name="view" value="timeline">
+    {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
+    {% if sleep_return_href %}<input type="hidden" name="return_to" value="{{ sleep_return_href }}">{% endif %}
     <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
     {% if timeline and timeline.google_selection.status == 'explicit' %}<input type="hidden" name="google_sleep_source_id" value="{{ timeline.google_selection.selected_source_id }}">{% endif %}
     <button type="submit">Показать</button>
   </form>
   <div class="preset-links" aria-label="Окно истории сна">
     {% for window in (7, 30) %}
-    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{% if window == sleep_timeline_days %}<strong>{{ window }} дней <span aria-hidden="true">✓</span></strong>{% else %}{{ window }} дней{% endif %}</a>
+    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if selection.status == 'selected' %}&amp;garmin_source_id={{ selection.selected_source_id|urlencode }}{% endif %}{% if sleep_return_href %}&amp;return_to={{ sleep_return_href|urlencode }}{% endif %}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{% if window == sleep_timeline_days %}<strong>{{ window }} дней <span aria-hidden="true">✓</span></strong>{% else %}{{ window }} дней{% endif %}</a>
     {% endfor %}
   </div>
   </div>
@@ -75,6 +77,8 @@
       <input type="hidden" name="wake_date" value="{{ wake_date }}">
       <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
       <input type="hidden" name="view" value="timeline">
+    {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
+    {% if sleep_return_href %}<input type="hidden" name="return_to" value="{{ sleep_return_href }}">{% endif %}
       <label>Источник сна Google
         <select name="google_sleep_source_id">
           <option value="">Автоматически, если источник единственный</option>

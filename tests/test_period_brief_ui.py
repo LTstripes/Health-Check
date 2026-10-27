@@ -1237,7 +1237,12 @@ def test_a_plus_real_services_keep_packets_ewma_dates_and_zero(tmp_path, complet
         assert page.context['charts']['sleep_error'] is False
         later = client.get('/brief?start_date=2099-01-01&end_date=2099-01-09')
         assert later.status_code == 200
-        assert 'href="/sleep?wake_date=2099-01-09' in later.text
+        from overview_html import parse_overview
+
+        sleep_card = parse_overview(later.text).one("div", **{"data-overview-period-sleep": None})
+        assert not sleep_card.find("a")
+        assert "7 или 30 завершённых дней" in sleep_card.text
+        assert later.context["overview"]["completed_window"]["calendar_days"] == 9
         css = client.get('/static/overview.css').text
         assert '.overview-trend { stroke: var(--series-2)' in css
         assert '.overview-observed { fill: var(--series-1)' in css

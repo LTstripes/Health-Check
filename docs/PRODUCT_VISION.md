@@ -283,6 +283,14 @@ also includes saved-session drilldown; completed navigation/timezone/drilldown
 must not be reassigned. Provider-first presentation is integrated, while general
 per-metric eligible-source discovery/autoselection remains open.
 
+The bounded #515 Overview detail package retains the selected Garmin Sleep window
+for supported 7/30 completed days and returns through the original Overview
+selection. Unsupported windows explain the limit. Activity summaries open the
+existing period/source-bounded session list and details; Statistics retains its own
+return path. Journal, detail and comparison labels share the same activity names.
+These navigation changes do not expand the recent journal into complete history
+or move the Sleep graph. Integration/Stable status belongs in the Wiki.
+
 Overview prioritizes readings and period selection. Its download link opens the
 existing Data page at `/imports#analysis-export`; export controls do not occupy
 the Overview. The ordinary download flow is end date, 7/30 days and **Скачать**,

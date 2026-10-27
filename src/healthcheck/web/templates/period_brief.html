@@ -3,7 +3,7 @@
 {% block title %}Обзор за период — Health-Check{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/overview.css">{% endblock %}
 {% block content %}
-<div class="overview-a-plus">
+<div class="overview-a-plus" data-overview-href="{{ overview_href }}">
 {% set weight = brief.sections.weight %}
 {% set sleep = brief.sections.sleep %}
 {% set activity = brief.sections.activity %}
@@ -64,9 +64,7 @@
     <p class="muted">В этом локальном профиле источник Garmin не сохранён.</p>
     {% endif %}
     <form class="inline-edit" method="get" action="/brief">
-      <input type="hidden" name="start_date" value="{{ brief.period.start_date }}">
-      <input type="hidden" name="end_date" value="{{ brief.period.end_date }}">
-      {% if overview.rhr.google_source_id %}<input type="hidden" name="google_rhr_source_id" value="{{ overview.rhr.google_source_id }}">{% endif %}
+      {% for key, value in overview_params.items() if key != 'garmin_source_id' %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
       <label>Источник
         <select name="garmin_source_id">
           <option value="">— выбрать источник —</option>

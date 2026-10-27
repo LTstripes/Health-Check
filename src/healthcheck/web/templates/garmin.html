@@ -118,6 +118,7 @@
  <h3>Результаты аналитики</h3><p id="result-identity">Запрос ещё не выполнен</p><div id="series-coverage"></div><pre id="series-evidence"></pre><pre id="activity-evidence"></pre><pre id="lag-evidence"></pre>
  <h3>Сессии и определения метрик</h3><pre>{{ payload.activities | tojson(indent=2) }}</pre><pre>{{ payload.scalar_metrics | tojson(indent=2) }}</pre><pre>{{ payload.native_score_labels | tojson(indent=2) }}</pre>
 {% endcall %}
+<script id="activity-type-names" type="application/json">{{ activity_type_names | tojson }}</script>
 <script id="garmin-dashboard-data" type="application/json">{{ payload | tojson }}</script><script id="activity-metric-names" type="application/json">{{ metric_names | tojson }}</script>
 {% endblock %}
 {% block scripts %}<script src="/static/garmin_dashboard.js"></script>{% endblock %}
