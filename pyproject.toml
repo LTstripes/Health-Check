@@ -39,8 +39,12 @@ packages = ["src/healthcheck"]
 allow-direct-references = true
 
 [tool.uv]
-# urllib3 is a runtime transitive dependency of the pinned Garmin client.
-constraint-dependencies = ["urllib3>=2.8.0,<3"]
+# Security floors for runtime transitive dependencies; keep compatible major versions.
+constraint-dependencies = [
+    "certifi>=2026.10.19",
+    "mako>=1.4.2,<2",
+    "urllib3>=2.8.0,<3",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
