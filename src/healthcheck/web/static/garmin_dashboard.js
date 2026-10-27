@@ -12,9 +12,7 @@
     unavailable: "Источник данных недоступен", insufficient: "Недостаточно данных",
     not_requested: "Не запрашивалось", loading: "Загрузка данных",
     error: "Не удалось выполнить запрос", no_change: "Изменений не обнаружено" };
-  const activityNames = { cycling: "Велотренировка", running: "Бег", walking: "Ходьба",
-    swimming: "Плавание", strength_training: "Силовая тренировка", tennis: "Теннис",
-    tennis_v2: "Теннис" };
+  const activityNames = JSON.parse(document.getElementById("activity-type-names").textContent);
   const units = { seconds: "с", meters: "м", "m/s": "м/с", bpm: "уд/мин",
     watts: "Вт", rpm: "об/мин", points: "баллы", percent: "%", "%": "%" };
 
@@ -134,7 +132,7 @@
     if (panel === "series") { setHtml("series-summary", ""); setHtml("series-coverage", ""); }
   }
   function activityLabel(activity, index) {
-    return "Сессия " + (index + 1) + " · " + (activityNames[activity.activity_type] || "Другой вид активности") + " · " + ownerDate(activity.source_local_date || activity.local_wall_time || activity.measured_at_utc);
+    return "Сессия " + (index + 1) + " · " + (activity.activity_type == null ? "Вид активности не указан" : (Object.hasOwn(activityNames, activity.activity_type) ? activityNames[activity.activity_type] : "Другой вид активности")) + " · " + ownerDate(activity.source_local_date || activity.local_wall_time || activity.measured_at_utc);
   }
   function populateActivities(activities) {
     ["activity-a", "activity-b"].forEach(id => {

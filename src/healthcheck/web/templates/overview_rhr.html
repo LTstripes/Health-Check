@@ -49,7 +49,7 @@
       {% endif %}
       {% if dto.reason == 'source_selection_required' %}
         <form method="get" action="/brief" class="owner-controls">
-          <input type="hidden" name="start_date" value="{{ brief.period.start_date }}"><input type="hidden" name="end_date" value="{{ brief.period.end_date }}">
+          {% for key, value in overview_params.items() if key not in ['garmin_source_id', 'google_rhr_source_id'] %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
           {% if item.label == 'Google' and source_selection.selected_source_id %}<input type="hidden" name="garmin_source_id" value="{{ source_selection.selected_source_id }}">{% endif %}
           {% if item.label == 'Garmin' and overview.rhr.google_source_id %}<input type="hidden" name="google_rhr_source_id" value="{{ overview.rhr.google_source_id }}">{% endif %}
           <label>Источник {{ item.label }} <select name="{{ 'google_rhr_source_id' if item.label == 'Google' else 'garmin_source_id' }}" required>
