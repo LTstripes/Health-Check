@@ -149,8 +149,11 @@ def test_checks_is_stable_always_and_requires_status_plus_all_artifacts():
     assert checks.startswith("    if: ${{ always() }}\n")
     assert "      - quality\n" in checks
     assert "      - test\n" in checks
-    assert "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0" in checks
-    assert "merge-multiple: false" in checks
+    # Both mandatory CI and routing evidence use the reviewed, immutable v8 pin.
+    assert checks.count(
+        "uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2"
+    ) == 2
+    assert checks.count("merge-multiple: false") == 2
     assert "QUALITY_RESULT: ${{ needs.quality.result }}" in checks
     assert "TEST_RESULT: ${{ needs.test.result }}" in checks
     assert "Fail-closed final verdict" in checks
