@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import (
     AcquisitionSource,
     ImportCandidate,
@@ -51,10 +52,10 @@ def _count(session, model) -> int:
 
 
 @pytest.fixture
-def photo_env(tmp_path):
+def photo_env(tmp_path, request, tmp_path_factory):
     settings = Settings(data_dir=tmp_path / "runtime")
     paths = prepare_runtime(settings)
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     extractor = FakeImageMeasurementExtractor()
     try:

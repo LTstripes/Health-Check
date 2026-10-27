@@ -11,13 +11,13 @@ import pytest
 from alembic import command
 from sqlalchemy import func, inspect, select
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
 from healthcheck.db.engine import (
     _alembic_config,
     create_session_factory,
     create_sqlite_engine,
     database_readiness,
-    migrate_database,
 )
 from healthcheck.db.models import (
     CoverageInterval,
@@ -55,9 +55,9 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "garmin"
 
 
 @pytest.fixture
-def persistence_database(tmp_path):
+def persistence_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         factory = create_session_factory(engine)

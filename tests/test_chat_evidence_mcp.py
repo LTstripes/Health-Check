@@ -13,10 +13,11 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi.testclient import TestClient
 
+from fixture_database import copy_migrated_database
 from healthcheck import chat_evidence_mcp as mcp
 from healthcheck.config import Settings
 from healthcheck.context import ContextService, parse_date_only
-from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.synthetic import encode_synthetic_png, weigh_in_payload
@@ -30,9 +31,9 @@ TOKEN = "synthetic-gateway-credential-fixture-only"
 
 
 @pytest.fixture
-def config(tmp_path):
+def config(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "p"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     with session_scope(engine) as session:
         importer = PhotoImportService(session, paths, FakeImageMeasurementExtractor())

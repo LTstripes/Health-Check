@@ -17,12 +17,13 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import DatabaseError
 
+from fixture_database import copy_migrated_database
 from healthcheck import chat_evidence as evidence
 from healthcheck import export_chat_evidence as exporter
 from healthcheck.chat_evidence import EvidenceError, EvidenceRequest, read_period_evidence
 from healthcheck.config import Settings
 from healthcheck.context import ContextService, parse_date_only, parse_interval, parse_timestamp
-from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import CoverageInterval, GarminSource
 from healthcheck.export_chat_evidence import main
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
@@ -41,10 +42,10 @@ REQUEST = EvidenceRequest(DAY, DAY + timedelta(days=2), ("garmin", "context", "w
 
 
 @pytest.fixture
-def profile(tmp_path):
+def profile(tmp_path, request, tmp_path_factory):
     # Short fresh child under the assigned external pytest root (Windows MAX_PATH).
     paths = prepare_runtime(Settings(data_dir=tmp_path.parent / ("p" + uuid4().hex[:8])))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     yield paths, engine
     engine.dispose()

@@ -14,6 +14,7 @@ import requests
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
 from healthcheck.context import (
     ContextService,
@@ -22,7 +23,7 @@ from healthcheck.context import (
     parse_interval,
     parse_timestamp,
 )
-from healthcheck.db.engine import create_sqlite_engine, migrate_database, session_scope
+from healthcheck.db.engine import create_sqlite_engine, session_scope
 from healthcheck.db.models import ContextEvent, ContextEventHead, ContextEventRevision
 from healthcheck.ingestion.photo.fake import FakeImageMeasurementExtractor
 from healthcheck.runtime import prepare_runtime
@@ -71,7 +72,7 @@ class FormParser(HTMLParser):
 
 
 @pytest.fixture
-def ui(tmp_path, monkeypatch):
+def ui(tmp_path, monkeypatch, request, tmp_path_factory):
     original_connect = socket.socket.connect
 
     def local_only(sock, address):
@@ -87,7 +88,7 @@ def ui(tmp_path, monkeypatch):
     monkeypatch.setattr(requests.Session, "request", forbidden)
     settings = Settings(data_dir=tmp_path / "synthetic")
     paths = prepare_runtime(settings)
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     app, _ = create_ui_app(settings, photo_extractor=FakeImageMeasurementExtractor())
     engine = create_sqlite_engine(paths)
     with TestClient(app, base_url=BASE, headers={"Origin": BASE}) as client:

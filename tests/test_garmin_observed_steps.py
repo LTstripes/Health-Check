@@ -6,8 +6,9 @@ import pytest
 from sqlalchemy import event, func, insert, select
 from sqlalchemy.exc import InvalidRequestError
 
+from fixture_database import copy_migrated_database
 from healthcheck.config import Settings
-from healthcheck.db.engine import create_session_factory, create_sqlite_engine, migrate_database
+from healthcheck.db.engine import create_session_factory, create_sqlite_engine
 from healthcheck.db.models import (
     GarminDailyRecord,
     GarminDailySummaryDateProof,
@@ -41,9 +42,9 @@ ABSENT = object()
 
 
 @pytest.fixture
-def saved_database(tmp_path):
+def saved_database(tmp_path, request, tmp_path_factory):
     paths = prepare_runtime(Settings(data_dir=tmp_path / "synthetic-runtime"))
-    migrate_database(paths)
+    copy_migrated_database(paths, request, tmp_path_factory)
     engine = create_sqlite_engine(paths)
     try:
         with create_session_factory(engine)() as session:
