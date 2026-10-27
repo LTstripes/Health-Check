@@ -1711,8 +1711,10 @@ The explicit Steps-only `steps_period=all_time` Statistics mode uses
 `garmin-completed-day-steps-moscow-all-time-v1` and the separate
 `garmin-completed-steps-all-time-budget-v1`. It requires one exact Garmin source;
 an omitted source asks for selection, without pooling or source guessing. The
-existing source-wide Statistics chooser remains available. Google Steps is
-separately `not_collected` pending #392; Garmin is never substituted for Google.
+existing source-wide Statistics chooser remains available. This all-time reader
+does not add Google Steps all-time support; the separately delivered Google
+[saved 7/30-day window](#saved-google-steps-read-392) retains its own contract.
+Garmin is never substituted for Google.
 
 The existing completed window entry point retains v2, 1–366 days and its
 1000-original cap. Combined export v1–v5 and other Statistics metrics/periods

@@ -104,7 +104,7 @@ are owned by [Architecture](ARCHITECTURE.md#garmin-steps).
 - **Google Health API v4:** released ingestion for sleep and supported health metrics/measurements, with preserved source/device metadata and explicit source-family semantics.
 - **Google wearable / Fitbit evidence:** device-level agreement requires explicit persisted Fitbit/device attribution. Broader wearable-family and account observations are not automatically device evidence.
 - **Free-text context:** Context Capture v0 stores revisioned original text, dates/instants/intervals; the existing desktop portal, primary Comments navigation and city/IANA input are delivered. This is one revisioned note system; direct conversation access is a separate connection decision.
-- **Laboratory documents (#348):** the local PDF plus structured transcription draft intake is integrated, with review/correction, explicit confirmation, revisions and original download. Real Owner UAT and chat-to-local transport remain unverified; medication/supplement and other personal-health-record capabilities remain separately scoped.
+- **Laboratory documents (#348):** the local PDF plus structured transcription draft intake is integrated, with review/correction, explicit confirmation, revisions and original download. The bounded real-document isolated-copy flow and Owner screen acceptance are complete; generic chat-attachment transport and durable Stable import remain separate. Current receipts are in [Project Wiki](PROJECT_WIKI.md#current-canonical-state); medication/supplement and other personal-health-record capabilities remain separately scoped.
 
 Every source value remains available. A canonical rule may select one value for one metric/period, but selection never deletes competing evidence.
 
@@ -231,8 +231,10 @@ provenance. One PDF must contain one report for one patient; unresolved linkage
 blocks confirmation. Confirming selected rows may be explicitly partial and does
 not imply field-by-field source verification.
 
-#348 remains OPEN pending real Owner UAT. Chat-to-local transport is unverified;
-Stable rollout has not been performed. OCR, interpretation, charts, cloud bridge,
+#348 is closed after [bounded isolated-copy and Owner acceptance](https://github.com/LTstripes/Health-Check/issues/348#issuecomment-6446273624).
+This is not a durable Stable import or generic chat-attachment bridge;
+`source_match=unverified` still does not certify each transcribed field.
+OCR, interpretation, charts, cloud bridge,
 #341 export, medication/supplement timelines and longitudinal analysis remain
 outside this delivered slice. Transcribed or accepted data is not a diagnosis.
 

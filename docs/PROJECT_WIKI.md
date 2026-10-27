@@ -16,9 +16,51 @@ Live GitHub is authoritative for refs and issue/PR state. A row is not a launch.
 <a id="current-canonical-state--current-canonical-state--2026-10-23"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-24"></a>
 <a id="current-canonical-state--current-canonical-state--2026-10-26"></a>
-## Current canonical state - 2026-10-26 (Europe/Moscow)
+<a id="current-canonical-state--current-canonical-state--2026-10-27"></a>
+## Current canonical state - 2026-10-27 (Europe/Moscow)
 
-Main is `2256fb0709aa7c82cf9184037864fe76d7f61236`, the merge of
+Main is `5bf38bbc32d54b5bdbdfab1716b57433b370c6da`, the merge of
+[#539](https://github.com/LTstripes/Health-Check/pull/539): explicitly selected
+Context event/revision pairs can drive the existing bounded following-sleep
+comparison. [Post-main CI 40548428065](https://github.com/LTstripes/Health-Check/actions/runs/40548428065)
+is pending at this documentation preparation checkpoint; merge and full post-main
+acceptance remain distinct. The extension adds no UI or Stable deployment and
+does not establish sufficient real observations, event-free reference nights or
+causality. Broader #462/#464 recovery/workout and real-data gates remain open.
+
+The accepted main sequence also includes [#537](https://github.com/LTstripes/Health-Check/pull/537)
+at `b9642d47` (supported Overview-to-Sleep source/window handoff, existing bounded
+sessions/detail return context and consistent activity labels), with verified
+[post-main 40465717560](https://github.com/LTstripes/Health-Check/actions/runs/40465717560).
+Security fixes [#538](https://github.com/LTstripes/Health-Check/pull/538), Actions
+updates [#270](https://github.com/LTstripes/Health-Check/pull/270) and registry
+maintenance [#459](https://github.com/LTstripes/Health-Check/pull/459) are merged
+through `53e0b8ea`; their separate CI/audit receipts remain in the PRs.
+[#459 post-main attempt 2](https://github.com/LTstripes/Health-Check/actions/runs/40533556786/attempts/2)
+succeeded after the retained negative first attempt; no timeout or gate was relaxed.
+
+Installed Stable remains `396983e3edc835303bbd75e90828ad2154712eec`, schema `0020`,
+per the [27 October operational receipt](https://github.com/LTstripes/Health-Check/issues/392#issuecomment-6446173829).
+The newer main packages above are not a Stable rollout. This documentation work
+performs no runtime, provider, data or schedule operation.
+
+The following bounded acceptances supersede the earlier pending checkpoints:
+
+| Closed scope | Accepted evidence and remaining limit |
+| --- | --- |
+| [#392 Steps](https://github.com/LTstripes/Health-Check/issues/392#issuecomment-6446276912) | Existing ordinary collection receipts and Owner screen acceptance completed the delivered acquisition/persistence/UI slice. Source separation and missing-versus-zero remain; provider coverage/finality and arbitrary historical correction completeness are not certified. |
+| [#523 Garmin history-cap correction](https://github.com/LTstripes/Health-Check/issues/523#issuecomment-6446177682) / [#524 Google catch-up](https://github.com/LTstripes/Health-Check/issues/524#issuecomment-6446283271) | Read-only inspection of subsequent ordinary runs completed the outstanding operational checks. No manual collection or repeated recovery was performed; live long-backlog ordering and error-stop branches were not exercised. Pre-activation Google history remains #522. |
+| [#501 compact Sleep regularity](https://github.com/LTstripes/Health-Check/issues/501#issuecomment-6446279968) | Real-copy technical verification and Owner screen acceptance completed the existing source-separated 7/30-day presentation, retaining genuine insufficient-data states. Broader #464/social jetlag and #380 remain separate. |
+| [#348 local PDF intake v1](https://github.com/LTstripes/Health-Check/issues/348#issuecomment-6446273624) | Real-document isolated-copy verification and Owner screen acceptance completed the bounded intake flow. No durable Stable import; `source_match=unverified` remains. Generic chat-attachment transport, automatic extraction/OCR and lab export are not delivered. |
+
+[#515](https://github.com/LTstripes/Health-Check/issues/515) remains the compactness
+umbrella. [Whole-number Steps display](https://github.com/LTstripes/Health-Check/issues/515#issuecomment-6446263959)
+is backlog-only, including averages; no rounding change is implemented by this
+package. #515, #462 and #464 are not closed by these bounded acceptances.
+
+### Historical 26 October checkpoint
+
+Main at this checkpoint was `2256fb0709aa7c82cf9184037864fe76d7f61236`, the merge of
 [#536 / #535](https://github.com/LTstripes/Health-Check/pull/536).
 [Post-main CI 40394772705, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/40394772705)
 succeeded. This test-only increment hardens Overview assertions and reuses an empty
@@ -247,6 +289,10 @@ See [the reader contract](ARCHITECTURE.md#saved-google-steps-read-392).
 <a id="recent-outcomes--recent-accepted-outcomes"></a>
 ## Recent accepted outcomes
 
+The engineering receipts below retain their original delivery scope and pending-UAT
+wording. Later Steps, compact regularity and PDF intake acceptance is recorded in
+the [27 October checkpoint](#current-canonical-state); do not repeat those completed gates.
+
 | Accepted change | Evidence | Remaining boundary |
 | --- | --- | --- |
 | Compact weekly preview and narrowed near-term Sleep scope | [#500](https://github.com/LTstripes/Health-Check/pull/500), canonical `4158c02b`; [#503](https://github.com/LTstripes/Health-Check/pull/503), canonical `12091de9` | Dense-week size correction uses existing compact evidence under the unchanged 2 MiB limit; exact original-artifact and post-main gates PASS. Annual Sleep is excluded, custom optional, #380 paused and 90-day Sleep UI undelivered. Authenticated delivery/real bindings/scheduling and Owner UAT remain open; no new corrective-SHA audit or runtime check is implied |
@@ -472,7 +518,7 @@ separate approval. Green CI/documentation merge grants neither action.
 Do not repeat delivered slices because an umbrella issue is OPEN. No backlog row
 authorizes a Worker, provider call, replay, Stable write or new transport.
 
-The rows describe remaining deltas against the later #509 presentation acceptance
+The rows describe remaining deltas against the dated engineering and Owner acceptance
 [recorded above](#current-canonical-state). That accepted presentation does not
 need another UAT merely to close these rows; additional workflows retain their
 own gates. Future compactness is #515. Delivered #511/#512 process work through
@@ -484,7 +530,8 @@ the linked receipts, not an active failed/undelivered status.
 | #492 / #495 primary UI and simple export | Engineering accepted through #496 with exact PR/task/post-main and independent actual-image review. Presentation accepted through #509; source guards and full supported export manifest remain. No Stable launcher/runtime update |
 | #493 readable saved Sleep/Activity/Training | Engineering accepted through #497/7604967 after independent source/actual-image review, separate corrective-test review and exact PR/task/post-main PASS. Presentation accepted through #509. Display rounding never changes calculations/export; main-night/legacy A remain. Active calories are still blocked by #319 |
 | #380 / #377 history and Steps | Steps-only all-time is delivered by #458. New annual Sleep coverage is excluded from the nearest scope; custom period is optional/non-blocking, and 90-day Sleep UI is not delivered. The range-reader WIP remains paused/protected technical HOLD after the [last measured snapshot-hit iteration](https://github.com/LTstripes/Health-Check/issues/380#issuecomment-6356731866): 90-day/200-session controls passed, all four annual cases timed out and withheld results. Clean local checkpoint and claim stay paused/protected; no next optimization or UI is launched. Two seconds/16 MiB and lossless evidence remain fixed. No full annual result, new coverage promise or 12-by-30 stitching. Existing trailing-365, calendar-year/YTD and Garmin all-time support is retained; cooperative budgets are not hard I/O/RSS deadlines |
-| #392 Google Steps | #476/#477/#478 foundation plus #481 saved 7/30 UI are accepted. Compact graph/day selection and exact observed-day sum/mean are engineering accepted through #498/c1295b6 with independent source/all-16-image review and exact PR/task/post-main PASS; this does not turn observed counts into certified completed days. Prior private acquisition UAT and accepted noncritical difference retain their own scope. Presentation accepted through #509; coverage/pagination UNKNOWN, timezone unspecified, no pooling or new automatic collection |
+| #392 / #523 / #524 Steps | CLOSED after the [bounded operational and Owner acceptances above](#current-canonical-state). Existing 7/30 source-separated observations, compact chart/day selection and observed-day sum/mean remain distinct from certified completed-day totals. Pre-activation history is #522; wider-window work is #380. Coverage/pagination/finality and arbitrary historical correction completeness remain unknown. |
+| #515 compactness | #537 Overview detail navigation is in main, outside installed Stable. The remaining compactness work and [whole-number Steps display, including averages](https://github.com/LTstripes/Health-Check/issues/515#issuecomment-6446263959), stay backlog-only. Presentation rounding must preserve stored/calculated/export precision and missing-versus-zero semantics. |
 | #393 / #394 / #357 recovery cards | Mean/Moscow/applicability and saved-day Body Battery maximum contracts are implemented, including #443. Remaining Owner review/UAT is separate; do not repeat Stage B implementation or relabel snapshot as daily peak |
 | #347 / #342 source views | Delivered provider-first presentation, exact Sleep/RHR defaults and Cycling eligibility do not implement a universal eligible-source policy. Further metrics need their own meaning and ambiguity contract. No family/device pooling |
 | #305 / #376 dated Data | RHR and saved Sleep are delivered with true source date/age. Add other metrics only in scoped adapters; separate copied failure and snapshot age policy from source absence |
@@ -495,13 +542,13 @@ the linked receipts, not an active failed/undelivered status.
 | #330 / #406 operations | #330 is CLOSED in live metadata; detailed human UAT remains partial; Google GET-401 fix is accepted code, not proof of original failure cause or current live recovery. Any auth/refresh/runtime action needs its own assignment |
 | #126 / #167 | Repository enforcement/capability and privacy-history rewrite are explicit Owner decisions; no implicit purchase/settings/history change |
 | #228 / #105 | Cross-image identity stays parked without trustworthy event proof; canonical Sleep switch remains NOT_ELIGIBLE without separate device-pair gate |
-| #462 / #464 saved-data analysis | The bounded export/CLI package is delivered by #468: timed Context-to-next-sleep comparisons, circular local-clock variability and optional explicit-classification uncorrected social jetlag. Broader HRV/RHR/Body Battery event analyses, Activity/workout joins and Owner-data verification remain pending. Activity end is not persisted; no event-free controls or causal claims are inferred. [Authoritative scope](https://github.com/LTstripes/Health-Check/issues/462#issuecomment-6275058395) |
+| #462 / #464 saved-data analysis | #468 delivers timed Context-to-next-sleep comparisons, circular local-clock variability and optional explicit-classification uncorrected social jetlag. #539 adds selected current Context event/revision pairs to the existing export/CLI on main; omitted selection keeps pooled behavior. It adds no UI or Stable rollout and does not prove sufficient real observations. Broader HRV/RHR/Body Battery analyses, Activity/workout joins and remaining real-data verification stay open. Activity end is not persisted; reference exposure remains unknown and no causal claim is inferred. [Original bounded scope](https://github.com/LTstripes/Health-Check/issues/462#issuecomment-6275058395), [selected-event extension](https://github.com/LTstripes/Health-Check/pull/539). |
 | #463 period passport | BACKLOG / implementation not launched in live issue. Supported-window wrapper is proposed only after parent scope/ownership approval; no arbitrary-period stitching, collection or new analytics |
-| [#488 weekly chat digest](https://github.com/LTstripes/Health-Check/pull/500) | Source-backed opt-in Overview/MCP preview is implemented, outside frozen release #479; exact acceptance remains in PR #500. The additional independent audit found a dense-week detailed-size P2; the bounded correction explicitly uses existing compact, retains all seven eligible fixture nights and the 2 MiB cap, and distinguishes size/read errors from invalid dates. Source/visual and new exact gates retain their candidate identities. Sunday 20:00 Europe/Moscow is agreed, but automation, authenticated chat delivery, real bindings, offline/late delivery policy and dedup/revisions remain unimplemented/unaccepted |
-| [#501 Sleep regularity](https://github.com/LTstripes/Health-Check/pull/502) | Compact 7/30-day source-separated start/end variability in the existing Sleep timeline, reusing #464/#468 without new formulas or eligibility. Counts and limitations are under info; missing/undefined is not zero. The issue owns exact source/actual-screen/CI/integration receipts. No extra Overview/export fields, social-jetlag UI or new acquisition; repeat Owner UAT remains separate |
+| [#488 weekly chat digest](https://github.com/LTstripes/Health-Check/pull/500) | Source-backed opt-in Overview/MCP preview is implemented, outside frozen release #479; exact acceptance remains in PR #500. The additional independent audit found a dense-week detailed-size P2; the bounded correction explicitly uses existing compact, retains all seven eligible fixture nights and the 2 MiB cap, and distinguishes size/read errors from invalid dates. Source/visual and new exact gates retain their candidate identities. Initial delivery scope is CLOSED under the [27 October operational closeout](https://github.com/LTstripes/Health-Check/issues/488#issuecomment-6434398400): existing Sunday 20:00 Europe/Moscow automation is enabled, and the first intended Sunday revision was confirmed delivered on 25 October. Its contract retains frozen validated packets, recipient/week/revision deduplication and history checks before retrying uncertain sends; do not resend that delivery. Not every offline/retry branch was live-exercised, and transport exactly-once is not guaranteed. |
+| [#501 Sleep regularity](https://github.com/LTstripes/Health-Check/pull/502) | CLOSED after [real-copy verification and Owner screen acceptance](https://github.com/LTstripes/Health-Check/issues/501#issuecomment-6446279968). The existing source-separated 7/30-day start/end variability still reuses #464/#468 without new formulas or eligibility; counts, limitations and insufficient states remain. Broader #464/social-jetlag UI and #380 are separate. |
 | [#504 historical Sleep date/export](https://github.com/LTstripes/Health-Check/issues/504) | Delivered (issue CLOSED): existing 7/30 snapshot, compact date controls, period-only prefill of the existing download, visible actual range and manual chat attachment. Existing source selection and supported export domains remain; no Google Steps export or year/custom reader. Exact engineering receipts stay in the issue; presentation accepted through #509 |
 | [#505 bounded UI polish](https://github.com/LTstripes/Health-Check/issues/505) | Delivered (issue CLOSED): zero-safe empty plot suppression, adjacent unknown Recovery unit and a pure UI weekly presenter. Frozen weekly text/hash/JSON/MCP and backend evidence stay unchanged; facts precede compact gaps. No redesign of deferred #494 or automatic delivery |
-| #348 and later releases | Local PDF/draft staging, review, confirmation, revisions and original download are integrated by #474. #348 remains OPEN for real Owner UAT; chat-to-local transport and rollout remain separate. No automatic diary/medication/causal-analysis expansion |
+| #348 and later releases | CLOSED for local PDF/structured-draft staging, review, confirmation, revisions and original download after [isolated-copy and Owner acceptance](https://github.com/LTstripes/Health-Check/issues/348#issuecomment-6446273624). No durable Stable import or generic chat-attachment bridge is claimed; source-field verification, automatic extraction/OCR and later lab export remain separate. No automatic diary/medication/causal-analysis expansion. |
 
 <a id="current-backlog--open-issue-registry-at-the-baseline"></a>
 <a id="open-issue-registry-at-the-earlier-documentation-baseline"></a>
@@ -677,7 +724,11 @@ The first bounded saved-evidence package for #462/#464 is delivered by
 [#468](https://github.com/LTstripes/Health-Check/pull/468); see the [accepted scope](https://github.com/LTstripes/Health-Check/issues/462#issuecomment-6275058395).
 It adds descriptive Context-to-sleep comparisons and circular local-clock sleep
 variability through the existing export/CLI, with optional explicit classifications
-for uncorrected social jetlag. Broader recovery/workout support and Owner-data
+for uncorrected social jetlag. [#539](https://github.com/LTstripes/Health-Check/pull/539)
+adds explicit current Context event/revision selection on main, retaining pooled
+behavior when omitted and unknown reference exposure. It adds no UI or Stable
+deployment and does not establish sufficient real observations.
+Broader recovery/workout support and remaining real-data
 verification remain pending. Matched-control/lagged experiments, effect sizes and
 structured n-of-1 work are later scope, not delivered by this package; consider a
 Recovery Score only for a demonstrated unmet need. Descriptive #346/#347 summaries
@@ -686,7 +737,7 @@ must not silently become causal experiments or proprietary-score arithmetic.
 <a id="release-roadmap--r09--laboratory-medication-supplement-and-document-data"></a>
 ### R09 — Laboratory, medication, supplement and document data
 
-**#348's first local lab-document slice is integrated by [#474](https://github.com/LTstripes/Health-Check/pull/474):** unchanged PDF plus a versioned structured manual/assistant transcription draft, local staging/review/correction, explicit confirmation (including partial selection), full-snapshot revisions, report list and original download. The [v1 contract](LAB_INTAKE_V1.md) preserves raw/exact results, nullable units/ranges, separate source/date roles and provenance; acceptance and source verification are distinct. One PDF must contain one report for one patient; unresolved linkage blocks confirmation. #348 remains OPEN pending real Owner UAT. Chat-to-local transport is unverified and no Stable rollout was performed. OCR, interpretation, charts, cloud bridge, #341 export and medication/supplement capabilities remain outside this slice.
+**#348's first local lab-document slice is integrated by [#474](https://github.com/LTstripes/Health-Check/pull/474):** unchanged PDF plus a versioned structured manual/assistant transcription draft, local staging/review/correction, explicit confirmation (including partial selection), full-snapshot revisions, report list and original download. The [v1 contract](LAB_INTAKE_V1.md) preserves raw/exact results, nullable units/ranges, separate source/date roles and provenance; acceptance and source verification are distinct. One PDF must contain one report for one patient; unresolved linkage blocks confirmation. #348 is CLOSED after [real-document isolated-copy and Owner acceptance](https://github.com/LTstripes/Health-Check/issues/348#issuecomment-6446273624). No durable Stable import or generic chat-attachment bridge is claimed; `source_match=unverified` remains. OCR, interpretation, charts, cloud bridge, #341 export and medication/supplement capabilities remain outside this slice.
 
 <a id="release-roadmap--r10--optional-advanced-work"></a>
 ### R10 — Optional advanced work
