@@ -309,10 +309,13 @@ def test_nightly_history_aligns_fields_without_pooling_or_duplicate_dates():
 
 
 def test_comparison_source_switch_keeps_date_and_independent_panels(tmp_path):
+    from urllib.parse import parse_qs, urlsplit
+
+    from overview_html import parse_overview
     from test_google_daily_vitals import seed_google_daily_vitals
 
     app, _settings, paths = _ui(tmp_path)
-    seed_sleep(paths)
+    source_id = seed_sleep(paths)
     seed_google_daily_vitals(paths)
     with client_for(app) as client:
         garmin = client.get("/sleep?view=garmin&wake_date=2099-01-02&vitals_window=7").text
@@ -320,7 +323,14 @@ def test_comparison_source_switch_keeps_date_and_independent_panels(tmp_path):
         compare = client.get("/sleep?view=compare&wake_date=2099-01-02").text
         assert "data-google-vitals" not in garmin
         assert "sleep-night-table" not in google
-        assert 'view=google&amp;wake_date=2099-01-02&amp;vitals_window=7' in garmin
+        switch = parse_overview(garmin).one("nav", classes=("sleep-source-switch",))
+        google_link, = [urlsplit(link.attrs["href"]) for link in switch.find("a")
+                        if link.text == "Google"]
+        assert google_link.path == "/sleep"
+        assert parse_qs(google_link.query) == {
+            "view": ["google"], "days": ["30"], "wake_date": ["2099-01-02"],
+            "vitals_window": ["7"], "garmin_source_id": [source_id],
+        }
         assert "42.5 мс" in google
         assert "Нет доступного сохранённого сравнения" in compare
         assert "общий график недоступен" in compare
