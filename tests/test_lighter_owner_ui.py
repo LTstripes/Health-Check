@@ -13,6 +13,7 @@ from healthcheck.config import Settings
 from healthcheck.db.models import GarminSourceRecord
 from healthcheck.web import pages
 from healthcheck.web.ui_app import create_ui_app
+from overview_html import parse_overview
 from test_overview_completed import NOW, seed_completed
 from test_overview_completed import database as database
 from test_sleep_evidence import CLOCK, DAY
@@ -28,6 +29,27 @@ def capture(name, value):
         path = Path(directory)
         path.mkdir(parents=True, exist_ok=True)
         (path / name).write_text(value, encoding="utf-8")
+
+
+def assert_period_tooltip(html, *, empty=False):
+    assert_period_tooltip_elements(parse_overview(html), empty=empty)
+
+
+def assert_period_tooltip_elements(document, *, empty=False):
+    tooltip = document.one(id="overview-period-scope")
+    assert tooltip.attrs.get("role") == "tooltip"
+    trigger = document.one("p", classes={"brief-period"})
+    assert trigger.attrs.get("tabindex") == "0"
+    assert "overview-period-scope" in trigger.attrs.get("aria-describedby", "").split()
+    assert trigger.one(id="overview-period-scope") is tooltip
+    spans = [child for child in tooltip.children if getattr(child, "tag", None) == "span"]
+    assert len(spans) == 2
+    requested_start = "8" if empty else "1"
+    assert spans[0].text.strip() == (
+        f"Вес и активности: {requested_start} января 2099 — 8 января 2099.")
+    completed = ("в выбранном периоде нет завершённых дней по МСК" if empty else
+                 "1 января 2099 — 7 января 2099 · завершённые дни, МСК")
+    assert spans[1].text.strip() == f"Сон, шаги, стресс и Body Battery: {completed}."
 
 
 @pytest.mark.parametrize("mode", ["filled", "empty", "partial"])
@@ -58,12 +80,37 @@ def test_one_period_description_replaces_card_ranges_without_changing_windows(
     assert response.context["overview"]["completed_window"]["end_date"] == "2099-01-07"
     assert response.context["overview"]["steps"]["window"] == response.context["overview"][
         "completed_window"]
-    assert response.text.count('id="overview-period-scope" role="tooltip"') == 1
-    assert 'tabindex="0" aria-describedby="overview-period-scope"' in response.text
-    tooltip = response.text.split('id="overview-period-scope"', 1)[1].split('</p>', 1)[0]
-    assert "Вес и активности:" in tooltip and "Сон, шаги, стресс и Body Battery:" in tooltip
-    assert "8 января 2099" in tooltip and "7 января 2099" in tooltip and "МСК" in tooltip
-    assert "в выбранном периоде нет завершённых дней по МСК" in empty.text
+    assert_period_tooltip(response.text)
+    assert_period_tooltip(empty.text, empty=True)
+    if mode == "filled":
+        harmless = response.text.replace(
+            'class="overview-period-tooltip" id="overview-period-scope" role="tooltip"',
+            'role="tooltip" class="extra overview-period-tooltip" id="overview-period-scope"')
+        harmless = harmless.replace(
+            'class="brief-period" tabindex="0" aria-describedby="overview-period-scope"',
+            'aria-describedby="overview-period-scope" tabindex="0" class="extra brief-period"')
+        assert_period_tooltip(harmless)
+        # Mutate selected elements, independent of source attribute serialization.
+        for html in (response.text, harmless):
+            for mutation in ["outside text", "date", "missing aria", "role", "duplicate"]:
+                document = parse_overview(html)
+                tooltip = document.one(id="overview-period-scope")
+                trigger = document.one("p", classes={"brief-period"})
+                if mutation == "outside text":
+                    trigger.children.append(tooltip.text)
+                    tooltip.children = []
+                elif mutation == "date":
+                    target, = [span for span in tooltip.find("span")
+                               if "7 января 2099" in span.text]
+                    target.children = [target.text.replace("7 января 2099", "6 января 2099")]
+                elif mutation == "missing aria":
+                    trigger.attrs.pop("aria-describedby")
+                elif mutation == "role":
+                    tooltip.attrs["role"] = "note"
+                else:
+                    document.children.append(tooltip)
+                with pytest.raises(AssertionError):
+                    assert_period_tooltip_elements(document)
     assert 'data-period-coverage' not in response.text
     assert 'data-overview-chart="stress"' not in response.text
     for removed in ["data-weekly-preview", "overview-download", "overview-all-sources",
@@ -74,7 +121,10 @@ def test_one_period_description_replaces_card_ranges_without_changing_windows(
     assert 'Покрытие дней не подтверждено полностью. Дни без записи — не ноль.' not in response.text
     assert '<a href="/weight">Последнее измерение веса</a></h3>' in response.text
     assert 'class="owner-details overview-chart-values"' not in response.text
-    assert 'class="overview-info" data-stress-evidence' in response.text
+    disclosure = parse_overview(response.text).one(
+        "details", **{"data-stress-evidence": None})
+    assert "overview-info" in disclosure.attrs.get("class", "").split()
+    assert disclosure.one("summary").attrs.get("aria-label")
     capture(f"overview-{mode}.html", response.text)
     capture("overview-no-completed.html", empty.text)
 
