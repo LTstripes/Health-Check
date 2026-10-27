@@ -962,7 +962,7 @@ a disposable checkout is not an Ops install.
 
 | Project | Reviewed source | Verified license at reviewed source | Final use |
 |---|---|---|---|
-| [`python-garminconnect`](https://github.com/cyberjunky/python-garminconnect/tree/981d150caeda7d632224a75f3895c08df27a2a34) | Original R02: `981d150caeda7d632224a75f3895c08df27a2a34` (`0.3.12`); accepted maintenance runtime: `54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5` (`0.3.15`) | MIT | **DIRECT runtime dependency**, pinned; do not write a competing client. The former 0.3.13 watch is superseded. Current upstream 0.3.16 requires a separate bounded upgrade decision. |
+| [`python-garminconnect`](https://github.com/cyberjunky/python-garminconnect/tree/981d150caeda7d632224a75f3895c08df27a2a34) | Original R02: `981d150caeda7d632224a75f3895c08df27a2a34` (`0.3.12`); accepted maintenance runtime: `54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5` (`0.3.15`) | MIT | **DIRECT runtime dependency**, pinned; do not write a competing client. The former 0.3.13 watch is superseded. The 2026-09-25 observation was upstream 0.3.16; see the dated review below. Any newer runtime requires a separate bounded upgrade decision. |
 | [`garmin-stats-ai`](https://github.com/dandwhelan/garmin-stats-ai/tree/936974ac8c78781e7d0075040f459ea7676b3819) | `936974ac8c78781e7d0075040f459ea7676b3819` | Root MIT; bundled `garmin-grafana/` BSD-3-Clause | **Selective donor/reference**: tiny pure statistics may be direct after file-level review; adapt transforms/sync/lag/activity/test semantics; do not adopt product/medical claims. |
 | [`fettle`](https://github.com/Deekshith-Dade/fettle/tree/82929df268124f0a3470b180adbbbeb0802d03cd) | `82929df268124f0a3470b180adbbbeb0802d03cd` | MIT | **Selective donor** for Google Health v4 registry/client/sync/sleep/test patterns. No module-level direct reuse approved. |
 | [`healthquery`](https://github.com/nikira-studio/healthquery/tree/f175148f67cb954fc4db2e026e497984dfccac29) | `f175148f67cb954fc4db2e026e497984dfccac29` | MIT | **Selective pattern donor** for raw batch replay, migrations and typed MCP shapes; reject its generic SQL/capability boundary. |
@@ -974,6 +974,178 @@ a disposable checkout is not an Ops install.
 | [`VitaSync`](https://github.com/biosync-io/vitasync/tree/f299cd134edea8effca9ac52436fc83d439792b6) | `f299cd134edea8effca9ac52436fc83d439792b6` | AGPL-3.0 | **REFERENCE ONLY**; do not copy. Product/infrastructure mismatch. |
 
 Network/process separation reduces code-incorporation risk but does not settle every licensing obligation. Distribution choices must still comply with each program's license.
+
+<a id="reference-review-2026-10-24"></a>
+### Reference review — 2026-10-24
+
+This dated research refresh compares **all 13 references** with the frozen
+[2026-09-25 observation](archive/research/REFERENCE_PROJECTS.md#current-observation--2026-09-25-194).
+Own-code baseline: [main `8111706a9c67936461e6a5dfbd3c891dd0c249f6`](https://github.com/LTstripes/Health-Check/commit/8111706a9c67936461e6a5dfbd3c891dd0c249f6).
+Eight observed heads changed; five are identical. Compare counts describe newly
+reachable commits, not necessarily authorship after September 25. Commit and
+publication dates below are UTC.
+
+**Observed upstream is not accepted reuse.** The reviewed-source classifications
+above stay authoritative; the runtime still pins python-garminconnect **0.3.15 @
+54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5**, verified in
+[pyproject](https://github.com/LTstripes/Health-Check/blob/8111706a9c67936461e6a5dfbd3c891dd0c249f6/pyproject.toml).
+GarminDB, garmin-local-mcp and Vitals remain WATCH ONLY. Licenses below were inspected
+at the observed head, except the explicitly unverified garmin_ai license. No new
+code-copy approval, dependency change, health threshold or provider authority is
+created by this review. No upstream or Health product/test was run.
+
+#### Exact upstream observation and releases
+
+| Reference | Observed head; commit date | Delta from the archived observation | Latest stable release; publication date; release commit | License evidence at observed head |
+| --- | --- | --- | --- | --- |
+| [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) | `3eee7a4db6c2242967aae1780b8839599ea7dcbb`; 2026-10-23 | [ahead by 117 commits](https://github.com/cyberjunky/python-garminconnect/compare/c3c1c0d66579696e3843cba20f985c66069140b9...3eee7a4db6c2242967aae1780b8839599ea7dcbb) | [0.3.20](https://github.com/cyberjunky/python-garminconnect/releases/tag/0.3.20), 2026-10-23; `3eee7a4db6c2242967aae1780b8839599ea7dcbb` | [MIT](https://github.com/cyberjunky/python-garminconnect/blob/3eee7a4db6c2242967aae1780b8839599ea7dcbb/LICENSE) |
+| [garmin-stats-ai](https://github.com/dandwhelan/garmin-stats-ai) | `07c1e3625c79c0bba65bdefbf6cfb7d119ce62be`; 2026-10-09 | [ahead by 7 commits](https://github.com/dandwhelan/garmin-stats-ai/compare/99987f7440eff39e4e0e2fb6a69f746e68196f28...07c1e3625c79c0bba65bdefbf6cfb7d119ce62be) | No GitHub release observed | [MIT](https://github.com/dandwhelan/garmin-stats-ai/blob/07c1e3625c79c0bba65bdefbf6cfb7d119ce62be/LICENSE); [bundled BSD-3-Clause](https://github.com/dandwhelan/garmin-stats-ai/blob/07c1e3625c79c0bba65bdefbf6cfb7d119ce62be/garmin-grafana/LICENSE) |
+| [fettle](https://github.com/Deekshith-Dade/fettle) | `82929df268124f0a3470b180adbbbeb0802d03cd`; 2026-08-01 | [unchanged](https://github.com/Deekshith-Dade/fettle/compare/82929df268124f0a3470b180adbbbeb0802d03cd...82929df268124f0a3470b180adbbbeb0802d03cd) | No GitHub release observed | [MIT](https://github.com/Deekshith-Dade/fettle/blob/82929df268124f0a3470b180adbbbeb0802d03cd/LICENSE) |
+| [healthquery](https://github.com/nikira-studio/healthquery) | `f175148f67cb954fc4db2e026e497984dfccac29`; 2026-07-26 | [unchanged](https://github.com/nikira-studio/healthquery/compare/f175148f67cb954fc4db2e026e497984dfccac29...f175148f67cb954fc4db2e026e497984dfccac29) | No GitHub release observed | [MIT](https://github.com/nikira-studio/healthquery/blob/f175148f67cb954fc4db2e026e497984dfccac29/LICENSE) |
+| [garmin_ai](https://github.com/TolmachevKirill/garmin_ai) | `ca6d298cc4a7e4e95e036c76dce69d211a47aeee`; 2026-08-20 | [unchanged](https://github.com/TolmachevKirill/garmin_ai/compare/ca6d298cc4a7e4e95e036c76dce69d211a47aeee...ca6d298cc4a7e4e95e036c76dce69d211a47aeee) | [v1.0.4](https://github.com/TolmachevKirill/garmin_ai/releases/tag/v1.0.4), 2026-08-20; `d5980d7121b43fd4dc44a94964f5c23b8563b086` | UNVERIFIED (no root LICENSE/COPYING found) |
+| [openScale](https://github.com/oliexdev/openScale) | `87edad4813e400cd4871109fc72a0bcf4d13f336`; 2026-10-24 | [ahead by 31 commits](https://github.com/oliexdev/openScale/compare/7a5c2ad3dd4ca0d13b4059e11118ee77b4f306d9...87edad4813e400cd4871109fc72a0bcf4d13f336) | [v3.1.3](https://github.com/oliexdev/openScale/releases/tag/v3.1.3), 2026-09-06; `7ebb55bea94836cd070a9c2eabed6d4bc2afc73b` | [GPL-3.0](https://github.com/oliexdev/openScale/blob/87edad4813e400cd4871109fc72a0bcf4d13f336/LICENSE) |
+| [openScale-sync](https://github.com/oliexdev/openScale-sync) | `ecfe4e9411a248e10605051e46a21a9263693dfd`; 2026-10-24 | [ahead by 6 commits](https://github.com/oliexdev/openScale-sync/compare/58cbb87b9ea764bee6d487ccc80eeef169a01521...ecfe4e9411a248e10605051e46a21a9263693dfd) | [v0.6.3](https://github.com/oliexdev/openScale-sync/releases/tag/v0.6.3), 2026-09-06; `0961540781a90581eee71c1e684af7d7838ae47a` | [GPL-3.0](https://github.com/oliexdev/openScale-sync/blob/ecfe4e9411a248e10605051e46a21a9263693dfd/LICENSE) |
+| [open-wearables](https://github.com/the-momentum/open-wearables) | `f067907b93d0f92500308b8a93f85e68abbf8ad8`; 2026-10-23 | [ahead by 172 commits](https://github.com/the-momentum/open-wearables/compare/db55ea3cbcddd9841f12f95f5fe57acef252d04a...f067907b93d0f92500308b8a93f85e68abbf8ad8) | [0.10.0](https://github.com/the-momentum/open-wearables/releases/tag/0.10.0), 2026-10-16; `d18304f8076a7710c48a4b279f8e8abd5a16887e` | [MIT](https://github.com/the-momentum/open-wearables/blob/f067907b93d0f92500308b8a93f85e68abbf8ad8/LICENSE) |
+| [haelan](https://github.com/bardesss/haelan) | `287a5a909a21fd60897d502616fa372021a5aa20`; 2026-10-20 | [ahead by 64 commits](https://github.com/bardesss/haelan/compare/ff0dd6355505f7efebaf9bd120b9c73c55af3c71...287a5a909a21fd60897d502616fa372021a5aa20) | [v2.22.1](https://github.com/bardesss/haelan/releases/tag/v2.22.1), 2026-10-09; `da72af613d7ff6849a4fcfca08fd8cb6afaeb290` | [AGPL-3.0](https://github.com/bardesss/haelan/blob/287a5a909a21fd60897d502616fa372021a5aa20/LICENSE) |
+| [vitasync](https://github.com/biosync-io/vitasync) | `f299cd134edea8effca9ac52436fc83d439792b6`; 2026-04-09 | [unchanged](https://github.com/biosync-io/vitasync/compare/f299cd134edea8effca9ac52436fc83d439792b6...f299cd134edea8effca9ac52436fc83d439792b6) | [v2.24.5](https://github.com/biosync-io/vitasync/releases/tag/v2.24.5), 2026-04-09; `f299cd134edea8effca9ac52436fc83d439792b6` | [AGPL-3.0](https://github.com/biosync-io/vitasync/blob/f299cd134edea8effca9ac52436fc83d439792b6/LICENSE) |
+| [GarminDB](https://github.com/tcgoetz/GarminDB) | `06d9d5246a9af1182dc2e1d2b24fadc56fdae203`; 2026-10-15 | [ahead by 1 commit](https://github.com/tcgoetz/GarminDB/compare/62409888d853d7cf4acd1bb7320337ce9f942176...06d9d5246a9af1182dc2e1d2b24fadc56fdae203) | [v3.9.0](https://github.com/tcgoetz/GarminDB/releases/tag/v3.9.0), 2026-08-23; `62409888d853d7cf4acd1bb7320337ce9f942176` | [GPL-2.0](https://github.com/tcgoetz/GarminDB/blob/06d9d5246a9af1182dc2e1d2b24fadc56fdae203/LICENSE) |
+| [garmin-local-mcp](https://github.com/anup-shesh/garmin-local-mcp) | `d3989fcc971e37a0f7d306b09864a186e4388db5`; 2026-10-04 | [ahead by 3 commits](https://github.com/anup-shesh/garmin-local-mcp/compare/5e895441e0b3ec21a2373a115a0e5e1c323c4a40...d3989fcc971e37a0f7d306b09864a186e4388db5) | [v0.1.9](https://github.com/anup-shesh/garmin-local-mcp/releases/tag/v0.1.9), 2026-10-04; `d3989fcc971e37a0f7d306b09864a186e4388db5` | [MIT](https://github.com/anup-shesh/garmin-local-mcp/blob/d3989fcc971e37a0f7d306b09864a186e4388db5/LICENSE) |
+| [Vitals-Command-Center](https://github.com/8tp/Vitals-Command-Center) | `514ef0c51c3f00baa3176d9aff4a486bf21d546d`; 2026-07-10 | [unchanged](https://github.com/8tp/Vitals-Command-Center/compare/514ef0c51c3f00baa3176d9aff4a486bf21d546d...514ef0c51c3f00baa3176d9aff4a486bf21d546d) | No GitHub release observed | [MIT](https://github.com/8tp/Vitals-Command-Center/blob/514ef0c51c3f00baa3176d9aff4a486bf21d546d/LICENSE) |
+
+The openScale moving `dev-build` releases dated October 24 are prereleases; stable
+remains **openScale v3.1.3 / openScale-sync v0.6.3**. VitaSync's April 14
+`v2.25.0-rc.feature-user-boundaries.8a3f498` is also a prerelease, not a new stable
+release since September. A newer branch or published tag says nothing about the
+Owner's installed app pair. The five unchanged heads are fettle, healthquery,
+garmin_ai, VitaSync and Vitals; this is not a claim that every discussion is inactive.
+
+#### Material changes, remaining reports and applicability
+
+- **python-garminconnect:** [0.3.18, October 15](https://github.com/cyberjunky/python-garminconnect/releases/tag/0.3.18)
+  removes response bodies from API/token DEBUG logs ([#464](https://github.com/cyberjunky/python-garminconnect/pull/464),
+  merged October 14; [#468](https://github.com/cyberjunky/python-garminconnect/pull/468), October 15).
+  [0.3.19, October 16](https://github.com/cyberjunky/python-garminconnect/releases/tag/0.3.19)
+  splits domain modules and changes library-generated/naive dates to the profile
+  timezone; Windows timezone dependencies and expanded write methods need bounded
+  compatibility review. [0.3.20, October 23](https://github.com/cyberjunky/python-garminconnect/releases/tag/0.3.20)
+  changes mobile login, classifies SSO 427 as rate limiting and supports serialized
+  MFA resumption. New MFA/write capabilities are outside our read-only scope. No
+  open issues/PRs were returned at inspection; this is not a reliability guarantee.
+- **garmin-stats-ai:** [#80, October 3](https://github.com/dandwhelan/garmin-stats-ai/pull/80)
+  fixes null-duration rendering and date-dependent fixtures. Its bed-to-wake fallback
+  must not replace our sleep eligibility. [#81, October 9](https://github.com/dandwhelan/garmin-stats-ai/pull/81)
+  fixes a 30-day preset yielding 31 dates, midnight rollover, focus/contrast and
+  chart/legend consistency. Take those failure cases; do not copy the broad redesign,
+  readiness thresholds or composition formulas. No open issues/PRs were returned.
+  Root MIT and bundled BSD do not license the separately supplied Fitdays component.
+- **fettle / healthquery / garmin_ai:** identical code heads and no new release or
+  open-item delta established. Retain selective Google registry/replay/typed-query
+  lessons for the first two; generic SQL and donor provider assumptions remain
+  outside our boundary. garmin_ai's portable-config fix predates the last review;
+  no root LICENSE/COPYING was found, so it remains no-copy reference only.
+- **openScale:** [#1538, merged October 17](https://github.com/oliexdev/openScale/pull/1538)
+  replaces S400 body-composition calculations and predicts a level shift. Its
+  DXA/accuracy assertions are contributor validation claims, not an independently
+  established health fact. [October 17 sync-intent change](https://github.com/oliexdev/openScale/commit/8ef93b2092745ea84ddd677eac1871452c27b3d5)
+  also sends stored derived values. Both are HEAD changes, not v3.1.3 behavior.
+  [#1572](https://github.com/oliexdev/openScale/pull/1572) and
+  [#1573](https://github.com/oliexdev/openScale/pull/1573), opened October 23,
+  remain unmerged Android 17 BLE proposals. Keep measured weight distinct from
+  algorithm-dependent estimates; do not silently reinterpret historic composition.
+- **openScale-sync:** [October 17 change](https://github.com/oliexdev/openScale-sync/commit/f20cb30f9a4d0b4472a7acaccb32cbe0f5e25a53)
+  omits missing optional metrics, skips weightless exports and handles loss of
+  weight through deletion. Existing corruption fix #38 is still newer than v0.6.3.
+  [#48](https://github.com/oliexdev/openScale-sync/issues/48) and unmerged
+  [#49](https://github.com/oliexdev/openScale-sync/pull/49), October 24, concern
+  historical Health Connect permission/cutoff/pagination. That Android ingestion
+  path is not Health-Check's Google Health API; only the failure pattern transfers.
+  Both GPL components stay external; no code or equations enter our MIT core.
+- **open-wearables:** [0.10.0, October 16](https://github.com/the-momentum/open-wearables/releases/tag/0.10.0)
+  distinguishes absent/zero and total/active energy, including absent workout calories;
+  [#1845](https://github.com/the-momentum/open-wearables/pull/1845) (October 14)
+  pages sleep by night rather than source row. Its nutrition expansion and portal
+  redesign are poor reasons to add providers or infrastructure here.
+  [#1825](https://github.com/the-momentum/open-wearables/issues/1825), October 9,
+  reports dead OAuth being treated as skipped/fresh; proposed
+  [#1894](https://github.com/the-momentum/open-wearables/pull/1894) remains open.
+  Older open [#1607](https://github.com/the-momentum/open-wearables/issues/1607),
+  [#1608](https://github.com/the-momentum/open-wearables/issues/1608) and
+  [#1539](https://github.com/the-momentum/open-wearables/issues/1539) concern identity,
+  re-sync and accumulating stages; they are not definitely new since September.
+  [#1968, October 23](https://github.com/the-momentum/open-wearables/pull/1968)
+  announces removal of native scores from November 6 and a future differently
+  licensed extension. This is an announced plan, not an already completed removal
+  or evidence that future modules are MIT. Reject donor health scores/platform stack.
+- **haelan:** [#442, October 9](https://github.com/bardesss/haelan/pull/442) separates a
+  period-average verdict from a daily baseline band; [#406](https://github.com/bardesss/haelan/pull/406)
+  and [#407](https://github.com/bardesss/haelan/pull/407), September 29, count merged
+  workouts once. [#418, September 30](https://github.com/bardesss/haelan/pull/418)
+  explains empty metrics from the first evidenced reason. These are useful UI and
+  regression lessons; custom recovery/HRV scores do not establish physiology.
+  [#385, September 26](https://github.com/bardesss/haelan/issues/385) is an open
+  intensity-inference proposal, not delivered capability. Older household
+  [#129](https://github.com/bardesss/haelan/issues/129) remains irrelevant to our single
+  user. AGPL reference only; no code copying.
+- **VitaSync:** unchanged. Open [#25](https://github.com/biosync-io/vitasync/issues/25)
+  and [#27](https://github.com/biosync-io/vitasync/issues/27), March 17, are old security
+  reports, not verified Health defects; #27's title/body disagree. Keep the earlier
+  AGPL/no-copy and platform-mismatch disposition, including no CQRS/admin/worker stack.
+- **GarminDB:** only new commit is [#332, merged October 15](https://github.com/tcgoetz/GarminDB/pull/332),
+  excluding missing years before sorting; not in v3.9.0. Its HRV/lap changes in that
+  release predate the last review. [#330, September 17](https://github.com/tcgoetz/GarminDB/issues/330)
+  still requests first-class offline archive ingestion; do not call that implemented.
+  Older [#248](https://github.com/tcgoetz/GarminDB/issues/248) remains a pace-unit
+  report. Use replay/null-date/unit scenarios, not a second Garmin database/importer.
+- **garmin-local-mcp:** [v0.1.7, September 25 21:51 UTC](https://github.com/anup-shesh/garmin-local-mcp/releases/tag/v0.1.7)
+  is after the recorded SHA despite the same date: it corrects best-of-15-lag
+  reporting with sample count/multiplicity adjustment. [v0.1.8, October 4](https://github.com/anup-shesh/garmin-local-mcp/releases/tag/v0.1.8)
+  adds circadian/chronotype/wake-window analyses; v0.1.9 is documentation only.
+  No open issues/PRs returned. Clear typed tool scope is useful; automatic favorable-lag
+  search, wake-time advice and sync/import tools are not our read-only evidence model.
+- **Vitals Command Center:** unchanged; no GitHub releases or open items returned.
+  Calm hierarchy and synthetic onboarding remain earlier references, not new
+  functionality to recreate after our lighter UI. Reject weighted device consensus
+  and homemade readiness. MIT does not waive a future exact-file review.
+
+#### Reconciliation with our code and existing work
+
+At the evidence cut, the complete open collection contained **23 issues and two
+Dependabot PRs**. Relevant source/acceptance beats stale OPEN umbrella wording:
+[#523](https://github.com/LTstripes/Health-Check/issues/523#issuecomment-6385557250)
+and [#524](https://github.com/LTstripes/Health-Check/issues/524#issuecomment-6385557963)
+already deliver bounded Steps corrections; [#527](https://github.com/LTstripes/Health-Check/pull/527)
+already delivers the opt-in protected home dashboard. Regularity #501 and the basic
+#462/#464 descriptive package exist; #376's saved reader exists even where consumer
+wiring remains. No new catch-up engine, Overview/export rewrite, regularity formula
+or recovery platform is proposed. [#319's October 24 source decision](https://github.com/LTstripes/Health-Check/issues/319#issuecomment-6382322341)
+still blocks guessed active-energy arithmetic. [#228](https://github.com/LTstripes/Health-Check/issues/228#issuecomment-5897048424)
+concerns screenshot identity, not the openScale webhook.
+
+These are discussion dispositions, not new tasks or implementation approvals.
+Complexity describes a later bounded change; no tests below were executed by this review.
+
+| Disposition | Bounded proposal and benefit | Own analogous path; overlap | Complexity / risk | Minimal later verification |
+| --- | --- | --- | --- | --- |
+| **Take now for discussion** | Audit a possible Garmin 0.3.15 → 0.3.20 upgrade for auth/date/log compatibility; keep one client | `garmin/auth.py:_silence_provider_logging`, `classify_garmin_error`, `garmin/probe.py`, `garmin/capabilities.py`. Current suppression/test already exists; no current leak is established. Open [#459](https://github.com/LTstripes/Health-Check/pull/459) updates registry dependencies and leaves the Garmin Git pin unchanged. | Medium; high auth/privacy/source-date risk if upgraded blindly | Fake secret-bearing failures from old and new child loggers/handlers; 427/429 mapping and bounded retry; UTC host/profile midnight; permitted read-method signatures and same-process MFA. Keep credentials/providers offline in automated checks. |
+| **Simplify within #515** | Use clear sum / eligible-day mean / daily-series labels and one primary missing-state explanation; fewer contradictory diagnostics | `analytics/period_summary.py:_cell`, `web/steps_presentation.py`, `web/sleep_regularity.py`; reuse existing reason/denominator DTOs and accepted lighter UI. A label inconsistency is a hypothesis to inspect, not a reproduced bug. | Small; medium interpretation risk | Seven calendar days, two eligible days including explicit zero: denominator remains two; missing stays missing. First load, Back/Reload and midnight keep 7/30 source-local dates. Focused 1024/1440 filled/partial/empty views only. |
+| **Later, only with a proposed sender change** | Verify the exact openScale/openScale-sync pair before consuming its changed output; preserve weight/composition provenance | `ingestion/openscale/contract.py`, `ingestion/openscale/provenance.py`, existing contract/webhook tests. Generic values authority, zero, replay, out-of-order update and tombstones already have tests. Do not reopen screenshot #228 or auto-install a dev build. | Small–medium; high identity/health-interpretation risk | Combined old payload → new omission of optional zeros / loss of weight / derived BMI-BMR update → retry/delete. Reuse primitive cases, add only missing transition coverage. A formula-version discontinuity must not look like measured health change. |
+| **Take as regression catalogue; preserve what already works** | Use OAuth, correction and missing-date lessons during the next affected task, without a broad test campaign | `source_freshness.py:evaluate_scope`, `google/steps_refresh.py`, `garmin/persistence.py`, `google/persistence.py`, `analytics/period_summary.py`. Existing freshness, steps, persistence and period tests cover most primitives. | Small review; medium/high loss or false-coverage risk if semantics change | Failure cannot become fresh from old values; incomplete page/date cannot advance completion; corrected→stale replay retains latest once; stages do not accumulate; missing date never fabricates year. Add a test only for a demonstrated coverage gap. |
+
+For reproduction, source-module paths above are relative to `src/healthcheck/` at
+the pinned baseline; `tests/` paths are relative to the repository root;
+[tree](https://github.com/LTstripes/Health-Check/tree/8111706a9c67936461e6a5dfbd3c891dd0c249f6)
+and exact public upstream links make the mapping inspectable. Existing
+`tests/test_garmin_auth.py:test_provider_logging_is_silenced_and_logger_state_is_restored`,
+`tests/test_source_freshness.py`, `tests/test_google_steps_refresh.py`,
+`tests/test_openscale_contract.py`, `tests/test_openscale_webhook.py` and
+`tests/test_period_summary.py` are coverage evidence by inspection, not a fresh PASS.
+
+**Do not take:** donor medical/causal thresholds, recovery or chronotype engines,
+weighted device consensus, generic SQL/write-capable AI, speculative active-energy
+subtraction, another source database/MCP service, provider fleet, multiuser/SaaS
+infrastructure, mandatory telemetry or model benchmarking. No current route is
+proved safe to delete by this source-only review. Reduce repeated explanation and
+technical noise through existing #515; preserve correction/provenance access.
 
 <a id="reuse-and-license--evidence-discipline-for-active-r04-work"></a>
 ### Evidence discipline for active R04 work
