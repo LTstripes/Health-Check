@@ -83,6 +83,56 @@ def seed_google(profile, value="0"):
         return saved.source.id
 
 
+def test_weight_reaches_weekly_packet_text_and_presentation_with_provenance(profile):
+    _seed_movement(profile)
+    packet = read(profile)
+    weight = packet["evidence"]["sections"]["weight"]
+    assert packet["version"] == "health-weekly-digest-v2"
+    assert config(profile).request(END).include_weight is True
+    assert len(weight["measured_facts"]["rows"]) == 1
+    fact = weight["measured_facts"]["rows"][0]
+    assert fact["canonical_selected"] is True
+    assert fact["provenance"]["input_method"] == "photo_import"
+    assert fact["provenance"]["evidence_id"] == fact["evidence_id"]
+    assert fact["provenance"]["temporal_precision"] == "date"
+    assert fact["provenance"]["source_timestamp_utc"] is None
+    assert weight["daily_series"]["rows"][0]["observed_date"] == fact["observed_date"]
+    assert not weight["measured_facts"]["truncated"]
+    assert "80.0 кг" in packet["text"]
+    assert "дневная медиана" in packet["text"]
+    assert any("80.0 кг" in text for text in presentation_checked(packet)["facts"])
+
+
+def test_weight_missing_is_disclosed_without_zero_or_carry_forward(profile):
+    _seed_movement(profile)
+    packet = read(profile, week_end=END + timedelta(days=7), clock=CLOCK + timedelta(days=7))
+    weight = packet["evidence"]["sections"]["weight"]
+    assert weight["measured_facts"]["rows"] == []
+    assert weight["daily_series"]["rows"] == []
+    assert "это не нулевой вес" in packet["text"]
+    assert "80.0 кг" not in packet["text"]
+    assert any("это не нулевой вес" in text for text in presentation_checked(packet)["gaps"])
+
+
+def test_weight_limit_rejects_entire_weekly_read(profile, monkeypatch):
+    from healthcheck import chat_evidence
+
+    _seed_movement(profile)
+    monkeypatch.setattr(chat_evidence, "MAX_WEIGHT_INPUT_ROWS", 0)
+    with pytest.raises(EvidenceError, match="weight_input_rows_exceed_limit"):
+        read(profile)
+
+
+def test_legacy_weekly_packet_without_weight_remains_renderable(profile):
+    packet = read(profile)
+    legacy = deepcopy(packet)
+    legacy["version"] = "health-weekly-digest-v1"
+    legacy["evidence"]["sections"].pop("weight")
+    legacy["text"] = weekly.render_weekly_digest(legacy)
+    assert "Вес:" not in legacy["text"]
+    assert not any("Вес:" in text for text in weekly_preview_presentation(legacy)["gaps"])
+
+
 def test_one_snapshot_exact_sources_frozen_renderer_hash_readonly(profile, monkeypatch):
     steps = _seed_movement(profile)
     google_steps = seed_google(profile, "123")

@@ -16,9 +16,10 @@ from healthcheck.web.owner_presentation import (
     owner_date,
     owner_distance,
     owner_duration,
+    owner_number,
 )
 
-VERSION = "health-weekly-digest-v1"
+VERSION = "health-weekly-digest-v2"
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
@@ -35,7 +36,8 @@ class WeeklyDigestConfig:
 
     def request(self, week_end: date) -> CombinedEvidenceRequest:
         request = CombinedEvidenceRequest(
-            end_date=week_end, days=7, include_context=False, projection="compact",
+            end_date=week_end, days=7, include_context=False, include_weight=True,
+            projection="compact",
             activity_garmin_source_id=self.activity_garmin_source_id,
             sleep_garmin_source_id=self.sleep_garmin_source_id,
             sleep_google_source_id=self.sleep_google_source_id,
@@ -73,7 +75,7 @@ def get_weekly_digest_evidence(
             "as_of": local.isoformat(),
             "sunday_incomplete": week_end == local.date(),
             "late_read": local > target,
-            "date_basis": "activity_source_local_sleep_wake_date_steps_saved_civil_date",
+            "date_basis": "activity_source_local_sleep_wake_date_steps_weight_saved_civil_date",
         },
         "generated_at_utc": evidence["generated_at_utc"],
         "collection_freshness": {"state": "unknown", "latest_success": None,
@@ -150,6 +152,17 @@ def _steps(section, label):
     return text
 
 
+def _weight(section):
+    """Describe accepted daily medians without extrapolation or a weekly rate."""
+    rows = section["daily_series"]["rows"]
+    if not rows:
+        return "Вес: в периоде нет пригодных дневных значений; это не нулевой вес."
+    latest = max(rows, key=lambda row: row["observed_date"])
+    return (f"Вес: дневные значения на {len(rows)} датах; последняя дневная медиана — "
+            f"{owner_date(latest['observed_date'])}, {owner_number(latest['median_kg'])} кг. "
+            "Даты без измерений не заполнены; темп изменения за неделю не рассчитывался.")
+
+
 def _sleep(section):
     lines = []
     for provider, item in section["providers"].items():
@@ -187,6 +200,8 @@ def render_weekly_digest(packet: dict) -> str:
         paragraphs[0] += " Воскресенье ещё не завершено: итог предварительный."
     if period["late_read"]:
         paragraphs[0] += " Позднее чтение: это фактический срез, а не восстановление на 20:00."
+    if "weight" in sections:
+        paragraphs.append(_weight(sections["weight"]))
     paragraphs.extend([
         _activity(sections["activity"]),
         _steps(sections.get("steps"), "Garmin") + " "

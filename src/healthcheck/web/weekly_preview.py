@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from healthcheck.weekly_digest import _activity, _sleep, _steps
+from healthcheck.weekly_digest import _activity, _sleep, _steps, _weight
 
 
 def weekly_preview_presentation(packet: dict) -> dict[str, list[str]]:
@@ -10,6 +10,9 @@ def weekly_preview_presentation(packet: dict) -> dict[str, list[str]]:
     sections = packet["evidence"]["sections"]
     facts: list[str] = []
     gaps: list[str] = []
+    weight = sections.get("weight")
+    if weight is not None:
+        (facts if weight["daily_series"]["rows"] else gaps).append(_weight(weight))
     count = sections["activity"]["providers"]["garmin"]["metrics"]["activity_session_count"]
     if count["aggregation"]["value"] is not None and count["search"]["complete"]:
         facts.append(_activity(sections["activity"]))
