@@ -4203,7 +4203,7 @@ saved Steps reader, retaining exact family, cells, reasons and provenance while
 omitting source inventory and raw fields. Incomplete search rejects the entire
 selected response; sources are never pooled and no Steps aggregate is added.
 
-The `health-weekly-digest-v1` envelope retains the complete combined packet,
+The `health-weekly-digest-v2` envelope retains the complete combined packet,
 evaluation/generated clocks, intended Sunday 20:00 Europe/Moscow target, actual
 as-of, seven-date bounds, explicit unfinished-Sunday and late-read flags, unknown
 collection freshness and a SHA-256 `digest_hash` over canonical JSON excluding
@@ -4214,6 +4214,16 @@ usable observation, with no total or mean. Completed Garmin excludes unfinished
 dates. Sleep uses accepted source-specific duration series, retaining wake dates,
 main/nap/unknown-role exclusions; uncertain-role points do not become confirmed
 main nights. No sleep mean, medical inference or previous-week comparison is added.
+
+The weekly request also includes the existing accepted Weight projection in the
+same snapshot. Measured facts retain source/device/application, temporal precision,
+algorithm and canonical-selection provenance; daily medians, derived results and
+coverage retain their existing contract and limits. Text and the pure presentation
+helper disclose the latest saved daily median and its observation date, or an
+explicit unavailable result. They do not fill missing dates, calculate a new weekly
+rate, or imply recent acquisition from an old observation. Rendering retained v1
+packets without a Weight section remains supported; new v2 reads require Weight
+through the fixed request, without adding a request-level source/metric choice.
 
 The schedule timezone never rewrites source-local dates. This is a saved-store
 read, **not time travel**: delayed reads retain their actual as-of and may include
