@@ -4521,6 +4521,48 @@ Tunnel. Do not expose a private profile by relabelling it synthetic. Gateway
 construction, identity-provider calls/configuration, keys and public exposure are
 outside this implementation assignment.
 
+<a id="assistant-period-mcp"></a>
+### Operator-bound 7/30-day MCP mode
+
+An explicit `MCPConfig.assistant_period` or startup `--assistant-binding` selects
+one tool, `read_assistant_period(end_date, days)`. The default Weight/Context and
+optional Python-only weekly modes remain available separately. Bound-period mode
+does not list or accept either legacy tool, so they cannot bypass its period and
+source restrictions. It cannot be combined with weekly configuration. CLI profile,
+classification, timezone, row/cadence overrides cannot accompany the binding.
+
+Reuse the [local assistant reader](#assistant-period-read), including its bounded
+binding loader, strict 7/30 request, per-call code/runtime/schema/physical-profile
+preflight and one combined read-only snapshot. Configuration must match the
+binding's profile, classification and evaluation zone; a private binding cannot
+be relabelled synthetic. Compatibility assertions never substitute for auth.
+Only `end_date` and integer `days` 7 or 30 are request arguments. Unknown fields,
+coercions, duplicate JSON keys, invalid dates and other widths fail before reading.
+No source discovery/selection, provider call, new analytics or database preparation
+is added. Optional unbound sources and all coverage/partial/unknown/zero semantics
+remain those of the accepted readers.
+
+The versioned `health-assistant-period-mcp-v1` object contains the complete frozen
+`packet` and the local runner's complete output `frame`, as identical JSON text
+and structured content. Before returning it, the facade validates the frame and
+its digest, packet byte length, canonical envelope hash and request agreement.
+The full packet remains available to inspect beyond the digest's sampled rows.
+Frame status `complete` describes successful serialization, not complete data
+collection: Context/Weight pagination and source search limits are still binding.
+The existing 2 MiB **entire HTTP response** cap includes both representations and
+escaping. Exceeding it refuses the whole call; no prefix, retry, implicit split or
+digest-only success is emitted. Expected failures use an allowlist of fixed codes;
+unknown exceptions, including unexpected reader messages, return `evidence_read_failed`.
+
+The same loopback, Host/Origin, no-content-log, single-read and every-request
+gateway-token guards apply before initialization, discovery and tool calls.
+Secure MCP Tunnel may carry HTTP to the approved local OAuth gateway, which then
+forwards only authenticated, Owner-authorized requests to this facade. The tunnel
+does not make the internal bearer token a ChatGPT credential or replace the
+gateway's Owner/scope/resource/expiry checks. No anonymous Owner-data tunnel mode,
+OAuth server, credential generator, tunnel setup or live connection is supplied.
+See the separately gated [connection and revocation procedure](OWNER_OPERATIONS.md#assistant-period-mcp-setup).
+
 
 <a id="reports-and-delivery"></a>
 
