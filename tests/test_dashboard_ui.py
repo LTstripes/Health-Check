@@ -7,6 +7,7 @@ enter this file.
 from __future__ import annotations
 
 import sqlite3
+import struct
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from html.parser import HTMLParser
@@ -58,10 +59,13 @@ class _OwnerShellParser(HTMLParser):
         self.links = []
         self.headings = []
         self.details = []
+        self.icons = []
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
+        if tag == "link" and attributes.get("rel") == "icon":
+            self.icons.append(attributes)
         if tag == "nav" and attributes.get("aria-label") in {
             "Primary navigation",
             "Основная навигация",
@@ -152,6 +156,39 @@ def test_empty_dashboard_does_not_fabricate_zeros(tmp_path):
         primary = page.text.split("Технические детали")[0]
         assert "0 кг" not in primary or "Текущий подтверждённый вес" in page.text
         assert 'data-owner-state="unavailable"' in page.text
+
+
+def test_browser_icons_are_linked_and_served_with_declared_sizes(tmp_path):
+    app, _settings, _paths = _ui(tmp_path)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        for path, status in (("/brief", 200), ("/weight", 200), ("/missing-page", 404)):
+            page = client.get(path, headers={"Accept": "text/html"})
+            assert page.status_code == status
+            icons = _OwnerShellParser(page.text).icons
+            assert {icon["sizes"] for icon in icons} == {"16x16", "32x32", "16x16 32x32 48x48"}
+            for icon in icons:
+                response = client.get(icon["href"])
+                assert response.status_code == 200
+                assert response.headers["content-type"] == icon["type"]
+                if icon["type"] == "image/png":
+                    assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
+                    width, height, _depth, color_type = struct.unpack(
+                        ">IIBB", response.content[16:26]
+                    )
+                    assert f"{width}x{height}" == icon["sizes"]
+                    assert color_type == 6  # RGBA retains the rounded tile's transparent corners.
+                else:
+                    assert struct.unpack("<HHH", response.content[:6]) == (0, 1, 3)
+                    assert {
+                        (response.content[offset], response.content[offset + 1])
+                        for offset in (6, 22, 38)
+                    } == {(16, 16), (32, 32), (48, 48)}
+        fallback = client.get("/favicon.ico")
+        assert fallback.content == client.get("/static/favicon.ico").content
+        head = client.head("/favicon.ico")
+        assert head.status_code == 200
+        assert head.content == b""
+        assert int(head.headers["content-length"]) == len(fallback.content)
 
 
 def test_pending_extraction_is_not_confirmed_or_canonical(tmp_path):
@@ -420,6 +457,9 @@ def test_ingest_listener_does_not_expose_dashboard_or_import_routes(tmp_path):
         "/api/artifacts/demo",
         "/static/dashboard.js",
         "/static/dashboard.css",
+        "/favicon.ico",
+        "/static/favicon-16x16.png",
+        "/static/favicon-32x32.png",
         "/settings",
     )
     with TestClient(ingest) as client:
