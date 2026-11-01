@@ -122,6 +122,24 @@ Classify a failed run before repeating: code, tests, environment or unknown. Unc
 
 On the shared Owner development machine, use one primary Worker and one heavyweight local verification process at a time across projects. At most two independent writers may run when explicitly authorized, with compatible scope, separate trees and available resources; do not kill sibling/Owner processes. CI gates are unaffected by this local resource limit.
 
+<a id="proportionate-cosmetic-changes"></a>
+#### Proportionate cosmetic changes
+
+Classify the actual effects first. Static icons, wording or layout are cosmetic
+only when data meaning, calculations, privacy, security and runtime contracts are
+unchanged. Use relevant visual/asset/markup checks and focused lint/format checks,
+plus mandatory existing CI. Reuse valid exact-candidate evidence; a handoff or
+extra reassurance alone does not justify another full suite.
+
+Cosmetic scope does not itself call for database backups, migrations, evidence
+re-attestation or runtime changes. Prefer the next planned substantive release
+over a separate cosmetic rollout. If an existing package/release gate requires
+broader action, stop before that action, identify the concrete dependency and
+resolve it as a separately scoped task/decision with any missing authorization.
+Unrelated blockers must not silently expand the cosmetic task. Existing
+health/data, security and release safeguards remain mandatory; never bypass
+them or weaken runtime protections to force cosmetic delivery.
+
 <a id="book--quick-local-checks"></a>
 ### Quick local checks
 
