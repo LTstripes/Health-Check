@@ -1520,6 +1520,97 @@ Owner UAT are separate evidence. Until the last steps are actually performed,
 direct access is **UNVERIFIED**, never CONNECTED.
 Canonical tool/transport and gateway auth requirements are in [Architecture](ARCHITECTURE.md#mcp-boundary). A local synthetic result does not establish a real ChatGPT connection; private connection/auth/revocation remains separately authorized.
 
+<a id="assistant-period-mcp-setup"></a>
+### Connect the bound 7/30-day reader through Secure MCP Tunnel
+
+This is a preparation/runbook, not a live-access receipt. The implementation adds
+one optional adapter of [the existing assistant reader](#assistant-period-runner).
+It does not update Stable, enroll a profile, create credentials, start a tunnel or
+install a plugin. Real-data access and Owner UAT require separate authorization.
+
+First verify the candidate with synthetic fixtures only, from its isolated checkout:
+
+```powershell
+$env:HEALTHCHECK_DATA_DIR = "$env:TEMP\hc-period-mcp-synthetic-runtime"
+uv run --locked pytest tests/test_assistant_period_mcp.py tests/test_assistant_period_read.py tests/test_chat_evidence_mcp.py tests/test_weekly_digest.py --basetemp "$env:TEMP\hc-period-mcp-synthetic-pytest"
+```
+
+Use fresh external temporary paths; `--basetemp` may remove its prior contents.
+These tests exercise the HTTP application in-process, including real synthetic
+saved readers, authorization denial, binding compatibility, complete output and
+revocation by simulated token replacement. They do not establish tunnel/OAuth or
+ChatGPT interoperability. Independent review and exact-candidate CI are separate.
+
+After the connection phase is explicitly authorized:
+
+1. Select accepted code and its locked interpreter, one existing external profile
+   and exact saved source identities. Provision a private operator binding using
+   the existing `OperatorBinding`/`SourceBindings` contract. Its code/runtime hashes,
+   schema heads, physical database identity and evaluation zone must match that
+   deployment. Do not guess a source, point at a different profile or reuse a stale
+   binding after an upgrade. The binding is local/private and never a tool argument.
+   First use a synthetic profile; real profile enrollment is a later explicit step.
+2. Start the facade in the foreground with that binding:
+
+   ```powershell
+   uv run --locked python -m healthcheck.chat_evidence_mcp --assistant-binding <operator-binding.json>
+   ```
+
+   It binds `127.0.0.1:8787/mcp`; `--port` and exact `--origin` remain available.
+   Do not supply `--profile`, `--profile-kind`, `--timezone`, row/cadence settings
+   alongside the binding. Owner classifications still require the existing
+   `HEALTHCHECK_MCP_GATEWAY_TOKEN` secret supplied privately to the process.
+   This internal token is neither the tunnel runtime key nor the Owner OAuth token.
+   Never enter it in ChatGPT, a URL, command argument, tracked file or a log.
+3. For Owner data, retain the [OAuth gateway contract](ARCHITECTURE.md#mcp-boundary):
+   authenticate only the Owner and check token issuer, audience/resource, expiry
+   and `health.evidence:read` on every request. The gateway strips external
+   authorization and supplies the internal credential, sets upstream Host to
+   loopback, preserves Origin and forwards only approved MCP/auth routes. Keep
+   content logs/caches disabled. A tunnel aimed directly at an anonymously exposed
+   Owner profile is not a supported shortcut. If this gateway is absent, access
+   setup remains BLOCKED; no gateway implementation is included here.
+4. Follow the current official [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+   It connects outbound; no inbound port is needed. Choose the correct Platform
+   organization and ChatGPT workspace association, with the required tunnel
+   Read/Manage/Use permissions. Configure its HTTP target as the approved gateway
+   (synthetic-only tests may target the facade). Validate the profile with
+   `tunnel-client doctor --profile <name> --explain`. Keep its runtime key private.
+   The tunnel transports OAuth discovery, but does not automatically tunnel the
+   authorization server; verify browser authorization can reach the selected issuer.
+5. Follow [Add custom MCP server](https://developers.openai.com/api/docs/guides/custom-mcp-server):
+   ChatGPT Plugins → + → Add custom MCP server → Connection: Tunnel; select the
+   tunnel, configure OAuth for Owner data, then create/install the private plugin.
+   Workspace policies still apply. No authentication is only for the fixed synthetic
+   fixture. Verify discovered tools contain exactly `read_assistant_period` with
+   read-only annotations, then select the plugin in a supported chat/project.
+6. First make an actual synthetic 7-day and 30-day call, for example
+   `{"end_date":"2099-01-02","days":7}` against the matching fixture. Check the
+   complete frame and packet, requested/effective dates, source identities, null vs
+   zero and pagination. An unavailable source/profile or invalid width must refuse
+   safely. Test anonymous, wrong-user, wrong-scope/audience, expired and revoked
+   credentials at the gateway; none may reach the reader. Check Host/Origin and
+   protocol forwarding. Do not weaken those guards to make discovery pass.
+7. Only after separate permission for the chosen real binding, make one bounded
+   private Owner-data request from «Здоровье». Responses, including current Context
+   text in the full packet, are sent to ChatGPT through the tunnel. Keep those
+   responses and real binding/identity receipts out of GitHub/CI. Record actual
+   success or the exact blocker; local synthetic PASS never means CONNECTED.
+
+For revocation, stop the identified tunnel client and facade, disconnect/remove
+the ChatGPT plugin, revoke the Owner OAuth grant/tokens and remove the approved
+workspace/tunnel access as appropriate. Separately revoke the tunnel runtime key
+and replace the internal gateway credential if invalidating those capabilities is
+intended; restart only after approval. Check a subsequent call fails and that the
+old internal credential is rejected after replacement. Removing a plugin alone
+does not prove all tokens or tunnel grants were revoked. No background service
+or automatic restart is installed by the adapter.
+
+Official transport/UI references checked 2026-11-01. Account entitlement, gateway
+OAuth, tunnel operation, real ChatGPT calls and Owner-data UAT remain UNVERIFIED
+until their individual checks have actually succeeded. Keep the supported local
+export fallback while any of those steps is unavailable.
+
 
 <a id="garmin-auth"></a>
 

@@ -51,6 +51,7 @@
       "tests/test_chat_evidence.py",
       "tests/test_combined_evidence.py",
       "tests/test_assistant_period_read.py",
+      "tests/test_assistant_period_mcp.py",
       "tests/test_compact_combined_evidence.py",
       "tests/test_activity_evidence.py",
       "tests/test_chat_evidence_mcp.py",

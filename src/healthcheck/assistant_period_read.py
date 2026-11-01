@@ -234,6 +234,17 @@ def _binding_from_json(text: str) -> OperatorBinding:
     )
 
 
+def load_operator_binding(path: Path) -> OperatorBinding:
+    """Load only an executor-supplied binding, with the existing bounded codec."""
+    with path.open("r", encoding="utf-8") as stream:
+        text = stream.read(MAX_BINDING_BYTES + 1)
+    if len(text.encode("utf-8")) > MAX_BINDING_BYTES:
+        raise EvidenceError("invalid_operator_binding")
+    binding = _binding_from_json(text)
+    binding.validate()
+    return binding
+
+
 def _validate_packet(packet: dict, request, binding, clock, local_date) -> str:
     """Check this adapter's fixed contract and existing compact references/hash.
 
@@ -576,12 +587,9 @@ def main(argv: list[str] | None = None) -> int:
             raise EvidenceError("unsupported_period_request")
         request = _load_json(request_text)
         parse_request(request)
-        with args.binding.open("r", encoding="utf-8") as stream:
-            text = stream.read(MAX_BINDING_BYTES + 1)
-        if len(text.encode("utf-8")) > MAX_BINDING_BYTES:
-            raise EvidenceError("invalid_operator_binding")
         result = read_assistant_period(
-            binding=_binding_from_json(text), request=request, evaluated_at_utc=datetime.now(UTC)
+            binding=load_operator_binding(args.binding),
+            request=request, evaluated_at_utc=datetime.now(UTC)
         )
         # One complete prevalidated UTF-8 output; no prefix on execution failure.
         buffer = getattr(sys.stdout, "buffer", None)
