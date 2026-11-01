@@ -135,6 +135,8 @@ def test_standard_https_port_uses_browser_canonical_authority(home):
     ("GET", "/api/analysis-export/sources"), ("POST", "/api/analysis-export"),
     ("POST", "/context"), ("GET", "/labs/anything/original"),
     ("GET", "/static/dashboard.css"), ("GET", "/missing"), ("GET", "/login/extra"),
+    ("GET", "/favicon.ico"), ("HEAD", "/favicon.ico"),
+    ("GET", "/static/favicon-16x16.png"), ("GET", "/static/favicon-32x32.png"),
     ("GET", "/healthz/extra"), ("POST", "/api/ingest/openscale"),
 ])
 def test_anonymous_cannot_reach_any_personal_route(home, method, path):
@@ -165,6 +167,8 @@ def test_login_cookie_rotation_logout_and_private_routes(home):
         assert app.state.home_auth.session(first)
         assert client.get("/api/weight/series").status_code == 200
         assert 'action="/logout"' in client.get("/weight").text
+        for path in ("/favicon.ico", "/static/favicon-16x16.png", "/static/favicon-32x32.png"):
+            assert client.get(path).status_code == 200
         assert client.get("/api/analysis-export/sources").status_code == 200
         assert client.get("/missing").status_code == 404
         assert login(client).status_code == 303

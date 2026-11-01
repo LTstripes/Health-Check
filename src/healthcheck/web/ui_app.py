@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -84,6 +84,12 @@ def create_ui_app(
     app.include_router(pages_router)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
     app.middleware("http")(home_guard if home_auth is not None else ui_guard_middleware)
+
+    @app.api_route("/favicon.ico", methods=["GET", "HEAD"], include_in_schema=False)
+    def favicon() -> FileResponse:
+        return FileResponse(
+            WEB_DIR / "static" / "favicon.ico", media_type="image/vnd.microsoft.icon"
+        )
 
     @app.exception_handler(PhotoImportError)
     async def photo_import_error_handler(request: Request, exc: PhotoImportError) -> JSONResponse:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import date
 from pathlib import Path
 
@@ -579,17 +580,48 @@ def test_logs_do_not_contain_extracted_values(photo_env):
     assert "21.75" not in text
 
 
-def test_repository_hygiene_has_no_runtime_or_photo_binaries():
-    root = Path(__file__).resolve().parents[1]
+def _unexpected_repository_binaries(root: Path) -> list[str]:
     skip = {".git", ".venv", ".ruff_cache", ".pytest_cache", "__pycache__", ".uv-cache"}
     forbidden = {".png", ".jpg", ".jpeg", ".webp", ".sqlite", ".db"}
+    # Only the reviewed public favicon bytes are permitted, never arbitrary images
+    # in static/ or a personal photo substituted under one of these filenames.
+    approved_icons = {
+        "src/healthcheck/web/static/favicon-16x16.png":
+            "cf51ab4a98de559f6c4ec18d642c355869049e0c2f0a83455442a31d36cd994e",
+        "src/healthcheck/web/static/favicon-32x32.png":
+            "744676f99ac22299aad40f3eed8c826c6142c81bbdf00fc36da65610c2eacb2e",
+    }
     found = []
     for path in root.rglob("*"):
         if any(part in skip for part in path.parts):
             continue
+        relative = path.relative_to(root).as_posix()
+        if (
+            relative in approved_icons
+            and path.is_file()
+            and hashlib.sha256(path.read_bytes()).hexdigest() == approved_icons[relative]
+        ):
+            continue
         if path.suffix.lower() in forbidden:
-            found.append(str(path.relative_to(root)))
-    assert found == []
+            found.append(relative)
+    return sorted(found)
+
+
+def test_repository_hygiene_has_no_runtime_or_photo_binaries():
+    assert _unexpected_repository_binaries(Path(__file__).resolve().parents[1]) == []
+
+
+@pytest.mark.parametrize("relative", [
+    "owner-photo.png", "owner-photo.jpg", "runtime.db", "runtime.sqlite",
+    "src/healthcheck/web/static/other.png",
+    "src/healthcheck/web/static/favicon-16x16.png",
+    "src/healthcheck/web/static/favicon-32x32.png",
+])
+def test_repository_hygiene_rejects_unapproved_binary_bytes(tmp_path, relative):
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"synthetic unapproved content")
+    assert _unexpected_repository_binaries(tmp_path) == [relative]
 
 
 def test_core_schema_tables_unchanged_by_photo_import(photo_env):
