@@ -418,6 +418,7 @@ def test_original_limit_does_not_change_window_entrypoint(bulk_history, monkeypa
 
 def test_accepted_large_integers_do_not_overflow_mean_or_display(saved_database):
     from healthcheck.web.statistics import format_steps_value
+    from healthcheck.web.steps_presentation import steps_mean_display
 
     session, store = saved_database
     huge = 10**400
@@ -427,7 +428,10 @@ def test_accepted_large_integers_do_not_overflow_mean_or_display(saved_database)
     assert history.statistics.total == 2 * huge
     assert history.statistics.mean == Decimal(huge)
     assert history.statistics.record_dates == (DAY, DAY + timedelta(days=1))
-    assert format_steps_value(history.statistics.mean).endswith(",0")
+    mean_display = steps_mean_display(
+        history.statistics.total, history.statistics.eligible_day_count
+    )
+    assert mean_display.replace("\u202f", "") == str(huge)
     assert format_steps_value(history.statistics.total).replace("\u202f", "") == str(2 * huge)
 
 

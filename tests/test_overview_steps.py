@@ -55,7 +55,7 @@ def assert_steps_elements(document):
     assert len(steps.find(**{"data-steps-reason": ""})) == 2
     # Independent synthetic arithmetic: (0+10)/2=5; (0+20+40)/3=20.
     # Calendar denominator is seven completed days, not eight requested days.
-    for provider, mean, count in [("Garmin", "5.0", 2), ("Google", "20.0", 3)]:
+    for provider, mean, count in [("Garmin", "5", 2), ("Google", "20", 3)]:
         item = steps.one(**{"data-steps-provider": provider})
         assert item.one("span", classes={"overview-source"}).text.strip() == provider
         assert item.one("strong").text.strip() == mean
@@ -88,7 +88,7 @@ def test_actual_readers_separate_denominators_missing_zero_partial_today_and_no_
         event.remove(database[1], "before_cursor_execute", capture)
     garmin, google = result["items"]
     assert [(row["mean_display"], row["count"], row["days"]) for row in result["items"]] == [
-        ("5.0", 2, 7), ("20.0", 3, 7)]
+        ("5", 2, 7), ("20", 3, 7)]
     assert garmin["technical"].start_date == google["technical"]["start_date"] == date(2099, 1, 1)
     assert garmin["technical"].end_date == google["technical"]["end_date"] == date(2099, 1, 7)
     assert google["technical"]["coverage"] == google["technical"]["finality"] == "unknown"
@@ -113,7 +113,7 @@ def test_rolling_dates_are_shared_and_google_never_substitutes_supported_window(
 def test_custom_short_window_stays_exact_and_empty_today_has_no_reader_call(database, monkeypatch):
     source_id, _ = seed(database)
     result = read(database, source_id, start=date(2099, 1, 3), end=date(2099, 1, 3))
-    assert result["items"][0]["mean_display"] == "10.0"
+    assert result["items"][0]["mean_display"] == "10"
     assert result["items"][0]["days"] == 1
     assert result["items"][1]["reason"] == "unsupported_google_period"
 
@@ -143,14 +143,14 @@ def test_no_garmin_selection_never_autoselects_or_blends_other_account(database)
     source_id, _ = seed(database)
     acquire(database[2], database[3], 9000, account="other-account", receipt=True,
             day=date(2099, 1, 1), at=NOW)
-    assert read(database, source_id)["items"][0]["mean_display"] == "5.0"
+    assert read(database, source_id)["items"][0]["mean_display"] == "5"
     assert read(database, None)["items"][0]["reason"] == "source_not_selected"
 
 
 def test_zero_only_and_missing_period_are_distinct_and_google_families_never_pool(database):
     source_id, _ = seed(database)
     zero = read(database, source_id, start=date(2098, 12, 27), end=date(2099, 1, 2))
-    assert all(row["mean_display"] == "0.0" and row["count"] == 1 for row in zero["items"])
+    assert all(row["mean_display"] == "0" and row["count"] == 1 for row in zero["items"])
     missing = read(database, source_id, start=date(2098, 12, 1), end=date(2098, 12, 7))
     assert all(row["mean_display"] is None and row["count"] == 0 for row in missing["items"])
     google_db = (database[0], database[2],
@@ -226,11 +226,11 @@ def test_mean_display_rounding_only(value, expected):
     assert precise == Decimal(value)
 
 
-def test_tiny_positive_mean_is_not_rendered_as_observed_zero():
-    assert steps_mean_display(1, 30) == "<0.1"
-    assert steps_mean_display(0, 30) == "0.0"
+def test_steps_mean_display_rounds_without_float_precision_loss():
+    assert steps_mean_display(1, 30) == "0"
+    assert steps_mean_display(0, 30) == "0"
     assert steps_mean_display(18446744073709551614, 3) == (
-        "6\u202f148\u202f914\u202f691\u202f236\u202f517\u202f204.7")
+        "6\u202f148\u202f914\u202f691\u202f236\u202f517\u202f205")
 
 
 def test_stress_and_battery_present_whole_means_without_changing_precision(database, monkeypatch):

@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -35,7 +34,11 @@ from healthcheck.web.owner_presentation import (
 from healthcheck.web.pages import _persist_error, render_error
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 from healthcheck.web.sleep_view import source_sleep_label
-from healthcheck.web.steps_presentation import garmin_steps_view, google_steps_view
+from healthcheck.web.steps_presentation import (
+    garmin_steps_view,
+    google_steps_view,
+    steps_mean_display,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -204,6 +207,7 @@ def statistics(
             "selected_period": selected_period,
             "selected_steps_period": steps_period,
             "format_steps_value": format_steps_value,
+            "steps_mean_display": steps_mean_display,
             "selected_year": selected_year,
             "control_end_date": evaluated_date.isoformat(),
             "period_labels": {
@@ -321,11 +325,8 @@ def statistics_source_labels(packet: dict, *, cycling_cell: dict | None = None) 
     return labels
 
 
-def format_steps_value(value: int | Decimal | None) -> str:
-    """One decimal for the mean; count totals stay exact integers."""
+def format_steps_value(value: int | None) -> str:
+    """Group exact integer counts without converting through floating point."""
     if value is None:
         return "Недоступно"
-    with localcontext() as context:
-        context.rounding = ROUND_HALF_EVEN
-        text = f"{value:,.1f}" if isinstance(value, Decimal) else f"{Decimal(value):,f}"
-    return text.replace(",", "\u202f").replace(".", ",")
+    return f"{value:,}".replace(",", "\u202f")

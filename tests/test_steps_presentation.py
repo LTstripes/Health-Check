@@ -13,7 +13,11 @@ from healthcheck.garmin.completed_steps_read import CompletedStepsDay, Completed
 from healthcheck.garmin.observed_steps_read import StepsSourceIdentity
 from healthcheck.garmin.steps_statistics import summarize_completed_days
 from healthcheck.web.owner_presentation import owner_date
-from healthcheck.web.steps_presentation import garmin_steps_view, google_steps_view
+from healthcheck.web.steps_presentation import (
+    garmin_steps_view,
+    google_steps_view,
+    steps_mean_display,
+)
 from test_google_steps_summary import packet
 
 
@@ -33,19 +37,20 @@ def garmin_packet(*values):
 
 
 @pytest.mark.parametrize("factory", [packet, garmin_packet])
-@pytest.mark.parametrize("values,total,mean,count", [
-    ((17, 0, None, 3), "20", "6.7", 3),
-    ((0, 0, 0), "0", "0.0", 3),
-    ((None, None), None, None, 0),
+@pytest.mark.parametrize("values,total,mean,display,count", [
+    ((17, 0, None, 3), "20", "6.7", "7", 3),
+    ((0, 0, 0), "0", "0.0", "0", 3),
+    ((None, None), None, None, None, 0),
     ((9223372036854775807, 9223372036854775807, 0), "18446744073709551614",
-     "6148914691236517204.7", 3),
+     "6148914691236517204.7", "6\u202f148\u202f914\u202f691\u202f236\u202f517\u202f205", 3),
 ])
-def test_exact_counts_denominator_and_safe_geometry(factory, values, total, mean, count):
+def test_exact_counts_denominator_and_safe_geometry(factory, values, total, mean, display, count):
     original = factory(*values)
     before = deepcopy(original)
     view = (google_steps_view if factory is packet else garmin_steps_view)(original)
     assert original == before
     assert view["assessed"] and (view["total"], view["mean"], view["count"]) == (total, mean, count)
+    assert view["mean_display"] == display
     assert view["days"] == 7
     for row in view["rows"]:
         assert type(row["x"]) is int and 20 <= row["x"] <= 880
@@ -59,6 +64,14 @@ def test_exact_counts_denominator_and_safe_geometry(factory, values, total, mean
         assert left["value"] is not None and right["value"] is not None
     if total == "0":
         assert all(row["y"] == 150 for row in view["rows"] if row["value"] is not None)
+
+
+@pytest.mark.parametrize("total,count,expected", [
+    (0, 2, "0"), (14, 30, "0"), (1, 2, "1"), (3, 2, "2"), (5, 3, "2"),
+    (18446744073709551614, 3, "6\u202f148\u202f914\u202f691\u202f236\u202f517\u202f205"),
+])
+def test_mean_rounds_the_exact_ratio_to_whole_steps(total, count, expected):
+    assert steps_mean_display(total, count) == expected
 
 
 @pytest.mark.parametrize("reason", ["source_selection_required", "source_not_found"])
@@ -155,4 +168,23 @@ def test_numeric_ticks_share_exact_geometry_and_day_starts_unselected(factory, v
             assert row["display"].replace("\u202f", "") == row["value"]
             assert row["y"] == 150 - int(row["value"]) * 130 // maximum
     assert view["total_display"].replace("\u202f", "") == view["total"]
-    assert view["mean_display"].replace("\u202f", "") == view["mean"]
+    assert view["mean_display"].replace("\u202f", "").isdigit()
+
+
+@pytest.mark.parametrize("factory", [packet, garmin_packet])
+def test_chart_and_selected_day_keep_zero_missing_and_integer_labels(factory):
+    view = (google_steps_view if factory is packet else garmin_steps_view)(
+        factory(17, 0, None, 3)
+    )
+    directory = Path(__file__).parents[1] / "src/healthcheck/web/templates"
+    env = Environment(loader=FileSystemLoader(directory), autoescape=select_autoescape())
+    env.filters["owner_date"] = owner_date
+    html = env.get_template("statistics_steps_chart.html").render(view=view)
+    assert '<dd data-steps-mean>7</dd>' in html
+    assert f'{view["rows"][1]["date"]}: 0 шагов</title>' in html
+    assert f'{view["rows"][2]["date"]}: нет допустимого значения</title>' in html
+    payload = html.split('data-steps-chart-data>', 1)[1].split("</script>", 1)[0]
+    rows = json.loads(payload)
+    assert (rows[1]["value"], rows[1]["display"]) == ("0", "0")
+    assert (rows[2]["value"], rows[2]["display"]) == (None, None)
+    assert all(tick["label"].replace("\u202f", "").isdigit() for tick in view["ticks"])
