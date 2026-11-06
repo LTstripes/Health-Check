@@ -85,6 +85,10 @@ const base = 'http://127.0.0.1:8120';
         assert.equal(calls.length, previousReads, 'closed extra metrics should not fetch');
         assert.equal(await page.locator('#saved-rhr-refresh').isVisible(), false);
         await page.locator('details.data-saved-diagnostics > summary').click();
+        await page.waitForFunction(() => {
+          const feedback = document.querySelector('#saved-rhr-feedback');
+          return feedback.dataset.failureCode || feedback.textContent.includes('Сохранённые значения прочитаны.');
+        });
         await page.waitForFunction(() => document.querySelector('#saved-rhr-results').getAttribute('aria-busy') === 'false');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
         assert.equal(await page.locator('#import-queue').count(), 1);
