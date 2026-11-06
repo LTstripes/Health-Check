@@ -242,7 +242,7 @@ def test_actual_statistics_route_exact_integer_dates_and_unknowns(statistics_ui,
     assert view["count"] == 1 and view["days"] == days
     grouped = "9\u202f223\u202f372\u202f036\u202f854\u202f775\u202f807"
     assert f'data-steps-total>{grouped}</dd>' in html
-    assert f'data-steps-mean>{grouped}.0</dd>' in html
+    assert f'data-steps-mean>{grouped}</dd>' in html
     assert f'1 из {days} дней с данными' not in html
     assert 'data-steps-info="google"' in html
     assert f"Точное среднее: {INT64_MAX} / 1" in html
