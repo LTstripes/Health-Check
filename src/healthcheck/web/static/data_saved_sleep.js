@@ -3,6 +3,8 @@
   "use strict";
   const host = document.getElementById("saved-sleep-results");
   if (!host) return;
+  const disclosure = host.closest("details.data-saved-diagnostics");
+  if (!disclosure) return;
   const feedback = document.getElementById("saved-sleep-feedback");
   const button = document.getElementById("saved-sleep-refresh");
   const selected = {garmin: "", google: ""};
@@ -131,5 +133,14 @@
       if (mine === generation) host.setAttribute("aria-busy", "false");
     }
   }
-  button.hidden = false; button.addEventListener("click", () => refresh()); refresh();
+  let activated = false;
+  function activateOnFirstOpen() {
+    if (activated || !disclosure.open) return;
+    activated = true;
+    button.hidden = false;
+    button.addEventListener("click", () => refresh());
+    refresh();
+  }
+  disclosure.addEventListener("toggle", activateOnFirstOpen);
+  activateOnFirstOpen();
 })();

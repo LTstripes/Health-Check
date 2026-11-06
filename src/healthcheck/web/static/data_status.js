@@ -3,6 +3,8 @@
   "use strict";
   const host = document.getElementById("saved-rhr-results");
   if (!host) return;
+  const extraMetricsDetails = host.closest("details.data-saved-diagnostics");
+  if (!extraMetricsDetails) return;
   const button = document.getElementById("saved-rhr-refresh");
   const feedback = document.getElementById("saved-rhr-feedback");
   const clock = document.getElementById("saved-rhr-clock");
@@ -191,9 +193,16 @@
       if (mine === generation) host.setAttribute("aria-busy", "false");
     }
   }
-  button.hidden = false;
-  button.addEventListener("click", refresh);
-  refresh();
+  let activated = false;
+  function activateOnFirstOpen() {
+    if (activated || !extraMetricsDetails.open) return;
+    activated = true;
+    button.hidden = false;
+    button.addEventListener("click", refresh);
+    refresh();
+  }
+  extraMetricsDetails.addEventListener("toggle", activateOnFirstOpen);
+  activateOnFirstOpen();
 })();
 /* Owner presentation of source-freshness-v1. No thresholds or provider calls here. */
 (function () {

@@ -79,7 +79,16 @@ const base = 'http://127.0.0.1:8120';
     for (const width of [1024, 1440]) {
       await page.setViewportSize({width, height: 1000});
       for (const scenario of ['saved', 'ambiguous', 'cap', 'error']) {
-        mode = scenario; await page.goto(base + '/imports');
+        mode = scenario;
+        const previousReads = calls.length;
+        await page.goto(base + '/imports');
+        assert.equal(calls.length, previousReads, 'closed extra metrics should not fetch');
+        assert.equal(await page.locator('#saved-rhr-refresh').isVisible(), false);
+        await page.locator('details.data-saved-diagnostics > summary').click();
+        await page.waitForFunction(() => {
+          const feedback = document.querySelector('#saved-rhr-feedback');
+          return feedback.dataset.failureCode || feedback.textContent.includes('Сохранённые значения прочитаны.');
+        });
         await page.waitForFunction(() => document.querySelector('#saved-rhr-results').getAttribute('aria-busy') === 'false');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
         assert.equal(await page.locator('#import-queue').count(), 1);

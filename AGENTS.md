@@ -63,6 +63,8 @@ Do only the assigned issue/listed eligible work: no automatic next roadmap item,
 
 Claim the physical checkout before writing/testing and check ownership before delivery, as described in the Owner-data workflow. Every STOP cites a concrete boundary or failure; do not invent privacy gates for authorized Owner reads.
 
+For cosmetic-only work, use the [cosmetic scope rule](docs/DEVELOPMENT_PROCESS.md#proportionate-cosmetic-changes).
+
 Use [proportional checks](docs/DEVELOPMENT_PROCESS.md#verification-by-change), then required exact-candidate/integration gates. A separate participant does not automatically rerun the full suite; inspect valid evidence and add focused checks for concrete gaps. Required independent review is set by [risk policy](docs/DEVELOPMENT_PROCESS.md#c4--critical--architecture--independent-review-triggers), not by enabling a queue.
 
 Never claim tests, browser/device/provider checks, independent review or success that were not performed. Report exact commands/results, candidate identity, failures and remaining `UNVERIFIED` work. Missing/interrupted/mismatched evidence is not a pass; changed code must not inherit an old pass. CI provenance/completeness rules are unchanged.
