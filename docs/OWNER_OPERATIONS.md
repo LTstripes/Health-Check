@@ -17,6 +17,58 @@ bindings. Technical source/envelope meanings are in Architecture.
 | Run MCP | [MCP service](#mcp-service) | Explicit existing profile, host/auth/connection decision |
 | Run protected home UI | [Home-server setup](#home-server-setup) | Separate approval for TLS trust, real credentials, bind and firewall; no public exposure |
 | Use or retire a task checkout | [Lifecycle](#workspace-lifecycle), [v2 retirement](#workspace-retirement) | Actual accepted installed consumer, current claim and separate cleanup authority |
+| Install accepted code on Stable | [Code-only fast path](#code-only-stable-updates) or [backup/migration rehearsal](#release-preflight-2026-10-22) | Explicit Owner authorization, compatibility classification, actual loaded-code/profile proof |
+
+
+<a id="code-only-stable-updates"></a>
+## Compatible code-only Stable update — short procedure
+
+This is a **deployment route**, not a bypass of development/CI or authorization.
+First compare the exact accepted `main` candidate with the **actually installed**
+SHA, including intervening changes, using the [release classification](DEVELOPMENT_PROCESS.md#10-release-integration-and-uat).
+This short path is permitted only for unchanged schema and persisted data format,
+no change to writes/replay/provider/auth/security or migration effects, proven
+bidirectional compatibility and rollback to the previous code. A task titled
+`cosmetic` is not evidence by itself. A library/lock/runtime change needs a
+specific compatibility decision; do not infer safety from a small file count.
+
+**Four bounded operations for a code-only switch:**
+
+1. Read existing exact PR and post-main CI receipts. Identify authorized installed
+   process, old code SHA, Stable profile path/schema and idle writer using supported
+   read-only means. If blocked by ACL, CIM or the bound port, **STOP** with that
+   specific blocker; no retries through different permissions or guessed ports.
+2. Confirm a known, accessible, already verified *regular* recovery point for the
+   same profile, within the Owner's established backup-age tolerance, and a safe
+   code-only rollback. Log just its last verified date/identity; preserve routine
+   backup/restore-drill schedules. **Do not** generate or reverify a new full
+   profile archive, clone 16 GiB, or rehearse an unchanged migration. A backup
+   older than its recovery point can lose later writes if actually restored.
+3. With explicit deployment authority, prepare the exact accepted candidate in
+   its assigned isolated checkout; do not reset/switch the Owner `main` tree.
+   Stop only the confirmed app process, switch the code reference, restart using
+   the existing trusted launcher/profile. Do not alter credentials, providers,
+   scheduled jobs, data, or the existing Stable profile.
+4. Check the loaded candidate SHA, same profile path and schema, startup and one
+   or two impacted surfaces. Use accepted synthetic CI evidence for rare states
+   not present in real data (e.g. a zero). Record **old → new SHA**, backup
+   receipt/date, concise changed-feature checks, any UNVERIFIED item and rollback
+   route. No second full local pytest/CI or unnecessary UAT tour.
+
+If startup fails *and* the profile is unchanged and backward-compatible, restore
+the previous **code** and recheck its binding, without restoring an old profile
+over newer Owner observations. If any compatibility premise or recovery-point
+evidence is absent, do not label the update code-only: STOP for a bounded Owner
+decision or use the [data-affecting route](DEVELOPMENT_PROCESS.md#10-release-integration-and-uat).
+Never disable migrations or weaken security to force a fast path.
+
+**For data-affecting changes**, retain a current coherent backup, copy migration
+rehearsal, integrity and targeted recovery tests as applicable. The supported
+`backup-profile` implementation [already invokes `verify_backup`](#profile-backup)
+and `restore-profile` validates the archive again before restoring. Do not
+immediately run the same full verification a second time without new evidence
+requirements. The [22 October migration runbook](#release-preflight-2026-10-22)
+is historical/scope-specific, not the default for a code-only switch.
 
 
 <a id="home-server-setup"></a>
@@ -403,6 +455,10 @@ uv run --locked pytest tests/test_profile_backup.py::test_large_sparse_profile_a
 
 <a id="release-preflight-2026-10-22"></a>
 ## Release rehearsal, migration and rollback — 22 October 2026
+
+This dated **migration-grade** procedure is historical unless the current
+data-affecting release explicitly selects it. Compatible code-only releases use
+[the short route](#code-only-stable-updates), without a full profile clone.
 
 [Wiki scope/release notes](PROJECT_WIKI.md#release-2026-10-22) and
 [tracker #479](https://github.com/LTstripes/Health-Check/issues/479) own current status.
