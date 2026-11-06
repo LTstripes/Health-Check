@@ -278,7 +278,7 @@ def test_all_time_stats_real_route_and_google_unsupported_window(statistics_ui, 
     html = steps_html(response)
     assert 'data-steps-provider="google" data-steps-history-state="unsupported_window"' in html
     assert 'data-steps-stat="total">20<' in html
-    assert 'data-steps-stat="mean">6,7<' in html
+    assert 'data-steps-stat="mean">7<' in html
     assert "Полный поиск сохранённых данных не доказывает полную историю аккаунта" in html
     assert "snapshot" in html and source_id in html
     assert history.statistics.state_counts == {"value": 3, "null": 1, "missing": 1, "invalid": 1}
@@ -396,13 +396,16 @@ def test_all_time_requires_explicit_account_and_invalid_mode_is_sanitized(
 
 
 def test_all_time_mean_rendering_does_not_inherit_ambient_rounding():
-    from decimal import ROUND_DOWN, Decimal, localcontext
+    from decimal import ROUND_DOWN, localcontext
 
     from healthcheck.web.statistics import format_steps_value
+    from healthcheck.web.steps_presentation import steps_mean_display
     with localcontext() as context:
         context.rounding = ROUND_DOWN
-        assert format_steps_value(Decimal("0.15")) == "0,2"
+        assert steps_mean_display(1, 2) == "1"
+        assert steps_mean_display(14, 30) == "0"
         assert format_steps_value(0) == "0"
+        assert format_steps_value(None) == "Недоступно"
 
 
 def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary(statistics_ui):
@@ -414,7 +417,7 @@ def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary
     assert response.status_code == 200
     html = steps_html(response)
     # Latest correction 7→3, explicit zero included; null/missing/invalid excluded.
-    assert 'data-steps-total>20</dd>' in html and 'data-steps-mean>6.7</dd>' in html
+    assert 'data-steps-total>20</dd>' in html and 'data-steps-mean>7</dd>' in html
     assert '3 из 7 дней с данными' not in html
     assert 'data-steps-cursor hidden' in html and 'Выберите день' in html
     assert 'data-steps-info="garmin"' in html

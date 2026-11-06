@@ -28,8 +28,11 @@ def _group(value: str | None) -> str | None:
 
 
 def steps_mean_display(total: int, count: int) -> str:
-    """Exact grouped daily mean, retaining positive values below display precision."""
-    return _group(_mean(total, count))
+    """Round the exact nonnegative ratio to whole steps for display only."""
+    whole, remainder = divmod(total, count)
+    if remainder * 2 >= count:
+        whole += 1
+    return _group(str(whole))
 
 
 def _chart(cells: list[dict]) -> dict:
@@ -78,7 +81,8 @@ def google_steps_view(packet) -> dict | None:
         "provider": "Google", "assessed": assessed,
         "total": summary["total_display"], "mean": summary["mean_display"],
         "total_display": _group(summary["total_display"]),
-        "mean_display": _group(summary["mean_display"]),
+        "mean_display": (steps_mean_display(summary["total"], summary["observed_day_count"])
+                         if summary["total"] is not None else None),
         "count": summary["observed_day_count"], "days": summary["requested_day_count"],
         "contract": summary["contract_version"], "reason": summary["reason"],
         "start": summary["start_date"], "end": summary["end_date"],
