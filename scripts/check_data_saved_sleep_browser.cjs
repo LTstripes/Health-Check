@@ -58,6 +58,11 @@ const base = 'http://127.0.0.1:8120';
         await page.goto(base + '/imports');
         assert.equal(calls.length, previousReads, 'closed extra metrics should not fetch');
         await page.locator('details.data-saved-diagnostics > summary').click();
+        await page.waitForFunction(() => {
+          const results = document.querySelector('#saved-sleep-results');
+          const feedback = document.querySelector('#saved-sleep-feedback');
+          return results.querySelector('[data-sleep-provider]') || feedback.getAttribute('role') === 'alert';
+        });
         await page.waitForFunction(() => document.querySelector('#saved-sleep-results').getAttribute('aria-busy') === 'false');
         const section = page.locator('#saved-sleep');
         await section.scrollIntoViewIfNeeded();
