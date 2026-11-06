@@ -53,6 +53,9 @@ function fixture(params, mode = 'saved') {
 }
 function setup(mode = 'saved') {
   const elements = Object.fromEntries(['saved-rhr-results', 'saved-rhr-feedback', 'saved-rhr-refresh', 'saved-rhr-clock'].map(id => [id, new Element('div')]));
+  const disclosure = new Element('details');
+  disclosure.open = false;
+  elements['saved-rhr-results'].closest = selector => selector === 'details.data-saved-diagnostics' ? disclosure : null;
   const requests = [];
   const doc = {activeElement: null, querySelectorAll: () => [], createElement: tag => new Element(tag),
     getElementById: id => elements[id] || tree(elements['saved-rhr-results']).find(item => item.id === id)};
@@ -62,16 +65,23 @@ function setup(mode = 'saved') {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/healthcheck/web/static/owner_dates.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/healthcheck/web/static/data_status.js'), 'utf8'), context);
   async function finish(index, mutate, status = 200) {
+    if (!disclosure.open) { disclosure.open = true; disclosure.events.toggle(); }
     const request = requests[index], params = new URL(request.url, 'http://localhost').searchParams;
     const body = fixture(params, mode); if (mutate) mutate(body);
     request.body = body;
     request.resolve({ok: status === 200, status, json: async () => body}); await tick();
   }
-  return {elements, requests, doc, finish, formatDate: context.window.healthcheckOwnerDate,
+  return {elements, requests, doc, finish, disclosure, formatDate: context.window.healthcheckOwnerDate,
     refresh: () => elements['saved-rhr-refresh'].events.click()};
 }
 (async () => {
-  const current = setup(); await current.finish(0);
+  const current = setup();
+  assert.equal(current.requests.length, 0, 'closed diagnostics must not start a read');
+  assert.equal(current.elements['saved-rhr-refresh'].events.click, undefined);
+  await current.finish(0);
+  current.disclosure.open = false; current.disclosure.events.toggle();
+  current.disclosure.open = true; current.disclosure.events.toggle();
+  assert.equal(current.requests.length, 1, 'reopening must not repeat the first read');
   const text = current.elements['saved-rhr-results'].textContent;
   assert.match(text, /0 bpm/); assert.match(text, /59 bpm/); assert.match(text, /Возраст: 3 дн/);
   assert.match(text, /Нужен повторный вход/); assert.match(text, /Отдельный поток «Пульс» отключён/);

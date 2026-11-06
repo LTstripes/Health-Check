@@ -54,7 +54,10 @@ const base = 'http://127.0.0.1:8120';
       await page.setViewportSize({width, height: 1000});
       for (const scenario of ['saved', 'auto', 'conflict', 'zero', 'ambiguous', 'cap', 'error']) {
         mode = scenario;
+        const previousReads = calls.length;
         await page.goto(base + '/imports');
+        assert.equal(calls.length, previousReads, 'closed extra metrics should not fetch');
+        await page.locator('details.data-saved-diagnostics > summary').click();
         await page.waitForFunction(() => document.querySelector('#saved-sleep-results').getAttribute('aria-busy') === 'false');
         const section = page.locator('#saved-sleep');
         await section.scrollIntoViewIfNeeded();
@@ -125,9 +128,11 @@ const base = 'http://127.0.0.1:8120';
       }
     }
     mode = 'malformed'; await page.goto(base + '/imports');
+    await page.locator('details.data-saved-diagnostics > summary').click();
     await page.waitForFunction(() => document.querySelector('#saved-sleep-feedback').getAttribute('role') === 'alert');
     assert.equal(await page.locator('.saved-sleep-duration').count(), 0);
     mode = 'held'; await page.goto(base + '/imports');
+    await page.locator('details.data-saved-diagnostics > summary').click();
     await page.waitForFunction(() => document.querySelector('#saved-sleep-results').getAttribute('aria-busy') === 'true');
     while (!held) await new Promise(resolve => setTimeout(resolve, 10));
     mode = 'saved'; await page.locator('#saved-sleep-refresh').focus(); await page.keyboard.press('Enter');
