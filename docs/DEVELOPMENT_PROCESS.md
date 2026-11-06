@@ -38,7 +38,13 @@ Only canonical accepted/stable history and release source. Workers never write t
 <a id="book--release-integration-branch"></a>
 ### Release integration branch
 
-For a multi-task release, Integrator creates one `integration/<release>` from then-current main. It is staging, not a second source of truth. Task PRs target it; the completed release is promoted through an integration-to-main PR. A deliberately small standalone task may target main through its own PR.
+The Integrator may group related changes in one bounded candidate and PR to `main`,
+with their issues and risk-based checks identified together. Use separate candidates
+when scopes, ownership, dependencies or acceptance need to remain independent.
+An `integration/<release>` branch is optional when staging several separately
+accepted candidates is useful; it is not a second source of truth. Its task PRs
+target it and the completed release is promoted through an integration-to-main PR.
+The required PR and any integration/main CI gates below still apply.
 
 After release, the old integration branch is historical/staging-only; start the next release from the new canonical main. Accepted-but-held work is not automatically merge-ready after a freeze. Reconcile its semantic delta/lineage and required gates against the current target, preserving migration order and accepted behavior rather than blindly merging old stacks.
 
@@ -122,6 +128,25 @@ Classify a failed run before repeating: code, tests, environment or unknown. Unc
 
 On the shared Owner development machine, use one primary Worker and one heavyweight local verification process at a time across projects. At most two independent writers may run when explicitly authorized, with compatible scope, separate trees and available resources; do not kill sibling/Owner processes. CI gates are unaffected by this local resource limit.
 
+<a id="proportionate-cosmetic-changes"></a>
+#### Proportionate cosmetic changes
+
+Classify the actual effects first. Static icons, wording or layout are cosmetic
+only when data meaning, calculations, privacy, security and runtime contracts are
+unchanged. Use relevant visual/asset/markup checks and focused lint/format checks,
+plus mandatory existing CI. Reuse valid exact-candidate evidence; a handoff or
+extra reassurance alone does not justify another full suite.
+
+Cosmetic implementation alone does not call for migrations, private-data
+rehearsals, repeated whole-suite tests or evidence re-attestation. Prefer the next
+planned substantive release. For actual Stable installation, classify the *whole
+installed-code-to-candidate diff* under [release routes](#10-release-integration-and-uat):
+a proven compatible code-only update uses the short operator path, not the
+migration-grade backup/restore runbook. If a real dependency breaks that
+classification, record the exact reason and use the risk-bearing route; do not
+silently turn an icon change into unrelated provider/auth/recovery work.
+Existing health/data, security and recovery protections remain mandatory.
+
 <a id="book--quick-local-checks"></a>
 ### Quick local checks
 
@@ -163,9 +188,65 @@ copying engineering reports.
 <a id="durable-decision-split--10-release-integration-and-uat"></a>
 ## 10. Release integration and UAT
 
-At release, review the integrated diff against the active spec; pass full automated release checks; run the required Owner-only preview/device/provider gates from a disposable verified Stable backup/restore clone. Do not use old release checklists as current by default; use that release's issue/checklist. Unperformed permitted live gates stay UNVERIFIED, never implicitly passed.
+Freeze one candidate after focused checks, review its integrated diff and complete
+the applicable exact PR and post-main gates in [CI](#13-ci-evidence-and-complete-suite-gates).
+Record the result and any unperformed checks in the issue/PR. An existing release
+spec or explicit assignment may require additional checks; old release checklists
+are historical unless designated for the new candidate.
 
-Resolve findings in dedicated task branches, not ad-hoc UAT edits. After accepted integration-to-main PR merge, read back canonical main and exact post-merge CI, record release/UAT outcome and start subsequent release work from this new main. GitHub publication does not update/restart Owner-local code. Owner fast-forwards the clean operation checkout only when relevant processes are idle and the update is appropriate.
+Classify *the full diff between installed code and accepted target*, not just the
+last PR or an issue label. Publication, Stable deployment and acceptance are
+distinct actions; merge/CI does not update the Owner-local runtime or authorize it.
+Reuse completed, identity-matching PR/post-main CI and risk-based review. An Owner
+release never requires another full suite solely because the same source is
+installed locally. Do not repeat a real-device/provider test for an unaffected
+feature or mark an unperformed test PASS.
+
+**Fast code-only Stable update.** Use [the operator procedure](OWNER_OPERATIONS.md#code-only-stable-updates)
+when the exact candidate is accepted, the existing profile is compatible in both
+directions, the schema/migration chain and persisted data representation are
+unchanged, and the diff adds no changed persistent writes, refresh/replay,
+credentials/permissions, security boundary, provider schedule or migration-capable
+startup effect. Runtime dependency/lock/toolchain changes require their own
+compatibility assessment and are not assumed code-only. Prove a code-only rollback
+to the known previous installed SHA without replacing or downgrading the profile.
+Confirm a *previously verified, accessible regular backup/recovery point* suitable
+for the Owner's established recovery-point tolerance; record its receipt and age.
+Do not create another full profile ZIP, reverify its full bytes, restore a 16 GiB
+clone or run a migration rehearsal solely for this compatible code switch.
+A prior backup is not equivalent to backing up changes since its snapshot; retain
+the regular backup schedule and its separate recovery-drill cadence.
+
+Before switching, bind installed code/process/profile/schema and check the relevant
+writer is idle. After the authorized switch verify actual loaded SHA, same profile
+and schema, successful startup and only the changed feature(s). An unavailable
+CIM/socket/path is an *unverified operational identity*, not permission to bypass
+ACLs or guess a process. If compatibility, backup currency, rollback or process
+identity cannot be established, STOP and identify the specific unmet condition;
+do not silently call this a fast-path PASS.
+
+**Data-affecting or uncertain update.** Schema changes, data migrations,
+persistent writes/replay, altered recovery/security assumptions, or an explicitly
+required private UAT use the appropriate full route: a *new* WAL-consistent,
+verified backup, proven recovery, isolated clone rehearsal with schema/integrity/
+foreign-key checks when applicable, and focused Owner/device/provider validation
+only for impacted behavior. Stable is never the rehearsal profile. Use the
+[supported backup/restore](OWNER_OPERATIONS.md#supported-local-profile-backup-and-restore);
+the backup command already verifies its own newly written archive, so do not
+immediately repeat the identical full verify without a new reason (transport,
+changed bytes or an independent recovery question). Keep unperformed required
+checks UNVERIFIED. Resolve findings in a task candidate, never the UAT copy.
+An earlier historical runbook is not a standing mandate for every newer release.
+
+For a versioned release, the existing uv command updates the project version and
+lockfile together. In the candidate checkout use a uv version compatible with the
+current lockfile, then `uv version <version> --no-sync` and `uv lock --check`.
+Inspect the whole diff for unintended dependency or lock-format changes: uv 0.12.19
+rewrites lock revision 5 to 3, even when its check succeeds; uv 0.13.7 preserved it
+in a synthetic version-bump check. Stop on unexpected changes and use a compatible
+toolchain. A changed lockfile also needs the existing dependency-audit gate. Do
+this once before the final gate; tagging or publishing remains a separate decision.
+If resolution fails, fix the cause and inspect both files before continuing.
 
 <a id="durable-decision-split--resuming-owner-analysis-and-uat"></a>
 ### Resuming Owner analysis and UAT
