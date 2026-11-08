@@ -84,7 +84,7 @@ This is an optional deployment decision, not an automatic upgrade to Stable.
 Default `scripts/start.ps1` remains the loopback launcher. Use the CLI below for
 the protected mode; do not change its Host/Origin checks or expose the ingest app
 as a dashboard. The governing security contract is
-[Architecture](ARCHITECTURE.md#home-server-boundary).
+[Architecture](ARCHITECTURE.md#home-server).
 
 Before real deployment, explicitly approve the selected existing profile/code,
 private IP/port, certificate issuance/trust, credential setup and temporary firewall
@@ -466,7 +466,7 @@ This dated **migration-grade** procedure is historical unless the current
 data-affecting release explicitly selects it. Compatible code-only releases use
 [the short route](#code-only-stable-updates), without a full profile clone.
 
-[Wiki scope/release notes](PROJECT_WIKI.md#release-2026-10-22) and
+[Wiki scope/release notes](https://github.com/LTstripes/Health-Check/blob/fbab16c1229f4362a7a7e42e2ca9fd73c3113ee5/docs/PROJECT_WIKI.md#release-2026-10-22) and
 [tracker #479](https://github.com/LTstripes/Health-Check/issues/479) own current status.
 This is a prepared runbook. **No real-profile backup, restore, migration, Stable
 deployment, provider request or release/tag publication was executed by this docs
@@ -604,7 +604,7 @@ process identity, loaded code, profile/listener; healthz alone is insufficient.
 Record the separately agreed final independent targeted recheck against the exact
 combined code candidate SHA; task review/CI do not close this additional gate.
 Its current receipt/status belongs in release tracker #479.
-Run [short Owner UAT](PROJECT_WIKI.md#release-2026-10-22). Retain completed Steps UAT;
+Run [short Owner UAT](https://github.com/LTstripes/Health-Check/blob/fbab16c1229f4362a7a7e42e2ca9fd73c3113ee5/docs/PROJECT_WIKI.md#release-2026-10-22). Retain completed Steps UAT;
 no new consent/refresh/provider request/coverage investigation. Do not reuse old
 pinned Stable launcher unchanged: its assertions bind old code/schema.
 
@@ -1048,7 +1048,7 @@ Until this live gate is completed, ChatGPT Work-to-Stable is `UNVERIFIED`; synth
 ### Historical #153 context
 
 #153 (openScale-sync webhook numeric `userId` compatibility) was closed by the Owner as not planned: screenshot ingestion is the accepted operational Weight path. The historical receiver note (non-empty string `userId`) is retained only as deferred context. This task does not change that contract or implement a webhook fix. The screenshot command is an independent Owner path and must not depend on webhook setup or availability.
-The complete auto-confirm, metadata-origin, correction and provenance contract is in [Architecture](ARCHITECTURE.md#photo-provenance). UI rendering success cannot replace the screenshot result/integration gates.
+The complete auto-confirm, metadata-origin, correction and provenance contract is in [Architecture](ARCHITECTURE.md#weight). UI rendering success cannot replace the screenshot result/integration gates.
 
 
 <a id="context-operations"></a>
@@ -1103,7 +1103,7 @@ The #294 portal adapter above is implemented. [#341 Stage A](https://github.com/
 now supplies a separate bounded read-only standalone Weight/Garmin-scalars/
 current-Context evidence envelope without changing Context history, original
 text or Period Brief hashes. Its command, privacy/output-path restrictions and
-coverage limits live in [Health Chat Evidence](ARCHITECTURE.md#evidence-period).
+coverage limits live in [Health Chat Evidence](ARCHITECTURE.md#evidence-and-ai).
 Historical first private manual sharing was confirmed by the accepted #341 decision; later source services and the #455 local download form are delivered. Authenticated direct ChatGPT connection remains unverified; see Wiki for current evidence boundaries.
 
 The [#342 offline clone diagnosis](https://github.com/LTstripes/Health-Check/issues/342#issuecomment-6087155625)
@@ -1243,7 +1243,7 @@ this does not cancel the requested future Sunday summary. The source configurati
 can be passed as `MCPConfig.weekly_digest`, exposing only Sunday `week_end` under
 the existing separately authenticated transport; no connection is enabled here.
 Use external synthetic profiles for tests. The accepted semantics and frozen
-packet contract are in [Architecture](ARCHITECTURE.md#weekly-digest-preview-488).
+packet contract are in [Architecture](ARCHITECTURE.md#weekly-digest).
 Neither factory call installs or starts a service. Existing CLI/runtime settings
 are unchanged; choosing real source IDs or enabling access remains separate.
 
@@ -1320,7 +1320,7 @@ from Owner export/UAT and connection verification.
 Google Sleep may be requested without a technical ID with
 `CombinedEvidenceRequest.sleep_google_auto_select=True` or CLI
 `--sleep-google-auto-select`. The exact Sleep override still takes precedence.
-This delegates to the same [Sleep selection contract](ARCHITECTURE.md#metric-source-selection);
+This delegates to the same [Sleep selection contract](ARCHITECTURE.md#source-selection);
 Activity selection and omitted-provider behavior are unchanged. A blocked Google
 choice remains a labelled section with selection evidence and `source_range=null`,
 and is preserved in both JSON and text.
@@ -1356,14 +1356,14 @@ event-free; unrecorded/untimed/out-of-window context and complete category cover
 remain unknown. Sparse groups yield insufficient evidence, not zero or a causal
 effect. Existing regularity and optional explicit work/free labels are unchanged;
 comments are never converted to day labels. See the
-[analysis contract](ARCHITECTURE.md#saved-sleep-analyses).
+[analysis contract](ARCHITECTURE.md#analytics).
 
 
 <a id="export-completed-steps-v5"></a>
 
 ### Explicit completed Steps v5
 
-This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#combined-versions) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
 
 ```text
 python -m healthcheck.export_combined_evidence \
@@ -1380,7 +1380,7 @@ The Sleep selector is mandatory under the existing combined request contract; th
 
 ### Observed Steps and Weight v4
 
-This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#combined-versions) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
 
 ```text
 python -m healthcheck.export_combined_evidence \
@@ -1395,7 +1395,7 @@ python -m healthcheck.export_combined_evidence \
 
 ### HRV and resting heart rate v3
 
-This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#combined-versions) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
 
 ```text
 python -m healthcheck.export_combined_evidence \
@@ -1411,7 +1411,7 @@ python -m healthcheck.export_combined_evidence \
 
 ### Stress and Body Battery v2
 
-This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#combined-versions) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
 
 ```text
 python -m healthcheck.export_combined_evidence \
@@ -1427,7 +1427,7 @@ python -m healthcheck.export_combined_evidence \
 
 ### Compact projection with earlier defaults
 
-This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#evidence-combined) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
+This complete example uses an explicitly existing profile and exact sources. Select the matching version only; omitted optional flags retain earlier defaults. The profile/output/privacy guards in [analysis export](#analysis-export) and [Architecture](ARCHITECTURE.md#combined-versions) remain in force. These `text` blocks show CLI argument continuations, not a PowerShell script to execute unchanged.
 
 ```text
 python -m healthcheck.export_combined_evidence \
@@ -1443,7 +1443,7 @@ Current compact JSON declares `projection.sleep_evidence_schema` as
 saved session's `session_interval_sets`; after overlaying common and cell evidence,
 resolve its `quality_inputs_index` through that source session's
 `quality_input_sets`, following
-[Architecture reconstruction](ARCHITECTURE.md#evidence-combined--opt-in-compact-projection).
+[Architecture reconstruction](ARCHITECTURE.md#compact-projection).
 Earlier v2 packets retain their endpoint registry and inline quality inputs;
 packets without the discriminator retain inline arrays. Do not rewrite a saved
 packet or infer a successful check from absent historical validation metadata.
@@ -1557,7 +1557,7 @@ Health-Check app. Use `https://<owner-selected-host>/mcp` as the Server URL and
 No authentication only while the fixed profile is synthetic. This task starts
 no HTTPS service, public tunnel or background service and supplies no credentials.
 
-Owner profiles require the complete [Architecture gateway/auth contract](ARCHITECTURE.md#mcp-boundary), including startup secret, every-request OAuth validation, narrow forwarding and revocation. If access setup is absent, Owner-data HTTPS is BLOCKED; retain manual export.
+Owner profiles require the complete [Architecture gateway/auth contract](ARCHITECTURE.md#assistant-mcp), including startup secret, every-request OAuth validation, narrow forwarding and revocation. If access setup is absent, Owner-data HTTPS is BLOCKED; retain manual export.
 
 Once the chosen HTTPS endpoint and access gate have separately passed Inspector:
 
@@ -1580,7 +1580,7 @@ Local synthetic PASS, exact-candidate CI, independent privacy/transport review,
 account custom-plugin entitlement, HTTPS/OAuth interoperability and connected
 Owner UAT are separate evidence. Until the last steps are actually performed,
 direct access is **UNVERIFIED**, never CONNECTED.
-Canonical tool/transport and gateway auth requirements are in [Architecture](ARCHITECTURE.md#mcp-boundary). A local synthetic result does not establish a real ChatGPT connection; private connection/auth/revocation remains separately authorized.
+Canonical tool/transport and gateway auth requirements are in [Architecture](ARCHITECTURE.md#assistant-mcp). A local synthetic result does not establish a real ChatGPT connection; private connection/auth/revocation remains separately authorized.
 
 <a id="assistant-period-mcp-setup"></a>
 ### Connect the bound 7/30-day reader through Secure MCP Tunnel
@@ -1624,7 +1624,7 @@ After the connection phase is explicitly authorized:
    `HEALTHCHECK_MCP_GATEWAY_TOKEN` secret supplied privately to the process.
    This internal token is neither the tunnel runtime key nor the Owner OAuth token.
    Never enter it in ChatGPT, a URL, command argument, tracked file or a log.
-3. For Owner data, retain the [OAuth gateway contract](ARCHITECTURE.md#mcp-boundary):
+3. For Owner data, retain the [OAuth gateway contract](ARCHITECTURE.md#assistant-mcp):
    authenticate only the Owner and check token issuer, audience/resource, expiry
    and `health.evidence:read` on every request. The gateway strips external
    authorization and supplies the internal credential, sets upstream Host to
