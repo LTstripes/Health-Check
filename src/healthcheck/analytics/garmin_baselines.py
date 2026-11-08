@@ -38,6 +38,7 @@ from healthcheck.garmin.analytic_contract import (
     get_analytic_metric_definition,
     stable_manifest_hash,
 )
+from healthcheck.garmin.analytic_storage import GarminAnalyticStorageBatch
 from healthcheck.garmin.normalization import stable_garmin_collection_key
 from healthcheck.garmin.persistence import PROJECTION_CURRENT, build_garmin_observation_key
 
@@ -693,23 +694,27 @@ def _hash_result_body(body: Mapping[str, Any]) -> str:
     return stable_manifest_hash(body)
 
 
-def _proven_non_candidate(session: Session, dto: AnalyticInputDTO) -> dict[str, Any] | None:
+def _proven_non_candidate(
+    session: Session, dto: AnalyticInputDTO, *,
+    _batch: GarminAnalyticStorageBatch | None = None,
+) -> dict[str, Any] | None:
     """Prove a normalizer placeholder on a different persisted daily surface.
 
     Filename or a missing state alone is insufficient. Unknown/conflicting
     evidence stays in daily ambiguity resolution; no value-based winner exists.
     This proof uses persisted provenance only, not additional raw-file scans.
     """
-    record = session.get(GarminSourceRecord, dto.evidence.record_id)
-    metric = session.get(GarminRecordMetric, dto.evidence.metric_row_id)
-    raw = session.get(GarminRawPayload, dto.evidence.raw_payload_id)
-    obs = session.get(GarminPayloadObservation, dto.evidence.observation_id)
+    get = session.get if _batch is None else _batch.get
+    record = get(GarminSourceRecord, dto.evidence.record_id)
+    metric = get(GarminRecordMetric, dto.evidence.metric_row_id)
+    raw = get(GarminRawPayload, dto.evidence.raw_payload_id)
+    obs = get(GarminPayloadObservation, dto.evidence.observation_id)
     if record is None or metric is None or raw is None or obs is None:
         return None
-    source = session.get(GarminSource, record.garmin_source_id)
-    provider = session.get(Provider, source.provider_id) if source else None
-    event = session.get(IngestEvent, obs.ingest_event_id) if obs.ingest_event_id else None
-    batch = session.get(IngestBatch, event.ingest_batch_id) if event else None
+    source = get(GarminSource, record.garmin_source_id)
+    provider = get(Provider, source.provider_id) if source else None
+    event = get(IngestEvent, obs.ingest_event_id) if obs.ingest_event_id else None
+    batch = get(IngestBatch, event.ingest_batch_id) if event else None
     if (
         source is None
         or source.source_kind != "provider"
@@ -855,6 +860,7 @@ def compute_garmin_scalar_series(
             f"selected at least {len(rows)} candidate analytic inputs; "
             f"max allowed is {MAX_SERIES_SELECTED_POINTS}"
         )
+    storage = GarminAnalyticStorageBatch(session, rows, stress_provenance=stress_applicability)
     assembled: list[AnalyticInputDTO] = []
     for metric_row, _record in rows:
         dto = build_analytic_input_from_storage(
@@ -862,6 +868,7 @@ def compute_garmin_scalar_series(
             metric_row_id=metric_row.id,
             metric_code=query.metric_code,
             operational_surface_present=False,
+            _batch=storage,
         )
         assembled.append(dto)
 
@@ -908,7 +915,7 @@ def compute_garmin_scalar_series(
             # Outside-window dates from the broad UTC probe stay out of the series.
             continue
         if stress_applicability:
-            audit = _proven_non_candidate(session, dto)
+            audit = _proven_non_candidate(session, dto, _batch=storage)
             if audit is not None:
                 non_candidates.append(audit)
                 frozen_by_hash[dto.manifest_hash] = dto.as_dict()

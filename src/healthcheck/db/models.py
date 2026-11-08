@@ -557,6 +557,12 @@ class GarminPayloadObservation(Base):
     __tablename__ = "garmin_payload_observations"
     __table_args__ = (
         UniqueConstraint("observation_key", name="uq_garmin_payload_observations_key"),
+        Index(
+            "ix_garmin_payload_observations_raw_received",
+            "garmin_raw_payload_id",
+            "received_at",
+            "id",
+        ),
         CheckConstraint(
             "stream_code IN ('daily_health', 'sleep', 'activity', 'intraday', 'original_fit')",
             name="stream_code_allowed",

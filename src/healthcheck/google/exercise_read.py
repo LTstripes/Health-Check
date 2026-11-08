@@ -47,7 +47,9 @@ def read_saved_exercise(
         session.scalars(
             select(GoogleSource)
             .where(
-                GoogleSource.id.in_(select(GoogleSourceRecord.google_source_id).where(*eligible))
+                select(GoogleSourceRecord.id)
+                .where(GoogleSourceRecord.google_source_id == GoogleSource.id, *eligible)
+                .exists()
             )
             .order_by(GoogleSource.id)
             .limit(MAX_SOURCES + 1)
