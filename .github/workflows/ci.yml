@@ -60,8 +60,6 @@ jobs:
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -71,7 +69,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - run: uv run --locked python -m healthcheck.db.migration_guard
+      - name: Migration guard
+        run: uv run --locked python -m healthcheck.db.migration_guard
+        env:
+          HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
       - run: uv run --locked ruff check .
 
   test:
@@ -79,8 +80,6 @@ jobs:
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -90,15 +89,16 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - run: uv run --locked pytest -n auto --durations=30
+      - name: Full test suite
+        run: uv run --locked pytest -n auto --durations=30
+        env:
+          HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
 
   windows-smoke:
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     timeout-minutes: 15
-    env:
-      HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -109,6 +109,8 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - name: Windows-sensitive product tests (including native DPAPI)
+        env:
+          HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
         run: >-
           uv run --locked pytest tests/test_bootstrap.py tests/test_demo_tooling.py
           tests/test_garmin_auth.py tests/test_google_protection.py tests/test_timezone_runtime.py
@@ -120,6 +122,8 @@ jobs:
           powershell.exe -NoLogo -NoProfile -NonInteractive -File tests/test_workspace_retirement.ps1
           exit $LASTEXITCODE
       - name: Synthetic CLI and loopback smoke
+        env:
+          HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
         shell: bash
         run: |
           set -euo pipefail
