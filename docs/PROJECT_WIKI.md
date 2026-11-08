@@ -264,14 +264,14 @@ Delivered product boundaries, source priorities, local-first Python/FastAPI/SQLi
 
 Delivered local runtime/migrations, Xiaomi historical photo import with confirmation/provenance, openScale/openScale-sync contract, canonical selection/sparse coverage, deterministic Weight/body-composition analytics, local dashboard and safe profile backup/restore.
 
-See [R01 Release Closeout](archive/releases/R01_RELEASE_CLOSEOUT.md).
+See [R01 Release Closeout](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R01_RELEASE_CLOSEOUT.md).
 
 <a id="release-roadmap--r02--garmin-ingestion-and-backfill-released"></a>
 ### R02 — Garmin ingestion and backfill (released)
 
 Delivered protected Owner-assisted session reuse, reviewed read capability/normalization/persistence, typed current/source/observation records, incremental sync/trailing reconciliation, bounded resumable backfill, explicit coverage/checkpoints and completed-rerun idempotency.
 
-Owner gates exposed real-provider convergence defects that synthetic CI had not proven; focused repairs preceded release. See [R02 Release Closeout](archive/releases/R02_RELEASE_CLOSEOUT.md).
+Owner gates exposed real-provider convergence defects that synthetic CI had not proven; focused repairs preceded release. See [R02 Release Closeout](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R02_RELEASE_CLOSEOUT.md).
 
 <a id="release-roadmap--r03--garmin-analytics-and-activity-comparison-released"></a>
 ### R03 — Garmin analytics and activity comparison (released)
@@ -294,7 +294,7 @@ Released from `integration/r04-google-health` through PR #114.
 
 Release candidate `406f4044ffb0d010c64a8635d402016ae916fc5a`; merge `bb5776e98d259cb6256c95bd49d400dc1238af61`; exact-main CI `34768452960` SUCCESS; #80 closed.
 
-See [R04 Release Closeout](archive/releases/R04_RELEASE_CLOSEOUT.md).
+See [R04 Release Closeout](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R04_RELEASE_CLOSEOUT.md).
 
 <a id="release-roadmap--r05--garmin--google-wearable-agreement-and-canonical-sleep-released"></a>
 ### R05 — Garmin / Google wearable agreement and canonical sleep (released)
@@ -319,7 +319,7 @@ Implementation: #100 pairing, #101 projection, #102 immutable runs/replay, #103 
 #317 and delivered #343/#347 source-specific Sleep/Statistics views reuse accepted
 account-observation/source rules without altering legacy Compare/Agreement.
 Independent display itself is not canonical-switch evidence.
-See [R05 Release Closeout](archive/releases/R05_RELEASE_CLOSEOUT.md) and
+See [R05 Release Closeout](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R05_RELEASE_CLOSEOUT.md) and
 [Account Sleep Observations](ARCHITECTURE.md#sleep-agreement).
 
 <a id="release-roadmap--post-r05--119--deterministic-period-brief-v1-completed"></a>
@@ -470,7 +470,7 @@ Direction to preserve before comparisons:
 - never turn association into a causal health claim.
 
 Evidence for these failure classes is in
-[Reference Project Refresh](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md).
+[Reference Project Refresh](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md).
 Donor thresholds/heuristics are not Health-Check policy. Promote deeper analysis
 into its own explicit contract after the capture/read boundary is stable.
 
@@ -518,12 +518,12 @@ It is review evidence, not a sixth maintained book.
 
 | Frozen collection | Preserved scope |
 | --- | --- |
-| closeouts | [CI_MAINTENANCE_CLOSEOUT_2026-09-17](archive/closeouts/CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), [CI_OPTIMIZATION_CLOSEOUT_2026-10-04](archive/closeouts/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md), [OWNER_REFRESH_CLOSEOUT_2026-10-01](archive/closeouts/OWNER_REFRESH_CLOSEOUT_2026-10-01.md), [STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21](archive/closeouts/STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md) |
-| history | [EXECUTION_HISTORY](archive/history/EXECUTION_HISTORY.md), [EXECUTION_HISTORY_CURRENT](archive/history/EXECUTION_HISTORY_CURRENT.md), [EXECUTION_HISTORY_THROUGH_2026-09-27](archive/history/EXECUTION_HISTORY_THROUGH_2026-09-27.md), [EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY](archive/history/EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md), [MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY](archive/history/MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) |
-| uat | [OWNER_UAT_CHECKPOINT_2026-10-11](archive/uat/OWNER_UAT_CHECKPOINT_2026-10-11.md), [OWNER_UAT_FOLLOWUP_2026-10-06](archive/uat/OWNER_UAT_FOLLOWUP_2026-10-06.md), [R01_OWNER_UAT](archive/uat/R01_OWNER_UAT.md) |
-| releases | [R01_IMPLEMENTATION_SPEC](archive/releases/R01_IMPLEMENTATION_SPEC.md), [R01_RELEASE_CLOSEOUT](archive/releases/R01_RELEASE_CLOSEOUT.md), [R02_OWNER_AUTH_CAPABILITY_SPIKE](archive/releases/R02_OWNER_AUTH_CAPABILITY_SPIKE.md), [R02_RELEASE_CLOSEOUT](archive/releases/R02_RELEASE_CLOSEOUT.md), [R04_RELEASE_CLOSEOUT](archive/releases/R04_RELEASE_CLOSEOUT.md), [R05_RELEASE_CLOSEOUT](archive/releases/R05_RELEASE_CLOSEOUT.md) |
-| research | [REFERENCE_PROJECTS](archive/research/REFERENCE_PROJECTS.md), [TEST_OPT2_SYNC_PROFILE](archive/research/TEST_OPT2_SYNC_PROFILE.md), [WORKSPACE_RECYCLE_CONTRACT](archive/research/WORKSPACE_RECYCLE_CONTRACT.md), [WORKSPACE_RECYCLE_PROPOSAL](archive/research/WORKSPACE_RECYCLE_PROPOSAL.md), [WORKSPACE_RECYCLE_REVIEW_TRIAGE](archive/research/WORKSPACE_RECYCLE_REVIEW_TRIAGE.md) |
-| audits | [R00_FINAL_ARCHITECTURE](archive/audits/R00_FINAL_ARCHITECTURE.md), [REFERENCE_PROJECT_REFRESH_2026-09-12](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md), [REFERENCE_PROJECT_REFRESH_2026-09-13](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md), [REFERENCE_PROJECT_REFRESH_2026-09-25](archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md) |
+| closeouts | [CI_MAINTENANCE_CLOSEOUT_2026-09-17](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/closeouts/CI_MAINTENANCE_CLOSEOUT_2026-09-17.md), [CI_OPTIMIZATION_CLOSEOUT_2026-10-04](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/closeouts/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md), [OWNER_REFRESH_CLOSEOUT_2026-10-01](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/closeouts/OWNER_REFRESH_CLOSEOUT_2026-10-01.md), [STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/closeouts/STABLE_OWNER_RUNTIME_CLOSEOUT_2026-09-21.md) |
+| history | [EXECUTION_HISTORY](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/history/EXECUTION_HISTORY.md), [EXECUTION_HISTORY_CURRENT](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/history/EXECUTION_HISTORY_CURRENT.md), [EXECUTION_HISTORY_THROUGH_2026-09-27](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/history/EXECUTION_HISTORY_THROUGH_2026-09-27.md), [EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/history/EXECUTION_HISTORY_THROUGH_2026-10-01_RELIABILITY.md), [MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/history/MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) |
+| uat | [OWNER_UAT_CHECKPOINT_2026-10-11](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/uat/OWNER_UAT_CHECKPOINT_2026-10-11.md), [OWNER_UAT_FOLLOWUP_2026-10-06](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/uat/OWNER_UAT_FOLLOWUP_2026-10-06.md), [R01_OWNER_UAT](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/uat/R01_OWNER_UAT.md) |
+| releases | [R01_IMPLEMENTATION_SPEC](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R01_IMPLEMENTATION_SPEC.md), [R01_RELEASE_CLOSEOUT](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R01_RELEASE_CLOSEOUT.md), [R02_OWNER_AUTH_CAPABILITY_SPIKE](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R02_OWNER_AUTH_CAPABILITY_SPIKE.md), [R02_RELEASE_CLOSEOUT](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R02_RELEASE_CLOSEOUT.md), [R04_RELEASE_CLOSEOUT](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R04_RELEASE_CLOSEOUT.md), [R05_RELEASE_CLOSEOUT](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/releases/R05_RELEASE_CLOSEOUT.md) |
+| research | [REFERENCE_PROJECTS](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/research/REFERENCE_PROJECTS.md), [TEST_OPT2_SYNC_PROFILE](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/research/TEST_OPT2_SYNC_PROFILE.md), [WORKSPACE_RECYCLE_CONTRACT](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/research/WORKSPACE_RECYCLE_CONTRACT.md), [WORKSPACE_RECYCLE_PROPOSAL](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/research/WORKSPACE_RECYCLE_PROPOSAL.md), [WORKSPACE_RECYCLE_REVIEW_TRIAGE](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/research/WORKSPACE_RECYCLE_REVIEW_TRIAGE.md) |
+| audits | [R00_FINAL_ARCHITECTURE](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/audits/R00_FINAL_ARCHITECTURE.md), [REFERENCE_PROJECT_REFRESH_2026-09-12](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-12.md), [REFERENCE_PROJECT_REFRESH_2026-09-13](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-13.md), [REFERENCE_PROJECT_REFRESH_2026-09-25](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/audits/REFERENCE_PROJECT_REFRESH_2026-09-25.md) |
 
 The original [Wiki](https://github.com/LTstripes/Health-Check/blob/b51859e9787dd81ca7959de5d3184e0c801c6cbf/docs/PROJECT_WIKI.md),
 [Roadmap](https://github.com/LTstripes/Health-Check/blob/b51859e9787dd81ca7959de5d3184e0c801c6cbf/docs/ROADMAP.md) and

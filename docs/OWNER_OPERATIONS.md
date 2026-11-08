@@ -939,7 +939,7 @@ Battery permissions do not prove execution through sleep. A closed lid, sleep/of
 #### Limits of operational proof
 
 The accepted #214 automatic/logon proof and earlier failed/manual attempts remain
-in the [dated closeout](archive/closeouts/OWNER_REFRESH_CLOSEOUT_2026-10-01.md).
+in the [dated closeout](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/closeouts/OWNER_REFRESH_CLOSEOUT_2026-10-01.md).
 One automatic success is not proof of graceful cancellation, sleep/resume continuity,
 multi-day reliability or installed newer code. Keep private logs local; public
 engineering reports contain sanitized technical summaries, never whole private
@@ -1951,7 +1951,7 @@ Optional private photos on the owner machine only.
 - Keep files under the UAT data dir, never in Git.
 - Record PASS / FAIL / UNVERIFIED.
 
-This procedure supplies reusable Windows/synthetic mechanics. Use the active issue for current acceptance; the original R01 release checklist is [historical](archive/uat/R01_OWNER_UAT.md). Do not activate optional live openScale, provider auth or import just to validate prose. Candidate UAT uses a disposable verified backup/restore clone, never Stable as a test fixture.
+This procedure supplies reusable Windows/synthetic mechanics. Use the active issue for current acceptance; the original R01 release checklist is [historical](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/uat/R01_OWNER_UAT.md). Do not activate optional live openScale, provider auth or import just to validate prose. Candidate UAT uses a disposable verified backup/restore clone, never Stable as a test fixture.
 
 
 <a id="hrv-recovery-operations"></a>

@@ -247,7 +247,6 @@ GARMIN_SAFE_FIELD_PATHS = frozenset(
         "activities.maxRunningCadenceInStepsPerMinute",
         "activities.durationSeconds",
         "activities.distanceMeters",
-        "activities.duration",
         "activities.distance",
         "activities.metrics",
         "activities.metrics.speedMps",
