@@ -7,7 +7,9 @@ import io
 import json
 import socket
 from dataclasses import asdict, replace
+from itertools import count
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
@@ -262,6 +264,9 @@ def test_context_page_truncation_is_disclosed_without_fetching_next_page(bound, 
 @pytest.mark.parametrize("cap", ["MAX_OUTPUT_BYTES", "MAX_SQL_STEPS", "READ_TIMEOUT_SECONDS"])
 def test_existing_resource_guards_reject_without_retry(bound, monkeypatch, cap):
     monkeypatch.setattr(chat_evidence if cap != "MAX_OUTPUT_BYTES" else combined_evidence, cap, 0)
+    if cap == "READ_TIMEOUT_SECONDS":
+        ticks = count()
+        monkeypatch.setattr(chat_evidence, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
     with pytest.raises(EvidenceError):
         read(bound)
 

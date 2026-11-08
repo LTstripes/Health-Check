@@ -1,6 +1,7 @@
 """Saved Google Steps through production persistence and actual Statistics GET."""
 
 from datetime import date, timedelta
+from itertools import count
 
 import pytest
 from sqlalchemy import event, select
@@ -181,6 +182,9 @@ def test_caps_withhold_all_values_not_prefix(database, monkeypatch, budget):
     _, session, _ = database
     persist(database, payload("5"))
     monkeypatch.setattr("healthcheck.google.steps_read." + budget, 0)
+    if budget == "COOPERATIVE_SECONDS":
+        ticks = count()
+        monkeypatch.setattr("healthcheck.google.steps_read.monotonic", lambda: next(ticks))
     result = read(session)
     assert not result["search_complete"] and not result["cells"]
 

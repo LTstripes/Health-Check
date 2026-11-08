@@ -1,0 +1,907 @@
+{
+  "baseline": "27db271c60bf76b59234b0408561a7ed01cc77e5",
+  "note": "Captured from the pre-refactor build_parser; parser-only synthetic placeholders, no command execution.",
+  "defaults": {
+    "app": "ui",
+    "data_dir": null,
+    "port": null,
+    "host": null,
+    "ui_mode": null,
+    "ui_host": null,
+    "auth_file": null,
+    "tls_certfile": null,
+    "tls_keyfile": null,
+    "reset": false,
+    "ui_url": "http://127.0.0.1:8120",
+    "ingest_url": null,
+    "timeout": 3.0,
+    "output": null,
+    "format": null,
+    "backup": null,
+    "target_dir": null,
+    "destination": null,
+    "staging": null,
+    "age_executable": null,
+    "recovery_identity": null,
+    "recipient": null,
+    "destination_alias": "offsite",
+    "staging_nonsynced": false,
+    "rotate": false,
+    "expected_uuid": null,
+    "expected_sha256": null,
+    "replace": false,
+    "force_reauth": false,
+    "include_steps": false,
+    "include_google_steps": false,
+    "google_steps_catchup": false,
+    "is_cn": false,
+    "dates": null,
+    "max_ranges": null,
+    "max_date": null,
+    "activity_start": null,
+    "activity_end": null,
+    "activity_ids": null,
+    "repeat_date": null,
+    "state": null,
+    "expect_revision": null,
+    "trailing_window_days": null,
+    "start": null,
+    "end": null,
+    "streams": null,
+    "chunk_days": null,
+    "dry_run": false,
+    "apply": false,
+    "cutoff": null,
+    "reprocess": false,
+    "reacquire_unproven_daily_summary": false,
+    "garmin_source_id": null,
+    "max_observations": null,
+    "input": null,
+    "image": null,
+    "extraction_json": null,
+    "owner_attested_date": null,
+    "family": null,
+    "query_mode": null,
+    "cohort": "account_wearables_sleep_observations_v1",
+    "timestamp": null,
+    "timezone": null,
+    "text": null,
+    "tags": null,
+    "source": "cli",
+    "event_id": null,
+    "operation_id": null,
+    "from_date": null,
+    "to_date": null,
+    "limit": 50,
+    "history": false,
+    "clear_tags": false
+  },
+  "commands": [
+    "prepare-runtime",
+    "migrate",
+    "serve",
+    "ui-password",
+    "seed-demo",
+    "smoke",
+    "backup-profile",
+    "verify-backup",
+    "restore-profile",
+    "offsite-backup",
+    "offsite-backup-list",
+    "offsite-recover",
+    "garmin-auth",
+    "garmin-capabilities",
+    "garmin-training-phase-a",
+    "garmin-training-sync",
+    "garmin-redact",
+    "garmin-sync",
+    "garmin-backfill",
+    "garmin-reprocess",
+    "google-auth",
+    "google-steps",
+    "google-exercise",
+    "google-capabilities",
+    "google-sync",
+    "google-backfill",
+    "google-refresh",
+    "owner-refresh",
+    "collection-policy",
+    "collection-policy-set",
+    "owner-weight-screenshot-import",
+    "sync-run-recovery",
+    "google-diagnose-terminal",
+    "period-brief",
+    "sleep-agreement-build",
+    "context-add",
+    "context-list",
+    "context-revise"
+  ],
+  "invocations": [
+    {
+      "source": "docs/DEVELOPMENT_PROCESS.md:875",
+      "argv": [
+        "seed-demo"
+      ],
+      "expected": {
+        "command": "seed-demo"
+      }
+    },
+    {
+      "source": "docs/DEVELOPMENT_PROCESS.md:876",
+      "argv": [
+        "serve",
+        "--app",
+        "ui",
+        "--port",
+        "8126"
+      ],
+      "expected": {
+        "command": "serve",
+        "port": 8126
+      }
+    },
+    {
+      "source": "docs/GOOGLE_EXERCISE_IMPORT.md:85",
+      "argv": [
+        "google-exercise",
+        "--start",
+        "2099-01-03",
+        "--end",
+        "2099-01-03",
+        "--family",
+        "google-wearables",
+        "--dry-run"
+      ],
+      "expected": {
+        "command": "google-exercise",
+        "start": "2099-01-03",
+        "end": "2099-01-03",
+        "dry_run": true,
+        "family": "google-wearables"
+      }
+    },
+    {
+      "source": "docs/GOOGLE_EXERCISE_IMPORT.md:86",
+      "argv": [
+        "google-exercise",
+        "--start",
+        "YYYY-MM-DD",
+        "--end",
+        "YYYY-MM-DD",
+        "--family",
+        "google-wearables",
+        "--apply",
+        "--data-dir",
+        "<explicit-absolute-existing-profile>"
+      ],
+      "expected": {
+        "command": "google-exercise",
+        "data_dir": "<explicit-absolute-existing-profile>",
+        "start": "YYYY-MM-DD",
+        "end": "YYYY-MM-DD",
+        "apply": true,
+        "family": "google-wearables"
+      }
+    },
+    {
+      "source": "docs/GOOGLE_STEPS_ACQUISITION.md:143",
+      "argv": [
+        "google-auth",
+        "--include-steps",
+        "--force-reauth",
+        "--data-dir",
+        "$ownerSelectedProfile"
+      ],
+      "expected": {
+        "command": "google-auth",
+        "data_dir": "$ownerSelectedProfile",
+        "force_reauth": true,
+        "include_steps": true
+      }
+    },
+    {
+      "source": "docs/GOOGLE_STEPS_ACQUISITION.md:154",
+      "argv": [
+        "google-steps",
+        "--date",
+        "YYYY-MM-DD",
+        "--family",
+        "google-wearables",
+        "--dry-run"
+      ],
+      "expected": {
+        "command": "google-steps",
+        "dates": [
+          "YYYY-MM-DD"
+        ],
+        "dry_run": true,
+        "family": "google-wearables"
+      }
+    },
+    {
+      "source": "docs/GOOGLE_STEPS_ACQUISITION.md:155",
+      "argv": [
+        "google-steps",
+        "--date",
+        "YYYY-MM-DD",
+        "--family",
+        "google-wearables",
+        "--apply",
+        "--data-dir",
+        "$ownerSelectedProfile"
+      ],
+      "expected": {
+        "command": "google-steps",
+        "data_dir": "$ownerSelectedProfile",
+        "dates": [
+          "YYYY-MM-DD"
+        ],
+        "apply": true,
+        "family": "google-wearables"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:116",
+      "argv": [
+        "ui-password",
+        "--data-dir",
+        "<existing-profile>",
+        "--auth-file",
+        "<external-password.json>"
+      ],
+      "expected": {
+        "command": "ui-password",
+        "data_dir": "<existing-profile>",
+        "auth_file": "<external-password.json>"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:122",
+      "argv": [
+        "serve",
+        "--app",
+        "ui",
+        "--data-dir",
+        "<existing-profile>",
+        "--ui-mode",
+        "home-server",
+        "--ui-host",
+        "192.168.3.43",
+        "--port",
+        "8443",
+        "--auth-file",
+        "<external-password.json>",
+        "--tls-certfile",
+        "<external-cert.pem>",
+        "--tls-keyfile",
+        "<external-key.pem>"
+      ],
+      "expected": {
+        "command": "serve",
+        "data_dir": "<existing-profile>",
+        "port": 8443,
+        "ui_mode": "home-server",
+        "ui_host": "192.168.3.43",
+        "auth_file": "<external-password.json>",
+        "tls_certfile": "<external-cert.pem>",
+        "tls_keyfile": "<external-key.pem>"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:331",
+      "argv": [
+        "seed-demo"
+      ],
+      "expected": {
+        "command": "seed-demo"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:363",
+      "argv": [
+        "backup-profile",
+        "--data-dir",
+        "C:\\Temp\\Health-Check-demo",
+        "--output",
+        "C:\\Backups\\health-check-profile.zip"
+      ],
+      "expected": {
+        "command": "backup-profile",
+        "data_dir": "C:\\Temp\\Health-Check-demo",
+        "output": "C:\\Backups\\health-check-profile.zip"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:365",
+      "argv": [
+        "verify-backup",
+        "--backup",
+        "C:\\Backups\\health-check-profile.zip"
+      ],
+      "expected": {
+        "command": "verify-backup",
+        "backup": "C:\\Backups\\health-check-profile.zip"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:366",
+      "argv": [
+        "restore-profile",
+        "--backup",
+        "C:\\Backups\\health-check-profile.zip",
+        "--target-dir",
+        "C:\\Temp\\Health-Check-restored"
+      ],
+      "expected": {
+        "command": "restore-profile",
+        "backup": "C:\\Backups\\health-check-profile.zip",
+        "target_dir": "C:\\Temp\\Health-Check-restored"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:566",
+      "argv": [
+        "backup-profile",
+        "--data-dir",
+        "$StableProfile",
+        "--output",
+        "$PreUpgradeBackup"
+      ],
+      "expected": {
+        "command": "backup-profile",
+        "data_dir": "$StableProfile",
+        "output": "$PreUpgradeBackup"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:568",
+      "argv": [
+        "verify-backup",
+        "--backup",
+        "$PreUpgradeBackup"
+      ],
+      "expected": {
+        "command": "verify-backup",
+        "backup": "$PreUpgradeBackup"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:570",
+      "argv": [
+        "restore-profile",
+        "--backup",
+        "$PreUpgradeBackup",
+        "--target-dir",
+        "$UatProfile"
+      ],
+      "expected": {
+        "command": "restore-profile",
+        "backup": "$PreUpgradeBackup",
+        "target_dir": "$UatProfile"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:580",
+      "argv": [
+        "migrate",
+        "--data-dir",
+        "$UatProfile"
+      ],
+      "expected": {
+        "command": "migrate",
+        "data_dir": "$UatProfile"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:672",
+      "argv": [
+        "offsite-backup",
+        "--data-dir",
+        "$Profile",
+        "--destination",
+        "$Destination",
+        "--staging",
+        "$Staging",
+        "--staging-nonsynced",
+        "--age-executable",
+        "$AgeExe",
+        "--recovery-identity",
+        "$IdentityFile",
+        "--recipient",
+        "$Recipient",
+        "--destination-alias",
+        "offsite"
+      ],
+      "expected": {
+        "command": "offsite-backup",
+        "data_dir": "$Profile",
+        "destination": "$Destination",
+        "staging": "$Staging",
+        "age_executable": "$AgeExe",
+        "recovery_identity": "$IdentityFile",
+        "recipient": "$Recipient",
+        "staging_nonsynced": true
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:675",
+      "argv": [
+        "offsite-backup-list",
+        "--data-dir",
+        "$Profile",
+        "--destination",
+        "$Destination",
+        "--dry-run"
+      ],
+      "expected": {
+        "command": "offsite-backup-list",
+        "data_dir": "$Profile",
+        "destination": "$Destination",
+        "dry_run": true
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:720",
+      "argv": [
+        "offsite-recover",
+        "--backup",
+        "$Ciphertext",
+        "--target-dir",
+        "$NewProfile",
+        "--staging",
+        "$Staging",
+        "--staging-nonsynced",
+        "--age-executable",
+        "$AgeExe",
+        "--recovery-identity",
+        "$IdentityFile",
+        "--expected-uuid",
+        "$TrustedUuid",
+        "--expected-sha256",
+        "$TrustedSha256"
+      ],
+      "expected": {
+        "command": "offsite-recover",
+        "backup": "$Ciphertext",
+        "target_dir": "$NewProfile",
+        "staging": "$Staging",
+        "age_executable": "$AgeExe",
+        "recovery_identity": "$IdentityFile",
+        "staging_nonsynced": true,
+        "expected_uuid": "$TrustedUuid",
+        "expected_sha256": "$TrustedSha256"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:921",
+      "argv": [
+        "owner-refresh",
+        "--data-dir",
+        "$OwnerDataDir",
+        "--trailing-window-days",
+        "7"
+      ],
+      "expected": {
+        "command": "owner-refresh",
+        "data_dir": "$OwnerDataDir",
+        "trailing_window_days": 7
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:967",
+      "argv": [
+        "owner-weight-screenshot-import",
+        "--data-dir",
+        "D:\\synthetic\\profile",
+        "--image",
+        "<path to this uploaded attachment>"
+      ],
+      "expected": {
+        "command": "owner-weight-screenshot-import",
+        "data_dir": "D:\\synthetic\\profile",
+        "image": "<path to this uploaded attachment>"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:976",
+      "argv": [
+        "owner-weight-screenshot-import",
+        "--data-dir",
+        "D:\\synthetic\\profile",
+        "--image",
+        "<path to this uploaded attachment>",
+        "--extraction-json",
+        "<temporary JSON outside the repository>"
+      ],
+      "expected": {
+        "command": "owner-weight-screenshot-import",
+        "data_dir": "D:\\synthetic\\profile",
+        "image": "<path to this uploaded attachment>",
+        "extraction_json": "<temporary JSON outside the repository>"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1066",
+      "argv": [
+        "context-add",
+        "--data-dir",
+        "D:\\path\\to\\profile",
+        "--date",
+        "2026-09-22",
+        "--text",
+        "Synthetic note",
+        "--tag",
+        "tennis",
+        "--tag",
+        "fatigue"
+      ],
+      "expected": {
+        "command": "context-add",
+        "data_dir": "D:\\path\\to\\profile",
+        "dates": [
+          "2026-09-22"
+        ],
+        "text": "Synthetic note",
+        "tags": [
+          "tennis",
+          "fatigue"
+        ]
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1073",
+      "argv": [
+        "context-list",
+        "--data-dir",
+        "D:\\path\\to\\profile",
+        "--from",
+        "2026-09-01",
+        "--to",
+        "2026-09-30",
+        "--limit",
+        "50"
+      ],
+      "expected": {
+        "command": "context-list",
+        "data_dir": "D:\\path\\to\\profile",
+        "from_date": "2026-09-01",
+        "to_date": "2026-09-30"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1079",
+      "argv": [
+        "context-revise",
+        "--data-dir",
+        "D:\\path\\to\\profile",
+        "--event-id",
+        "<event-uuid>",
+        "--text",
+        "Synthetic corrected note",
+        "--operation-id",
+        "<caller-retry-key>"
+      ],
+      "expected": {
+        "command": "context-revise",
+        "data_dir": "D:\\path\\to\\profile",
+        "text": "Synthetic corrected note",
+        "event_id": "<event-uuid>",
+        "operation_id": "<caller-retry-key>"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1693",
+      "argv": [
+        "garmin-auth",
+        "--data-dir",
+        "$ownerData"
+      ],
+      "expected": {
+        "command": "garmin-auth",
+        "data_dir": "$ownerData"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1707",
+      "argv": [
+        "garmin-auth",
+        "--data-dir",
+        "$ownerData",
+        "--force-reauth"
+      ],
+      "expected": {
+        "command": "garmin-auth",
+        "data_dir": "$ownerData",
+        "force_reauth": true
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1716",
+      "argv": [
+        "garmin-capabilities",
+        "--data-dir",
+        "$ownerData",
+        "--date",
+        "$probeDate"
+      ],
+      "expected": {
+        "command": "garmin-capabilities",
+        "data_dir": "$ownerData",
+        "dates": [
+          "$probeDate"
+        ]
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1724",
+      "argv": [
+        "garmin-capabilities",
+        "--data-dir",
+        "$ownerData",
+        "--date",
+        "$previousProbeDate",
+        "--date",
+        "$probeDate"
+      ],
+      "expected": {
+        "command": "garmin-capabilities",
+        "data_dir": "$ownerData",
+        "dates": [
+          "$previousProbeDate",
+          "$probeDate"
+        ]
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1768",
+      "argv": [
+        "garmin-redact",
+        "--input",
+        "$rawPath",
+        "--output",
+        "$sanitizedPath"
+      ],
+      "expected": {
+        "command": "garmin-redact",
+        "output": "$sanitizedPath",
+        "input": "$rawPath"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1796",
+      "argv": [
+        "garmin-backfill",
+        "--data-dir",
+        "$ownerData",
+        "--start",
+        "$startDate",
+        "--end",
+        "$endDate",
+        "--stream",
+        "daily_summary",
+        "--reacquire-unproven-daily-summary",
+        "--garmin-source-id",
+        "$garminSourceId",
+        "--dry-run"
+      ],
+      "expected": {
+        "command": "garmin-backfill",
+        "data_dir": "$ownerData",
+        "start": "$startDate",
+        "end": "$endDate",
+        "streams": [
+          "daily_summary"
+        ],
+        "dry_run": true,
+        "reacquire_unproven_daily_summary": true,
+        "garmin_source_id": "$garminSourceId"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1875",
+      "argv": [
+        "seed-demo"
+      ],
+      "expected": {
+        "command": "seed-demo"
+      }
+    },
+    {
+      "source": "docs/OWNER_OPERATIONS.md:1881",
+      "argv": [
+        "seed-demo",
+        "--reset"
+      ],
+      "expected": {
+        "command": "seed-demo",
+        "reset": true
+      }
+    },
+    {
+      "source": "scripts/check_358_demo_browser.cjs:5",
+      "argv": [
+        "seed-demo"
+      ],
+      "expected": {
+        "command": "seed-demo"
+      }
+    },
+    {
+      "source": "scripts/check_358_demo_browser.cjs:6",
+      "argv": [
+        "serve",
+        "--app",
+        "ui",
+        "--port",
+        "8126"
+      ],
+      "expected": {
+        "command": "serve",
+        "port": 8126
+      }
+    },
+    {
+      "source": "scripts/start.ps1:36",
+      "argv": [
+        "prepare-runtime"
+      ],
+      "expected": {
+        "command": "prepare-runtime"
+      }
+    },
+    {
+      "source": "scripts/start.ps1:39",
+      "argv": [
+        "migrate"
+      ],
+      "expected": {
+        "command": "migrate"
+      }
+    },
+    {
+      "source": "scripts/start.ps1:50",
+      "argv": [
+        "serve",
+        "--app",
+        "ui"
+      ],
+      "expected": {
+        "command": "serve"
+      }
+    },
+    {
+      "source": "scripts/start.ps1:46",
+      "argv": [
+        "serve",
+        "--app",
+        "ingest"
+      ],
+      "expected": {
+        "command": "serve",
+        "app": "ingest"
+      }
+    },
+    {
+      "source": "scripts/uat-smoke.ps1:12 (UI)",
+      "argv": [
+        "smoke",
+        "--ui-url",
+        "http://127.0.0.1:8120",
+        "--timeout",
+        "3"
+      ],
+      "expected": {
+        "command": "smoke"
+      }
+    },
+    {
+      "source": "scripts/uat-smoke.ps1:12 (UI+ingest)",
+      "argv": [
+        "smoke",
+        "--ui-url",
+        "http://127.0.0.1:8120",
+        "--timeout",
+        "3",
+        "--ingest-url",
+        "http://127.0.0.1:8121"
+      ],
+      "expected": {
+        "command": "smoke",
+        "ingest_url": "http://127.0.0.1:8121"
+      }
+    },
+    {
+      "source": "ops/owner-refresh-scheduled.ps1:14 (heart_rate=False)",
+      "argv": [
+        "owner-refresh",
+        "--data-dir",
+        "D:\\synthetic\\profile",
+        "--trailing-window-days",
+        "7",
+        "--include-google-steps",
+        "--google-steps-catchup",
+        "--stream",
+        "sleep",
+        "--stream",
+        "hrv",
+        "--stream",
+        "daily_hrv",
+        "--stream",
+        "daily_resting_hr",
+        "--stream",
+        "spo2",
+        "--stream",
+        "daily_spo2",
+        "--stream",
+        "respiratory_rate_sleep",
+        "--stream",
+        "daily_respiratory_rate"
+      ],
+      "expected": {
+        "command": "owner-refresh",
+        "data_dir": "D:\\synthetic\\profile",
+        "include_google_steps": true,
+        "google_steps_catchup": true,
+        "trailing_window_days": 7,
+        "streams": [
+          "sleep",
+          "hrv",
+          "daily_hrv",
+          "daily_resting_hr",
+          "spo2",
+          "daily_spo2",
+          "respiratory_rate_sleep",
+          "daily_respiratory_rate"
+        ]
+      }
+    },
+    {
+      "source": "ops/owner-refresh-scheduled.ps1:14 (heart_rate=True)",
+      "argv": [
+        "owner-refresh",
+        "--data-dir",
+        "D:\\synthetic\\profile",
+        "--trailing-window-days",
+        "7",
+        "--include-google-steps",
+        "--google-steps-catchup",
+        "--stream",
+        "sleep",
+        "--stream",
+        "hrv",
+        "--stream",
+        "daily_hrv",
+        "--stream",
+        "daily_resting_hr",
+        "--stream",
+        "spo2",
+        "--stream",
+        "daily_spo2",
+        "--stream",
+        "respiratory_rate_sleep",
+        "--stream",
+        "daily_respiratory_rate",
+        "--stream",
+        "heart_rate"
+      ],
+      "expected": {
+        "command": "owner-refresh",
+        "data_dir": "D:\\synthetic\\profile",
+        "include_google_steps": true,
+        "google_steps_catchup": true,
+        "trailing_window_days": 7,
+        "streams": [
+          "sleep",
+          "hrv",
+          "daily_hrv",
+          "daily_resting_hr",
+          "spo2",
+          "daily_spo2",
+          "respiratory_rate_sleep",
+          "daily_respiratory_rate",
+          "heart_rate"
+        ]
+      }
+    }
+  ]
+}

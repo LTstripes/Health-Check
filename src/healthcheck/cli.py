@@ -118,143 +118,217 @@ from healthcheck.uat import format_smoke_results, run_smoke, smoke_exit_code
 from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
 
+# Keep option types, actions and defaults identical to the original CLI. Some
+# historically accepted flags are ignored (or rejected by product rules) on other
+# commands; retain those as hidden compatibility options rather than changing
+# successful invocations or structured product errors during this parser refactor.
+_CLI_OPTIONS = {
+    "app": {"choices": ("ui", "ingest"), "default": "ui"},
+    "data-dir": {},
+    "port": {"type": int},
+    "host": {},
+    "ui-mode": {"choices": ("loopback", "home-server")},
+    "ui-host": {},
+    "auth-file": {"type": Path},
+    "tls-certfile": {"type": Path},
+    "tls-keyfile": {"type": Path},
+    "reset": {"action": "store_true"},
+    "ui-url": {"default": "http://127.0.0.1:8120"},
+    "ingest-url": {},
+    "timeout": {"type": float, "default": 3.0},
+    "output": {"help": "output path"},
+    "format": {
+        "choices": ("json", "text"),
+        "help": "period-brief stdout format: json for the packet document alone, "
+        "text for the rendered brief alone; default keeps the current "
+        "packet plus rendered text behavior",
+    },
+    "backup": {"help": "backup archive path"},
+    "target-dir": {"help": "explicit restore target profile"},
+    "destination": {"type": Path},
+    "staging": {"type": Path},
+    "age-executable": {"type": Path},
+    "recovery-identity": {"type": Path},
+    "recipient": {},
+    "destination-alias": {"default": "offsite"},
+    "staging-nonsynced": {"action": "store_true"},
+    "rotate": {"action": "store_true"},
+    "expected-uuid": {},
+    "expected-sha256": {},
+    "replace": {"action": "store_true"},
+    "force-reauth": {"action": "store_true"},
+    "include-steps": {"action": "store_true"},
+    "include-google-steps": {"action": "store_true"},
+    "google-steps-catchup": {"action": "store_true"},
+    "is-cn": {"action": "store_true"},
+    "date": {"action": "append", "dest": "dates"},
+    "max-range": {"action": "append", "nargs": 2, "dest": "max_ranges"},
+    "max-date": {},
+    "activity-start": {},
+    "activity-end": {},
+    "activity-id": {"action": "append", "dest": "activity_ids"},
+    "repeat-date": {},
+    "state": {"choices": ("on", "off")},
+    "expect-revision": {"type": int},
+    "trailing-window-days": {"type": int},
+    "start": {},
+    "end": {},
+    "stream": {"action": "append", "dest": "streams"},
+    "chunk-days": {"type": int},
+    "dry-run": {"action": "store_true"},
+    "apply": {"action": "store_true"},
+    "cutoff": {},
+    "reprocess": {"action": "store_true"},
+    "reacquire-unproven-daily-summary": {"action": "store_true"},
+    "garmin-source-id": {},
+    "max-observations": {"type": int},
+    "input": {},
+    "image": {"help": "one Xiaomi Home screenshot path for Owner import"},
+    "extraction-json": {
+        "help": "one temporary structured extraction JSON for Owner screenshot import"
+    },
+    "owner-attested-date": {
+        "help": "explicit Owner-attested source date (YYYY-MM-DD) for the current request only"
+    },
+    "family": {},
+    "query-mode": {},
+    "cohort": {
+        "default": ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
+        "help": "sleep pairing cohort (default: account_wearables_sleep_observations_v1)",
+    },
+    "timestamp": {},
+    "timezone": {},
+    "text": {},
+    "tag": {"action": "append", "dest": "tags"},
+    "source": {"choices": ("cli", "manual"), "default": "cli"},
+    "event-id": {},
+    "operation-id": {},
+    "from": {"dest": "from_date"},
+    "to": {"dest": "to_date"},
+    "limit": {"type": int, "default": 50},
+    "history": {"action": "store_true"},
+    "clear-tags": {"action": "store_true"},
+}
+
+_COMMAND_OPTIONS = {
+    "prepare-runtime": [],
+    "migrate": [],
+    "serve": "app port host ui-mode ui-host auth-file tls-certfile tls-keyfile".split(),
+    "ui-password": "auth-file replace".split(),
+    "seed-demo": "reset".split(),
+    "smoke": "ui-url ingest-url timeout".split(),
+    "backup-profile": "output".split(),
+    "verify-backup": "backup".split(),
+    "restore-profile": "backup target-dir replace".split(),
+    "offsite-backup": (
+        "destination staging age-executable recovery-identity recipient destination-alias "
+        "staging-nonsynced rotate"
+    ).split(),
+    "offsite-backup-list": "destination dry-run".split(),
+    "offsite-recover": (
+        "backup target-dir staging staging-nonsynced age-executable recovery-identity "
+        "expected-uuid expected-sha256"
+    ).split(),
+    "garmin-auth": "force-reauth is-cn".split(),
+    "garmin-capabilities": "is-cn date".split(),
+    "garmin-training-phase-a": (
+        "is-cn date max-range max-date activity-start activity-end activity-id repeat-date"
+    ).split(),
+    "garmin-training-sync": "is-cn start end".split(),
+    "garmin-redact": "input output".split(),
+    "garmin-sync": "is-cn date trailing-window-days".split(),
+    "garmin-backfill": (
+        "is-cn start end stream chunk-days dry-run reprocess "
+        "reacquire-unproven-daily-summary garmin-source-id"
+    ).split(),
+    "garmin-reprocess": "start end stream dry-run max-observations".split(),
+    "google-auth": "force-reauth include-steps".split(),
+    "google-steps": "date family dry-run apply".split(),
+    "google-exercise": "start end family dry-run apply".split(),
+    "google-capabilities": "date".split(),
+    "google-sync": "date start end stream query-mode family".split(),
+    "google-backfill": "start end stream chunk-days dry-run query-mode family".split(),
+    "google-refresh": "start end stream query-mode family".split(),
+    "owner-refresh": (
+        "date trailing-window-days is-cn stream query-mode family include-google-steps "
+        "google-steps-catchup"
+    ).split(),
+    "collection-policy": [],
+    "collection-policy-set": "stream state expect-revision".split(),
+    "owner-weight-screenshot-import": "image extraction-json owner-attested-date".split(),
+    "sync-run-recovery": "cutoff dry-run apply".split(),
+    "google-diagnose-terminal": "stream".split(),
+    "period-brief": "start end output format".split(),
+    "sleep-agreement-build": "start end cohort".split(),
+    "context-add": (
+        "date timestamp start end timezone text tag source event-id operation-id"
+    ).split(),
+    "context-list": "from to limit history".split(),
+    "context-revise": (
+        "date timestamp start end timezone text tag clear-tags source event-id operation-id"
+    ).split(),
+}
+
+
+class _CommandParsersAction(argparse._SubParsersAction):
+    def __call__(self, parser, namespace, values, option_string=None):
+        # Standard subparsers create a fresh namespace and overwrite prefix
+        # options with defaults. Reuse the root namespace so last-value-wins and
+        # append ordering match the old parser across the command boundary.
+        name, *arguments = values
+        command_index = parser._argument_count - len(values)
+        if (
+            parser._argument_terminator is not None
+            and parser._argument_terminator < command_index
+            and arguments
+        ):
+            # A terminator before the command made every following token literal
+            # in the flat parser; none can become a subcommand option (or help).
+            parser.error(f"unrecognized arguments: {' '.join(arguments)}")
+        setattr(namespace, self.dest, name)
+        command = self._name_parser_map[name]
+        _, extras = command.parse_known_args(arguments, namespace)
+        if extras:
+            vars(namespace).setdefault(argparse._UNRECOGNIZED_ARGS_ATTR, []).extend(extras)
+
+
+class _CLIParser(argparse.ArgumentParser):
+    def parse_known_args(self, args=None, namespace=None):
+        arguments = list(sys.argv[1:] if args is None else args)
+        if arguments and arguments[-1] == "--" and arguments.count("--") == 1:
+            arguments.pop()  # The flat parser accepted a trailing terminator.
+        self._argument_count = len(arguments)
+        self._argument_terminator = arguments.index("--") if "--" in arguments else None
+        return super().parse_known_args(arguments, namespace)
+
+
+def _add_cli_options(parser, names, *, hidden=False):
+    for name in names:
+        options = dict(_CLI_OPTIONS[name])
+        if hidden:
+            options["help"] = argparse.SUPPRESS
+        parser.add_argument(f"--{name}", **options)
+
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="healthcheck")
-    parser.add_argument(
-        "command",
-        choices=(
-            "prepare-runtime",
-            "migrate",
-            "serve",
-            "ui-password",
-            "seed-demo",
-            "smoke",
-            "backup-profile",
-            "verify-backup",
-            "restore-profile",
-            "offsite-backup",
-            "offsite-backup-list",
-            "offsite-recover",
-            "garmin-auth",
-            "garmin-capabilities",
-            "garmin-training-phase-a",
-            "garmin-training-sync",
-            "garmin-redact",
-            "garmin-sync",
-            "garmin-backfill",
-            "garmin-reprocess",
-            "google-auth",
-            "google-steps",
-            "google-exercise",
-            "google-capabilities",
-            "google-sync",
-            "google-backfill",
-            "google-refresh",
-            "owner-refresh",
-            "collection-policy",
-            "collection-policy-set",
-            "owner-weight-screenshot-import",
-            "sync-run-recovery",
-            "google-diagnose-terminal",
-            "period-brief",
-            "sleep-agreement-build",
-            "context-add",
-            "context-list",
-            "context-revise",
-        ),
+    shared = argparse.ArgumentParser(add_help=False)
+    _add_cli_options(shared, ["data-dir"])
+    prefix = argparse.ArgumentParser(add_help=False)
+    _add_cli_options(prefix, (name for name in _CLI_OPTIONS if name != "data-dir"), hidden=True)
+    parser = _CLIParser(prog="healthcheck", parents=[shared, prefix])
+    parser.register("action", "parsers", _CommandParsersAction)
+    commands = parser.add_subparsers(
+        dest="command", required=True, parser_class=argparse.ArgumentParser
     )
-    parser.add_argument("--app", choices=("ui", "ingest"), default="ui")
-    parser.add_argument("--data-dir")
-    parser.add_argument("--port", type=int)
-    parser.add_argument("--host")
-    parser.add_argument("--ui-mode", choices=("loopback", "home-server"))
-    parser.add_argument("--ui-host")
-    parser.add_argument("--auth-file", type=Path)
-    parser.add_argument("--tls-certfile", type=Path)
-    parser.add_argument("--tls-keyfile", type=Path)
-    parser.add_argument("--reset", action="store_true")
-    parser.add_argument("--ui-url", default="http://127.0.0.1:8120")
-    parser.add_argument("--ingest-url")
-    parser.add_argument("--timeout", type=float, default=3.0)
-    parser.add_argument("--output", help="output path")
-    parser.add_argument(
-        "--format",
-        choices=("json", "text"),
-        help=(
-            "period-brief stdout format: json for the packet document alone, "
-            "text for the rendered brief alone; default keeps the current "
-            "packet plus rendered text behavior"
-        ),
-    )
-    parser.add_argument("--backup", help="backup archive path")
-    parser.add_argument("--target-dir", help="explicit restore target profile")
-    parser.add_argument("--destination", type=Path)
-    parser.add_argument("--staging", type=Path)
-    parser.add_argument("--age-executable", type=Path)
-    parser.add_argument("--recovery-identity", type=Path)
-    parser.add_argument("--recipient")
-    parser.add_argument("--destination-alias", default="offsite")
-    parser.add_argument("--staging-nonsynced", action="store_true")
-    parser.add_argument("--rotate", action="store_true")
-    parser.add_argument("--expected-uuid")
-    parser.add_argument("--expected-sha256")
-    parser.add_argument("--replace", action="store_true")
-    parser.add_argument("--force-reauth", action="store_true")
-    parser.add_argument("--include-steps", action="store_true")
-    parser.add_argument("--include-google-steps", action="store_true")
-    parser.add_argument("--google-steps-catchup", action="store_true")
-    parser.add_argument("--is-cn", action="store_true")
-    parser.add_argument("--date", action="append", dest="dates")
-    parser.add_argument("--max-range", action="append", nargs=2, dest="max_ranges")
-    parser.add_argument("--max-date")
-    parser.add_argument("--activity-start")
-    parser.add_argument("--activity-end")
-    parser.add_argument("--activity-id", action="append", dest="activity_ids")
-    parser.add_argument("--repeat-date")
-    parser.add_argument("--state", choices=("on", "off"))
-    parser.add_argument("--expect-revision", type=int)
-    parser.add_argument("--trailing-window-days", type=int)
-    parser.add_argument("--start")
-    parser.add_argument("--end")
-    parser.add_argument("--stream", action="append", dest="streams")
-    parser.add_argument("--chunk-days", type=int)
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--cutoff")
-    parser.add_argument("--reprocess", action="store_true")
-    parser.add_argument("--reacquire-unproven-daily-summary", action="store_true")
-    parser.add_argument("--garmin-source-id")
-    parser.add_argument("--max-observations", type=int)
-    parser.add_argument("--input")
-    parser.add_argument("--image", help="one Xiaomi Home screenshot path for Owner import")
-    parser.add_argument(
-        "--extraction-json",
-        help="one temporary structured extraction JSON for Owner screenshot import",
-    )
-    parser.add_argument(
-        "--owner-attested-date",
-        help="explicit Owner-attested source date (YYYY-MM-DD) for the current request only",
-    )
-    parser.add_argument("--family")
-    parser.add_argument("--query-mode")
-    parser.add_argument(
-        "--cohort",
-        default=ACCOUNT_WEARABLES_SLEEP_OBSERVATIONS,
-        help="sleep pairing cohort (default: account_wearables_sleep_observations_v1)",
-    )
-    parser.add_argument("--timestamp")
-    parser.add_argument("--timezone")
-    parser.add_argument("--text")
-    parser.add_argument("--tag", action="append", dest="tags")
-    parser.add_argument("--source", choices=("cli", "manual"), default="cli")
-    parser.add_argument("--event-id")
-    parser.add_argument("--operation-id")
-    parser.add_argument("--from", dest="from_date")
-    parser.add_argument("--to", dest="to_date")
-    parser.add_argument("--limit", type=int, default=50)
-    parser.add_argument("--history", action="store_true")
-    parser.add_argument("--clear-tags", action="store_true")
+    for name, flags in _COMMAND_OPTIONS.items():
+        compatibility = argparse.ArgumentParser(add_help=False)
+        _add_cli_options(
+            compatibility,
+            (option for option in _CLI_OPTIONS if option not in {"data-dir", *flags}),
+            hidden=True,
+        )
+        command = commands.add_parser(name, parents=[shared, compatibility])
+        _add_cli_options(command, flags)
     return parser
 
 
