@@ -40,7 +40,7 @@ specific compatibility decision; do not infer safety from a small file count.
 
 **Four bounded operations for a code-only switch:**
 
-1. Read existing exact PR and post-main CI receipts. Identify authorized installed
+1. Read existing exact PR and post-main CI job results. Identify authorized installed
    process, old code SHA, Stable profile path/schema and idle writer using supported
    read-only means. If blocked by ACL, CIM or the bound port, **STOP** with that
    specific blocker; no retries through different permissions or guessed ports.
@@ -1029,10 +1029,13 @@ The synthetic worker gate exercises the CLI, existing R01 photo contracts, prove
 ```powershell
 uv run --locked ruff check src/healthcheck/owner_weight_screenshot_import.py src/healthcheck/cli.py tests/test_owner_weight_screenshot_import.py tests/test_metadata_origins_240.py
 uv run --locked pytest -q -p no:cacheprovider tests/test_owner_weight_screenshot_import.py tests/test_photo_import.py tests/test_photo_vision.py tests/test_metadata_origins_240.py
-uv run --locked python scripts/ci_test_lanes.py validate-manifest
 ```
 
-The new test file is assigned to the existing `app-ingest` CI lane; it does not create a new test lane.
+The complete Linux CI suite includes this test file automatically; no lane registration is needed.
+The required `checks` status summarizes quality, the full `pytest -n auto` suite
+and Windows smoke, with product jobs skipped for docs-only changes. Local suite
+command: `uv run --locked pytest -n auto` with an explicitly selected synthetic
+data directory and disposable `--basetemp`. See [CI](DEVELOPMENT_PROCESS.md#ci-gates).
 
 Before enabling the Work handoff against Stable, the Owner/Integrator gate remains required and must be performed with a recovery point and a private Xiaomi Home screenshot on the actual Work-to-local-CLI path:
 

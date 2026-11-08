@@ -158,7 +158,7 @@ uv run ruff check .
 uv run pytest <affected-test-paths> --basetemp <external-synthetic-temp-dir>
 ```
 
-For migration work, also use `uv run python -m healthcheck.db.migration_guard`. Exact CI lane commands are in section 13. These are command examples, not instructions to run every check for a documentation edit.
+For migration work, also use `uv run python -m healthcheck.db.migration_guard`. The matching local CI commands are in section 13. These are command examples, not instructions to run every check for a documentation edit.
 
 
 <a id="engineering-history"></a>
@@ -359,227 +359,62 @@ need no extra form or repeated Owner approval.
 <a id="ci-gates--13-ci-evidence-and-complete-suite-gates"></a>
 ## 13. CI evidence and complete-suite gates
 
-The CI workflow runs every `pull_request` and every push except branches matching
-`task/**`. A task candidate must obtain the authoritative exact PR gate before
-acceptance. Main, integration, other branch and tag pushes retain full CI.
-Code-mode PR candidate gates and these pushes run the complete pytest collection
-and suite through the three ordinary serial Linux lanes in `ci/test-lanes.json`. The same checked-in
-manifest is the only file-assignment source for local and CI invocation. An
-independent unrestricted collection must equal the exact disjoint multiset
-union of lane nodeids, including parametrizations and duplicate multiplicity.
-Unassigned, overlapping, stale or empty assignments fail closed. Selectors,
-deselections, unreviewed skips/xfails and automatic failure retries are not a
-way to reduce the gate.
+The workflow in [ci.yml](../.github/workflows/ci.yml) runs on every
+`pull_request` and on pushes except `task/**` branches. Task pushes supply no
+acceptance signal; the Integrator opens the PR and verifies its current base,
+head and tested merge commit before acceptance. PR runs cancel only older runs
+for the same PR. Push runs do not cancel integration/main gates.
 
-Each lane retains its exact collection and outcome inventory plus the checked-
-out commit/tree, event/ref, PR base/head identities when present, manifest and
-selection digests, command, lockfile digest, Python/uv/runner metadata, pytest
-output, JUnit XML, status, and built-in setup/call/teardown duration evidence.
-Missing, malformed, contradictory, interrupted or wrong-provenance evidence is
-incomplete, never successful evidence. The final stable `checks` job runs under
-`if: always()` and requires explicit success plus complete matching evidence
-from quality and all three lanes.
+The five jobs are:
 
-Dependency advisories are outside ordinary `quality` and `checks`.
-`.github/workflows/dependency-audit.yml` runs `scripts/dependency_audit.py`
-for pull requests and pushes to `main` that change dependency or audit policy
-files, and for manual dispatch. Advisory findings and scanner, network, or
-tool failures both fail that workflow, and it uploads evidence either way.
-Docs-only PRs and unrelated code PRs do not run that network audit. Ordinary
-CI stays the test and provenance gate; a dependency change is accepted only
-when both gates pass. The Garmin git pin remains an explicit unaudited
-coverage limit, not an audited package. The baseline reproduction and local
-entrypoint are recorded in `docs/DEVELOPMENT_PROCESS.md#dependency-security`.
+- `changes`: compares base...head paths with Git. A nonempty diff containing only
+  Markdown under `docs/` or root `AGENTS.md` is docs-only. Root `README.md` is build
+  metadata (`project.readme`) and requires full CI. Missing comparison history,
+  new branch/tag pushes without a base and mixed changes use full CI.
+- `quality`: locked dependency sync, migration guard and `ruff check .` on Linux.
+- `test`: locked dependency sync and the complete Linux pytest suite with
+  `pytest -n auto --durations=30`. Pytest options in `pyproject.toml` still apply.
+- `windows-smoke`: locked sync; explicit bootstrap/demo, Garmin auth (including
+  native DPAPI), Google protection and timezone tests; Windows PowerShell 5.1
+  workspace cleanup/relocation regressions; synthetic CLI prepare/seed and
+  loopback UI/ingest smoke. Only the directly launched server processes are stopped.
+- `checks`: always runs and is the required status name. It requires `changes`
+  success and all three product jobs to succeed, or to be skipped for docs-only.
+  Failed, cancelled or unexpected skipped jobs fail the gate.
 
-Stage A permits a narrow **docs-only PR** outcome. `scripts/ci_docs_gate.py`
-contains the explicit individual-path allowlist; README/build metadata, new files,
-fixtures, runtime inputs and unlisted Markdown require full CI. Only modifications
-of existing `100644` prose qualify. The classifier consumes the complete raw Git
-diff, verifies event base/head/merge commits, trees and exact merge parents, and
-requires the merge tree to equal the PR head tree. This deliberately sends base
-movement or merge-resolution ambiguity to full CI. Mixed, unknown, rename/delete,
-mode, symlink/submodule, classifier/workflow and config/dependency changes also
-require full CI. No labels, PR descriptions or path-ignore triggers authorize skips.
+Docs-only runs skip all three product jobs. There is no separate docs validator,
+lane manifest, CI receipt, transcript verifier or CI artifact aggregation.
+Documentation links/content and privacy still require ordinary review.
 
-The classifier retains `docs-decision-<run>-<attempt>/decision.json`, binding
-event/ref/base/head/checkout, all trees, both diff digests and classifier/workflow
-digests. The docs job checks UTF-8 prose, repository-local link existence and
-credential patterns without executing Markdown or fetching URLs, and retains
-`docs-outcome-<run>-<attempt>/outcome.json`. Credential pattern detection is a
-bounded automated privacy guard, not proof that arbitrary prose contains no
-private information; the normal documentation/privacy review still applies.
-Final `checks` independently recomputes the decision and document checks and
-requires exactly these two matching artifacts, successful classifier/docs jobs,
-and explicit skips of quality, Linux lanes and Windows. Missing, stale, foreign,
-mixed or contradictory evidence and unexpected failure/cancellation/skip fail.
-Its terminal success explicitly says **docs-only; pytest and Windows were not run**.
-Classifier errors fall back to full CI; they never authorize missing full evidence.
-Full-mode evidence/verifiers and same-attempt completeness remain unchanged.
-Classifier failure on a PR or a covered push cannot waive any full evidence.
-
-Stage B uses **PR-authoritative premerge CI**. Task pushes produce no CI run,
-no green skip and no merge-ready signal. There is no PR discovery, polling,
-cross-event delegation or task-push full fallback. This prospectively replaces
-the earlier full-push fallback contract, including the late/long PR case in
-[#366](https://github.com/LTstripes/Health-Check/issues/366). Push-before-PR simply
-waits for PR creation by the authorized role; it does not start another suite.
-
-The mandatory fallback remains full CI **on the PR** whenever Stage A cannot
-prove docs-only eligibility. Code-mode requires classify, quality, all three
-Linux lanes, Windows (including DPAPI/janitor) and final `checks` successful,
-with docs skipped. A verified docs-only PR keeps its existing six-job outcome;
-neither path consumes a task-push result. `checks` always runs and fails on
-missing, cancelled, failed or inconsistent required evidence.
-
-Before integration, the Integrator verifies the open PR's current target/base,
-head, merge ref and ordered parents/tree against the selected newest run/attempt
-and original artifacts, then reads the refs and run/attempt back after evidence
-inspection. [`ci_event_route.py`](../scripts/ci_event_route.py) retains actual PR
-checkout provenance in `event-decision-<run>-<attempt>/decision.json`; API head SHA
-alone is insufficient. Full same-attempt validation remains required; the existing
-independently pinned receipt rule below can reuse an unchanged verified result.
-No PR, closed/foreign PR, failed/cancelled/incomplete or superseded run, stale
-head/base/merge or a post-read race means **not merge-ready**. Changed candidates
-need their applicable exact PR checks; rebase/base movement invalidates affected
-proof and requires a current PR run. Do not substitute another branch's push,
-an older green attempt, or an unresolved skip. Earlier failures remain recorded.
-
-These are mandatory acceptance rules even where GitHub protection is unavailable;
-this change does not install or alter repository settings, rights or enforcement.
-Independent review follows risk; exact integration/main CI and relevant Owner UAT
-remain separate gates. A successful PR never substitutes for full post-main.
-
-Measured rollout results, live proofs and accepted limitations for #251/#246/#243/#242 are recorded in [CI Optimization Closeout — 2026-10-04](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/closeouts/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md). No further CI optimization stage is implied by that closeout.
-
-| Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
-| --- | --- | --- | --- | --- |
-| Task push | task branch SHA | No CI run | Mandatory current exact PR gate before acceptance; push itself supplies no evidence | No reusable push gate |
-| PR event | PR merge ref plus PR head SHA | Same PR number only | Full code-mode set or verified docs-only decision/outcome; merge checkout distinct from head | Any changed candidate/configuration |
-| Integration push | integration SHA | No task/PR cancellation | Exact integration checkout and complete gate | New integration commit |
-| Main push | main SHA | No task/PR cancellation | Exact post-main checkout and complete gate | New main commit |
-
-Concurrency is lane-scoped: PR runs share only their PR number;
-integration/main/other pushes do not opt in to cancellation. Task pushes have no
-run to cancel. A PR merge ref's checked-out `HEAD` is recorded separately
-from the PR head SHA. A canceled, timed-out or superseded run has no complete
-evidence for its SHA.
-
-The supported recovery is **Re-run all jobs**, after diagnosing the failure.
-Partial reruns may diagnose an individual job, but do not qualify as a candidate
-gate. `checks` downloads only its current run/attempt and explicitly requires
-exactly quality, three Linux lanes and Windows smoke from that attempt before
-validating their contents. It never falls back to prior-attempt artifacts, even
-when their SHA matches. Missing, expired or mixed-attempt evidence fails with a
-`Re-run all jobs` instruction. A complete later attempt still must satisfy every
-job result and SHA/tree/event/config/lock/manifest/selection check. This is a
-fail-closed full-rerun-only contract, not cross-attempt aggregation or permission
-to retry repeatedly until green.
-
-Retaining earlier artifacts alone does not establish the authoritative outcome
-of rerun source jobs. The existing Linux contract also binds all three lanes to
-the quality attempt, including command/report paths. Cross-attempt selection
-would need a separate verified source-job/attempt contract; the current workflow
-deliberately keeps one complete same-attempt set.
-
-Local reuse of an already validated full code-mode gate is supported by
-[`ci_evidence_receipt.py`](../scripts/ci_evidence_receipt.py), with adversarial and
-real-validator coverage in [its tests](../tests/test_ci_evidence_receipt.py).
-The trusted operator adapter first retains every original ZIP and its GitHub
-digest, complete metadata and extracted bytes. `cold_verify` calls the unchanged
-official validators and atomically publishes a versioned receipt outside that
-bundle. The Integrator conveys its SHA256 separately; a receipt is not a signature.
-
-`warm_reuse` requires that trusted pin, unchanged retained bytes, canonical Git
-configuration and actual loaded verifier/adapter identities, plus fresh complete
-authenticated run/attempt/jobs/artifacts/checkout/PR metadata. It performs no
-downloads or official content-validator calls. Expired/deleted artifacts,
-superseded attempts or PR identities, uncertainty, changed bytes/configuration,
-unsafe paths and legacy unbound receipts reject reuse. Rejection is not a pass or
-permission for implicit reruns, replacement receipts or another candidate's evidence.
-The same-attempt, independent-review and pre-merge identity gates above still apply.
-For manual prose/link reuse, retain the original successful receipt and its
-candidate/scope for explicitly listed documents only after proving unchanged
-paths, `100644` modes and bytes, checker/policy/configuration and resolution
-semantics, plus relevant local-target/ancestor existence, type and mode facts.
-Record current bounded-diff/dependency proof as reuse, without claiming another
-validator execution. If no historical target manifest exists, derive targets
-from proven document bytes with the same resolver and establish original/current
-immutable Git-tree facts; do not invent a historical manifest. Ordinary regular
-file target content changes need not invalidate existence-only evidence; anchors,
-meaning and surrounding privacy context require their separate review. Changed,
-renamed, deleted, type/mode/symlink or uncertain dependencies require affected
-checks. The [accepted manual rule](https://github.com/LTstripes/Health-Check/issues/511#issuecomment-6376298954)
-retains detailed guidance. Exact CI and documentation delta/privacy review remain
-required; this rule creates no automatic cache.
-
-Windows smoke retains the native taskkill exit code, every raw output item and
-verified root/descendant identities (PID, name, command line and CreationTime).
-Only one root-scoped `/PID <root> /T /F` call is permitted after ownership
-verification; an absent root before the snapshot is unproven and fails. No second
-kill, process-name-wide operation or traversal from a reused PID is allowed.
-Artifact schema 3 requires bounded post-termination and final observations for
-every captured member, including children whose parent exited. Root reuse cannot
-hide surviving children. Both ports must close and the external synthetic runtime
-must be removed; DPAPI and a complete same-attempt evidence set remain mandatory.
-
-Each captured identity must be absent or proven reused by a successful query with
-a trustworthy different CreationTime. Evidence retains captured/observed UTC
-DateTime ticks, observed PID/name/command line and query result. Generic
-identity-change lists are not reuse proof; schema 3 rejects identity-change
-entries. Unknown queries, invalid/missing CreationTime and surviving identities
-fail. The same trustworthy CreationTime with transiently missing name/command line
-remains non-success `same-identity-alive` during bounded polling and fails if it
-survives to final evidence; changed non-empty fields with the same CreationTime
-are an identity failure. These observations provide no process-handle/object-bound
-guarantee. Reported parent text and role names constrain exception shape; the
-coherent ownership snapshot and full identities remain the ownership proof.
-
-Native exit 0 is `terminated`. Only the exact bounded exit-255 and separate
-exit-128 exceptions can yield `exited-during-termination`, with all identity and
-postconditions above still required. Complete raw-item consumption, exact English
-diagnostics and captured PID coverage remain mandatory; no trimming, normalization,
-localized/unrecognized output or other nonzero exit code is accepted. Executable
-grammar, suffix/role/edge constraints and fixture matrices live in:
-
-- [Test-Exit255LifecycleTranscript](../scripts/ci_windows_process.ps1#L183) and
-  [Test-Exit128LifecycleTranscript](../scripts/ci_windows_process.ps1#L237).
-- [Get-PostTerminationProcessObservation](../scripts/ci_windows_process.ps1#L294),
-  [Invoke-RootProcessTreeTermination](../scripts/ci_windows_process.ps1#L344) and
-  the independent [Windows artifact verifier](../scripts/ci_windows_smoke.py).
-- [Workflow/evidence tests](../tests/test_ci_workflow.py),
-  [PowerShell lifecycle tests](../tests/test_ci_windows_process.ps1) and
-  [shared Python regressions](../tests/ci_windows_transcript_regressions.py).
-- The exact [exit-255 fixtures](../tests/fixtures/ci_windows_exit255_transcripts.json)
-  and [exit-128 fixtures](../tests/fixtures/ci_windows_exit128_transcripts.json),
-  including retained source artifact identities and ZIP hashes.
-
-The failed [#403 run](https://github.com/LTstripes/Health-Check/actions/runs/38229347233)
-and [PR #415 run 38544069167, attempt 1](https://github.com/LTstripes/Health-Check/actions/runs/38544069167)
-remain failures. Discarded native output cannot retrospectively prove a diagnostic;
-native scheduling/exit-code and blank-item capture causes remain unproven.
-Unreached DPAPI remains absent. Synthetic replay demonstrates recognition, not
-native kill reproduction; a new complete exact-attempt gate including DPAPI is
-required for a candidate.
-
-Use one full remote candidate gate after frozen code stabilizes, then the exact
-post-integration and post-main gates owned by the Integrator. Run a full local
-suite when the issue or risk requires it; do not repeat an unchanged full suite
-because polling or a log view was lost. Timing evidence is for finding material
-fixture/setup/test costs and environment effects, not for asserting an
-unproven root cause. Once only small, legitimate residual costs remain, stop
-optimizing this maintenance track and report them for a separately scoped task.
-
-Local contract checks use the same manifest:
+Run the same Linux quality/suite commands locally with an explicitly selected
+synthetic data directory and a disposable pytest temp directory:
 
 ```text
-uv run python scripts/ci_test_lanes.py validate-manifest
-uv run python scripts/ci_test_lanes.py collect --output-dir <evidence-dir>
-uv run python scripts/ci_test_lanes.py run-lane --lane <lane> --output-dir <evidence-dir> --basetemp <external-temp-dir>
-uv run python scripts/ci_test_lanes.py verify-lane --lane <lane> --output-dir <evidence-dir>
+uv sync --locked
+uv run --locked python -m healthcheck.db.migration_guard
+uv run --locked ruff check .
+uv run --locked pytest -n auto --durations=30 --basetemp <synthetic-pytest-temp>
 ```
 
-`uv run pytest` remains the unrestricted serial diagnostic/control command; it
-is not a permanent fourth per-candidate CI suite.
+The usual Owner-machine runtime/temp isolation rules apply unless the task
+explicitly assigns workspace-local synthetic paths. `uv run --locked pytest`
+is the serial diagnostic alternative. Do not exclude product tests or weaken
+assertions to obtain a green gate.
+
+The Integrator records the exact candidate, workflow run URL and relevant job
+results from GitHub. Missing, interrupted, superseded or mismatched results are
+not a pass. Changed code cannot inherit an old pass. Diagnose failures before
+rerunning affected jobs; no custom receipt or full-rerun artifact protocol is
+required. Current exact PR, integration and post-main gates remain separate;
+a successful PR does not substitute for the actual integrated/main result.
+Independent review and Owner UAT follow their existing risk/authorization rules.
+
+Dependency advisories remain separate in
+[dependency-audit.yml](../.github/workflows/dependency-audit.yml), using
+`scripts/dependency_audit.py` for dependency/audit-policy changes to main PRs and
+pushes, and manual dispatch. Dependency changes need both workflows to pass.
+Its own audit artifacts and the Garmin VCS coverage limit are unchanged; see
+[dependency security](#dependency-security).
 
 <a id="ci-gates--stabilize-before-a-full-gate"></a>
 ### Stabilize before a full gate
@@ -928,7 +763,7 @@ provider verification or a real-profile performance claim.
 The synthetic demo browser check `scripts/check_358_demo_browser.cjs` and any
 task-specific browser checks use representative **1024/1440px** desktop widths.
 One-off per-issue browser scripts were removed in the 2026-11 cleanup; they
-remain in Git history. No suite/CI lane/Windows/guard is
+remain in Git history. No suite/Windows check/guard is
 removed and no skip/xfail replaces functional coverage. Exact gates follow
 [Development Process](#ci-gates--13-ci-evidence-and-complete-suite-gates).
 
@@ -1374,17 +1209,12 @@ when managed lifecycle v1 is explicitly assigned. Otherwise use the
 <a id="accepted-ci-decisions--ci-verification-and-repository-integration"></a>
 #### CI, verification and repository integration
 
-#123–#125 and #181/#243 are accepted: targeted iteration, frozen exact candidate,
-PR integration and post-main gates; final checks fails on incomplete/malformed/
-cross-run evidence or missing mandatory proof. Exact Linux nodeids/multiplicity
-reconcile across the three lanes; Windows actually runs DPAPI/startup/HTTP/cleanup.
-No green subset or partial rerun replaces full same-attempt evidence.
-
-#251 lane balance, #246 docs-only/event dedup, #242 dependency audit, #244 Host/Origin
-and #302 deterministic Linux environment are complete. A docs filename alone does
-not authorize skipping CI; the classifier decides. No broader Windows matrix,
-cache/xdist or new CI optimization without measured need. Preserve old failures.
-See [Development Process](#1-core-operating-model).
+#561 replaces the historical lane/receipt/transcript machinery with the five
+jobs in [section 13](#13-ci-evidence-and-complete-suite-gates). Keep targeted
+iteration, a frozen candidate, exact PR/integration/post-main gates and the
+required `checks` status. The full Linux suite uses pytest-xdist; Windows retains
+focused product, workspace-operation and CLI smoke coverage. The separate
+#242 dependency audit is unchanged. Preserve old failures as historical evidence.
 
 <a id="accepted-ci-decisions--repository-protection--126"></a>
 ##### Repository protection / #126

@@ -68,7 +68,7 @@ For authorized Owner deployments, classify the [Stable release route](docs/DEVEL
 
 Use [proportional checks](docs/DEVELOPMENT_PROCESS.md#verification-by-change), then required exact-candidate/integration gates. A separate participant does not automatically rerun the full suite; inspect valid evidence and add focused checks for concrete gaps. Required independent review is set by [risk policy](docs/DEVELOPMENT_PROCESS.md#c4--critical--architecture--independent-review-triggers), not by enabling a queue.
 
-Never claim tests, browser/device/provider checks, independent review or success that were not performed. Report exact commands/results, candidate identity, failures and remaining `UNVERIFIED` work. Missing/interrupted/mismatched evidence is not a pass; changed code must not inherit an old pass. CI provenance/completeness rules are unchanged.
+Never claim tests, browser/device/provider checks, independent review or success that were not performed. Report exact commands/results, candidate identity, failures and remaining `UNVERIFIED` work. Missing/interrupted/mismatched evidence is not a pass; changed code must not inherit an old pass. CI requires the exact-candidate job results described in [CI](docs/DEVELOPMENT_PROCESS.md#ci-gates); no CI evidence receipts are required. Linux runs quality and the full `pytest -n auto` suite, Windows runs focused tests and CLI smoke, and `checks` aggregates the results. Docs-only changes skip product jobs. Local suite: `uv run --locked pytest -n auto` with assigned synthetic data/temp paths.
 
 ## Completion reporting
 
