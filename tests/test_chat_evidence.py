@@ -256,6 +256,44 @@ def test_coherent_snapshot_when_context_revision_arrives_during_read(profile, mo
     assert not any(v["revision_id"] == first_revision for v in new["sections"]["context"]["rows"])
 
 
+@pytest.mark.parametrize(("zone", "expected"), [
+    ("Europe/Moscow", date(2026, 11, 9)),
+    ("America/New_York", date(2026, 11, 8)),
+])
+def test_standalone_reader_evaluation_date_uses_owner_zone(
+    profile, tmp_path, monkeypatch, zone, expected,
+):
+    instant = datetime(2026, 11, 8, 23, 30, tzinfo=UTC)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is UTC
+            return instant
+
+    monkeypatch.setenv("HEALTHCHECK_OWNER_TIMEZONE", zone)
+    calls = []
+    original = exporter.read_period_evidence
+
+    def capture(**kwargs):
+        calls.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(exporter, "datetime", FrozenDatetime)
+    monkeypatch.setattr(exporter, "read_period_evidence", capture)
+    output = tmp_path / "export"
+    assert main([
+        "--profile", str(profile[0].root), "--profile-kind", "synthetic",
+        "--from", "2026-11-01", "--to", "2026-11-08", "--domain", "context",
+        "--output-dir", str(output),
+    ]) == 0
+    assert len(calls) == 1
+    assert calls[0]["evaluated_at_utc"] == instant
+    assert calls[0]["evaluation_local_date"] == expected
+    assert (output / "evidence.json").is_file()
+    assert (output / "evidence.txt").is_file()
+
+
 def test_standalone_command_outputs_without_profile_or_environment_leaks(profile, tmp_path,
                                                                        monkeypatch, capsys):
     paths, engine = profile

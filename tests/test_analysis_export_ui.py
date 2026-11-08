@@ -34,6 +34,42 @@ def selection(fixture, **overrides):
             "google_hrv_source_id": fixture[2].sleep_google_source_id, **overrides}
 
 
+@pytest.mark.parametrize(("zone", "expected"), [
+    ("Europe/Moscow", date(2026, 11, 9)),
+    ("America/New_York", date(2026, 11, 8)),
+])
+def test_export_reader_evaluation_date_uses_owner_zone(
+    client, profile, monkeypatch, zone, expected,
+):
+    instant = datetime(2026, 11, 8, 23, 30, tzinfo=UTC)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is UTC
+            return instant
+
+    # UI configuration is authoritative even when the process environment differs.
+    monkeypatch.setenv("HEALTHCHECK_OWNER_TIMEZONE", "UTC")
+    client.app.state.settings = Settings(data_dir=profile[0].root, owner_timezone=zone)
+    calls = []
+    original = ui.read_combined_evidence
+
+    def capture(**kwargs):
+        calls.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(ui, "datetime", FrozenDatetime)
+    monkeypatch.setattr(ui, "read_combined_evidence", capture)
+    response = client.post(
+        "/api/analysis-export", json=selection(profile, end_date="2026-11-08"),
+    )
+    assert response.status_code == 200, response.text
+    assert len(calls) == 1
+    assert calls[0]["evaluated_at_utc"] == instant
+    assert calls[0]["evaluation_local_date"] == expected
+
+
 @pytest.mark.parametrize("days", [7, 30])
 def test_full_adapter_serializes_one_snapshot_and_both_downloads(
         client, profile, monkeypatch, days):
