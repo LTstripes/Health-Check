@@ -1,7 +1,7 @@
 """Synthetic UI adapter regressions; reader semantics remain in their own tests."""
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -276,9 +276,12 @@ def test_sleep_period_handoff_prefills_only_then_exports_exact_range(
     assert f"{end}-{days}d" in data["filename"]
 
 
-def test_export_prefill_defaults_still_today_and_30(client):
+def test_export_prefill_defaults_still_today_and_30(client, monkeypatch):
+    from healthcheck import owner_time
+
+    monkeypatch.setattr(owner_time, "owner_now", lambda settings: datetime(2099, 1, 2, tzinfo=UTC))
     response = client.get("/imports")
-    end = date.today()
+    end = date(2099, 1, 2)
     assert f'name="end_date" value="{end}"' in response.text
     assert '<option value="30" selected>' in response.text
     assert f'Период: {end - timedelta(days=29)} — {end} (включительно).' in response.text
