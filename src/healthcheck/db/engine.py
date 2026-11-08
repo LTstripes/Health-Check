@@ -83,15 +83,6 @@ def migrate_database(paths: RuntimePaths) -> None:
     command.upgrade(_alembic_config(paths), "head")
 
 
-def migrate_placeholder(paths: RuntimePaths) -> None:
-    """Backward-compatible name for the bootstrap command.
-
-    Existing callers used the R00 placeholder.  Keeping this alias makes the
-    command safe for older scripts while now applying the real R01 migration.
-    """
-
-    migrate_database(paths)
-
 
 def database_readiness(paths: RuntimePaths) -> dict[str, object]:
     """Return non-sensitive migration and SQLite pragma readiness facts."""

@@ -449,7 +449,7 @@ this change does not install or alter repository settings, rights or enforcement
 Independent review follows risk; exact integration/main CI and relevant Owner UAT
 remain separate gates. A successful PR never substitutes for full post-main.
 
-Measured rollout results, live proofs and accepted limitations for #251/#246/#243/#242 are recorded in [CI Optimization Closeout — 2026-10-04](archive/closeouts/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md). No further CI optimization stage is implied by that closeout.
+Measured rollout results, live proofs and accepted limitations for #251/#246/#243/#242 are recorded in [CI Optimization Closeout — 2026-10-04](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/closeouts/CI_OPTIMIZATION_CLOSEOUT_2026-10-04.md). No further CI optimization stage is implied by that closeout.
 
 | Lane | Tested ref | Cancellation scope | Required evidence | Evidence invalidated by |
 | --- | --- | --- | --- | --- |
@@ -925,9 +925,10 @@ provider verification or a real-profile performance claim.
 <a id="owner-ui-verification--verification-and-post-uat-follow-up"></a>
 ### Verification and post-UAT follow-up
 
-Focused `scripts/check_owner_{data,brief,weight,sleep,activity}_browser.cjs`, shared
-`check_owner_acceptance_browser.cjs` and relevant page-specific checks use
-representative **1024/1440px** desktop widths. No suite/CI lane/Windows/guard is
+The synthetic demo browser check `scripts/check_358_demo_browser.cjs` and any
+task-specific browser checks use representative **1024/1440px** desktop widths.
+One-off per-issue browser scripts were removed in the 2026-11 cleanup; they
+remain in Git history. No suite/CI lane/Windows/guard is
 removed and no skip/xfail replaces functional coverage. Exact gates follow
 [Development Process](#ci-gates--13-ci-evidence-and-complete-suite-gates).
 
@@ -1060,7 +1061,7 @@ Network/process separation reduces code-incorporation risk but does not settle e
 ### Reference review — 2026-10-24
 
 This dated research refresh compares **all 13 references** with the frozen
-[2026-09-25 observation](archive/research/REFERENCE_PROJECTS.md#current-observation--2026-09-25-194).
+[2026-09-25 observation](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/research/REFERENCE_PROJECTS.md#current-observation--2026-09-25-194).
 Own-code baseline: [main `8111706a9c67936461e6a5dfbd3c891dd0c249f6`](https://github.com/LTstripes/Health-Check/commit/8111706a9c67936461e6a5dfbd3c891dd0c249f6).
 Eight observed heads changed; five are identical. Compare counts describe newly
 reachable commits, not necessarily authorship after September 25. Commit and
@@ -1237,7 +1238,7 @@ A donor implementation may suggest that we ask about string-encoded integer fiel
 
 
 Full dated upstream observations and donor-specific examples are retained in the
-[reference registry archive](archive/research/REFERENCE_PROJECTS.md). They are
+[reference registry archive](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/research/REFERENCE_PROJECTS.md). They are
 observations at exact source commits, never an automatic dependency repin. Before
 copying code, recheck the exact file/license, retain notices and record provenance.
 Use the archive's adversarial regression catalogue for applicable boundary tests;
@@ -1249,7 +1250,7 @@ donor thresholds, derived scores and generic SQL never override project contract
 
 The Owner discontinued Health-Check model benchmarking and attribution bookkeeping on 2026-10-03. [#210](https://github.com/LTstripes/Health-Check/issues/210) is closed as not planned. This page is a historical pointer, not an active protocol or task queue.
 
-The former journal remains in [Git history](https://github.com/LTstripes/Health-Check/blob/d4529df9b5c0f3df28d637a259fbe82d0b4fde43/docs/MODEL_BENCHMARK.md); the existing [earlier archive](archive/history/MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) is historical only. No new entries, model confirmations, backfill or rescoring are required.
+The former journal remains in [Git history](https://github.com/LTstripes/Health-Check/blob/d4529df9b5c0f3df28d637a259fbe82d0b4fde43/docs/MODEL_BENCHMARK.md); the existing [earlier archive](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/history/MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) is historical only. No new entries, model confirmations, backfill or rescoring are required.
 
 Current technical outcomes and checks belong in issues/PRs and [current engineering outcomes](PROJECT_WIKI.md#recent-outcomes). Current completion reporting is defined in [AGENTS.md](../AGENTS.md#completion-reporting).
 
