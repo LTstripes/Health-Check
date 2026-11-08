@@ -1,4 +1,4 @@
-/* #328 content only. Shared A+ tokens and every other product page stay unchanged. */
+/* Overview in the Observatory system: one primary readings band, quiet tiles below. */
 .overview-a-plus { font-size: .875rem; }
 .overview-a-plus .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .overview-a-plus .brief-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
@@ -20,21 +20,20 @@
 .brief-source-instructions ul { margin: 8px 0 0; padding-left: 18px; }
 .brief-source-instructions li + li { margin-top: 8px; }
 .brief-source-data { display: inline-flex; align-items: center; min-height: 44px; flex: none; }
-.overview-a-plus .overview-section-label { margin: 24px 0 12px; font-size: .6875rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.overview-a-plus .brief-overview-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
-.overview-a-plus .brief-overview-list > li { padding: 0 24px; background: transparent; border: 0; border-radius: 0; }
-.overview-a-plus .brief-overview-list > li:first-child { padding-left: 0; }
-.overview-a-plus .brief-overview-list > li:last-child { padding-right: 0; }
+.overview-a-plus .overview-section-label { margin: 28px 0 12px; font-size: .8125rem; font-weight: 600; color: var(--muted); }
+.overview-a-plus .brief-overview-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+.overview-a-plus .brief-overview-list > li { padding: 22px 26px 14px; background: transparent; border: 0; border-radius: 0; }
 .overview-a-plus .brief-overview-list > li + li { border-left: 1px solid var(--line); }
 .overview-metric-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.overview-metric-heading h3 { margin: 0; font-size: 1rem; }
-.overview-metric-heading h3 a { color: var(--ink); text-decoration: none; }
+.overview-metric-heading h3 { margin: 0; font-size: .875rem; color: var(--muted); }
+.overview-metric-heading h3 a { color: var(--muted); text-decoration: none; }
+.overview-metric-heading h3 a:hover { color: var(--ink); }
 .overview-info { position: relative; }
 .overview-info summary { min-width: 44px; min-height: 44px; display: grid; place-items: center; color: var(--muted); cursor: pointer; list-style: none; font-size: 1.125rem; }
 .overview-info summary::-webkit-details-marker { display: none; }
 .overview-info[open] > div { position: absolute; top: 44px; right: 0; width: min(32rem, 80vw); box-sizing: border-box; max-height: 450px; overflow-y: auto; padding: 16px; background: var(--card); border: 1px solid var(--accent); z-index: 2; font-size: .8125rem; }
-.overview-a-plus .overview-value { margin: 4px 0 8px; font: 2.55rem/1.12 var(--owner-heading-font); letter-spacing: -.035em; font-variant-numeric: lining-nums tabular-nums; }
-.overview-value span { font: 1rem var(--owner-sans); letter-spacing: normal; }
+.overview-a-plus .overview-value { margin: 10px 0 8px; font: 200 3rem/1.1 var(--owner-heading-font); letter-spacing: -.03em; font-variant-numeric: lining-nums tabular-nums; }
+.overview-value span { font: 1.125rem var(--owner-sans); color: var(--muted); letter-spacing: normal; }
 .overview-source { margin: 4px 0; color: var(--muted); font-size: .75rem; }
 .overview-qualifier { min-height: 40px; margin: 10px 0; font-size: .75rem; }
 .overview-warning { font-size: .75rem; margin: 8px 0; }
@@ -45,13 +44,13 @@
 .overview-gap { fill: none; stroke: var(--muted); stroke-dasharray: 2 2; stroke-width: 2; }
 .overview-trend { stroke: var(--series-2); stroke-width: 2; }
 .overview-trend-point { fill: var(--series-2); }
-.overview-observed { fill: var(--series-1); stroke: var(--bg); stroke-width: 1; }
-.overview-bar { stroke: var(--series-1); stroke-width: 6; opacity: .65; }
+.overview-observed { fill: var(--series-1); stroke: var(--card); stroke-width: 1; }
+.overview-bar { stroke: var(--series-1); stroke-width: 6; opacity: .8; }
 .overview-partial { stroke-dasharray: 3 2; }
 /* #334: only the Overview Weight figure. */
 [data-overview-chart="weight"] text { font-size: 15px; fill: var(--ink); font-variant-numeric: tabular-nums; }
 [data-overview-chart="weight"] .overview-trend { stroke-width: 2; stroke-dasharray: 5 3; }
-.overview-weight-ewma { fill: var(--bg); stroke: var(--series-2); stroke-width: 1.5; }
+.overview-weight-ewma { fill: var(--card); stroke: var(--series-2); stroke-width: 1.5; }
 .overview-weight-latest { fill: none; stroke: var(--series-1); stroke-width: 1.5; }
 .overview-weight-key { display: flex; align-items: center; gap: 8px; }
 .overview-weight-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series-1); flex: none; }
@@ -60,14 +59,12 @@
 .overview-figure figcaption { font-size: .6875rem; color: var(--muted); min-height: 32px; }
 .overview-a-plus .brief-records { margin-top: 0; font-size: .75rem; }
 .overview-a-plus .brief-records table { min-width: 340px; }
-.overview-detail-link { display: inline-block; padding: 10px 0; min-height: 44px; font-size: .75rem; }
-.overview-secondary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 22px 0; border-bottom: 1px solid var(--line); }
-.overview-secondary article { min-width: 0; padding: 0 20px; }
-.overview-secondary article:first-child { padding-left: 0; }
-.overview-secondary article:last-child { padding-right: 0; }
-.overview-secondary article + article { border-left: 1px solid var(--line); }
-.overview-secondary h3 { margin: 0 0 8px; font-size: .8125rem; }
-.overview-secondary strong { display: block; font: 1.7rem var(--owner-heading-font); margin: 8px 0; }
+.overview-detail-link { display: inline-block; padding: 10px 0; min-height: 44px; font-size: .8125rem; font-weight: 600; text-decoration: none; }
+.overview-detail-link:hover { text-decoration: underline; }
+.overview-secondary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 16px 0 22px; }
+.overview-secondary article { min-width: 0; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.overview-secondary h3 { margin: 0 0 8px; font-size: .8125rem; color: var(--muted); }
+.overview-secondary strong { display: block; font: 300 2.25rem/1.1 var(--owner-heading-font); margin: 8px 0; font-variant-numeric: tabular-nums; }
 .overview-secondary [data-overview-rhr] strong { font-size: 1.125rem; line-height: 1.4; }
 .overview-secondary [data-overview-steps] strong { font-size: 1.125rem; line-height: 1.4; overflow-wrap: anywhere; }
 [data-overview-steps] .overview-info[open] > div { left: 0; right: auto; }
@@ -82,12 +79,10 @@
 .overview-all-sources, .overview-a-plus .brief-limitations, .overview-a-plus .brief-sleep { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0; margin: 8px 0; }
 .overview-a-plus .brief-sleep > summary { font-size: .8125rem; }
 .overview-all-sources .card { background: transparent; border: 0; padding: 8px 0; }
-@media (min-width: 1024px) and (max-width: 1150px) {
-  .overview-a-plus .brief-overview-list > li { padding-right: 16px; padding-left: 16px; }
-  .overview-a-plus .brief-overview-list > li:first-child { padding-left: 0; }
-  .overview-a-plus .brief-overview-list > li:last-child { padding-right: 0; }
-  .overview-a-plus .overview-value { font-size: 2.1rem; }
-  .overview-secondary article { padding: 0 12px; }
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .overview-a-plus .brief-overview-list > li { padding-right: 18px; padding-left: 18px; }
+  .overview-a-plus .overview-value { font-size: 2.25rem; }
+  .overview-secondary article { padding: 14px 12px; }
 }
 
 /* #344: presentation only, scoped to Overview. */
@@ -106,10 +101,10 @@
 .overview-secondary .overview-chart-values { font-size: .75rem; }
 .overview-secondary .overview-chart-values table { min-width: 340px; }
 .overview-secondary [data-bb-window] > strong,
-.overview-secondary [data-overview-stress] > strong { display: block; font-size: 1.5rem; line-height: 1.3; }
+.overview-secondary [data-overview-stress] > strong { display: block; font-size: 2.25rem; font-weight: 300; line-height: 1.1; }
 
 .brief-period { position: relative; width: fit-content; cursor: help; }
-.overview-period-tooltip { position: absolute; z-index: 10; left: 0; top: 100%; width: min(30rem, 80vw); padding: .8rem 1rem; background: #fff; color: #334155; border: 1px solid #cbd5e1; border-radius: .6rem; box-shadow: 0 4px 16px #0f172a20; font-size: .9rem; font-weight: 400; line-height: 1.5; visibility: hidden; opacity: 0; }
+.overview-period-tooltip { position: absolute; z-index: 10; left: 0; top: 100%; width: min(30rem, 80vw); padding: .8rem 1rem; background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; font-size: .9rem; font-weight: 400; line-height: 1.5; visibility: hidden; opacity: 0; }
 .overview-period-tooltip > span { display: block; }
 .brief-period:hover .overview-period-tooltip, .brief-period:focus .overview-period-tooltip { visibility: visible; opacity: 1; }
 

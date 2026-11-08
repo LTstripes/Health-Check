@@ -508,7 +508,7 @@
       (width - pad.r) +
       '" y2="' +
       (height - pad.b) +
-      '" stroke="#d9d0c3"/>' +
+      '" style="stroke: var(--line)"/>' +
       '<line x1="' +
       pad.l +
       '" y1="' +
@@ -517,7 +517,7 @@
       pad.l +
       '" y2="' +
       (height - pad.b) +
-      '" stroke="#d9d0c3"/>';
+      '" style="stroke: var(--line)"/>';
     function textLabel(x, y, text, anchor, axis) {
       const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       label.setAttribute('x', x);
@@ -562,7 +562,7 @@
           tick.setAttribute('x2', x);
           tick.setAttribute('y1', height - pad.b);
           tick.setAttribute('y2', height - pad.b + 5);
-          tick.setAttribute('stroke', '#d9d0c3');
+          tick.style.setProperty('stroke', 'var(--line)');
           svg.appendChild(tick);
         }
         // Measure the actual font, including endpoint anchors and year labels.
@@ -583,7 +583,7 @@
       goalLine.setAttribute("x2", width - pad.r);
       goalLine.setAttribute("y1", gy);
       goalLine.setAttribute("y2", gy);
-      goalLine.setAttribute("stroke", "#5c4d86");
+      goalLine.style.setProperty("stroke", "var(--series-3)");
       goalLine.setAttribute("stroke-dasharray", "6 4");
       goalLine.setAttribute("data-series", "goal");
       svg.appendChild(goalLine);
@@ -597,7 +597,7 @@
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", d);
       path.setAttribute("fill", "none");
-      path.setAttribute("stroke", "#9a4f1a");
+      path.style.setProperty("stroke", "var(--series-2)");
       path.setAttribute("stroke-width", "2.5");
       path.setAttribute("data-series", "trend");
       svg.appendChild(path);
@@ -626,7 +626,7 @@
       dot.setAttribute('cx', xOf(item.date));
       dot.setAttribute('cy', yOf(item.value));
       dot.setAttribute('r', 4.5);
-      dot.setAttribute('fill', item.color || '#1d4e89');
+      dot.style.setProperty('fill', item.color || 'var(--series-1)');
       dot.setAttribute('class', 'weight-dot');
       circle.appendChild(hit);
       circle.appendChild(dot);

@@ -1160,11 +1160,11 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         assert "3 февраля 2099 → 17 февраля 2099" in period.text
         assert 'name="start_date" value="2099-02-03"' in period.text
         assert 'href="/brief">Health-Check</a>' in period.text
-        # Frozen shell: paper sticky nav, table-scroll wrappers, no block tables.
+        # Observatory shell: sticky left rail, table-scroll wrappers, no block tables.
         css = client.get("/static/dashboard.css").text
-        assert "--bg: #f6f2e9" in css
-        assert "--card: #fdfbf6" in css
-        assert "--accent: #31584b" in css
+        assert "--bg: #0d1520" in css
+        assert "--card: #131e2c" in css
+        assert "--accent: #f0bf5a" in css
         assert ".top" in css and "position: sticky" in css
         assert ".table-scroll" in css
         assert ".owner-page-content table { display: block" not in css
@@ -1220,54 +1220,61 @@ def test_owner_validation_error_is_russian_without_changing_api(tmp_path):
     assert api.json() == {"code": "invalid_request", "message": "request could not be parsed"}
 
 
-def test_owner_shell_a_plus_visual_system(tmp_path):
-    """Approved A+ shell tokens with preserved series, states and Russian copy."""
+def test_owner_shell_observatory_visual_system(tmp_path):
+    """Observatory shell tokens (dark-first + light pair), series, states and Russian copy."""
 
     app, _settings, _paths = _ui(tmp_path)
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
         css = client.get("/static/dashboard.css").text
-        # A+ core tokens; source/series and state treatments remain distinct.
+        # Dark-first core tokens; source/series and state treatments remain distinct.
         for token in (
-            "--bg: #f6f2e9",
-            "--card: #fdfbf6",
-            "--sunken: #efeee5",
-            "--ink: #292d27",
-            "--muted: #686c61",
-            "--line: #dcdccc",
-            "--line-strong: #c9c0b3",
-            "--accent: #31584b",
-            "--accent-soft: #e6f1ef",
-            "--series-1: #1d4e89",
-            "--series-2: #9a4f1a",
-            "--series-3: #5c4d86",
-            "--series-4: #3f5f73",
+            "color-scheme: dark",
+            "--bg: #0d1520",
+            "--rail: #0a111a",
+            "--card: #131e2c",
+            "--sunken: #182638",
+            "--ink: #e8eef6",
+            "--muted: #9aa8bb",
+            "--line: #22324a",
+            "--line-strong: #3a4d66",
+            "--accent: #f0bf5a",
+            "--on-accent: #1a1405",
+            "--series-1: #79b0ff",
+            "--series-2: #d79bf5",
+            "--series-3: #c4cbd6",
+            "--series-4: #5ec4b6",
         ):
             assert token in css
-        # Frozen state fills.
-        assert "#f6efe2" in css  # attention
-        assert "#f3e4d4" in css  # unavailable
-        assert "#f8eceb" in css  # error
-        # Radii and surfaces: 8px cards, 6px buttons, 4px chips; no pills/shadows.
+        # The light pair follows Windows unless the Owner chose dark, and has an
+        # explicit selector for the optional theme switch.
+        assert "@media (prefers-color-scheme: light)" in css
+        assert ':root:not([data-theme="dark"])' in css
+        assert ':root[data-theme="light"]' in css
+        for token in ("--bg: #f2f4f8", "--card: #ffffff", "--ink: #142031", "--accent: #8a5a00"):
+            assert token in css
+        # State fills exist in both themes.
+        assert "--attention-bg: #33280f" in css and "--attention-bg: #f8eedc" in css
+        assert "--unavailable-bg: #3a2216" in css and "--unavailable-bg: #f6e3d3" in css
+        assert "--error-bg: #3d1b20" in css and "--error-bg: #f9e9e8" in css
+        # Radii: 14px cards, 8px buttons, 4px chips; no pills or shadows.
+        assert "border-radius: 14px" in css
         assert "border-radius: 8px" in css
-        assert "border-radius: 6px" in css
         assert "border-radius: 4px" in css
         assert "border-radius: 999px" not in css
         assert "box-shadow" not in css.lower()
-        assert "linear-gradient" not in css.lower()
-        # Ordinary teal stripes and uppercase eyebrows are gone.
+        # Ordinary accent stripes on cards and uppercase eyebrows are not used.
         assert "border-left: 6px solid" not in css
         assert "border-left: 5px solid" not in css
         assert "text-transform: uppercase" not in css
-        # Paper sticky navigation with hairline and accent underline.
+        # Sticky left navigation rail with a marked selected link.
         assert "position: sticky" in css
-        assert "border-bottom: 1px solid var(--line)" in css
-        assert "border-bottom-color: var(--accent)" in css
+        assert "grid-template-columns: var(--owner-rail-width) minmax(0, 1fr)" in css
+        assert "border-left-color: var(--accent)" in css
         # Tables use dedicated scrollers with real layout and sticky muted headers.
         assert ".table-scroll" in css and "overflow-x: auto" in css
         assert ".owner-page-content table { display: block" not in css
-        assert "position: sticky" in css  # thead th
         # Owner-state treatments for all ten keys.
         for selector in (
             ".owner-state.present",
@@ -1286,15 +1293,16 @@ def test_owner_shell_a_plus_visual_system(tmp_path):
         assert ".owner-state.insufficient" in css and "dashed" in css
         # Chart legend samples are 8px squares; goal is a dashed reference sample.
         assert ".swatch" in css and "width: 8px" in css and "height: 8px" in css
-        assert "border-radius: 50%" not in css
         assert ".swatch.goal" in css and "dashed" in css
         # Interpretation/status banners use attention treatment, not sunken or error red.
         assert ".bia-banner, .algorithm-banner, .canonical-banner" in css
         assert "background: var(--attention-bg)" in css
         assert ".error-card" in css and "var(--error-bg)" in css
-        # Local serif is scoped to the prominent desktop heading, not tables/controls.
-        assert '--owner-heading-font: Georgia, "Times New Roman", serif' in css
-        assert "--owner-content-width: 1440px" in css
+        # Local Windows fonts only: thin display face for headings and values.
+        assert '--owner-heading-font: "Segoe UI Variable Display"' in css
+        assert '--owner-sans: "Segoe UI Variable Text"' in css
+        assert "@import" not in css and "url(http" not in css
+        assert "--owner-content-width: 1320px" in css
         assert "@media (min-width: 1024px)" in css
         assert "font-family: var(--owner-sans)" in css
         assert "font-family: var(--owner-heading-font)" in css
@@ -1302,6 +1310,12 @@ def test_owner_shell_a_plus_visual_system(tmp_path):
         # Body keeps 1.5; ordinary hierarchy stays 600 without 700 presentation.
         assert "line-height: 1.5" in css
         assert "font-weight: 700" not in css
+        # The optional theme switch is progressive: hidden without JavaScript.
+        overview = client.get("/brief").text
+        assert '<script src="/static/owner_theme.js"></script>' in overview
+        assert 'class="owner-theme" data-owner-theme hidden' in overview
+        theme_js = client.get("/static/owner_theme.js").text
+        assert "localStorage" in theme_js and "data-theme" in theme_js
         # Shell is Russian; English bodies stay explicitly English.
         overview = client.get("/brief").text
         weight = client.get("/weight").text
@@ -1695,10 +1709,10 @@ def test_weight_browser_contract_uses_frozen_surfaces(tmp_path):
         assert "История веса и состава тела, прокрутка таблицы" in js
         assert "createElement('table')" in js
         assert "display: block" not in js
-        # Frozen series colors reused, no page-local palette.
-        assert "#1d4e89" in js
-        assert "#9a4f1a" in js
-        assert "#5c4d86" in js
+        # Shared series tokens reused through CSS variables, no page-local palette.
+        assert "var(--series-1)" in js
+        assert "var(--series-2)" in js
+        assert "var(--series-3)" in js
         assert "#c45c26" not in js
         assert "#6b4ea2" not in js
         # Owner-facing JS copy is Russian; exact reason codes stay in JSON only.

@@ -5,10 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Вход — Health-Check</title>
   <style>
-    body{font:18px system-ui,sans-serif;background:#f6f2e9;color:#292d27;margin:0}
-    main{max-width:25rem;margin:12vh auto;padding:2rem;background:#fdfbf6;border:1px solid #dcdccc;border-radius:12px}
-    h1{font-size:2rem} label,input,button{display:block} input{box-sizing:border-box;width:100%;margin:0.5rem 0 1.5rem;padding:0.7rem;font:inherit}
-    button{padding:0.7rem 1.4rem;background:#31584b;color:white;border:0;border-radius:5px;font:inherit}
+    :root{color-scheme:dark;--bg:#0d1520;--card:#131e2c;--ink:#e8eef6;--line:#22324a;--accent:#f0bf5a;--on-accent:#1a1405}
+    @media (prefers-color-scheme: light){:root{color-scheme:light;--bg:#f2f4f8;--card:#ffffff;--ink:#142031;--line:#dbe1ea;--accent:#8a5a00;--on-accent:#ffffff}}
+    body{font:18px "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+    main{max-width:25rem;margin:12vh auto;padding:2rem;background:var(--card);border:1px solid var(--line);border-radius:16px}
+    h1{font:300 2.5rem "Segoe UI Variable Display","Segoe UI",sans-serif} label,input,button{display:block} input{box-sizing:border-box;width:100%;margin:0.5rem 0 1.5rem;padding:0.7rem;font:inherit}
+    button{padding:0.7rem 1.4rem;background:var(--accent);color:var(--on-accent);border:0;border-radius:8px;font:inherit;font-weight:600}
+    :focus-visible{outline:3px solid var(--accent);outline-offset:3px}
   </style>
 </head>
 <body><main>
