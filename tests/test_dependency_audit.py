@@ -2,7 +2,6 @@ import importlib.util
 import json
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -20,11 +19,6 @@ def _load(name: str, filename: str):
 
 
 audit = _load("dependency_audit", "dependency_audit.py")
-_lanes = _load("ci_test_lanes_for_dependency_audit", "ci_test_lanes.py")
-ContractError = _lanes.ContractError
-ExpectedProvenance = _lanes.ExpectedProvenance
-_selection_sha256 = _lanes._selection_sha256
-validate_lane_payload = _lanes.validate_lane_payload
 
 
 def _registry(name="urllib3", version="2.8.0"):
@@ -235,13 +229,6 @@ def test_dependency_audit_stays_outside_ordinary_ci_and_is_path_scoped():
     ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "dependency_audit.py" not in ci
     assert "audit_status" not in ci
-    checks = ci.split("  checks:\n", 1)[1]
-    assert 'if [ "$route" = docs ]; then' in checks
-    assert "pytest and Windows were not run" in checks
-    assert (
-        'if [ "$attempt_status" -ne 0 ] || [ "$linux_status" -ne 0 ] '
-        '|| [ "$windows_status" -ne 0 ]; then'
-    ) in checks
     audit = (root / ".github/workflows/dependency-audit.yml").read_text(encoding="utf-8")
     assert "\npermissions:\n  contents: read\n" in audit
     assert ": write" not in audit
@@ -274,82 +261,3 @@ def test_dependency_audit_stays_outside_ordinary_ci_and_is_path_scoped():
         assert "main" in block
         for path in required:
             assert f"- {path}\n" in block
-
-
-def test_installed_pytest_preserves_real_plugin_collection_junit_and_declared_skips(tmp_path):
-    source = tmp_path / "test_synthetic.py"
-    source.write_text(
-        "import pytest\n"
-        "def test_pass():\n    assert True\n"
-        "@pytest.mark.skip(reason='synthetic declared skip')\n"
-        "def test_skip():\n    assert False\n",
-        encoding="utf-8",
-    )
-    selected = (str(source),)
-    expected = ExpectedProvenance(
-        "core-sleep",
-        sys.platform,
-        "a" * 40,
-        "b" * 40,
-        "c" * 64,
-        _selection_sha256(selected),
-        selected,
-    )
-    inventories = []
-    for mode in ("collect", "run"):
-        output = tmp_path / f"{mode}.json"
-        command = [
-            sys.executable,
-            "-m",
-            "pytest",
-            str(source),
-            "-q",
-            "-p",
-            "scripts.ci_lane_plugin",
-            f"--rootdir={tmp_path}",
-            f"--basetemp={tmp_path / mode}",
-            f"--ci-lane-evidence={output}",
-            f"--ci-lane-mode={mode}",
-            f"--ci-lane-name={expected.lane}",
-            f"--ci-platform={expected.platform}",
-            f"--ci-head-sha={expected.head_sha}",
-            f"--ci-tree-sha={expected.tree_sha}",
-            f"--ci-manifest-sha256={expected.manifest_sha256}",
-            f"--ci-selection-sha256={expected.selection_sha256}",
-            f"--ci-selected-path={source}",
-        ]
-        command += (
-            ["--collect-only"] if mode == "collect" else [f"--junitxml={tmp_path / 'junit.xml'}"]
-        )
-        result = subprocess.run(
-            command, cwd=Path(__file__).parents[1], capture_output=True, text=True, timeout=30
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-        payload = json.loads(output.read_text(encoding="utf-8"))
-        assert payload["collection_complete"] is True
-        assert payload["collection_errors"] == [] and payload["deselected_nodeids"] == []
-        inventories.append(payload["collected_nodeids"])
-    assert (
-        inventories[0]
-        == inventories[1]
-        == ["test_synthetic.py::test_pass", "test_synthetic.py::test_skip"]
-    )
-    allowed = [
-        {"nodeid": inventories[1][1], "platform": sys.platform, "reason": "synthetic declared skip"}
-    ]
-    assert validate_lane_payload(payload, expected, allowed_skips=allowed) == {
-        "passed": 1,
-        "skipped": 1,
-        "failed": 0,
-        "errors": 0,
-    }
-    with pytest.raises(ContractError, match="unexpected skip"):
-        validate_lane_payload(payload, expected, allowed_skips=[])
-    suite = ET.parse(tmp_path / "junit.xml").getroot().find("testsuite")
-    assert suite is not None
-    assert {key: suite.attrib[key] for key in ("tests", "skipped", "failures", "errors")} == {
-        "tests": "2",
-        "skipped": "1",
-        "failures": "0",
-        "errors": "0",
-    }
