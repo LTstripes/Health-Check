@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import event, select
 from sqlalchemy.exc import InvalidRequestError
 
+from fixture_database import fixed_period_read_clock as fixed_period_read_clock
 from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
 from healthcheck.db.models import (
     GarminRecordMetric,
@@ -141,7 +142,9 @@ def _seed_documented_main_sleep_case(session, paths, case):
 
 @pytest.mark.parametrize("days", [7, 30])
 @pytest.mark.parametrize("case", ["conflicting_alias", "invalid_alias", "main_priority"])
-def test_documented_google_main_sleep_matches_period_projection(projection_database, days, case):
+def test_documented_google_main_sleep_matches_period_projection(
+    projection_database, fixed_period_read_clock, days, case,
+):
     from healthcheck.analytics.sleep_source_view import (
         read_source_sleep_night,
         resolve_source_sleep_point,
@@ -167,7 +170,9 @@ def test_documented_google_main_sleep_matches_period_projection(projection_datab
 
 @pytest.mark.parametrize("days", [7, 30])
 @pytest.mark.parametrize("case", ["conflicting_alias", "invalid_alias", "main_priority"])
-def test_documented_google_main_sleep_html_and_auto_exports(tmp_path, days, case):
+def test_documented_google_main_sleep_html_and_auto_exports(
+    tmp_path, fixed_period_read_clock, days, case,
+):
     from healthcheck.db.engine import create_sqlite_engine, session_scope
     from healthcheck.sleep_evidence import (
         SleepEvidenceRequest,
@@ -214,6 +219,46 @@ def test_documented_google_main_sleep_html_and_auto_exports(tmp_path, days, case
             assert reason in render_sleep_evidence(exported)
     finally:
         engine.dispose()
+
+
+def test_sleep_equivalence_clock_ignores_scheduling_but_expiry_still_withholds_value(
+    projection_database, monkeypatch, request,
+):
+    from healthcheck.analytics import period_summary_read as bounded
+
+    session, paths = projection_database
+    _google(session, paths, START, main="true", nap="false")
+    session.commit()
+    clock = [0.0]
+    monkeypatch.setattr(bounded, "monotonic", lambda: clock[0])
+    # Install the same fixture used by the equivalence tests over a clock that
+    # can jump while executing SQL. No sleep or machine-load assumption is needed.
+    request.getfixturevalue("fixed_period_read_clock")
+
+    def scheduling_pause(_connection, _cursor, statement, *_args):
+        if "ORDER BY google_sources.id" in statement:
+            clock[0] += bounded.READ_BUDGET_SECONDS + 1
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", scheduling_pause)
+    try:
+        selected = _metric(PeriodSummaryService(session).build(
+            end_date=END, days=7, sleep_source_selection=True,
+        ), side=1)
+        assert clock[0] > bounded.READ_BUDGET_SECONDS
+        assert selected["aggregation"]["value"] == 24600
+        assert selected["aggregation"]["eligible_count"] == 1
+        # The production deadline remains effective with an advancing clock.
+        monkeypatch.setattr(bounded, "monotonic", lambda: clock[0])
+        expired = _metric(PeriodSummaryService(session).build(
+            end_date=END, days=7, sleep_source_selection=True,
+        ), side=1)
+        assert expired["aggregation"]["value"] is None
+        assert expired["state"] == "search_incomplete"
+        assert expired["search"] == {"complete": False, "reason": "time_budget_exceeded"}
+        assert expired["source_selection"]["selected_source_id"] is None
+    finally:
+        event.remove(engine, "before_cursor_execute", scheduling_pause)
 
 
 def _coverage(session, source, *, surface="activities", status="present", scoped=True):

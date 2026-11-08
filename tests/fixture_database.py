@@ -14,6 +14,18 @@ from healthcheck.runtime import RuntimePaths, prepare_runtime
 _DATABASE_TEMPLATE_KEY = pytest.StashKey[Path]()
 
 
+@pytest.fixture
+def fixed_period_read_clock(monkeypatch):
+    """Keep data-equivalence assertions independent of host scheduling.
+
+    Deadline regressions supply an advancing clock explicitly; ordinary Sleep
+    selection comparisons must not race separate real two-second read budgets.
+    """
+    from healthcheck.analytics import period_summary_read
+
+    monkeypatch.setattr(period_summary_read, "monotonic", lambda: 0.0)
+
+
 def copy_migrated_database(
     paths: RuntimePaths,
     request: pytest.FixtureRequest,

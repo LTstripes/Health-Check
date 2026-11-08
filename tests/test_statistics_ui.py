@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from fixture_database import fixed_period_read_clock as fixed_period_read_clock
 from healthcheck.analytics import activity_period_sessions as reader
 from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
 from healthcheck.config import Settings
@@ -38,7 +39,9 @@ from test_sleep_metrics import projection_database as projection_database
 @pytest.mark.parametrize("case", [
     "sole", "explicit_missing", "eligible", "conflict", "empty", "other_family", "outside", "zero",
 ])
-def test_google_sleep_default_is_exact_and_window_bound(statistics_ui, case, days):
+def test_google_sleep_default_is_exact_and_window_bound(
+    statistics_ui, fixed_period_read_clock, case, days,
+):
     session, paths, client = statistics_ui
     _garmin(session, paths, wake=START, seconds=28800, attributed=True)
     _google(session, paths, wake=START, minutes="0" if case == "zero" else "410",

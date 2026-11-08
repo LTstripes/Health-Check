@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from fixture_database import fixed_period_read_clock as fixed_period_read_clock
 from healthcheck.analytics import period_summary_read as bounded
 from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
 from healthcheck.db.models import GarminSource, GoogleSource
@@ -48,7 +49,9 @@ def export(response, name):
 
 @pytest.mark.parametrize("period,start,end,count", PERIODS)
 @pytest.mark.parametrize("case", ["sparse", "zero", "missing"])
-def test_annual_route_preserves_packet(statistics_ui, monkeypatch, period, start, end, count, case):
+def test_annual_route_preserves_packet(
+    statistics_ui, fixed_period_read_clock, monkeypatch, period, start, end, count, case,
+):
     session, paths, client = statistics_ui
     if case != "missing":
         _garmin(session, paths, date(2096, 2, 29), seconds=0 if case == "zero" else 28800,

@@ -15,6 +15,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DatabaseError
 
 from fixture_database import copy_migrated_database
+from fixture_database import fixed_period_read_clock as fixed_period_read_clock
 from healthcheck import chat_evidence
 from healthcheck import sleep_evidence as evidence
 from healthcheck.analytics import sleep_source_view
@@ -430,7 +431,7 @@ def test_missing_profile_schema_fail_without_creating_or_repairing(tmp_path):
 @pytest.mark.parametrize("days", [7, 30])
 @pytest.mark.parametrize("copy_minutes", ["410", "500"])
 def test_google_auto_family_copy_excluded_by_contract_across_consumers(
-    projection_database, days, copy_minutes,
+    projection_database, fixed_period_read_clock, days, copy_minutes,
 ):
     from healthcheck.analytics.period_summary import SLEEP_CODE, PeriodSummaryService
     from healthcheck.google.contracts import (
