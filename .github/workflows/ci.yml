@@ -76,6 +76,11 @@ jobs:
       - run: uv run --locked ruff check .
 
   test:
+    name: test (${{ matrix.shard }}/3)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -90,8 +95,9 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - name: Full test suite
-        run: uv run --locked pytest -n auto --durations=30
+        run: uv run --locked pytest -n auto --durations=15
         env:
+          HEALTHCHECK_TEST_SHARD: "${{ matrix.shard }}/3"
           HEALTHCHECK_DATA_DIR: ${{ runner.temp }}/healthcheck-ci
 
   windows-smoke:
