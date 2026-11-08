@@ -320,6 +320,10 @@ def test_byte_and_time_caps_do_not_return_old_value(saved_database, monkeypatch,
     session, store = saved_database
     saved = acquire(session, store)
     monkeypatch.setattr(reader, cap, 0)
+    if cap == "MAX_READ_SECONDS":
+        # Windows can return the same real monotonic tick twice at a zero cap.
+        ticks = iter([0.0, 1.0])
+        monkeypatch.setattr(reader, "monotonic", lambda: next(ticks))
     result = read(session, store, saved.source.id)
     assert not result.search_complete and result.reason == reason
 
