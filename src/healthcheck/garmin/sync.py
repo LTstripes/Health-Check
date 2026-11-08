@@ -73,6 +73,7 @@ from healthcheck.garmin.persistence import (
 from healthcheck.garmin.redaction import GarminDeviceAttribution, infer_device_attribution
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore, serialize_garmin_payload
 from healthcheck.logging import log_event
+from healthcheck.owner_time import owner_today
 from healthcheck.runtime import prepare_runtime
 
 SYNC_CONTRACT_VERSION = "r02-garmin-incremental-sync-v1"
@@ -318,11 +319,13 @@ class _SyncBudget:
         return True
 
 
-def validate_sync_date(value: str | date | None, *, default: date | None = None) -> date:
-    """Accept one calendar date, defaulting to the local today."""
+def validate_sync_date(
+    value: str | date | None, *, default: date | None = None, settings: Settings | None = None,
+) -> date:
+    """Accept one calendar date, defaulting to the owner's today."""
 
     if value is None:
-        return default or date.today()
+        return default or owner_today(settings or Settings())
     if isinstance(value, date) and not isinstance(value, datetime):
         return value
     if not isinstance(value, str) or not _DATE_RE.fullmatch(value.strip()):
@@ -1189,7 +1192,7 @@ class GarminIncrementalSync:
         as_of: date | str | None = None,
         trailing_window_days: int | None = None,
     ) -> GarminSyncReport:
-        as_of_date = validate_sync_date(as_of)
+        as_of_date = validate_sync_date(as_of, settings=self.settings)
         window_days = validate_trailing_window_days(trailing_window_days)
         window_start, window_end = compute_sync_window(as_of_date, window_days)
         paths = prepare_runtime(self.settings)

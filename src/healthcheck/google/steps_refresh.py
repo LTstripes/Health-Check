@@ -26,6 +26,7 @@ from healthcheck.google.sync import _google_execution_resources
 
 STEPS_REFRESH_CONTRACT = "google-steps-owner-catchup-v1"
 STEPS_REFRESH_STATE_CODE = STEPS_REFRESH_CONTRACT
+# Fixed v1 cursor binding; changing the owner clock must not reinterpret saved progress.
 STEPS_REFRESH_SELECTION_ZONE = "Europe/Moscow"
 MAX_REFRESH_DATES = 7
 _BINDING = {

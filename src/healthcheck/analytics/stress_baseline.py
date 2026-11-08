@@ -60,6 +60,7 @@ MEAN_CONTRACT_VERSION = "garmin-daily-stress-personal-baseline-v4"
 ARITHMETIC_MEAN_COMPARISON = "arithmetic-mean-v1"
 STRICT_ANALYSIS_DAY_POLICY = "confirmed-source-timezone-day-v1"
 MOSCOW_ANALYSIS_DAY_POLICY = "owner-selected-europe-moscow-analysis-day-v1"
+# Fixed versioned analysis policy, bound into result/proof hashes; not the owner clock.
 _ANALYSIS_ZONE = "Europe/Moscow"
 METRIC_CODE = "stress_daily_average"
 MIN_HISTORY_DAYS = 21

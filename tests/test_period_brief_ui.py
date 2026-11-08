@@ -90,9 +90,11 @@ def _ui_with_garmin_source(tmp_path):
     return app, source_id, source_instance_id
 
 
-def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(tmp_path):
+def test_period_brief_page_defaults_to_bounded_local_period_and_exposes_nav(
+    tmp_path, completed_overview_clock,
+):
     app = _ui(tmp_path)
-    end = date.today()
+    end = date(2099, 1, 10)
     start = end - timedelta(days=29)
 
     with TestClient(
@@ -414,13 +416,13 @@ def test_period_brief_owner_state_labels_remain_distinct(state, label):
     assert _brief_owner_state(state) == label
 
 
-def test_period_brief_page_supports_presets_and_custom_period(tmp_path):
+def test_period_brief_page_supports_presets_and_custom_period(tmp_path, completed_overview_clock):
     app = _ui(tmp_path)
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
         for days in (7, 30, 90):
-            end = date.today()
+            end = date(2099, 1, 10)
             start = end - timedelta(days=days - 1)
             response = client.get("/brief", params={"preset": str(days)})
             assert response.status_code == 200

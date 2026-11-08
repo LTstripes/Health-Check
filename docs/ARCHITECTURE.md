@@ -332,6 +332,12 @@ Sparse voluntary streams such as weekly weight use a configured cadence. Continu
 <a id="logical-model--8-time-and-lag-semantics"></a>
 ### 8. Time and lag semantics
 
+The owner's current calendar day uses `Settings.owner_timezone` (IANA, default
+`Europe/Moscow`, env `HEALTHCHECK_OWNER_TIMEZONE`), validated with `ZoneInfo`.
+`owner_time.owner_now/owner_today` convert a UTC instant; host/browser zones do not select today.
+This setting does not reinterpret saved source dates, versioned analysis/completion
+policies, Weekly Digest schedules or the Google Steps catch-up cursor binding.
+
 - Persist a UTC instant when one exists, the source local timestamp, numeric offset, and zone identifier when available.
 - Preserve date-only precision rather than inventing a midnight instant.
 - A sleep session is keyed analytically to the local **wake date**.

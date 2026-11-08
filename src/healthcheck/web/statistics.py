@@ -22,6 +22,7 @@ from healthcheck.garmin.completed_steps_read import (
 )
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.google.steps_read import read_saved_steps_window
+from healthcheck.owner_time import owner_today
 from healthcheck.web.common import database_unavailable, request_engine
 from healthcheck.web.owner_presentation import (
     owner_activity_count,
@@ -115,7 +116,7 @@ def statistics(
         selected_period = period or str(days if days is not None else 7)
         if period is not None and days is not None:
             raise ValueError("competing period selectors")
-        evaluated_date = end_date or date.today()
+        evaluated_date = end_date or owner_today(request.app.state.settings)
         selected_year = calendar_year if calendar_year is not None else evaluated_date.year
         if selected_period in {"7", "30"}:
             window = {"days": int(selected_period), "end_date": evaluated_date}

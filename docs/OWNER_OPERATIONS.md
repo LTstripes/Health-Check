@@ -7,6 +7,12 @@ restore, scheduler changes, auth, import, cleanup, deployment or publication.
 Use accepted code and explicit external profiles; preserve Stable and verify
 bindings. Technical source/envelope meanings are in Architecture.
 
+`HEALTHCHECK_OWNER_TIMEZONE` selects the owner's IANA calendar zone for default UI
+dates and sync windows (default `Europe/Moscow`; for example `America/New_York`).
+An unknown zone fails settings validation. Set it before starting the process;
+host and browser zones do not override it. Existing versioned Moscow analysis,
+completed-day and Google Steps catch-up policies remain fixed; stored dates are unchanged.
+
 | Operation | Start here | Required boundary |
 | --- | --- | --- |
 | Inspect relevant saved Owner evidence | [Owner data](#owner-data-boundary) | Assigned read scope; no migration-capable startup |

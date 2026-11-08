@@ -20,6 +20,7 @@ from healthcheck.web.owner_presentation import (
 )
 
 VERSION = "health-weekly-digest-v2"
+# Fixed v2 digest schedule/analysis policy, bound into exported packet hashes.
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 

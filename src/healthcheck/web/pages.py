@@ -37,6 +37,7 @@ from healthcheck.ingestion.photo.errors import PhotoImportError
 from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
+from healthcheck.owner_time import owner_today, owner_zone
 from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.detail_navigation import local_return_href
@@ -852,7 +853,8 @@ def sleep_page(
                             message="Выберите 7 или 30 дней и корректный возврат к обзору.",
                             status_code=400)
     try:
-        end = date.fromisoformat(wake_date) if wake_date is not None else date.today()
+        end = (date.fromisoformat(wake_date) if wake_date is not None
+               else owner_today(request.app.state.settings))
     except ValueError:
         return render_error(
             request, code="invalid_sleep_date",
@@ -992,7 +994,7 @@ def _render_sleep_timeline(
                 freshness=read_consumer_freshness_projection(
                     session,
                     evaluated_at_utc=evaluated_at_utc,
-                    evaluation_local_date=evaluated_at_utc.astimezone().date(),
+                    evaluation_local_date=evaluated_at_utc.astimezone(owner_zone(settings)).date(),
                     weight_cadence_days=settings.weight_cadence_days,
                     collection_policy=resolve_profile_collection_policy(settings),
                 ),
@@ -1058,7 +1060,7 @@ def _render_comparison(
 
 def _brief_period(
     *, preset: str | None, start_date: str | None, end_date: str | None,
-    today: date | None = None,
+    today: date,
 ) -> tuple[date, date, str | None]:
     """Resolve UI period controls without changing stored evidence semantics."""
 
@@ -1069,11 +1071,11 @@ def _brief_period(
             days = {"7": 7, "30": 30, "90": 90}[preset]
         except KeyError as exc:
             raise ValueError("preset must be 7, 30, or 90 days") from exc
-        end = today or date.today()
+        end = today
         return end - timedelta(days=days - 1), end, preset
 
     if start_date is None and end_date is None:
-        end = today or date.today()
+        end = today
         return end - timedelta(days=29), end, "30"
     if start_date is None or end_date is None:
         raise ValueError("custom period requires both start_date and end_date")
@@ -1107,7 +1109,7 @@ def period_brief_page(
             anchor.tzinfo is None or anchor.utcoffset() is None or anchor > evaluated_at
         ):
             raise ValueError("Момент выбора периода: прошедшее время с часовым поясом.")
-        period_clock = anchor or evaluated_at.astimezone()
+        period_clock = anchor or evaluated_at.astimezone(owner_zone(request.app.state.settings))
         start, end, selected_preset = _brief_period(
             preset=preset, start_date=start_date, end_date=end_date,
             today=period_clock.date(),
@@ -1130,7 +1132,8 @@ def period_brief_page(
                 session, start=start, end=end,
                 explicit_period=any(value is not None for value in (preset, start_date, end_date)),
                 evaluated_at_utc=evaluated_at,
-                evaluation_local_date=evaluated_at.astimezone().date(),
+                evaluation_local_date=evaluated_at.astimezone(
+                    owner_zone(request.app.state.settings)).date(),
                 garmin_source_id=source_selection.get("selected_source_id"),
                 google_source_id=google_rhr_source_id,
                 freshness=result["display"]["sections"].get("data_quality", {})
@@ -1196,6 +1199,7 @@ def period_brief_page(
     weekly = None
     weekly_error = None
     weekly_config = getattr(request.app.state, "weekly_digest", None)
+    # Weekly Digest retains its fixed versioned Moscow schedule, not the owner clock.
     last_day = datetime.now(UTC).astimezone(MOSCOW).date()
     last_sunday = last_day - timedelta(days=(last_day.weekday() + 1) % 7)
     if weekly_config is not None and weekly_end is not None:
@@ -1348,7 +1352,8 @@ def imports_page(
             for key in ("export_end_date", "export_days")
         ):
             raise ValueError
-        end = date.fromisoformat(export_end_date) if export_end_date is not None else date.today()
+        end = (date.fromisoformat(export_end_date) if export_end_date is not None
+               else owner_today(request.app.state.settings))
         if export_end_date is not None and export_end_date != end.isoformat():
             raise ValueError
         if end == date.max:
