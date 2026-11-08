@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  PYTHON_VERSION: "3.12.15"
+  PYTHON_VERSION: "3.12"
 
 jobs:
   changes:
@@ -117,9 +117,9 @@ jobs:
       - name: Workspace cleanup and relocation regressions (Windows PowerShell 5.1)
         shell: pwsh
         run: |
-          powershell.exe -NoLogo -NoProfile -NonInteractive -File tests/test_cleanup_workspaces.ps1
+          powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/test_cleanup_workspaces.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell.exe -NoLogo -NoProfile -NonInteractive -File tests/test_workspace_retirement.ps1
+          powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/test_workspace_retirement.ps1
           exit $LASTEXITCODE
       - name: Synthetic CLI and loopback smoke
         env:
