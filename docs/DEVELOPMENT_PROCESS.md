@@ -169,7 +169,7 @@ For migration work, also use `uv run python -m healthcheck.db.migration_guard`. 
 
 Detailed scope, attempts, exact candidates, checks, review, integration and meaningful
 failures live in the issue/PR. The Integrator keeps concise dated linked outcomes in
-[Wiki recent outcomes](PROJECT_WIKI.md#recent-outcomes). Existing execution-history
+[Wiki recent outcomes](PROJECT_WIKI.md#history). Existing execution-history
 volumes are frozen archives, not journals to append. Preserve useful rejected and
 abandoned evidence; a later success does not rewrite an earlier failure.
 
@@ -1252,7 +1252,7 @@ The Owner discontinued Health-Check model benchmarking and attribution bookkeepi
 
 The former journal remains in [Git history](https://github.com/LTstripes/Health-Check/blob/d4529df9b5c0f3df28d637a259fbe82d0b4fde43/docs/MODEL_BENCHMARK.md); the existing [earlier archive](https://github.com/LTstripes/Health-Check/blob/f0706fab605e2800939c3677f900e3621afd4e60/docs/archive/history/MODEL_BENCHMARK_THROUGH_2026-10-01_RELIABILITY.md) is historical only. No new entries, model confirmations, backfill or rescoring are required.
 
-Current technical outcomes and checks belong in issues/PRs and [current engineering outcomes](PROJECT_WIKI.md#recent-outcomes). Current completion reporting is defined in [AGENTS.md](../AGENTS.md#completion-reporting).
+Current technical outcomes and checks belong in issues/PRs and [current engineering outcomes](PROJECT_WIKI.md#history). Current completion reporting is defined in [AGENTS.md](../AGENTS.md#completion-reporting).
 
 <a id="client-chatgpt"></a>
 
