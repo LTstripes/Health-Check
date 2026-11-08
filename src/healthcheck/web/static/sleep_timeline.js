@@ -13,9 +13,9 @@
   }
   if (!data || !Array.isArray(data.display_series) || !data.display_series.length) return;
   const detail = document.getElementById("sleep-timeline-detail");
-  const seriesColors = { garmin: "#1d4e89", google: "#3f5f73" };
-  const unresolvedColor = "#5c4d86";
-  const lineColor = "#d9d0c3";
+  const seriesColors = { garmin: "var(--series-1)", google: "var(--series-4)" };
+  const unresolvedColor = "var(--series-3)";
+  const lineColor = "var(--line-strong)";
   let svg = null;
   let hidden = {};
   let focusables = [];
@@ -195,14 +195,14 @@
     baseLine.setAttribute("y1", height - pad.b);
     baseLine.setAttribute("x2", width - pad.r);
     baseLine.setAttribute("y2", height - pad.b);
-    baseLine.setAttribute("stroke", lineColor);
+    baseLine.style.setProperty("stroke", lineColor);
     svgElement.appendChild(baseLine);
     const leftLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
     leftLine.setAttribute("x1", pad.l);
     leftLine.setAttribute("y1", pad.t);
     leftLine.setAttribute("x2", pad.l);
     leftLine.setAttribute("y2", height - pad.b);
-    leftLine.setAttribute("stroke", lineColor);
+    leftLine.style.setProperty("stroke", lineColor);
     svgElement.appendChild(leftLine);
     const spacing = width - pad.l - pad.r;
     let count = Math.min(8, dates.length, Math.max(2, Math.floor(spacing / 90) + 1));
@@ -214,7 +214,7 @@
       tick.setAttribute("x2", x);
       tick.setAttribute("y1", height - pad.b);
       tick.setAttribute("y2", height - pad.b + 5);
-      tick.setAttribute("stroke", lineColor);
+      tick.style.setProperty("stroke", lineColor);
       svgElement.appendChild(tick);
       const date = new Date(dates[dateIndex] + "T00:00:00Z");
       const anchor = index === 0 ? "start" : index === count - 1 ? "end" : "middle";
@@ -289,7 +289,7 @@
             return (index ? "L" : "M") + entry.x + " " + entry.y;
           }).join(" "));
           path.setAttribute("fill", "none");
-          path.setAttribute("stroke", color);
+          path.style.setProperty("stroke", color);
           path.setAttribute("stroke-width", "2.5");
           path.setAttribute("data-sleep-line", series.series_id);
           group.appendChild(path);
@@ -320,7 +320,7 @@
           dot.setAttribute("cx", x);
           dot.setAttribute("cy", y);
           dot.setAttribute("r", 4.5);
-          dot.setAttribute("fill", color);
+          dot.style.setProperty("fill", color);
           dot.setAttribute("class", "sleep-timeline-dot");
           wrap.appendChild(hit);
           wrap.appendChild(dot);
@@ -351,7 +351,7 @@
           diamond.setAttribute("points", x + "," + (cy - 6) + " " + (x + 6) + "," + cy + " " +
             x + "," + (cy + 6) + " " + (x - 6) + "," + cy);
           diamond.setAttribute("fill", "none");
-          diamond.setAttribute("stroke", unresolvedColor);
+          diamond.style.setProperty("stroke", unresolvedColor);
           diamond.setAttribute("stroke-width", "2");
           diamond.setAttribute("class", "sleep-timeline-diamond");
           wrap.appendChild(hit);
@@ -368,7 +368,7 @@
           tick.setAttribute("y", height - pad.b - 6);
           tick.setAttribute("width", "2");
           tick.setAttribute("height", "6");
-          tick.setAttribute("fill", color);
+          tick.style.setProperty("fill", color);
           tick.setAttribute("opacity", "0.45");
           tick.setAttribute("class", "sleep-timeline-gap-tick");
           const title = document.createElementNS("http://www.w3.org/2000/svg", "title");

@@ -19,7 +19,7 @@ for the single dated main/installed/UAT snapshot and remaining work.
 - [Evidence, safety and boundaries](#evidence-and-safety-principles)
 - [Owner desktop interface](#owner-interface)
 - [Dates and session values](#date-and-session-values)
-- [Static design reference](#design-reference)
+- [Static A+ design reference (historical)](#design-reference)
 
 <a id="book--product-definition"></a>
 ## Product definition
@@ -41,8 +41,9 @@ The Owner browser UI targets desktop/laptop CSS viewports **1024px and wider**
 Phone, tablet and windows below 1024px are outside design, browser acceptance and
 Owner UAT scope. Earlier mobile/responsive acceptance in #189 and UI briefs is
 historical. Existing harmless CSS fallbacks remain; functional, accessibility,
-security/privacy and complete CI requirements still apply. The approved A+
-visual language is retained; new capabilities do not restart the redesign.
+security/privacy and complete CI requirements still apply. The Observatory
+visual system ([Owner decision 08.11.2026](#owner-interface--observatory-visual-system))
+replaces A+; new capabilities reuse it and do not restart the redesign.
 
 
 <a id="product-decisions"></a>
@@ -78,9 +79,9 @@ The accepted product decisions are:
 - Comments are a primary navigation section. Normal instant input selects a
   human city/IANA zone; the exact UTC offset is derived and persisted internally.
   Date-only stays date-only; DST ambiguity must be validated.
-- Saved measurements stay visible separately from auth/refresh failures. The A+
-  visual/language system applies across forms and tables; it is not a request
-  for another global redesign or a second analytics engine.
+- Saved measurements stay visible separately from auth/refresh failures. The
+  Observatory visual/language system applies across forms and tables; it is not a
+  request for another global redesign or a second analytics engine.
 - New Activity value/design questions are bounded, read-only Owner-led discovery,
   not automatic cards, provider features or invented aggregations. A request for
   a screen never authorizes provider calls, runtime deployment or new mathematics.
@@ -251,21 +252,22 @@ databases, generated private reports and personal documents do not.
 ## Owner desktop interface
 
 
-The Owner approved Overview A+ on **2026-10-07** in
-[#322](https://github.com/LTstripes/Health-Check/issues/322), with the text-only
-synthetic reference below. It supersedes the conflicting #189 visual freeze:
-the older canvas/surface/ink/muted/separator/sunken/interaction colors,
-sans-only prominent heading, 1100px content limit and quieter selected navigation
-are historical. The following tokens are the current visual contract. Source,
-state, accessibility and privacy boundaries remain binding; visual approval does
-not certify implementation, provider health or every later Owner UAT.
+On **08.11.2026** the Owner chose the **Observatory** direction from three
+synthetic Overview mockups (Instrument, Observatory, Domain colours). It replaces
+the A+ visual language approved on 2026-10-07 in
+[#322](https://github.com/LTstripes/Health-Check/issues/322): warm paper, serif
+headings, top navigation and the A+ token values are historical, as is the static
+[A+ reference](#design-reference). The tokens below are the current visual
+contract. Source, state, accessibility and privacy boundaries remain binding;
+visual approval does not certify implementation, provider health or every later
+Owner UAT.
 
 <a id="owner-interface--navigation-and-current-routes"></a>
 ### Navigation and current routes
 
 | Primary section | Route | Current surface |
 | --- | --- | --- |
-| Обзор | `/brief` | A+ Weight/Sleep/Activity readings and source-backed graphs, secondary metrics, compact actions and disclosed evidence |
+| Обзор | `/brief` | Weight/Sleep/Activity readings and source-backed graphs, secondary metrics, compact actions and disclosed evidence |
 | Вес | `/weight` | Confirmed Weight/trend, one all-history Weight+composition table and selectable chart with distinct methods (#375) |
 | Сон | `/sleep` | Primary 7/30-day Garmin + Google duration timeline over exact saved sources, with display toggles, point details and an accessible date table; Garmin / Google / Compare selected-date modes remain |
 | Сон, secondary mode | `/agreement` | Exploratory Garmin/Google comparison and diagnostic evidence |
@@ -308,48 +310,62 @@ the result. Missing is never zero; presentation rounding never changes stored
 values or calculations. Saved history remains readable after a failed update.
 
 <a id="owner-interface--one-a-visual-and-language-system"></a>
-### One A+ visual and language system
+<a id="owner-interface--observatory-visual-system"></a>
+### Observatory visual and language system
 
-Warm editorial paper, dark ink, dark green actions and thin section rules; no dark
-theme, shadows, gradients, full pills, ordinary card accent stripes or health grades.
-Use existing variables in `dashboard.css`:
+A calm evening screen: deep night-blue surfaces, thin large numerals, an amber
+selection colour and a left navigation rail. Dark is the default; a light pair
+exists for daylight. Without JavaScript the theme follows the Windows
+`prefers-color-scheme` setting; the rail's optional **Тема** switch (Авто / Тёмная /
+Светлая) stores only that presentation choice in the browser's `localStorage` and
+sets `data-theme` on `<html>`. No shadows, decorative gradients, full pills or
+health grades. Use the variables in `dashboard.css`:
 
-| Role | Variable | Accepted value |
-| --- | --- | --- |
-| Canvas | `--bg` | `#f6f2e9` |
-| Surface | `--card` | `#fdfbf6` |
-| Main text | `--ink` | `#292d27` |
-| Supporting text | `--muted` | `#686c61` |
-| Fine separators | `--line` | `#dcdccc` |
-| Actions, selected navigation and focus | `--accent`, `--owner-focus` | `#31584b` |
+| Role | Variable | Dark (default) | Light pair |
+| --- | --- | --- | --- |
+| Canvas | `--bg` | `#0d1520` | `#f2f4f8` |
+| Navigation rail | `--rail` | `#0a111a` | `#e8ecf2` |
+| Surface (cards, bands, tiles) | `--card` | `#131e2c` | `#ffffff` |
+| Sunken surface and form fields | `--sunken` | `#182638` | `#eef1f6` |
+| Main text | `--ink` | `#e8eef6` | `#142031` |
+| Supporting text | `--muted` | `#9aa8bb` | `#556275` |
+| Fine separators / strong lines | `--line` / `--line-strong` | `#22324a` / `#3a4d66` | `#dbe1ea` / `#b5c0cf` |
+| Actions, selection, links and focus | `--accent`, `--owner-focus` | `#f0bf5a` | `#8a5a00` |
+| Text on accent fills | `--on-accent` | `#1a1405` | `#ffffff` |
+| Selected-control tint | `--accent-soft` | `#2e2715` | `#f7ecd6` |
 
-The supporting sunken surface is `#efeee5`, light enough to keep A+ muted text
-above 4.5:1 contrast. Stronger line `#c9c0b3` and accent-soft `#e6f1ef` are retained.
-Hairlines organize sections; they are not the sole focus or selection cue.
-Text must retain accessible contrast on each shared surface.
-State fills remain attention `#f6efe2` / ink `#6b4510`, unavailable `#f3e4d4` /
-ink `#6b320c`, and request error `#f8eceb` / ink `#7a2424`.
-Series retain their roles: observed `#1d4e89`, derived trend `#9a4f1a`, reference
-`#5c4d86`, comparison source `#3f5f73`. Do not recolor every graph with the action
-green or confuse observations, trends and references. Colors do not score health.
+Muted text keeps at least 4.5:1 contrast on canvas, surface and sunken in both
+themes. Lines organize sections; they are not the sole focus or selection cue.
+State fills (ink / background) are: attention `#f3cf86` / `#33280f` (light
+`#6b4510` / `#f8eedc`), unavailable `#f4b48a` / `#3a2216` (light `#6b320c` /
+`#f6e3d3`) and request error `#ffb3b3` / `#3d1b20` (light `#7a2424` / `#f9e9e8`).
+Series keep their roles and are recoloured per theme: observed `--series-1`
+`#79b0ff` (light `#2456a6`), derived trend `--series-2` `#d79bf5` (light
+`#8a3fb0`), reference `--series-3` `#c4cbd6` (light `#5b6577`), comparison source
+`--series-4` `#5ec4b6` (light `#1f7a70`). Charts, including those drawn by
+JavaScript, take colours from these variables only, so both themes stay
+consistent. Do not recolour every graph with the accent or confuse observations,
+trends and references. Colours do not score health.
 
-Use local Georgia / Times New Roman / serif for the prominent desktop page `h1`
-(42px, weight 400, line-height 1.1). Prominent page values use the accepted A+
-page-specific hierarchy. Body, controls, tables, section headings and metadata
-use local Segoe UI / Helvetica Neue / Arial / sans-serif, body line-height 1.5
-and ordinary hierarchy weight 600. Values/tables retain tabular numerals.
-Page hierarchy stays primary section (`h1`), current screen/sections (`h2`),
-subsection (`h3`). Uppercase small editorial kickers are optional; never uppercase
-all headings or ordinary copy. No external fonts/assets are loaded.
+Only local Windows fonts are used; nothing is loaded from the network. Display:
+`--owner-heading-font` (Segoe UI Variable Display, falling back to Segoe UI /
+Helvetica Neue / Arial) at weight 300 for the desktop page `h1` (46px, line-height
+1.05) and 200–300 for prominent values. Body, controls, tables, section headings
+and metadata use `--owner-sans` (Segoe UI Variable Text with the same fallbacks),
+body line-height 1.5 and ordinary hierarchy weight 600. Values/tables retain
+tabular numerals. Page hierarchy stays primary section (`h1`), current
+screen/sections (`h2`), subsection (`h3`). Never uppercase headings or copy.
 
-The desktop shell has a 1440px maximum content width and 48px horizontal gutters;
-the top bar aligns with that content, is at least 83px tall, and stays sticky.
-Navigation uses one row with 24px gaps. Its selected link has green text, weight
-600 and a square 2px underline, plus `aria-current="page"`. Prominent titles and
-the footer have 1px section rules. Existing 4/8/12/16/24/32px spacing and 8/6/4px
-card/button/chip radii remain available; top-navigation links have square corners.
-Legend samples stay 8px squares with a dashed configured goal/reference sample.
-Later pages reuse these tokens rather than inventing local design systems.
+From 1024px the shell is a two-column grid: a sticky full-height navigation rail
+(232px, 200px below 1280px) with the brand, one vertical list of sections and the
+theme switch at the bottom, and a content column up to 1320px with 44px gutters
+(28px below 1280px). The selected rail link has ink text, weight 600, a surface
+fill and a 3px amber left marker, plus `aria-current="page"`. Cards use 14px
+radius, the Overview primary band 18px, buttons and fields 8px and chips 4px.
+Overview shows the three primary readings in one surface band divided by hairlines
+and the supporting metrics as four tiles below. Legend samples stay 8px squares
+with a dashed reference sample. Later pages reuse these tokens rather than
+inventing local design systems.
 
 The shell and redesigned primary pages are Russian under `html lang="ru"`. Proper
 names and exact technical codes remain unchanged. Legacy batch-review bodies can
@@ -437,7 +453,7 @@ refresh attempts, eligible metric values/dates and clone age are different facts
 Comments retains revision, date-only/DST/offset semantics; UI delivery does not
 automatically establish a durable real-profile save/edit acceptance result.
 
-Use one shared A+ system across Data/Context/Activity/Weight/Statistics. Shared CSS,
+Use one shared Observatory system across Data/Context/Activity/Weight/Statistics. Shared CSS,
 shell and templates have one writer. Existing session history/details/A–B are not
 a reason to reimplement old cards. Detailed delivered/remaining status is only in
 [Project Wiki](PROJECT_WIKI.md#current-canonical-state). UI and source architecture stay
@@ -498,7 +514,10 @@ The latest dated human result and any unperformed private gates are separated in
 <a id="design-reference"></a>
 
 <a id="design-reference--static-a-design-reference"></a>
-## Static A+ design reference
+## Static A+ design reference (historical)
+
+Historical since 08.11.2026: the Observatory system above replaced A+. The
+reference stays for decision lineage and is not the current visual contract.
 
 
 One proposed visual reference for [#322](https://github.com/LTstripes/Health-Check/issues/322), following the desktop-only decision in [#321](https://github.com/LTstripes/Health-Check/issues/321). This does not change the production visual or data contract.

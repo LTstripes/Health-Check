@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Лабораторные отчёты — Health-Check{% endblock %}
 {% block styles %}<style>
-.lab-table{width:100%;border-collapse:collapse}.lab-table th,.lab-table td{padding:10px;text-align:left;border-bottom:1px solid #d8d0c3;vertical-align:top;overflow-wrap:anywhere}.lab-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.lab-grid label{display:flex;flex-direction:column;gap:4px}.lab-grid input,.lab-grid select,.lab-grid textarea{width:100%;box-sizing:border-box;min-height:36px}.lab-warning{padding:14px;background:#f6efe2;color:#6b4510;margin:16px 0}.lab-section{padding:18px 0;border-bottom:1px solid #d8d0c3}.lab-section summary{cursor:pointer}.lab-small{font-size:14px;overflow-wrap:anywhere}code{overflow-wrap:anywhere}
+.lab-table{width:100%;border-collapse:collapse}.lab-table th,.lab-table td{padding:10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}.lab-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.lab-grid label{display:flex;flex-direction:column;gap:4px}.lab-grid input,.lab-grid select,.lab-grid textarea{width:100%;box-sizing:border-box;min-height:36px}.lab-warning{padding:14px;background:var(--attention-bg);color:var(--attention-ink);margin:16px 0}.lab-section{padding:18px 0;border-bottom:1px solid var(--line)}.lab-section summary{cursor:pointer}.lab-small{font-size:14px;overflow-wrap:anywhere}code{overflow-wrap:anywhere}
 </style>{% endblock %}
 {% macro leaf(key, value) %}
 {% set name = key.split('.')[-1] %}

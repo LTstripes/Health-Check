@@ -21,6 +21,7 @@
   <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" type="image/vnd.microsoft.icon">
   <link rel="icon" href="/static/favicon-16x16.png" sizes="16x16" type="image/png">
   <link rel="icon" href="/static/favicon-32x32.png" sizes="32x32" type="image/png">
+  <script src="/static/owner_theme.js"></script>
   <link rel="stylesheet" href="/static/dashboard.css">
   {% block styles %}{% endblock %}
 </head>
@@ -33,9 +34,19 @@
       <a href="{{ item[1] }}"{% if section == key %} class="active" aria-current="page"{% endif %}>{{ item[0] }}</a>
       {% endfor %}
     </nav>
-    {% if request.state.home_server|default(false) %}
-    <form action="/logout" method="post"><button type="submit">Выйти</button></form>
-    {% endif %}
+    <div class="owner-rail-end">
+      <div class="owner-theme" data-owner-theme hidden>
+        <span id="owner-theme-label">Тема</span> <span class="owner-theme-hint">Авто — как в Windows</span>
+        <div class="owner-theme-choices" role="group" aria-labelledby="owner-theme-label">
+          <button type="button" data-theme-choice="system" aria-pressed="true">Авто</button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false">Тёмная</button>
+          <button type="button" data-theme-choice="light" aria-pressed="false">Светлая</button>
+        </div>
+      </div>
+      {% if request.state.home_server|default(false) %}
+      <form action="/logout" method="post"><button type="submit">Выйти</button></form>
+      {% endif %}
+    </div>
   </header>
   <main id="owner-main" tabindex="-1">
     <header class="owner-page-header">
