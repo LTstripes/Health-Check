@@ -115,9 +115,16 @@ def assert_equivalent(session):
     return actual
 
 
+def test_google_empty_latest_slice(session):
+    # The empty fixture has no scope-specific inputs; check every scope once.
+    session.commit()
+    facts, _ = assert_equivalent(session)
+    assert all(value.observed_once is False for value in facts)
+
+
 @pytest.mark.parametrize("scope", GOOGLE_SCOPES, ids=lambda scope: scope.key)
 @pytest.mark.parametrize("kind", [
-    "none", "date", "instant", "multiple_records", "multiple_latest_sources",
+    "date", "instant", "multiple_records", "multiple_latest_sources",
     "older_source", "mixed_precision", "older_invalid", "latest_invalid",
     "undated_invalid_ignored", "undated_instants", "undated_tied_sources",
     "undated_invalid_poison", "only_undated_invalid", "undated_date",
@@ -143,7 +150,7 @@ def test_google_exact_latest_slice(session, scope, kind):
             add("tied", day=None, precision="instant", stamp=NOW - timedelta(hours=1), source="s2")
         elif kind == "undated_invalid_poison":
             add("invalid", day=None, precision="unknown", stamp=NOW - timedelta(days=10))
-    elif kind != "none":
+    else:
         add("accepted", day=DAY + timedelta(days=1) if kind == "future_chronology" else DAY)
         if kind in {"instant", "mixed_precision"}:
             if kind == "instant":
@@ -182,9 +189,7 @@ def test_google_exact_latest_slice(session, scope, kind):
     session.commit()
     facts, _ = assert_equivalent(session)
     value = facts[GOOGLE_SCOPES.index(scope)]
-    if kind == "none":
-        assert value.observed_once is False
-    elif kind in {"multiple_latest_sources", "undated_tied_sources"}:
+    if kind in {"multiple_latest_sources", "undated_tied_sources"}:
         assert value.attribution_resolved is False
     elif kind == "mixed_precision":
         assert value.chronology_issue == "chronology_unresolved"

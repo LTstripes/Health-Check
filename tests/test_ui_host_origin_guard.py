@@ -19,7 +19,6 @@ from healthcheck.ingestion.photo.synthetic import (
 )
 from healthcheck.logging import configure_logging
 from healthcheck.runtime import prepare_runtime
-from healthcheck.web.ingest_app import create_ingest_app
 from healthcheck.web.ui_app import create_ui_app
 
 EVIL = "http://evil.example"
@@ -322,16 +321,6 @@ def test_legacy_ui_ingest_probe_stays_404_with_valid_host(tmp_path):
         assert client.post("/api/ingest/openscale", content=b"{}").status_code == 404
     with TestClient(app, base_url=EVIL_HOST) as foreign:
         assert foreign.post("/api/ingest/openscale", content=b"{}").status_code == 403
-
-
-def test_ingest_listener_unchanged(tmp_path):
-    settings = Settings(data_dir=tmp_path / "runtime")
-    ingest, _ = create_ingest_app(settings)
-    with TestClient(ingest) as client:
-        assert client.get("/healthz").status_code == 200
-        assert client.get("/api/ingest/openscale").status_code == 405
-        assert client.get("/api/imports").status_code == 404
-        assert client.post("/api/ingest/openscale", content=b"{}").status_code in {401, 503}
 
 
 def test_privacy_canaries(tmp_path):

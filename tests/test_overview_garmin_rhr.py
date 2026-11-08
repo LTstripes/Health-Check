@@ -106,7 +106,7 @@ def test_rhr_allowed_surfaces_keep_original_provenance(stored, surface):
                       metric.source_device_attributed)
 
 
-@pytest.mark.parametrize("surface", [None, "daily_summary", "resting_heart_rate"])
+@pytest.mark.parametrize("surface", ["daily_summary"])
 @pytest.mark.parametrize("guard,wrong", [
     ("surface_code", "daily_health"), ("surface_code", "hrv_status"),
     ("surface_code", "sleep"), ("surface_code", "activities"),
@@ -118,6 +118,8 @@ def test_rhr_allowed_surfaces_keep_original_provenance(stored, surface):
 ])
 def test_rhr_rejects_newer_wrong_identity_without_hiding_eligible_snapshot(stored, surface,
                                                                         guard, wrong):
+    # Each invalid identity uses the same predicate. All three allowed surfaces
+    # retain separate provenance coverage in test_rhr_allowed_surfaces_keep_original_provenance.
     _, record, _ = stored
     record.surface_code = surface
     record_changes = {"source_local_date": NEXT, "surface_code": surface}

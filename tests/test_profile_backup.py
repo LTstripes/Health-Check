@@ -517,61 +517,23 @@ def test_truncated_archive_fails_verify_and_cannot_replace_target(
     assert sentinel.read_text(encoding="utf-8") == "must remain"
 
 
-def test_large_sparse_profile_above_one_gib_backup_verify_restore(
+def test_profile_payload_backup_verify_restore_with_scaled_limits(
     external_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Prove DB >1 GiB can backup/verify/restore under the raised caps.
-
-    Uses compressible zeroblobs and a tuned online-backup test implementation.
-    This is large-file evidence, not an unchanged production backup round-trip;
-    the small WAL regression exercises the real production path without a double.
-    """
+    """Preserve payloads through the production backup path with small size limits."""
     import healthcheck.profile_backup as profile_backup
 
-    original_online_backup = profile_backup._online_backup
-
-    def _fast_online_backup(source_path: Path, destination_path: Path) -> str:
-        try:
-            source = sqlite3.connect(str(source_path), timeout=5, isolation_level=None)
-            source.execute("PRAGMA busy_timeout=5000")
-            journal_mode = str(source.execute("PRAGMA journal_mode").fetchone()[0]).lower()
-            if journal_mode != "wal":
-                source.close()
-                raise profile_backup.ProfileBackupError(
-                    "profile database is not using SQLite WAL mode"
-                )
-            if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                source.close()
-                raise profile_backup.ProfileBackupError(
-                    "profile database failed SQLite integrity check"
-                )
-            destination = sqlite3.connect(str(destination_path), timeout=5)
-            try:
-                source.backup(destination, pages=0, sleep=0)
-                destination.execute("PRAGMA journal_mode=WAL")
-                destination.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise profile_backup.ProfileBackupError(
-                        "backup database failed SQLite integrity check"
-                    )
-            finally:
-                destination.close()
-                source.close()
-        except sqlite3.Error as exc:
-            raise profile_backup.ProfileBackupError("SQLite backup could not be completed") from exc
-        return journal_mode
-
-    # The measured large-file copy cost justifies retaining this test-only tuning.
-    # Integrity/verify/restore remain enabled; production pages/sleep are unchanged.
-    assert original_online_backup is profile_backup._online_backup
-    monkeypatch.setattr(profile_backup, "_online_backup", _fast_online_backup)
+    # Exercise the existing size checks and ZIP64 branch without GiB disk I/O.
+    # Separate hard-cap tests pin the real 16/20 GiB constants and exact boundaries.
+    monkeypatch.setattr(profile_backup, "MAX_ARCHIVE_MEMBER_BYTES", 512 * 1024)
+    monkeypatch.setattr(profile_backup, "MAX_ARCHIVE_TOTAL_BYTES", 1024 * 1024)
+    monkeypatch.setattr(zipfile, "ZIP64_LIMIT", 64 * 1024)
 
     profile = external_tmp_path / "large-source"
     paths = prepare_runtime(Settings(data_dir=profile))
     marker_value = "large-profile-marker-v141"
-    # SQLite default max length is 1e9; use several zeroblobs to exceed 1 GiB total.
-    chunk_bytes = 400_000_000
-    chunk_count = 3  # 1.2 GiB payload + schema overhead
+    chunk_bytes = 128 * 1024
+    chunk_count = 3
     connection = sqlite3.connect(paths.database)
     try:
         connection.execute("PRAGMA journal_mode=WAL")
@@ -591,7 +553,7 @@ def test_large_sparse_profile_above_one_gib_backup_verify_restore(
         connection.close()
 
     db_size = Path(paths.database).stat().st_size
-    assert db_size > 1_073_741_824
+    assert db_size > chunk_bytes * chunk_count
     assert db_size < profile_backup.MAX_ARCHIVE_MEMBER_BYTES
 
     archive = external_tmp_path / "large-profile.zip"
@@ -601,7 +563,12 @@ def test_large_sparse_profile_above_one_gib_backup_verify_restore(
     restored = restore_profile(archive, target)
 
     assert created.classification == verified.classification == restored.classification
-    assert (target / "healthcheck.db").stat().st_size > 1_073_741_824
+    assert created.file_count == verified.file_count == restored.file_count
+    assert (target / "healthcheck.db").stat().st_size == db_size
+    with zipfile.ZipFile(archive) as handle:
+        database = handle.getinfo("profile/healthcheck.db")
+        assert database.file_size == db_size > zipfile.ZIP64_LIMIT
+        assert database.extract_version == 45  # ZIP64 header, not just a successful small ZIP.
     restored_db = sqlite3.connect(target / "healthcheck.db")
     try:
         rows = restored_db.execute(
