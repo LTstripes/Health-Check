@@ -17,7 +17,7 @@ from healthcheck.db.engine import (
 )
 from healthcheck.runtime import prepare_runtime
 
-HEAD = "0020_google_exercise"
+HEAD = "0021_garmin_observation_lookup"
 REV_0006 = "0006_garmin_payload_observation_provenance"
 PRE_RECONCILIATION_VERSION = "r02-garmin-pre-collection-reconciliation"
 CONTENT_HASH = "a" * 64

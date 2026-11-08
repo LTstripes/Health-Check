@@ -28,6 +28,7 @@ from healthcheck.db.models import (
     GarminSourceRecord,
 )
 from healthcheck.db.repositories import restore_stored_utc
+from healthcheck.garmin.analytic_storage import GarminAnalyticStorageBatch
 from healthcheck.garmin.capabilities import CapabilityStatus, GarminStream
 from healthcheck.garmin.normalization import (
     GarminFieldState,
@@ -1046,9 +1047,11 @@ def _resolve_observation_for_record(
     record: GarminSourceRecord,
     raw_payload: GarminRawPayload,
     observation_id: str | None = None,
+    _batch: GarminAnalyticStorageBatch | None = None,
 ) -> GarminPayloadObservation:
+    get = session.get if _batch is None else _batch.get
     if observation_id is not None:
-        observation = session.get(GarminPayloadObservation, observation_id)
+        observation = get(GarminPayloadObservation, observation_id)
         if observation is None:
             raise AnalyticInputAssemblyError("Garmin observation not found for analytic input")
         if observation.garmin_raw_payload_id != raw_payload.id:
@@ -1068,7 +1071,7 @@ def _resolve_observation_for_record(
             )
         return observation
 
-    candidates = list(
+    candidates = _batch.observations.get(raw_payload.id, []) if _batch is not None else list(
         session.scalars(
             select(GarminPayloadObservation)
             .where(GarminPayloadObservation.garmin_raw_payload_id == raw_payload.id)
@@ -1104,6 +1107,7 @@ def build_analytic_evidence_ref_from_storage(
     metric_row_id: str | None = None,
     metric_code: str | None = None,
     observation_id: str | None = None,
+    _batch: GarminAnalyticStorageBatch | None = None,
 ) -> tuple[
     AnalyticEvidenceRef,
     GarminSourceRecord,
@@ -1115,12 +1119,13 @@ def build_analytic_evidence_ref_from_storage(
 
     metric_row: GarminRecordMetric | None = None
     record: GarminSourceRecord | None = None
+    get = session.get if _batch is None else _batch.get
 
     if metric_row_id is not None:
-        metric_row = session.get(GarminRecordMetric, metric_row_id)
+        metric_row = get(GarminRecordMetric, metric_row_id)
         if metric_row is None:
             raise AnalyticInputAssemblyError("Garmin metric row not found for analytic input")
-        record = session.get(GarminSourceRecord, metric_row.record_id)
+        record = get(GarminSourceRecord, metric_row.record_id)
         if record is None:
             raise AnalyticInputAssemblyError("Garmin source record missing for metric row")
         if record_id is not None and record.id != record_id:
@@ -1132,7 +1137,7 @@ def build_analytic_evidence_ref_from_storage(
             raise AnalyticInputAssemblyError(
                 "analytic input storage locator requires metric_row_id or record_id+metric_code"
             )
-        record = session.get(GarminSourceRecord, record_id)
+        record = get(GarminSourceRecord, record_id)
         if record is None:
             raise AnalyticInputAssemblyError("Garmin source record not found for analytic input")
         metric_row = session.scalar(
@@ -1147,7 +1152,7 @@ def build_analytic_evidence_ref_from_storage(
             )
 
     assert record is not None and metric_row is not None
-    raw_payload = session.get(GarminRawPayload, record.raw_payload_id)
+    raw_payload = get(GarminRawPayload, record.raw_payload_id)
     if raw_payload is None:
         raise AnalyticInputAssemblyError(
             "Garmin raw payload missing for the current source record"
@@ -1164,6 +1169,7 @@ def build_analytic_evidence_ref_from_storage(
         record=record,
         raw_payload=raw_payload,
         observation_id=observation_id,
+        _batch=_batch,
     )
     if observation.garmin_raw_payload_id != raw_payload.id:
         raise AnalyticInputAssemblyError("observation raw payload mismatch")
@@ -1197,6 +1203,7 @@ def build_analytic_input_from_storage(
     observation_id: str | None = None,
     operational_surface_present: bool = False,
     rule_version: str = ANALYTIC_RULE_VERSION,
+    _batch: GarminAnalyticStorageBatch | None = None,
 ) -> AnalyticInputDTO:
     """Build a frozen analytic input DTO from persisted Garmin evidence.
 
@@ -1211,17 +1218,23 @@ def build_analytic_input_from_storage(
             metric_row_id=metric_row_id,
             metric_code=metric_code,
             observation_id=observation_id,
+            _batch=_batch,
         )
     )
-    source = session.get(GarminSource, record.garmin_source_id)
+    get = session.get if _batch is None else _batch.get
+    source = get(GarminSource, record.garmin_source_id)
     if source is None:
         raise AnalyticInputAssemblyError("Garmin source missing for analytic input record")
     metric = _metric_dto_from_row(metric_row)
     if metric.metric_code == "sleep_duration_seconds" and metric.has_value:
-        stages = tuple(session.scalars(select(GarminSleepStageInterval).where(
+        stages = tuple(_batch.stages.get(record.id, ())) if _batch is not None else tuple(
+            session.scalars(select(GarminSleepStageInterval).where(
             GarminSleepStageInterval.sleep_record_id == record.id,
         ).order_by(GarminSleepStageInterval.ordinal)))
-        boundary_metrics = tuple(session.scalars(select(GarminRecordMetric).where(
+        boundary_metrics = tuple(
+            row for row in _batch.metrics.get(record.id, ())
+            if row.metric_code == "sleep_summary_session_bounds"
+        ) if _batch is not None else tuple(session.scalars(select(GarminRecordMetric).where(
             GarminRecordMetric.record_id == record.id,
             GarminRecordMetric.metric_code == "sleep_summary_session_bounds",
         )))
@@ -1246,7 +1259,7 @@ def build_analytic_input_from_storage(
         if rule_version == ANALYTIC_RULE_VERSION:
             rule_version = "r03-garmin-sleep-duration-quality-v2"
     if record.stream_code == GarminStream.ACTIVITY.value:
-        siblings = session.scalars(
+        siblings = _batch.metrics.get(record.id, ()) if _batch is not None else session.scalars(
             select(GarminRecordMetric).where(GarminRecordMetric.record_id == record.id)
         )
         metric = project_activity_metric_quality(siblings)[metric_row.metric_code]

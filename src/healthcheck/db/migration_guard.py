@@ -35,6 +35,7 @@ ACCEPTED_MIGRATION_CHAIN: tuple[MigrationIdentity, ...] = (
     ("0018_google_offline_steps", "0017_lab_intake_v1"),
     ("0019_garmin_summary_date_proofs", "0018_google_offline_steps"),
     ("0020_google_exercise", "0019_garmin_summary_date_proofs"),
+    ("0021_garmin_observation_lookup", "0020_google_exercise"),
 )
 ACCEPTED_MIGRATION_HEAD = ACCEPTED_MIGRATION_CHAIN[-1][0]
 MIGRATION_SCRIPT_LOCATION = Path(__file__).with_name("migrations")
