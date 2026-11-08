@@ -16,6 +16,7 @@ from healthcheck.combined_evidence import (
     render_combined_evidence,
 )
 from healthcheck.db.models import GarminSource, GoogleSource
+from healthcheck.owner_time import owner_zone
 
 router = APIRouter()
 NO_STORE = {"Cache-Control": "no-store"}
@@ -102,7 +103,7 @@ def generate(request: Request, selection: ExportRequest) -> JSONResponse:
         packet = read_combined_evidence(
             profile=request.app.state.runtime_paths.root, profile_kind="durable_owner_runtime",
             request=query, evaluated_at_utc=clock,
-            evaluation_local_date=clock.astimezone().date(),
+            evaluation_local_date=clock.astimezone(owner_zone(request.app.state.settings)).date(),
         )
         # Both serializers must succeed before either result is released. No prefix,
         # server-side file/cache, output cap increase, or second database read.

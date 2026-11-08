@@ -41,6 +41,7 @@ from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
 READ_CONTRACT_VERSION = "garmin-completed-day-steps-moscow-v2"
+# Fixed versioned completion policy (also exported), independent of the owner clock.
 DISPLAY_ZONE = "Europe/Moscow"
 MAX_CANDIDATES = 4096
 MAX_PROVENANCE = 4096

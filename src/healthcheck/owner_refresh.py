@@ -70,6 +70,7 @@ from healthcheck.source_freshness_consumer import (
 OWNER_REFRESH_CONTRACT_VERSION = "healthcheck-owner-refresh-v1"
 OWNER_REFRESH_STEPS_CONTRACT_VERSION = "healthcheck-owner-refresh-v2"
 OWNER_REFRESH_STEPS_CATCHUP_CONTRACT_VERSION = "healthcheck-owner-refresh-v3"
+# Fixed Steps acquisition/catch-up policy, bound to persisted progress; not the owner clock.
 OWNER_REFRESH_STEPS_SELECTION_ZONE = "Europe/Moscow"
 FRESHNESS_EVALUATION_FAILED_REASON = "freshness_evaluation_failed"
 
@@ -720,7 +721,7 @@ def run_owner_refresh(
         raise ValueError("Steps catch-up requires include Steps and the current Moscow date")
     owner_refresh_started_ns = monotonic_ns()
     paths = require_established_runtime(settings)
-    as_of_date = validate_sync_date(as_of)
+    as_of_date = validate_sync_date(as_of, settings=settings)
     window_days = validate_trailing_window_days(trailing_window_days)
     steps_as_of = None
     steps_plan = None

@@ -392,10 +392,13 @@ def test_dashboard_service_preserves_tags_and_reserved_source_stays_closed(ui):
             )
 
 
-def test_default_date_visible_primary_navigation(ui):
+def test_default_date_visible_primary_navigation(ui, monkeypatch):
+    from healthcheck import owner_time
+
+    monkeypatch.setattr(owner_time, "owner_now", lambda settings: datetime(2099, 1, 2, tzinfo=UTC))
     client, _, _ = ui
     response = client.get("/context")
-    assert FormParser(response.text).values["event_date"] == date.today().isoformat()
+    assert FormParser(response.text).values["event_date"] == "2099-01-02"
     assert 'aria-label="Основные разделы"' in response.text
     assert response.text.count('href="/context"') == 1
     assert 'href="/context" class="active" aria-current="page">Комментарии</a>' in response.text

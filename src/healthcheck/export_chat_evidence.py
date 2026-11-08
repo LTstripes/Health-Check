@@ -16,6 +16,8 @@ from healthcheck.chat_evidence import (
     read_period_evidence,
     render_evidence,
 )
+from healthcheck.config import Settings
+from healthcheck.owner_time import owner_zone
 
 
 def _check_output_location(output: Path, agent_workspace_roots: list[Path]) -> None:
@@ -63,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
             profile=profile, profile_kind=args.profile_kind,
             request=EvidenceRequest(args.start, args.end, tuple(args.domain), tuple(args.metric),
                                     args.garmin_source_id, args.limit, args.weight_cadence_days),
-            evaluated_at_utc=clock, evaluation_local_date=clock.astimezone().date(),
+            evaluated_at_utc=clock,
+            evaluation_local_date=clock.astimezone(owner_zone(Settings())).date(),
         )
         machine = encode_evidence(envelope)
         readable = render_evidence(envelope)

@@ -41,6 +41,7 @@ from healthcheck.canonical import (
 from healthcheck.config import Settings
 from healthcheck.db.models import ScalarMeasurement
 from healthcheck.db.repositories import repositories_for, restore_stored_utc
+from healthcheck.owner_time import owner_today
 from healthcheck.web.common import ALGORITHM_BOUNDARY_WARNING, BIA_UNCERTAINTY
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
@@ -132,7 +133,7 @@ class WeightQueryService:
         compatibility_group: str | None = None,
     ) -> dict[str, Any]:
         ensure_read_snapshot(self.session)
-        as_of = end_date or date.today()
+        as_of = end_date or owner_today(self.settings)
         records = self._current_records(start_date=start_date, end_date=end_date)
         canonical, selected_weight_ids, selected_composition_ids = (
             self._established_canonical()

@@ -6,6 +6,7 @@ import os
 from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
 from typing import Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
     )
 
     data_dir: Path = Field(default_factory=default_data_dir)
+    owner_timezone: str = "Europe/Moscow"
     ui_port: int = Field(default=8120, ge=1, le=65535)
     ui_mode: Literal["loopback", "home-server"] = "loopback"
     ui_host: str = "127.0.0.1"
@@ -60,6 +62,15 @@ class Settings(BaseSettings):
     photo_vision_physical_device_code: str | None = None
     photo_vision_source_application: str | None = None
     photo_vision_source_application_version: str | None = None
+
+    @field_validator("owner_timezone")
+    @classmethod
+    def validate_owner_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("HEALTHCHECK_OWNER_TIMEZONE must be a known IANA zone") from exc
+        return value
 
     @field_validator("data_dir", mode="before")
     @classmethod

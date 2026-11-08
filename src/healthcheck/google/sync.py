@@ -70,6 +70,7 @@ from healthcheck.google.probe import (
 )
 from healthcheck.google.storage import ContentAddressedGooglePayloadStore
 from healthcheck.logging import log_event
+from healthcheck.owner_time import owner_today
 from healthcheck.runtime import prepare_runtime
 
 SYNC_CONTRACT_VERSION = "r04-google-sync-coverage-v1"
@@ -427,9 +428,11 @@ class _SyncAuthContext:
         }
 
 
-def validate_sync_date(value: date | str | None, *, field_name: str = "date") -> date:
+def validate_sync_date(
+    value: date | str | None, *, field_name: str = "date", settings: Settings | None = None,
+) -> date:
     if value is None:
-        return datetime.now(UTC).date()
+        return owner_today(settings or Settings())
     if isinstance(value, date) and not isinstance(value, datetime):
         return value
     if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
@@ -887,7 +890,7 @@ class GoogleHealthSync:
             start_date, end_inclusive = validate_inclusive_window(start, end)
             window_start, window_end = start_date, inclusive_to_exclusive_end(end_inclusive)
         else:
-            as_of_date = validate_sync_date(as_of)
+            as_of_date = validate_sync_date(as_of, settings=self.settings)
             window_end = as_of_date + timedelta(days=1)
             window_start = window_end - timedelta(days=DEFAULT_FIRST_RUN_LOOKBACK_DAYS)
         return self._execute(

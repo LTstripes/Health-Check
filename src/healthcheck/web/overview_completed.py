@@ -23,6 +23,7 @@ def completed_overview_window(*, start: date, end: date, preset: str | None,
         raise ValueError("Overview evaluation clock must be timezone-aware")
     if end < start:
         raise ValueError("Overview period is reversed")
+    # Fixed completed-day Overview policy in Architecture, not the owner calendar clock.
     yesterday = evaluated_at.astimezone(ZoneInfo("Europe/Moscow")).date() - timedelta(days=1)
     if preset in {"7", "30", "90"}:
         effective_end = yesterday

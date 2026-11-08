@@ -49,6 +49,7 @@ from healthcheck.garmin.analytic_contract import (
     AnalyticMetricDefinition,
 )
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+from healthcheck.owner_time import owner_today
 from healthcheck.web.garmin_training_overview import (
     DEFAULT_RECENT_ACTIVITIES,
     MAX_RECENT_ACTIVITIES,
@@ -557,7 +558,7 @@ class GarminQueryService:
         end_date: date | None = None,
     ) -> dict[str, Any]:
         selection = self.resolve_source(garmin_source_id)
-        end = end_date or date.today()
+        end = end_date or owner_today(self.settings)
         start = start_date or (end - timedelta(days=DEFAULT_WINDOW_DAYS - 1))
         metric = (metric_code or DEFAULT_SCALAR_METRIC).strip()
         payload: dict[str, Any] = {

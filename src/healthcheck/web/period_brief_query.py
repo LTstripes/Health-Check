@@ -46,6 +46,7 @@ from healthcheck.garmin.analytic_contract import (
     SURFACE_ANALYTIC_METRIC_CODES,
     get_analytic_metric_definition,
 )
+from healthcheck.owner_time import owner_zone
 from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.web.garmin_query import DEFAULT_SCALAR_METRIC, GarminQueryService
 from healthcheck.web.query import WeightQueryService
@@ -138,7 +139,7 @@ class PeriodBriefService:
         period = normalize_period(start_date, end_date)
         ensure_read_snapshot(self.session)
         evaluated_at_utc = datetime.now(UTC)
-        evaluation_local_date = evaluated_at_utc.astimezone().date()
+        evaluation_local_date = evaluated_at_utc.astimezone(owner_zone(self.settings)).date()
         weight_summary = self.weight.summary(start_date=start_date, end_date=end_date)
         import_queue = self.weight.import_queue_summary()
         sleep_report = self.sleep.report(start_date=start_date, end_date=end_date)

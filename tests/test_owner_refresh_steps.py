@@ -124,7 +124,9 @@ def test_default_steps_date_uses_moscow_midnight_only(
             return instant.astimezone(tz)
 
     monkeypatch.setattr(owner_refresh, "datetime", Clock)
-    monkeypatch.setattr(owner_refresh, "validate_sync_date", lambda value: date(2099, 12, 31))
+    monkeypatch.setattr(
+        owner_refresh, "validate_sync_date", lambda value, **kwargs: date(2099, 12, 31),
+    )
     monkeypatch.setattr(owner_refresh, "GoogleAuthService", lambda *a, **k: granted())
     monkeypatch.setattr(
         owner_refresh, "acquire_steps",

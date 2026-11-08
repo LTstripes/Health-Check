@@ -22,6 +22,7 @@ from healthcheck.context import (
 from healthcheck.context.service import ContextRevisionView, TemporalValue
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import ContextEventHead, ContextEventRevision
+from healthcheck.owner_time import owner_today
 from healthcheck.web.common import request_engine
 from healthcheck.web.context_time import (
     fold_choices,
@@ -72,8 +73,8 @@ def _render(request: Request, *, status: int = 200, **context):
     return response
 
 
-def _blank():
-    return {"event_date": date.today().isoformat(), "operation_id": str(uuid4())}
+def _blank(settings):
+    return {"event_date": owner_today(settings).isoformat(), "operation_id": str(uuid4())}
 
 
 def _identifier(value: str) -> str:
@@ -110,7 +111,7 @@ def _temporal(form: dict[str, str]) -> TemporalValue:
 
 def _form_for(view: ContextRevisionView) -> dict[str, str]:
     value = view.temporal
-    form = _blank()
+    form = {"operation_id": str(uuid4())}
     form.update(
         original_text=view.original_text,
         event_date=value.start_local_date.isoformat(),
@@ -167,9 +168,10 @@ def _view(service: ContextService, event_id: str) -> ContextRevisionView | None:
 
 @router.get("/context")
 def context_list(request: Request):
-    form = _blank()
-    start = request.query_params.get("from_date", (date.today() - timedelta(days=30)).isoformat())
-    end = request.query_params.get("to_date", date.today().isoformat())
+    form = _blank(request.app.state.settings)
+    today = date.fromisoformat(form["event_date"])
+    start = request.query_params.get("from_date", (today - timedelta(days=30)).isoformat())
+    end = request.query_params.get("to_date", today.isoformat())
     try:
         from_date = parse_date_only(start).start_local_date
         to_date = parse_date_only(end).start_local_date
