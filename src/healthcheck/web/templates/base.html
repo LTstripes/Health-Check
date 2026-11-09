@@ -70,7 +70,7 @@
     </div>
   </main>
   <footer class="legal">
-    <details class="owner-info"><summary><span aria-hidden="true">ⓘ</span> О показателях и ограничениях</summary><p>Интерфейс только на этом компьютере. Потребительский BIA — не клиническое измерение. Нет диагнозов и утверждений о причинах.</p></details>
+    <details class="owner-info"><summary><span aria-hidden="true">ⓘ</span> О показателях и ограничениях</summary><p data-owner-runtime="{{ 'home-server' if request.state.home_server|default(false) else 'loopback' }}">{% if request.state.home_server|default(false) %}Домашний сервер · вход только для владельца.{% else %}Работает локально на этом компьютере.{% endif %} Потребительский BIA — не клиническое измерение. Нет диагнозов и утверждений о причинах.</p></details>
     <details class="owner-state-help">
       <summary>Как читать состояния данных</summary>
       <p>Частичные данные, недостаток данных и отсутствие обнаруженных изменений — разные состояния. Неизвестные и недоступные данные не означают ноль или отсутствие событий.</p>

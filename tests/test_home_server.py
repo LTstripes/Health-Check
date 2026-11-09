@@ -166,7 +166,12 @@ def test_login_cookie_rotation_logout_and_private_routes(home):
         first = client.cookies.get(COOKIE)
         assert app.state.home_auth.session(first)
         assert client.get("/api/weight/series").status_code == 200
-        assert 'action="/logout"' in client.get("/weight").text
+        weight = client.get("/weight").text
+        assert 'action="/logout"' in weight
+        # Authenticated home-server footer names its mode, not the loopback copy.
+        assert ('<p data-owner-runtime="home-server">Домашний сервер · вход только для владельца.'
+                in weight)
+        assert "Работает локально на этом компьютере" not in weight
         for path in ("/favicon.ico", "/static/favicon-16x16.png", "/static/favicon-32x32.png"):
             assert client.get(path).status_code == 200
         assert client.get("/api/analysis-export/sources").status_code == 200

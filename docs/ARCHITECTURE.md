@@ -1024,9 +1024,11 @@ Unknown Recovery Time unit stays adjacent to actual value/zero.
 
 `--raw`, `--trend`, `--goal` ссылаются на первые три ряда. Для текста и заголовков используются локальные семейства `--owner-sans` и `--owner-heading-font`. Навигация расположена сбоку; переключатель «Авто / Тёмная / Светлая» управляет `data-theme`, а без JavaScript действует системная схема. Элементы управления сохраняют доступный фокус, широкие таблицы и графики прокручиваются локально.
 
-The footer in `base.html` unconditionally says “Интерфейс только на этом компьютере” in both loopback
-and authenticated home-server mode. Home-server additionally has logout navigation; footer text is not a
-bind/access check. Its literal wording does not prove the deployment is loopback or configured remote.
+The footer in `base.html` names the runtime mode of the current request: “Работает локально на этом
+компьютере” in loopback and “Домашний сервер · вход только для владельца” only when the home-server
+middleware has authenticated the Owner (`request.state.home_server`). Home-server additionally has logout
+navigation. Footer text is not a bind/access check and does not by itself prove the deployment's network
+exposure or home-server configuration.
 
 | Version | Where used | Preserves | Limitations |
 | --- | --- | --- | --- |
