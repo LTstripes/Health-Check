@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
 
+from healthcheck.labs.history import analyte_key
 from healthcheck.labs.schema import MAX_DRAFT, MAX_PDF, Draft, LabError, encode
 from healthcheck.labs.service import LabConflict, LabService
 from healthcheck.web.common import request_engine
@@ -25,10 +26,22 @@ def service(request):
 def render(request, *, status=200, **context):
     if context.get("review"):
         context["fields"] = correction_fields(deepcopy(context["review"]["draft"]))
+        review = context["review"]
+        accepted = (review.get("previous") or {}).get("rows", [])
+        context["confirmed_rows"] = {
+            row["row_id"] for row in review["draft"]["rows"] if row in accepted
+        }
+    if "listing" in context:
+        listing = context["listing"]
+        by_id = {report["report_id"]: report for report in listing["reports"]}
+        context["report_entries"] = [
+            {"card": card, "report": by_id[card["report_id"]]} for card in report_cards(listing)
+        ]
+        context["history_listing"] = service(request).analytes()
     response = templates.TemplateResponse(
         request,
         "labs.html",
-        {"page": "labs", "operation_id": str(uuid4()), **context},
+        {"page": "labs", "operation_id": str(uuid4()), "analyte_key": analyte_key, **context},
         status_code=status,
     )
     response.headers["Cache-Control"] = "no-store"
@@ -118,14 +131,21 @@ def report_cards(listing: dict) -> list[dict]:
 
 @router.get("/labs")
 def labs_list(request: Request):
-    listing = service(request).reports()
-    by_id = {report["report_id"]: report for report in listing["reports"]}
-    return render(
-        request, listing=listing,
-        report_entries=[
-            {"card": card, "report": by_id[card["report_id"]]} for card in report_cards(listing)
-        ],
+    return render(request, listing=service(request).reports())
+
+
+@router.get("/labs/analytes/{key}")
+def labs_analyte(request: Request, key: str):
+    listing = service(request).analytes()
+    history = next((item for item in listing["analytes"] if item["key"] == key), None)
+    response = templates.TemplateResponse(
+        request, "lab_history.html",
+        {"page": "labs", "history": history,
+         "unreadable_drafts": listing["unreadable_drafts"]},
+        status_code=200 if history else 404,
     )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.post("/labs/stage")
