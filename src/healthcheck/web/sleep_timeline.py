@@ -398,6 +398,9 @@ def sleep_timeline_client(timeline: Mapping[str, Any]) -> dict[str, Any]:
     """
 
     packet = {key: value for key, value in timeline.items() if key not in _CLIENT_OMITTED_KEYS}
+    regularity = dict(timeline.get("regularity") or {})
+    packet["schedule_bounds"] = regularity.pop("night_bounds", {})
+    packet["regularity"] = regularity
     packet["night_endpoint"] = SLEEP_NIGHT_ENDPOINT
     return packet
 
