@@ -32,6 +32,7 @@ from healthcheck.web.pages import router as pages_router
 from healthcheck.web.period_brief import router as period_brief_router
 from healthcheck.web.source_freshness import router as source_freshness_router
 from healthcheck.web.statistics import router as statistics_router
+from healthcheck.web.trip_passport import router as trip_passport_router
 from healthcheck.web.ui_guard import ui_guard_middleware
 from healthcheck.web.weekly_preview import weekly_preview_presentation
 from healthcheck.web.weight import router as weight_router
@@ -80,6 +81,7 @@ def create_ui_app(
     app.include_router(analysis_export_router)
     app.include_router(source_freshness_router)
     app.include_router(context_router)
+    app.include_router(trip_passport_router)
     app.include_router(statistics_router)
     app.include_router(pages_router)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")

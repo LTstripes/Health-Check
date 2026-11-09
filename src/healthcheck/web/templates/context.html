@@ -30,7 +30,7 @@
 {% endmacro %}
 {% block content %}
 <div class="context-page">
-  <p>Исходные комментарии с датой события. Время необязательно. Исправления сохраняют предыдущие версии.</p>
+  <p>Исходные комментарии с датой события. Время необязательно. Исправления сохраняют предыдущие версии. <a href="/passport">Паспорт поездки или события</a></p>
   {% if error %}<p class="context-error" role="alert">{{ error }}</p>{% endif %}
   {% if saved %}<p class="context-success" role="status">Сохранено. Ниже запись, прочитанная из хранилища.</p>{% endif %}
   {% if saved_older %}<p role="status">Операция сохранена ранее. Ниже более новая актуальная версия; предыдущая доступна в истории.</p>{% endif %}
@@ -93,7 +93,7 @@
     </form>
     {% if items is defined %}
       {% for view in items %}
-        {{ note(view) }}<p><a href="/context/{{ view.event_id }}">Открыть / исправить</a></p>
+        {{ note(view) }}<p><a href="/context/{{ view.event_id }}">Открыть / исправить</a> · <a href="/passport?event_id={{ view.event_id }}">Паспорт периода</a></p>
       {% else %}<p>За выбранные даты комментариев нет. Это не означает отсутствие событий.</p>{% endfor %}
     {% endif %}
   </section>
