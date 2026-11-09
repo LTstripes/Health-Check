@@ -69,11 +69,14 @@ def _evidence_query(session: Session, model, *, joins: tuple, conditions: tuple,
         )
         return restore_stored_utc(stamp), local_day, chronology_issue, True, count > 0
 
-    latest_day, count = session.execute(query(
-        func.max(model.source_local_date), func.count(),
-    )).one()
-    if not count:
+    # We need existence and the latest day, not the size of the historical
+    # stream. A backwards index seek also retains an observed undated row.
+    latest = session.execute(query(model.source_local_date).order_by(
+        model.source_local_date.desc(),
+    ).limit(1)).first()
+    if latest is None:
         return None, None, None, True, False
+    latest_day = latest[0]
     if latest_day is not None:
         selected = (model.source_local_date == latest_day,)
         undated_invalid = False

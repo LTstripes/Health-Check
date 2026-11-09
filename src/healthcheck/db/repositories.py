@@ -19,6 +19,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from healthcheck.db.agreement_validation_cache import validated_runs
 from healthcheck.db.models import (
     AcquisitionSource,
     AgreementCoverage,
@@ -3094,11 +3095,14 @@ class AgreementRunRepository:
     def validate_published(self, run_id: str) -> AgreementRun:
         """Validate an already successful run before exposing it for replay."""
 
+        validated = validated_runs(self.session, run_id)
         run = self.get_by_id(run_id)
         if run is None:
             raise KeyError(f"unknown agreement run {run_id}")
         if run.status != RunStatus.SUCCEEDED.value:
             raise ValueError("only a completed successful agreement run can be replayed")
+        if validated is not None and run_id in validated:
+            return run
         self._validate_integrity(
             run,
             counts={
@@ -3108,6 +3112,8 @@ class AgreementRunRepository:
                 "coverage_count": run.coverage_count,
             },
         )
+        if validated is not None:
+            validated.add(run_id)
         return run
 
     def pairs_for_run(self, run_id: str) -> list[AgreementRunPair]:

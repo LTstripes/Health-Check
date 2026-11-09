@@ -583,7 +583,7 @@ def test_backup_restore_retains_exercise_and_raw_evidence(database, tmp_path):
     create_backup(paths.root, archive, scratch=tmp_path)
     assert (
         verify_backup(archive, scratch=tmp_path).migration_revision
-        == "0021_garmin_observation_lookup"
+        == "0022_google_freshness_lookup"
     )
     target = tmp_path / "restored-exercise"
     restore_profile(archive, target, scratch=tmp_path)

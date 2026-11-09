@@ -109,7 +109,7 @@ def test_batch_preserves_observation_errors(analytic_persistence_database, failu
     session.rollback()
 
 
-def test_exercise_discovery_uses_existing_context_index(demo):
+def test_exercise_discovery_uses_freshness_context_index(demo):
     from healthcheck.db.engine import session_scope
     from healthcheck.runtime import resolve_runtime_paths
 
@@ -121,7 +121,7 @@ def test_exercise_discovery_uses_existing_context_index(demo):
             sql, params = statements[0]
             plan = session.connection().exec_driver_sql("EXPLAIN QUERY PLAN " + sql, params)
             details = " ".join(row[3] for row in plan)
-            assert "ix_google_source_records_query_context" in details
+            assert "ix_google_source_records_freshness" in details
             assert "SCAN google_source_records" not in details
     finally:
         engine.dispose()

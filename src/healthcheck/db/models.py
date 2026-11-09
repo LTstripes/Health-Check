@@ -754,6 +754,11 @@ class GarminSourceRecord(Base):
             "surface_code",
             "source_local_date",
         ),
+        Index(
+            "ix_garmin_source_records_freshness",
+            "stream_code", "surface_code", "projection_status", "source_local_date",
+            "record_status", "garmin_source_id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(ID_LENGTH), primary_key=True, default=new_id)
@@ -2286,6 +2291,11 @@ class GoogleSourceRecord(Base):
             "stream_code",
             "query_mode",
             "data_source_family",
+        ),
+        Index(
+            "ix_google_source_records_freshness",
+            "google_source_id", "stream_code", "query_mode", "data_source_family",
+            "projection_status", "record_status", "source_local_date",
         ),
         Index(
             "ix_google_source_records_external_id",
