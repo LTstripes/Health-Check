@@ -42,6 +42,7 @@
 {% endmacro %}
 
 {% from 'overview_period_chart.html' import period_chart, period_values with context %}
+{% from 'overview_coverage.html' import coverage_qualifier %}
 <section class="brief-overview" aria-labelledby="brief-overview-heading">
   <h2 id="brief-overview-heading" class="overview-section-label">Главное за период</h2>
   <ul class="brief-overview-list">
@@ -70,7 +71,7 @@
         {% set period_sleep = overview.period_sleep %}
         <div data-overview-period-sleep>
         <p class="overview-value">{{ period_sleep.duration_display or '—' }}</p>
-        <p class="overview-source">Garmin · средняя длительность</p>
+        <p class="overview-source">Garmin · средняя длительность {{ coverage_qualifier(period_sleep.eligible_days, period_sleep.days) }}</p>
         {% if period_sleep.reason == 'source_not_selected' %}<p class="overview-qualifier">Выберите источник Garmin.</p>
         {% elif period_sleep.reason == 'range_exceeds_max' %}<p class="overview-qualifier">Период длиннее доступного окна чтения (400 дней).</p>
         {% elif period_sleep.reason == 'read_unavailable' %}<p class="overview-qualifier">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}

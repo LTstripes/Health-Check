@@ -1,4 +1,5 @@
 {% from 'overview_period_chart.html' import period_chart, period_values with context %}
+{% from 'overview_coverage.html' import coverage_qualifier %}
 {% set bb = overview.body_battery %}
 {% set selected = bb.selected %}
 {% set reasons = {
@@ -34,7 +35,7 @@
       {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}</p>{% endfor %}
   {{ period_values(bb.figure, 'Максимумы Body Battery') }}</div></details>{% endif %}
   </div>
-  <p class="overview-source">Среднее дневных максимумов</p>
+  <p class="overview-source">Среднее дневных максимумов {% if selected and selected.mean_display is not none %}{{ coverage_qualifier(selected.eligible_day_count, selected.requested_day_count) }}{% endif %}</p>
     <div data-bb-window="selected" data-bb-window-state="{{ selected.state if selected else 'no_completed_days' }}">
       <strong>{{ selected.mean_display ~ ' балл.' if selected and selected.mean_display is not none else '—' }}</strong>
       {% if selected and selected.reason %}<p class="muted">{{ reasons.get(selected.reason, selected.reason) }}</p>{% endif %}

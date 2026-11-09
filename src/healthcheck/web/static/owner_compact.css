@@ -1,0 +1,59 @@
+/* #515 compactness for Statistics and Activity. Spacing and type scale only:
+   values, sources, states and disclosures stay in place; the shared shell is unchanged. */
+
+/* Statistics: one quiet provider legend, tighter metric rows. */
+.statistics-page .statistics-window { margin: 10px 0 0; font-size: .875rem; color: var(--muted); }
+.statistics-page .statistics-source-headings { margin: 12px 0 0; padding: 6px 0; }
+.statistics-page .statistics-source-headings h2 { margin: 0; font-family: var(--owner-sans); font-size: .875rem; font-weight: 600; color: var(--muted); }
+/* Without a warning or a source choice the legend only repeats each card's provider label. */
+.statistics-page .statistics-source-headings:not(:has(p, details)) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; padding: 0; border: 0; }
+.statistics-page .statistics-steps-warning { margin: 4px 0; font-size: .875rem; }
+.statistics-page .statistics-steps { padding: 12px 0; }
+.statistics-page .statistics-steps > h2,
+.statistics-page .statistics-metric > h2 { margin: 0 0 2px; }
+.statistics-page .statistics-steps .metric-heading > h3,
+.statistics-page .statistics-metric h3 { margin: 0; font-size: .875rem; }
+.statistics-page .steps-headlines { margin: .5rem 0; }
+.statistics-page [data-steps-summary-unavailable],
+.statistics-page [data-steps-selection] { margin: 4px 0; font-size: .875rem; color: var(--muted); }
+.statistics-page .statistics-metric { padding: 12px 0; }
+.statistics-page .statistics-value { font-size: 1.75rem; margin: 2px 0 4px; }
+.statistics-page .statistics-value ul { font-size: 1.125rem; }
+.statistics-page .statistics-metric article > p { margin: 2px 0; }
+.statistics-page .statistics-comparison { margin: 8px 0 0; }
+/* Single-provider metrics share a row; two-provider metrics keep the full Garmin | Google pair. */
+@media (min-width: 1024px) {
+  .statistics-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+  .statistics-metrics > .statistics-metric { grid-column: 1 / -1; min-width: 0; }
+  .statistics-metrics > .statistics-metric:has(> .statistics-pair > article:only-child) { grid-column: auto; }
+}
+
+/* Activity: the source line is a caption, not a card; secondary cards are lighter. */
+.activity-source-card.card { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 0; margin: 0 0 12px; background: transparent; border: 0; border-radius: 0; font-size: .875rem; }
+.activity-source-card > p { margin: 0; color: var(--muted); }
+.activity-source-card #source-status p { margin: 0; }
+.activity-source-card #source-form { flex-basis: 100%; }
+#activity-journal > .card, #training-recovery > .card { padding: 14px 18px; margin-bottom: 12px; }
+#activity-journal > details.card, #training-recovery > details.card, .owner-page-content > details.activity-technical { padding: 0 18px; margin-bottom: 12px; }
+.activity-owner-summary h2, #google-exercise h2, .activity-comparison h2 { margin: 0 0 6px; }
+.activity-journal-context { font-size: .8125rem; color: var(--muted); }
+#google-exercise > p { margin: 4px 0; }
+#google-exercise .google-exercise-scope { font-size: .8125rem; }
+.activity-comparison #activity-form { margin: 4px 0; }
+.activity-comparison #activity-selection-hint { margin: 4px 0; }
+
+/* Sessions for a period: one caption, a narrow filter, the table. */
+.sessions-caption { margin: 0 0 8px; font-size: .875rem; }
+section[aria-labelledby="sessions-title"] > h2 { margin: 4px 0 2px; }
+section[aria-labelledby="sessions-title"] > p:first-child { margin: 0 0 8px; }
+section[aria-labelledby="sessions-title"] .statistics-controls { margin: 0 0 8px; }
+section[aria-labelledby="sessions-title"] .statistics-controls label { flex: 0 1 320px; }
+
+/* Saved-session detail: tighter metric grid. */
+.activity-session-detail.card { padding: 16px 20px; }
+.activity-session-detail h2 { margin: 4px 0 2px; }
+.activity-session-detail > p { margin: 0 0 4px; }
+.activity-session-detail .owner-info { margin: 0 0 4px; }
+.activity-session-detail .owner-info > summary { padding: 8px 0; }
+.activity-session-detail .activity-detail-grid { gap: 12px; margin: 8px 0 0; }
+.activity-session-detail .activity-metric-card h3 { margin: 0 0 4px; }
