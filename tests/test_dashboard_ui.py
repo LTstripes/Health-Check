@@ -1321,7 +1321,9 @@ def test_owner_shell_observatory_visual_system(tmp_path):
         weight = client.get("/weight").text
         assert '<html lang="ru"' in overview
         assert "Обзор" in overview and "За период" in overview
-        assert "Интерфейс только на этом компьютере" in overview
+        # Loopback footer names the local mode and never claims a home server.
+        assert '<p data-owner-runtime="loopback">Работает локально на этом компьютере.' in overview
+        assert "Домашний сервер" not in overview
         assert "Потребительский BIA — не клиническое измерение" in overview
         assert "К содержимому" in overview
         assert 'aria-label="Основные разделы"' in overview

@@ -13,6 +13,8 @@
   }
   if (!data || !Array.isArray(data.display_series) || !data.display_series.length) return;
   const detail = document.getElementById("sleep-timeline-detail");
+  const nightCard = window.healthcheckSleepNightCard;
+  if (!nightCard) return;
   const seriesColors = { garmin: "var(--series-1)", google: "var(--series-4)" };
   const unresolvedColor = "var(--series-3)";
   const lineColor = "var(--line-strong)";
@@ -125,53 +127,6 @@
     return sessions.find(function (item) { return item.record_id === point.record_id; }) || null;
   }
 
-  function sessionDetails(series, session) {
-    const metrics = session.metrics || {};
-    const cell = function (code) { return metrics[code] || null; };
-    const eligible = function (code) {
-      const item = cell(code);
-      return Boolean(item && item.eligible);
-    };
-    const rows = [];
-    const add = function (label, value) {
-      rows.push("<div><dt>" + esc(label) + "</dt><dd>" + value + "</dd></div>");
-    };
-    for (const [code, label] of [["sleep_start_at", "Начало сна"], ["sleep_end_at", "Окончание сна"]]) {
-      if (eligible(code)) add(label, esc(window.healthcheckOwnerFormat.endpoint(cell(code), session, code)));
-    }
-    if (eligible("sleep_time_in_bed_seconds")) {
-      add("Время в постели", durationText(cell("sleep_time_in_bed_seconds").value));
-    }
-    [
-      ["sleep_stage_light_seconds", "Лёгкий сон"],
-      ["sleep_stage_deep_seconds", "Глубокий сон"],
-      ["sleep_stage_rem_seconds", "Быстрый сон (REM)"],
-      ["sleep_awake_waso_seconds", "Бодрствование внутри сессии"]
-    ].forEach(function (item) {
-      if (eligible(item[0])) add(item[1], durationText(cell(item[0]).value));
-    });
-    // Native Garmin score stays a per-session detail; Google has no promised score.
-    if (series.provider === "garmin" && eligible("sleep_score")) {
-      add("Оценка сна Garmin · сессия", fmtNumber(cell("sleep_score").value) + " баллы");
-    }
-    let html = "";
-    if (rows.length) {
-      html += '<dl class="sleep-timeline-session">' + rows.join("") + "</dl>";
-    } else {
-      html += '<p class="muted">Точные время и стадии этой сессии недоступны; запись сессии — в технических деталях.</p>';
-    }
-    const check = ((cell("sleep_duration_asleep_seconds") || {}).evidence || {}).quality_inputs || {};
-    if ((check.session_bound_validation || {}).state === "unverified") {
-      html += '<p class="muted">Границы не проверены; сводка источника сохранена в расчёте.</p>';
-    }
-    const incompleteStages = Object.entries(metrics).some(([code, item]) =>
-      /sleep_stage_|sleep_awake_waso/.test(code) && !item.eligible);
-    if (incompleteStages) html += '<p class="muted">Стадии сна доступны не полностью; длительность показана независимо.</p>';
-    html += '<details class="owner-details"><summary>ⓘ Данные сессии</summary><pre class="provenance">' +
-      esc(JSON.stringify(session, null, 2)) + '</pre></details>';
-    return html;
-  }
-
   function pointEvidence(point) {
     const rows = [];
     const add = function (label, value) {
@@ -198,23 +153,22 @@
     current = { series: series, point: point };
     const pending = point.state === "value" && cachedNight(series, point) === undefined
       ? loadNight(series, point) : null;
-    let html = "<h3>Ночь · " + esc(readableDate(point.wake_date)) + "</h3>";
-    html += '<p class="sleep-timeline-detail-source">' + esc(series.label) + "</p>";
+    let html = '<article class="night-card" data-night-card="' + esc(point.state) + '">' +
+      nightCard.head(series, point);
     if (point.state === "value") {
-      html += "<p><strong>" + durationText(point.value_seconds) + "</strong></p>";
       if (point.note) html += '<p class="uncertainty-note">' + esc(point.note) + "</p>";
       if (point.role_uncertain) {
         html += '<p class="uncertainty-note">Роль основного сна не подтверждена; запись показана отдельно.</p>';
       }
-      html += '<div data-sleep-session-slot>' + sessionSlot(series, point) + "</div>";
+      html += '<div class="night-card-body" data-sleep-session-slot>' + sessionSlot(series, point) + "</div>";
     } else if (point.state === "ambiguous") {
       html += '<p class="uncertainty-note">' + esc(point.note) +
         " Значения не объединяются и не усредняются.</p>";
     } else {
       html += "<p>" + esc(point.note || "Нет пригодного значения.") + "</p>";
     }
-    html += '<details class="owner-details"><summary>ⓘ Основание точки</summary>' + pointEvidence(point) +
-      '<pre class="provenance">' + esc(JSON.stringify(point, null, 2)) + '</pre></details>';
+    html += '<details class="owner-details night-card-tech"><summary>ⓘ Основание точки</summary>' + pointEvidence(point) +
+      '<pre class="provenance">' + esc(JSON.stringify(point, null, 2)) + '</pre></details></article>';
     detail.innerHTML = html;
     if (pending) pending.then(fillSlot, fillSlot);
 
@@ -244,7 +198,7 @@
       return '<p class="muted" data-sleep-session-state="missing">Сессия этой точки не найдена ' +
         "в текущих сохранённых данных: возможно, они обновились. Обновите страницу.</p>";
     }
-    return sessionDetails(series, session);
+    return nightCard.session(series, session);
   }
 
   function buildAxis(svgElement, width, height, pad, dates, xOf, minTickX) {

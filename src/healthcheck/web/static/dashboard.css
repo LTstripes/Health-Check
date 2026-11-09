@@ -540,10 +540,60 @@ main, .legal { max-width: var(--owner-content-width); }
 .sleep-timeline-point:hover .sleep-timeline-dot,
 .sleep-timeline-point:focus .sleep-timeline-dot { stroke: var(--accent); stroke-width: 4px; }
 .sleep-timeline-point:focus .sleep-timeline-diamond { stroke: var(--accent); stroke-width: 3px; }
-.sleep-timeline-detail { padding: 12px; margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
-.sleep-timeline-detail h3 { margin-top: 0; }
-.sleep-timeline-detail p { margin: 4px 0 8px; }
-.sleep-timeline-detail-source { font-weight: 600; }
+.sleep-timeline-detail { container-type: inline-size; padding: 20px; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); color: var(--muted); }
+/* Selected-night card: header, large thin duration, clock window, stage bar, tiles; detail collapsed. */
+.night-card { display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-flow: row dense; column-gap: 32px; color: var(--ink); }
+.night-card > *, .night-card-body > * { grid-column: 1 / -1; min-width: 0; }
+.night-card-body { display: contents; }
+.night-card p { margin: 0; }
+.night-card .uncertainty-note { margin: 12px 0 0; }
+.night-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.night-card-title { margin: 0; font: 600 1rem/1.35 var(--owner-heading-font); }
+.night-card-source { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .875rem; }
+.night-card-source .swatch { margin: 0; border-radius: 50%; }
+.night-card-duration { margin-top: 14px; }
+.night-card-label, .night-card-tiles dt, .night-card-stages h4 { margin: 0; color: var(--muted); font: 600 .75rem/1.4 var(--owner-sans); }
+.night-card-figure { font: 200 3rem/1.1 var(--owner-heading-font); font-variant-numeric: tabular-nums; }
+.night-card-unit { margin: 0 4px 0 3px; color: var(--muted); font: 400 1.125rem var(--owner-sans); }
+.night-card-window { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font: 300 1.375rem/1.3 var(--owner-heading-font); font-variant-numeric: tabular-nums; }
+.night-card-arrow { color: var(--muted); }
+.night-card-window-label { color: var(--muted); font: 400 .875rem/1.5 var(--owner-sans); }
+.night-card-missing { color: var(--muted); font: italic 400 .875rem/1.5 var(--owner-sans); }
+.night-card-stages { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.night-card-stages h4 { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.night-card-flag { padding: 0 8px; border-radius: 4px; background: var(--attention-bg); color: var(--attention-ink); font-size: .75rem; }
+.night-stage-bar { display: flex; gap: 2px; height: 12px; overflow: hidden; border-radius: 4px; background: var(--line); }
+.night-stage { min-width: 3px; }
+.night-stage-light { background: color-mix(in srgb, var(--series-1) 55%, var(--sunken)); }
+.night-stage-deep { background: var(--series-1); }
+.night-stage-rem { background: var(--series-2); }
+.night-stage-awake { background: var(--series-3); }
+.night-stage-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px 24px; margin: 14px 0 0; padding: 0; list-style: none; }
+.night-stage-legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr); column-gap: 8px; align-items: center; }
+.night-stage-key { width: 10px; height: 10px; border-radius: 50%; }
+.night-stage-name { color: var(--muted); font-size: .875rem; }
+.night-stage-figures { grid-column: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.night-stage-value { font: 400 1.0625rem/1.4 var(--owner-heading-font); font-variant-numeric: tabular-nums; }
+.night-stage-share { color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; }
+.night-card-stage-empty { padding: 2px 0; }
+.night-card-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 20px 0 4px; }
+.night-card-tile { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.night-card-tile dd { margin: 4px 0 0; font: 300 1.5rem/1.2 var(--owner-heading-font); font-variant-numeric: tabular-nums; }
+.night-card-scale { color: var(--muted); font: 400 .875rem var(--owner-sans); }
+.night-card-tile-note { display: block; margin-top: 4px; color: var(--muted); font: 400 .75rem/1.4 var(--owner-sans); }
+.night-card .night-card-note { margin-top: 12px; color: var(--muted); font-size: .875rem; }
+.night-card-tech { margin-top: 4px; }
+.night-card-tech > summary { color: var(--muted); font-size: .875rem; }
+.night-card-tech[open] > summary { color: var(--ink); }
+.night-card-tech .provenance { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.night-card .night-card-window { margin-top: 6px; }
+.night-card-body > p.muted { margin-top: 12px; }
+@container (min-width: 720px) {
+  .night-card { grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); }
+  .night-card-head, .night-card-duration, .night-card-window { grid-column: 1; }
+  .night-card-tiles { grid-column: 2; grid-row: 1 / span 3; align-self: start; grid-template-columns: minmax(0, 1fr); margin: 0; }
+  .night-stage-legend { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 .sleep-timeline-session { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; margin: 8px 0; }
 .sleep-timeline-session dt { color: var(--muted); font-size: .875rem; }
 .sleep-timeline-session dd { margin: 0; font-variant-numeric: tabular-nums; }
