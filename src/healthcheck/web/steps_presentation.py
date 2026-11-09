@@ -1,6 +1,7 @@
 """Exact saved-day presentation; consumes packets, never reads or selects sources."""
 
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from healthcheck.garmin.completed_steps_read import DISPLAY_ZONE
@@ -27,6 +28,19 @@ def _group(value: str | None) -> str | None:
     return "\u202f".join(reversed(groups)) + (dot + fraction if dot else "")
 
 
+def steps_whole_display(value) -> str | None:
+    """Whole-step label for one saved count; the stored value is never changed.
+
+    Counts are integers by contract. A non-integer number is rounded half up at this
+    presentation boundary only, through its decimal text (no binary float drift)."""
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, int):
+        value = int(Decimal(str(value)).to_integral_value(rounding=ROUND_HALF_UP))
+    sign = "-" if value < 0 else ""
+    return sign + _group(str(abs(value)))
+
+
 def steps_mean_display(total: int, count: int) -> str:
     """Round the exact nonnegative ratio to whole steps for display only."""
     whole, remainder = divmod(total, count)
@@ -39,7 +53,7 @@ def _chart(cells: list[dict]) -> dict:
     """Only bounded geometry is numeric in browser data; counts stay strings."""
     maximum = max((c["value"] for c in cells if c["state"] == "value"), default=0)
     scale = max(1, maximum)
-    ticks = [{"value": str(value), "label": _group(str(value)),
+    ticks = [{"value": str(value), "label": steps_whole_display(value),
               "y": 150 - value * 130 // scale}
              for value in sorted({0, scale // 2, scale})]
     # At 20px, reserve a conservative advance for each digit/separator plus
@@ -56,7 +70,7 @@ def _chart(cells: list[dict]) -> dict:
         row = {
             "date": cell["date"].isoformat(), "state": cell["state"],
             "value": str(value) if value is not None else None,
-            "display": _group(str(value)) if value is not None else None,
+            "display": steps_whole_display(value),
             "x": x, "y": y, "index": index,
         }
         rows.append(row)

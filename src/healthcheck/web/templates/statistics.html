@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Статистика — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/owner_compact.css">{% endblock %}
 {% macro identity(source) -%}
 {{ source_labels[source.source_id] }}
 {%- endmacro %}
@@ -56,15 +57,16 @@
           </select>
         </label>
         <button form="statistics-controls" type="submit">Применить источники</button>
-        <ul>{% for source in provider_choices %}
+        <details class="statistics-details"><summary>??????????? ???????? ?? ??????????</summary><ul>{% for source in provider_choices %}
           <li>{{ identity(source) }}: {{ source.source_id }} · {{ source.source_kind }} · {{ source.source_instance_id }} · {{ source.device_attribution_basis }} · {{ 'Устройство атрибутировано' if source.device_attributed else 'Без атрибуции устройства' }}</li>
-        {% endfor %}</ul>
+        {% endfor %}</ul></details>
       </details>
       {% endif %}
     </header>
     {% endfor %}
   </div>
   {% include "statistics_steps.html" %}
+  <div class="statistics-metrics">
   {% for code, label in metric_labels.items() if code != 'activity_type_counts' %}
   <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">
     <h2 id="metric-{{ code }}">{{ label }}</h2>
@@ -165,8 +167,7 @@
     {% endif %}
   </section>
   {% endfor %}
-
-
+  </div>
 </section>
 {% endblock %}
 

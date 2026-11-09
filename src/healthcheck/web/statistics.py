@@ -39,6 +39,7 @@ from healthcheck.web.steps_presentation import (
     garmin_steps_view,
     google_steps_view,
     steps_mean_display,
+    steps_whole_display,
 )
 
 router = APIRouter()
@@ -208,6 +209,7 @@ def statistics(
             "selected_period": selected_period,
             "selected_steps_period": steps_period,
             "format_steps_value": format_steps_value,
+            "steps_whole_display": steps_whole_display,
             "steps_mean_display": steps_mean_display,
             "selected_year": selected_year,
             "control_end_date": evaluated_date.isoformat(),

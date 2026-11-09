@@ -114,3 +114,24 @@
 .overview-info th:first-child, .overview-info td:first-child { min-width: 80px; }
 .brief-overview-list > li:first-child .overview-info[open] > div,
 .overview-secondary > article:first-child .overview-info[open] > div { left: 0; right: auto; }
+
+/* #515 compactness: the period is chosen once at the top, so the band label is for
+   assistive technology only; cards keep their values, sources and qualifiers. */
+.overview-a-plus .overview-section-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
+.overview-a-plus .brief-overview { margin-top: 16px; }
+.overview-a-plus .brief-overview-list > li { padding: 14px 22px 8px; }
+.overview-a-plus .overview-value { margin: 2px 0 4px; }
+.overview-a-plus .overview-qualifier { min-height: 0; margin: 6px 0; }
+.overview-a-plus .overview-figure { margin-top: 8px; }
+.overview-a-plus .overview-figure figcaption { min-height: 0; }
+.overview-a-plus .overview-detail-link { padding: 8px 0 4px; }
+.overview-coverage { white-space: nowrap; }
+.overview-coverage::before { content: "· "; }
+.overview-secondary { gap: 12px; padding: 12px 0 8px; }
+.overview-secondary article { padding: 10px 14px 12px; }
+.overview-secondary .overview-hrv { margin-top: 12px; }
+.overview-secondary .overview-metric-heading + p,
+.overview-secondary [data-rhr-provider] > p { margin: 0 0 6px; font-size: .8125rem; color: var(--muted); }
+.overview-secondary [data-overview-steps] > .overview-source { margin: 0; }
+.overview-secondary .overview-hrv > p { margin: 4px 0; font-size: .8125rem; color: var(--muted); }
+.overview-secondary .overview-qualifier { margin: 4px 0; }

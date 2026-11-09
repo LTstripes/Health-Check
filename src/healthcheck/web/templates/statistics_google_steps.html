@@ -12,7 +12,7 @@
         {% for cell in google_steps.cells %}
         <tr data-google-steps-date="{{ cell.calendar_date }}" data-google-steps-state="{{ cell.state }}">
           <th scope="row"><time datetime="{{ cell.calendar_date }}">{{ cell.calendar_date|owner_date }}</time></th>
-          <td data-google-steps-value>{% if cell.value is not none %}{{ cell.value }}{% else %}Недоступно{% endif %}</td>
+          <td data-google-steps-value>{% if cell.value is not none %}{{ steps_whole_display(cell.value) }}{% else %}Недоступно{% endif %}</td>
           <td>
             <p>{% if cell.state == 'value' %}Сохранённое наблюдение{% if cell.value == 0 %} · явный ноль{% endif %}{% elif cell.state == 'missing' %}Поле шагов отсутствует{% elif cell.state == 'null' %}Источник передал null{% elif cell.state == 'invalid' %}Текущие данные недопустимы; старое число не подставлено{% elif cell.state == 'ambiguous' %}Пересекающиеся текущие интервалы; значение не выбрано{% elif cell.state == 'unavailable' %}Интервал не равен одному civil-дню; шаги не распределены{% else %}Нет сохранённого наблюдения за дату{% endif %}</p>
             <details class="statistics-details">

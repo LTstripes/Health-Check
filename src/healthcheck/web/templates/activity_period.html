@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Сессии за период — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/owner_compact.css">{% endblock %}
 {% block content %}
 <section aria-labelledby="sessions-title">
   <p><a href="{{ back_href }}" data-statistics-return>{{ back_label }}</a></p>
   <h2 id="sessions-title">{{ sport_labels[packet.sport] }} · сессии за период</h2>
-  <p>{{ packet.start_date|owner_date }} — {{ packet.end_date|owner_date }}, включительно по локальным датам источника Garmin.</p>
-  <p>Исходный показатель: {{ metric_label }}. Показаны только сессии, допустимые для этого показателя.</p>
+  <p class="muted sessions-caption">Garmin · {{ packet.start_date|owner_date }} — {{ packet.end_date|owner_date }} · {{ metric_label }}</p>
   {% if can_filter %}
   <form method="get" action="/statistics/sessions" class="statistics-controls">
     {% for key, value in context_params.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
@@ -18,7 +18,6 @@
   {% elif not packet.sessions %}
   <p role="status">В сохранённых записях выбранного источника за этот период нет допустимых сессий.</p>
   {% endif %}
-  <p class="muted">Полнота списка относится только к допустимым сохранённым записям. Она не подтверждает полноту истории провайдера. Лимит списка: {{ packet.display_cap }} сессий. Отсутствующее значение не равно нулю.</p>
   {% if packet.sessions %}
   <div class="table-scroll" tabindex="0" role="region" aria-label="Сессии Garmin по локальным датам">
     <table>
@@ -40,6 +39,9 @@
       <dt>{{ code }}</dt><dd>{{ metric.value if metric.value is not none else 'Недоступно' }} · {{ metric.unit or 'Единица недоступна' }} · {{ metric.state }}</dd>{% endfor %}
     </dl>{% endfor %}
   </details>{% endif %}
-  <details class="statistics-details"><summary>Выбранный источник и пределы поиска</summary><p>Garmin: {{ packet.source_id }}. {{ packet.start_date }} — {{ packet.end_date }}. {{ packet.metric_code }}. Входные записи: не более {{ packet.candidate_cap }} с проверкой дополнительной записи. {{ packet.reason or 'Поиск сохранённых записей завершён.' }}</p></details>
+  <details class="statistics-details"><summary>Выбранный источник и пределы поиска</summary>
+    <p>Даты включительно по локальным датам источника Garmin. Исходный показатель: {{ metric_label }}. Показаны только сессии, допустимые для этого показателя.</p>
+    <p>Полнота списка относится только к допустимым сохранённым записям. Она не подтверждает полноту истории провайдера. Лимит списка: {{ packet.display_cap }} сессий. Отсутствующее значение не равно нулю.</p>
+    <p>Garmin: {{ packet.source_id }}. {{ packet.start_date }} — {{ packet.end_date }}. {{ packet.metric_code }}. Входные записи: не более {{ packet.candidate_cap }} с проверкой дополнительной записи. {{ packet.reason or 'Поиск сохранённых записей завершён.' }}</p></details>
 </section>
 {% endblock %}

@@ -16,7 +16,7 @@
         {% for cell in steps.cells %}
         <tr data-steps-date="{{ cell.calendar_date }}" data-steps-state="{{ cell.state }}">
           <th scope="row"><time datetime="{{ cell.calendar_date }}">{{ cell.calendar_date|owner_date }}</time></th>
-          <td class="statistics-steps-value">{% if cell.value is not none %}{{ cell.value }}{% else %}Недоступно{% endif %}</td>
+          <td class="statistics-steps-value">{% if cell.value is not none %}{{ steps_whole_display(cell.value) }}{% else %}Недоступно{% endif %}</td>
           <td>
             <p>{% if cell.state == 'value' %}Последнее полученное значение{% if cell.value == 0 %} — явный ноль{% endif %}{% elif cell.state == 'ambiguous' %}Неоднозначно: разные значения или состояния в одно время{% elif cell.state == 'missing' %}Поле шагов отсутствует в последнем ответе{% elif cell.state == 'null' %}Последний ответ содержит null{% elif cell.state == 'invalid' %}Недопустимое последнее значение{% elif cell.state == 'search_incomplete' %}Поиск не завершён{% else %}Нет доказанного получения после окончания дня{% endif %}</p>
             <details class="statistics-details statistics-steps-evidence">
