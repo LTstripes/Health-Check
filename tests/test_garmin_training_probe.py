@@ -486,10 +486,11 @@ def test_request_validation_rejects_automatic_expansion(
         validate_training_probe_request(**values)
 
 
-def test_rate_limit_aborts_without_leaking_provider_error_or_expanding_sample() -> None:
-    client = FakeTrainingClient(
-        errors={"get_training_status": _RateLimitError("PRIVATE_PROVIDER_BODY")}
-    )
+@pytest.mark.parametrize("status", [427, 429])
+def test_rate_limit_aborts_without_leaking_provider_error_or_expanding_sample(status: int) -> None:
+    error = _RateLimitError("PRIVATE_PROVIDER_BODY")
+    error.status_code = status
+    client = FakeTrainingClient(errors={"get_training_status": error})
 
     report = GarminTrainingPhaseAProbe(client).run(_maximal_request()).as_dict()
 
@@ -507,7 +508,7 @@ def test_rate_limit_aborts_without_leaking_provider_error_or_expanding_sample() 
     assert failure["error"] == {
         "error_class": "provider",
         "error_code": "rate_limited",
-        "http_status": 429,
+        "http_status": status,
     }
 
 

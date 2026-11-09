@@ -40,7 +40,7 @@ def test_inventory_includes_registry_versions_and_exposes_vcs_coverage_limit():
             {"name": "health-check", "version": "0.1.0", "source": {"editable": "."}},
             {
                 "name": "garminconnect",
-                "version": "0.3.15",
+                "version": "0.3.20",
                 "source": {
                     "git": "https://github.com/cyberjunky/python-garminconnect.git?rev="
                     f"{audit.GARMIN_PIN}#{audit.GARMIN_PIN}"
