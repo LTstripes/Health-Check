@@ -14,6 +14,7 @@ from sqlalchemy import Engine, select, text, update
 
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import RawArtifact
+from healthcheck.labs.history import histories
 from healthcheck.labs.models import (
     LabHead,
     LabInterpretation,
@@ -210,6 +211,51 @@ def _draft_summary(session, root, interpretation) -> dict:
 class LabService:
     def __init__(self, engine: Engine, root: Path):
         self.engine, self.root = engine, Path(root)
+
+    def analytes(self):
+        """Complete current history, independent of the report list's display cap.
+
+        Unconsumed drafts and unselected rows of the current partial confirmation
+        contribute counts only. Superseded accepted versions never become drafts.
+        Unreadable drafts remain explicitly unknown rather than a zero count.
+        """
+        with session_scope(self.engine) as session:
+            session.execute(text("BEGIN"))
+            reports = []
+            drafts = []
+            unreadable = 0
+            revisions = session.scalars(
+                select(LabRevision).join(LabHead, LabHead.revision_id == LabRevision.id)
+                .order_by(LabRevision.report_id)
+            ).all()
+            current = {revision.interpretation_id: revision for revision in revisions}
+            for revision in revisions:
+                reports.append({
+                    "report_id": revision.report_id, "revision_id": revision.id,
+                    "interpretation_id": revision.interpretation_id,
+                    "snapshot": json.loads(revision.snapshot_json),
+                })
+            consumed = set(session.scalars(select(LabRevision.interpretation_id)))
+            interpretations = session.scalars(
+                select(LabInterpretation).order_by(LabInterpretation.id)
+            )
+            for interpretation in interpretations:
+                revision = current.get(interpretation.id)
+                if interpretation.id in consumed and (not revision or not revision.partial):
+                    continue
+                try:
+                    artifact = session.get(RawArtifact, interpretation.draft_artifact_id)
+                    draft = parse_draft(artifact_bytes(self.root, artifact, extension="json"))
+                except LabError:
+                    unreadable += 1
+                    continue
+                selected = {
+                    row["row_id"] for row in json.loads(revision.snapshot_json)["rows"]
+                } if revision else set()
+                drafts.append({"rows": [
+                    row.model_dump() for row in draft.rows if row.row_id not in selected
+                ]})
+            return {"analytes": histories(reports, drafts), "unreadable_drafts": unreadable}
 
     def stage(self, pdf: bytes, draft_bytes: bytes, operation_id: str, *, parent_id=None):
         check_pdf(pdf)
