@@ -9,7 +9,7 @@
   'data': ('Данные', '/imports', 'Проверка импорта'),
   'context': ('Комментарии', '/context', 'Комментарии / Контекст')
 } %}
-{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context', 'labs': 'data'} %}
+{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context', 'passport': 'context', 'labs': 'data'} %}
 {% set path_sections = {'/brief': 'overview', '/weight': 'weight', '/': 'overview', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data', '/context': 'context'} %}
 {% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
@@ -50,7 +50,7 @@
   </header>
   <main id="owner-main" tabindex="-1">
     <header class="owner-page-header">
-      <h1>{{ 'Комментарии / Контекст' if page|default('') == 'context' else (sections[section][0] if section else 'Health-Check') }}</h1>
+      <h1>{{ 'Паспорт поездки' if page|default('') == 'passport' else 'Комментарии / Контекст' if page|default('') == 'context' else (sections[section][0] if section else 'Health-Check') }}</h1>
       {% if section == 'sleep' %}
       {% if sleep_return_href|default(none) %}<p><a href="{{ sleep_return_href }}" data-overview-return>Вернуться к выбранному обзору</a></p>{% endif %}
       <nav class="preset-links sleep-source-switch" aria-label="Источники сна">

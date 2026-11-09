@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% import "owner_ui.html" as owner_ui %}
+{% block title %}Паспорт поездки — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/trip_passport.css">{% endblock %}
+{% set steps_labels = {
+  'completed': 'Завершённый день',
+  'zero': 'Завершённый день, ноль шагов',
+  'incomplete': 'День не подтверждён завершённым — значение не входит в итог',
+  'conflict': 'Сохранённые значения расходятся — значение не выбрано',
+  'missing': 'Нет данных (это не ноль)',
+  'future': 'Дата позже даты просмотра'
+} %}
+{% set sleep_names = {'garmin': 'Garmin', 'google': 'Google'} %}
+{% block content %}
+<div class="passport-page">
+  <p class="passport-intro">Короткая история поездки или события по уже сохранённым данным: шаги, сон, тренировки, восстановление и ваши комментарии. Ничего не догружается и не публикуется.</p>
+
+  <section class="card passport-form" aria-labelledby="passport-form-heading">
+    <h2 id="passport-form-heading">Период</h2>
+    <form method="get" action="/passport" class="passport-fields">
+      {% if events %}
+      <label class="passport-wide">Комментарий-событие
+        <select name="event_id">
+          <option value="">Ввести даты вручную</option>
+          {% for event in events %}<option value="{{ event.id }}"{% if form.event_id == event.id %} selected{% endif %}>{{ event.label }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <label>Начало <input type="date" name="start_date" value="{{ form.start_date }}"></label>
+      <label>Окончание <input type="date" name="end_date" value="{{ form.end_date }}"></label>
+      <label class="passport-wide">Название <input type="text" name="title" value="{{ form.title }}" maxlength="120" placeholder="Например: Поездка в Токио"></label>
+      <label>Место <input type="text" name="place" value="{{ form.place }}" maxlength="120" placeholder="Необязательно"></label>
+      {% if sources|length > 1 %}
+      <label>Источник Garmin
+        <select name="garmin_source_id" required>
+          <option value="">Выберите источник</option>
+          {% for source in sources %}<option value="{{ source.id }}"{% if form.garmin_source_id == source.id %} selected{% endif %}>{{ source.label }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <div class="passport-actions">
+        <button type="submit">Показать паспорт</button>
+        <label class="passport-check"><input type="checkbox" name="compare" value="1"{% if form.compare %} checked{% endif %}> Сравнить с таким же периодом до</label>
+      </div>
+    </form>
+    <p class="muted passport-hint">Если выбран комментарий, даты берутся из него, а название — из первой строки текста; их можно изменить. Не больше {{ max_days }} дней подряд.</p>
+    {% if events_truncated|default(false) %}<p class="muted">В списке только 50 недавних комментариев. Другой можно открыть на странице «Комментарии» и перейти к паспорту оттуда.</p>{% endif %}
+  </section>
+
+  {% if error %}<p class="card passport-error" role="alert">{{ error }}</p>{% endif %}
+
+  {% if passport %}
+  {% set p = passport %}
+  {% set rows = passport_rows(p) %}
+  {% set segments = passport_zone_segments(p) %}
+  <article class="passport" aria-labelledby="passport-title">
+    <header class="card passport-head">
+      <p class="eyebrow">Паспорт {{ 'события' if p.selection.kind == 'context_event' else 'периода' }}</p>
+      <h2 id="passport-title">{{ p.title }}</h2>
+      <p class="passport-period">{% if p.place %}{{ p.place }} · {% endif %}{{ p.period.start_date|owner_date }} — {{ p.period.end_date|owner_date }} <span class="muted">· {{ p.period.day_count }} {{ 'день' if p.period.day_count % 10 == 1 and p.period.day_count % 100 != 11 else ('дня' if p.period.day_count % 10 in [2,3,4] and p.period.day_count % 100 not in [12,13,14] else 'дней') }}</span></p>
+      {% if p.coverage.future_dates %}<p class="muted">Позже даты просмотра: {{ p.coverage.future_dates|length }} из {{ p.period.day_count }} дней. Доступные записи сохраняют локальные даты источников.</p>{% endif %}
+      <p class="passport-zones">
+        <span class="muted">Пояса по сохранённым записям:</span>
+        {% if segments %}
+          {% for segment in segments %}<span class="passport-zone">{% for zone in segment.zones %}{{ passport_offset(zone) }}{% if not loop.last %} / {% endif %}{% endfor %}</span> <span class="muted">({{ segment.first|owner_date }}{% if segment.last != segment.first %} — {{ segment.last|owner_date }}, по записям за {{ segment.known_days }} дн.{% endif %})</span>{% if not loop.last %} → {% endif %}{% endfor %}
+        {% else %}<span>в сохранённых данных не указаны</span>{% endif %}
+      </p>
+      {% if segments and p.zones.unknown_day_count %}<p class="muted">Для {{ p.zones.unknown_day_count }} из {{ p.period.day_count }} дней пояс не сохранён и не угадывается.</p>{% endif %}
+    </header>
+
+    <section class="passport-tiles" aria-label="Коротко">
+      <div class="card passport-tile">
+        <h3>Шаги</h3>
+        <p class="passport-figure">{{ passport_mean(p.steps.mean_exact) }}</p>
+        <p class="muted">в среднем за завершённый день · {{ p.steps.counted_day_count }} из {{ p.period.day_count }} дней</p>
+        {% if p.steps.total is not none %}<p class="muted">Всего за эти дни: {{ passport_steps(p.steps.total) }}</p>{% endif %}
+      </div>
+      <div class="card passport-tile">
+        <h3>Сон</h3>
+        {% for name, provider in p.sleep.providers.items() %}
+        <p><strong>{{ sleep_names.get(name, name) }}</strong>: {{ p.coverage.sleep_nights_with_value[name] }} {{ 'ночь' if p.coverage.sleep_nights_with_value[name] % 10 == 1 and p.coverage.sleep_nights_with_value[name] % 100 != 11 else 'ночей' }} с данными</p>
+        {% else %}<p class="muted">Источник сна не выбран.</p>{% endfor %}
+      </div>
+      <div class="card passport-tile">
+        <h3>Тренировки</h3>
+        <p class="passport-figure">{{ p.workouts.session_count if p.workouts.session_count is not none else '—' }}</p>
+        <p class="muted">{% if p.workouts.state != 'complete' %}список может быть неполным{% else %}из сохранённого журнала{% endif %}</p>
+      </div>
+      <div class="card passport-tile">
+        <h3>Комментарии</h3>
+        <p class="passport-figure">{{ p.context.rows|length }}</p>
+        <p class="muted">{% if p.context.state == 'truncated' %}показаны не все: предел {{ p.context.row_limit }}{% else %}в этом периоде{% endif %}</p>
+      </div>
+    </section>
+
+    <section class="card passport-days" aria-labelledby="passport-days-heading">
+      <h2 id="passport-days-heading">По дням</h2>
+      <div class="table-scroll">
+        <table class="passport-table">
+          <thead><tr>
+            <th scope="col">Дата</th>
+            <th scope="col">Шаги</th>
+            {% for name in p.sleep.providers %}<th scope="col">Сон, {{ sleep_names.get(name, name) }}</th>{% endfor %}
+            <th scope="col">Тренировки</th>
+            <th scope="col">Восстановление</th>
+            <th scope="col">Пояс</th>
+          </tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr class="passport-row-{{ row.steps.state }}">
+              <th scope="row">{{ row.date|owner_date }}{% if row.notes %} <span class="passport-note-mark" title="Комментарии в этот день">✎</span>{% endif %}</th>
+              <td class="passport-steps passport-steps-{{ row.steps.state }}" title="{{ steps_labels[row.steps.state] }}">
+                {% if row.steps.state in ['completed', 'zero'] %}{{ passport_steps(row.steps.value) }}
+                {% elif row.steps.state == 'incomplete' %}<span class="muted">{{ passport_steps(row.steps.value) }}</span> <span class="status-chip partial">не завершён</span>
+                {% elif row.steps.state == 'conflict' %}<span class="status-chip ambiguous">расходятся</span>
+                {% elif row.steps.state == 'future' %}<span class="muted">впереди</span>
+                {% else %}<span class="muted">нет данных</span>{% endif %}
+              </td>
+              {% for name, night in row.sleep.items() %}
+              <td>{% if night and night.state == 'value' and night.value is not none %}{{ passport_duration(night.value) }}{% elif night and night.state == 'conflict' %}<span class="status-chip ambiguous">расходятся</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+              {% endfor %}
+              <td>{% for item in row.workouts %}<span class="passport-workout">{{ passport_activity(item.activity_type) }} <span class="muted">{{ passport_workout_time(item) }}</span></span>{% else %}<span class="muted">—</span>{% endfor %}</td>
+              <td>{% for item in row.recovery %}<span class="passport-recovery">{{ item.label }}: {{ item.value }}{% if item.unit %} {{ item.unit }}{% endif %}</span>{% else %}<span class="muted">—</span>{% endfor %}</td>
+              <td>{% for zone in row.zones %}<span class="passport-zone-cell">{{ passport_offset(zone) }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted passport-legend">Шаги «не завершён» — сохранённое значение за день, который ещё не подтверждён завершённым; в итог не входит. «Нет данных» — не ноль. Сон указан по дате пробуждения, источники не объединяются.</p>
+    </section>
+
+    <section class="card passport-notes" aria-labelledby="passport-notes-heading">
+      <h2 id="passport-notes-heading">Комментарии</h2>
+      {% for row in p.context.rows %}
+      <article class="passport-note">
+        <p class="muted">{{ (row.temporal.start_source_timestamp or row.temporal.start_local_date)|owner_date(row.temporal.start_precision) }}{% if row.temporal.end_local_date %} — {{ (row.temporal.end_source_timestamp or row.temporal.end_local_date)|owner_date(row.temporal.end_precision) }}{% endif %}{% if row.temporal.start_timezone %} · {{ row.temporal.start_timezone }}{% endif %}</p>
+        <p class="passport-note-text">{{ row.original_text }}</p>
+      </article>
+      {% else %}<p class="muted">{{ 'В доступной выборке комментариев за эти даты нет; список неполон.' if p.context.state == 'truncated' else 'Комментариев в этом периоде нет. Это не означает отсутствие событий.' }}</p>{% endfor %}
+    </section>
+
+    {% if p.comparison.state == 'compared' %}
+    {% set cmp = p.comparison %}
+    <section class="card passport-compare" aria-labelledby="passport-compare-heading">
+      <h2 id="passport-compare-heading">Для сравнения: {{ cmp.previous_period.start_date|owner_date }} — {{ cmp.previous_period.end_date|owner_date }}</h2>
+      <p class="muted">Такой же период сразу перед выбранным, те же источники. Частичные ночи исключены из среднего сна. Это сопоставление, не оценка.</p>
+      <div class="table-scroll"><table class="passport-compare-table">
+        <thead><tr><th scope="col"></th><th scope="col">Выбранный период</th><th scope="col">Период до</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Шаги, в среднем за завершённый день</th>
+            {% if cmp.steps.state == 'compared' %}<td>{{ passport_mean(cmp.steps.current.mean_exact) }} <span class="muted">({{ cmp.steps.current.counted_day_count }} дн.)</span></td><td>{{ passport_mean(cmp.steps.previous.mean_exact) }} <span class="muted">({{ cmp.steps.previous.counted_day_count }} дн.)</span></td>
+            {% else %}<td colspan="2" class="muted">Сравнение недоступно: {{ 'в одном из периодов нет завершённых дней' if cmp.steps.reason == 'no_completed_days_in_one_period' else 'разные источники или правила данных' }}</td>{% endif %}</tr>
+          {% for name, item in cmp.sleep.items() %}
+          <tr><th scope="row">Сон {{ sleep_names.get(name, name) }}, в среднем за ночь</th>
+            {% if item.state == 'compared' %}<td>{{ passport_duration(item.current.mean_seconds_exact|float) }} <span class="muted">({{ item.current.night_count }} н.)</span></td><td>{{ passport_duration(item.previous.mean_seconds_exact|float) }} <span class="muted">({{ item.previous.night_count }} н.)</span></td>
+            {% else %}<td colspan="2" class="muted">Сравнение недоступно: {{ 'в одном из периодов нет ночей с данными' if item.reason == 'no_nights_in_one_period' else 'разные источники' }}</td>{% endif %}</tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+    {% elif p.comparison.state not in ['not_requested'] %}
+    <p class="card muted">Сравнение с периодом до недоступно.</p>
+    {% endif %}
+
+    <section class="card passport-download" aria-labelledby="passport-download-heading">
+      <h2 id="passport-download-heading">Скачать</h2>
+      <p>Показанный результат локальным файлом: краткий Markdown или точный JSON с паспортом и исходными экспортами.</p>
+      <p class="passport-download-links"><a class="button-link" id="passport-download-md" hidden download>Markdown</a> <a class="button-link" id="passport-download-json" hidden download>JSON с исходными экспортами</a></p>
+      <noscript><p>Для скачивания показанного паспорта включите JavaScript и обновите страницу.</p></noscript>
+      <script type="application/json" id="passport-downloads">{{ downloads|tojson }}</script>
+    </section>
+
+    {% call owner_ui.technical_details('passport-technical') %}
+      <h3>Источник фактов</h3>
+      <dl class="passport-dl">
+        <dt>Паспорт</dt><dd><code>{{ p.version }}</code> · sha256 <code>{{ p.passport_hash }}</code></dd>
+        {% for role, item in p.source_exports.items() %}
+        <dt>Экспорт «{{ role }}»</dt><dd><code>{{ item.version }}</code> · {{ item.days }} дн. по {{ item.effective_range.end_date }} · шаги: {{ item.steps_view }} · <code>{{ item.envelope_hash }}</code> · дата расчёта {{ item.evaluation_clock.local_date }}</dd>
+        {% endfor %}
+        <dt>Пределы</dt><dd>не больше {{ p.limits.max_passport_days }} дней; окно экспорта {{ p.limits.export_window_days }} дн. (допустимы {{ p.limits.allowed_export_windows|join(' и ') }}); комментариев — до {{ p.limits.context_row_limit }} с явным признаком усечения; файл — до {{ p.limits.max_output_bytes }} байт, при превышении объёма отказ без склейки окон</dd>
+        <dt>Правило шагов</dt><dd><code>{{ p.steps.rule }}</code>; завершение дня — по политике Europe/Moscow, это не пояс источника и не доказательство окончательности; источник <code>{{ p.steps.source_id }}</code>; дни: {% for state, count in p.steps.state_counts.items() %}{{ state }} {{ count }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+        <dt>Снимки</dt><dd>Каждый исходный экспорт прочитан в своей транзакции; общего снимка между экспортами нет. Файлы на этой странице содержат именно показанный результат.</dd>
+        <dt>Даты</dt><dd>шаги — календарная дата Garmin; сон — локальная дата пробуждения источника; тренировки — сохранённая локальная дата; ничего не пересчитывается по UTC</dd>
+        <dt>Пояса</dt><dd><code>{{ p.zones.inference }}</code>; найдено фактов: {{ p.zones.facts|length }}; смен: {{ p.zones.changes|length }}</dd>
+      </dl>
+      {% if p.zones.changes %}
+      <h3>Смены пояса по сохранённым фактам</h3>
+      <ul>{% for change in p.zones.changes %}<li>{{ change.from_date }} → {{ change.to_date }}: {% for zone in change.from %}{{ passport_offset(zone) }}{% endfor %} → {% for zone in change.to %}{{ passport_offset(zone) }}{% endfor %} <code>{{ change.kind }}</code></li>{% endfor %}</ul>
+      {% endif %}
+      <h3>Исключения и причины</h3>
+      <ul class="passport-exclusions">
+        {% for row in p.steps.days if row.state not in ['completed', 'zero'] %}<li>Шаги {{ row.date }}: <code>{{ row.state }}</code>{% if row.reason %} · <code>{{ row.reason }}</code>{% endif %}</li>{% endfor %}
+        {% for name, provider in p.sleep.providers.items() %}{% for night in provider.nights if night.state != 'value' or night.partial %}<li>Сон {{ name }} {{ night.wake_date }}: <code>{{ night.state }}</code>{% if night.partial %} · частично{% endif %}{% if night.reason %} · <code>{{ night.reason }}</code>{% endif %}</li>{% endfor %}{% endfor %}
+        {% for item in p.workouts.sessions if item.start_local_basis != 'stored_local_wall_time' %}<li>Тренировка {{ item.date }} {{ item.activity_type }}: время начала <code>{{ item.start_local_basis }}</code></li>{% endfor %}
+        {% if p.workouts.state != 'complete' %}<li>Журнал тренировок: <code>{{ p.workouts.state }}</code> <code>{{ p.workouts.reason }}</code></li>{% endif %}
+        {% for domain, providers in p.recovery.items() %}{% for name, provider in providers.items() %}
+          {% if provider.get('search') and not provider.search.complete %}<li>{{ domain }} {{ name }}: поиск неполон; <code>{{ provider.get('reason') }}</code></li>{% endif %}
+          {% for item in provider.get('exclusions') or [] %}<li>{{ domain }} {{ name }}: {{ item.get('source_local_date') or 'дата не указана' }} · <code>{{ item.get('reason') }}</code></li>{% endfor %}
+          {% for item in provider['values'] if item.get('eligible') == false %}<li>{{ domain }} {{ name }} {{ item.date }}: <code>{{ item.get('state') }}</code> · <code>{{ item.get('reason') }}</code></li>{% endfor %}
+        {% endfor %}{% endfor %}
+      </ul>
+      <p class="muted">Body Battery — максимум среди сохранённых подходящих значений, без гарантии полного дня. HRV Garmin — недельный снимок, без усреднения с дневными значениями Google. Неизвестное покрытие источника остаётся неизвестным.</p>
+      <p class="muted">Не вычисляется: {{ p.interpretation.not_computed|join(', ') }}. Связь между данными и комментариями — только совпадение по датам; причины не устанавливаются.</p>
+    {% endcall %}
+  </article>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/trip_passport.js"></script>{% endblock %}
