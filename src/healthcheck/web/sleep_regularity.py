@@ -58,7 +58,7 @@ def build_sleep_regularity(
     *, google_selection: Mapping[str, Any], days: int, end_date: date,
 ) -> dict[str, Any]:
     """Reuse the already-read exact-source nights; never choose a new winner."""
-    result: dict[str, Any] = {"state": "insufficient", "sources": [],
+    result: dict[str, Any] = {"state": "insufficient", "sources": [], "night_bounds": {},
                              "empty_text": "Пока недостаточно подходящих ночей."}
     if days not in (7, 30):
         result.update(state="unavailable", empty_text="Не удалось оценить этот период.")
@@ -87,6 +87,14 @@ def build_sleep_regularity(
             continue
         analysis = sections["sleep_regularity"]
         inputs = sections["sleep_analysis_inputs"]
+        # Reuse the accepted local endpoints from this very analysis, including
+        # its role, exact-record, timezone and wake-date exclusions. No new read
+        # or second eligibility rule for the schedule presentation.
+        result["night_bounds"][f"{provider}:{source_id}"] = [{
+            "wake_date": night["wake_date"], "record_id": night["record_id"],
+            "start_local": night["start"]["local"], "end_local": night["end"]["local"],
+            "zone": night["partition"]["local_clock_regime"],
+        } for night in inputs["nights"]]
         row.update(state=analysis["state"], eligible_nights=analysis["eligible_nights"],
                    min_nights=analysis["min_nights"],
                    excluded_nights=len(inputs["night_exclusions"]),
