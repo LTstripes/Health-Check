@@ -9,7 +9,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -66,9 +67,11 @@ from healthcheck.web.query import (
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 from healthcheck.web.sleep_comparison import comparison_charts, comparison_value
 from healthcheck.web.sleep_timeline import (
+    SLEEP_NIGHT_ENDPOINT,
     SLEEP_TIMELINE_PROVIDERS,
     build_sleep_timeline,
     read_sleep_source_inventory,
+    sleep_timeline_client,
     sleep_timeline_days,
     sleep_timeline_technical,
 )
@@ -957,9 +960,10 @@ def _render_sleep_timeline(
 ) -> HTMLResponse:
     """Primary #343 desktop view: independent 7/30 source ranges in one SSR snapshot.
 
-    The range packets (including per-night disclosure) are embedded in the
-    existing page snapshot; no separate endpoint is added. A failed refresh is
-    never conflated with removed saved history.
+    Points, states, sources and coverage are embedded in the page snapshot; the
+    heavy per-night session packets are fetched from ``SLEEP_NIGHT_ENDPOINT``
+    only for a selected point. A failed refresh is never conflated with removed
+    saved history.
     """
 
     timeline: dict[str, Any] | None = None
@@ -1013,10 +1017,50 @@ def _render_sleep_timeline(
         "selection": selection, "sleep_return_href": sleep_return,
         "google_vitals_window_days": vitals_days,
         "timeline": timeline,
+        "timeline_client": sleep_timeline_client(timeline) if timeline else None,
         "timeline_freshness": timeline["freshness"] if timeline else None,
         "timeline_technical": timeline_technical,
         "metric_value": metric_value,
     })
+
+
+@router.get(SLEEP_NIGHT_ENDPOINT)
+def sleep_night(
+    request: Request,
+    provider: str | None = None,
+    wake_date: str | None = None,
+    source_id: str | None = None,
+) -> JSONResponse:
+    """One exact persisted night for the timeline detail panel, read-only.
+
+    Returns the same per-night packet the range read builds for that date,
+    optionally narrowed to one exact source. No pairing, fallback or writes.
+    """
+
+    no_store = {"Cache-Control": "no-store"}
+    try:
+        if provider not in SLEEP_TIMELINE_PROVIDERS or wake_date is None:
+            raise ValueError
+        day = date.fromisoformat(wake_date)
+        if day.isoformat() != wake_date:
+            raise ValueError
+    except ValueError:
+        return JSONResponse({"code": "invalid_sleep_night_request"}, status_code=400,
+                            headers=no_store)
+    try:
+        with session_scope(request_engine(request)) as session:
+            ensure_read_snapshot(session)
+            packet = read_source_sleep_night(
+                session, provider=provider, wake_date=day, source_id=source_id or None,
+            )
+    except SQLAlchemyError as exc:
+        if database_unavailable(exc):
+            return JSONResponse({"code": "database_unavailable"}, status_code=503,
+                                headers=no_store)
+        log_event("persistence_error", operation="sleep_night", status="error",
+                  reason="persistence_error")
+        return JSONResponse({"code": "persistence_error"}, status_code=500, headers=no_store)
+    return JSONResponse(jsonable_encoder(packet), headers=no_store)
 
 
 @router.get("/agreement", response_class=HTMLResponse)

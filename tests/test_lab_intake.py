@@ -610,3 +610,88 @@ def test_date_precision_never_inferred(value, precision):
     content["specimen_date"] = {"value": value, "precision": precision}
     with pytest.raises(LabError):
         parse_draft(raw(content))
+
+
+def _card(page: str, report_id: str) -> str:
+    return page.split(f'data-lab-report="{report_id}"', 1)[1].split("</article>", 1)[0]
+
+
+def test_labs_list_labels_each_report_from_its_transcription(runtime):
+    service, paths = runtime
+    accepted = staged(service)
+    confirm(service, accepted)
+    second_pdf = synthetic_pdf("SYNTHETIC LAB TWO")
+    staging_value = draft(second_pdf)
+    staging_value.update(
+        report_label="Synthetic panel B", clinic_source="Synthetic Clinic B",
+        result_date=None, printed_date={"value": "2099-02-03T09:30", "precision": "minute"},
+    )
+    staging_value["rows"] = staging_value["rows"][:2]
+    staging_item = service.stage(second_pdf, raw(staging_value), "stage-b")
+    bare_pdf = synthetic_pdf("SYNTHETIC LAB THREE")
+    bare_value = draft(bare_pdf)
+    bare_value.update(report_label=None, clinic_source=None, result_date=None, printed_date=None)
+    bare = service.stage(bare_pdf, raw(bare_value), "stage-c")
+    app, _ = create_ui_app(
+        Settings(data_dir=paths.root), photo_extractor=FakeImageMeasurementExtractor()
+    )
+    with TestClient(app, base_url=BASE) as client:
+        page = client.get("/labs").text
+    assert "Лабораторный отчёт</h4>" not in page
+    first = _card(page, accepted["report_id"])
+    assert "<h4>Synthetic report</h4>" in first
+    assert 'data-lab-status="accepted"' in page and ">Принят</span>" in first
+    assert "Synthetic Clinic" in first and "Synthetic Lab" in first
+    assert 'data-lab-date="result">2 января 2099 <span' in first
+    assert "точность до дня" in first
+    assert "<dd data-lab-rows>3</dd>" in first and "принятая версия" in first
+    second = _card(page, staging_item["report_id"])
+    assert "<h4>Synthetic panel B</h4>" in second
+    assert "Staging · ждёт подтверждения" in second and "черновик, не принят" in second
+    assert 'data-lab-date="printed">3 февраля 2099, 09:30 <span' in second
+    assert "точность до минуты" in second
+    assert "дата результата не указана" in second
+    assert "<dd data-lab-rows>2</dd>" in second
+    review_href = f'href="/labs/review/{staging_item["interpretation_id"]}"'
+    assert review_href + ">Проверить и подтвердить" in second
+    third = _card(page, bare["report_id"])
+    assert "Название не указано" in third and "Клиника</dt><dd>Не указана" in third
+    assert 'data-lab-date="none">Не указана' in third
+    # Newest dated first; undated last.
+    assert page.index(staging_item["report_id"]) < page.index(accepted["report_id"])
+    assert page.index(accepted["report_id"]) < page.index(f'data-lab-report="{bare["report_id"]}"')
+
+
+def test_labs_list_flags_pending_correction_and_unreadable_draft(runtime):
+    service, paths = runtime
+    accepted = staged(service)
+    confirm(service, accepted)
+    corrected = draft()
+    corrected["report_label"] = "Synthetic report v2"
+    newer = service.stage(PDF, raw(corrected), "stage-v2")
+    other_pdf = synthetic_pdf("SYNTHETIC LAB BROKEN")
+    broken = service.stage(other_pdf, raw(draft(other_pdf)), "stage-broken")
+    with session_scope(service.engine) as session:
+        interpretation = session.get(LabInterpretation, broken["interpretation_id"])
+        artifact = session.get(RawArtifact, interpretation.draft_artifact_id)
+        path = paths.root / "artifacts" / artifact.relative_storage_path
+    path.write_bytes(b"corrupted")
+    listing = {item["report_id"]: item for item in service.reports()["reports"]}
+    latest = listing[accepted["report_id"]]["latest_draft"]
+    assert latest["interpretation_id"] == newer["interpretation_id"]
+    assert latest["consumed"] is False and latest["report_label"] == "Synthetic report v2"
+    assert listing[broken["report_id"]]["latest_draft"]["readable"] is False
+    app, _ = create_ui_app(
+        Settings(data_dir=paths.root), photo_extractor=FakeImageMeasurementExtractor()
+    )
+    with TestClient(app, base_url=BASE) as client:
+        page = client.get("/labs")
+    assert page.status_code == 200
+    first = _card(page.text, accepted["report_id"])
+    # The accepted version stays the basis; the newer draft is flagged, not merged.
+    assert "<h4>Synthetic report</h4>" in first
+    assert "Есть непринятый черновик «Synthetic report v2»" in first
+    assert f'/labs/review/{newer["interpretation_id"]}' in first
+    second = _card(page.text, broken["report_id"])
+    assert "черновик не читается" in second and "artifact_corrupt" in second
+    assert "<dd data-lab-rows>Неизвестно</dd>" in second

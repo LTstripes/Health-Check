@@ -61,9 +61,71 @@ def failure(request, exc, *, review=None, correction=None):
     )
 
 
+LAB_DATE_PRECISION_TEXT = {"date": "до дня", "minute": "до минуты", "second": "до секунды"}
+
+
+def report_card(report: dict) -> dict:
+    """Owner list summary of one stored report: transcribed fields only.
+
+    An accepted version is the basis when present; otherwise the newest draft.
+    Missing fields stay None (shown as unknown), never a default or a guess.
+    """
+    snapshot = report.get("snapshot")
+    latest = report.get("latest_draft") or None
+    if snapshot:
+        basis, source = "accepted", snapshot
+        rows = len(snapshot.get("rows") or ())
+        status = "accepted_partial" if report.get("partial") else "accepted"
+    elif latest and latest.get("readable"):
+        basis, source, rows, status = "draft", latest, latest.get("row_count"), "staging"
+    else:
+        basis, source, rows, status = "unreadable", {}, None, "staging"
+    result, printed = source.get("result_date"), source.get("printed_date")
+    date_kind, date_value = (
+        ("result", result) if result else ("printed", printed) if printed else (None, None)
+    )
+    pending = (
+        latest
+        if snapshot and latest and latest.get("readable") and not latest.get("consumed")
+        else None
+    )
+    return {
+        "report_id": report["report_id"],
+        "label": source.get("report_label"),
+        "clinic": source.get("clinic_source"),
+        "performing_lab": source.get("performing_lab"),
+        "date_kind": date_kind,
+        "date": date_value,
+        "date_precision_text": (
+            LAB_DATE_PRECISION_TEXT.get(date_value.get("precision")) if date_value else None
+        ),
+        "row_count": rows,
+        "status": status,
+        "basis": basis,
+        "draft_error": latest.get("error") if latest and not latest.get("readable") else None,
+        "pending_draft": pending,
+        "sort_date": (date_value or {}).get("value") or "",
+    }
+
+
+def report_cards(listing: dict) -> list[dict]:
+    """Newest dated report first; undated reports keep their stored order last."""
+    cards = [report_card(report) for report in listing.get("reports") or ()]
+    dated = sorted((c for c in cards if c["sort_date"]), key=lambda c: c["sort_date"][:10],
+                   reverse=True)
+    return dated + [c for c in cards if not c["sort_date"]]
+
+
 @router.get("/labs")
 def labs_list(request: Request):
-    return render(request, listing=service(request).reports())
+    listing = service(request).reports()
+    by_id = {report["report_id"]: report for report in listing["reports"]}
+    return render(
+        request, listing=listing,
+        report_entries=[
+            {"card": card, "report": by_id[card["report_id"]]} for card in report_cards(listing)
+        ],
+    )
 
 
 @router.post("/labs/stage")

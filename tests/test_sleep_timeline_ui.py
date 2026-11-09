@@ -128,6 +128,15 @@ def _timeline_json(page_text: str):
     return json.loads(page_text.split(marker, 1)[1].split("</script>", 1)[0])
 
 
+def _night(client, provider: str, day: str, **params):
+    response = client.get(
+        "/api/sleep/night", params={"provider": provider, "wake_date": day, **params}
+    )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    return response.json()
+
+
 def test_sleep_timeline_window_accepts_only_7_30_and_defaults_30():
     assert sleep_timeline_days(None) == SLEEP_TIMELINE_DEFAULT_DAYS
     assert sleep_timeline_days("7") == 7
@@ -392,7 +401,7 @@ def test_sleep_timeline_technical_discloses_session_and_point_evidence():
     assert point["exclusion_reasons"] == ["google_explicit_main_preferred"]
 
 
-def test_sleep_default_route_is_timeline_with_embedded_packets(tmp_path):
+def test_sleep_default_route_embeds_points_and_fetches_nights_on_demand(tmp_path):
     app, _settings, paths = _ui(tmp_path)
     _seed_nights(paths)
     app.state.engine = create_sqlite_engine(paths)
@@ -429,12 +438,24 @@ def test_sleep_default_route_is_timeline_with_embedded_packets(tmp_path):
         payload = _timeline_json(page.text)
         assert payload["contract_version"] == "sleep-timeline-ui-v1"
         assert payload["days"] == 30 and payload["end_date"] == "2099-01-07"
-        garmin_days = payload["nights"]["garmin"]
-        assert len(garmin_days) == 30
-        assert {day for day, night in garmin_days.items() if night["sources"]} == {
-            "2099-01-02", "2099-01-03", "2099-01-05",
-        }
-        session = garmin_days["2099-01-02"]["sources"][0]["sessions"][0]
+        # Heavy per-night session packets are fetched on demand, not embedded.
+        assert "nights" not in payload and "table_rows" not in payload
+        assert payload["night_endpoint"] == "/api/sleep/night"
+        garmin_series = payload["display_series"][0]
+        assert garmin_series["provider"] == "garmin"
+        assert len(garmin_series["points"]) == 30
+        assert {
+            point["wake_date"] for point in garmin_series["points"] if point["state"] == "value"
+        } == {"2099-01-02", "2099-01-03", "2099-01-05"}
+        night = _night(client, "garmin", "2099-01-02",
+                       source_id=garmin_series["source"]["source_id"])
+        assert night["state"] == "records" and night["wake_date"] == "2099-01-02"
+        session = night["sources"][0]["sessions"][0]
+        assert session["record_id"] == next(
+            point["record_id"] for point in garmin_series["points"]
+            if point["wake_date"] == "2099-01-02"
+        )
+        assert _night(client, "garmin", "2099-01-04")["state"] == "no_records"
         assert session["metrics"]["sleep_duration_asleep_seconds"]["value"] == 28800
         assert session["metrics"]["sleep_score"]["value"] == 82
         google_series = payload["series"][1]
@@ -569,6 +590,10 @@ def test_week_range_matches_accepted_reader_without_writes(tmp_path):
     app.state.engine = create_sqlite_engine(paths)
     with client_for(app) as client:
         payload = _timeline_json(client.get("/sleep?wake_date=2099-01-07&days=7").text)
+        fetched = {
+            provider: [_night(client, provider, day) for day in payload["dates"]]
+            for provider in direct
+        }
     for provider, packet in direct.items():
         referenced = {
             point["record_id"]
@@ -576,13 +601,87 @@ def test_week_range_matches_accepted_reader_without_writes(tmp_path):
             for point in series["points"]
             if point["record_id"]
         }
-        embedded = {
+        on_demand = {
             session["record_id"]
-            for day in payload["nights"][provider].values()
+            for day in fetched[provider]
             for source in day["sources"]
             for session in source["sessions"]
         }
-        assert referenced <= embedded
+        assert referenced <= on_demand
+        # The endpoint returns the same one-night packets the range read builds.
+        assert fetched[provider] == packet["days"]
+
+
+def test_sleep_night_endpoint_validates_narrows_and_never_writes(tmp_path):
+    app, _settings, paths = _ui(tmp_path)
+    _seed_nights(paths)
+    app.state.engine = create_sqlite_engine(paths)
+    statements: list[str] = []
+    with client_for(app) as client:
+        event.listen(
+            app.state.engine,
+            "before_cursor_execute",
+            lambda _c, _cur, sql, *_a: statements.append(sql),
+        )
+        for params in (
+            {"provider": "fitbit", "wake_date": "2099-01-02"},
+            {"provider": "garmin"},
+            {"provider": "garmin", "wake_date": "20990102"},
+            {"provider": "garmin", "wake_date": "2099-13-02"},
+        ):
+            response = client.get("/api/sleep/night", params=params)
+            assert response.status_code == 400
+            assert response.json() == {"code": "invalid_sleep_night_request"}
+        both = _night(client, "google", "2099-01-04")
+        assert both["state"] == "records"
+        (source,) = both["sources"]
+        # Two same-source sessions stay separate; no winner is chosen.
+        assert source["ambiguous"] is True and len(source["sessions"]) == 2
+        narrowed = _night(client, "google", "2099-01-04",
+                          source_id=source["source"]["source_id"])
+        assert narrowed == both
+        foreign = _night(client, "google", "2099-01-04", source_id="foreign-source")
+        assert foreign["state"] == "no_records" and foreign["sources"] == []
+        zero = _night(client, "google", "2099-01-06")["sources"][0]["sessions"][0]
+        duration = zero["metrics"]["sleep_duration_asleep_seconds"]
+        assert duration["value"] == 0 and duration["is_zero"] is True
+    assert "BEGIN" in statements
+    assert not any(
+        sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for sql in statements
+    )
+    app.state.engine.dispose()
+    paths.database.unlink()
+    with client_for(app) as client:
+        response = client.get(
+            "/api/sleep/night", params={"provider": "garmin", "wake_date": "2099-01-02"}
+        )
+        assert response.status_code == 503
+        assert response.json() == {"code": "database_unavailable"}
+
+
+def test_sleep_page_html_stays_small_when_nights_carry_heavy_evidence(tmp_path, monkeypatch):
+    """Per-night evidence size must not reach the page: it is fetched on demand."""
+
+    import healthcheck.web.sleep_timeline as timeline_module
+
+    app, _settings, paths = _ui(tmp_path)
+    _seed_nights(paths)
+    app.state.engine = create_sqlite_engine(paths)
+    original = timeline_module.build_sleep_timeline
+
+    def heavy(*args, **kwargs):
+        packet = original(*args, **kwargs)
+        for days in packet["nights"].values():
+            for night in days.values():
+                night["synthetic_padding"] = "x" * 200_000
+        return packet
+
+    monkeypatch.setattr("healthcheck.web.pages.build_sleep_timeline", heavy)
+    with client_for(app) as client:
+        page = client.get("/sleep?wake_date=2099-01-07")
+    assert page.status_code == 200
+    assert "synthetic_padding" not in page.text
+    assert len(page.content) < 1_000_000
 
 
 def _seed_normal_google(paths, *, competitor=False, competitor_wake=None):
@@ -668,7 +767,7 @@ def test_normal_google_uses_sole_eligible_family_and_retains_alternates(tmp_path
             assert point["value_seconds"] == 24600
             assert point["role_uncertain"] is True
             assert point["candidate_count"] == 1
-            sources = timeline["nights"]["google"]["2099-01-02"]["sources"]
+            sources = _night(client, "google", "2099-01-02")["sources"]
             family = next(item for item in sources if item["source"]["source_id"] == family_id)
             assert family["sessions"][0]["role"]["selection"] == "single_uncertain_session"
             excluded = next(item for item in sources if item["source"]["source_id"] == excluded_id)
@@ -694,7 +793,7 @@ def test_normal_google_requires_choice_for_two_eligible_sources_and_rejects_stal
         assert packet["google_selection"]["status"] == "explicit"
         assert packet["display_series"][1]["source"]["source_id"] == family_id
         assert packet["series"] == initial["series"]
-        assert packet["nights"] == initial["nights"]
+        assert "nights" not in packet
         assert "days=30&amp;wake_date=2099-01-02&amp;google_sleep_source_id=" in chosen.text
         for invalid in (excluded_id, "foreign-source", family_id + "-stale"):
             packet = _timeline_json(client.get(url + "&google_sleep_source_id=" + invalid).text)
@@ -1113,7 +1212,8 @@ def test_historical_sleep_period_controls_share_existing_snapshot(tmp_path, monk
                      for provider in ("garmin", "google")]
     assert packet["start_date"] == str(start) and packet["end_date"] == str(end)
     assert packet["dates"] == [str(start + timedelta(days=i)) for i in range(days)]
-    assert [row["date"] for row in packet["table_rows"]] == packet["dates"]
+    # The date table is server-rendered; the chart packet carries dates only.
+    assert "table_rows" not in packet
     form = response.text.split('data-sleep-period-form>', 1)[1].split('</form>', 1)[0]
     assert f'name="wake_date" value="{end}" required' in form
     assert f'name="days" value="{days}"' in form
