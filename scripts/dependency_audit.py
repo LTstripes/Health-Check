@@ -26,7 +26,7 @@ from pathlib import Path
 
 SCANNER = "pip-audit==2.10.1"
 SERVICE = "osv"
-GARMIN_PIN = "54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5"
+GARMIN_PIN = "3eee7a4db6c2242967aae1780b8839599ea7dcbb"
 GARMIN_SOURCE = {
     "git": "https://github.com/cyberjunky/python-garminconnect.git?rev="
     f"{GARMIN_PIN}#{GARMIN_PIN}"

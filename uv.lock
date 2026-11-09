@@ -421,11 +421,12 @@ wheels = [
 
 [[package]]
 name = "garminconnect"
-version = "0.3.15"
-source = { git = "https://github.com/cyberjunky/python-garminconnect.git?rev=54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5#54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5" }
+version = "0.3.20"
+source = { git = "https://github.com/cyberjunky/python-garminconnect.git?rev=3eee7a4db6c2242967aae1780b8839599ea7dcbb#3eee7a4db6c2242967aae1780b8839599ea7dcbb" }
 dependencies = [
     { name = "curl-cffi" },
     { name = "requests" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "ua-generator" },
 ]
 
@@ -468,7 +469,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.20.1,<2" },
     { name = "cryptography", specifier = ">=50.0,<51" },
     { name = "fastapi", specifier = ">=0.160.0,<1" },
-    { name = "garminconnect", git = "https://github.com/cyberjunky/python-garminconnect.git?rev=54079fbca3cafaa371b5d0cd1aa9cfb0ae62c7a5" },
+    { name = "garminconnect", git = "https://github.com/cyberjunky/python-garminconnect.git?rev=3eee7a4db6c2242967aae1780b8839599ea7dcbb" },
     { name = "jinja2", specifier = ">=3.1,<4" },
     { name = "pydantic-settings", specifier = ">=2.16.1,<3" },
     { name = "python-multipart", specifier = ">=0.0.9,<1" },

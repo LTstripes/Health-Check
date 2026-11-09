@@ -61,7 +61,7 @@ def fixture(name: str) -> GarminCapabilityFixture:
 
 def test_inventory_is_static_and_complete() -> None:
     assert CAPABILITY_CONTRACT_VERSION == "r02-garmin-capability-contract-v1"
-    assert GARMINCONNECT_VERSION == "0.3.15"
+    assert GARMINCONNECT_VERSION == "0.3.20"
     assert GARMIN_CAPABILITY_INVENTORY.contract_version == CAPABILITY_CONTRACT_VERSION
     assert tuple(item.code for item in capability_inventory()) == EXPECTED_CODES
     assert CAPABILITY_MATRIX == GARMIN_CAPABILITY_INVENTORY.capabilities

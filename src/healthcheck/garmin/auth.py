@@ -391,7 +391,7 @@ def classify_garmin_error(exc: BaseException) -> GarminSafeError:
         return GarminSafeError("authentication", "authentication_failed", status)
     if status == 404:
         return GarminSafeError("provider", "unsupported_or_not_found", status)
-    if status == 429:
+    if status in {427, 429}:
         return GarminSafeError("provider", "rate_limited", status)
     if status is not None and status >= 500:
         return GarminSafeError("provider", "provider_unavailable", status)
@@ -427,7 +427,19 @@ def classify_garmin_error(exc: BaseException) -> GarminSafeError:
 def _silence_provider_logging():
     """Prevent provider debug/error text from reaching stdout or log files."""
 
-    names = ("garminconnect", "garminconnect.client", "garminconnect.__init__")
+    # 0.3.19 split the provider into modules. Disabling a parent logger does
+    # not disable its children or their own handlers; cover the pinned
+    # provider's logger names even before the first lazy provider import.
+    names = (
+        "garminconnect",
+        "garminconnect.__init__",
+        "garminconnect.api._common",
+        "garminconnect.client",
+        "garminconnect.client.session",
+        "garminconnect.client.sso",
+        "garminconnect.client.tokens",
+        "garminconnect.client.transport",
+    )
     saved: list[tuple[logging.Logger, bool, int, bool, list[logging.Handler]]] = []
     for name in names:
         logger = logging.getLogger(name)

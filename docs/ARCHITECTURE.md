@@ -419,7 +419,7 @@ Delete/clear retain tombstones/recompute canonical without deleting raw history.
 <a id="garmin"></a>
 ## 3.8 Garmin records, capability and native metrics
 
-Pinned `python-garminconnect` 0.3.15 uses reviewed 0.3.12 capability surface. Interactive sign-in/MFA
+Pinned `python-garminconnect` 0.3.20 uses reviewed 0.3.12 capability surface. Interactive sign-in/MFA
 and Windows-current-user DPAPI/SID protect external `garmin_tokens.json`; no plaintext temp token file.
 Protection failure is closed, malformed state reauth-required, outage failure. Method existence is not
 device production. `GARMIN_CAPABILITY_INVENTORY` separates static support, Connect/client surface and
