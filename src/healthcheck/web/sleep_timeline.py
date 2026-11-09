@@ -383,6 +383,25 @@ def build_sleep_timeline(
     }
 
 
+SLEEP_NIGHT_ENDPOINT = "/api/sleep/night"
+# Server-rendered elsewhere (table) or fetched on demand (per-night sessions).
+_CLIENT_OMITTED_KEYS = frozenset({"nights", "table_rows"})
+
+
+def sleep_timeline_client(timeline: Mapping[str, Any]) -> dict[str, Any]:
+    """Chart packet embedded in the page, without the per-night session packets.
+
+    Per-night packets carry full metric evidence (stage interval snapshots per
+    metric) and grow with every stored session, so the chart fetches one exact
+    night from ``SLEEP_NIGHT_ENDPOINT`` only when the Owner selects its point.
+    Every dated point, state, note, source and coverage count stays embedded.
+    """
+
+    packet = {key: value for key, value in timeline.items() if key not in _CLIENT_OMITTED_KEYS}
+    packet["night_endpoint"] = SLEEP_NIGHT_ENDPOINT
+    return packet
+
+
 def _technical_session(session: Mapping[str, Any]) -> dict[str, Any]:
     metrics = session.get("metrics") or {}
     return {

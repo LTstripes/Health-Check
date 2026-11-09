@@ -172,6 +172,41 @@ def snapshot_diff(previous: dict | None, snapshot: dict) -> dict[str, list[str]]
     }
 
 
+def _draft_summary(session, root, interpretation) -> dict:
+    """Listing summary of one stored draft; an unreadable draft stays explicit.
+
+    Fields are copied as transcribed: nothing is inferred, and a missing field
+    stays None rather than a default. The PDF itself is not reopened here.
+    """
+    consumed = session.scalar(
+        select(LabRevision.id).where(LabRevision.interpretation_id == interpretation.id)
+    )
+    summary = {"interpretation_id": interpretation.id, "consumed": consumed is not None}
+    try:
+        artifact = session.get(RawArtifact, interpretation.draft_artifact_id)
+        draft = parse_draft(artifact_bytes(root, artifact, extension="json"))
+    except LabError as exc:
+        return {**summary, "readable": False, "error": str(exc)}
+    dates = {
+        key: (value.model_dump() if value is not None else None)
+        for key, value in (
+            ("result_date", draft.result_date),
+            ("printed_date", draft.printed_date),
+            ("specimen_date", draft.specimen_date),
+        )
+    }
+    return {
+        **summary,
+        "readable": True,
+        "report_label": draft.report_label,
+        "clinic_source": draft.clinic_source,
+        "performing_lab": draft.performing_lab,
+        **dates,
+        "row_count": len(draft.rows),
+        "incomplete": draft.incomplete,
+    }
+
+
 class LabService:
     def __init__(self, engine: Engine, root: Path):
         self.engine, self.root = engine, Path(root)
@@ -383,9 +418,12 @@ class LabService:
             for report in reports[:200]:
                 head = session.get(LabHead, report.id)
                 revision = session.get(LabRevision, head.revision_id) if head.revision_id else None
+                # Newest draft first: received_at of its stored draft artifact.
                 drafts = session.scalars(
                     select(LabInterpretation)
+                    .join(RawArtifact, RawArtifact.id == LabInterpretation.draft_artifact_id)
                     .where(LabInterpretation.report_id == report.id)
+                    .order_by(RawArtifact.received_at.desc(), LabInterpretation.id)
                     .limit(201)
                 ).all()
                 result.append(
@@ -396,6 +434,9 @@ class LabService:
                         "snapshot": json.loads(revision.snapshot_json) if revision else None,
                         "interpretations": [i.id for i in drafts[:200]],
                         "more_drafts": len(drafts) > 200,
+                        "latest_draft": (
+                            _draft_summary(session, self.root, drafts[0]) if drafts else None
+                        ),
                     }
                 )
             return {"reports": result, "more": len(reports) > 200}

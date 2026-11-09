@@ -70,9 +70,48 @@
     return data.display_series.find(function (item) { return item.series_id === id; }) || null;
   }
 
-  function sessionFor(series, point) {
-    const day = data.nights && data.nights[series.provider]
-      ? data.nights[series.provider][point.wake_date] : null;
+  // Per-night session packets are not embedded in the page: fetch one exact
+  // night (narrowed to the series source) on demand and keep it for the visit.
+  const nightCache = new Map();
+
+  function nightKey(series, point) {
+    return series.provider + "|" + series.source.source_id + "|" + point.wake_date;
+  }
+
+  function loadNight(series, point) {
+    const key = nightKey(series, point);
+    const cached = nightCache.get(key);
+    if (cached) return cached.promise;
+    const params = new URLSearchParams({
+      provider: series.provider,
+      wake_date: point.wake_date,
+      source_id: series.source.source_id
+    });
+    const entry = { value: undefined };
+    entry.promise = fetch((data.night_endpoint || "/api/sleep/night") + "?" + params.toString(), {
+      headers: { Accept: "application/json" },
+      credentials: "same-origin"
+    }).then(function (response) {
+      if (!response.ok) throw new Error("night_" + response.status);
+      return response.json();
+    }).then(function (night) {
+      entry.value = night;
+      return night;
+    }, function (error) {
+      // A failed read is not cached: the next selection retries it.
+      nightCache.delete(key);
+      throw error;
+    });
+    nightCache.set(key, entry);
+    return entry.promise;
+  }
+
+  function cachedNight(series, point) {
+    const cached = nightCache.get(nightKey(series, point));
+    return cached ? cached.value : undefined;
+  }
+
+  function sessionFor(series, point, day) {
     if (!day || !Array.isArray(day.sources)) return null;
     let sessions = [];
     const source = day.sources.find(function (item) {
@@ -157,6 +196,8 @@
   function showPoint(series, point) {
     if (!detail) return;
     current = { series: series, point: point };
+    const pending = point.state === "value" && cachedNight(series, point) === undefined
+      ? loadNight(series, point) : null;
     let html = "<h3>Ночь · " + esc(readableDate(point.wake_date)) + "</h3>";
     html += '<p class="sleep-timeline-detail-source">' + esc(series.label) + "</p>";
     if (point.state === "value") {
@@ -165,8 +206,7 @@
       if (point.role_uncertain) {
         html += '<p class="uncertainty-note">Роль основного сна не подтверждена; запись показана отдельно.</p>';
       }
-      const session = sessionFor(series, point);
-      if (session) html += sessionDetails(series, session);
+      html += '<div data-sleep-session-slot>' + sessionSlot(series, point) + "</div>";
     } else if (point.state === "ambiguous") {
       html += '<p class="uncertainty-note">' + esc(point.note) +
         " Значения не объединяются и не усредняются.</p>";
@@ -176,6 +216,35 @@
     html += '<details class="owner-details"><summary>ⓘ Основание точки</summary>' + pointEvidence(point) +
       '<pre class="provenance">' + esc(JSON.stringify(point, null, 2)) + '</pre></details>';
     detail.innerHTML = html;
+    if (pending) pending.then(fillSlot, fillSlot);
+
+    function fillSlot() {
+      // The Owner may have moved on: only the still-selected point is updated.
+      if (!current || current.series !== series || current.point !== point) return;
+      const slot = detail.querySelector("[data-sleep-session-slot]");
+      if (slot) slot.innerHTML = sessionSlot(series, point);
+    }
+  }
+
+  function sessionSlot(series, point) {
+    const key = nightKey(series, point);
+    const night = cachedNight(series, point);
+    if (night === undefined) {
+      return nightCache.has(key)
+        ? '<p class="muted" data-sleep-session-state="loading">Загружаю данные сессии…</p>'
+        : '<p class="muted" data-sleep-session-state="error">Не удалось загрузить данные сессии. ' +
+          "Длительность выше взята из сохранённой точки; выберите точку ещё раз, чтобы повторить.</p>";
+    }
+    if (night.state === "read_limit_exceeded") {
+      return '<p class="muted" data-sleep-session-state="limited">За эту дату слишком много ' +
+        "сохранённых записей; данные сессии не показаны.</p>";
+    }
+    const session = sessionFor(series, point, night);
+    if (!session) {
+      return '<p class="muted" data-sleep-session-state="missing">Сессия этой точки не найдена ' +
+        "в текущих сохранённых данных: возможно, они обновились. Обновите страницу.</p>";
+    }
+    return sessionDetails(series, session);
   }
 
   function buildAxis(svgElement, width, height, pad, dates, xOf, minTickX) {
@@ -415,7 +484,12 @@
   function bindPoints() {
     svg.addEventListener("pointermove", function (event) {
       const node = nearestFrom(event);
-      if (node) showPoint(seriesFor(node), pointFor(node));
+      if (!node) return;
+      const series = seriesFor(node);
+      const point = pointFor(node);
+      // Moving within one point's hit area keeps its rendered detail as is.
+      if (current && current.series === series && current.point === point) return;
+      showPoint(series, point);
     });
     focusables.forEach(function (node) {
       const point = pointFor(node);

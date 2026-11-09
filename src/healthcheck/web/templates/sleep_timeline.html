@@ -147,9 +147,9 @@
 </section>
 {% call owner_ui.technical_details('sleep-technical') %}
   <h2>Динамика сна</h2>
-  <p>Каждый ряд — один точный сохранённый источник Garmin или Google. Сессии не объединяются, пропуски не заполняются, из нескольких записей значение не выбирается. Оценка Garmin относится к отдельной сессии; совместимой оценки Google нет. Полные ночные пакеты встроены в снимок страницы.</p>
+  <p>Каждый ряд — один точный сохранённый источник Garmin или Google. Сессии не объединяются, пропуски не заполняются, из нескольких записей значение не выбирается. Оценка Garmin относится к отдельной сессии; совместимой оценки Google нет. Ниже — ограниченная сводка каждой ночи; полный пакет сессии загружается при выборе точки на графике (<code>/api/sleep/night</code>).</p>
   <pre class="provenance">{{ timeline_technical | tojson(indent=2) }}</pre>
   <h2>Свежесть источников</h2>
   <pre class="provenance">{{ timeline_freshness | tojson(indent=2) }}</pre>
 {% endcall %}
-<script id="sleep-timeline-data" type="application/json">{{ timeline | tojson }}</script>
+<script id="sleep-timeline-data" type="application/json">{{ timeline_client | tojson }}</script>
