@@ -5,8 +5,13 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from datetime import date
 from html import unescape
 from pathlib import Path
+
+import pytest
+
+from test_sleep_metrics import projection_database as projection_database
 
 REPO = Path(__file__).resolve().parents[1]
 GARMIN = {"provider": "garmin", "label": "Garmin", "series_id": "garmin:s1",
@@ -60,8 +65,8 @@ def _render(tmp_path, cases):
 
 
 def _main_view(html):
-    # Everything before the first disclosure is the always-visible part of the card.
-    return html.split("<details", 1)[0]
+    # Interval and technical disclosures are both collapsed in the main card.
+    return re.sub(r"<details\b.*?</details>", "", html, flags=re.S)
 
 
 def _text(html):
@@ -182,3 +187,180 @@ def test_withheld_source_values_read_unconfirmed_not_missing(tmp_path):
     assert "Время в постели не подтверждено" in text
     assert "Оценка сна Garmin 88 из 100" in text
     assert "нет данных" not in text
+
+
+def _interval(start, end, stage, *, offset=180, end_offset=None, ordinal=0):
+    return {
+        "id": f"stage-{ordinal}", "ordinal": ordinal, "interval_kind": "sleep_stage",
+        "interval_state": "value", "start_state": "value", "end_state": "value",
+        "start_precision": "instant", "end_precision": "instant",
+        "start_at_utc": start, "end_at_utc": end, "stage_type": stage,
+        "start_temporal": _instant(start, offset),
+        "end_temporal": _instant(end, offset if end_offset is None else end_offset),
+    }
+
+
+def _interval_session(rows, start="2026-10-25T20:00:00Z", end="2026-10-26T00:00:00Z"):
+    session = _session(
+        sleep_start_at=_cell(start), sleep_end_at=_cell(end),
+        sleep_stage_light_seconds=_cell(None, eligible=False, evidence={
+            "interval_snapshots": rows}),
+    )
+    session["temporal_evidence"] = {}
+    return session
+
+
+def _graph(html):
+    return html.split('<svg class="night-hypno-plot"', 1)[1].split("</figure>", 1)[0]
+
+
+def _interval_table(html):
+    return html.split('<tbody>', 1)[1].split('</tbody>', 1)[0]
+
+
+def test_hypnogram_positions_steps_durations_and_accessible_rows(tmp_path):
+    rows = [
+        _interval("2026-10-25T20:00:00Z", "2026-10-25T21:00:00Z", "AWAKE"),
+        _interval("2026-10-25T21:00:00Z", "2026-10-25T22:00:00Z", "LIGHT", ordinal=1),
+        _interval("2026-10-25T22:00:00Z", "2026-10-25T23:00:00Z", "DEEP", ordinal=2),
+        _interval("2026-10-25T23:00:00Z", "2026-10-26T00:00:00Z", "REM", ordinal=3),
+    ]
+    session = _interval_session(rows)
+    # Real packets repeat these snapshots on multiple metric cells: no doubled rows.
+    session["metrics"]["sleep_stage_deep_seconds"]["evidence"] = {"interval_snapshots": rows}
+    [card] = _render(tmp_path, [{"series": GARMIN, "point": POINT, "session": session}])
+    html = card["session"]
+    graph = _graph(html)
+    for x1, x2, y in [(0, 25, 10), (25, 50, 50), (50, 75, 70), (75, 100, 30)]:
+        assert (f'class="night-hypno-line" x1="{x1}%" x2="{x2}%" '
+                f'y1="{y}" y2="{y}"') in graph
+    assert graph.count('class="night-hypno-step"') == 3
+    assert graph.count('tabindex="0" role="img"') == 4
+    assert 'aria-label="REM · 02:00–03:00 · 60 мин"' in graph
+    assert 'text-anchor="start">23:00</text>' in graph
+    assert 'text-anchor="end">03:00</text>' in graph
+    assert "night-hypno-gap" not in graph
+    assert '<summary>Интервалы стадий</summary>' in html
+    assert '<details class="owner-details night-hypno-intervals">' in html
+    table = _interval_table(html)
+    assert table.count('<tr>') == 4
+    assert ('<td>2026-10-26 02:00 UTC+03:00</td><td>2026-10-26 03:00 UTC+03:00</td>'
+            '<td>REM</td><td>60</td>') in table
+    assert "0 мин" not in _text(table)
+
+
+def test_hypnogram_totals_only_never_invents_an_order(tmp_path):
+    [card] = _render(tmp_path, [{"series": GOOGLE, "point": POINT, "session": _session()}])
+    html = card["session"]
+    assert 'data-hypnogram="totals-only"' in html
+    assert "Последовательность стадий не сохранена — показаны только итоги" in html
+    assert 'night-hypno-plot' not in html and 'Интервалы стадий' not in html
+
+
+def test_hypnogram_missing_and_unknown_intervals_leave_unconnected_hatched_gaps(tmp_path):
+    rows = [
+        _interval("2026-10-25T20:30:00Z", "2026-10-25T21:00:00Z", "LIGHT"),
+        _interval("2026-10-25T21:30:00Z", "2026-10-25T22:00:00Z", "UNMAPPED", ordinal=1),
+        _interval("2026-10-25T22:00:00Z", "2026-10-25T23:30:00Z", "REM", ordinal=2),
+    ]
+    [card] = _render(tmp_path, [{"series": GOOGLE, "point": POINT,
+                               "session": _interval_session(rows)}])
+    graph = _graph(card["session"])
+    assert graph.count('class="night-hypno-gap"') == 3
+    assert 'x="0%" y="80" width="12.5%"' in graph
+    assert 'x="25%" y="80" width="25%"' in graph
+    assert 'x="87.5%" y="80" width="12.5%"' in graph
+    assert graph.count('class="night-hypno-line"') == 2
+    assert 'night-hypno-step' not in graph
+    assert 'night-hypno-awake' not in graph
+    table = _interval_table(card["session"])
+    assert table.count('<tr>') == 3
+    assert 'Неизвестная стадия (не показан на графике)' in table
+    assert re.search(r'>0(?:[ <])', table) is None
+
+
+@pytest.mark.parametrize("problem", ["overlap", "invalid", "local-only", "outside", "zero"])
+def test_hypnogram_unconfirmed_intervals_do_not_become_stages(tmp_path, problem):
+    rows = [_interval("2026-10-25T20:00:00Z", "2026-10-25T22:00:00Z", "LIGHT")]
+    if problem == "overlap":
+        rows.append(_interval("2026-10-25T21:00:00Z", "2026-10-25T23:00:00Z", "DEEP"))
+    elif problem == "invalid":
+        rows[0]["interval_state"] = "invalid"
+    elif problem == "local-only":
+        rows[0]["start_precision"] = "local_datetime"
+        rows[0]["start_at_utc"] = None
+    elif problem == "outside":
+        rows[0]["start_at_utc"] = "2026-10-25T19:00:00Z"
+    else:
+        rows[0]["end_at_utc"] = rows[0]["start_at_utc"]
+    [card] = _render(tmp_path, [{"series": GARMIN, "point": POINT,
+                               "session": _interval_session(rows)}])
+    graph = _graph(card["session"])
+    assert 'night-hypno-line' not in graph
+    assert 'width="100%" height="8"' in graph
+    assert '(не показан на графике)' in _interval_table(card["session"])
+
+
+def test_hypnogram_dst_keeps_elapsed_durations_and_does_not_guess_transition(tmp_path):
+    rows = [
+        _interval("2026-10-25T00:00:00Z", "2026-10-25T01:00:00Z", "LIGHT",
+                  offset=120, end_offset=60),
+        _interval("2026-10-25T02:00:00Z", "2026-10-25T04:00:00Z", "REM",
+                  offset=None, ordinal=1),
+    ]
+    session = _interval_session(rows, start="2026-10-25T00:00:00Z", end="2026-10-25T04:00:00Z")
+    [card] = _render(tmp_path, [{"series": GOOGLE, "point": POINT, "session": session}])
+    graph = _graph(card["session"])
+    assert 'LIGHT' not in graph
+    assert 'Лёгкий · 02:00 UTC+02:00–02:00 UTC+01:00 · 60 мин' in graph
+    assert 'REM · 02:00 UTC–04:00 UTC · 120 мин' in graph
+    assert 'x1="50%" x2="100%"' in graph
+    assert 'где смещение неизвестно, показано UTC' in card["session"]
+
+
+@pytest.mark.parametrize("provider", ["garmin", "google"])
+def test_hypnogram_renders_actual_saved_source_packet(projection_database, tmp_path, provider):
+    from healthcheck.analytics.sleep_source_view import read_source_sleep_night
+    from healthcheck.garmin.persistence import GarminPersistenceRepository
+    from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
+    from test_sleep_metrics import _google_sleep_payload, _persist_google, _stage
+    from test_sleep_production_shape import normalized, production_sleep
+
+    session, paths = projection_database
+    if provider == "garmin":
+        payload = production_sleep()
+        # A saved internal gap withholds totals/end metric, but summary bounds survive.
+        payload["sleepLevels"].pop(1)
+        GarminPersistenceRepository(session, payload_store=ContentAddressedGarminPayloadStore(
+            paths.root / "garmin-artifacts")).persist_result(normalized(payload), payload=payload)
+    else:
+        _persist_google(session, paths, payload=_google_sleep_payload(stages_status="SUCCEEDED",
+            stages=[_stage("2099-01-01T22:00:00Z", "2099-01-01T23:00:00Z", "LIGHT"),
+                    _stage("2099-01-02T00:00:00Z", "2099-01-02T05:00:00Z", "REM")]))
+    session.commit()
+    packet = read_source_sleep_night(session, provider=provider, wake_date=date(2099, 1, 2))
+    selected = packet["sources"][0]["sessions"][0]
+    snapshots = selected["metrics"]["sleep_stage_light_seconds"]["evidence"]["interval_snapshots"]
+    stage_rows = [row for row in snapshots if row["interval_kind"] == "sleep_stage"]
+    assert len(stage_rows) == (3 if provider == "garmin" else 2)
+    assert stage_rows[0]["start_precision"] == "instant"
+    assert stage_rows[0]["start_temporal"]["source_utc_offset_minutes"] == (
+        60 if provider == "garmin" else 180)
+    series = GARMIN if provider == "garmin" else GOOGLE
+    [card] = _render(tmp_path, [{"series": series, "point": POINT, "session": selected}])
+    graph = _graph(card["session"])
+    assert graph.count('class="night-hypno-gap"') == 1
+    assert graph.count('class="night-hypno-line"') == len(stage_rows)
+    assert _interval_table(card["session"]).count('<tr>') == len(stage_rows)
+    assert ('text-anchor="start">23:00</text>' if provider == "garmin" else
+            'text-anchor="start">01:00</text>') in graph
+
+
+def test_hypnogram_missing_bounds_never_invents_a_window(tmp_path):
+    session = _interval_session([
+        _interval("2026-10-25T20:00:00Z", "2026-10-25T21:00:00Z", "REM")])
+    session["metrics"]["sleep_end_at"] = _cell(None, eligible=False, state="missing")
+    [card] = _render(tmp_path, [{"series": GARMIN, "point": POINT, "session": session}])
+    assert 'data-hypnogram="unavailable"' in card["session"]
+    assert 'night-hypno-plot' not in card["session"]
+    assert '<td>REM (не показан на графике)</td><td>60</td>' in _interval_table(card["session"])

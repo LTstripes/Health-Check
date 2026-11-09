@@ -576,6 +576,34 @@ main, .legal { max-width: var(--owner-content-width); }
 .night-stage-value { font: 400 1.0625rem/1.4 var(--owner-heading-font); font-variant-numeric: tabular-nums; }
 .night-stage-share { color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; }
 .night-card-stage-empty { padding: 2px 0; }
+.night-hypno { margin: 20px 0 0; }
+.night-hypno-chart { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 8px; margin-top: 10px; }
+.night-hypno-levels { display: grid; grid-template-rows: repeat(4, 20px); color: var(--muted); font: 400 .75rem/20px var(--owner-sans); }
+.night-hypno-plot { display: block; overflow: visible; font: 400 .75rem var(--owner-sans); }
+.night-hypno-grid { stroke: var(--line); }
+.night-hypno-light { color: color-mix(in srgb, var(--series-1) 55%, var(--sunken)); }
+.night-hypno-deep { color: var(--series-1); }
+.night-hypno-rem { color: var(--series-2); }
+.night-hypno-awake { color: var(--series-3); }
+.night-hypno-line, .night-hypno-step { stroke: currentColor; stroke-width: 3; fill: none; }
+.night-hypno-step { stroke-width: 1.5; }
+.night-hypno-hit { stroke: transparent; stroke-width: 16; pointer-events: stroke; }
+.night-hypno-segment { outline: none; }
+.night-hypno-segment:focus-visible .night-hypno-line { stroke-width: 6; stroke: var(--ink); }
+.night-hypno-tooltip { visibility: hidden; pointer-events: none; color: var(--ink); }
+.night-hypno-tooltip div { box-sizing: border-box; width: fit-content; max-width: 100%; margin: auto; padding: 1px 4px; background: var(--card); border: 1px solid var(--line); border-radius: 4px; font: 400 .75rem/18px var(--owner-sans); }
+.night-hypno-segment:hover .night-hypno-tooltip, .night-hypno-segment:focus .night-hypno-tooltip { visibility: visible; }
+.night-hypno-tick { fill: var(--muted); font-variant-numeric: tabular-nums; }
+.night-hypno-hatch { fill: none; stroke: var(--line); stroke-width: 2; }
+.night-hypno-intervals { margin: 4px 0 0; font-size: .875rem; }
+.night-hypno-intervals > summary { color: var(--muted); }
+.night-hypno-table { overflow-x: auto; }
+.night-hypno-table table { width: 100%; font-variant-numeric: tabular-nums; }
+.night-hypno-table th, .night-hypno-table td { text-align: left; white-space: nowrap; }
+@media (max-width: 480px) {
+  .night-hypno-chart { grid-template-columns: 100px minmax(0, 1fr); gap: 4px; }
+  .night-hypno-levels, .night-hypno-plot { font-size: .6875rem; }
+}
 .night-card-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 20px 0 4px; }
 .night-card-tile { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
 .night-card-tile dd { margin: 4px 0 0; font: 300 1.5rem/1.2 var(--owner-heading-font); font-variant-numeric: tabular-nums; }
