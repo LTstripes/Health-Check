@@ -527,7 +527,18 @@ def test_populated_upgrade_preserves_rows_children_indexes_and_immutability(tmp_
     assert all(before[0][table] for table in tables)
     migrate_database(paths)
     migrate_database(paths)
-    assert snapshot() == before
+    after_rows, after_indexes = snapshot()
+    assert after_rows == before[0]
+    # 0022 adds a freshness lookup while retaining every pre-existing index.
+    added = [index for index in after_indexes["google_source_records"]
+             if index["name"] == "ix_google_source_records_freshness"]
+    assert len(added) == 1
+    assert added[0]["column_names"] == [
+        "google_source_id", "stream_code", "query_mode", "data_source_family",
+        "projection_status", "record_status", "source_local_date",
+    ]
+    after_indexes["google_source_records"].remove(added[0])
+    assert after_indexes == before[1]
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert not connection.execute(text("PRAGMA foreign_key_check")).all()
