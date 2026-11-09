@@ -1009,18 +1009,20 @@ selected date. Native table is no-JS fallback. Empty Weight/Body Battery plots d
 any eligible non-None value. `tennis_v2` is a display alias for Теннис, not type reclassification.
 Unknown Recovery Time unit stays adjacent to actual value/zero.
 
-Desktop scope starts at 1024 CSS px. A+ variables: bg `#f6f2e9`, card `#fdfbf6`, ink `#292d27`, muted
-`#686c61`, line `#dcdccc`, accent/focus `#31584b`; sunken `#efeee5`, stronger line `#c9c0b3`,
-accent-soft `#e6f1ef`. Attention `#f6efe2/#6b4510`, unavailable `#f3e4d4/#6b320c`, error
-`#f8eceb/#7a2424`; observed `#1d4e89`, trend `#9a4f1a`, reference `#5c4d86`, comparison `#3f5f73`.
-Colors do not score health. Georgia/Times/serif h1: 42px/400/1.1; Segoe UI/Helvetica Neue/Arial body:
-line-height 1.5, hierarchy 600, tabular values. Content max 1440px/gutters 48px, accessible
-contrast/focus, no external fonts.
+Поддерживаемая настольная область начинается с 1024 CSS px. `dashboard.css` задаёт систему Observatory; тёмная тема — базовая, светлая включается системной настройкой или явным выбором. `--owner-focus` ссылается на `--accent`. Цвета не оценивают здоровье.
 
-Sticky top bar minimum 83px, navigation gap 24px/selected square 2px underline
-with aria-current; controls at least 44px hit area and visible 3px green focus.
-Retain 4/8/12/16/24/32px spacing, 8/6/4px card/button/chip radii, 8px square legend
-and dashed goal/reference; wide tables/charts scroll locally, not whole page.
+| Роль | Токен | Тёмная | Светлая |
+| --- | --- | --- | --- |
+| Фон / навигация / поверхность / вложенная поверхность | `--bg` / `--rail` / `--card` / `--sunken` | `#0d1520` / `#0a111a` / `#131e2c` / `#182638` | `#f2f4f8` / `#e8ecf2` / `#ffffff` / `#eef1f6` |
+| Основной / вторичный текст | `--ink` / `--muted` | `#e8eef6` / `#9aa8bb` | `#142031` / `#556275` |
+| Разделители / усиленные линии | `--line` / `--line-strong` | `#22324a` / `#3a4d66` | `#dbe1ea` / `#b5c0cf` |
+| Действие и фокус / текст на акценте / подложка выбора | `--accent` / `--on-accent` / `--accent-soft` | `#f0bf5a` / `#1a1405` / `#2e2715` | `#8a5a00` / `#ffffff` / `#f7ecd6` |
+| Внимание: текст / фон | `--attention-ink` / `--attention-bg` | `#f3cf86` / `#33280f` | `#6b4510` / `#f8eedc` |
+| Недоступно: текст / фон | `--unavailable-ink` / `--unavailable-bg` | `#f4b48a` / `#3a2216` | `#6b320c` / `#f6e3d3` |
+| Ошибка: текст / фон | `--error-ink` / `--error-bg` | `#ffb3b3` / `#3d1b20` | `#7a2424` / `#f9e9e8` |
+| Наблюдение / тренд / ориентир / второй источник | `--series-1` / `--series-2` / `--series-3` / `--series-4` | `#79b0ff` / `#d79bf5` / `#c4cbd6` / `#5ec4b6` | `#2456a6` / `#8a3fb0` / `#5b6577` / `#1f7a70` |
+
+`--raw`, `--trend`, `--goal` ссылаются на первые три ряда. Для текста и заголовков используются локальные семейства `--owner-sans` и `--owner-heading-font`. Навигация расположена сбоку; переключатель «Авто / Тёмная / Светлая» управляет `data-theme`, а без JavaScript действует системная схема. Элементы управления сохраняют доступный фокус, широкие таблицы и графики прокручиваются локально.
 
 The footer in `base.html` unconditionally says “Интерфейс только на этом компьютере” in both loopback
 and authenticated home-server mode. Home-server additionally has logout navigation; footer text is not a
