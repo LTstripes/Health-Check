@@ -30,6 +30,7 @@ from healthcheck.web.labs import router as labs_router
 from healthcheck.web.pages import html_http_error, render_error, templates
 from healthcheck.web.pages import router as pages_router
 from healthcheck.web.period_brief import router as period_brief_router
+from healthcheck.web.sleep_settings import router as sleep_settings_router
 from healthcheck.web.source_freshness import router as source_freshness_router
 from healthcheck.web.statistics import router as statistics_router
 from healthcheck.web.trip_passport import router as trip_passport_router
@@ -84,6 +85,7 @@ def create_ui_app(
     app.include_router(trip_passport_router)
     app.include_router(statistics_router)
     app.include_router(pages_router)
+    app.include_router(sleep_settings_router)
     app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
     app.middleware("http")(home_guard if home_auth is not None else ui_guard_middleware)
 

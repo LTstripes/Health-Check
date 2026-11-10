@@ -41,6 +41,7 @@ from healthcheck.ingestion.photo.service import PhotoImportService, PhotoUpload
 from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtractor
 from healthcheck.logging import log_event
 from healthcheck.owner_time import owner_today, owner_zone
+from healthcheck.sleep_schedule_settings import read_sleep_schedule_settings
 from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
 from healthcheck.web.brief_timing import BriefTiming
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
@@ -971,6 +972,7 @@ def _render_sleep_timeline(
 
     timeline: dict[str, Any] | None = None
     timeline_technical: dict[str, Any] | None = None
+    schedule_settings = read_sleep_schedule_settings(request.app.state.settings)
     selection = {"status": "no_data", "sources": []}
     try:
         with session_scope(request_engine(request)) as session:
@@ -992,8 +994,21 @@ def _render_sleep_timeline(
             }
             settings = request.app.state.settings
             evaluated_at_utc = datetime.now(UTC)
+            # Travel needs the preceding saved nights even when a zone change
+            # falls just before the selected window. This bounded history is
+            # only exclusion context; it never enters comparison denominators.
+            history_end = end - timedelta(days=days)
+            travel_ranges = {
+                provider: read_source_sleep_range(
+                    session, provider=provider, wake_date=history_end, days=30,
+                    **({"source_id": garmin_source_id}
+                       if provider == "garmin" and garmin_source_id else {}),
+                ) for provider in SLEEP_TIMELINE_PROVIDERS
+            } if history_end >= date.min + timedelta(days=29) else {}
             timeline = build_sleep_timeline(
                 ranges,
+                schedule_settings=schedule_settings,
+                travel_ranges=travel_ranges,
                 google_source_id=google_source_id,
                 google_inventory=read_sleep_source_inventory(session),
                 days=days,
@@ -1024,6 +1039,7 @@ def _render_sleep_timeline(
         "timeline_freshness": timeline["freshness"] if timeline else None,
         "timeline_technical": timeline_technical,
         "metric_value": metric_value,
+        "schedule_settings": schedule_settings,
     })
 
 

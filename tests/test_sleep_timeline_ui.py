@@ -1209,7 +1209,9 @@ def test_historical_sleep_period_controls_share_existing_snapshot(tmp_path, monk
     packet = _timeline_json(response.text)
     start = end - timedelta(days=days - 1)
     assert reads == [dict(provider=provider, wake_date=end, days=days)
-                     for provider in ("garmin", "google")]
+                     for provider in ("garmin", "google")] + [
+        dict(provider=provider, wake_date=end - timedelta(days=days), days=30)
+        for provider in ("garmin", "google")]
     assert packet["start_date"] == str(start) and packet["end_date"] == str(end)
     assert packet["dates"] == [str(start + timedelta(days=i)) for i in range(days)]
     # The date table is server-rendered; the chart packet carries dates only.

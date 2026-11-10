@@ -139,10 +139,11 @@ def test_separate_sources_toggle_table_summary_and_travel(tmp_path):
     assert 'aria-label="2026-10-08 · Garmin · 23:00 → 07:00 · 8 ч 0 мин' in html
     assert html.index('data-schedule-date="2026-10-08"') < html.index(
         'data-schedule-date="2026-10-02"')
-    chart = google["html"].split('<details', 1)[0]
+    chart, table = google["html"].split(
+        '<details class="owner-details"><summary>Таблица</summary>', 1)
     assert 'data-schedule-bar="garmin:sleep"' not in chart
     assert chart.count('data-schedule-bar="google:sleep"') == 7
-    assert 'Garmin' in google["html"].split('<details', 1)[1]
+    assert 'Garmin' in table
     assert 'Источники скрыты' in hidden["html"]
     assert 'sleep-schedule-summary' not in hidden["html"]
 
