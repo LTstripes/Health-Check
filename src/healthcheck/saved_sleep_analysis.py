@@ -207,11 +207,11 @@ def _nights(sleep):
         exclusions, coverage)
 
 
-def circular_local_clock(values):
+def circular_local_clock(values, *, min_nights=MIN_NIGHTS):
     """Population circular SD on a 1440-minute circle; never linear clock SD."""
     result = {"n": len(values), "state": "insufficient", "mean_clock_minutes": None,
               "circular_sd_minutes": None, "resultant_length": None}
-    if len(values) < MIN_NIGHTS:
+    if len(values) < min_nights:
         return result
     angles = [value * math.tau / 1440 for value in values]
     x, y = mean(math.cos(a) for a in angles), mean(math.sin(a) for a in angles)

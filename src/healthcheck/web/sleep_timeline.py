@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from healthcheck.db.models import GoogleSource
 from healthcheck.google.contracts import FAMILY_GOOGLE_WEARABLES
+from healthcheck.sleep_schedule_settings import SleepScheduleSettings
 from healthcheck.web.sleep_regularity import build_sleep_regularity
 from healthcheck.web.sleep_view import source_sleep_label, source_sleep_note
 
@@ -302,6 +303,8 @@ def build_sleep_timeline(
     freshness: Mapping[str, Any] | None = None,
     google_source_id: str | None = None,
     google_inventory: Mapping[str, Any] | None = None,
+    schedule_settings: SleepScheduleSettings | None = None,
+    travel_ranges: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Merge the accepted per-provider range packets into one display packet."""
 
@@ -358,17 +361,21 @@ def build_sleep_timeline(
         series, google_source_id, inventory,
         providers["google"].get("wake_date_missing_by_source") or {},
     )
+    classification = schedule_settings or SleepScheduleSettings()
     return {
         "contract_version": SLEEP_TIMELINE_CONTRACT_VERSION,
         "days": days,
         "start_date": start.isoformat(),
         "end_date": end_date.isoformat(),
         "dates": dates,
+        "day_types": {day: classification.day_type(day) for day in dates},
         "providers": providers,
         "series": series,
         "display_series": display_series,
         "regularity": build_sleep_regularity(
             ranges, display_series, google_selection=google_selection, days=days, end_date=end_date,
+            schedule_settings=classification,
+            travel_ranges=travel_ranges,
         ),
         "google_selection": google_selection,
         "google_source_inventory": inventory,

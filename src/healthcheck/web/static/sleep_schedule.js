@@ -48,11 +48,16 @@
         const end = bound ? position(bound.end_local, day) : NaN;
         const valid = point && point.state === "value" &&
           Number.isFinite(start) && Number.isFinite(end) && end > start;
+        const analysis = ((data.regularity || {}).sources || []).find(function (s) {
+          return s.provider === source.provider && s.source_id === source.source.source_id;
+        });
+        const classified = analysis && analysis.jetlag && (analysis.jetlag.night_types || {})[day];
         let note = "нет данных";
         if (point && point.state === "value") note = "границы не сохранены";
         else if (point && point.state !== "no_records") note = point.note || "нет пригодных границ";
         return { source: source, point: point, bound: valid ? bound : null,
-          start: start, end: end, note: note };
+          start: start, end: end, note: note,
+          day_type: classified ? classified.day_type : (data.day_types || {})[day] };
       }) };
     });
   }
@@ -68,6 +73,10 @@
     return { min: min, max: max, ticks: ticks };
   }
   function summaries(data, visible) {
+    if (!(data.display_series || []).length) {
+      return '<p class="muted">' + esc((data.regularity || {}).empty_text ||
+        'Недостаточно ночей для сравнения') + '</p>';
+    }
     return ((data.regularity || {}).sources || []).filter(function (source) {
       return visible.some(function (s) {
         return s.provider === source.provider && s.source.source_id === source.source_id;
@@ -81,8 +90,35 @@
         return '<p class="sleep-schedule-summary">' + esc(source.label + zone) +
           " · Начало сна: разброс ±" + esc(group.start.text) + " · Окончание: ±" +
           esc(group.end.text) + " · " + esc(group.nights) + " из " + esc(data.days) + " ночей</p>";
-      }).join("");
+      }).join("") + jetlagSummary(source);
     }).join("");
+  }
+  function jetlagSummary(source) {
+    const result = source.jetlag;
+    if (!result) return '<p class="muted">' + esc(source.label) + ' · Сравнение недоступно.</p>';
+    return (result.groups || []).map(function (group, index) {
+      const suffix = result.groups.length > 1 ? ' · вариант ' + (index + 1) +
+        ' · ' + zoneLabel(group.partition && group.partition.local_clock_regime) : '';
+      return '<p class="sleep-schedule-summary" data-sleep-jetlag="' + esc(source.provider + ':' + source.source_id) + '">' +
+        esc(source.label + suffix) + ' · ' + esc(group.text) + '</p>';
+    }).join('') + '<details class="owner-details sleep-jetlag-method"><summary>Как считается · ' + esc(source.label) + '</summary>' +
+      '<p>Середина ночи = начало UTC + (окончание UTC − начало UTC) / 2, затем местное время источника. ' +
+      'Круговое среднее: θ = 2πt/1440, μ = (atan2(среднее sin θ, среднее cos θ) × 1440/(2π)) mod 1440 минут. ' +
+      'Некорректированный сдвиг = (μ свободных − μ рабочих + 720) mod 1440 − 720 минут; знак: свободные минус рабочие. ' +
+      'Ночь относится к дате пробуждения. Минимум 2 подходящие ночи в каждой группе; ' +
+      'при неопределённом круговом среднем результат недоступен. Источники и несовместимые методы считаются отдельно.</p>' +
+      '<p>Исключены: поездки / смена часового пояса — ' + esc(result.travel_nights) +
+      ' (ночь смены и следующая ночь); неизвестный тип дня — ' + esc(result.unknown_nights) +
+      '; дневной сон, неоднозначные ночи и другие непригодные границы — ' + esc(result.other_excluded_nights) + '.</p>' +
+      '<p>Смена зоны определяется по сохранённым ночам источника. ' +
+      (result.travel_history === 'bounded_30_days' ?
+        'Для начала периода проверены предшествующие 30 дней; более ранняя история неизвестна. ' :
+        'История до выбранного периода недоступна; поездки на его границе могут быть неизвестны. ') +
+      'Смена смещения при DST в одном IANA-поясе не считается поездкой. Поправки на недосып и сменный график нет; ' +
+      'не диагноз и не объяснение самочувствия.</p>' +
+      (result.exclusions || []).map(function (item) {
+        return '<p class="muted">' + esc(item.reason) + ': ' + esc(item.count) + '</p>';
+      }).join('') + '</details>';
   }
   function table(nights) {
     return '<details class="owner-details"><summary>Таблица</summary>' +
@@ -135,6 +171,8 @@
       });
       html += '<div class="sleep-schedule-row" data-schedule-date="' + esc(row.date) + '">' +
         '<span class="sleep-schedule-date">' + esc(dateLabel(row.date)) +
+        (row.cells.some(function (c) { return c.day_type === 'free'; }) ?
+          '<span class="sleep-schedule-free" title="Свободный день">св</span>' : '') +
         '</span><div class="sleep-schedule-track" style="min-height:' +
         Math.max(14, row.cells.length * 7) + 'px">' + grid;
       const any = row.cells.some(function (c) { return c.bound; });

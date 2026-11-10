@@ -11,6 +11,8 @@ from typing import Any
 from healthcheck.chat_evidence import EvidenceError
 from healthcheck.saved_sleep_analysis import analyze_saved_sleep
 from healthcheck.sleep_evidence import RANGE, _project
+from healthcheck.sleep_schedule_settings import SleepScheduleSettings
+from healthcheck.web.sleep_social_jetlag import build_social_jetlag
 
 
 def _complete_range(packet: Any, provider: str, days: int, end: date) -> bool:
@@ -56,10 +58,13 @@ def _clock_view(clock: Mapping[str, Any]) -> dict[str, Any]:
 def build_sleep_regularity(
     ranges: Mapping[str, Mapping[str, Any]], display_series: Sequence[Mapping[str, Any]],
     *, google_selection: Mapping[str, Any], days: int, end_date: date,
+    schedule_settings: SleepScheduleSettings | None = None,
+    travel_ranges: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Reuse the already-read exact-source nights; never choose a new winner."""
     result: dict[str, Any] = {"state": "insufficient", "sources": [], "night_bounds": {},
-                             "empty_text": "Пока недостаточно подходящих ночей."}
+                             "empty_text": "Недостаточно ночей для сравнения "
+                                           "(рабочих 0, свободных 0)"}
     if days not in (7, 30):
         result.update(state="unavailable", empty_text="Не удалось оценить этот период.")
         return result
@@ -87,6 +92,20 @@ def build_sleep_regularity(
             continue
         analysis = sections["sleep_regularity"]
         inputs = sections["sleep_analysis_inputs"]
+        history = None
+        history_end = end_date - timedelta(days=days)
+        if travel_ranges and _complete_range(
+                travel_ranges.get(provider), provider, 30, history_end):
+            try:
+                prior = {"sleep": {"providers": {provider: _source_input(
+                    travel_ranges[provider], source_id)}}}
+                analyze_saved_sleep(prior, SimpleNamespace(include_sleep_regularity=True,
+                    include_context_recovery=False, sleep_day_types=()))
+                history = prior["sleep_analysis_inputs"]
+            except (EvidenceError, KeyError, TypeError, ValueError):
+                pass
+        row["jetlag"] = build_social_jetlag(
+            inputs, schedule_settings or SleepScheduleSettings(), history)
         # Reuse the accepted local endpoints from this very analysis, including
         # its role, exact-record, timezone and wake-date exclusions. No new read
         # or second eligibility rule for the schedule presentation.

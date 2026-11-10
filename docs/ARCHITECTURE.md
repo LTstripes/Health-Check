@@ -884,6 +884,29 @@ value, minimum 3/group. Only explicit `sleep_day_types` work/free/unknown classi
 duplicates/ out-of-window labels fail. No weekday inference, sleep-debt/shift correction or persisted
 classification. Timeline shows source-separated start/end regularity.
 
+The #464 slice-2 Owner decision (2026-11-10) adds an explicitly declared schedule
+on `/sleep`: profile `config.toml` table `[sleep_schedule]`, `work_weekdays` (Monday
+= 0 through Sunday = 6, default `[0,1,2,3,4]`) and `overrides` (ISO wake date to
+`work|free`). Overrides take precedence; removing one restores the weekday rule.
+Missing table uses the declared default; invalid/unreadable configuration yields
+unknown day types, never a silent default. Writes are profile-lock serialized,
+revision checked and atomically replace config while preserving unrelated settings.
+Context text/tags are not an authoritative day-type field and are never interpreted
+as classifications. No schema migration or canonical sleep record change.
+
+This UI comparison uses the same elapsed-UTC midpoint and circular mean, with
+**minimum 2 eligible nights per work/free group**, shortest signed free-minus-work
+minutes, no sleep-debt correction. The saved export/CLI retains its minimum 3 and
+explicit caller labels. Exact source, method, variant, normalization and local-zone
+partitions remain separate. A zone change and the following saved night are unknown
+for this comparison and excluded with reasons/counts; a DST offset change inside
+the same IANA zone is not travel. A bounded preceding 30-day source range in the
+same read transaction supplies travel context at the selected period boundary,
+never group denominators. Missing/unreadable/older history remains disclosed as
+unknown; it does not prove absence of travel. Nap/ambiguous/invalid timing exclusions
+are inherited from the accepted reader and counted. No result is a diagnosis or
+an explanation of wellbeing.
+
 | Version | Where used | Preserves | Limitations |
 | --- | --- | --- | --- |
 | `r03-garmin-analytic-input-v1` | Input DTO | Frozen provenance/value | Not current-record lookup alone. |
