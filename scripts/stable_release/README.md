@@ -1,4 +1,4 @@
-# Stable release tooling v1
+# Stable release tooling v2
 
 Run `release.py` with Python 3.12+ from either Windows PowerShell 5.1 or pwsh 7.
 The selected release environments provide Alembic and Health-Check; the operator
@@ -100,7 +100,13 @@ including their exact code/runtime/database identities and schema heads. Prepara
 validates those identities with each release's interpreter, without opening the
 profile for writes. Existing helpers for enrolling a binding remain unchanged.
 
-Seven consumers are required by role. Code path (including JSON-escaped paths),
+Seven consumers are required by role. Default `mode: "legacy-rewrite"` preserves
+compatibility. After the one-time migration, set each migrated nonpointer entry
+to `"mode": "pointer-reading"` and remove its `replacements`. Such entries are
+excluded from manifest text snapshots, drift checks, writes and rollback. The
+active-pointer role must remain legacy-rewrite: it is always published structurally.
+Unknown modes or replacements on skipped entries fail closed. In legacy mode,
+code path (including JSON-escaped paths),
 SHA and changed schema are rewritten in memory; the pointer is updated structurally.
 Per-consumer `replacements` cover old ops-folder names, old rollback-directory
 references and the weekly binding filename when needed. Put literal escaped text
@@ -118,12 +124,12 @@ refusal. It never changes Task Scheduler. Tests may select a different mutex via
 
 UI and MCP must both be identifiable by listener PID, creation time, executable,
 exact binding argument and (UI) loaded-run receipt. Unavailable CIM/listener identity
-fails closed. The six nonpointer files are written in place to retain ACLs.
+fails closed. Legacy nonpointer files are written in place to retain ACLs.
 Windows `ReplaceFileW` publishes the validated pointer atomically and preserves
 its ACL and original file in `active-code.previous.json`.
 
 Code-only never invokes migrate. On failure after stopping, the tool stops candidate
-processes, restores all seven consumers, restarts both old services using a fresh
+processes, restores the pointer and rewritten legacy consumers, restarts both old services using a fresh
 UI run binding, and verifies both. The previous pointer bytes are restored exactly;
 the fresh rollback UI binding is recorded in `activation.json`. Strict invokes the
 supported CLI migrate; once migration is attempted, even a partial failure leaves
@@ -145,6 +151,44 @@ evidence and reconcile the pointer/services before any manually authorized retry
 This tool does not disable scheduled writers: after a strict failure, the Owner
 must keep automation stopped while diagnosing/recovering the profile.
 
-The future pointer-consumers PR will make refresh, weekly backup and assistant
-handoffs read the pointer directly, retire the six compatibility text rewrites,
-and handle any separately authorized scheduler working-directory transition.
+## Stable pointer entry points
+
+Install `consumers.py`, `release.py` and `probe.py` together at a stable Ops path.
+Use a separately installed Python 3.12+ as bootstrap, not a release-specific venv.
+Copy `consumers.example.json` to a private config and select explicit paths:
+
+```powershell
+& $BootstrapPython -I -B D:\HealthCheck\ops\stable-release\consumers.py resolve-active --config D:\HealthCheck\ops\stable-release\consumers.private.json
+& $BootstrapPython -I -B D:\HealthCheck\ops\stable-release\consumers.py run-owner-refresh --config D:\HealthCheck\ops\stable-release\consumers.private.json
+& $BootstrapPython -I -B D:\HealthCheck\ops\stable-release\consumers.py run-weekly-backup --config D:\HealthCheck\ops\stable-release\consumers.private.json
+```
+
+Each command reads the pointer once. Canonical checkout and venv paths must be
+inside `releases_root`; UI/MCP bindings intentionally live outside it in Ops.
+Resolution validates the full SHA against Git HEAD, existing venv, configured
+profile, UI code/SHA/profile/schema/port/head, and MCP code/runtime/database/schema
+identities with that release's interpreter. No profile is created or migrated.
+The pointer now includes `mcp_binding`; preparation writes it into both pointer
+and manifest, and checks any existing old pointer value against `old_mcp_binding`.
+Initial legacy pointers may omit it until their one-time enrollment.
+
+Resolution failure always prints `active_pointer_invalid` and exits **2**, without
+starting work or selecting a fallback. `--check-only` prints the resolved snapshot
+without refresh/backup. Later launch/output failures print `active_work_failed`
+and exit **3**; ordinary child exit codes are preserved. Output is checked for the
+environment gateway token before either stream or a refresh log is written.
+JSON is BOM-tolerant on read and UTF-8 without BOM on publication; rollback retains
+the exact original bytes, including any historical BOM.
+
+Refresh preserves the seven-day window, Google Steps catch-up, eight streams,
+optional `google-hr.enabled` toggle, profile logs and the CLI's operation lock.
+Weekly preserves the nonblocking `Global\HONORHealthDataOnlyBackup` mutex, waits
+for its exact child without a timeout and passes `--no-restore-rehearsal`.
+Its one-time migrated local backup reads `HEALTHCHECK_RELEASE_CODE`,
+`HEALTHCHECK_RELEASE_SHA`, and `HEALTHCHECK_DATA_DIR` from the pinned parent snapshot;
+it never rereads the pointer. No archive, retention or backup semantics change.
+
+Scheduled tasks execute the stable bootstrap/entry/config with an explicit stable
+Ops WorkingDirectory. The child WorkingDirectory is the resolved release checkout.
+See [the exact one-time migration and rollback plan](../../docs/OWNER_OPERATIONS.md#stable-pointer-migration).
+Do not change local files or Task Scheduler as part of code implementation.

@@ -1,0 +1,8 @@
+{
+  "active_pointer": "D:\\HealthCheck\\ops\\maintenance\\active-code.private.json",
+  "releases_root": "D:\\HealthCheck\\releases",
+  "profile": "D:\\HealthCheck\\stable",
+  "ui_port": 8120,
+  "google_hr_flag": "D:\\HealthCheck\\ops\\google-hr.enabled",
+  "weekly_backup_script": "D:\\HealthCheck\\ops\\maintenance\\health-data-only-backup.py"
+}

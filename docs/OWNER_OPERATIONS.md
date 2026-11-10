@@ -351,7 +351,7 @@ No health data, credentials, payloads, images, logs, database files or generated
 
 
 <a id="stable-release-tooling-v1"></a>
-## Stable release tooling v1
+## Stable release tooling v2
 
 Versioned scripts live in [`scripts/stable_release`](../scripts/stable_release/README.md).
 Use an external private config with explicit profile, release, binding, consumer
@@ -366,8 +366,10 @@ python scripts/stable_release/release.py activate <candidate-dir/manifest.json>
 The agent runs `prepare`: offline exact-main/CI checks, clean release/.venv checks,
 read-only revision and binding checks, route classification and structural JSON
 preflight. It writes one manifest without switching Stable. Owner runs `activate`
-only with deployment authority after reviewing the manifest. The existing seven
-consumer rewrites remain; Task Scheduler is not changed.
+only with deployment authority after reviewing the manifest. Seven consumer roles
+remain required. Default legacy consumers are rewritten; entries explicitly marked
+`mode: "pointer-reading"` are neither read/snapshotted nor rewritten/restored.
+The active-pointer entry cannot be skipped. Task Scheduler is not changed by the CLI.
 
 **Code-only** requires unchanged migrations/models and matching schema, plus an
 accessible already verified regular recovery point for the same profile **no
@@ -386,6 +388,273 @@ stopped with diagnostics and requires Owner recovery; no automatic DB restore.
 Keep scheduled writers stopped during that recovery. `activation.json` contains
 status/stage timings, never the environment-only MCP gateway token. See the linked
 tool guide for receipt schemas, process identity checks and retry/crash limits.
+
+<a id="stable-pointer-migration"></a>
+### One-time pointer-consumer migration (Owner execution only)
+
+This is an unexecuted plan, based on the supplied read-only reference files, not
+a current machine read-back. Use an accepted v2 tooling checkout and a separately
+installed Python 3.12+ bootstrap whose path does not name a release. Replace the
+three `<...>` inputs below before running. The task names and Ops paths below
+match those references. Inspect the actual scheduler action read-back first; an
+unexpected file/action is a stop for reconciliation, not permission to guess.
+Both Windows PowerShell 5.1 and pwsh 7 support these commands. Keep the same shell
+session/variables for verification and rollback. Do this with no active refresh,
+backup, release activation or service autostart; disabling a task does not stop an
+already running child. This migration does not start/stop services or alter data.
+
+Exact changes:
+
+| Local consumer | Before | After |
+| --- | --- | --- |
+| `ops\owner-refresh-scheduled.ps1` | Embedded checkout/Python/HEAD/SHA | Stable entry/config wrapper; same refresh arguments/logging |
+| `ops\maintenance\run-health-weekly.ps1` | Release allowlist and embedded SHA | Stable entry/config wrapper; CheckOnly/DryRun resolve only |
+| `ops\maintenance\health-data-only-backup.py` | Literal PROFILE/SHA; native package CODE | Pinned parent environment PROFILE/CODE/SHA; existing native-code/HEAD checks retained |
+| `ops\maintenance\active-code.private.json` | No MCP field | Same installed release plus validated `mcp_binding` |
+| Both `assistant-*-read-*\parent-handoff.private.json` | Release-specific live instructions | Stable resolver instructions; existing proofs/identity fields explicitly historical |
+| `ops\assistant-weekly-read-488\invocation-recipe.txt` | Literal Python/Binding/SHA header | Stable resolver header, existing digest/delivery rules retained |
+| `ops\Start-HealthCheckAtLogon.ps1` | UI pointer plus MCP path parsed from recipe | UI and MCP from the same pointer snapshot; BOM-free fresh JSON |
+| Owner refresh + weekly backup task actions | Pinned PS runners (inspect exported actions) | Stable bootstrap + consumers.py + private config; WorkingDirectory `ops\stable-release` |
+
+The logon task action stays unchanged: its existing script is migrated in place.
+The stable tooling files and consumer config are installed once under
+`D:\HealthCheck\ops\stable-release`; future releases change only the pointer for
+migrated consumers. Recovery/rehearsal/CI gates and exact MCP reenrollment remain.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$source = 'D:\<accepted-tooling-checkout>\scripts\stable_release'
+$bootstrap = 'C:\<standalone-Python-3.12-or-later>\python.exe'
+$releaseConfig = 'D:\HealthCheck\ops\<release-config>.private.json'
+$ops = 'D:\HealthCheck\ops'
+$toolHome = Join-Path $ops 'stable-release'
+$entry = Join-Path $toolHome 'consumers.py'
+$consumerConfig = Join-Path $toolHome 'consumers.private.json'
+$migration = Join-Path $ops ('pointer-migration-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffffffZ'))
+$utf8 = New-Object Text.UTF8Encoding($false)
+function Write-Utf8([string]$Path, [string]$Text) {
+    # In-place writes preserve existing file ACLs; no Set-Content encoding variance.
+    [IO.File]::WriteAllText($Path, $Text, $utf8)
+}
+function Replace-Once([string]$Text, [string]$Old, [string]$New) {
+    if ([regex]::Matches($Text, [regex]::Escape($Old)).Count -ne 1) {
+        throw 'reference drift: expected exactly one replacement; restore before retry'
+    }
+    return $Text.Replace($Old, $New)
+}
+if ($source.Contains('<') -or $bootstrap.Contains('<') -or $releaseConfig.Contains('<')) {
+    throw 'Replace the three private-path inputs first'
+}
+& $bootstrap -I -B -c 'import sys; assert sys.version_info >= (3,12)'
+if ($LASTEXITCODE -ne 0) { throw 'Bootstrap unavailable' }
+if (Test-Path -LiteralPath $toolHome) { throw 'Tooling destination exists: reconcile first' }
+$tasks = @(
+    Get-ScheduledTask -TaskName 'Health-Check owner refresh'
+    Get-ScheduledTask -TaskName 'Health-Check-weekly-data-backup'
+)
+$tasks | ForEach-Object { $_.Actions | Select-Object Execute,Arguments,WorkingDirectory }
+if (@($tasks | Where-Object { $_.State -eq 'Running' -or $_.Actions.Count -ne 1 }).Count) {
+    throw 'Running task or unexpected action count'
+}
+# Confirm separately that no child writer or activation is active before continuing.
+[void][IO.Directory]::CreateDirectory($migration)
+$files = @(
+    (Join-Path $ops 'owner-refresh-scheduled.ps1'),
+    (Join-Path $ops 'maintenance\run-health-weekly.ps1'),
+    (Join-Path $ops 'maintenance\health-data-only-backup.py'),
+    (Join-Path $ops 'maintenance\active-code.private.json'),
+    (Join-Path $ops 'assistant-period-read-507\parent-handoff.private.json'),
+    (Join-Path $ops 'assistant-weekly-read-488\parent-handoff.private.json'),
+    (Join-Path $ops 'assistant-weekly-read-488\invocation-recipe.txt'),
+    (Join-Path $ops 'Start-HealthCheckAtLogon.ps1'),
+    $releaseConfig
+)
+for ($i=0; $i -lt $files.Count; $i++) {
+    [IO.File]::WriteAllBytes((Join-Path $migration "file-$i.before"), [IO.File]::ReadAllBytes($files[$i]))
+}
+for ($i=0; $i -lt $tasks.Count; $i++) {
+    Write-Utf8 (Join-Path $migration "task-$i.before.xml") (Export-ScheduledTask -TaskName $tasks[$i].TaskName -TaskPath $tasks[$i].TaskPath)
+    Disable-ScheduledTask -InputObject $tasks[$i] | Out-Null
+}
+[void][IO.Directory]::CreateDirectory($toolHome)
+foreach ($name in @('consumers.py','release.py','probe.py')) {
+    Copy-Item -LiteralPath (Join-Path $source $name) -Destination (Join-Path $toolHome $name)
+}
+Copy-Item -LiteralPath (Join-Path $source 'consumers.example.json') -Destination $consumerConfig
+$pointer = $files[3]
+$p = Get-Content -LiteralPath $pointer -Raw -Encoding UTF8 | ConvertFrom-Json
+$recipe = Get-Content -LiteralPath $files[6] -Raw -Encoding UTF8
+$matches = [regex]::Matches($recipe, '(?m)^Binding:\s*(.+?)\s*$')
+if ($matches.Count -ne 1) { throw 'Expected one existing recipe binding' }
+$p | Add-Member -NotePropertyName mcp_binding -NotePropertyValue $matches[0].Groups[1].Value.Trim() -Force
+Write-Utf8 $pointer ($p | ConvertTo-Json -Depth 30)
+& $bootstrap -I -B $entry resolve-active --config $consumerConfig
+if ($LASTEXITCODE -ne 0) { throw 'Installed pointer enrollment failed; roll back' }
+
+# Adapt the existing backup only; keep its archive/filter/retention implementation.
+$backup = [IO.File]::ReadAllText($files[2])
+$oldProfile = "PROFILE = Path(r'D:\HealthCheck\stable')"
+$backup = Replace-Once $backup $oldProfile "PROFILE = Path(os.environ['HEALTHCHECK_DATA_DIR'])"
+$oldSha = "SHA = '$($p.sha)'"
+$backup = Replace-Once $backup $oldSha "SHA = os.environ['HEALTHCHECK_RELEASE_SHA']"
+$backup = Replace-Once $backup 'CODE = native._repository_root()' @'
+CODE = native._repository_root()
+if CODE.resolve() != Path(os.environ['HEALTHCHECK_RELEASE_CODE']).resolve():
+    raise RuntimeError('producer-code-mismatch')
+'@
+Write-Utf8 $files[2] $backup
+
+# Stable wrappers preserve the old manual PS entry points. Scheduled tasks below
+# invoke Python directly. No release-specific executable remains in either action.
+$wrapper = @'
+param([switch]$CheckOnly,[switch]$DryRun)
+$ErrorActionPreference = 'Stop'
+$a = @('-I','-B','__ENTRY__','__ACTION__','--config','__CONFIG__')
+if ($CheckOnly -or $DryRun) { $a += '--check-only' }
+& '__BOOTSTRAP__' @a
+exit $LASTEXITCODE
+'@
+$wrapper = $wrapper.Replace('__ENTRY__', $entry.Replace("'","''")).Replace('__CONFIG__', $consumerConfig.Replace("'","''")).Replace('__BOOTSTRAP__', $bootstrap.Replace("'","''"))
+Write-Utf8 $files[0] ($wrapper.Replace('__ACTION__','run-owner-refresh'))
+Write-Utf8 $files[1] ($wrapper.Replace('__ACTION__','run-weekly-backup'))
+
+# Retain semantic/delivery instructions after the old release-specific header.
+$body = [regex]::Replace($recipe, '(?m)^(CURRENT OPERATOR RECIPE:|Python:|Binding:)[^\r\n]*\r?\n', '')
+$resolverLine = '& "' + $bootstrap + '" -I -B "' + $entry + '" resolve-active --config "' + $consumerConfig + '"'
+$header = @"
+CURRENT OPERATOR RECIPE: resolve active Stable once per invocation; fail closed.
+Resolver: $resolverLine
+Require exit 0; parse the entire JSON snapshot. Use its python and mcp_binding
+with its sha/profile/ui_binding; keep that snapshot for the entire invocation.
+Never reuse a historical handoff SHA, Python path or Binding filename.
+"@
+Write-Utf8 $files[6] ($header + "`r`n" + $body)
+foreach ($handoffPath in @($files[4],$files[5])) {
+    $h = Get-Content -LiteralPath $handoffPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $descriptor = [ordered]@{
+        executable=$bootstrap
+        argv=@('-I','-B',$entry,'resolve-active','--config',$consumerConfig)
+        policy='Require exit 0; pin complete JSON per invocation; never fall back.'
+        historical_identity_fields=@('installed_code_sha','code_sha','python','binding','binding_sha256','new_binding','invocation_recipe_sha256')
+        historical_evidence='Existing identity/proof/status fields describe past runs, not active release readiness.'
+    }
+    $h | Add-Member -NotePropertyName active_release_resolver -NotePropertyValue $descriptor -Force
+    $h | Add-Member -NotePropertyName future_calls -NotePropertyValue $resolverLine -Force
+    $h | Add-Member -NotePropertyName deployment_change_policy -NotePropertyValue 'Resolve the active pointer once; exact binding reenrollment and validation remain mandatory.' -Force
+    Write-Utf8 $handoffPath ($h | ConvertTo-Json -Depth 40)
+}
+
+# Autostart already snapshots the pointer. Stop parsing the now-stable recipe.
+$logon = [IO.File]::ReadAllText($files[7])
+$oldLookup = @'
+        $recipe=Get-Content -LiteralPath (Join-Path $OpsRoot 'assistant-weekly-read-488\invocation-recipe.txt') -Raw
+        $match=[regex]::Match($recipe,'(?m)^Binding:\s*(.+?)\s*$')
+        if(-not $match.Success){throw 'FAIL: MCP binding absent from recipe'}
+        $assistant=$match.Groups[1].Value.Trim()
+'@
+$logon = Replace-Once ($logon.Replace("`r`n","`n")) ($oldLookup.Replace("`r`n","`n")) '        $assistant=$a.mcp_binding'
+$oldGuard = "if((Split-Path -Parent `$a.ui_start_script) -ne `$releaseOps -or -not (Test-Path -LiteralPath `$a.ui_start_script)){throw 'FAIL: release StartStable missing/misbound'}"
+$newGuard = "if(-not (Test-Path -LiteralPath `$a.ui_start_script -PathType Leaf)){throw 'FAIL: release StartStable missing'}"
+$logon = Replace-Once $logon $oldGuard $newGuard
+$logon = Replace-Once $logon 'Text.UTF8Encoding($true)' 'Text.UTF8Encoding($false)'
+Write-Utf8 $files[7] $logon
+
+# Migration declaration: all six nonpointer consumers now use the stable contract.
+$c = Get-Content -LiteralPath $releaseConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+foreach ($e in $c.consumers) {
+    if ($e.role -ne 'active-pointer') {
+        $e | Add-Member -NotePropertyName mode -NotePropertyValue 'pointer-reading' -Force
+        $e.PSObject.Properties.Remove('replacements')
+    }
+}
+Write-Utf8 $releaseConfig ($c | ConvertTo-Json -Depth 40)
+$actions = @('run-owner-refresh','run-weekly-backup')
+for ($i=0; $i -lt $tasks.Count; $i++) {
+    $arguments = '-I -B "' + $entry + '" ' + $actions[$i] + ' --config "' + $consumerConfig + '"'
+    $action = New-ScheduledTaskAction -Execute $bootstrap -Argument $arguments -WorkingDirectory $toolHome
+    Set-ScheduledTask -TaskName $tasks[$i].TaskName -TaskPath $tasks[$i].TaskPath -Action $action | Out-Null
+}
+# Leave tasks disabled until the following checks and Owner live gate are complete.
+```
+
+Verification commands (read-only/check-only; no backup/provider calls):
+
+```powershell
+& $bootstrap -I -B $entry resolve-active --config $consumerConfig
+if ($LASTEXITCODE -ne 0) { throw 'Resolver failed' }
+& $bootstrap -I -B $entry run-owner-refresh --config $consumerConfig --check-only
+if ($LASTEXITCODE -ne 0) { throw 'Refresh preflight failed' }
+& $bootstrap -I -B $entry run-weekly-backup --config $consumerConfig --check-only
+if ($LASTEXITCODE -ne 0) { throw 'Weekly preflight failed' }
+foreach ($script in @($files[0],$files[1],$files[7])) {
+    $tokens=$null; $errors=$null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)
+    if ($errors.Count) { throw 'PowerShell parse failed' }
+}
+foreach ($script in @($files[0],$files[1])) {
+    & $script -CheckOnly
+    if ($LASTEXITCODE -ne 0) { throw 'Compatibility wrapper preflight failed' }
+}
+foreach ($task in $tasks) {
+    $readback = Get-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath
+    $readback.Actions | Select-Object Execute,Arguments,WorkingDirectory
+    if ($readback.Actions[0].Execute -ne $bootstrap -or $readback.Actions[0].WorkingDirectory -ne $toolHome) {
+        throw 'Task action read-back mismatch'
+    }
+}
+# Do not run refresh/backup/autostart as a check-only substitute. With separate
+# Owner authority, verify one real refresh and weekly backup, their child
+# interpreter/SHA/profile and normal receipts; verify UI/MCP after the next
+# authorized restart and have the assistant executor confirm resolver support.
+# Re-enable only tasks that were enabled in the exported original XML:
+for ($i=0; $i -lt $tasks.Count; $i++) {
+    [xml]$xml = [IO.File]::ReadAllText((Join-Path $migration "task-$i.before.xml"))
+    if ($xml.Task.Settings.Enabled -eq 'true') {
+        Enable-ScheduledTask -TaskName $tasks[$i].TaskName -TaskPath $tasks[$i].TaskPath | Out-Null
+    }
+}
+```
+
+One-time migration rollback (before any subsequent activation; otherwise use the
+release's reviewed rollback evidence first). Keep tasks disabled and verify no
+writer is running before restoring. Restore exact file bytes and task XML; retain
+the newly installed directory and migration backups for diagnosis. No deletion,
+database restore or service stop/start is part of this rollback:
+
+```powershell
+foreach ($task in $tasks) {
+    Disable-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath | Out-Null
+    if ((Get-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath).State -eq 'Running') {
+        throw 'Wait for the exact running child before rollback'
+    }
+}
+for ($i=0; $i -lt $files.Count; $i++) {
+    [IO.File]::WriteAllBytes($files[$i], [IO.File]::ReadAllBytes((Join-Path $migration "file-$i.before")))
+}
+for ($i=0; $i -lt $tasks.Count; $i++) {
+    $xmlText = [IO.File]::ReadAllText((Join-Path $migration "task-$i.before.xml"))
+    Register-ScheduledTask -TaskName $tasks[$i].TaskName -TaskPath $tasks[$i].TaskPath -Xml $xmlText -Force | Out-Null
+    (Get-ScheduledTask -TaskName $tasks[$i].TaskName -TaskPath $tasks[$i].TaskPath).Actions |
+        Select-Object Execute,Arguments,WorkingDirectory
+}
+for ($i=0; $i -lt $files.Count; $i++) {
+    if ((Get-FileHash -LiteralPath $files[$i]).Hash -ne
+        (Get-FileHash -LiteralPath (Join-Path $migration "file-$i.before")).Hash) {
+        throw 'Rollback byte verification failed'
+    }
+}
+```
+
+Normal **release rollback after migration** only restores the active pointer's
+previous bytes (plus runtime restart/verification), with no migrated consumer
+rewrites. During gradual migration it also restores any legacy files it wrote.
+The CLI still refuses automatic code rollback after a migration attempt.
+The recipe names a stable resolver, not a fabricated dynamic MCP filename. A
+remote assistant without local command execution cannot invoke it itself: the
+existing authorized local executor must resolve and supply the complete snapshot
+before invocation, or this part remains UNVERIFIED. Frozen packets, historical
+handoff proofs, destinations, schedules and delivery claims do not become current
+merely because the resolver succeeded.
 
 <a id="profile-backup"></a>
 
