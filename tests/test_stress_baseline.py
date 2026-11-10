@@ -324,7 +324,7 @@ def test_one_incompatible_participant_withholds_whole_frozen_sample(
     assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
 
 
-@pytest.mark.parametrize("version", ["v2", "v3"])
+@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
 def test_stress_equivalent_version_mix_not_global_version_equality(database, version):
     saved, _history = seed(database, version="v1")
     acquire(database, D, 13, version=version, at=datetime(2099, 1, 31, tzinfo=UTC))
@@ -908,7 +908,7 @@ FOREIGN_SURFACES = {
 }
 
 
-def foreign_placeholders(database, day, *, value=ABSENT):
+def foreign_placeholders(database, day, *, value=ABSENT, version="v2"):
     return [
         acquire(
             database,
@@ -918,6 +918,7 @@ def foreign_placeholders(database, day, *, value=ABSENT):
             filename=f"{surface}.json",
             record_id=f"{surface}-{day}",
             extra=extra,
+            version=version,
         )
         for surface, extra in FOREIGN_SURFACES.items()
     ]
@@ -1054,8 +1055,9 @@ def test_genuine_duplicate_candidates_stay_ambiguous_with_placeholders(
         assert result["comparison"]["median"] == 11
 
 
-def test_only_proven_non_candidates_have_empty_series_and_audit(database):
-    saved = foreign_placeholders(database, D)[0]
+@pytest.mark.parametrize("version", ["v2", "v3", "v4"])
+def test_only_proven_non_candidates_have_empty_series_and_audit(database, version):
+    saved = foreign_placeholders(database, D, version=version)[0]
     series = scalar(database, saved.source.id)
     assert series.points == ()
     assert series.availability.candidate_count == series.availability.missing_count == 0

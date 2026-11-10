@@ -20,7 +20,7 @@
   </div>
   <p class="muted">Базовый обмен — приглушённый цвет; активные — цвет ряда. Если компонент отсутствует, показан только итог.</p>
   <details class="statistics-details"><summary>Таблица дневных оценок и данные</summary>
-    <p>Средние и значения не заполняют пропуски. Дата Garmin не подтверждает полный день. Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Контракт r02-garmin-normalization-contract-v3.</p>
+    <p>Средние и значения не заполняют пропуски. Дата Garmin не подтверждает полный день. Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Текущий контракт r02-garmin-normalization-contract-v4.</p>
     <table><caption>Дневные оценки Garmin, ккал</caption><thead><tr><th scope="col">Дата</th><th scope="col">Всего</th><th scope="col">Активные</th><th scope="col">BMR</th></tr></thead><tbody>
     {% for row in energy.rows %}<tr><th scope="row">{{ row.date | owner_date }}</th>{% for key in ['total', 'active', 'bmr'] %}<td>{{ row.display[key] if row.display[key] is not none else 'нет данных' }}</td>{% endfor %}</tr>{% endfor %}
     </tbody></table>

@@ -739,7 +739,7 @@ def _proven_non_candidate(
         or bool(metric.source_device_attributed) != bool(source.device_attributed)
         or record.normalization_contract_version
         not in {"r02-garmin-normalization-contract-v1", "r02-garmin-normalization-contract-v2",
-                "r02-garmin-normalization-contract-v3"}
+                "r02-garmin-normalization-contract-v3", "r02-garmin-normalization-contract-v4"}
         or record.normalization_contract_version != obs.normalization_contract_version
         or record.reconciliation_contract_version != "r02-garmin-collection-reconciliation-v1"
         or record.reconciliation_contract_version != obs.reconciliation_contract_version

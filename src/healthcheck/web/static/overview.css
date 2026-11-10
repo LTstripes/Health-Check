@@ -67,6 +67,8 @@
 .overview-secondary strong { display: block; font: 300 2.25rem/1.1 var(--owner-heading-font); margin: 8px 0; font-variant-numeric: tabular-nums; }
 .overview-secondary [data-overview-rhr] strong { font-size: 1.125rem; line-height: 1.4; }
 .overview-secondary [data-overview-steps] strong { font-size: 1.125rem; line-height: 1.4; overflow-wrap: anywhere; }
+.overview-secondary [data-overview-intensity] strong { display: inline; font-size: 1.125rem; line-height: 1.4; overflow-wrap: anywhere; }
+.overview-secondary [data-overview-intensity] { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
 [data-overview-steps] .overview-info[open] > div { left: 0; right: auto; }
 .overview-secondary .overview-hrv { margin-top: 24px; }
 .overview-secondary .overview-hrv strong { font-size: 1.125rem; line-height: 1.4; }

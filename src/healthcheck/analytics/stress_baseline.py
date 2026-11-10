@@ -79,6 +79,7 @@ _NORMALIZATION_VERSIONS = {
     "r02-garmin-normalization-contract-v1",
     "r02-garmin-normalization-contract-v2",
     "r02-garmin-normalization-contract-v3",
+    "r02-garmin-normalization-contract-v4",
 }
 _INPUT_RULES = {"r03-garmin-analytic-rules-v1", "r03-garmin-analytic-rules-v2"}
 _RECONCILIATION_VERSION = "r02-garmin-collection-reconciliation-v1"

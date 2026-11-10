@@ -67,6 +67,7 @@
   </div>
   {% include "statistics_steps.html" %}
   {% include "statistics_energy.html" %}
+  {% include "statistics_intensity.html" %}
   <div class="statistics-metrics">
   {% for code, label in metric_labels.items() if code != 'activity_type_counts' %}
   <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">

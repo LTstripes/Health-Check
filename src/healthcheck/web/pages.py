@@ -30,6 +30,7 @@ from healthcheck.db.engine import session_scope
 from healthcheck.db.models import ImportCandidate, IngestEvent
 from healthcheck.db.repositories import restore_stored_utc
 from healthcheck.garmin.daily_energy import read_daily_energy
+from healthcheck.garmin.intensity_minutes import read_intensity_minutes
 from healthcheck.google.daily_vitals import (
     GOOGLE_DAILY_VITALS,
     read_google_daily_vitals,
@@ -1216,6 +1217,12 @@ def period_brief_page(
                     source_id=source_selection.get("selected_source_id"), evaluated_at=evaluated_at,
                 )
                 energy_window = overview["completed_window"]
+                intensity_day = evaluated_at.astimezone(
+                    owner_zone(request.app.state.settings)).date()
+                overview["intensity"] = read_intensity_minutes(
+                    session, source_id=source_selection.get("selected_source_id"),
+                    start=intensity_day, end=intensity_day,
+                )
                 overview["energy"] = read_daily_energy(
                     session, source_id=source_selection.get("selected_source_id"),
                     start=(date.fromisoformat(energy_window["start_date"])

@@ -1,0 +1,12 @@
+{% set intensity = overview.intensity %}
+<div data-overview-intensity>
+  <h3>Минуты интенсивности · Garmin</h3>
+  {% set week = intensity.weeks[0] %}
+  <p>за эту неделю {% if week.total is not none %}<strong>{{ '' if week.complete else '≥ ' }}{{ week.display.total }}</strong>{% if week.complete and week.goal is not none %} из {{ week.display.goal }}{% endif %}{% else %}<span class="muted">нет данных</span>{% endif %}{% if not week.complete %} · данные за {{ week.count }} из {{ week.days }} дней{% endif %}</p>
+  <p class="overview-source">умеренные {% if week.moderate is not none %}{{ '' if week.moderate_count == week.days else '≥ ' }}{{ week.display.moderate }}{% else %}нет данных{% endif %} · высокие {% if week.vigorous is not none %}{{ '' if week.vigorous_count == week.days else '≥ ' }}{{ week.display.vigorous }}{% else %}нет данных{% endif %}</p>
+  {% if not week.complete or week.goal is none %}<p class="overview-source">недельная цель: {{ week.display.goal if week.goal is not none else 'нет данных' }}</p>{% endif %}
+  <p class="overview-source">по данным Garmin · {{ week.start | owner_date }} — {{ week.end | owner_date }}{% if week.goal_date %} · цель от {{ week.goal_date | owner_date }}{% endif %}</p>
+  <details class="overview-info" data-intensity-evidence><summary>О минутах интенсивности</summary>
+    {% include 'intensity_details.html' %}
+  </details>
+</div>
