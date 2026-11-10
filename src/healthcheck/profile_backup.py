@@ -5,15 +5,18 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import logging
 import os
 import shutil
 import sqlite3
 import stat
 import tempfile
+import time
 import uuid
 import zipfile
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -31,6 +34,44 @@ LOGS_DIRECTORY = "logs"
 MAX_ARCHIVE_MEMBER_BYTES = 16 * 1024 * 1024 * 1024  # 16 GiB
 MAX_ARCHIVE_TOTAL_BYTES = 20 * 1024 * 1024 * 1024  # 20 GiB
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
+STAGES = ("snapshot", "integrity", "artifacts", "hashing", "deflate", "verify", "publish")
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BackupTimings:
+    """Exclusive stage seconds, reusable across projection, backup and publication.
+
+    ``on_stage`` receives only a stage name and elapsed seconds (no profile contents).
+    Nested integrity work is excluded from its enclosing snapshot/verify stage.
+    """
+
+    on_stage: Callable[[str, float], None] | None = None
+    seconds: dict[str, float] = field(default_factory=lambda: dict.fromkeys(STAGES, 0.0))
+    _stack: list[list[Any]] = field(default_factory=list, init=False, repr=False)
+
+    @contextmanager
+    def measure(self, stage: str) -> Iterator[None]:
+        if stage not in STAGES:
+            raise ValueError("unknown backup timing stage")
+        frame = [time.perf_counter(), 0.0]
+        self._stack.append(frame)
+        try:
+            yield
+        finally:
+            elapsed = time.perf_counter() - frame[0]
+            self._stack.pop()
+            if self._stack:
+                self._stack[-1][1] += elapsed
+            exclusive = max(0.0, elapsed - frame[1])
+            self.seconds[stage] += exclusive
+
+    def log_totals(self) -> None:
+        """Log bounded stage summaries rather than one event per profile file."""
+        for stage, elapsed in self.seconds.items():
+            logger.info("backup stage=%s duration_seconds=%.6f", stage, elapsed)
+            if self.on_stage is not None:
+                self.on_stage(stage, elapsed)
 
 
 class ProfileBackupError(ValueError):
@@ -43,6 +84,9 @@ class BackupResult:
     file_count: int
     classification: str
     migration_revision: str | None
+    receipt: Path
+    sha256: str
+    timings_seconds: dict[str, float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +112,21 @@ class _ArchivePlan:
     archive: Path
 
 
-def create_backup(profile: Path, archive: Path, *, scratch: Path | None = None) -> BackupResult:
-    """Create an atomic, SQLite-consistent ZIP backup of *profile*."""
+def create_backup(
+    profile: Path,
+    archive: Path,
+    *,
+    scratch: Path | None = None,
+    source_snapshot: Path | None = None,
+    timings: BackupTimings | None = None,
+) -> BackupResult:
+    """Create and verify a ZIP before publishing it with a completion receipt.
+
+    ``source_snapshot`` opts into packaging the profile's already closed database
+    byte-for-byte. The caller must own the prepared profile exclusively. Sidecars
+    are refused; archive verification still checks SQLite integrity and closure.
+    No caller-supplied assertion can bypass that verification.
+    """
 
     profile_root = _safe_profile_root(profile, must_exist=True)
     archive_path = _safe_output_path(archive)
@@ -80,68 +137,254 @@ def create_backup(profile: Path, archive: Path, *, scratch: Path | None = None) 
 
     database = profile_root / DATABASE_NAME
     _require_regular_file(database, "profile database")
+    if source_snapshot is not None:
+        snapshot = _absolute_path(source_snapshot)
+        _reject_symlink_ancestors(snapshot)
+        if snapshot != database:
+            raise ProfileBackupError("source snapshot must be the prepared profile database")
+        _require_closed_snapshot(snapshot)
     files = tuple(_profile_files(profile_root))
+    clock = timings if timings is not None else BackupTimings()
+    receipt_path = archive_path.with_name(archive_path.name + ".receipt.json")
+    receipt = _start_receipt(receipt_path, archive_path)
+    pending = archive_path.with_name(f".{archive_path.name}.{uuid.uuid4().hex}.partial")
 
-    with tempfile.TemporaryDirectory(prefix=".healthcheck-backup-", dir=scratch) as temporary:
-        stage = Path(temporary) / "profile"
-        stage.mkdir()
-        staged_database = stage / DATABASE_NAME
-        journal_mode = _online_backup(database, staged_database)
-
-        staged_files: list[dict[str, Any]] = []
-        for source in files:
-            relative = source.relative_to(profile_root).as_posix()
-            destination = stage / Path(*PurePosixPath(relative).parts)
-            if relative == DATABASE_NAME:
-                candidate = staged_database
+    try:
+        with tempfile.TemporaryDirectory(prefix=".healthcheck-backup-", dir=scratch) as temporary:
+            stage = Path(temporary) / "profile"
+            stage.mkdir()
+            staged_database = stage / DATABASE_NAME
+            if source_snapshot is None:
+                journal_mode = _online_backup(database, staged_database, timings=clock)
             else:
-                candidate = destination
-                candidate.parent.mkdir(parents=True, exist_ok=True)
-                _copy_stable_file(source, candidate)
-            staged_files.append(
-                {
-                    "path": relative,
-                    "size": candidate.stat().st_size,
-                    "sha256": _sha256(candidate),
-                    "kind": "database" if relative == DATABASE_NAME else "profile_file",
-                }
+                # A stable byte copy, never another SQLite Online Backup. Final
+                # archive verification checks these exact bytes before publication.
+                with clock.measure("snapshot"):
+                    _copy_stable_file(database, staged_database)
+                    _require_closed_snapshot(database)
+                journal_mode = "wal"
+
+            staged_files: list[dict[str, Any]] = []
+            for source in files:
+                relative = source.relative_to(profile_root).as_posix()
+                candidate = stage / Path(*PurePosixPath(relative).parts)
+                if relative != DATABASE_NAME:
+                    with clock.measure("artifacts"):
+                        candidate.parent.mkdir(parents=True, exist_ok=True)
+                        _copy_stable_file(source, candidate)
+                with clock.measure("hashing"):
+                    digest = _sha256(candidate)
+                staged_files.append(
+                    {
+                        "path": relative,
+                        "size": candidate.stat().st_size,
+                        "sha256": digest,
+                        "kind": "database" if relative == DATABASE_NAME else "profile_file",
+                    }
+                )
+
+            if {path.relative_to(profile_root) for path in _profile_files(profile_root)} != {
+                path.relative_to(profile_root) for path in files
+            }:
+                raise ProfileBackupError("profile file list changed while backup was being created")
+
+            _preflight_staged_sizes(staged_files)
+            migration_revision = _migration_revision(staged_database)
+            manifest = _build_manifest(
+                staged_files,
+                classification=_classify_profile(profile_root),
+                migration_revision=migration_revision,
+                journal_mode=journal_mode,
             )
+            manifest_bytes = _serialize_manifest(manifest)
+            with clock.measure("deflate"):
+                _write_archive(pending, stage, manifest_bytes, staged_files)
 
-        if {path.relative_to(profile_root) for path in _profile_files(profile_root)} != {
-            path.relative_to(profile_root) for path in files
-        }:
-            raise ProfileBackupError("profile file list changed while backup was being created")
-
-        _preflight_staged_sizes(staged_files)
-        migration_revision = _migration_revision(staged_database)
-        manifest = _build_manifest(
-            staged_files,
-            classification=_classify_profile(profile_root),
-            migration_revision=migration_revision,
-            journal_mode=journal_mode,
+        verification = verify_backup(pending, scratch=scratch, timings=clock)
+        with clock.measure("hashing"):
+            digest = _sha256(pending)
+        with clock.measure("publish"):
+            _publish_new_file(pending, archive_path)
+        receipt.update(
+            status="complete", sha256=digest, file_count=verification.file_count,
+            classification=verification.classification,
+            migration_revision=verification.migration_revision,
+            timings_seconds=dict(clock.seconds),
         )
-        manifest_bytes = _serialize_manifest(manifest)
-        _write_archive(archive_path, stage, manifest_bytes, staged_files)
-
-    verification = verify_backup(archive_path, scratch=scratch)
+        clock.log_totals()
+        _save_receipt(receipt_path, receipt)
+    except BaseException:
+        # A killed process leaves the initial durable incomplete receipt. Catching
+        # Python interruptions also records all stage durations observed so far.
+        receipt.update(status="incomplete", timings_seconds=dict(clock.seconds))
+        _save_receipt(receipt_path, receipt)
+        raise
+    finally:
+        pending.unlink(missing_ok=True)
     return BackupResult(
-        archive=verification.archive,
+        archive=archive_path,
         file_count=verification.file_count,
         classification=verification.classification,
         migration_revision=verification.migration_revision,
+        receipt=receipt_path,
+        sha256=digest,
+        timings_seconds=dict(clock.seconds),
     )
 
 
-def verify_backup(archive: Path, *, scratch: Path | None = None) -> BackupVerification:
+def verify_backup(
+    archive: Path, *, scratch: Path | None = None, timings: BackupTimings | None = None
+) -> BackupVerification:
     """Validate the complete archive, including every checksum and the DB."""
 
-    plan = _validate_archive(archive, scratch=scratch)
+    clock = timings if timings is not None else BackupTimings()
+    with clock.measure("verify"):
+        plan = _validate_archive(archive, scratch=scratch, timings=clock)
     return BackupVerification(
         archive=plan.archive,
         file_count=len(plan.files),
         classification=str(plan.manifest["profile"]["classification"]),
         migration_revision=plan.manifest["schema"].get("migration_revision"),
     )
+
+
+def snapshot_database(
+    source: Path, destination: Path, *, timings: BackupTimings | None = None
+) -> Path:
+    """Prepare one closed, integrity-checked online snapshot outside the checkout."""
+
+    source_path = _absolute_path(source)
+    destination_path = _safe_output_path(destination)
+    _reject_symlink_ancestors(source_path)
+    if _overlaps_checkout(source_path):
+        raise ProfileBackupError("source database must be outside the checkout")
+    _require_regular_file(source_path, "source database")
+    if destination_path.exists():
+        raise ProfileBackupError("snapshot destination already exists")
+    _require_closed_snapshot(destination_path)
+    _online_backup(source_path, destination_path, timings=timings)
+    _require_closed_snapshot(destination_path)
+    return destination_path
+
+
+def publish_backup(
+    backup: BackupResult,
+    destination: Path,
+    *,
+    latest_good: Path,
+    metadata: dict[str, Any] | None = None,
+    timings: BackupTimings | None = None,
+) -> Path:
+    """Publish a completed backup, then advance a separate latest-good receipt.
+
+    A per-run incomplete receipt is durable before copying starts. Neither a
+    partial copy nor an orphan archive/receipt advances ``latest_good``. The
+    caller serializes publishers (the weekly wrapper already owns a mutex).
+    Trial restore, when required by the caller, precedes this operation.
+    """
+
+    target = _safe_output_path(destination)
+    latest = _safe_output_path(latest_good)
+    receipt_path = target.with_name(target.name + ".receipt.json")
+    if target.exists():
+        raise ProfileBackupError("publication destination already exists")
+    if latest in {target, receipt_path, backup.archive, backup.receipt}:
+        raise ProfileBackupError("latest-good receipt must have a separate path")
+    _reject_symlink_ancestors(backup.archive)
+    _require_regular_file(backup.archive, "completed backup")
+    source_receipt = _strict_json(backup.receipt.read_bytes())
+    if source_receipt.get("status") != "complete" or source_receipt.get("sha256") != backup.sha256:
+        raise ProfileBackupError("publication requires a completed backup receipt")
+    clock = timings if timings is not None else BackupTimings()
+    if timings is None:
+        clock.seconds.update(backup.timings_seconds)
+    receipt = _start_receipt(receipt_path, target)
+    pending = target.with_name(f".{target.name}.{uuid.uuid4().hex}.partial")
+    try:
+        with clock.measure("publish"):
+            _copy_stable_file(backup.archive, pending)
+            with clock.measure("hashing"):
+                if _sha256(pending) != backup.sha256:
+                    raise ProfileBackupError("publication checksum validation failed")
+            _publish_new_file(pending, target)
+            with clock.measure("hashing"):
+                if _sha256(target) != backup.sha256:
+                    raise ProfileBackupError("publication readback checksum validation failed")
+        # Reserved completion/evidence fields always override caller metadata.
+        receipt.update(metadata or {})
+        receipt.update(
+            format="healthcheck-backup-receipt-v1", status="complete", archive=str(target),
+            sha256=backup.sha256, file_count=backup.file_count,
+            classification=backup.classification, migration_revision=backup.migration_revision,
+            timings_seconds=dict(clock.seconds),
+        )
+        clock.log_totals()
+        _save_receipt(receipt_path, receipt)
+        _save_receipt(latest, receipt)
+    except BaseException:
+        receipt.update(status="incomplete", timings_seconds=dict(clock.seconds))
+        _save_receipt(receipt_path, receipt)
+        raise
+    finally:
+        pending.unlink(missing_ok=True)
+    return receipt_path
+
+
+def _require_closed_snapshot(database: Path) -> None:
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = database.with_name(database.name + suffix)
+        if sidecar.exists() or _is_link_or_reparse(sidecar):
+            raise ProfileBackupError("prepared snapshot must be closed and have no SQLite sidecars")
+
+
+def _start_receipt(path: Path, archive: Path) -> dict[str, Any]:
+    _reject_symlink_ancestors(path)
+    receipt = {
+        "format": "healthcheck-backup-receipt-v1", "status": "incomplete",
+        "archive": str(archive), "created_utc": datetime.now(UTC).isoformat(),
+        "timings_seconds": dict.fromkeys(STAGES, 0.0),
+    }
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(receipt, handle, sort_keys=True)
+        handle.flush()
+        os.fsync(handle.fileno())
+    _sync_directory(path.parent)
+    return receipt
+
+
+def _save_receipt(path: Path, receipt: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            json.dump(receipt, handle, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        _sync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _publish_new_file(source: Path, target: Path) -> None:
+    with source.open("r+b") as handle:
+        os.fsync(handle.fileno())
+    if os.name == "nt":
+        os.rename(source, target)  # Windows refuses an existing target.
+    else:
+        os.link(source, target)  # Atomic no-clobber publication on POSIX too.
+        source.unlink()
+    _sync_directory(target.parent)
+
+
+def _sync_directory(path: Path) -> None:
+    # Windows does not expose directory fsync through Python. File bytes are
+    # flushed before rename; durability still depends on the filesystem/device.
+    if os.name != "nt":
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
 
 def restore_profile(
@@ -151,10 +394,13 @@ def restore_profile(
     replace: bool = False,
     scratch: Path | None = None,
     require_new: bool = False,
+    timings: BackupTimings | None = None,
 ) -> RestoreResult:
     """Restore a verified archive without mutating the target during preflight."""
 
-    plan = _validate_archive(archive, scratch=scratch)
+    clock = timings if timings is not None else BackupTimings()
+    with clock.measure("verify"):
+        plan = _validate_archive(archive, scratch=scratch, timings=clock)
     target_root = _safe_target_root(target)
     target_exists = target_root.exists()
     if require_new and target_exists:
@@ -342,7 +588,10 @@ def _copy_stable_file(source: Path, destination: Path) -> None:
         raise ProfileBackupError("profile changed while backup was being created")
 
 
-def _online_backup(source_path: Path, destination_path: Path) -> str:
+def _online_backup(
+    source_path: Path, destination_path: Path, *, timings: BackupTimings | None = None
+) -> str:
+    clock = timings if timings is not None else BackupTimings()
     try:
         source = sqlite3.connect(str(source_path), timeout=5, isolation_level=None)
         source.execute("PRAGMA busy_timeout=5000")
@@ -350,15 +599,22 @@ def _online_backup(source_path: Path, destination_path: Path) -> str:
         if journal_mode != "wal":
             source.close()
             raise ProfileBackupError("profile database is not using SQLite WAL mode")
-        if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        with clock.measure("integrity"):
+            source_valid = source.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+        if not source_valid:
             source.close()
             raise ProfileBackupError("profile database failed SQLite integrity check")
         destination = sqlite3.connect(str(destination_path), timeout=5)
         try:
-            source.backup(destination, pages=100, sleep=0.05)
-            destination.execute("PRAGMA journal_mode=WAL")
-            destination.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            with clock.measure("snapshot"):
+                source.backup(destination, pages=100, sleep=0.05)
+                destination.execute("PRAGMA journal_mode=WAL")
+                destination.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            with clock.measure("integrity"):
+                snapshot_valid = destination.execute("PRAGMA integrity_check").fetchall() == [
+                    ("ok",)
+                ]
+            if not snapshot_valid:
                 raise ProfileBackupError("backup database failed SQLite integrity check")
         finally:
             destination.close()
@@ -472,7 +728,9 @@ def _preflight_staged_sizes(files: list[dict[str, Any]]) -> None:
         _validate_total_expanded_size(total)
 
 
-def _validate_archive(archive: Path, *, scratch: Path | None = None) -> _ArchivePlan:
+def _validate_archive(
+    archive: Path, *, scratch: Path | None = None, timings: BackupTimings | None = None
+) -> _ArchivePlan:
     archive_path = _absolute_path(archive)
     _reject_symlink_ancestors(archive_path)
     _require_regular_file(archive_path, "backup archive")
@@ -515,7 +773,9 @@ def _validate_archive(archive: Path, *, scratch: Path | None = None) -> _Archive
         database_item = next((item for item in files if item["kind"] == "database"), None)
         if database_item is None or database_item["path"] != DATABASE_NAME:
             raise ProfileBackupError("backup database entry is missing")
-        _validate_archive_database(handle, database_item, manifest, scratch=scratch)
+        _validate_archive_database(
+            handle, database_item, manifest, scratch=scratch, timings=timings
+        )
     return _ArchivePlan(manifest=manifest, files=tuple(files), archive=archive_path)
 
 
@@ -663,6 +923,7 @@ def _validate_archive_database(
     manifest: dict[str, Any],
     *,
     scratch: Path | None = None,
+    timings: BackupTimings | None = None,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix=".healthcheck-verify-", dir=scratch) as temporary:
         database = Path(temporary) / DATABASE_NAME
@@ -676,7 +937,10 @@ def _validate_archive_database(
             try:
                 if str(connection.execute("PRAGMA journal_mode").fetchone()[0]).lower() != "wal":
                     raise ProfileBackupError("backup database is not in WAL mode")
-                if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                clock = timings if timings is not None else BackupTimings()
+                with clock.measure("integrity"):
+                    valid = connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+                if not valid:
                     raise ProfileBackupError("backup database failed SQLite integrity check")
                 _validate_lab_closure(connection, manifest, handle)
                 revision = _migration_revision(database)
