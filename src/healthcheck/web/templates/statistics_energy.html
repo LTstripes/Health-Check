@@ -1,0 +1,29 @@
+{% if energy %}
+<section class="statistics-energy" data-statistics-energy aria-labelledby="daily-energy-title">
+  <h2 id="daily-energy-title">Калории (Garmin)</h2>
+  <p class="muted">Оценка, ккал · по данным Garmin · {{ energy.start | owner_date }} — {{ energy.end | owner_date }}</p>
+  {% if energy.reason %}<p class="muted">{{ 'Выберите источник Garmin.' if energy.reason == 'source_not_selected' else 'Поиск сохранённых данных не завершён.' }}</p>{% endif %}
+  <div class="energy-days" role="list" aria-label="Дневные оценки Garmin">
+  {% for row in energy.rows %}
+    <div class="energy-day" role="listitem" tabindex="0" title="{{ row.label }}" aria-label="{{ row.label }}" data-energy-date="{{ row.date }}" data-energy-state="{{ 'value' if row.total is not none else 'missing' }}">
+      <span>{{ row.date | owner_date }}</span>
+      <div class="energy-track" aria-hidden="true">
+      {% if row.total is not none %}
+        {% if row.split %}<span class="energy-bmr" style="width: {{ row.widths.bmr }}%"></span><span class="energy-active" style="width: {{ row.widths.active }}%"></span>
+        {% else %}<span class="energy-total" style="width: {{ row.widths.total }}%"></span>{% endif %}
+      {% endif %}
+      </div>
+      <span>{{ row.display.total ~ ' ккал' if row.total is not none else 'нет данных' }}</span>
+      <span class="energy-tooltip" aria-hidden="true">{{ row.label }}</span>
+    </div>
+  {% endfor %}
+  </div>
+  <p class="muted">Базовый обмен — приглушённый цвет; активные — цвет ряда. Если компонент отсутствует, показан только итог.</p>
+  <details class="statistics-details"><summary>Таблица дневных оценок и данные</summary>
+    <p>Средние и значения не заполняют пропуски. Дата Garmin не подтверждает полный день. Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Контракт r02-garmin-normalization-contract-v3.</p>
+    <table><caption>Дневные оценки Garmin, ккал</caption><thead><tr><th scope="col">Дата</th><th scope="col">Всего</th><th scope="col">Активные</th><th scope="col">BMR</th></tr></thead><tbody>
+    {% for row in energy.rows %}<tr><th scope="row">{{ row.date | owner_date }}</th>{% for key in ['total', 'active', 'bmr'] %}<td>{{ row.display[key] if row.display[key] is not none else 'нет данных' }}</td>{% endfor %}</tr>{% endfor %}
+    </tbody></table>
+  </details>
+</section>
+{% endif %}

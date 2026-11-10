@@ -20,6 +20,7 @@ from healthcheck.garmin.completed_steps_read import (
     read_completed_steps_all_time,
     read_completed_steps_window,
 )
+from healthcheck.garmin.daily_energy import read_daily_energy
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.google.steps_read import read_saved_steps_window
 from healthcheck.owner_time import owner_today
@@ -158,6 +159,11 @@ def statistics(
             store = ContentAddressedGarminPayloadStore(
                 request.app.state.runtime_paths.root / "artifacts"
             )
+            energy_source = packet["sides"][0]["source_identity"]
+            energy = read_daily_energy(
+                session, source_id=energy_source["source_id"] if energy_source else None,
+                start=steps_start, end=steps_end,
+            ) if selected_period in {"7", "30"} else None
             if steps_period == "all_time":
                 steps = read_completed_steps_all_time(
                     session, payload_store=store, source_id=garmin_source_id or None,
@@ -190,6 +196,7 @@ def statistics(
             "packet": packet,
             "cycling_cell": cycling_cell,
             "steps": steps,
+            "energy": energy,
             "google_steps": google_steps,
             "compact_steps": selected_period in {"7", "30"} and steps_period == "window",
             "garmin_steps_view": (garmin_steps_view(steps)

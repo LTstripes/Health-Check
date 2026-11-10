@@ -448,7 +448,24 @@ null/invalid/zero.
 | Readiness | 1–100, zero invalid; producer/availability separate. |
 | Load / Recovery Time | Nonnegative including zero; `recoveryTime` unit unknown, no hours conversion/universal maximum. |
 | `session_total_calories` | Exact activity-list `calories`; nonnegative finite native number, `unit=None`; total including resting, not active kcal; no alias/BMR subtraction/daily substitution. |
+| Daily Garmin energy estimates | `daily_total_kcal` ← `$.totalKilocalories`, `daily_active_kcal` ← `$.activeKilocalories`, `daily_bmr_kcal` ← `$.bmrKilocalories`, daily_health only, unit `kcal`. Independent finite nonnegative numbers including zero; absent/null/invalid remain unavailable. Exact path and raw-payload provenance retained. No filling from siblings. |
 | HRV | Strict agreeing `hrvSummary.calendarDate`; `hrv_weekly_average_ms` is weekly/trailing snapshot, not daily HRV. |
+
+No daily energy alias, subtraction, proration or fallback is permitted. Owner decision 2026-11-10 (#319):
+accept Garmin's `*Kilocalories` naming as kcal and present these daily values as
+«оценка Garmin», «по данным Garmin». This is a product decision, not independently proven units.
+`wellness*`, `burned*`, `restingCaloriesFromActivity`, consumed/remaining/goal fields and Google
+energy are excluded. Session energy remains pending and retains native `unit=None`.
+Overview averages each metric only across its own days with values, over the page's completed
+window. Statistics uses the same 7/30-day selection as Steps (independent of all-history Steps).
+Readers use one selected Garmin source, current daily-summary projections and provider calendar
+dates; date collisions withhold the day, never average snapshots or blend sources. They do not
+certify complete acquisition, physical expenditure or full-day finality. Missing days are empty
+slots; components are stacked only when all three values exist, otherwise only total is drawn.
+No normalization/replay occurs on page reads; history uses the existing bounded offline operation.
+The general v3 bump leaves intraday stress mapping/time/coverage unchanged. Existing stress
+readers explicitly accept v3 under those same evidence checks; historical HRV recovery remains
+limited to actual v1/v2 undated originals, with specialized HRV normalization unchanged.
 
 Quality overlays exclude older invalid projections without rewriting metrics/raw/ frozen outputs. No
 universal HR/speed ceiling. `bmrCalories` is outside registry; optional absent fields do not downgrade
@@ -476,7 +493,7 @@ peaks/morning values/wear coverage.
 | `r02-garmin-capability-spike-v1` | Probe | Structural report | No ingestion. |
 | `r02-garmin-redaction-v1` | Redactor | Shape/count evidence | Not raw export. |
 | `r02-garmin-normalization-contract-v1` | Compatibility gates | Legacy interpretation | No universal equivalence. |
-| `r02-garmin-normalization-contract-v2` | General normalizer | Typed max-HR/anaerobic | Specialized versions retained. |
+| `r02-garmin-normalization-contract-v3` | General normalizer | Daily Garmin energy estimates | Specialized versions retained; explicit offline replay for saved daily summaries. |
 | `garmin-activity-normalization-v2` | Activity | Session-total calories | No active-kcal proof. |
 | `garmin-activity-quality-v1` | Quality overlay | Field conflicts/ranges | No physiology ceiling. |
 | `garmin-training-phase-a-probe-v1` | Training probe | Structural evidence | Association not producer. |

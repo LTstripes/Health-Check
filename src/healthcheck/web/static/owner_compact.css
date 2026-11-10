@@ -1,6 +1,19 @@
 /* #515 compactness for Statistics and Activity. Spacing and type scale only:
    values, sources, states and disclosures stay in place; the shared shell is unchanged. */
 
+[data-overview-energy] { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .75rem; }
+.statistics-energy { padding: 12px 0; }
+.statistics-energy h2 { margin: 0; }
+.energy-day { position: relative; display: grid; grid-template-columns: 8rem minmax(0, 1fr) 8rem; gap: 12px; align-items: center; padding: 3px 0; font-size: .8125rem; }
+.energy-day > span:nth-of-type(2) { text-align: right; }
+.energy-tooltip { display: none; position: absolute; z-index: 2; bottom: 100%; right: 0; padding: 6px 8px; background: var(--card); color: var(--ink); border: 1px solid var(--line-strong); }
+.energy-day:hover .energy-tooltip, .energy-day:focus .energy-tooltip { display: block; }
+.energy-track { display: flex; height: 10px; background: var(--sunken); border: 1px solid var(--line); }
+.energy-track span { display: block; height: 100%; }
+.energy-bmr { background: var(--muted); opacity: .45; }
+.energy-active, .energy-total { background: var(--series-1); }
+.energy-day:focus-visible { outline: 2px solid var(--owner-focus); outline-offset: 2px; }
+
 /* Statistics: one quiet provider legend, tighter metric rows. */
 .statistics-page .statistics-window { margin: 10px 0 0; font-size: .875rem; color: var(--muted); }
 .statistics-page .statistics-source-headings { margin: 12px 0 0; padding: 6px 0; }
