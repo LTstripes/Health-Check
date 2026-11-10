@@ -200,10 +200,11 @@ def test_observation_lookup_index_and_additive_migration(demo):
 
     try:
         before = snapshot()
-        command.upgrade(config, "head")
+        # Test the index-only revision independently of later body migrations.
+        command.upgrade(config, "0021_garmin_observation_lookup")
         assert snapshot() == before
-        # Reapplying head is harmless on an already migrated database.
-        command.upgrade(config, "head")
+        # Reapplying this revision is harmless on an already migrated database.
+        command.upgrade(config, "0021_garmin_observation_lookup")
         with engine.connect() as connection:
             plan = connection.execute(text(
                 "EXPLAIN QUERY PLAN SELECT * FROM garmin_payload_observations "

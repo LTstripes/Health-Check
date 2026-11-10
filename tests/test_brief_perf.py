@@ -193,7 +193,9 @@ def test_freshness_migration_is_additive_and_uses_both_indexes(projection_databa
 
     try:
         before = snapshot()
-        command.upgrade(config, "head")
+        # Scope byte-for-byte additivity to the index-only migration. Later
+        # representation migrations intentionally change attempt storage.
+        command.upgrade(config, "0022_google_freshness_lookup")
         assert snapshot() == before
         with engine.connect() as connection:
             for table, clauses in (
@@ -211,7 +213,7 @@ def test_freshness_migration_is_additive_and_uses_both_indexes(projection_databa
                 assert all("TEMP B-TREE" not in row[3] for row in plan)
         command.downgrade(config, "0021_garmin_observation_lookup")
         assert snapshot() == before
-        command.upgrade(config, "head")
+        command.upgrade(config, "0022_google_freshness_lookup")
     finally:
         engine.dispose()
 

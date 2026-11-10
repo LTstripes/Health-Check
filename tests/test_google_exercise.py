@@ -561,7 +561,9 @@ def test_upgrade_preserves_existing_steps_and_safe_empty_downgrade(database):
     finally:
         event.remove(Engine, "before_cursor_execute", reflected)
     changed = set(tables) - {"google_sources", "google_record_metrics"}
-    assert changed <= reflected_tables <= changed | {"alembic_version"}
+    assert changed <= reflected_tables <= changed | {
+        "alembic_version", "_gproj_0023_compress", "_gproj_0023_restore",
+    }
     assert snapshot() == schema_and_rows
     after = [(r.id, r.content_hash) for r in session.scalars(select(GoogleRawPayload))]
     assert after == before
@@ -583,7 +585,7 @@ def test_backup_restore_retains_exercise_and_raw_evidence(database, tmp_path):
     create_backup(paths.root, archive, scratch=tmp_path)
     assert (
         verify_backup(archive, scratch=tmp_path).migration_revision
-        == "0022_google_freshness_lookup"
+        == "0023_google_projection_compression"
     )
     target = tmp_path / "restored-exercise"
     restore_profile(archive, target, scratch=tmp_path)

@@ -463,7 +463,7 @@ def test_real_read_only_alembic_probe(tmp_path):
     assert tool.probe(code, profile, "current") == "synthetic_read_only"
     assert db_path.read_bytes() == before
     assert not db_path.with_name("healthcheck.db-wal").exists()
-    assert tool.probe(code, profile, "head").startswith("0022_")
+    assert tool.probe(code, profile, "head").startswith("0023_")
 
 
 @pytest.mark.parametrize("engine", ["powershell.exe", "pwsh"])

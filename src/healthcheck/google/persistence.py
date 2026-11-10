@@ -65,6 +65,7 @@ from healthcheck.google.identity import (
     google_steps_interval_key,
     is_safe_google_interval_identity,
 )
+from healthcheck.google.projection_storage import compress_projection, read_projection
 from healthcheck.google.storage import (
     ContentAddressedGooglePayloadStore,
     StoredGooglePayload,
@@ -496,8 +497,13 @@ class GoogleNormalizationAttemptRepository:
             raise ValueError("Google normalization attempt key must be at least 32 characters")
         if record_count < 0:
             raise ValueError("Google normalization attempt record_count must be nonnegative")
+        compressed = compress_projection(projection_json, projection_fingerprint)
         existing = self.get_by_key(normalized_key)
         if existing is not None:
+            if read_projection(existing) != projection_json:
+                raise ValueError(
+                    "Google normalization attempt key is linked to conflicting evidence"
+                )
             for field_name, expected in {
                 "google_source_id": google_source_id,
                 "google_raw_payload_id": google_raw_payload_id,
@@ -509,7 +515,6 @@ class GoogleNormalizationAttemptRepository:
                 "parse_status": GooglePayloadStatus(parse_status).value,
                 "record_count": record_count,
                 "projection_fingerprint": projection_fingerprint,
-                "projection_json": projection_json,
             }.items():
                 if getattr(existing, field_name) != expected:
                     raise ValueError(
@@ -533,7 +538,8 @@ class GoogleNormalizationAttemptRepository:
             projection_fingerprint=_required_text(
                 projection_fingerprint, "Google projection fingerprint"
             ),
-            projection_json=_required_text(projection_json, "Google projection JSON"),
+            projection_json=None,
+            **compressed,
             diagnostics_json=diagnostics_json,
             unknown_fields_json=unknown_fields_json,
             attempted_at=start_or_now(attempted_at),
