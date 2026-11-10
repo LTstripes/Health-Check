@@ -40,6 +40,7 @@ from healthcheck.ingestion.photo.vision import UnconfiguredImageMeasurementExtra
 from healthcheck.logging import log_event
 from healthcheck.owner_time import owner_today, owner_zone
 from healthcheck.source_freshness_consumer import read_consumer_freshness_projection
+from healthcheck.web.brief_timing import BriefTiming
 from healthcheck.web.common import database_unavailable, request_engine, wants_html
 from healthcheck.web.detail_navigation import local_return_href
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
@@ -1144,6 +1145,13 @@ def period_brief_page(
     weekly_end: str | None = None,
     period_at: str | None = None,
 ) -> HTMLResponse:
+    timing = BriefTiming()
+
+    def error(**kwargs):
+        with timing.block("render"):
+            response = render_error(request, **kwargs)
+        return timing.finish(response, debug_log=request.app.state.settings.brief_timing_log)
+
     try:
         evaluated_at = datetime.now(UTC)
         anchor = datetime.fromisoformat(period_at) if period_at is not None else None
@@ -1158,60 +1166,68 @@ def period_brief_page(
             preset=preset, start_date=start_date, end_date=end_date,
             today=period_clock.date(),
         )
-        with session_scope(request_engine(request)) as session:
+        with session_scope(request_engine(request)) as session, timing.sql(session.connection()):
             ensure_read_snapshot(session)
-            service = PeriodBriefService(session, request.app.state.settings)
-            source_selection = service.garmin.resolve_source(garmin_source_id)
-            result, brief_inputs = service.build_with_chart_inputs(
-                start_date=start,
-                end_date=end,
-                garmin_source_id=garmin_source_id,
-                thin_display=True,
-            )
-            overview = read_overview_values(
-                session, start=start, end=end,
-                selected_id=source_selection.get("selected_source_id"),
-            )
-            overview["rhr"] = read_overview_rhr(
-                session, start=start, end=end,
-                explicit_period=any(value is not None for value in (preset, start_date, end_date)),
-                evaluated_at_utc=evaluated_at,
-                evaluation_local_date=evaluated_at.astimezone(
-                    owner_zone(request.app.state.settings)).date(),
-                garmin_source_id=source_selection.get("selected_source_id"),
-                google_source_id=google_rhr_source_id,
-                freshness=result["display"]["sections"].get("data_quality", {})
-                .get("coverage", {}).get("freshness", {}),
-            )
-            charts = read_overview_charts(
-                session, request.app.state.settings, packet=result["packet"],
-                brief_inputs=brief_inputs,
-                selected_id=source_selection.get("selected_source_id"),
-            )
-            overview.update(read_completed_overview(
-                session, request.app.state.settings, start=start, end=end,
-                preset=selected_preset, source_id=source_selection.get("selected_source_id"),
-                evaluated_at=evaluated_at, window_at=period_clock,
-                sleep_series=charts["technical"]["sleep"].get("sleep_duration_seconds"),
-            ))
-            overview["steps"] = read_overview_steps(
-                session, paths=request.app.state.runtime_paths,
-                window=overview["completed_window"],
-                source_id=source_selection.get("selected_source_id"), evaluated_at=evaluated_at,
-            )
+            with timing.block("brief"):
+                service = PeriodBriefService(session, request.app.state.settings)
+                source_selection = service.garmin.resolve_source(garmin_source_id)
+                result, brief_inputs = service.build_with_chart_inputs(
+                    start_date=start,
+                    end_date=end,
+                    garmin_source_id=garmin_source_id,
+                    thin_display=True,
+                )
+            with timing.block("overview"):
+                overview = read_overview_values(
+                    session, start=start, end=end,
+                    selected_id=source_selection.get("selected_source_id"),
+                )
+            with timing.block("rhr"):
+                overview["rhr"] = read_overview_rhr(
+                    session, start=start, end=end,
+                    explicit_period=any(
+                        value is not None for value in (preset, start_date, end_date)),
+                    evaluated_at_utc=evaluated_at,
+                    evaluation_local_date=evaluated_at.astimezone(
+                        owner_zone(request.app.state.settings)).date(),
+                    garmin_source_id=source_selection.get("selected_source_id"),
+                    google_source_id=google_rhr_source_id,
+                    freshness=result["display"]["sections"].get("data_quality", {})
+                    .get("coverage", {}).get("freshness", {}),
+                )
+            with timing.block("charts"):
+                charts = read_overview_charts(
+                    session, request.app.state.settings, packet=result["packet"],
+                    brief_inputs=brief_inputs,
+                    selected_id=source_selection.get("selected_source_id"),
+                )
+            with timing.block("completed"):
+                overview.update(read_completed_overview(
+                    session, request.app.state.settings, start=start, end=end,
+                    preset=selected_preset, source_id=source_selection.get("selected_source_id"),
+                    evaluated_at=evaluated_at, window_at=period_clock,
+                    sleep_series=charts["technical"]["sleep"].get("sleep_duration_seconds"),
+                ))
+            with timing.block("steps"):
+                overview["steps"] = read_overview_steps(
+                    session, paths=request.app.state.runtime_paths,
+                    window=overview["completed_window"],
+                    source_id=source_selection.get("selected_source_id"), evaluated_at=evaluated_at,
+                )
     except GarminQueryError as exc:
-        return render_error(
-            request, code=exc.code, message=exc.message, status_code=exc.status_code
+        return error(
+            code=exc.code, message=exc.message, status_code=exc.status_code,
         )
     except ValueError as exc:
-        return render_error(
-            request, code="invalid_period", message=str(exc), status_code=400
+        return error(
+            code="invalid_period", message=str(exc), status_code=400,
         )
     except SQLAlchemyError as exc:
         if not database_unavailable(exc):
-            return _persist_error(request, "period_brief_page")
-        return render_error(
-            request,
+            with timing.block("render"):
+                response = _persist_error(request, "period_brief_page")
+            return timing.finish(response, debug_log=request.app.state.settings.brief_timing_log)
+        return error(
             code="database_unavailable",
             message="database is not ready",
             status_code=503,
@@ -1267,61 +1283,65 @@ def period_brief_page(
             else:
                 weekly_error = ("Не удалось прочитать сохранённые данные для недельного итога. "
                                 "Итог не сформирован; попробуйте повторить чтение позже.")
-    return render(
-        request,
-        "period_brief.html",
-        {
-            "weekly_preview_available": weekly_config is not None,
-            "weekly_default_end": last_sunday.isoformat(),
-            "weekly_digest": weekly,
-            "weekly_evidence": encode_weekly_digest(weekly) if weekly else None,
-            "weekly_error": weekly_error,
-            "brief": result["display"],
-            "packet": result["packet"],
-            "source_selection": source_selection,
-            "selected_preset": selected_preset,
-            "overview_href": overview_href, "overview_params": overview_params,
-            "overview_detail_links": detail_links,
-            "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"])
-            or overview["period_sleep"]["mean_value"] is not None
-            or overview["period_stress"]["mean_value"] is not None
-            or bool(overview["body_battery"]["selected"]
-                    and overview["body_battery"]["selected"]["mean_display"] is not None)
-            or any(item["dto"]["last_observation"] is not None for item in overview["rhr"]["items"])
-            or any(item["mean_display"] is not None for item in overview["steps"]["items"])
-            or any(cell["value"] is not None for cell in overview["garmin"].values())
-            or any(
-                cell["latest"] is not None
-                for item in overview["google"]["sources"] for cell in item["metrics"].values()
-            ) or overview["training"]["status"] == "available",
-            "overview": overview,
-            "charts": charts,
-            "metric_value": metric_value,
-            "overview_number": overview_number,
-            "google_vital_source_label": google_vital_source_label,
-            "google_vital_cell_state": google_vital_cell_state,
-            "google_vital_ineligible_note": google_vital_ineligible_note,
-            "brief_owner_action": _brief_owner_action,
-            "brief_owner_actions": _brief_owner_actions,
-            "brief_sleep_groups": _brief_sleep_groups,
-            "brief_primary_facts": _brief_primary_facts,
-            "brief_owner_activity": _brief_owner_activity,
-            "brief_owner_cohort": _brief_owner_cohort,
-            "brief_owner_fact": _brief_owner_fact,
-            "brief_owner_note": _brief_owner_note,
-            "brief_note_value": _brief_note_value,
-            "brief_owner_reason": _brief_owner_reason,
-            "brief_owner_state": _brief_owner_state,
-            "brief_owner_uncertainty": _brief_owner_uncertainty,
-            "brief_owner_value": _brief_owner_value,
-            "brief_notable_changes": _brief_notable_changes,
-            "brief_coverage_warning": _brief_coverage_warning,
-            "brief_source_status": _brief_source_status,
-            "brief_sleep_uncertainty": _brief_sleep_uncertainty,
-            "brief_source_label": _brief_source_label,
-            "page": "brief",
-        },
-    )
+    with timing.block("render"):
+        response = render(
+            request,
+            "period_brief.html",
+            {
+                "weekly_preview_available": weekly_config is not None,
+                "weekly_default_end": last_sunday.isoformat(),
+                "weekly_digest": weekly,
+                "weekly_evidence": encode_weekly_digest(weekly) if weekly else None,
+                "weekly_error": weekly_error,
+                "brief": result["display"],
+                "packet": result["packet"],
+                "source_selection": source_selection,
+                "selected_preset": selected_preset,
+                "overview_href": overview_href, "overview_params": overview_params,
+                "overview_detail_links": detail_links,
+                "brief_has_usable_evidence": _brief_has_usable_evidence(result["display"])
+                or overview["period_sleep"]["mean_value"] is not None
+                or overview["period_stress"]["mean_value"] is not None
+                or bool(overview["body_battery"]["selected"]
+                        and overview["body_battery"]["selected"]["mean_display"] is not None)
+                or any(item["dto"]["last_observation"] is not None
+                       for item in overview["rhr"]["items"])
+                or any(item["mean_display"] is not None for item in overview["steps"]["items"])
+                or any(cell["value"] is not None for cell in overview["garmin"].values())
+                or any(
+                    cell["latest"] is not None
+                    for item in overview["google"]["sources"] for cell in item["metrics"].values()
+                ) or overview["training"]["status"] == "available",
+                "overview": overview,
+                "charts": charts,
+                "metric_value": metric_value,
+                "overview_number": overview_number,
+                "google_vital_source_label": google_vital_source_label,
+                "google_vital_cell_state": google_vital_cell_state,
+                "google_vital_ineligible_note": google_vital_ineligible_note,
+                "brief_owner_action": _brief_owner_action,
+                "brief_owner_actions": _brief_owner_actions,
+                "brief_sleep_groups": _brief_sleep_groups,
+                "brief_primary_facts": _brief_primary_facts,
+                "brief_owner_activity": _brief_owner_activity,
+                "brief_owner_cohort": _brief_owner_cohort,
+                "brief_owner_fact": _brief_owner_fact,
+                "brief_owner_note": _brief_owner_note,
+                "brief_note_value": _brief_note_value,
+                "brief_owner_reason": _brief_owner_reason,
+                "brief_owner_state": _brief_owner_state,
+                "brief_owner_uncertainty": _brief_owner_uncertainty,
+                "brief_owner_value": _brief_owner_value,
+                "brief_notable_changes": _brief_notable_changes,
+                "brief_coverage_warning": _brief_coverage_warning,
+                "brief_source_status": _brief_source_status,
+                "brief_sleep_uncertainty": _brief_sleep_uncertainty,
+                "brief_source_label": _brief_source_label,
+                "page": "brief",
+            },
+        )
+
+    return timing.finish(response, debug_log=request.app.state.settings.brief_timing_log)
 
 
 @router.get("/garmin", response_class=HTMLResponse)

@@ -27,6 +27,7 @@ from healthcheck.garmin.analytic_contract import (
     get_analytic_metric_definition,
     stable_manifest_hash,
 )
+from healthcheck.garmin.analytic_storage import GarminAnalyticStorageBatch
 from healthcheck.garmin.capabilities import GarminStream
 from healthcheck.garmin.persistence import PROJECTION_CURRENT
 
@@ -581,14 +582,17 @@ def _assemble_session_metric(
     *,
     record: GarminSourceRecord,
     metric_code: str,
+    storage: GarminAnalyticStorageBatch | None = None,
 ) -> tuple[SessionMetricCoverage, AnalyticInputDTO | None]:
     definition = get_analytic_metric_definition(metric_code)
-    metric_row = session.scalar(
-        select(GarminRecordMetric).where(
+    if storage is not None:
+        metric_row = next((row for row in storage.metrics.get(record.id, ())
+                           if row.metric_code == metric_code), None)
+    else:
+        metric_row = session.scalar(select(GarminRecordMetric).where(
             GarminRecordMetric.record_id == record.id,
             GarminRecordMetric.metric_code == metric_code,
-        )
-    )
+        ))
     if metric_row is None:
         return (
             SessionMetricCoverage(
@@ -613,6 +617,7 @@ def _assemble_session_metric(
             metric_row_id=metric_row.id,
             metric_code=metric_code,
             operational_surface_present=True,
+            _batch=storage,
         )
     except AnalyticInputAssemblyError as exc:
         raise GarminActivityComparisonError(
@@ -666,6 +671,7 @@ def _assemble_record_metrics(
     *,
     record: GarminSourceRecord,
     metric_codes: Sequence[str],
+    storage: GarminAnalyticStorageBatch | None = None,
 ) -> tuple[
     tuple[SessionMetricCoverage, ...],
     dict[str, SessionMetricCoverage],
@@ -679,7 +685,9 @@ def _assemble_record_metrics(
     temporal_dict: dict[str, Any] | None = None
     dtos: list[AnalyticInputDTO] = []
     for metric_code in metric_codes:
-        coverage, dto = _assemble_session_metric(session, record=record, metric_code=metric_code)
+        coverage, dto = _assemble_session_metric(
+            session, record=record, metric_code=metric_code, storage=storage,
+        )
         metric_rows.append(coverage)
         per_metric[metric_code] = coverage
         if dto is not None:
@@ -879,6 +887,15 @@ def compute_garmin_activity_comparison(
         metric_codes=metric_codes,
     )
     records = _load_selected_records(session, query)
+    # Reuse the scalar reader's bounded, assembly-local storage handoff. All
+    # provenance/quality checks and manifest construction still run per input.
+    rows = session.execute(select(GarminRecordMetric, GarminSourceRecord).join(
+        GarminSourceRecord, GarminSourceRecord.id == GarminRecordMetric.record_id,
+    ).where(
+        GarminSourceRecord.id.in_(query.activity_record_ids),
+        GarminRecordMetric.metric_code.in_(query.metric_codes),
+    )).all()
+    storage = GarminAnalyticStorageBatch(session, rows)
     definitions = tuple(get_analytic_metric_definition(code) for code in query.metric_codes)
 
     sessions: list[ComparedActivitySession] = []
@@ -887,7 +904,7 @@ def compute_garmin_activity_comparison(
 
     for record in records:
         metric_rows, per_metric, temporal_dict, dtos = _assemble_record_metrics(
-            session, record=record, metric_codes=query.metric_codes
+            session, record=record, metric_codes=query.metric_codes, storage=storage,
         )
         for dto in dtos:
             frozen_by_hash[dto.manifest_hash] = dto.as_dict()
