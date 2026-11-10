@@ -350,6 +350,43 @@ Normal Owner operation uses the protected code/data/UAT/Ops roles in [machine la
 No health data, credentials, payloads, images, logs, database files or generated reports belong in the repository. Routine comments added to a disposable clone will not automatically become durable Stable notes; #294's real rollout must make the target explicit.
 
 
+<a id="stable-release-tooling-v1"></a>
+## Stable release tooling v1
+
+Versioned scripts live in [`scripts/stable_release`](../scripts/stable_release/README.md).
+Use an external private config with explicit profile, release, binding, consumer
+and receipt paths; the example contains placeholders only. In Windows PowerShell
+5.1 or pwsh 7 with Python 3.12+:
+
+```powershell
+python scripts/stable_release/release.py prepare <full-sha> --config <config.json> --ci-run-id <run-id/attempts/N> --manifest <candidate-dir/manifest.json>
+python scripts/stable_release/release.py activate <candidate-dir/manifest.json>
+```
+
+The agent runs `prepare`: offline exact-main/CI checks, clean release/.venv checks,
+read-only revision and binding checks, route classification and structural JSON
+preflight. It writes one manifest without switching Stable. Owner runs `activate`
+only with deployment authority after reviewing the manifest. The existing seven
+consumer rewrites remain; Task Scheduler is not changed.
+
+**Code-only** requires unchanged migrations/models and matching schema, plus an
+accessible already verified regular recovery point for the same profile **no
+older than 8 days** (Owner decision, 10 November 2026). It does not create a fresh
+backup or invoke migrate. **Strict** is selected for migration/model changes,
+a target-head mismatch or `prepare --strict`; it requires a fresh recovery point
+and linked migration-rehearsal receipt (v1 defines fresh as at most 24 hours).
+The broader compatibility requirements in [the short procedure](#code-only-stable-updates)
+still apply; use `--strict` for other data-affecting or uncertain changes.
+
+Activation rechecks reality under the autostart and profile operation locks,
+switches the pointer atomically with a previous-file backup, then starts and checks
+UI/MCP and revision. Code-only failure restores the pointer/consumers and verifies
+both old services. After any strict migration attempt, failure leaves services
+stopped with diagnostics and requires Owner recovery; no automatic DB restore.
+Keep scheduled writers stopped during that recovery. `activation.json` contains
+status/stage timings, never the environment-only MCP gateway token. See the linked
+tool guide for receipt schemas, process identity checks and retry/crash limits.
+
 <a id="profile-backup"></a>
 
 <a id="profile-backup--supported-local-profile-backup-and-restore"></a>
