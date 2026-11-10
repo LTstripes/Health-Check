@@ -1,0 +1,38 @@
+{
+  "repository": "C:\\REPLACE\\accepted-repository",
+  "releases_root": "C:\\REPLACE\\releases",
+  "profile": "C:\\REPLACE\\profile",
+  "active_pointer": "C:\\REPLACE\\ops\\maintenance\\active-code.private.json",
+  "ci_receipt": "C:\\REPLACE\\candidate\\ci.json",
+  "recovery_receipt": "C:\\REPLACE\\weekly\\verified-recovery.json",
+  "rehearsal_receipt": "C:\\REPLACE\\candidate\\migration-rehearsal.json",
+  "ui_binding": "C:\\REPLACE\\candidate\\ui-binding.json",
+  "old_ui_binding": "C:\\REPLACE\\previous\\actual-loaded-run-binding.json",
+  "mcp_binding": "C:\\REPLACE\\candidate\\assistant-binding.json",
+  "old_mcp_binding": "C:\\REPLACE\\previous\\assistant-binding.json",
+  "ui_port": 8120,
+  "mcp_port": 8787,
+  "known_page": "/",
+  "timeout_seconds": 45,
+  "consumers": [
+    {"role": "owner-refresh", "path": "C:\\REPLACE\\ops\\owner-refresh-scheduled.ps1"},
+    {"role": "weekly-runner", "path": "C:\\REPLACE\\ops\\maintenance\\run-health-weekly.ps1"},
+    {"role": "weekly-backup", "path": "C:\\REPLACE\\ops\\maintenance\\health-data-only-backup.py"},
+    {"role": "active-pointer", "path": "C:\\REPLACE\\ops\\maintenance\\active-code.private.json"},
+    {
+      "role": "period-handoff",
+      "path": "C:\\REPLACE\\ops\\assistant-period\\parent-handoff.private.json",
+      "replacements": [["C:\\\\REPLACE\\\\previous\\\\assistant-binding.json", "C:\\\\REPLACE\\\\candidate\\\\assistant-binding.json"]]
+    },
+    {
+      "role": "weekly-handoff",
+      "path": "C:\\REPLACE\\ops\\assistant-weekly\\parent-handoff.private.json",
+      "replacements": [["C:\\\\REPLACE\\\\previous\\\\assistant-binding.json", "C:\\\\REPLACE\\\\candidate\\\\assistant-binding.json"]]
+    },
+    {
+      "role": "weekly-recipe",
+      "path": "C:\\REPLACE\\ops\\assistant-weekly\\invocation-recipe.txt",
+      "replacements": [["C:\\REPLACE\\previous\\assistant-binding.json", "C:\\REPLACE\\candidate\\assistant-binding.json"]]
+    }
+  ]
+}
