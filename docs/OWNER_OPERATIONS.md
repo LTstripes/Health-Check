@@ -2374,6 +2374,37 @@ This procedure supplies reusable Windows/synthetic mechanics. Use the active iss
 Expansion beyond the pilot, real recovery, provider reacquisition, Stable rollout
 and Owner UAT each require their own assigned scope. This runbook grants none.
 
+## Replay saved daily Garmin calorie estimates (#319)
+
+The Owner decision of 2026-11-10 accepts daily `*Kilocalories` fields as kcal,
+labelled «оценка Garmin» / «по данным Garmin». Normalization contract v3 adds
+independent total/active/BMR estimates. No schema migration is added; page reads
+do not re-normalize history.
+
+After integration review, an explicitly authorized Owner operation can use the
+existing offline command against an established external profile. Take the normal
+profile backup first. Set the profile and exact inclusive date range in PowerShell:
+
+```powershell
+$profilePath = 'D:\path\to\existing-external-profile'
+$firstDay = '2026-11-01'
+$lastDay = '2026-11-07'
+uv run --locked python -m healthcheck.cli garmin-reprocess --data-dir $profilePath --start $firstDay --end $lastDay --stream daily_summary --max-observations 140 --dry-run
+uv run --locked python -m healthcheck.cli garmin-reprocess --data-dir $profilePath --start $firstDay --end $lastDay --stream daily_summary --max-observations 140
+```
+
+Inspect the sanitized report. Repeat the non-dry-run command while
+`remaining_observation_count` is nonzero; already-current windows are skipped.
+Maximum date span: 3660 days; split longer history into explicit ranges. Only saved
+daily-summary observations with usable window/artifact bindings can be replayed;
+report unresolved gaps rather than reacquiring or filling values. Retained raw
+bytes are used with zero provider calls, preserving originals and incremental/
+historical checkpoints. Replay does not certify completed-day acquisition.
+It also updates other existing daily-summary metrics under the current normalizer;
+activity/session calories and other surfaces are not selected. The command retains
+its runtime/schema preflight; pending profile migrations require their own scope.
+No Owner profile or Stable replay is authorized by this engineering task.
+
 <a id="workspace-lifecycle"></a>
 
 <a id="workspace-lifecycle--managed-lifecycle-format-1-and-cleanup-guards"></a>

@@ -29,6 +29,7 @@ from healthcheck.collection_policy import resolve_profile_collection_policy
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import ImportCandidate, IngestEvent
 from healthcheck.db.repositories import restore_stored_utc
+from healthcheck.garmin.daily_energy import read_daily_energy
 from healthcheck.google.daily_vitals import (
     GOOGLE_DAILY_VITALS,
     read_google_daily_vitals,
@@ -1213,6 +1214,14 @@ def period_brief_page(
                     session, paths=request.app.state.runtime_paths,
                     window=overview["completed_window"],
                     source_id=source_selection.get("selected_source_id"), evaluated_at=evaluated_at,
+                )
+                energy_window = overview["completed_window"]
+                overview["energy"] = read_daily_energy(
+                    session, source_id=source_selection.get("selected_source_id"),
+                    start=(date.fromisoformat(energy_window["start_date"])
+                           if not energy_window["empty"] else None),
+                    end=(date.fromisoformat(energy_window["end_date"])
+                         if not energy_window["empty"] else None),
                 )
     except GarminQueryError as exc:
         return error(

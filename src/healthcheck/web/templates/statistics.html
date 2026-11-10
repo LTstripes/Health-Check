@@ -19,7 +19,7 @@
 
     <p>{{ packet.requested_window.start_date }} — {{ packet.requested_window.end_date }}</p>
     {% for side in packet.sides %}<p>{{ 'Garmin' if side.position == 'left' else 'Google' }}: {{ side.requested_dates.start_date }} — {{ side.requested_dates.end_date }}</p>{% endfor %}
-  <p>Типизированные калории пока недоступны. Неподдерживаемые Google-показатели не занимают пустые карточки; это не нулевые значения.</p></div></details></div>
+  <p>Дневные калории Garmin — оценка поставщика. Калории тренировок пока недоступны. Неподдерживаемые Google-показатели не занимают пустые карточки; это не нулевые значения.</p></div></details></div>
     <label>Период шагов
       <select name="steps_period" aria-label="Период шагов" aria-describedby="steps-period-help">
         <option value="window"{% if selected_steps_period == 'window' %} selected{% endif %}>Выбранный период</option>
@@ -66,6 +66,7 @@
     {% endfor %}
   </div>
   {% include "statistics_steps.html" %}
+  {% include "statistics_energy.html" %}
   <div class="statistics-metrics">
   {% for code, label in metric_labels.items() if code != 'activity_type_counts' %}
   <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">

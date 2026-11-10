@@ -1,0 +1,18 @@
+{% from 'overview_coverage.html' import coverage_qualifier %}
+{% set energy = overview.energy %}
+<div data-overview-energy>
+  <h3>Калории · оценка Garmin</h3>
+  {{ coverage_qualifier(energy.summary.total.count, energy.days) }}
+  {% if energy.summary.total.mean_display is not none %}
+  <p>в среднем <strong>{{ energy.summary.total.mean_display }}</strong> ккал/день</p>
+  {% else %}<p class="muted">нет данных</p>{% endif %}
+  <p class="overview-source">активные {% if energy.summary.active.mean_display is not none %}~{{ energy.summary.active.mean_display }}{% else %}нет данных{% endif %} · базовый обмен {% if energy.summary.bmr.mean_display is not none %}~{{ energy.summary.bmr.mean_display }}{% else %}нет данных{% endif %}</p>
+  <p class="overview-source">по данным Garmin{% if energy.start %} · {{ energy.start | owner_date }} — {{ energy.end | owner_date }}{% endif %}</p>
+  <details class="overview-info"><summary>О данных калорий</summary>
+    <p>Оценка Garmin, ккал. Средние рассчитаны отдельно по дням со значением каждого поля; пропуски не равны нулю. Дата Garmin не подтверждает полноту дня.</p>
+    <p>Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Компоненты не вычисляются друг из друга.</p>
+    {% for key in ['total', 'active', 'bmr'] %}<p>{{ key }}: {{ energy.summary[key].count }} из {{ energy.days }} дней.</p>{% endfor %}
+    {% if energy.reason %}<p>{{ 'Нужен источник Garmin.' if energy.reason == 'source_not_selected' else 'Чтение недоступно для выбранного периода.' }}</p>{% endif %}
+    <p>Контракт: r02-garmin-normalization-contract-v3.</p>
+  </details>
+</div>

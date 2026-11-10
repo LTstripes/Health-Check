@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "owner_ui.html" as owner_ui %}
 {% block title %}Обзор за период — Health-Check{% endblock %}
-{% block styles %}<link rel="stylesheet" href="/static/overview.css">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/overview.css"><link rel="stylesheet" href="/static/owner_compact.css">{% endblock %}
 {% block content %}
 <div class="overview-a-plus" data-overview-href="{{ overview_href }}">
 {% set weight = brief.sections.weight %}

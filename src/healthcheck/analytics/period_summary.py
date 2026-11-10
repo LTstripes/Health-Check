@@ -520,7 +520,8 @@ class PeriodSummaryService:
             "deltas": deltas,
             "blocked_metrics": {
                 "steps": "typed_stream_not_available",
-                "calories": "pending_319_source_fields_units",
+                "session_calories": "pending_319_source_fields_units",
+                "google_calories": "pending_319_source_fields_units",
             },
         }
 

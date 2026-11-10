@@ -324,14 +324,15 @@ def test_one_incompatible_participant_withholds_whole_frozen_sample(
     assert result["comparison"]["median"] is result["comparison"]["delta_points"] is None
 
 
-def test_stress_equivalent_v1_v2_mix_not_global_version_equality(database):
+@pytest.mark.parametrize("version", ["v2", "v3"])
+def test_stress_equivalent_version_mix_not_global_version_equality(database, version):
     saved, _history = seed(database, version="v1")
-    acquire(database, D, 13, version="v2", at=datetime(2099, 1, 31, tzinfo=UTC))
+    acquire(database, D, 13, version=version, at=datetime(2099, 1, 31, tzinfo=UTC))
     result = read(database, saved.source.id)
     assert result["comparison"]["status"] == "available"
     assert {p["normalization_contract_version"] for p in result["proofs"]} == {
         "r02-garmin-normalization-contract-v1",
-        "r02-garmin-normalization-contract-v2",
+        f"r02-garmin-normalization-contract-{version}",
     }
 
 

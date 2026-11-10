@@ -288,7 +288,7 @@ def test_empty_packet_has_two_null_sides_and_blocked_streams(projection_database
             assert cell["aggregation"]["value"] is None
             assert cell["missing_day_count"] == 7
     assert _metric(packet, "activity_session_count", 1)["state"] == "not_collected"
-    assert set(packet["blocked_metrics"]) == {"steps", "calories"}
+    assert set(packet["blocked_metrics"]) == {"steps", "session_calories", "google_calories"}
     assert all(d["value"] is None for d in packet["deltas"].values())
 
 

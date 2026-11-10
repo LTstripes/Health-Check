@@ -100,7 +100,10 @@ def persist(
             )
             for row in result.records
         )
-        result = replace(result, records=records, contract_version=NORMALIZATION_CONTRACT_VERSION)
+        # Historical undated rows belong to the frozen v2 interpretation. A
+        # future general-normalizer bump must not relabel this legacy fixture.
+        result = replace(result, records=records,
+                         contract_version="r02-garmin-normalization-contract-v2")
     else:
         result = prepare(SURFACE, body, result, day=day)
     with factory() as session:

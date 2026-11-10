@@ -73,9 +73,12 @@ _TIMEZONE_FIELDS = ("timeZone", "timezone", "timeZoneId", "timezoneId", "zone", 
 # Exact stress equivalence inspected at #319 commit 4a7bc96d7940c2e5161a210de2c179641bfa2aa6:
 # avgStressLevel/finite-number/points, local calendar day, coverage-v1 unchanged.
 # _scalar_capability_status delegates to the unchanged helper for stress.
+# General v3 adds optional daily energy fields; intraday stress/time/coverage
+# mappings and their evidence requirements are unchanged.
 _NORMALIZATION_VERSIONS = {
     "r02-garmin-normalization-contract-v1",
     "r02-garmin-normalization-contract-v2",
+    "r02-garmin-normalization-contract-v3",
 }
 _INPUT_RULES = {"r03-garmin-analytic-rules-v1", "r03-garmin-analytic-rules-v2"}
 _RECONCILIATION_VERSION = "r02-garmin-collection-reconciliation-v1"

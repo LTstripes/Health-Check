@@ -1500,7 +1500,11 @@ def test_hrv_accepted_states_and_no_ineligible_mean(profile, provider, state):
     with session_scope(profile[1]) as session:
         source_field = model.garmin_source_id if provider == "garmin" else model.google_source_id
         record = session.scalar(select(model).where(source_field == identity))
-        metric = session.scalar(select(metric_model).where(metric_model.record_id == record.id))
+        metric = session.scalar(select(metric_model).where(
+            metric_model.record_id == record.id,
+            metric_model.metric_code == (
+                "hrv_weekly_average_ms" if provider == "garmin" else "daily_hrv_average_ms"),
+        ))
         if state in {"null", "invalid", "missing"}:
             metric.state, metric.value_number = state, None
         elif state == "partial":

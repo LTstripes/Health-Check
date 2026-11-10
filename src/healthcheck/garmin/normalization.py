@@ -46,7 +46,7 @@ from healthcheck.garmin.contracts import (
     is_forbidden_payload_key,
 )
 
-NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v2"
+NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v3"
 ACTIVITY_QUALITY_CONTRACT_VERSION = "garmin-activity-quality-v1"
 ACTIVITY_NORMALIZATION_CONTRACT_VERSION = "garmin-activity-normalization-v2"
 SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v4"
@@ -733,6 +733,9 @@ _DAILY_SCALARS = (
         "text",
         None,
     ),
+    _ScalarSpec("daily_energy", "daily_total_kcal", ("totalKilocalories",), "number", "kcal"),
+    _ScalarSpec("daily_energy", "daily_active_kcal", ("activeKilocalories",), "number", "kcal"),
+    _ScalarSpec("daily_energy", "daily_bmr_kcal", ("bmrKilocalories",), "number", "kcal"),
 )
 
 _ACTIVITY_SCALARS = (
@@ -1766,6 +1769,9 @@ def _parse_record(
                 source.device_attributed
                 and item.metric_code
                 not in {
+                    "daily_total_kcal",
+                    "daily_active_kcal",
+                    "daily_bmr_kcal",
                     "session_total_calories",
                     "activityTrainingLoad",
                     "aerobicTrainingEffect",
@@ -1817,6 +1823,7 @@ def _parse_record(
     invalid_metric = any(item.state is GarminFieldState.INVALID for item in status_metrics)
     missing_metric = any(
         item.state is GarminFieldState.MISSING
+        and item.capability_code != "daily_energy"
         and not (
             stream is GarminStream.ACTIVITY
             and item.metric_code in _OPTIONAL_ACTIVITY_METRIC_CODES
@@ -2020,6 +2027,8 @@ def _parse_scalar(
             numeric = float(value) if isinstance(value, float) else value
             if isinstance(numeric, float) and not math.isfinite(numeric):
                 return _invalid_metric(spec, full_path, "non_finite_value")
+            if spec.capability_code == "daily_energy" and numeric < 0:
+                return _invalid_metric(spec, full_path, "negative_daily_energy")
             return (
                 GarminMetricDTO(
                     capability_code=spec.capability_code,
