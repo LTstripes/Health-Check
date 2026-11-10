@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from scripts.stable_release import consumers
 from scripts.stable_release import release as tool
 
 NOW = datetime.now(UTC)
@@ -578,3 +579,290 @@ def test_real_ui_runner_and_mcp_binding_probe(tmp_path, monkeypatch):
     for path in tmp_path.rglob("*"):
         if path.is_file():
             assert TOKEN.encode() not in path.read_bytes()
+
+
+@pytest.fixture
+def pointer_case(release_case):
+    case = release_case
+    pointer = tool.read_json(case['pointer'])
+    pointer['mcp_binding'] = case['config']['old_mcp_binding']
+    write_json(case['pointer'], pointer)
+    case['config']['google_hr_flag'] = str(case['root'] / 'google-hr.enabled')
+    case['config']['weekly_backup_script'] = str(case['root'] / 'backup.py')
+    return case
+
+
+def test_resolver_accepts_bom_pointer_once(pointer_case, monkeypatch):
+    case = pointer_case
+    case['pointer'].write_bytes(b'\xef\xbb\xbf' + case['pointer'].read_bytes())
+    reads = []
+    original = tool.read_json
+
+    def read(path):
+        if Path(path) == case['pointer']:
+            reads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(tool, 'read_json', read)
+    active = consumers.resolve_active(case['config'])
+    assert active['python'] == tool.python(case['old_code'])
+    assert active['sha'] == case['old_sha']
+    assert active['ui_binding'] == str(case['ui_paths'][0])
+    assert active['mcp_binding'] == str(case['mcp_paths'][0])
+    assert len(reads) == 1
+
+
+@pytest.mark.parametrize('fault', [
+    'sha', 'short-sha', 'outside', 'missing-venv', 'profile', 'partial', 'corrupt',
+    'missing', 'array', 'ui', 'mcp', 'token', 'venv-outside',
+])
+def test_resolver_fails_closed(pointer_case, monkeypatch, capsys, fault):
+    case = pointer_case
+    pointer = tool.read_json(case['pointer'])
+    if fault == 'sha':
+        pointer['sha'] = '0' * 40
+    elif fault == 'short-sha':
+        pointer['sha'] = case['old_sha'][:8]
+    elif fault == 'outside':
+        pointer['code'] = case['config']['repository']
+    elif fault == 'missing-venv':
+        Path(tool.python(case['old_code'])).unlink()
+    elif fault == 'profile':
+        pointer['profile'] = str(case['root'])
+    elif fault == 'ui':
+        ui = tool.read_json(case['ui_paths'][0])
+        ui['sha'] = case['new_sha']
+        write_json(case['ui_paths'][0], ui)
+    elif fault == 'mcp':
+        binding = tool.read_json(case['mcp_paths'][0])
+        binding['profile'] = str(case['root'])
+        write_json(case['mcp_paths'][0], binding)
+    elif fault == 'token':
+        pointer['secret'] = TOKEN
+    elif fault == 'venv-outside':
+        monkeypatch.setattr(tool, 'python', lambda code: str(case['root'] / 'python.exe'))
+    write_json(case['pointer'], pointer)
+    if fault in ('partial', 'corrupt'):
+        case['pointer'].write_bytes(b'{"code":' if fault == 'partial' else b'\xffinvalid')
+    if fault == 'missing':
+        case['pointer'].unlink()
+    if fault == 'array':
+        write_json(case['pointer'], [])
+    write_json(case['config_path'], case['config'])
+    calls = []
+    monkeypatch.setattr(consumers, 'run_work', lambda *a, **kw: calls.append(a))
+    assert consumers.main(['run-owner-refresh', '--config', str(case['config_path'])]) == 2
+    assert calls == []
+    captured = capsys.readouterr()
+    assert captured.err == 'active_pointer_invalid\n'
+    assert captured.out == ''
+
+
+@pytest.mark.parametrize('action', ['run-owner-refresh', 'run-weekly-backup'])
+def test_work_pins_interpreter_and_snapshot_when_pointer_flips(pointer_case, monkeypatch,
+                                                               capfd, action):
+    case = pointer_case
+    backup = Path(case['config']['weekly_backup_script'])
+    backup.write_text('# synthetic backup', encoding='utf-8')
+    Path(case['config']['google_hr_flag']).touch()
+    write_json(case['config_path'], case['config'])
+    calls = []
+    real_run = consumers.subprocess.run
+
+    def run(args, **kwargs):
+        if args[0] == 'git':
+            return real_run(args, **kwargs)
+        calls.append((args, kwargs))
+        pointer = tool.read_json(case['pointer'])
+        pointer.update(code=str(case['new_code']), sha=case['new_sha'])
+        write_json(case['pointer'], pointer)
+        assert kwargs['env']['HEALTHCHECK_RELEASE_SHA'] == case['old_sha']
+        assert kwargs['env']['HEALTHCHECK_RELEASE_CODE'] == str(case['old_code'])
+        return subprocess.CompletedProcess(args, 17, b'synthetic output\n', b'')
+
+    monkeypatch.setattr(consumers.subprocess, 'run', run)
+    assert consumers.main([action, '--config', str(case['config_path'])]) == 17
+    args, kwargs = calls[0]
+    assert len(calls) == 1
+    assert args[:3] == [tool.python(case['old_code']), '-I', '-B']
+    assert kwargs['cwd'] == str(case['old_code'])
+    assert kwargs['env']['HEALTHCHECK_DATA_DIR'] == case['config']['profile']
+    assert 'timeout' not in kwargs
+    if action == 'run-owner-refresh':
+        assert args[3:6] == ['-m', 'healthcheck.cli', 'owner-refresh']
+        assert args[-2:] == ['--stream', 'heart_rate']
+        logs = list((Path(case['config']['profile']) / 'logs').glob('owner-refresh-*.log'))
+        assert len(logs) == 1 and logs[0].read_bytes() == b'synthetic output\n'
+    else:
+        assert args[3:] == [str(backup), '--no-restore-rehearsal']
+    assert capfd.readouterr().out == 'synthetic output\n'
+
+
+def test_work_never_persists_or_emits_gateway_token(pointer_case, monkeypatch, capfd):
+    active = consumers.resolve_active(pointer_case['config'])
+    monkeypatch.setattr(consumers.subprocess, 'run', lambda *a, **kw:
+                        subprocess.CompletedProcess(a, 0, b'safe stdout', TOKEN.encode()))
+    log = pointer_case['root'] / 'must-not-exist.log'
+    with pytest.raises(tool.Refused, match='credential_in_input'):
+        consumers.run_work(active, ['synthetic'], log=log)
+    assert not log.exists()
+    assert capfd.readouterr() == ('', '')
+
+
+def test_owner_refresh_preserves_default_streams_without_hr_toggle(pointer_case, monkeypatch):
+    active = consumers.resolve_active(pointer_case['config'])
+    calls = []
+    monkeypatch.setattr(consumers, 'run_work', lambda a, args, **kw: calls.append(args) or 0)
+    assert consumers.run_owner_refresh(active, pointer_case['config']) == 0
+    assert 'heart_rate' not in calls[0]
+    assert calls[0].count('--stream') == len(consumers.STREAMS)
+
+
+@pytest.mark.parametrize('failure', [False, True])
+def test_migrated_activation_writes_and_restores_pointer_only(pointer_case, runtime,
+                                                              monkeypatch, failure):
+    case = pointer_case
+    for entry in case['config']['consumers']:
+        if entry['role'] != 'active-pointer':
+            entry['mode'] = 'pointer-reading'
+            entry.pop('replacements', None)
+    if failure:
+        ui = tool.read_json(case['ui_paths'][1])
+        ui['fail_start'] = True
+        write_json(case['ui_paths'][1], ui)
+    original = {e['path']: Path(e['path']).read_bytes() for e in case['config']['consumers']}
+    manifest = prepare(case)
+    assert [e['role'] for e in manifest['consumers']] == ['active-pointer']
+    assert manifest['proposed_pointer']['mcp_binding'] == case['config']['mcp_binding']
+    writes = []
+    monkeypatch.setattr(tool, 'write_preserved', lambda *a, **kw: writes.append(a))
+    if failure:
+        with pytest.raises(tool.Refused):
+            tool.activate(case['manifest_path'], runtime)
+        assert {p: Path(p).read_bytes() for p in original} == original
+        receipt = tool.read_json(case['manifest_path'].parent / 'activation.json')
+        assert receipt['rollback'] == 'PASS'
+        assert 'restore_pointer' in [s['stage'] for s in receipt['stages']]
+    else:
+        assert tool.activate(case['manifest_path'], runtime)['status'] == 'PASS'
+        assert tool.read_json(case['pointer'])['mcp_binding'] == str(case['mcp_paths'][1])
+        for path, before in original.items():
+            if path != str(case['pointer']):
+                assert Path(path).read_bytes() == before
+    assert writes == []
+
+
+def test_gradual_migration_keeps_legacy_rewrites(pointer_case):
+    case = pointer_case
+    entry = next(e for e in case['config']['consumers'] if e['role'] == 'owner-refresh')
+    entry['mode'] = 'pointer-reading'
+    # A skipped consumer may contain historical evidence; it must not enter the manifest.
+    Path(entry['path']).write_bytes(TOKEN.encode())
+    manifest = prepare(case)
+    assert entry['role'] not in [e['role'] for e in manifest['consumers']]
+    legacy = next(e for e in manifest['consumers'] if e['role'] == 'weekly-backup')
+    assert case['new_sha'] in legacy['after'] and case['old_sha'] in legacy['before']
+    assert TOKEN.encode() not in case['manifest_path'].read_bytes()
+
+
+@pytest.mark.parametrize('role,mode,replacements', [
+    ('owner-refresh', 'typo', []),
+    ('active-pointer', 'pointer-reading', []),
+    ('owner-refresh', 'pointer-reading', [['old', 'new']]),
+])
+def test_consumer_migration_declarations_fail_closed(pointer_case, role, mode, replacements):
+    entry = next(e for e in pointer_case['config']['consumers'] if e['role'] == role)
+    entry.update(mode=mode, replacements=replacements)
+    with pytest.raises(tool.Refused):
+        prepare(pointer_case)
+
+
+def test_weekly_runs_real_resolved_venv_and_keeps_release_during_flip(pointer_case, capfd):
+    import venv
+
+    case = pointer_case
+    executable = Path(tool.python(case['old_code']))
+    executable.unlink()
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(case['old_code'] / '.venv')
+    script = Path(case['config']['weekly_backup_script'])
+    script.write_text(
+        'import json,os,sys\nfrom pathlib import Path\n'
+        f'p=Path({str(case["pointer"])!r})\n'
+        'before=json.loads(p.read_text(encoding="utf-8-sig"))\n'
+        f'before.update(code={str(case["new_code"])!r}, sha={case["new_sha"]!r})\n'
+        'p.write_text(json.dumps(before),encoding="utf-8")\n'
+        'print(json.dumps(dict(python=sys.executable,code=os.environ["HEALTHCHECK_RELEASE_CODE"],'
+        'sha=os.environ["HEALTHCHECK_RELEASE_SHA"],profile=os.environ["HEALTHCHECK_DATA_DIR"],'
+        'args=sys.argv[1:])))\n', encoding='utf-8')
+    active = consumers.resolve_active(case['config'])
+    assert consumers.run_weekly_backup(active, case['config']) == 0
+    actual = json.loads(capfd.readouterr().out)
+    assert Path(actual['python']) == executable
+    assert actual['code'] == str(case['old_code'])
+    assert actual['sha'] == case['old_sha']
+    assert actual['profile'] == case['config']['profile']
+    assert actual['args'] == ['--no-restore-rehearsal']
+    assert tool.read_json(case['pointer'])['sha'] == case['new_sha']
+
+
+@pytest.mark.parametrize('engine', ['powershell.exe', 'pwsh'])
+def test_pointer_migration_commands_parse_in_available_engines(tmp_path, engine):
+    import re
+    import shutil
+
+    executable = shutil.which(engine)
+    if executable is None:
+        pytest.skip(engine + ' unavailable')
+    document = (tool.HERE.parents[1] / 'docs/OWNER_OPERATIONS.md').read_text(encoding='utf-8')
+    plan = document.split('<a id="stable-pointer-migration">', 1)[1].split(
+        '<a id="profile-backup">', 1)[0]
+    blocks = re.findall(r'```powershell\n(.*?)```', plan, re.DOTALL)
+    assert len(blocks) == 3
+    for index, block in enumerate(blocks):
+        script = tmp_path / f'migration-{index}.ps1'
+        script.write_text(block, encoding='utf-8')
+        quoted = str(script).replace("'", "''")
+        code = ("$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::"
+                f"ParseFile('{quoted}',[ref]$t,[ref]$e)|Out-Null;"
+                'if($e.Count){$e|ForEach-Object{[Console]::Error.WriteLine($_)};exit 1}')
+        tool.command([executable, '-NoProfile', '-NonInteractive', '-Command', code])
+
+
+def test_legacy_json_rewrite_reads_bom_and_publishes_without_bom(pointer_case):
+    case = pointer_case
+    entry = next(e for e in case['config']['consumers'] if e['role'] == 'period-handoff')
+    path = Path(entry['path'])
+    before = b'\xef\xbb\xbf' + path.read_bytes()
+    path.write_bytes(before)
+    manifest = prepare(case)
+    prepared = next(e for e in manifest['consumers'] if e['role'] == 'period-handoff')
+    assert prepared['before'].encode() == before
+    assert not prepared['after'].encode().startswith(b'\xef\xbb\xbf')
+    assert json.loads(prepared['after'])['sha'] == case['new_sha']
+
+
+def test_prepare_rejects_mcp_pointer_config_disagreement(pointer_case):
+    case = pointer_case
+    pointer = tool.read_json(case['pointer'])
+    pointer['mcp_binding'] = str(case['mcp_paths'][1])
+    write_json(case['pointer'], pointer)
+    with pytest.raises(tool.Refused, match='installed_mcp_pointer_mismatch'):
+        prepare(case)
+
+
+def test_weekly_duplicate_mutex_never_launches_child(pointer_case, monkeypatch, capsys):
+    from contextlib import contextmanager
+
+    case = pointer_case
+    active = consumers.resolve_active(case['config'])
+    Path(case['config']['weekly_backup_script']).touch()
+
+    @contextmanager
+    def busy(*args):
+        raise tool.Refused('autostart_busy')
+        yield
+
+    monkeypatch.setattr(tool, 'autostart_lock', busy)
+    monkeypatch.setattr(consumers, 'run_work', lambda *a, **kw: pytest.fail('launched backup'))
+    assert consumers.run_weekly_backup(active, case['config']) == 0
+    assert capsys.readouterr().out == 'SKIP: existing Health data-only backup\n'

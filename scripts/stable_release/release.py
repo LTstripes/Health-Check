@@ -187,6 +187,15 @@ def prepared_consumers(config, old, new, pointer, proposed, old_schema, head):
     result = []
     for entry in entries:
         path = absolute(entry["path"])
+        mode = entry.get("mode", "legacy-rewrite")
+        require(mode in ("legacy-rewrite", "pointer-reading"), "invalid_consumer_mode")
+        require(entry["role"] != "active-pointer" or mode == "legacy-rewrite",
+                "active_pointer_cannot_be_skipped")
+        if mode == "pointer-reading":
+            require(not entry.get("replacements"), "pointer_consumer_has_replacements")
+            # This is a migration declaration, not an input to a release rewrite.
+            # Do not read, snapshot, write or restore this stable consumer.
+            continue
         before = secret_free(path.read_bytes())
         if entry["role"] == "active-pointer":
             require(path == pointer, "pointer_consumer_mismatch")
@@ -204,8 +213,10 @@ def prepared_consumers(config, old, new, pointer, proposed, old_schema, head):
             if entry["role"] == "weekly-recipe":
                 bindings = re.findall(r"(?m)^Binding:\s*(.+?)\s*$", text)
                 require(bindings == [new["mcp_binding"]], "weekly_recipe_binding_mismatch")
-            after = secret_free((b"\xef\xbb\xbf" if before.startswith(b"\xef\xbb\xbf")
-                                 else b"") + text.encode())
+            # JSON is published BOM-free; scripts keep their BOM because Windows
+            # PowerShell 5.1 reads BOM-less non-ASCII .ps1 files as ANSI.
+            keep_bom = before.startswith(b"\xef\xbb\xbf") and path.suffix.lower() != ".json"
+            after = secret_free((b"\xef\xbb\xbf" if keep_bom else b"") + text.encode())
         result.append({"role": entry["role"], "path": str(path),
                        "before": before.decode("utf-8"), "before_sha256": digest(before),
                        "after": after.decode("utf-8"), "after_sha256": digest(after)})
@@ -270,8 +281,11 @@ def candidate(config, target, ci_id, force_strict=False, now=None):
     require(all(not (Path(new_ui).parent / new_binding[key]).exists()
                 for key in ("receipt", "stop_file")), "fresh_ui_outputs_required")
     check_mcp(config["old_mcp_binding"], Path(old["code"]), profile, current)
+    require(old.get("mcp_binding", config["old_mcp_binding"]) == config["old_mcp_binding"],
+            "installed_mcp_pointer_mismatch")
     check_mcp(new_mcp, new_code, profile, head)
     proposed = dict(old, code=str(new_code), sha=target, schema=head, ui_binding=new_ui,
+                    mcp_binding=new_mcp,
                     ui_start_script=str(HERE / "StartStable.ps1"), previous_version=old["sha"],
                     rollback_directory=old["code"], previous_active_binding=old["ui_binding"])
     new = {"code": str(new_code), "sha": target, "ui_binding": new_ui, "mcp_binding": new_mcp}
@@ -292,7 +306,8 @@ def candidate(config, target, ci_id, force_strict=False, now=None):
             "new": new, "rollback_target": old, "active_pointer": str(pointer),
             "proposed_pointer": proposed, "consumers": consumers,
             "tooling_sha256": {name: digest((HERE / name).read_bytes()) for name in
-                               ("release.py", "probe.py", "ui_server.py", "StartStable.ps1")},
+                               ("release.py", "probe.py", "ui_server.py", "StartStable.ps1",
+                                "consumers.py")},
             "bindings_sha256": {p: digest(Path(p).read_bytes()) for p in
                                 (old["ui_binding"], old_ui, config["old_mcp_binding"],
                                  new_ui, new_mcp)}}
@@ -503,7 +518,8 @@ class Runtime:
                                            process.get("Name", ""), re.IGNORECASE),
                     "writer_process_identity_unavailable")
             require(not re.search(r"owner-refresh|owner_refresh|health-data-only-backup|"
-                                  r"backup-profile|run-health-weekly|garmin-sync|google-sync|"
+                                  r"backup-profile|run-health-weekly|run-weekly-backup|"
+                                  r"garmin-sync|google-sync|"
                                   r"healthcheck\.cli[\s\"]+migrate", cmd), "writer_active")
 
     def identified(self, release, kind):
