@@ -172,15 +172,18 @@ def test_period_brief_rendered_source_hides_identity_until_technical_details(tmp
 
     assert page.status_code == 200
     assert '<select name="garmin_source_id">' not in page.text
-    # #393 adds source provenance inside its own collapsed disclosure. The
-    # primary text check must exclude that disclosure's hidden contents.
-    disclosure = '<details class="overview-info" data-rhr-evidence>'
-    assert disclosure in page.text
+    # Source identities belong in collapsed evidence disclosures. Exclude their
+    # hidden contents while retaining the identity-free primary text assertion.
     primary_html = page.text
-    while disclosure in primary_html:
-        before, remaining = primary_html.split(disclosure, 1)
-        _hidden, after = remaining.split("</details>", 1)
-        primary_html = before + after
+    for marker in ("data-rhr-evidence", "data-intensity-evidence"):
+        disclosure = f'<details class="overview-info" {marker}>'
+        assert disclosure in page.text
+        while disclosure in primary_html:
+            before, remaining = primary_html.split(disclosure, 1)
+            hidden, after = remaining.split("</details>", 1)
+            if marker == "data-intensity-evidence":
+                assert source_id in hidden
+            primary_html = before + after
     primary = _visible_text(primary_html.split("Технические детали", 1)[0])
     assert "Garmin" in primary
     assert source_id not in primary and source_instance_id not in primary

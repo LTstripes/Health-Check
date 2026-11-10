@@ -46,7 +46,7 @@ from healthcheck.garmin.contracts import (
     is_forbidden_payload_key,
 )
 
-NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v3"
+NORMALIZATION_CONTRACT_VERSION = "r02-garmin-normalization-contract-v4"
 ACTIVITY_QUALITY_CONTRACT_VERSION = "garmin-activity-quality-v1"
 ACTIVITY_NORMALIZATION_CONTRACT_VERSION = "garmin-activity-normalization-v2"
 SLEEP_TIMING_CONTRACT_VERSION = "r02-garmin-sleep-normalization-v4"
@@ -736,6 +736,12 @@ _DAILY_SCALARS = (
     _ScalarSpec("daily_energy", "daily_total_kcal", ("totalKilocalories",), "number", "kcal"),
     _ScalarSpec("daily_energy", "daily_active_kcal", ("activeKilocalories",), "number", "kcal"),
     _ScalarSpec("daily_energy", "daily_bmr_kcal", ("bmrKilocalories",), "number", "kcal"),
+    _ScalarSpec("intensity_minutes", "daily_moderate_intensity_min",
+                ("moderateIntensityMinutes",), "number", "min"),
+    _ScalarSpec("intensity_minutes", "daily_vigorous_intensity_min",
+                ("vigorousIntensityMinutes",), "number", "min"),
+    _ScalarSpec("intensity_minutes", "intensity_minutes_goal",
+                ("intensityMinutesGoal",), "number", "min"),
 )
 
 _ACTIVITY_SCALARS = (
@@ -1772,6 +1778,9 @@ def _parse_record(
                     "daily_total_kcal",
                     "daily_active_kcal",
                     "daily_bmr_kcal",
+                    "daily_moderate_intensity_min",
+                    "daily_vigorous_intensity_min",
+                    "intensity_minutes_goal",
                     "session_total_calories",
                     "activityTrainingLoad",
                     "aerobicTrainingEffect",
@@ -1823,7 +1832,7 @@ def _parse_record(
     invalid_metric = any(item.state is GarminFieldState.INVALID for item in status_metrics)
     missing_metric = any(
         item.state is GarminFieldState.MISSING
-        and item.capability_code != "daily_energy"
+        and item.capability_code not in {"daily_energy", "intensity_minutes"}
         and not (
             stream is GarminStream.ACTIVITY
             and item.metric_code in _OPTIONAL_ACTIVITY_METRIC_CODES
@@ -2029,6 +2038,8 @@ def _parse_scalar(
                 return _invalid_metric(spec, full_path, "non_finite_value")
             if spec.capability_code == "daily_energy" and numeric < 0:
                 return _invalid_metric(spec, full_path, "negative_daily_energy")
+            if spec.capability_code == "intensity_minutes" and numeric < 0:
+                return _invalid_metric(spec, full_path, "negative_intensity_minutes")
             return (
                 GarminMetricDTO(
                     capability_code=spec.capability_code,

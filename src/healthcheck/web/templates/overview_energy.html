@@ -13,6 +13,6 @@
     <p>Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Компоненты не вычисляются друг из друга.</p>
     {% for key in ['total', 'active', 'bmr'] %}<p>{{ key }}: {{ energy.summary[key].count }} из {{ energy.days }} дней.</p>{% endfor %}
     {% if energy.reason %}<p>{{ 'Нужен источник Garmin.' if energy.reason == 'source_not_selected' else 'Чтение недоступно для выбранного периода.' }}</p>{% endif %}
-    <p>Контракт: r02-garmin-normalization-contract-v3.</p>
+    <p>Текущий контракт: r02-garmin-normalization-contract-v4.</p>
   </details>
 </div>

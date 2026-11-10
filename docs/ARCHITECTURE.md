@@ -449,6 +449,7 @@ null/invalid/zero.
 | Load / Recovery Time | Nonnegative including zero; `recoveryTime` unit unknown, no hours conversion/universal maximum. |
 | `session_total_calories` | Exact activity-list `calories`; nonnegative finite native number, `unit=None`; total including resting, not active kcal; no alias/BMR subtraction/daily substitution. |
 | Daily Garmin energy estimates | `daily_total_kcal` ← `$.totalKilocalories`, `daily_active_kcal` ← `$.activeKilocalories`, `daily_bmr_kcal` ← `$.bmrKilocalories`, daily_health only, unit `kcal`. Independent finite nonnegative numbers including zero; absent/null/invalid remain unavailable. Exact path and raw-payload provenance retained. No filling from siblings. |
+| Garmin Intensity Minutes (#541) | `daily_moderate_intensity_min` ← `$.moderateIntensityMinutes`, `daily_vigorous_intensity_min` ← `$.vigorousIntensityMinutes`, `intensity_minutes_goal` ← `$.intensityMinutesGoal`; daily_health only, unit `min`. Independent finite nonnegative numbers including zero; absent/null/invalid unavailable. The goal is Garmin's weekly goal reported on that date, not a daily target. No filling or derived stored metrics. |
 | HRV | Strict agreeing `hrvSummary.calendarDate`; `hrv_weekly_average_ms` is weekly/trailing snapshot, not daily HRV. |
 
 No daily energy alias, subtraction, proration or fallback is permitted. Owner decision 2026-11-10 (#319):
@@ -463,8 +464,17 @@ dates; date collisions withhold the day, never average snapshots or blend source
 certify complete acquisition, physical expenditure or full-day finality. Missing days are empty
 slots; components are stacked only when all three values exist, otherwise only total is drawn.
 No normalization/replay occurs on page reads; history uses the existing bounded offline operation.
-The general v3 bump leaves intraday stress mapping/time/coverage unchanged. Existing stress
-readers explicitly accept v3 under those same evidence checks; historical HRV recovery remains
+Intensity Minutes uses Monday–Sunday record-local calendar weeks, one selected Garmin source
+and current daily-summary records; collisions withhold the date. The displayed rule is attributed:
+«по правилу Garmin: активные минуты + 2 × интенсивные» (moderate + 2 × vigorous), computed
+only for days with both components. An incomplete week is a lower bound with paired-day coverage;
+no paired days means unavailable, never zero. Component sums retain their own coverage. The goal
+is the latest usable report within that week, with its date; no cross-week carry or summation.
+Overview shows the current local week through today, independently of its completed-day averages.
+Statistics shows weeks overlapping the selected 7/30-day window, extending the first week to Monday
+and ending the final week at the selected end date. Saved dates do not certify full-day acquisition.
+The general v4 bump leaves intraday stress mapping/time/coverage unchanged. Existing stress
+readers explicitly accept v3/v4 under those same evidence checks; historical HRV recovery remains
 limited to actual v1/v2 undated originals, with specialized HRV normalization unchanged.
 
 Quality overlays exclude older invalid projections without rewriting metrics/raw/ frozen outputs. No
@@ -494,6 +504,7 @@ peaks/morning values/wear coverage.
 | `r02-garmin-redaction-v1` | Redactor | Shape/count evidence | Not raw export. |
 | `r02-garmin-normalization-contract-v1` | Compatibility gates | Legacy interpretation | No universal equivalence. |
 | `r02-garmin-normalization-contract-v3` | General normalizer | Daily Garmin energy estimates | Specialized versions retained; explicit offline replay for saved daily summaries. |
+| `r02-garmin-normalization-contract-v4` | General normalizer | Daily Garmin energy and Intensity Minutes | Specialized HRV/sleep/activity versions retained; explicit offline daily-summary replay. |
 | `garmin-activity-normalization-v2` | Activity | Session-total calories | No active-kcal proof. |
 | `garmin-activity-quality-v1` | Quality overlay | Field conflicts/ranges | No physiology ceiling. |
 | `garmin-training-phase-a-probe-v1` | Training probe | Structural evidence | Association not producer. |

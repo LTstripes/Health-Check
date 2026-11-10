@@ -2374,12 +2374,16 @@ This procedure supplies reusable Windows/synthetic mechanics. Use the active iss
 Expansion beyond the pilot, real recovery, provider reacquisition, Stable rollout
 and Owner UAT each require their own assigned scope. This runbook grants none.
 
-## Replay saved daily Garmin calorie estimates (#319)
+## Replay saved daily Garmin calories and Intensity Minutes (#319, #541)
 
 The Owner decision of 2026-11-10 accepts daily `*Kilocalories` fields as kcal,
 labelled «оценка Garmin» / «по данным Garmin». Normalization contract v3 adds
-independent total/active/BMR estimates. No schema migration is added; page reads
-do not re-normalize history.
+independent total/active/BMR estimates. Contract v4 also adds independent moderate
+and vigorous minutes plus Garmin's weekly goal as reported on each date, from
+`moderateIntensityMinutes`, `vigorousIntensityMinutes`, `intensityMinutesGoal` (min).
+Numeric zero is retained; absent/null/invalid is unavailable, with no filling.
+No schema migration is added; page reads do not re-normalize history. The same
+`garmin-reprocess --stream daily_summary` operation below recovers both slices.
 
 After integration review, an explicitly authorized Owner operation can use the
 existing offline command against an established external profile. Take the normal
