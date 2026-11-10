@@ -155,7 +155,7 @@ def test_wal_regression_detects_main_db_only_copy(
 ) -> None:
     import healthcheck.profile_backup as profile_backup
 
-    def wrong_main_db_only_copy(source_path: Path, destination_path: Path) -> str:
+    def wrong_main_db_only_copy(source_path: Path, destination_path: Path, **kwargs) -> str:
         shutil.copyfile(source_path, destination_path)
         return "wal"
 

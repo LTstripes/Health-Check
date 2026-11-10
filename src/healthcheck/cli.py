@@ -421,6 +421,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"backup-profile: verified archive created; {result.file_count} files; "
             f"classification={result.classification}"
         )
+        print(
+            "backup-profile: timings_seconds=" + json.dumps(result.timings_seconds, sort_keys=True)
+        )
         return 0
 
     if args.command == "verify-backup":

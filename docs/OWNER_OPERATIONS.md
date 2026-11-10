@@ -402,6 +402,64 @@ Protected filesystem publication, retention and clean disaster recovery are docu
 maximum expanded size of 16 GiB per member and 20 GiB total. Backup creation checks the
 staged SQLite-consistent file sizes against these bounds before writing the ZIP.
 
+### Packaging an exclusively owned closed snapshot
+
+Python callers that already prepare a data-only projection can avoid another
+SQLite Online Backup with `create_backup(projection, archive,
+source_snapshot=projection / "healthcheck.db", scratch=work, timings=timings)`.
+This opt-in requires an exclusively owned, closed profile database with **no**
+`-wal`, `-shm` or `-journal` sidecar (even an empty one). It must be the database
+inside that projection. Do not point it at a running profile or a live WAL file.
+Read that exclusively owned closed snapshot with SQLite `mode=ro&immutable=1`
+while building the projection; an ordinary WAL-mode read-only connection can
+leave empty WAL/SHM files that this entry point correctly refuses. Never use
+`immutable=1` to read a live WAL database or to conceal existing sidecars.
+The database is copied byte-for-byte into staging; packaging does not run another
+online snapshot or repeat its source/destination integrity checks. The complete
+archive still undergoes every existing checksum, SQLite integrity, schema and lab
+closure check before its final name is published. Format-v1 archives and ordinary
+`backup-profile`/`verify-backup`/`restore-profile` remain compatible.
+
+`snapshot_database(source_db, projection_db, timings=timings)` is the supported
+way to prepare the initial closed online snapshot. It retains both the live-source
+and resulting-snapshot integrity checks. It refuses an existing destination.
+Data-only selection and credential/payload guards belong to the projection builder:
+this generic profile backup API does not sanitize a selected file. Keep those
+guards and any trial restore before publication.
+
+Use one `BackupTimings` instance across these calls. Its `measure("artifacts")`,
+`measure("hashing")` and `measure("verify")` contexts can also measure projection
+guards, artifact copying and trial restore. Receipts include seconds for snapshot
+(online copy or closed-byte staging), integrity, artifacts, hashing, deflate,
+verify and publish; nested stages are exclusive. Archive scanning/checksum work
+belongs to verify, while standalone file digests belong to hashing. Stage totals
+are logged at INFO; `BackupTimings(on_stage=callback)` additionally sends bounded
+stage summaries to a wrapper's structured log. The CLI prints the timing totals.
+Pass `timings=timings` to `restore_profile` as well to separate its integrity
+scan from the enclosing trial-restore verification stage.
+
+Creation writes `<archive>.receipt.json` with `status=incomplete` before starting
+expensive work, then atomically replaces it with a complete receipt after archive
+verification and publication. An existing archive or receipt is never reused.
+For a second publication destination, use
+`publish_backup(result, final, latest_good=good_receipt, timings=timings,
+metadata=additional_receipt_fields)`. This copies through a unique partial file,
+flushes bytes, checks the archive hash before and after its no-overwrite rename,
+and saves a per-run receipt. Only then does it atomically advance the **separate**
+latest-good receipt. Serialize publishers (for example, retain the weekly mutex).
+Keep running/error diagnostics in a different state file; never use latest-good
+as the current-run progress record. An interruption before this commit leaves
+the previous good receipt/archive intact; an orphan archive with an incomplete
+receipt is not a completed recovery point. Retain it for inspection rather than
+automatically retrying the same name. The pointer replacement is the completion
+commit; subsequent wrapper cleanup is not part of recovery-point validity.
+
+Receipts/file bytes are flushed before replacement, with directory fsync on POSIX.
+Python does not expose directory fsync on Windows. Actual sudden-power-loss
+durability and remote/cloud synchronization still depend on the filesystem,
+storage device and sync service; process-interruption tests do not prove those.
+No retention or deletion of previous recovery points is performed.
+
 <a id="profile-backup--targeted-synthetic-checks"></a>
 ### Targeted synthetic checks
 
