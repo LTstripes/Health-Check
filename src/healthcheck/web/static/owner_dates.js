@@ -22,7 +22,13 @@
     let text = day + " " + month + " " + match[1];
     if (match[4]) text += ", " + match[4] + ":" + match[5];
     if (sourcePrecision && match[6]) text += match[6];
-    if (match[7]) text += ["Z", "+00:00"].includes(match[7]) ? " UTC" : " UTC" + match[7];
+    if (match[7] && (sourcePrecision || match[7] !== "+03:00")) text += ["Z", "+00:00"].includes(match[7]) ? " UTC" : " UTC" + match[7];
     return text;
+  };
+  window.healthcheckOwnerShortDate = function (value, year = false) {
+    const text = window.healthcheckOwnerDate(value);
+    if (["Дата не указана", "Некорректная дата/время"].includes(text)) return text;
+    const months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    return Number(value.slice(8, 10)) + " " + months[Number(value.slice(5, 7)) - 1] + (year ? " " + value.slice(0, 4) : "");
   };
 })();

@@ -3,4 +3,4 @@
 <p>Цель — недельная цель Garmin, последнее доступное сообщение в пределах этой недели; она не суммируется и не переносится между неделями.</p>
 <p>Поля: $.moderateIntensityMinutes, $.vigorousIntensityMinutes, $.intensityMinutesGoal. Единица: мин. Контракт: r02-garmin-normalization-contract-v4.</p>
 <p>Источник: {{ intensity.source_id if intensity.source_id else 'не выбран' }}.</p>
-{% if intensity.reason %}<p>{{ 'Выберите источник Garmin.' if intensity.reason == 'source_not_selected' else 'Чтение сохранённых данных недоступно или не завершено.' }}</p>{% endif %}
+{% if intensity.reason %}<p>{{ 'Выбери источник Garmin.' if intensity.reason == 'source_not_selected' else 'Чтение сохранённых данных недоступно или не завершено.' }}</p>{% endif %}

@@ -7,10 +7,48 @@ import pytest
 
 from healthcheck.context import ContextService, parse_date_only, parse_interval, parse_timestamp
 from healthcheck.db.engine import session_scope
-from healthcheck.web.owner_presentation import owner_date, owner_distance, owner_duration
+from healthcheck.web.owner_presentation import (
+    owner_date,
+    owner_date_range,
+    owner_distance,
+    owner_duration,
+    owner_number,
+    owner_plural,
+    owner_short_date,
+    owner_signed_number,
+    owner_time,
+)
 from test_context_ui import ui as ui
 from test_statistics_ui import projection_database as projection_database
 from test_statistics_ui import statistics_ui as statistics_ui
+
+
+@pytest.mark.parametrize("value,expected,word", [
+    (0, "0", "дней"), (1, "1", "день"), (2, "2", "дня"),
+    (5, "5", "дней"), (11, "11", "дней"), (21, "21", "день"),
+    (1000, "1\u202f000", "дней"), (-21, "−21", "день"),
+    (1.25, "1,25", "дня"), (None, "Не предоставлено", "дней"),
+    (1000.125, "1\u202f000,125", "дня"), (False, "Не предоставлено", "дней"),
+])
+def test_shared_numbers_and_plural(value, expected, word):
+    assert owner_number(value, 3) == expected
+    assert owner_plural(value, "день", "дня", "дней") == word
+
+
+def test_shared_dates_time_and_signed_numbers():
+    assert owner_signed_number(2.5) == "+2,5"
+    assert owner_signed_number(-2.5) == "−2,5"
+    assert owner_signed_number(-0.01) == "0"
+    assert owner_short_date("2026-11-06") == "6 ноя"
+    assert owner_short_date("2026-11-06", True) == "6 ноя 2026"
+    assert owner_short_date(None) == "Дата не указана"
+    assert owner_date_range("2026-10-12", "2026-11-10") == "12 окт — 10 ноя"
+    assert owner_date_range("2025-12-31", "2026-01-01") == "31 дек 2025 — 1 янв 2026"
+    assert owner_date_range("2026-10-12", "2026-11-10", True) == "12 окт — 10 ноя 2026"
+    assert owner_time("2026-11-06T07:25:55.123400+03:00") == "07:25"
+    assert owner_time("2026-11-06T07:25:55+05:00") == "07:25 UTC+0500"
+    assert owner_time(None) == "Время не указано"
+    assert owner_date("2026-11-06T07:25:55.123400+03:00") == "6 ноября 2026, 07:25"
 
 
 @pytest.mark.parametrize("value,precision,expected", [
@@ -48,10 +86,10 @@ def test_date_precision_and_source_local_day(value, precision, expected):
     (1, "<1 мин", "<0,01 км"),
     (59.999, "<1 мин", "0,06 км"),
     (60, "1 мин", "0,06 км"),
-    (3599.999, "1 ч 0 мин", "3,6 км"),
-    (3600, "1 ч 0 мин", "3,6 км"),
-    (3901.5, "1 ч 5 мин", "3,9 км"),
-    (360000, "100 ч 0 мин", "360 км"),
+    (3599.999, "1 ч 00 мин", "3,6 км"),
+    (3600, "1 ч 00 мин", "3,6 км"),
+    (3901.5, "1 ч 05 мин", "3,9 км"),
+    (360000, "100 ч 00 мин", "360 км"),
 ])
 def test_native_units_display_only(value, duration, distance):
     assert owner_duration(value) == duration
@@ -81,12 +119,11 @@ def test_comments_list_detail_history_render_without_changing_evidence(ui, tempo
         headings = re.findall(r"<h3>Событие: (.*?)</h3>", response.text)
         assert headings
         assert all("T19:" not in h and "2026-01-02" not in h for h in headings)
-        expected = owner_date(temporal.start_source_timestamp or temporal.start_local_date,
-                              temporal.start_precision)
+        expected = owner_date(temporal.start_source_timestamp or temporal.start_local_date)
         assert all(expected in h for h in headings)
         if temporal.end_local_date:
-            assert all(owner_date(temporal.end_source_timestamp or temporal.end_local_date,
-                                  temporal.end_precision) in h for h in headings)
+            expected_end = owner_date(temporal.end_source_timestamp or temporal.end_local_date)
+            assert all(expected_end in h for h in headings)
         assert str(temporal.start_source_timestamp or temporal.start_local_date) in response.text
         assert "Записано автоматически (не время события)" in response.text
         assert "UTC" in response.text
@@ -113,7 +150,7 @@ def test_statistics_primary_window_has_human_dates_and_native_controls(statistic
 @pytest.mark.parametrize("duration,distance,expected_duration,expected_distance", [
     (0, 0, "0 мин", "0 км"),
     (0.001, 0.001, "&lt;1 мин", "&lt;0,01 км"),
-    (3901.5, 12345.6, "1 ч 5 мин", "12,35 км"),
+    (3901.5, 12345.6, "1 ч 05 мин", "12,35 км"),
     (None, None, "Источник передал null", "Источник передал null"),
 ])
 def test_saved_session_list_detail_exact_native_values(
@@ -139,7 +176,8 @@ def test_saved_session_list_detail_exact_native_values(
     for code, expected in [("duration_seconds", expected_duration),
                            ("distance_meters", expected_distance)]:
         cell = re.search(rf'data-session-metric="{code}"[^>]*>(.*?)</td>', response.text)
-        assert cell and expected in cell[1]
+        cell_expected = expected.removesuffix(" км") if code == "distance_meters" else expected
+        assert cell and cell_expected in cell[1]
     assert "Точные значения сессий" in response.text
     assert "seconds" in response.text and "meters" in response.text
     detail = client.get("/garmin/session", params={
@@ -283,7 +321,8 @@ def test_extreme_saved_values_render_list_detail_without_mutation(
     for code, expected in [("duration_seconds", owner_duration(duration)),
                            ("distance_meters", owner_distance(distance))]:
         cell = re.search(rf'data-session-metric="{code}"[^>]*>(.*?)</td>', response.text)
-        assert cell and unescape(cell[1]) == expected
+        assert cell and unescape(cell[1]) == (
+            expected.removesuffix(" км") if code == "distance_meters" else expected)
     detail = client.get("/garmin/session", params={
         "garmin_source_id": outcome.source.id, "record_id": record.id,
     })

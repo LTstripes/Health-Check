@@ -19,7 +19,7 @@
     {% if sleep_view == "garmin" and selection.sources | length > 1 %}
     <label>Источник Garmin
       <select name="garmin_source_id" required>
-        <option value="">Выберите источник</option>
+        <option value="">Выбери источник</option>
         {% for source in selection.sources %}
         <option value="{{ source.id }}"{% if source.id == selection.selected_source_id %} selected{% endif %}>{{ source_label(source) }} · источник {{ loop.index }}</option>
         {% endfor %}
@@ -30,7 +30,7 @@
   </form>
 </section>
 {% macro night_row(day, cells) %}
-<tr data-night-row><th>{{ day | owner_date }}</th>
+<tr data-night-row><th>{{ day |owner_short_date }}</th>
 {% for code, labels in sleep_metrics.items() %}{% set cell = cells[code] %}
 <td data-sleep-metric="{{ loop.index }}">{{ metric_value(code, cell.value) if cell.value is not none else '—' }} {{ owner_ui.state_chip(cell.state, false) }}
 {% if cell.ambiguous %}<p class="uncertainty-note">Несколько записей; единое значение не выбрано.</p>{% elif cell.state == 'partial' %}<p class="uncertainty-note">Запись неполная.</p>{% elif cell.value is none %}<p class="muted">За эту дату нет пригодного значения.</p>{% endif %}</td>
@@ -42,7 +42,7 @@
   <p class="muted">{{ source_label(selection.selected_source) if selection.selected_source else "Garmin" }} · дата пробуждения</p>
   {% if selection.status != 'selected' %}
     {{ owner_ui.state_chip('unknown' if selection.status == 'require_selection' else 'unavailable') }}
-    <p>{% if selection.status == 'require_selection' %}Найдено несколько источников Garmin. Выберите один.{% elif selection.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного источника Garmin.{% endif %}</p>
+    <p>{% if selection.status == 'require_selection' %}Найдено несколько источников Garmin. Выбери один.{% elif selection.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного источника Garmin.{% endif %}</p>
   {% else %}
   <div class="table-scroll sleep-night-table"><table>
     <thead><tr><th>Пробуждение</th><th>Длительность сна</th><th>Оценка Garmin</th></tr></thead>

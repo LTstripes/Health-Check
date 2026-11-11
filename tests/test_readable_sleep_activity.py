@@ -16,7 +16,7 @@ from healthcheck.web.sleep_view import source_sleep_note, source_sleep_value
 
 @pytest.mark.parametrize("seconds,text", [
     (0, "0 мин"), (0.001, "<1 мин"), (59.999, "<1 мин"), (60, "1 мин"),
-    (89.999, "1 мин"), (90, "2 мин"), (150, "3 мин"), (3599.99, "1 ч 0 мин"),
+    (89.999, "1 мин"), (90, "2 мин"), (150, "3 мин"), (3599.99, "1 ч 00 мин"),
     (None, "Недоступно"), (False, "Недоступно"), (-1, "Недоступно"),
 ])
 def test_readable_duration_keeps_zero_subminute_and_half_up(seconds, text):
@@ -95,7 +95,7 @@ def test_legacy_a_valid_scalar_keeps_duration_and_unverified_disclosure_without_
             "evidence": {"quality_inputs": {"session_bound_validation": {
                 "state": "unverified", "reason": "summary_session_boundary_unavailable"}}}}
     original = deepcopy(cell)
-    assert source_sleep_value(cell) == "7 ч 0 мин"
+    assert source_sleep_value(cell) == "7 ч 00 мин"
     assert "не проверена" in source_sleep_note(cell)
     assert cell == original
 

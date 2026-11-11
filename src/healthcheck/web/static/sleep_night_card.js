@@ -36,9 +36,9 @@
     if (!match) return '<span class="night-card-num">' + esc(text) + "</span>";
     let html = "";
     if (match[1] !== undefined) {
-      html += '<span class="night-card-num">' + match[1] + '</span><span class="night-card-unit">ч</span> ';
+      html += '<span class="night-card-num">' + match[1] + '</span> <span class="night-card-unit">ч</span> ';
     }
-    return html + '<span class="night-card-num">' + match[2] + '</span><span class="night-card-unit">мин</span>';
+    return html + '<span class="night-card-num">' + match[2] + '</span> <span class="night-card-unit">мин</span>';
   }
 
   // Header: wake-date night, exact source label and, for a value, the duration.
@@ -163,7 +163,7 @@
     if (series.provider === "garmin") {
       html += '<div class="night-card-tile" data-night-tile="sleep_score"><dt>Оценка сна Garmin</dt><dd>' +
         stateValue(metrics.sleep_score, function (value) {
-          const text = Number.isInteger(value) ? String(value) : value.toFixed(1).replace(".", ",");
+          const text = format.number(value);
           return esc(text) + ' <span class="night-card-scale">из 100</span>';
         }) + '<span class="night-card-tile-note">шкала Garmin, по сессии</span></dd></div>';
     }

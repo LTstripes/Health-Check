@@ -25,7 +25,7 @@
 <div data-overview-body-battery data-bb-state="{{ selected.state if selected else 'no_completed_days' }}">
   <div class="overview-metric-heading"><h3>Body Battery Garmin</h3>
     {% if selected %}<details class="overview-info" data-bb-evidence><summary aria-label="Данные и метод · Body Battery Garmin">ⓘ</summary><div>
-    <p>Сначала максимум пригодных сохранённых измерений каждого дня, затем среднее с равным весом дней. Пропуски не заменяются нулём. Это не подтверждённый итог Garmin за полные сутки и не утреннее значение.</p>
+    <p>Шкала Garmin: от 0 до 100. Сначала максимум пригодных сохранённых измерений каждого дня, затем среднее с равным весом дней. Пропуски не заменяются нулём. Это не подтверждённый итог Garmin за полные сутки и не утреннее значение.</p>
     <p>Карточка использует завершённые дни по Москве; фактический диапазон доступен в подсказке выбранного периода. Используется сохранённая дата источника; часовой пояс измерения не пересчитывается. Полнота суток неизвестна; это максимум среди сохранённых измерений. Обновление и полнота сбора не подтверждаются сохранёнными числами.</p>
     {% if source_selection.selected_source %}<p>Источник: {{ brief_source_label(source_selection.selected_source) }}</p>{% endif %}
       {% set dto = selected %}
@@ -37,7 +37,7 @@
   </div>
   <p class="overview-source">Среднее дневных максимумов {% if selected and selected.mean_display is not none %}{{ coverage_qualifier(selected.eligible_day_count, selected.requested_day_count) }}{% endif %}</p>
     <div data-bb-window="selected" data-bb-window-state="{{ selected.state if selected else 'no_completed_days' }}">
-      <strong>{{ selected.mean_display ~ ' балл.' if selected and selected.mean_display is not none else '—' }}</strong>
+      <strong>{{ selected.mean_display if selected and selected.mean_display is not none else '—' }}</strong>
       {% if selected and selected.reason %}<p class="muted">{{ reasons.get(selected.reason, selected.reason) }}</p>{% endif %}
     </div>
   {% if bb.figure and bb.figure.points | selectattr('value', 'ne', none) | list %}

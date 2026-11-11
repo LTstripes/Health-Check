@@ -29,7 +29,13 @@ from healthcheck.trip_passport import (
     render_passport_markdown,
 )
 from healthcheck.web.common import request_engine
-from healthcheck.web.owner_presentation import owner_activity_type, owner_date, owner_duration
+from healthcheck.web.owner_presentation import (
+    owner_activity_type,
+    owner_date,
+    owner_duration,
+    owner_number,
+    owner_time,
+)
 from healthcheck.web.pages import templates
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 
@@ -281,14 +287,14 @@ _RECOVERY_LABELS = {
     ("rhr", "google"): ("Пульс покоя, Google", "уд/мин"),
     ("hrv", "garmin"): ("HRV, Garmin (среднее за неделю)", "мс"),
     ("hrv", "google"): ("HRV, Google", "мс"),
-    ("body_battery", "garmin"): ("Body Battery, максимум сохранённых значений", "баллов"),
+    ("body_battery", "garmin"): ("Body Battery, максимум сохранённых значений", ""),
 }
 
 
 def passport_steps(value: object) -> str:
     if type(value) is not int:
         return "—"
-    return f"{value:,}".replace(",", " ")
+    return owner_number(value, 0)
 
 
 def passport_mean(value: str | None) -> str:
@@ -297,17 +303,19 @@ def passport_mean(value: str | None) -> str:
     return passport_steps(int(Decimal(value).quantize(Decimal(1), ROUND_HALF_UP)))
 
 
-def passport_offset(zone: dict) -> str:
+def passport_offset(zone: dict, show_moscow: bool = False) -> str:
+    if not show_moscow and (zone.get("timezone") == "Europe/Moscow"
+                            or zone.get("utc_offset_minutes") == 180):
+        return ""
     parts = [zone.get("timezone"), zone.get("utc_offset")]
     return " ".join(part for part in parts if part) or "пояс не указан"
 
 
 def passport_workout_time(item: dict) -> str:
     if item.get("start_local"):
-        text = str(item["start_local"])
-        return text[11:] if len(text) >= 16 else text
+        return owner_time(item["start_local"])
     if item.get("start_utc"):
-        return str(item["start_utc"])[11:] + " (UTC)"
+        return owner_time(item["start_utc"])
     return "время не сохранено"
 
 

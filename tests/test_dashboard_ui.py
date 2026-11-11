@@ -1802,7 +1802,7 @@ def test_weight_v2_exposes_exact_same_session_composition_evidence(tmp_path, bod
         assert point["metric_origins"]["estimated_lean_mass_kg"] == "healthcheck-derived"
         assert point["metric_origins"]["source_muscle_mass_kg"] == "source-provider"
         html = client.get("/weight").text
-        assert "76.0 кг" in html
+        assert "76 кг" in html
         assert "Настройка цели появится" not in html
         assert "Мышцы источника — отдельная оценка, а не остаток веса" in html
 

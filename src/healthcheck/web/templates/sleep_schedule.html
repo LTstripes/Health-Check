@@ -11,7 +11,7 @@
     <p class="muted">Для расписания нужен JavaScript. Сохранённые состояния доступны в таблице длительности выше.</p>
   </div>
   <details class="owner-details sleep-day-settings"><summary>Рабочие дни недели</summary>
-    <p class="muted">Ваше расписание: по умолчанию пн–пт. Исключение по дате пробуждения важнее дней недели.</p>
+    <p class="muted">Твоё расписание: по умолчанию пн–пт. Исключение по дате пробуждения важнее дней недели.</p>
     {% if schedule_settings.state == 'available' %}
     {% set sleep_target = '/sleep' ~ ('?' ~ request.url.query if request.url.query else '') %}
     <form method="post" action="/sleep/settings" class="owner-controls">

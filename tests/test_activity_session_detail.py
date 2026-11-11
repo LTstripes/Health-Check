@@ -148,10 +148,10 @@ def test_session_total_calories_card_preserves_native_value_and_state(
     assert page.status_code == 200
     card = _card(page.text, "session_total_calories")
     assert "Калории за занятие, всего" in card
-    assert "ккал" not in card and "Активные" not in card
+    assert "Активные" not in card
     assert "calories" not in card
     if state in {"value", "zero"}:
-        assert f'data-owner-state="present">{value:.1f}</span>' in card
+        assert f'data-owner-state="present">{value} ккал</span>' in card
     else:
         assert 'data-owner-state="present"' not in card
 
@@ -210,17 +210,17 @@ def test_detail_route_binds_source_cards_and_exact_evidence(tmp_path):
         assert f'href="/garmin?garmin_source_id={source}#activity-journal"' in page.text
 
         duration = _card(page.text, "duration_seconds")
-        assert 'data-owner-state="present">1 ч 5 мин</span>' in duration
+        assert 'data-owner-state="present">1 ч 05 мин</span>' in duration
         average = _card(page.text, "heart_rate_bpm")
-        assert 'data-owner-state="present">110.0</span>' in average
+        assert 'data-owner-state="present">110</span>' in average
         assert 'activity-metric-unit">уд/мин</span>' in average
         maximum = _card(page.text, "max_heart_rate_bpm")
-        assert 'data-owner-state="present">165.0</span>' in maximum
+        assert 'data-owner-state="present">165</span>' in maximum
         anaerobic = _card(page.text, "anaerobic_training_effect")
-        assert 'data-owner-state="present">1.8</span>' in anaerobic
-        assert 'activity-metric-unit">баллы</span>' in anaerobic
+        assert 'data-owner-state="present">1,8 из 5</span>' in anaerobic
+        assert "баллы" not in anaerobic
         load = _card(page.text, "acute_training_load")
-        assert 'data-owner-state="present">10.0</span>' in load
+        assert 'data-owner-state="present">10</span>' in load
         # Provider did not save a distance value; null stays unavailable, never zero.
         assert (
             'data-owner-state="unavailable">Не предоставлено</span>'
@@ -264,7 +264,7 @@ def test_detail_route_omits_typed_extras_without_saved_evidence(tmp_path):
             'data-owner-state="present">0 км</span>' in _card(page.text, "distance_meters")
         )
         assert (
-            'data-owner-state="present">0.0</span>' in _card(page.text, "acute_training_load")
+            'data-owner-state="present">0</span>' in _card(page.text, "acute_training_load")
         )
         # #319 typed max-HR/anaerobic cards need saved values; absent evidence hides them.
         assert "Максимальный пульс Garmin" not in page.text

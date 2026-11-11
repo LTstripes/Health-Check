@@ -2,6 +2,6 @@
    Counts come from the existing packets; nothing is recomputed here. #}
 {% macro coverage_qualifier(count, days) -%}
 {% if count is not none and days and 0 < count < days -%}
-<span class="overview-coverage" data-coverage-qualifier="{{ count }}/{{ days }}">{{ count }} из {{ days }} {{ 'дня' if days % 10 == 1 and days % 100 != 11 else 'дней' }}</span>
+<span class="overview-coverage" data-coverage-qualifier="{{ count }}/{{ days }}">{{ count }} из {{ days }} {{ days|owner_plural("дня", "дней", "дней") }}</span>
 {%- endif %}
 {%- endmacro %}

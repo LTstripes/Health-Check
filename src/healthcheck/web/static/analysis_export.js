@@ -25,7 +25,7 @@
       start.getUTCFullYear() >= 1 && value < "9999-12-31";
     form.elements.end_date.setCustomValidity(valid ? "" : "Укажите корректную дату для выбранного периода.");
     document.getElementById("analysis-export-preview").textContent = valid
-      ? `Период: ${start.toISOString().slice(0, 10)} — ${value} (включительно).`
+      ? `Период: ${window.healthcheckOwnerDate(start.toISOString().slice(0, 10))} — ${window.healthcheckOwnerDate(value)} (включительно).`
       : "Укажите корректную дату и период 7 или 30 дней для скачивания.";
     return valid;
   }
@@ -180,9 +180,9 @@
         const link = document.getElementById(`analysis-export-${kind}`);
         link.href = url;
         link.download = `${data.filename}.${kind === "text" ? "txt" : "json"}`;
-        sizes.push(`${kind === "text" ? "Текст" : "JSON"}: ${(blob.size / 1024).toFixed(1)} KiB`);
+        sizes.push(`${kind === "text" ? "Текст" : "JSON"}: ${window.healthcheckOwnerFormat.number(blob.size / 1024)} KiB`);
       }
-      document.getElementById("analysis-export-range").textContent = `Период: ${data.range.start_date} — ${data.range.end_date} (включительно).`;
+      document.getElementById("analysis-export-range").textContent = `Период: ${window.healthcheckOwnerDate(data.range.start_date)} — ${window.healthcheckOwnerDate(data.range.end_date)} (включительно).`;
       document.getElementById("analysis-export-sizes").textContent = sizes.join(" · ");
       document.getElementById("analysis-export-disclosures").textContent = JSON.stringify(data.disclosures, null, 2);
       showSummary(data.disclosures);

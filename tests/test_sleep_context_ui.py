@@ -224,7 +224,7 @@ def test_explicit_google_identity_selects_its_own_pairs_and_medians():
     result = selected["context_events"]
     assert set(result["markers"]) == {"garmin:sleep", "google:alternate"}
     assert result["markers"]["google:alternate"][0]["record_id"].endswith("-alternate")
-    assert result["rows"][0]["sources"][1]["duration"] == "6 ч 0 мин"
+    assert result["rows"][0]["sources"][1]["duration"] == "6 ч 00 мин"
     comparisons = [t["comparison"] for t in result["technical"] if "comparison" in t]
     assert all(c["duration_delta_minutes"] == 0 for c in comparisons)
 

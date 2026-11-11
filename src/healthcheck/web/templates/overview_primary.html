@@ -19,11 +19,11 @@
       {% if point.y is not none %}
         {% if kind != 'weight' %}<line class="overview-bar{% if point.state != 'present' %} overview-partial{% endif %}" x1="{{ point.x }}" y1="104" x2="{{ point.x }}" y2="{{ point.y }}"/>{% endif %}
         {% if kind == 'weight' and loop.last %}<circle class="overview-weight-latest" cx="{{ point.x }}" cy="{{ point.y }}" r="7"><title>Последний день с измерениями: {{ point.date | owner_date }} · дневная медиана {{ overview_number(point.value) }} кг</title></circle>{% endif %}
-        <circle class="overview-observed" cx="{{ point.x }}" cy="{{ point.y }}" r="{{ 4.5 if kind == 'weight' else 3 }}"><title>{{ point.date|owner_date }}: {{ point.value }} · {{ brief_owner_state(point.state) }}</title></circle>
+        <circle class="overview-observed" cx="{{ point.x }}" cy="{{ point.y }}" r="{{ 4.5 if kind == 'weight' else 3 }}"><title>{{ point.date|owner_date }}: {{ overview_number(point.value) }} · {{ brief_owner_state(point.state) }}</title></circle>
       {% else %}<path class="overview-gap" d="M{{ point.x - 2 }} {{ 144 if kind == 'weight' else 111 }}h4"><title>{{ point.date|owner_date }}: нет пригодного значения</title></path>{% endif %}
       {% if point.trend_y is not none %}{% if kind == 'weight' %}<path class="overview-weight-ewma" d="M{{ point.x }} {{ point.trend_y - 3 }}l3 3 -3 3 -3 -3Z"><title>{{ point.date | owner_date }} · EWMA, 21 день: {{ overview_number(point.trend) }} кг</title></path>{% else %}<circle class="overview-trend-point" cx="{{ point.x }}" cy="{{ point.trend_y }}" r="2"/>{% endif %}{% endif %}
     {% endfor %}
-    {% if kind == 'weight' %}{% for tick in figure.date_ticks %}<path class="overview-gridline" d="M{{ tick.x }} 150v4"/><text x="{{ tick.x }}" y="174" text-anchor="{{ 'start' if loop.first else ('end' if loop.last else 'middle') }}">{{ tick.label }}</text>{% endfor %}<text x="194" y="195" text-anchor="middle">{{ figure.years }}</text>{% else %}<text x="38" y="137">{{ figure.start }}</text><text x="322" y="137" text-anchor="end">{{ figure.end }}</text>{% endif %}
+    {% if kind == 'weight' %}{% for tick in figure.date_ticks %}<path class="overview-gridline" d="M{{ tick.x }} 150v4"/><text x="{{ tick.x }}" y="174" text-anchor="{{ 'start' if loop.first else ('end' if loop.last else 'middle') }}">{{ tick.date|owner_short_date }}</text>{% endfor %}<text x="194" y="195" text-anchor="middle">{{ figure.years }}</text>{% else %}<text x="38" y="137">{{ figure.start|owner_short_date }}</text><text x="322" y="137" text-anchor="end">{{ figure.end|owner_short_date }}</text>{% endif %}
   </svg>
   <figcaption>{% if kind == 'weight' %}<span class="overview-weight-key"><i class="overview-weight-dot" aria-hidden="true"></i> Измерения · дневные медианы</span>{% if figure.points | selectattr("trend_y", "ne", none) | list %}<span class="overview-weight-key"><i class="overview-weight-diamond" aria-hidden="true"></i> EWMA, 21 день · тренд</span>{% endif %}{% elif kind == 'sleep' %}Часы сна · дата пробуждения{% else %}Сохранённые занятия · местная дата Garmin{% endif %}</figcaption>
 </figure>
@@ -34,8 +34,8 @@
 
   <div class="table-scroll" role="region" tabindex="0" aria-label="{{ label }}: значения графика">
     <table><thead><tr><th>Дата</th><th>{{ 'Вес, кг' if kind == 'weight' else ('Длительность' if kind == 'sleep' else 'Занятий') }}</th>{% if kind == 'weight' %}<th>Тренд, кг</th>{% endif %}<th>Состояние</th></tr></thead><tbody>
-      {% for point in figure.points %}<tr><td>{{ point.date | owner_date }}</td><td>{% if point.value is none %}—{% elif kind == 'sleep' %}{{ metric_value('sleep_duration_seconds', point.value) }}{% else %}{{ overview_number(point.value) }}{% endif %}</td>{% if kind == 'weight' %}<td>{{ overview_number(point.trend) if point.trend is not none else '—' }}</td>{% endif %}<td>{{ brief_owner_state(point.state) }}{% if point.ambiguous|default(false) %} · несколько записей, значение не выбрано{% endif %}</td></tr>{% endfor %}
-      {% for gap in figure.gaps %}<tr><td>{{ gap.start | owner_date }} — {{ gap.end | owner_date }}</td><td{% if kind == 'weight' %} colspan="2"{% endif %}>—</td><td>Нет наблюдений</td></tr>{% endfor %}
+      {% for point in figure.points %}<tr><td>{{ point.date |owner_short_date }}</td><td>{% if point.value is none %}—{% elif kind == 'sleep' %}{{ metric_value('sleep_duration_seconds', point.value) }}{% else %}{{ overview_number(point.value) }}{% endif %}</td>{% if kind == 'weight' %}<td>{{ overview_number(point.trend) if point.trend is not none else '—' }}</td>{% endif %}<td>{{ brief_owner_state(point.state) }}{% if point.ambiguous|default(false) %} · несколько записей, значение не выбрано{% endif %}</td></tr>{% endfor %}
+      {% for gap in figure.gaps %}<tr><td>{{ gap.start |owner_short_date }} — {{ gap.end | owner_date }}</td><td{% if kind == 'weight' %} colspan="2"{% endif %}>—</td><td>Нет наблюдений</td></tr>{% endfor %}
     </tbody></table>
   </div>
 
@@ -58,7 +58,7 @@
         {% if kind == 'weight' %}{{ chart_values(charts.weight, kind, 'Измерения веса') }}
         {% elif kind == 'sleep' %}{{ period_values(overview.period_sleep.figure, 'История сна', true) }}
         {% else %}{{ chart_values(charts.activity, kind, 'Активность по дням') }}
-<div class="table-scroll" role="region" aria-label="Активности, прокрутка таблицы" tabindex="0"><table><thead><tr><th>Дата</th><th>Тип</th></tr></thead><tbody>{% for session in activity.sessions %}<tr><td>{{ session.source_local_date | owner_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td></tr>{% else %}<tr><td colspan="2">Garmin: нет отображаемых активностей.</td></tr>{% endfor %}</tbody></table></div>{% if activity.display_thinning %}<p>Показаны последние {{ activity.sessions | length }} из {{ activity.display_thinning.original_session_count }} активностей. График учитывает полный пакет.</p>{% endif %}        {% endif %}
+<div class="table-scroll" role="region" aria-label="Активности, прокрутка таблицы" tabindex="0"><table><thead><tr><th>Дата</th><th>Тип</th></tr></thead><tbody>{% for session in activity.sessions %}<tr><td>{{ session.source_local_date |owner_short_date }}</td><td>{{ brief_owner_activity(session.activity_type) }}</td></tr>{% else %}<tr><td colspan="2">Garmin: нет отображаемых активностей.</td></tr>{% endfor %}</tbody></table></div>{% if activity.display_thinning %}<p>Показаны последние {{ activity.sessions | length }} из {{ activity.display_thinning.original_session_count }} активностей. График учитывает полный пакет.</p>{% endif %}        {% endif %}
       </div></details></div>
       {% if kind == 'weight' %}
         {% set current = charts.weight_current %}
@@ -72,11 +72,11 @@
         <div data-overview-period-sleep>
         <p class="overview-value">{{ period_sleep.duration_display or '—' }}</p>
         <p class="overview-source">Garmin · средняя длительность {{ coverage_qualifier(period_sleep.eligible_days, period_sleep.days) }}</p>
-        {% if period_sleep.reason == 'source_not_selected' %}<p class="overview-qualifier">Выберите источник Garmin.</p>
+        {% if period_sleep.reason == 'source_not_selected' %}<p class="overview-qualifier">Выбери источник Garmin.</p>
         {% elif period_sleep.reason == 'range_exceeds_max' %}<p class="overview-qualifier">Период длиннее доступного окна чтения (400 дней).</p>
         {% elif period_sleep.reason == 'read_unavailable' %}<p class="overview-qualifier">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}
         {{ period_chart(period_sleep.figure, 'sleep', 'История сна', true) }}
-        {% if overview_detail_links.sleep %}<a class="overview-detail-link" href="{{ overview_detail_links.sleep }}">История и детали сна →</a>{% elif not overview.completed_window.empty and overview.completed_window.calendar_days not in [7, 30] %}<p class="overview-qualifier">Детали сна доступны для окна 7 или 30 завершённых дней. Выберите такой период в обзоре.</p>{% endif %}
+        {% if overview_detail_links.sleep %}<a class="overview-detail-link" href="{{ overview_detail_links.sleep }}">История и детали сна →</a>{% elif not overview.completed_window.empty and overview.completed_window.calendar_days not in [7, 30] %}<p class="overview-qualifier">Детали сна доступны для окна 7 или 30 завершённых дней. Выбери такой период в обзоре.</p>{% endif %}
         </div>
       {% else %}
         <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") | owner_activity_count if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }}</p>
@@ -84,7 +84,7 @@
         {{ freshness_note('garmin:activities') }}
         {{ chart(charts.activity, kind, 'Активность по дням', '') }}
 
-        {% if overview_detail_links.activity %}<a class="overview-detail-link" href="{{ overview_detail_links.activity }}">Детали активности →</a>{% elif not source_selection.selected_source_id %}<p class="overview-qualifier">Выберите источник Garmin для списка сессий.</p>{% else %}<p class="overview-qualifier">Список сессий доступен для периода до 366 дней.</p>{% endif %}
+        {% if overview_detail_links.activity %}<a class="overview-detail-link" href="{{ overview_detail_links.activity }}">Детали активности →</a>{% elif not source_selection.selected_source_id %}<p class="overview-qualifier">Выбери источник Garmin для списка сессий.</p>{% else %}<p class="overview-qualifier">Список сессий доступен для периода до 366 дней.</p>{% endif %}
       {% endif %}
     </li>
     {% endfor %}

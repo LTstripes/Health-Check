@@ -66,9 +66,9 @@ def test_confirmed_history_grouping_literal_values_dates_and_pdf(runtime):
         assert page.count("data-lab-unit-group") == 3
         assert "Другая единица: ммоль/л — не сравнивается автоматически" in page
         assert "&lt; 5,0000" in page and "&lt;5" in page
-        assert "04.03.2099 10:11:12+03:00" in page and "точность до секунды" in page
-        assert "03.02.2099 09:30" in page and "дата печати · точность до минуты" in page
-        assert "02.01.2099" in page and "точность до дня" in page
+        assert "4 марта 2099, 10:11" in page and "точность до секунды" in page
+        assert "3 февраля 2099, 09:30" in page and "дата печати · точность до минуты" in page
+        assert "2 января 2099" in page and "точность до дня" in page
         assert "31.12.2099" not in page
         assert "Референс old" in page and "Референс new" in page and "↑" in page
         assert "Synthetic Clinic" in page and "Synthetic Lab" in page

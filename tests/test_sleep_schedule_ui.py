@@ -136,7 +136,7 @@ def test_separate_sources_toggle_table_summary_and_travel(tmp_path):
     assert 'Начало сна: разброс ±0 мин · Окончание: ±0 мин · 7 из 7 ночей' in html
     assert '<details class="owner-details"><summary>Таблица</summary>' in html
     assert 'scope="col">Часовой пояс' in html
-    assert 'aria-label="2026-10-08 · Garmin · 23:00 → 07:00 · 8 ч 0 мин' in html
+    assert 'aria-label="8 окт · Garmin · 23:00 → 07:00 · 8 ч 00 мин' in html
     assert html.index('data-schedule-date="2026-10-08"') < html.index(
         'data-schedule-date="2026-10-02"')
     chart, table = google["html"].split(

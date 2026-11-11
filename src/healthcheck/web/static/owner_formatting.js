@@ -1,5 +1,21 @@
 /* Display only. Exact values, quality, pairing and export remain unchanged. */
 (function () {
+  function number(value, digits = 1, signed = false) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return "Не предоставлено";
+    const rounded = value.toFixed(digits);
+    let text = rounded.includes(".") ? rounded.replace(/0+$/, "").replace(/\.$/, "") : rounded;
+    if (Number(text) === 0) text = "0";
+    const parts = text.split(".");
+    if (!/[eE]/.test(text)) parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, "\u202f");
+    text = parts.join(",").replace("-", "−");
+    return signed && value > 0 && text !== "0" ? "+" + text : text;
+  }
+  function plural(n, one, few, many) {
+    if (typeof n !== "number" || !Number.isFinite(n)) return many;
+    n = Math.abs(n);
+    if (!Number.isInteger(n)) return few;
+    return n % 100 >= 11 && n % 100 <= 14 ? many : n % 10 === 1 ? one : n % 10 >= 2 && n % 10 <= 4 ? few : many;
+  }
   function duration(value, signed = false) {
     if (typeof value !== "number" || !Number.isFinite(value) || (!signed && value < 0)) return "Недоступно";
     const seconds = Math.abs(value), sign = value < 0 ? "−" : signed && value > 0 ? "+" : "";
@@ -10,7 +26,7 @@
     if (seconds > 0 && seconds < 60) return sign + "<1 мин";
     const minutes = Math.floor(seconds / 60 + 0.5);
     const hours = Math.floor(minutes / 60);
-    return sign + (hours ? hours + " ч " : "") + (minutes % 60) + " мин";
+    return sign + (hours ? hours + " ч " + String(minutes % 60).padStart(2, "0") : minutes % 60) + " мин";
   }
   // Source-local instant of a session endpoint: one exactly paired offset, else UTC.
   function endpointLocal(cell, session, code) {
@@ -62,7 +78,7 @@
     const parts = endpointLocal(cell, session, code);
     if (!parts || !parts.valid) return null;
     const time = pad(parts.local.getUTCHours()) + ":" + pad(parts.local.getUTCMinutes());
-    return {text: parts.offset === 0 ? time + " UTC" : time, day: parts.local.toISOString().slice(0, 10)};
+    return {text: time + (parts.offset === 180 ? "" : zone(parts.offset)), day: parts.local.toISOString().slice(0, 10)};
   }
-  window.healthcheckOwnerFormat = Object.freeze({duration, endpoint, clock});
+  window.healthcheckOwnerFormat = Object.freeze({number, plural, duration, endpoint, clock});
 })();

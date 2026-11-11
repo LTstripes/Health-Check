@@ -9,13 +9,13 @@
   <div class="table-scroll" role="region" tabindex="0" aria-label="Событие и следующая ночь">
     <table><thead><tr><th scope="col">Событие</th><th scope="col">Следующая ночь</th></tr></thead><tbody>
     {% for row in events.rows %}
-    <tr><th scope="row"><time>{{ row.time }}</time><br><span class="sleep-context-text">{{ row.text }}</span></th>
+    <tr><th scope="row"><time>{{ row.time|owner_datetime_text }}</time><br><span class="sleep-context-text">{{ row.text }}</span></th>
       <td>{% for cell in row.sources %}
         <div data-sleep-context-source="{{ cell.series_id }}" class="sleep-context-result">
           {% if cell.night %}
           <span>{{ cell.night | owner_date }} · {{ cell.label }} · {{ cell.duration }}</span><br>
-          <span class="muted">{{ cell.start }} → {{ cell.end }}</span><br>
-          <span>{{ cell.comparison }}</span>
+          <span class="muted">{{ cell.start|owner_time }} → {{ cell.end|owner_time }}</span><br>
+          <span>{{ cell.comparison|replace('-', '−') }}</span>
           {% else %}<span>{{ cell.label }} · нет подходящей ночи: {{ cell.reason }}</span>{% endif %}
         </div>
         {% else %}<span>Нет подходящей ночи: {% if row.time_missing %}нет времени.{% else %}{{ events.empty_reason }}.{% endif %}</span>{% endfor %}

@@ -66,7 +66,7 @@
   </section>
   {% if timeline and not timeline.read_limit_exceeded %}
   {% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %}
-  <p class="uncertainty-note" data-sleep-source-choice>Google: выберите источник сна для этого окна. Несколько независимых источников не объединяются; автоматический выбор не сделан.</p>
+  <p class="uncertainty-note" data-sleep-source-choice>Google: выбери источник сна для этого окна. Несколько независимых источников не объединяются; автоматический выбор не сделан.</p>
   {% elif timeline.google_selection.status == 'no_eligible_series' %}
   <p class="muted">Google: в этом окне нет пригодного значения длительности сна. Сохранённые источники доступны в деталях.</p>
   {% endif %}
@@ -100,7 +100,7 @@
   <p>Локальное хранилище данных не готово. Сохранённая история сна не читается.</p>
   {% elif timeline.read_limit_exceeded %}
   {{ owner_ui.state_chip('unknown') }}
-  <p>За выбранное окно слишком много сохранённых записей; график не построен, полнота не оценивается. Сузьте окно до 7 дней или откройте «Сравнить».</p>
+  <p>За выбранное окно слишком много сохранённых записей; график не построен, полнота не оценивается. Сузьте окно до 7 дней или открой «Сравнить».</p>
   {% elif not timeline.series and timeline.undated_records %}
   {{ owner_ui.state_chip('unknown') }}
   <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} есть сохранённые записи, но у них нет пригодной даты пробуждения. Точная дата не подставляется; график не построен.</p>
@@ -128,7 +128,7 @@
         <thead><tr><th>Дата пробуждения</th>{% for series in timeline.series %}<th>{{ series.label }}</th>{% endfor %}</tr></thead>
         <tbody>
           {% for row in timeline.table_rows %}
-          <tr><th scope="row">{{ row.date | owner_date }}</th>
+          <tr><th scope="row">{{ row.date |owner_short_date }}</th>
           {% for point in row.cells %}<td data-sleep-timeline-cell="{{ point.state }}">{{ timeline_cell(point) }}</td>{% endfor %}</tr>
           {% endfor %}
         </tbody>

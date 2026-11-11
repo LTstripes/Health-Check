@@ -26,7 +26,7 @@ from healthcheck.web.owner_presentation import owner_date, owner_duration, owner
 
 SLEEP_METRICS = {
     "sleep_duration_seconds": ("Длительность сна", "с"),
-    "sleep_score": ("Оценка сна Garmin", "баллы"),
+    "sleep_score": ("Оценка сна Garmin", "из 100"),
 }
 
 GOOGLE_VITALS_DEFAULT_WINDOW_DAYS = 30
@@ -195,7 +195,7 @@ def metric_value(code: str, number: int | float) -> str:
     """Round the display only; source and export values keep exact seconds."""
     if code == "sleep_duration_seconds":
         return owner_duration(number)
-    text = str(int(number)) if float(number).is_integer() else owner_number(number)
+    text = owner_number(number)
     return f"{text} {SLEEP_METRICS[code][1]}"
 
 

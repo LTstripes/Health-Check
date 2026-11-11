@@ -233,7 +233,7 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         assert "Дата запроса не подставляется" in primary
         assert "Производитель каждой метрики не подтверждён" in primary
         assert 'href="/imports"' in primary
-        assert 'data-owner-state="present">0.0</span>' in primary
+        assert 'data-owner-state="present">0</span>' in primary
         assert 'data-owner-state="unavailable">Не предоставлено' in primary
         visible_primary = re.sub(r'<option value="[^"]+"', "<option", primary)
         # Journal links carry the source/record query identity; only visible text must stay clean.
@@ -462,7 +462,10 @@ def test_compact_journal_preserves_bounded_source_records_and_period_independenc
                     f"<td>{owner_date(record['source_local_date'])}</td></tr>"
                 )
                 assert expected_row in history.group(1)
-                assert (expected_row in recent) == (index < 5)
+                from healthcheck.web.owner_presentation import owner_short_date
+                recent_row = expected_row.replace(owner_date(record["source_local_date"]),
+                                                  owner_short_date(record["source_local_date"]))
+                assert (recent_row in recent) == (index < 5)
             if count:
                 summary = page.text.split('<div class="activity-saved-summary">', 1)[1].split(
                     '<div class="activity-recent">', 1
@@ -522,7 +525,7 @@ def test_journal_type_summary_is_bounded_and_unknown_types_keep_exact_evidence(t
     [
         ("2099-01-02", "2 января 2099"),
         ("2099-01-02T12:34:56Z", "2 января 2099, 12:34 UTC"),
-        ("2099-01-02T00:30:00+03:00", "2 января 2099, 00:30 UTC+0300"),
+        ("2099-01-02T00:30:00+03:00", "2 января 2099, 00:30"),
         ("2099-01-02T12:34:56", "2 января 2099, 12:34"),
         (None, "Дата не указана"),
         ("bad-date", "Дата не указана"),
@@ -549,7 +552,7 @@ def test_activity_rounds_display_only_and_preserves_raw_precision(tmp_path, monk
     with client_for(app) as client:
         page = client.get("/garmin")
     primary, technical = page.text.split('<details class="card owner-details activity-technical', 1)
-    assert ">123.5</span>" in primary and "123.456789" not in primary
+    assert ">123,5</span>" in primary and "123.456789" not in primary
     assert "123.456789" in technical
     assert field["value"] == 123.456789
 

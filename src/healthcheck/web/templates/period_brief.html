@@ -37,10 +37,10 @@
 
 <section class="brief-controls" aria-labelledby="brief-period-heading">
   <h2 id="brief-period-heading" class="visually-hidden">Выбранный период</h2>
-  <p class="brief-period" tabindex="0" aria-describedby="overview-period-scope">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} дней)</span><span class="overview-period-tooltip" id="overview-period-scope" role="tooltip"><span>Вес и активности: {{ brief.period.start_date | owner_date }} — {{ brief.period.end_date | owner_date }}.</span><span>Сон, шаги, стресс и Body Battery: {% if overview.completed_window.empty %}в выбранном периоде нет завершённых дней по МСК{% else %}{{ overview.completed_window.start_date | owner_date }} — {{ overview.completed_window.end_date | owner_date }} · завершённые дни, МСК{% endif %}.</span></span></p>
+  <p class="brief-period" tabindex="0" aria-describedby="overview-period-scope">{{ brief.period.start_date | owner_date }} → {{ brief.period.end_date | owner_date }} <span class="muted">({{ brief.period.calendar_days }} {{ brief.period.calendar_days|owner_plural("день", "дня", "дней") }})</span><span class="overview-period-tooltip" id="overview-period-scope" role="tooltip"><span>Вес и активности: {{ brief.period.start_date | owner_date }} — {{ brief.period.end_date | owner_date }}.</span><span>Сон, шаги, стресс и Body Battery: {% if overview.completed_window.empty %}в выбранном периоде нет завершённых дней по МСК{% else %}{{ overview.completed_window.start_date | owner_date }} — {{ overview.completed_window.end_date | owner_date }} · завершённые дни, МСК{% endif %}.</span></span></p>
   <div class="preset-links" aria-label="Быстрый выбор периода">
     {% for days in (7, 30, 90) %}
-    <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if overview.rhr.google_source_id %}&amp;google_rhr_source_id={{ overview.rhr.google_source_id }}{% endif %}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} дней</a>
+    <a class="button-link{% if selected_preset == days|string %} selected{% endif %}"{% if selected_preset == days|string %} aria-current="true"{% endif %} href="/brief?preset={{ days }}{% if overview.rhr.google_source_id %}&amp;google_rhr_source_id={{ overview.rhr.google_source_id }}{% endif %}{% if source_selection.selected_source_id %}&amp;garmin_source_id={{ source_selection.selected_source_id }}{% endif %}">{{ days }} {{ days|owner_plural("день", "дня", "дней") }}</a>
     {% endfor %}
   </div>
   <details class="owner-details brief-custom-period"><summary>Другой период</summary>
@@ -57,7 +57,7 @@
   <details class="owner-details brief-source"{% if source_selection.status == "require_selection" %} open{% endif %}>
     <summary>Источник Garmin{% if source_selection.status == "selected" %}: {{ brief_source_label(source_selection.selected_source) }}{% endif %}</summary>
     {% if source_selection.status == "require_selection" %}
-    <p class="uncertainty-note">Найдено несколько источников Garmin. Выберите один; данные не объединяются молча.</p>
+    <p class="uncertainty-note">Найдено несколько источников Garmin. Выбери один; данные не объединяются молча.</p>
     {% elif source_selection.status == "selected" %}
     <p class="muted">Используется для активностей и базовых показателей Garmin.</p>
     {% else %}
@@ -102,7 +102,7 @@
 {% if not brief_has_usable_evidence %}
 <section class="card brief-empty-state" role="status">
   <h2>За выбранный период нет доступных данных</h2>
-  <p>Данных за период для сводки пока нет. Это не означает нулевые значения. Проверьте период и источники в разделе <a href="/imports">Данные</a>.</p>
+  <p>Данных за период для сводки пока нет. Это не означает нулевые значения. Проверь период и источники в разделе <a href="/imports">Данные</a>.</p>
 </section>
 {% endif %}
 

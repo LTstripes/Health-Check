@@ -7,7 +7,7 @@
     <h3>Garmin</h3>
     <p>{{ source_labels.get(steps.source_id, 'Точный источник не выбран') }}</p>
     {% if steps.reason == 'source_selection_required' %}
-      <p class="statistics-source-warning" role="status">Выберите точный источник Garmin выше. Источники не объединяются.</p>
+      <p class="statistics-source-warning" role="status">Выбери точный источник Garmin выше. Источники не объединяются.</p>
     {% elif not steps.search_complete %}
       <p class="statistics-steps-warning" role="status">Поиск всей сохранённой истории не завершён. Общий итог и статистика недоступны.</p>
     {% elif not stats %}

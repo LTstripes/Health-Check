@@ -14,7 +14,7 @@
     error: "Не удалось выполнить запрос", no_change: "Изменений не обнаружено" };
   const activityNames = JSON.parse(document.getElementById("activity-type-names").textContent);
   const units = { seconds: "с", meters: "м", "m/s": "м/с", bpm: "уд/мин",
-    watts: "Вт", rpm: "об/мин", points: "баллы", percent: "%", "%": "%" };
+    watts: "Вт", rpm: "об/мин", points: "", kcal: "ккал", percent: "%", "%": "%" };
 
   bindForms();
   populateActivities(state.activities);
@@ -164,7 +164,8 @@
   }
   function renderSeries(series) {
     const duration = (series.metric_definition || {}).unit === "seconds";
-    const display = value => duration ? humanDuration(value) : fmt(value);
+    const scale = {sleep_score: 100, training_effect: 5, anaerobic_training_effect: 5}[(series.metric_definition || {}).metric_code];
+    const display = value => duration ? humanDuration(value) : fmt(value) + (scale ? " из " + scale : "");
     const points = series.points || [], plottable = points.filter(p => p.status === "usable" || p.status === "zero");
     const chart = document.getElementById("series-chart");
     if (!plottable.length) chart.innerHTML = unavailable("Нет пригодных значений. Это не нулевая нагрузка.");
@@ -222,7 +223,7 @@
           return statusValue(coverage.status, coverage.value, 1);
         };
         const note = m.reason || m.percent_reason;
-        const unit = duration || m.metric_code === "session_total_calories" ? "" : " · " + (units[m.unit] || "единица не предоставлена");
+        const unit = duration ? "" : ["training_effect", "anaerobic_training_effect"].includes(m.metric_code) ? " · из 5" : m.metric_code === "session_total_calories" ? " · ккал" : m.unit === "points" ? "" : " · " + (units[m.unit] || "единица не предоставлена");
         const delta = m.status === "compared" ? (duration ? escapeHtml(humanDuration(m.absolute_delta, true)) : fmt(m.absolute_delta, 1)) : "Не вычисляется";
         html += '<tr data-metric-code="' + escapeHtml(m.metric_code) + '"><th scope="row">' + escapeHtml(metricName(m.metric_code) + unit) +
           (note ? '<span class="comparison-note">' + escapeHtml(reasonText(note)) + '</span>' : "") +
@@ -265,7 +266,7 @@
   }
   function chip(key) { if (key === "present") return ""; return '<span class="status-chip owner-state ' + key + '" data-owner-state="' + key + '">' + labels[key] + "</span>"; }
   function unavailable(reason) { return chip("unavailable") + "<p>" + escapeHtml(reason) + "</p>"; }
-  function fmt(val, digits = 1) { return val === null || val === undefined || !Number.isFinite(Number(val)) ? "Не предоставлено" : Number(val).toFixed(digits); }
+  function fmt(val, digits = 1) { return window.healthcheckOwnerFormat.number(val, digits); }
   function setHtml(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
   function setText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
   function escapeHtml(val) { return String(val).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
