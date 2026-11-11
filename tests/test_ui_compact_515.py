@@ -135,8 +135,11 @@ def test_overview_cards_show_short_coverage_qualifier_only_when_incomplete(
         qualifier = card.one("span", classes=("overview-coverage",))
         assert qualifier.attrs["data-coverage-qualifier"] == "2/7"
         assert qualifier.text.strip() == "2 из 7 дней"
+        for detail in card.find("details"):
+            if "open" not in detail.attrs:
+                assert qualifier not in detail.find("span", classes=("overview-coverage",))
     # Means themselves are unchanged; missing days stay gaps, not zeros.
-    assert "6 ч 0 мин" in sleep.text
+    assert "6 ч 00 мин" in sleep.text
 
 
 @pytest.mark.parametrize("count,days,expected", [

@@ -12,6 +12,7 @@ from healthcheck.config import Settings
 from healthcheck.db.engine import session_scope
 from healthcheck.db.models import GarminSource
 from healthcheck.web import analysis_export as ui
+from healthcheck.web.owner_presentation import owner_date
 from healthcheck.web.ui_app import create_ui_app
 from test_combined_evidence import profile as _combined_profile
 from test_combined_evidence import sleep_profile as _sleep_profile
@@ -205,7 +206,7 @@ def test_overview_is_primary_entry_and_data_owns_simple_export(client):
     assert data.status_code == 200
     for text in ('Скачать данные', 'id="analysis-export-form"',
                  'id="analysis-export-text"', 'id="analysis-export-json"',
-                 '/static/analysis_export.js', 'ваши комментарии',
+                 '/static/analysis_export.js', 'твои комментарии',
                  'name="days"', 'name="end_date"', '>Скачать</button>'):
         assert text in data.text
     assert 'Сформировать</button>' not in data.text
@@ -300,7 +301,7 @@ def test_sleep_period_handoff_prefills_only_then_exports_exact_range(
     start = str(date.fromisoformat(end) - timedelta(days=days - 1))
     assert f'<option value="{days}" selected>' in page.text
     assert f'name="end_date" value="{end}"' in page.text
-    assert f'Период: {start} — {end} (включительно).' in page.text
+    assert f'Период: {owner_date(start)} — {owner_date(end)} (включительно).' in page.text
     assert "Скачайте и приложите в личный чат" not in page.text
     response = client.post("/api/analysis-export", json=selection(profile, days=days, end_date=end))
     assert response.status_code == 200
@@ -320,7 +321,8 @@ def test_export_prefill_defaults_still_today_and_30(client, monkeypatch):
     end = date(2099, 1, 2)
     assert f'name="end_date" value="{end}"' in response.text
     assert '<option value="30" selected>' in response.text
-    assert f'Период: {end - timedelta(days=29)} — {end} (включительно).' in response.text
+    start_text = owner_date(end - timedelta(days=29))
+    assert f'Период: {start_text} — {owner_date(end)} (включительно).' in response.text
 
 
 @pytest.mark.parametrize("query", [
@@ -349,4 +351,4 @@ def test_invalid_export_prefill_rejects_without_range_or_generation(client, monk
 def test_export_prefill_accepts_first_complete_range(client, end, days):
     response = client.get(f"/imports?export_end_date={end}&export_days={days}")
     assert response.status_code == 200
-    assert f'Период: 0001-01-01 — {end} (включительно).' in response.text
+    assert f'Период: 1 января 1 — {owner_date(end)} (включительно).' in response.text

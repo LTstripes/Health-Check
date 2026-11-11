@@ -120,11 +120,11 @@ def test_sleep_google_vitals_block_is_source_explicit_and_unpaired(tmp_path):
     assert "Google · Fitbit Air" in primary
     assert "Google · семейство устройств" in primary
     assert "google-wearables" not in primary and "google-wearables" in technical
-    assert "42.5 мс" in primary
-    assert "55.0 уд/мин" in primary
-    assert "97.0 %" in primary and "96.0 %" in primary
-    assert "13.5 вдохов/мин" in primary
-    assert "0.0 вдохов/мин" in primary
+    assert "42,5 мс" in primary
+    assert "55 уд/мин" in primary
+    assert "97 %" in primary and "96 %" in primary
+    assert "13,5 вдохов/мин" in primary
+    assert "0 вдохов/мин" in primary
     assert "явный ноль" in primary
     assert "Источник передал пустое значение за эту дату." in primary
     assert "Нет текущих записей в окне" in primary
@@ -248,7 +248,7 @@ def test_sleep_google_vitals_window_ends_at_selected_date(tmp_path):
         page = client.get("/sleep?view=google&wake_date=2099-01-01")
     assert page.status_code == 200
     primary, _technical = _split(page.text)
-    assert "57.0 уд/мин" in primary
+    assert "57 уд/мин" in primary
     assert "1 января 2099" in primary
-    assert "42.5" not in primary
+    assert "42,5" not in primary
     assert primary.count('data-google-source="') == 1
