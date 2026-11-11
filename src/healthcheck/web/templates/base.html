@@ -6,12 +6,13 @@
   'sleep': ('Сон', '/sleep', 'Сравнение сна'),
   'activity': ('Активность', '/garmin', 'Тренировки и восстановление'),
   'statistics': ('Статистика', '/statistics', 'Независимые источники за период'),
-  'data': ('Данные', '/imports', 'Проверка импорта'),
-  'context': ('Комментарии', '/context', 'Комментарии / Контекст')
+  'labs': ('Анализы', '/labs', ''),
+  'context': ('Комментарии', '/context', ''),
+  'data': ('Данные', '/imports', '')
 } %}
-{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context', 'passport': 'context', 'labs': 'data'} %}
+{% set page_sections = {'brief': 'overview', 'dashboard': 'weight', 'sleep': 'sleep', 'agreement': 'sleep', 'garmin': 'activity', 'statistics': 'statistics', 'imports': 'data', 'context': 'context', 'passport': 'context', 'labs': 'labs'} %}
 {% set path_sections = {'/brief': 'overview', '/weight': 'weight', '/': 'overview', '/sleep': 'sleep', '/agreement': 'sleep', '/garmin': 'activity', '/statistics': 'statistics', '/imports': 'data', '/context': 'context'} %}
-{% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'data' if request.url.path.startswith('/imports/') else '')) %}
+{% set section = page_sections.get(page|default(''), path_sections.get(request.url.path, 'labs' if request.url.path.startswith('/labs') else 'data' if request.url.path.startswith('/imports/') else '')) %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -35,14 +36,6 @@
       {% endfor %}
     </nav>
     <div class="owner-rail-end">
-      <div class="owner-theme" data-owner-theme hidden>
-        <span id="owner-theme-label">Тема</span> <span class="owner-theme-hint">Авто — как в Windows</span>
-        <div class="owner-theme-choices" role="group" aria-labelledby="owner-theme-label">
-          <button type="button" data-theme-choice="system" aria-pressed="true">Авто</button>
-          <button type="button" data-theme-choice="dark" aria-pressed="false">Тёмная</button>
-          <button type="button" data-theme-choice="light" aria-pressed="false">Светлая</button>
-        </div>
-      </div>
       {% if request.state.home_server|default(false) %}
       <form action="/logout" method="post"><button type="submit">Выйти</button></form>
       {% endif %}
@@ -50,15 +43,23 @@
   </header>
   <main id="owner-main" tabindex="-1">
     <header class="owner-page-header">
-      <h1>{{ 'Паспорт поездки' if page|default('') == 'passport' else 'Комментарии / Контекст' if page|default('') == 'context' else (sections[section][0] if section else 'Health-Check') }}</h1>
+      <h1>{{ sections[section][0] if section else 'Health-Check' }}</h1>
       {% if section == 'sleep' %}
       {% if sleep_return_href|default(none) %}<p><a href="{{ sleep_return_href }}" data-overview-return>Вернуться к выбранному обзору</a></p>{% endif %}
-      <nav class="preset-links sleep-source-switch" aria-label="Источники сна">
-        {% for key, label in [('timeline', 'Динамика'), ('garmin', 'Garmin'), ('google', 'Google'), ('compare', 'Сравнить')] %}
+      {% call owner_ui.tabs("Источники сна", "sleep-source-switch") %}
+        {% for key, label in [('timeline', 'Ночь и динамика'), ('garmin', 'Garmin'), ('google', 'Google'), ('compare', 'Сравнение источников')] %}
         <a class="button-link{% if sleep_view|default('timeline') == key %} selected{% endif %}" href="/sleep?view={{ key }}{% if sleep_timeline_days is defined %}&amp;days={{ sleep_timeline_days }}{% endif %}{% if wake_date|default(none) %}&amp;wake_date={{ wake_date }}{% endif %}&amp;vitals_window={{ google_vitals_window_days|default(30) }}{% if selection is defined and selection.status == 'selected' %}&amp;garmin_source_id={{ selection.selected_source_id|urlencode }}{% elif request.query_params.get('garmin_source_id') %}&amp;garmin_source_id={{ request.query_params.get('garmin_source_id')|urlencode }}{% endif %}{% if request.query_params.get('google_sleep_source_id') %}&amp;google_sleep_source_id={{ request.query_params.get('google_sleep_source_id')|urlencode }}{% endif %}{% if sleep_return_href|default(none) %}&amp;return_to={{ sleep_return_href|urlencode }}{% endif %}"{% if sleep_view|default('timeline') == key %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
-      </nav>
-      {% elif section and section not in ['overview', 'context'] %}<p class="owner-page-mode">{{ sections[section][2] }}</p>{% endif %}
+      {% endcall %}
+      {% elif section == 'activity' %}
+      {% call owner_ui.tabs('Разделы активности') %}<a href="{{ '#activity-journal' if request.url.path == '/garmin' else '/garmin#activity-journal' }}" data-activity-mode="activity-journal"{% if request.url.path == '/garmin' %} aria-current="page"{% endif %}>Сессии</a><a href="{{ '#activity-comparison' if request.url.path == '/garmin' else '/garmin#activity-comparison' }}" data-activity-mode="activity-comparison">Сравнить две</a><a href="{{ '#training-recovery' if request.url.path == '/garmin' else '/garmin#training-recovery' }}" data-activity-mode="training-recovery">Нагрузка и восстановление</a><a href="/google/exercise"{% if request.url.path == '/google/exercise' %} aria-current="page"{% endif %}>Google / Fitbit</a>{% endcall %}
+      {% elif section == 'labs' %}
+      {% call owner_ui.tabs('Разделы анализов') %}<a href="/labs#lab-analytes" aria-current="page">Показатели</a><a href="/labs#lab-reports">Отчёты</a><a href="/labs#lab-add">Добавить отчёт</a>{% endcall %}
+      {% elif section == 'context' %}
+      {% call owner_ui.tabs('Разделы комментариев') %}<a href="/context"{% if page|default('') == 'context' %} aria-current="page"{% endif %}>Лента</a><a href="/passport"{% if page|default('') == 'passport' %} aria-current="page"{% endif %}>Паспорт поездки</a>{% endcall %}
+      {% elif section == 'data' %}
+      {% call owner_ui.tabs('Разделы данных') %}<a href="/imports#data-status" aria-current="page">Источники</a><a href="/imports#import-queue">Добавить</a><a href="/imports#analysis-export">Скачать</a><a href="/imports#history-heading">История</a>{% endcall %}
+      {% endif %}
     </header>
     {# Existing English page bodies stay explicitly English until their stage translates them. #}
     {% if section == 'data' and request.url.path != '/imports' and page|default('') != 'labs' %}
@@ -70,14 +71,22 @@
     </div>
   </main>
   <footer class="legal">
-    <details class="owner-info"><summary><span aria-hidden="true">ⓘ</span> О показателях и ограничениях</summary><p data-owner-runtime="{{ 'home-server' if request.state.home_server|default(false) else 'loopback' }}">{% if request.state.home_server|default(false) %}Домашний сервер · вход только для владельца.{% else %}Работает локально на этом компьютере.{% endif %} Потребительский BIA — не клиническое измерение. Нет диагнозов и утверждений о причинах.</p></details>
+    <div class="owner-footer-line"><span data-owner-runtime="{{ 'home-server' if request.state.home_server|default(false) else 'loopback' }}">{% if request.state.home_server|default(false) %}Домашний сервер · вход только для владельца.{% else %}Работает локально на этом компьютере.{% endif %}</span> <span>Не диагноз и не утверждение о причинах.</span> <span>Потребительский BIA — не клиническое измерение.</span>
     <details class="owner-state-help">
       <summary>Как читать состояния данных</summary>
       <p>Частичные данные, недостаток данных и отсутствие обнаруженных изменений — разные состояния. Неизвестные и недоступные данные не означают ноль или отсутствие событий.</p>
       <ul class="owner-state-list">
         {% for state in owner_ui.state_labels %}<li>{{ owner_ui.state_chip(state) }}</li>{% endfor %}
       </ul>
-    </details>
+    </details></div>
+      <div class="owner-theme" data-owner-theme hidden>
+        <span id="owner-theme-label" class="visually-hidden">Тема</span>
+        <div class="owner-theme-choices" role="group" aria-labelledby="owner-theme-label">
+          <button type="button" data-theme-choice="system" aria-pressed="true">Авто</button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false">Тёмная</button>
+          <button type="button" data-theme-choice="light" aria-pressed="false">Светлая</button>
+        </div>
+      </div>
   </footer>
   <script src="/static/owner_dates.js"></script>
   <script src="/static/owner_formatting.js"></script>

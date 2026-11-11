@@ -36,11 +36,7 @@
  {% else %}<p class="muted">Garmin · {{ sel.selected_source.device_model or "Учётная запись" }}</p>{% endif %}
  </div>
 </section>
-<nav class="preset-links" aria-label="Режимы активности">
- <a class="button-link" href="#activity-journal" data-activity-mode="activity-journal">Сессии</a>
- <a class="button-link" href="#activity-comparison">Сравнить A/B</a>
- <a class="button-link" href="#training-recovery" data-activity-mode="training-recovery">Тренировки и восстановление</a>
-</nav>
+
 <div id="activity-journal" data-activity-panel>
  <section class="card activity-owner-summary" aria-label="Сохранённые сессии Garmin">
   {% if payload.activities %}

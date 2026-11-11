@@ -226,7 +226,7 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         assert 'id="activity-ids"' not in primary and " multiple " not in primary
         assert "B минус A" in primary and "относительно A" in primary
         assert page.text.count('activity-technical"') == 1
-        assert "Тренировки и восстановление" in primary and "Острая нагрузка Garmin" in primary
+        assert "Нагрузка и восстановление" in primary and "Острая нагрузка Garmin" in primary
         assert "3 января 2099" in primary and "2 января 2099, 12:00 UTC" in primary
         assert "2099-01-02T12:00:00+00:00" in technical
         assert "· единица не указана" in primary

@@ -33,3 +33,7 @@
   <div class="owner-info-content">{{ caller() }}</div>
 </details>
 {%- endmacro %}
+
+{% macro tabs(label, extra_class="") -%}
+<nav class="owner-tabs {{ extra_class }}" aria-label="{{ label }}">{{ caller() }}</nav>
+{%- endmacro %}

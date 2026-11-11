@@ -417,7 +417,7 @@ def test_sleep_default_route_embeds_points_and_fetches_nights_on_demand(tmp_path
         primary, technical = page.text.split(
             '<details class="card owner-details sleep-technical"', 1
         )
-        assert 'aria-current="page">Динамика</a>' in page.text
+        assert 'aria-current="page">Ночь и динамика</a>' in page.text
         assert "data-sleep-timeline" in primary
         assert primary.count('data-sleep-series-toggle="') == 2
         assert "График требует JavaScript" in primary
