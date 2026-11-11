@@ -1,0 +1,44 @@
+<section class="card sleep-context" aria-labelledby="sleep-context-title">
+  <h2 id="sleep-context-title">События рядом со сном</h2>
+  {% set events = timeline.context_events if timeline else none %}
+  {% if not events or events.state != 'available' %}
+  <p class="muted">События недоступны для этого периода.</p>
+  {% else %}
+  {% if events.has_more %}<p>Список событий ограничен 199 записями, включая историю для сравнения. Пары могут быть неполными; сравнение недоступно.</p>{% endif %}
+  {% if events.rows %}
+  <div class="table-scroll" role="region" tabindex="0" aria-label="Событие и следующая ночь">
+    <table><thead><tr><th scope="col">Событие</th><th scope="col">Следующая ночь</th></tr></thead><tbody>
+    {% for row in events.rows %}
+    <tr><th scope="row"><time>{{ row.time }}</time><br><span class="sleep-context-text">{{ row.text }}</span></th>
+      <td>{% for cell in row.sources %}
+        <div data-sleep-context-source="{{ cell.series_id }}" class="sleep-context-result">
+          {% if cell.night %}
+          <span>{{ cell.night | owner_date }} · {{ cell.label }} · {{ cell.duration }}</span><br>
+          <span class="muted">{{ cell.start }} → {{ cell.end }}</span><br>
+          <span>{{ cell.comparison }}</span>
+          {% else %}<span>{{ cell.label }} · нет подходящей ночи: {{ cell.reason }}</span>{% endif %}
+        </div>
+        {% else %}<span>Нет подходящей ночи: {% if row.time_missing %}нет времени.{% else %}{{ events.empty_reason }}.{% endif %}</span>{% endfor %}
+        {% if row.sources %}<span class="muted" data-sleep-context-hidden hidden>Источники скрыты</span>{% endif %}
+      </td></tr>
+    {% endfor %}
+    </tbody></table>
+  </div>
+  {% else %}<p class="muted">Нет сохранённых событий за выбранный период. Отсутствие заметки не означает отсутствие события.</p>{% endif %}
+  {% endif %}
+  <details class="owner-details"><summary>Как считается</summary>
+    <p>Явное время события или окончание интервала → первая подходящая ночь после окончания события, не позднее 24 часов (границы включены). Дата без времени не связывается с ночью. Ночь относится к дате пробуждения. Дневной сон, неоднозначные ночи и непригодные границы исключены.</p>
+    <p>Обычное — медиана за предыдущие 28 ночей по датам пробуждения, до сравниваемой ночи. Минимум 7 пригодных ночей для каждого показателя. Ночи, связанные с любым сохранённым событием, исключены. Сравнение начала сна использует местные часы с границей суток в полдень; разница — кратчайший сдвиг часов.</p>
+    <p>Источники никогда не смешиваются; методы, варианты и часовые пояса считаются отдельно. Поездки / смена зоны и следующая ночь исключены. DST в одном IANA-поясе не считается поездкой. История ограничена выбранным периодом и предшествующими 30 днями; более ранняя история неизвестна.</p>
+    <p>Отсутствие заметки не означает отсутствие события. У опорных ночей воздействие неизвестно. Это описание, не причина и не диагноз. Другие показатели восстановления здесь не оцениваются.</p>
+  </details>
+</section>
+<style>
+.sleep-context th { font-weight: 400; text-align: left; }
+.sleep-context-text { overflow-wrap: anywhere; }
+.sleep-context-result { margin-bottom: 6px; }
+.sleep-context-result[hidden] { display: none; }
+.sleep-context-marker { color: var(--muted); background: transparent; border: 0; padding: 0 3px; font-size: 12px; cursor: help; }
+.sleep-context-marker:focus-visible { outline: 2px solid var(--ink); border-radius: 3px; }
+</style>
+<script src="/static/sleep_context.js" defer></script>

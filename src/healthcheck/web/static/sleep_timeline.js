@@ -53,6 +53,12 @@
     return point.state === "value" && isNumber(point.value_hours);
   }
 
+  function contextMarker(series, point) {
+    return ((((data.context_events || {}).markers || {})[series.series_id]) || []).find(function (m) {
+      return m.wake_date === point.wake_date && m.record_id === point.record_id;
+    });
+  }
+
   function markerPoints(series) {
     return series.points.filter(function (point) {
       return plotted(point) || point.state === "ambiguous";
@@ -155,6 +161,8 @@
       ? loadNight(series, point) : null;
     let html = '<article class="night-card" data-night-card="' + esc(point.state) + '">' +
       nightCard.head(series, point);
+    const eventMarker = contextMarker(series, point);
+    if (eventMarker) html += '<p class="sleep-context-note">' + esc(eventMarker.text) + '</p>';
     if (point.state === "value") {
       if (point.note) html += '<p class="uncertainty-note">' + esc(point.note) + "</p>";
       if (point.role_uncertain) {
@@ -334,6 +342,9 @@
           wrap.setAttribute("aria-label", readableDate(point.wake_date) + " · " + series.label +
             " · " + durationText(point.value_seconds) + " · показать подробности");
           wrap.setAttribute("aria-controls", "sleep-timeline-detail");
+          const eventMarker = contextMarker(series, point);
+          if (eventMarker) wrap.setAttribute("aria-label", wrap.getAttribute("aria-label") +
+            " · " + eventMarker.text);
           const hit = document.createElementNS("http://www.w3.org/2000/svg", "circle");
           hit.setAttribute("cx", x);
           hit.setAttribute("cy", y);
@@ -349,6 +360,16 @@
           wrap.appendChild(dot);
           const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
           title.textContent = readableDate(point.wake_date) + " · " + durationText(point.value_seconds);
+          if (eventMarker) {
+            title.textContent += " · " + eventMarker.text;
+            const eventDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            eventDot.setAttribute("cx", x);
+            eventDot.setAttribute("cy", y - 10);
+            eventDot.setAttribute("r", 2.5);
+            eventDot.style.setProperty("fill", "var(--muted)");
+            eventDot.setAttribute("data-sleep-context-marker", "");
+            wrap.appendChild(eventDot);
+          }
           wrap.appendChild(title);
           group.appendChild(wrap);
           focusables.push(wrap);

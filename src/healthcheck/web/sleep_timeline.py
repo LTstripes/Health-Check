@@ -1,7 +1,7 @@
 """Owner presentation for the accepted #343 B1 7/30-day source sleep ranges.
 
-The UI only translates the accepted read-only packets: no pairing, canonical
-selection, score invention, gap bridging or stored writes. Each exact persisted
+The UI translates accepted read-only packets and reuses the saved Context pairing:
+no canonical selection, score invention, gap bridging or stored writes. Each exact persisted
 source keeps its retained series; the normal chart selects one Google identity. Native
 Garmin score stays a per-session detail; no Google score is promised.
 """
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from healthcheck.db.models import GoogleSource
 from healthcheck.google.contracts import FAMILY_GOOGLE_WEARABLES
 from healthcheck.sleep_schedule_settings import SleepScheduleSettings
+from healthcheck.web.sleep_context import build_sleep_context
 from healthcheck.web.sleep_regularity import build_sleep_regularity
 from healthcheck.web.sleep_view import source_sleep_label, source_sleep_note
 
@@ -305,6 +306,7 @@ def build_sleep_timeline(
     google_inventory: Mapping[str, Any] | None = None,
     schedule_settings: SleepScheduleSettings | None = None,
     travel_ranges: Mapping[str, Mapping[str, Any]] | None = None,
+    context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Merge the accepted per-provider range packets into one display packet."""
 
@@ -378,6 +380,10 @@ def build_sleep_timeline(
             travel_ranges=travel_ranges,
         ),
         "google_selection": google_selection,
+        "context_events": build_sleep_context(
+            ranges, display_series, days=days, end_date=end_date,
+            context=context, history_ranges=travel_ranges, google_selection=google_selection,
+        ),
         "google_source_inventory": inventory,
         "table_rows": [
             {"date": day, "cells": [item["points"][index] for item in series]}
@@ -408,6 +414,8 @@ def sleep_timeline_client(timeline: Mapping[str, Any]) -> dict[str, Any]:
     regularity = dict(timeline.get("regularity") or {})
     packet["schedule_bounds"] = regularity.pop("night_bounds", {})
     packet["regularity"] = regularity
+    context = timeline.get("context_events") or {}
+    packet["context_events"] = {key: context.get(key) for key in ("markers", "state")}
     packet["night_endpoint"] = SLEEP_NIGHT_ENDPOINT
     return packet
 
@@ -490,6 +498,7 @@ def sleep_timeline_technical(timeline: Mapping[str, Any]) -> dict[str, Any]:
             for item in timeline.get("series") or ()
         ],
         "nights": _technical_nights(timeline.get("nights") or {}),
+        "context_events": (timeline.get("context_events") or {}).get("technical"),
     }
 
 

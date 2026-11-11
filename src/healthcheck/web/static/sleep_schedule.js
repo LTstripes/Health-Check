@@ -194,6 +194,13 @@
           '%;width:' + (percent(cell.end) - percent(cell.start)) + '%;background:var(--series-' +
           (cell.source.provider === 'garmin' ? '1' : '4') + ')" title="' + esc(label) +
           '" aria-label="' + esc(row.date + ' · ' + label + ' · ' + zoneLabel(cell.bound.zone)) + '"></button>';
+        const marker = ((((data.context_events || {}).markers || {})[cell.source.series_id]) || [])
+          .find(function (item) { return item.wake_date === row.date &&
+            item.record_id === cell.point.record_id; });
+        if (marker) html += '<button type="button" class="sleep-context-marker sleep-schedule-event" ' +
+          'data-schedule-bar="' + esc(cell.source.series_id) + '" style="position:absolute;top:' +
+          top + 'px;left:calc(' + percent(cell.end) + '% + 2px);line-height:7px" title="' +
+          esc(marker.text) + '" aria-label="' + esc(marker.text) + '">●</button>';
       });
       html += '</div></div>';
     });

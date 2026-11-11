@@ -9,7 +9,7 @@ import json
 import math
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta, timezone
-from statistics import mean
+from statistics import mean, median
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from healthcheck.analytics.sleep_source_view import resolve_source_sleep_point
@@ -266,6 +266,14 @@ def _numeric(cell):
             and type(cell.get("value")) in (int, float) and math.isfinite(cell["value"]))
 
 
+def _metric_signature(cell):
+    return _json({k: cell.get(k) for k in ("unit", "comparison_basis", "variant")})
+
+
+def _compatible_metric(cell, signature):
+    return _numeric(cell) and _metric_signature(cell) == signature
+
+
 def _context_pairs(nights, context, request):
     pairs, excluded = [], []
     pairing_groups = defaultdict(list)
@@ -303,6 +311,49 @@ def _context_pairs(nights, context, request):
         if not found:
             excluded.append({**event, "reason": "no_eligible_night_in_bounded_snapshot_window"})
     return pairs, excluded
+
+
+def pair_context_nights(nights, context, *, hours=24):
+    """Share the export's exact first-night rule with saved-data UI consumers."""
+    from types import SimpleNamespace
+
+    return _context_pairs(nights, context, SimpleNamespace(context_pairing_hours=hours))
+
+
+def compare_context_night(night, nights, pairs, *, reference_complete=True):
+    """Per-night medians over the preceding 28 wake dates, exposure unknown.
+
+    This UI comparison is separate from the frozen pooled export statistic.
+    Eligibility, partitions and metric compatibility are shared with that export.
+    Clock medians unwrap at noon, so 23:50 and 00:10 have a midnight median.
+    """
+    wake = date.fromisoformat(night["wake_date"])
+    paired = {(p["partition"]["provider"], p["partition"]["source_id"], p["record_id"])
+              for p in pairs}
+    rows = [n for n in nights if n["partition"] == night["partition"]
+            and wake - timedelta(days=28) <= date.fromisoformat(n["wake_date"]) < wake
+            and (n["provider"], n["source_id"], n["record_id"]) not in paired]
+    duration = night["metrics"].get("sleep_duration_asleep_seconds")
+
+    def compatible(n):
+        cell = n["metrics"].get("sleep_duration_asleep_seconds")
+        return duration is not None and _compatible_metric(cell, _metric_signature(duration))
+
+    durations = [n for n in rows if compatible(n)]
+    duration_ready = reference_complete and len(durations) >= 7 and _numeric(duration)
+    clock_ready = reference_complete and len(rows) >= 7
+    usual_clock = (median((n["start"]["clock_minutes"] - 720) % 1440 for n in rows)
+                   + 720) % 1440 if clock_ready else None
+    return {
+        "reference_n": len(rows), "duration_reference_n": len(durations),
+        "reference_complete": reference_complete,
+        "reference_record_ids": [n["record_id"] for n in rows],
+        "duration_delta_minutes": (duration["value"] - median(
+            n["metrics"]["sleep_duration_asleep_seconds"]["value"] for n in durations
+        )) / 60 if duration_ready else None,
+        "start_delta_minutes": (night["start"]["clock_minutes"] - usual_clock + 720) % 1440
+                               - 720 if clock_ready else None,
+    }
 
 
 def _selected_context_ids(context, selection):
@@ -359,14 +410,12 @@ def _recovery(nights, context, request):
         metrics = []
         # Partition each metric's actual accepted method too; no source/variant/unit pooling.
         for code in METRICS:
-            signatures = sorted({_json({k: c.get(k) for k in (
-                "unit", "comparison_basis", "variant")}) for n in rows
+            signatures = sorted({_metric_signature(c) for n in rows
                 if (c := n["metrics"].get(code)) is not None})
             for signature in signatures:
                 def compatible(n):
                     c = n["metrics"].get(code)
-                    return _numeric(c) and _json({k: c.get(k) for k in (
-                        "unit", "comparison_basis", "variant")}) == signature
+                    return _compatible_metric(c, signature)
                 left, right = ([n for n in selection if compatible(n)]
                                for selection in (paired, reference))
                 sufficient = len(left) >= MIN_NIGHTS and len(right) >= MIN_NIGHTS
