@@ -270,9 +270,24 @@ identity=dict(status='ok',run_id=b.get('run_id'),sha=b.get('sha'),pid=os.getpid(
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
     def do_GET(self):
+        options=json.loads(Path(path).read_text(encoding='utf-8-sig'))
+        if self.path!='/healthz':
+            time.sleep(options.get('page_delay',0))
+            if options.get('page_redirect') and self.path!='/redirect-target':
+                self.send_response(302);self.send_header('Location','/redirect-target')
+                self.end_headers();return
+            if options.get('page_unavailable'):
+                self.send_response(503);self.end_headers();return
+        elif options.get('health_unavailable'):
+            self.send_response(503);self.end_headers();return
         self.send_response(200);self.end_headers()
-        self.wfile.write(json.dumps(identity if self.path=='/healthz' else {'page':'ok'}).encode())
+        try:
+            payload=identity if self.path=='/healthz' else {'page':'ok'}
+            self.wfile.write(json.dumps(payload).encode())
+        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError): pass
     def do_POST(self):
+        if json.loads(Path(path).read_text(encoding='utf-8-sig')).get('mcp_unavailable'):
+            self.send_response(503);self.end_headers();return
         expected='Bearer '+os.environ['HEALTHCHECK_MCP_GATEWAY_TOKEN']
         if self.headers.get('Authorization') != expected:
             self.send_response(401);self.end_headers();return
@@ -866,3 +881,31 @@ def test_weekly_duplicate_mutex_never_launches_child(pointer_case, monkeypatch, 
     monkeypatch.setattr(consumers, 'run_work', lambda *a, **kw: pytest.fail('launched backup'))
     assert consumers.run_weekly_backup(active, case['config']) == 0
     assert capsys.readouterr().out == 'SKIP: existing Health data-only backup\n'
+
+
+@pytest.mark.parametrize("option,value,timeout,expected", [
+    ("page_delay", 2.2, 4, None),
+    ("page_delay", 1, .1, "known_page_timeout"),
+    ("page_redirect", True, 1, "known_page_redirect"),
+    ("page_unavailable", True, 1, "known_page_unavailable"),
+    ("health_unavailable", True, 1, "ui_health_unavailable"),
+    ("mcp_unavailable", True, 1, "mcp_unavailable"),
+])
+def test_smoke_step_failures_and_page_timeout(release_case, runtime, option, value,
+                                               timeout, expected):
+    case = release_case
+    kind = "mcp" if option == "mcp_unavailable" else "ui"
+    path = case["mcp_paths"][0] if kind == "mcp" else case["ui_paths"][0]
+    binding = tool.read_json(path)
+    binding[option] = value
+    write_json(path, binding)
+    runtime.config["known_page_timeout_seconds"] = timeout
+    # One attempt for failure cases; success proves pages can exceed the short 2 s timeout.
+    runtime.config["timeout_seconds"] = .05 if expected else 5
+    old = tool.read_json(case["pointer"])
+    old["mcp_binding"] = case["config"]["old_mcp_binding"]
+    if expected:
+        with pytest.raises(tool.Refused, match="^service_smoke_timeout:" + expected + "$"):
+            runtime.smoke(old)
+    else:
+        runtime.smoke(old)

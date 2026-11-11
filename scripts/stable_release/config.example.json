@@ -12,7 +12,8 @@
   "old_mcp_binding": "C:\\REPLACE\\previous\\assistant-binding.json",
   "ui_port": 8120,
   "mcp_port": 8787,
-  "known_page": "/",
+  "known_page": "/labs",
+  "known_page_timeout_seconds": 20,
   "timeout_seconds": 45,
   "consumers": [
     {"role": "owner-refresh", "path": "C:\\REPLACE\\ops\\owner-refresh-scheduled.ps1"},
