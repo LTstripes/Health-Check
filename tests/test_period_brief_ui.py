@@ -1579,8 +1579,11 @@ def test_295_route_reuse_matches_control_packet_charts_html_and_read_counts(
             # is shorter, or when only that independent baseline is unavailable.
             extra = int(metric == "sleep_duration_seconds" and mode not in {"empty", "multiple"}
                         and (days > 180 or mode == "baseline_error"))
-            assert calls[metric] == expected + extra
-            assert before_calls[metric] == expected * 2 + extra
+            # B1 reads the preceding period once on both chart paths. It never
+            # rereads the current period or requests an extra score baseline.
+            previous = int(metric == "sleep_duration_seconds" and mode not in {"empty", "multiple"})
+            assert calls[metric] == expected + extra + previous
+            assert before_calls[metric] == expected * 2 + extra + previous
         assert len(sql) < before_sql
         print(f"295 {days}d/{mode}: SQL {before_sql}->{len(sql)}; "
               f"reads {dict(before_calls)}->{dict(calls)}")

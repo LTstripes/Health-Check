@@ -1,20 +1,23 @@
 """Overview Steps over the shared completed window, with separate source means."""
 
 from datetime import date
+from decimal import Decimal
 
 from healthcheck.garmin.completed_steps_read import read_completed_steps_window
 from healthcheck.garmin.observed_steps_read import MAX_WINDOW_DAYS
 from healthcheck.garmin.steps_statistics import summarize_completed_days
 from healthcheck.garmin.storage import ContentAddressedGarminPayloadStore
 from healthcheck.google.steps_read import read_saved_steps_window
+from healthcheck.google.steps_summary import summarize_saved_steps_window
 from healthcheck.web.steps_presentation import google_steps_view, steps_mean_display
 
 
-def read_overview_steps(session, *, paths, window, source_id, evaluated_at):
+def read_overview_steps(session, *, paths, window, source_id, evaluated_at,
+                        google_source_id=None):
     """Never clip a reader window, pool sources or fill missing dates with zero."""
     items = []
     for provider in ("Garmin", "Google"):
-        item = {"provider": provider, "mean_display": None, "count": None,
+        item = {"provider": provider, "mean_display": None, "mean_value": None, "count": None,
                 "days": window["calendar_days"], "reason": None, "technical": None}
         items.append(item)
         if window["empty"]:
@@ -25,9 +28,13 @@ def read_overview_steps(session, *, paths, window, source_id, evaluated_at):
             if window["calendar_days"] not in {7, 30}:
                 item["reason"] = "unsupported_google_period"
                 continue
-            packet = read_saved_steps_window(session, start_date=start, end_date=end)
+            packet = read_saved_steps_window(session, start_date=start, end_date=end,
+                                            source_id=google_source_id)
             view = google_steps_view(packet)
+            summary = summarize_saved_steps_window(packet)
             item.update(mean_display=view["mean_display"], count=view["count"],
+                        mean_value=(Decimal(summary["total"]) / summary["observed_day_count"]
+                                    if summary["total"] is not None else None),
                         reason=packet["reason"] or view["reason"], technical=packet)
         elif not source_id:
             item["reason"] = "source_not_selected"
@@ -43,6 +50,7 @@ def read_overview_steps(session, *, paths, window, source_id, evaluated_at):
             if packet.search_complete and packet.reason is None:
                 summary = summarize_completed_days(packet)
                 item.update(count=summary.eligible_day_count,
+                            mean_value=summary.mean,
                             mean_display=(steps_mean_display(summary.total,
                                                            summary.eligible_day_count)
                                           if summary.total is not None else None),
