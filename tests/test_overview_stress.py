@@ -304,8 +304,11 @@ def test_route_mean_uses_selected_period_without_28_day_baseline(
     assert results[-1]["mean_value"] > 1  # Display rounding does not change the mean.
     assert [item["eligible_days"] for item in results] == [1, 1, 22]
     assert [item["days"] for item in results] == [1, 7, 30]
-    assert calls == [(start, D, True) for start in (D, D - timedelta(days=6),
-                                                  D - timedelta(days=29))]
+    # B1 adds exactly the adjacent equal-length read, in the same snapshot.
+    assert calls == [bounds for days in (1, 7, 30) for bounds in (
+        (D - timedelta(days=days - 1), D, True),
+        (D - timedelta(days=2 * days - 1), D - timedelta(days=days), True),
+    )]
 
 
 def test_route_missing_end_day_keeps_period_mean_and_separate_saved_snapshot(

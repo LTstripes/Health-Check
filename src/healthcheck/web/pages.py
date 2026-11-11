@@ -49,7 +49,9 @@ from healthcheck.web.detail_navigation import local_return_href
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
 from healthcheck.web.imports import _batch_payload
 from healthcheck.web.overview_charts import read_overview_charts
+from healthcheck.web.overview_compare import read_overview_comparison
 from healthcheck.web.overview_completed import read_completed_overview
+from healthcheck.web.overview_coverage import overview_low_coverage
 from healthcheck.web.overview_rhr import read_overview_rhr
 from healthcheck.web.overview_steps import read_overview_steps
 from healthcheck.web.overview_view import overview_number, read_overview_values
@@ -1248,6 +1250,12 @@ def period_brief_page(
                     end=(date.fromisoformat(energy_window["end_date"])
                          if not energy_window["empty"] else None),
                 )
+                overview["comparison"] = read_overview_comparison(
+                    session, request.app.state.settings, paths=request.app.state.runtime_paths,
+                    overview=overview, start=start, end=end,
+                    source_id=source_selection.get("selected_source_id"),
+                    evaluated_at=evaluated_at,
+                )
     except GarminQueryError as exc:
         return error(
             code=exc.code, message=exc.message, status_code=exc.status_code,
@@ -1350,6 +1358,7 @@ def period_brief_page(
                 "charts": charts,
                 "metric_value": metric_value,
                 "overview_number": overview_number,
+                "overview_low_coverage": overview_low_coverage,
                 "google_vital_source_label": google_vital_source_label,
                 "google_vital_cell_state": google_vital_cell_state,
                 "google_vital_ineligible_note": google_vital_ineligible_note,

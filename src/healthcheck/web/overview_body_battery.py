@@ -15,6 +15,6 @@ def read_overview_body_battery(
     dto = read_body_battery_period(session, BodyBatteryQuery(
         start, end, garmin_source_id, evaluated_at_utc,
     ))
-    mean_value = dto.pop("mean_value")
+    mean_value = dto["mean_value"]
     dto["mean_display"] = overview_whole_number(mean_value) if mean_value is not None else None
     return {"selected": dto}

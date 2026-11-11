@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -70,9 +71,9 @@ def test_independent_averages_missing_and_read_only(database):
                  statements.append(statement.split()[0].lower()))
     result = read(database, source)
     assert result["summary"] == {
-        "total": {"count": 2, "mean_display": "2 100"},
-        "active": {"count": 3, "mean_display": "367"},
-        "bmr": {"count": 3, "mean_display": "1 433"}}
+        "total": {"count": 2, "mean_value": Decimal(2100), "mean_display": "2 100"},
+        "active": {"count": 3, "mean_value": Decimal(1100) / 3, "mean_display": "367"},
+        "bmr": {"count": 3, "mean_value": Decimal(4300) / 3, "mean_display": "1 433"}}
     assert result["rows"][2]["total"] is None
     assert result["rows"][0]["split"]
     assert result["rows"][0]["evidence"][0]["raw_payload_id"]
