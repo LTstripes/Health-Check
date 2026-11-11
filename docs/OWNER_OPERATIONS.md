@@ -380,6 +380,14 @@ and linked migration-rehearsal receipt (v1 defines fresh as at most 24 hours).
 The broader compatibility requirements in [the short procedure](#code-only-stable-updates)
 still apply; use `--strict` for other data-affecting or uncertain changes.
 
+Smoke uses a 2 s timeout for `/healthz` and MCP initialize. The known page
+defaults to `/labs`, with `known_page_timeout_seconds` defaulting to 20 s.
+Known-page redirects fail without being followed. The overall deadline retry
+loop remains; failures report bounded step codes: `ui_health_unavailable`,
+`known_page_unavailable`, `known_page_redirect`, `known_page_timeout`, or
+`mcp_unavailable`, without response bodies. Identity/revision checks retain
+their specific refusal codes.
+
 Activation rechecks reality under the autostart and profile operation locks,
 switches the pointer atomically with a previous-file backup, then starts and checks
 UI/MCP and revision. Code-only failure restores the pointer/consumers and verifies

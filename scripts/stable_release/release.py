@@ -19,7 +19,8 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 HERE = Path(__file__).resolve().parent
 CONSUMERS = {
@@ -502,6 +503,11 @@ def argv(command_line):
         kernel.LocalFree(values)
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class Runtime:
     def __init__(self, config, processes=None):
         self.config = config
@@ -510,6 +516,7 @@ class Runtime:
         self.started_releases = []
         self.stopping = []
         self.opener = build_opener(ProxyHandler({}))
+        self.page_opener = build_opener(ProxyHandler({}), NoRedirect())
 
     def idle(self):
         for process in self.processes.inventory()["processes"]:
@@ -623,7 +630,7 @@ class Runtime:
         self.children.clear()
         self.started_releases.clear()
 
-    def request(self, port, path, body=None):
+    def request(self, port, path, body=None, *, timeout=2, follow_redirects=True):
         headers = {}
         if body is not None:
             token = os.environ.get("HEALTHCHECK_MCP_GATEWAY_TOKEN")
@@ -631,25 +638,31 @@ class Runtime:
             headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json",
                        "Accept": "application/json, text/event-stream"}
         request = Request(f"http://127.0.0.1:{port}{path}", data=body, headers=headers)
-        with self.opener.open(request, timeout=2) as response:
+        opener = self.opener if follow_redirects else self.page_opener
+        with opener.open(request, timeout=timeout) as response:
             require(response.status == 200, "http_smoke_failed")
             return response.read(1024 * 1024)
 
     def smoke(self, release):
         deadline = time.monotonic() + self.config.get("timeout_seconds", 45)
-        reason = "http_unavailable"
+        reason = "ui_health_unavailable"
         while time.monotonic() < deadline:
+            step = "ui_health"
             try:
                 for kind in ("ui", "mcp"):
                     self.identified(release, kind)
                 ui = self.config.get("ui_port", 8120)
                 health = json.loads(self.request(ui, "/healthz"))
-                require(health.get("status") == "ok", "ui_health_failed")
+                require(health.get("status") == "ok", "ui_health_unavailable")
                 binding = read_json(release["ui_binding"])
                 if binding.get("runner_version") == 1:
                     require(health.get("run_id") == binding["run_id"]
                             and health.get("sha") == release["sha"], "loaded_ui_mismatch")
-                self.request(ui, self.config.get("known_page", "/"))
+                step = "known_page"
+                self.request(ui, self.config.get("known_page", "/labs"),
+                             timeout=self.config.get("known_page_timeout_seconds", 20),
+                             follow_redirects=False)
+                step = "mcp"
                 body = json_bytes({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                                    "params": {"protocolVersion": "2025-06-18",
                                               "capabilities": {},
@@ -658,13 +671,20 @@ class Runtime:
                 response = json.loads(self.request(self.config.get("mcp_port", 8787),
                                                    "/mcp", body))
                 require(response.get("result", {}).get("serverInfo", {}).get("name")
-                        == "health-check-evidence", "mcp_smoke_failed")
+                        == "health-check-evidence", "mcp_unavailable")
                 require(probe(release["code"], self.config["profile"], "current")
                         == probe(release["code"], self.config["profile"], "head"),
                         "smoke_revision_mismatch")
                 return
             except (Refused, OSError, ValueError) as exc:
-                reason = str(exc) if isinstance(exc, Refused) else "http_unavailable"
+                if step == "known_page" and isinstance(exc, HTTPError) and 300 <= exc.code < 400:
+                    reason = "known_page_redirect"
+                elif step == "known_page" and (isinstance(exc, TimeoutError)
+                        or isinstance(exc, URLError) and isinstance(exc.reason, TimeoutError)):
+                    reason = "known_page_timeout"
+                else:
+                    reason = (str(exc) if isinstance(exc, Refused)
+                              and str(exc) != "http_smoke_failed" else step + "_unavailable")
                 time.sleep(.2)
         raise Refused("service_smoke_timeout:" + reason)
 
