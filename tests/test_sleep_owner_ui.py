@@ -86,8 +86,8 @@ def test_selected_night_never_borrows_or_pools():
 
 
 def test_sleep_duration_formatting_rounds_display_and_preserves_zero():
-    assert metric_value("sleep_duration_seconds", 28800) == "8 ч 0 мин"
-    assert metric_value("sleep_duration_seconds", 3661) == "1 ч 1 мин"
+    assert metric_value("sleep_duration_seconds", 28800) == "8 ч 00 мин"
+    assert metric_value("sleep_duration_seconds", 3661) == "1 ч 01 мин"
     assert metric_value("sleep_duration_seconds", 0) == "0 мин"
     assert metric_value("sleep_duration_seconds", 1.25) == "<1 мин"
 
@@ -125,8 +125,8 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
         assert "status-chip owner-state present" not in primary
         assert '<select name="garmin_source_id"' not in primary
         assert "2 января 2099" in primary
-        assert "8 ч 0 мин" in primary
-        assert "82.0 баллы" in primary or "82 баллы" in primary
+        assert "8 ч 00 мин" in primary
+        assert "82 из 100" in primary
         assert "История сна" in primary and "Точность устройств" not in primary
         assert "Точность устройств" in technical
         assert page.text.count("<summary>Технические детали</summary>") == 1
@@ -150,7 +150,7 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
         missing = client.get("/sleep?view=garmin&wake_date=2099-01-03")
         hero = missing.text.split("<summary>История сна</summary>", 1)[0]
         assert "нет пригодного значения" in hero
-        assert "28800" not in hero and "82.0" not in hero
+        assert "28800" not in hero and "82 из 100" not in hero
     assert "BEGIN" in statements
     assert not any(
         sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for sql in statements
@@ -192,7 +192,7 @@ def test_sleep_empty_and_unavailable_stay_honest(tmp_path):
         primary = page.text.split('<details class="card owner-details', 1)[0]
         assert "Нет доступного источника Garmin" in primary
         assert 'data-owner-state="unavailable"' in primary
-        assert "0 мин" not in primary and "0 баллы" not in primary
+        assert "0 мин" not in primary and "0 из 100" not in primary
         assert client.get("/sleep?view=garmin&garmin_source_id=unknown").status_code == 200
     app.state.engine.dispose()
     app.state.runtime_paths.database.unlink()
@@ -331,7 +331,7 @@ def test_comparison_source_switch_keeps_date_and_independent_panels(tmp_path):
             "view": ["google"], "days": ["30"], "wake_date": ["2099-01-02"],
             "vitals_window": ["7"], "garmin_source_id": [source_id],
         }
-        assert "42.5 мс" in google
+        assert "42,5 мс" in google
         assert "Нет доступного сохранённого сравнения" in compare
         assert "общий график недоступен" in compare
         assert 'data-sleep-comparison="' not in compare
@@ -395,7 +395,7 @@ def test_comparison_charts_keep_sources_bases_variants_and_missing_dates_separat
     charts = comparison_charts(group, detail)
     assert len(charts) == 1 and len(charts[0]["points"]) == 14
     assert charts[0]["points"][0]["garmin"] == 28800
-    assert charts[0]["points"][0]["google_text"] == "8 ч 2 мин"
+    assert charts[0]["points"][0]["google_text"] == "8 ч 02 мин"
     assert detail == before
     detail["nights"][0]["metrics"][0]["google"]["evidence"]["source_id"] = "other-device"
     detail["nights"][1]["metrics"][0]["google"]["comparison_basis"] = "summary_only"
@@ -466,8 +466,8 @@ def test_daily_comparisons_require_their_own_same_date_record_basis(code, unit):
 def test_owner_comparison_formatting_rounds_display_only():
     from healthcheck.web.sleep_comparison import comparison_value
 
-    assert comparison_value(-3661.125, "seconds", signed=True) == "−1 ч 1 мин"
+    assert comparison_value(-3661.125, "seconds", signed=True) == "−1 ч 01 мин"
     assert comparison_value(0, "seconds") == "0 мин"
-    assert comparison_value(1.23456, "bpm") == "1.2 уд/мин"
-    assert comparison_value(0.23456, "percentage_points") == "0.2 п.п."
+    assert comparison_value(1.23456, "bpm") == "1,2 уд/мин"
+    assert comparison_value(0.23456, "percentage_points") == "0,2 п.п."
     assert comparison_value(1, None) == "—"
