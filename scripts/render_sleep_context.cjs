@@ -56,7 +56,7 @@ const context = vm.createContext({ window: {}, document, URLSearchParams,
   DOMPoint: class { constructor(x, y) { this.x = x; this.y = y; } matrixTransform() { return this; } },
 });
 const root = path.join(__dirname, '..', 'src', 'healthcheck', 'web', 'static');
-for (const name of ['owner_formatting.js', 'sleep_night_card.js', 'sleep_timeline.js', 'sleep_context.js']) {
+for (const name of ['owner_dates.js', 'owner_formatting.js', 'sleep_night_card.js', 'sleep_timeline.js', 'sleep_context.js']) {
   vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), context, { filename: name });
 }
 const dots = host.querySelectorAll('[data-sleep-context-marker]');

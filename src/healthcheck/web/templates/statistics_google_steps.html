@@ -59,7 +59,7 @@
 
   {% endif %}
   {% if google_steps.reason %}
-  <p class="statistics-steps-warning" role="status" data-google-steps-reason="{{ google_steps.reason }}">{% if not google_steps.search_complete %}Поиск сохранённых данных не завершён; все значения скрыты.{% elif google_steps.reason == 'source_selection_required' %}Выберите один источник Google. Источники не суммируются.{% elif google_steps.reason == 'no_saved_source' %}Нет сохранённого источника шагов Google. Это не доказывает отсутствие шагов или данных у провайдера.{% else %}Выбранный источник не подтверждён для шагов Google. Выберите сохранённый источник.{% endif %}</p>
+  <p class="statistics-steps-warning" role="status" data-google-steps-reason="{{ google_steps.reason }}">{% if not google_steps.search_complete %}Поиск сохранённых данных не завершён; все значения скрыты.{% elif google_steps.reason == 'source_selection_required' %}Выбери один источник Google. Источники не суммируются.{% elif google_steps.reason == 'no_saved_source' %}Нет сохранённого источника шагов Google. Это не доказывает отсутствие шагов или данных у провайдера.{% else %}Выбранный источник не подтверждён для шагов Google. Выбери сохранённый источник.{% endif %}</p>
   {% endif %}
 
 

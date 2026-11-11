@@ -4,7 +4,7 @@
 <p><a class="button-link" href="/labs">Лабораторные отчёты — PDF и проверка транскрипции</a></p>
 <section class="card data-purpose" aria-labelledby="data-purpose-heading">
   <h2 id="data-purpose-heading">Добавить, проверить или скачать данные</h2>
-  <p>Здесь — загрузки, проверка сохранённых источников и файлы для анализа. Сами показатели смотрите в Обзоре и разделах истории.</p>
+  <p>Здесь — загрузки, проверка сохранённых источников и файлы для анализа. Сами показатели смотри в Обзоре и разделах истории.</p>
   <nav class="data-primary-actions" aria-label="Действия с данными"><a class="button-link" href="#analysis-export">Скачать данные</a><a class="button-link" href="#import-queue">Добавить измерения</a><a class="button-link" href="#data-status">Проверить источники</a></nav>
 </section>
 {% macro import_table(rows, label) %}
@@ -123,7 +123,7 @@
 {% if batches %}
 {% call owner_ui.technical_details() %}
 <h2>Состояния загрузок</h2>
-<ul>{% for batch in batches %}<li>{{ batch.started_at.isoformat() if batch.started_at else "Дата не указана" }}: <code>{{ batch.status }}</code></li>{% endfor %}</ul>
+<ul>{% for batch in batches %}<li>{{ batch.started_at|owner_date }}: <code>{{ batch.status }}</code></li>{% endfor %}</ul>
 {% endcall %}
 {% endif %}
 {% endblock %}

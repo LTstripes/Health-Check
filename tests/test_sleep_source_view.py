@@ -561,7 +561,7 @@ def test_garmin_primary_table_respects_source_view_gate(tmp_path, monkeypatch, f
     assert response.status_code == 200
     primary = response.text.split('<details class="card owner-details sleep-technical"')[0]
     assert "data-night-row" in primary
-    assert "8 ч 0 мин" not in primary
+    assert "8 ч 00 мин" not in primary
     assert "82 баллы" not in primary
     assert "0 ч 15 мин" not in primary
     assert primary.count('data-owner-state="unavailable"') >= 3
@@ -875,11 +875,11 @@ def test_google_source_page_has_unpaired_sleep_and_separate_dated_vitals(tmp_pat
     primary, technical = response.text.split('<details class="card owner-details sleep-technical"')
     sleep, vitals = primary.split('<section class="card brief-controls" data-google-vitals>')
     assert "6 ч 50 мин" in sleep
-    assert "2 января 2099, 01:00 UTC+0300" in sleep
+    assert "2 января 2099, 01:00" in sleep
     assert "2099-01-01T22:00:00Z" not in sleep
     assert "2099-01-01T22:00:00Z" in technical
     assert "42.5" not in sleep
-    assert "42.5" in vitals and "2 января 2099" in vitals
+    assert "42,5" in vitals and "2 января 2099" in vitals
     assert "summary_only" in technical
     assert "Совместимой оценки сна Google нет" in sleep
     assert "За эту дату нет сохранённых сессий Google" in missing.text

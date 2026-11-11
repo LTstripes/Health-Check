@@ -55,7 +55,7 @@
       <div class="sleep-comparison-plot"><svg data-sleep-comparison="{{ chart | tojson | forceescape }}" viewBox="0 0 900 240" role="img" aria-label="{{ row.label }}: Garmin и Google"></svg></div>
       <details class="owner-details sleep-chart-values"><summary>Значения по датам</summary>
         <div class="table-scroll"><table><thead><tr><th>Дата</th><th>Garmin</th><th>Google</th></tr></thead><tbody>
-        {% for point in chart.points %}<tr><th>{{ point.wake_date | owner_date }}</th><td>{{ point.garmin_text }}</td><td>{{ point.google_text }}</td></tr>{% endfor %}
+        {% for point in chart.points %}<tr><th>{{ point.wake_date |owner_short_date }}</th><td>{{ point.garmin_text }}</td><td>{{ point.google_text }}</td></tr>{% endfor %}
         </tbody></table></div>
       </details>
     </figure>

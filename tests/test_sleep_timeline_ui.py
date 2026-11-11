@@ -423,7 +423,7 @@ def test_sleep_default_route_embeds_points_and_fetches_nights_on_demand(tmp_path
         assert "График требует JavaScript" in primary
         # All 30 default-window dates render in the accessible table for both exact sources.
         assert primary.count("data-sleep-timeline-cell=") == 60
-        assert "8 ч 0 мин" in primary and "7 ч 30 мин" in primary
+        assert "8 ч 00 мин" in primary and "7 ч 30 мин" in primary
         assert "явный ноль" in primary
         assert "Несколько записей; значение не выбрано" in primary
         # Garmin native score never becomes ordinary primary copy.

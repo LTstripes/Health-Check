@@ -63,6 +63,7 @@ from healthcheck.web.owner_presentation import (
     owner_date,
     owner_duration,
     owner_number,
+    register_owner_filters,
 )
 from healthcheck.web.period_brief_query import PeriodBriefService
 from healthcheck.web.query import (
@@ -111,6 +112,7 @@ from healthcheck.weekly_digest import (
 
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+register_owner_filters(templates.env)
 templates.env.filters.update(owner_date=owner_date, owner_number=owner_number)
 templates.env.filters.update(owner_duration=owner_duration)
 templates.env.filters.update(owner_activity_count=owner_activity_count,
@@ -171,7 +173,7 @@ _BRIEF_UNIT_LABELS = {
     "percentage_points": "п.п.",
     "%": "%",
     "ms": "мс",
-    "points": "баллы",
+    "points": "",
     "meters": "м",
     "m/s": "м/с",
     "watts": "Вт",

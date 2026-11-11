@@ -28,11 +28,13 @@ from healthcheck.web.owner_presentation import (
     owner_distance,
     owner_duration,
     owner_number,
+    register_owner_filters,
 )
 from healthcheck.web.pages import _persist_error, render_error
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+register_owner_filters(templates.env)
 templates.env.filters.update(owner_activity_type=owner_activity_type)
 templates.env.filters.update(
     owner_date=owner_date, owner_number=owner_number,

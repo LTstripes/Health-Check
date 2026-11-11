@@ -37,16 +37,13 @@
 
   function fmtNumber(value) {
     if (!isNumber(value)) return "недоступно";
-    if (Number.isInteger(value)) return String(value);
-    return value.toFixed(1).replace(".", ",");
+    return window.healthcheckOwnerFormat.number(value);
   }
 
   const durationText = window.healthcheckOwnerFormat.duration;
 
   function readableDate(iso) {
-    return new Date(iso + "T00:00:00Z").toLocaleDateString("ru-RU", {
-      day: "numeric", month: "short", year: "numeric", timeZone: "UTC"
-    });
+    return window.healthcheckOwnerShortDate(iso);
   }
 
   function plotted(point) {

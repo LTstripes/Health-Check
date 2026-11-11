@@ -58,7 +58,7 @@
   {% else %}
   {% if compact_steps %}{% with view=garmin_steps_view %}{% include "statistics_steps_chart.html" %}{% endwith %}{% endif %}
   {% if steps.reason in ['source_selection_required', 'source_not_evidenced', 'source_not_found'] %}
-  <p data-steps-selection="required">{% if steps.source_choices %}Выберите источник Garmin для шагов.{% else %}Нет подтверждённого источника Garmin за выбранный период.{% endif %}</p>
+  <p data-steps-selection="required">{% if steps.source_choices %}Выбери источник Garmin для шагов.{% else %}Нет подтверждённого источника Garmin за выбранный период.{% endif %}</p>
   {% for choice in steps.source_choices %}<p><a href="{{ request.url.include_query_params(garmin_source_id=choice.source_id) }}">Garmin — источник {{ loop.index }}</a></p>{% endfor %}
   {% endif %}
   {% if not steps.search_complete %}<p class="statistics-steps-warning" role="status">Поиск сохранённых получений не завершён. Итоги недоступны; подробности ниже.</p>{% endif %}

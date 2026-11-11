@@ -12,7 +12,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from healthcheck.garmin.completed_steps_read import CompletedStepsDay, CompletedStepsWindow
 from healthcheck.garmin.observed_steps_read import StepsSourceIdentity
 from healthcheck.garmin.steps_statistics import summarize_completed_days
-from healthcheck.web.owner_presentation import owner_date
+from healthcheck.web.owner_presentation import owner_date, owner_short_date
 from healthcheck.web.steps_presentation import (
     garmin_steps_view,
     google_steps_view,
@@ -127,9 +127,10 @@ def test_google_full_observed_grid_still_discloses_unknown_coverage_and_exact_st
     directory = Path(__file__).parents[1] / "src/healthcheck/web/templates"
     env = Environment(loader=FileSystemLoader(directory), autoescape=select_autoescape())
     env.filters["owner_date"] = owner_date
+    env.filters["owner_short_date"] = owner_short_date
     html = env.get_template("statistics_steps_chart.html").render(view=view)
     assert "7 из 7 дней с данными" not in html
-    assert "Выберите день" in html and "data-steps-cursor hidden" in html
+    assert "Выбери день" in html and "data-steps-cursor hidden" in html
     assert "64\u202f563\u202f604\u202f257\u202f983\u202f430\u202f649" in html
     assert view["total"] == "64563604257983430649"
     info = env.get_template("statistics_steps_chart.html").module.steps_info(view)
@@ -179,10 +180,11 @@ def test_chart_and_selected_day_keep_zero_missing_and_integer_labels(factory):
     directory = Path(__file__).parents[1] / "src/healthcheck/web/templates"
     env = Environment(loader=FileSystemLoader(directory), autoescape=select_autoescape())
     env.filters["owner_date"] = owner_date
+    env.filters["owner_short_date"] = owner_short_date
     html = env.get_template("statistics_steps_chart.html").render(view=view)
     assert '<dd data-steps-mean>7</dd>' in html
-    assert f'{view["rows"][1]["date"]}: 0 шагов</title>' in html
-    assert f'{view["rows"][2]["date"]}: нет допустимого значения</title>' in html
+    assert f'{owner_short_date(view["rows"][1]["date"])}: 0 шагов</title>' in html
+    assert f'{owner_short_date(view["rows"][2]["date"])}: нет допустимого значения</title>' in html
     payload = html.split('data-steps-chart-data>', 1)[1].split("</script>", 1)[0]
     rows = json.loads(payload)
     assert (rows[1]["value"], rows[1]["display"]) == ("0", "0")

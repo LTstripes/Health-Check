@@ -23,6 +23,7 @@ from healthcheck.google.daily_vitals import (
     read_google_daily_vitals,
 )
 from healthcheck.web.garmin_training_overview import training_overview_for_selection
+from healthcheck.web.owner_presentation import owner_number
 from healthcheck.web.sleep_view import google_vitals_view
 
 # code, source capability, stored unit, Owner meaning
@@ -37,8 +38,7 @@ GARMIN_OVERVIEW_METRICS = (
 
 def overview_number(value: int | float | Decimal) -> str:
     """At most two decimals for display; never alter the source value."""
-    text = f"{value:.2f}".rstrip("0").rstrip(".")
-    return "0" if text == "-0" else text
+    return owner_number(value, 2)
 
 
 def overview_whole_number(value: int | float | Decimal) -> str:

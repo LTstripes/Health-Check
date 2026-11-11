@@ -41,7 +41,7 @@
     {% if group.artifact %}
     <figure>
       <img src="/api/artifacts/{{ group.artifact.id }}" alt="Imported Xiaomi S400 image {{ group.artifact.source_filename or group.artifact.id }}">
-      <figcaption class="muted">hash {{ group.artifact.content_hash[:12] }}… · {{ group.artifact.source_filename }}</figcaption>
+      <figcaption class="muted">Снимок {{ loop.index }}<details class="owner-details"><summary>Данные снимка</summary>hash {{ group.artifact.content_hash[:12] }}… · {{ group.artifact.source_filename or 'Имя файла не указано' }}</details></figcaption>
     </figure>
     {% endif %}
   </header>
@@ -77,7 +77,7 @@
         <td><code>{{ candidate.metric_code }}</code></td>
         <td>
           {% if candidate.effective_value is not none %}
-            {{ candidate.effective_value }} {{ candidate.effective_unit }}
+            {{ candidate.effective_value|owner_number(3) }} {{ candidate.effective_unit or '' }}
           {% else %}
             <span class="unavailable">missing</span>
           {% endif %}
@@ -92,7 +92,7 @@
               <dt>Time</dt>
               <dd>
                 {% if candidate.effective_timestamp %}
-                  {{ candidate.effective_timestamp|owner_date("source") }}
+                  {{ candidate.effective_timestamp|owner_date }}
                 {% elif candidate.temporal_precision == 'date' %}
                   not evidenced (date-only)
                 {% else %}
@@ -112,7 +112,7 @@
           {% if candidate.confidence is none %}
             <span class="muted">null (not confirmation)</span>
           {% else %}
-            {{ candidate.confidence }}
+            {{ candidate.confidence|owner_number(3) }}
           {% endif %}
         </td>
         <td>

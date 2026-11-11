@@ -10,7 +10,7 @@
  'anaerobic_training_effect': 'Анаэробный эффект Garmin',
  'acute_training_load': 'Нагрузка сессии Garmin'
 } %}
-{% set unit_labels = {'seconds': 'с', 'meters': 'м', 'bpm': 'уд/мин', 'points': 'баллы', 'm/s': 'м/с', 'watts': 'Вт', 'rpm': 'об/мин', '%': '%'} %}
+{% set unit_labels = {'seconds': 'с', 'meters': 'м', 'bpm': 'уд/мин', 'points': '', 'm/s': 'м/с', 'watts': 'Вт', 'rpm': 'об/мин', 'kcal': 'ккал', '%': '%'} %}
 {% block title %}Сессия — Активность — Health-Check{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/activity_detail.css"><link rel="stylesheet" href="/static/owner_compact.css">{% endblock %}
 {% block content %}
@@ -19,7 +19,7 @@
  <p class="muted activity-session-back"><a href="{{ back_href }}">{{ back_label }}</a></p>
  <h2>{{ session.activity_type | owner_activity_type }}</h2>
  <p class="muted">Сохранённая сессия Garmin{% if sel %} · {{ sel.device_model or 'Учётная запись' }}{% endif %} · {{ (session.source_local_date or session.local_wall_time or session.measured_at_utc) | owner_date }}</p>
- <details class="owner-info"><summary>ⓘ О показателях тренировки</summary><p>Средний и максимальный пульс — разные поля Garmin. Пропуски не заменяются нулём. Точные значения, единицы и происхождение — в технических деталях.</p><p>Если источник не сохранил пригодное значение, показатель остаётся отсутствующим, а не нулевым.</p></details>
+ <details class="owner-info"><summary>ⓘ О показателях тренировки</summary><p>Эффект Garmin: шкала от 0 до 5. Нагрузка Garmin — безразмерное значение источника. Средний и максимальный пульс — разные поля Garmin. Пропуски не заменяются нулём. Точные значения, единицы и происхождение — в технических деталях.</p><p>Если источник не сохранил пригодное значение, показатель остаётся отсутствующим, а не нулевым.</p></details>
  <div class="activity-detail-grid">
   {% for card in detail.cards %}
   <article class="activity-metric-card" data-metric="{{ card.metric_code }}">
@@ -27,9 +27,10 @@
    {% if card.state in ['value', 'zero', 'partial'] %}
    <p class="activity-metric-value">
      {% if card.metric_code == 'session_total_calories' %}
-     <span data-owner-state="present">{{ card.value | owner_number }}</span>
+     <span data-owner-state="present">{{ card.value | owner_number }} ккал</span>
      {% elif card.metric_code in ['duration_seconds', 'distance_meters'] %}
      <span data-owner-state="present">{% if card.metric_code == 'duration_seconds' and card.unit == 'seconds' %}{{ card.value|owner_duration }}{% elif card.metric_code == 'distance_meters' and card.unit == 'meters' %}{{ card.value|owner_distance }}{% else %}Единица недоступна{% endif %}</span>
+     {% elif card.metric_code in ['training_effect', 'anaerobic_training_effect'] %}<span data-owner-state="present">{{ card.value | owner_number }} из 5</span>
      {% else %}<span data-owner-state="present">{{ card.value | owner_number }}</span>{% if card.unit %} <span class="activity-metric-unit">{{ unit_labels.get(card.unit, card.unit) }}</span>{% else %} <span class="activity-metric-unit muted">Единица не предоставлена</span>{% endif %}{% endif %}
    </p>
    {% if card.state == 'partial' %}{{ owner.state_chip('partial') }}{% endif %}

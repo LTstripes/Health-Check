@@ -185,10 +185,10 @@ def test_sleep_form_only_retains_human_overrides_and_window_expansion(statistics
         assert form.selected["google_source_id"] == form.selected["google_sleep_source_id"] == ""
         cell_text = MetricParser(automatic.text).cells[SLEEP_CODE, "right"]
         if period == "7":
-            assert "1 ч 0 мин" in cell_text
-            assert "Выберите источник сна." not in cell_text
+            assert "1 ч 00 мин" in cell_text
+            assert "Выбери источник сна." not in cell_text
         else:
-            assert "Выберите источник сна." in cell_text
+            assert "Выбери источник сна." in cell_text
         for explicit in (
             {"google_sleep_source_id": week.id},
             {"google_source_id": week.id},
@@ -419,7 +419,10 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
                 assert "без наблюдений" not in text
             else:
                 assert f"Допустимо: {cell['aggregation']['eligible_count']}" in text
-                assert f"без наблюдений {cell['missing_day_count']} дней" in text
+                from healthcheck.web.owner_presentation import owner_plural
+                missing = cell['missing_day_count']
+                word = owner_plural(missing, 'день', 'дня', 'дней')
+                assert f"без наблюдений {missing} {word}" in text
                 assert f"Наблюдений: {cell['observed_count']}" in details
                 assert f"дат с наблюдениями: {cell['observed_day_count']}" in details
                 assert cell["coverage"]["state"] in text
@@ -465,7 +468,7 @@ def test_route_matches_accepted_packet(statistics_ui, monkeypatch, case, days):
             assert 'statistics-source-choice' not in header
             assert f'type="hidden" form="statistics-controls" name="{provider}_source_id"' in header
     if case == "ambiguous":
-        assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
+        assert "8 ч 00 мин" in cells[SLEEP_CODE, "left"]
         assert "Выбери источник" in cells[SLEEP_CODE, "right"]
     export = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
     if export:
@@ -519,7 +522,7 @@ def test_explicit_independent_selection_and_period_persistence(statistics_ui):
     cells = MetricParser(response.text).cells
     assert "ambiguous_google_main: 2" in cells[SLEEP_CODE, "right"]
     assert "Недоступно" in cells[SLEEP_CODE, "right"]
-    assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
+    assert "8 ч 00 мин" in cells[SLEEP_CODE, "left"]
     for days in (7, 30):
         assert client.get("/statistics", params={**params, "days": days}).status_code == 200
 
@@ -558,7 +561,7 @@ def test_missing_google_keeps_the_independent_empty_side(statistics_ui):
     response = client.get("/statistics", params={"end_date": str(END)})
     assert response.status_code == 200
     cells = MetricParser(response.text).cells
-    assert "8 ч 0 мин" in cells[SLEEP_CODE, "left"]
+    assert "8 ч 00 мин" in cells[SLEEP_CODE, "left"]
     assert "Источник отсутствует" in cells[SLEEP_CODE, "right"]
     assert "Недоступно" in cells[SLEEP_CODE, "right"]
     assert ("activity_session_count", "right") not in cells
@@ -569,14 +572,14 @@ def test_missing_google_keeps_the_independent_empty_side(statistics_ui):
     [
         (SLEEP_CODE, None, "Недоступно"),
         (SLEEP_CODE, 0.0, "0 мин"),
-        (SLEEP_CODE, 28800.0, "8 ч 0 мин"),
+        (SLEEP_CODE, 28800.0, "8 ч 00 мин"),
         (SLEEP_CODE, 24600.0, "6 ч 50 мин"),
-        (SLEEP_CODE, 28830.5, "8 ч 1 мин"),
+        (SLEEP_CODE, 28830.5, "8 ч 01 мин"),
         (SLEEP_CODE, 0.001, "<1 мин"),
         ("tennis_duration_seconds", None, "Недоступно"),
         ("tennis_duration_seconds", 0, "0 мин"),
-        ("tennis_duration_seconds", 3600.0, "1 ч 0 мин"),
-        ("tennis_duration_seconds", 3661.25, "1 ч 1 мин"),
+        ("tennis_duration_seconds", 3600.0, "1 ч 00 мин"),
+        ("tennis_duration_seconds", 3661.25, "1 ч 01 мин"),
         ("tennis_duration_seconds", 59.999, "<1 мин"),
         ("cycling_distance_meters", None, "Недоступно"),
         ("cycling_distance_meters", 0.0, "0 км"),

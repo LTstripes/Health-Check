@@ -419,7 +419,7 @@ def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary
     # Latest correction 7→3, explicit zero included; null/missing/invalid excluded.
     assert 'data-steps-total>20</dd>' in html and 'data-steps-mean>7</dd>' in html
     assert '3 из 7 дней с данными' not in html
-    assert 'data-steps-cursor hidden' in html and 'Выберите день' in html
+    assert 'data-steps-cursor hidden' in html and 'Выбери день' in html
     assert 'data-steps-info="garmin"' in html
     assert "Точное среднее: 20 / 3" in html
     assert 'role="region" aria-label="Шаги Garmin по завершённым дням"' in html
