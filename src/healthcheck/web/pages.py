@@ -70,6 +70,7 @@ from healthcheck.web.query import (
 )
 from healthcheck.web.read_snapshot import ensure_read_snapshot
 from healthcheck.web.sleep_comparison import comparison_charts, comparison_value
+from healthcheck.web.sleep_context import read_sleep_context
 from healthcheck.web.sleep_timeline import (
     SLEEP_NIGHT_ENDPOINT,
     SLEEP_TIMELINE_PROVIDERS,
@@ -1009,6 +1010,7 @@ def _render_sleep_timeline(
                 ranges,
                 schedule_settings=schedule_settings,
                 travel_ranges=travel_ranges,
+                context=read_sleep_context(session, start=end - timedelta(days=days - 1), end=end),
                 google_source_id=google_source_id,
                 google_inventory=read_sleep_source_inventory(session),
                 days=days,

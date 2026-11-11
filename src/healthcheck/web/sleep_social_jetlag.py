@@ -11,9 +11,10 @@ def _clock(minutes):
     return f"{rounded // 60:02d}:{rounded % 60:02d}"
 
 
-def build_social_jetlag(inputs, settings, history=None):
+def travel_night_reasons(inputs, history=None):
+    """Shared source-local travel exclusions for Sleep UI comparisons."""
     nights = inputs["nights"]
-    exclusions = list(inputs["night_exclusions"])
+    exclusions = inputs["night_exclusions"]
     travel = {}
     previous_zone, previous_changed = None, False
     # Within-night changes are already excluded by the accepted reader, but
@@ -33,6 +34,13 @@ def build_social_jetlag(inputs, settings, history=None):
             travel[night["record_id"]] = ("timezone_change" if changed else
                                           "night_after_timezone_change")
         previous_zone, previous_changed = zone, changed
+    return travel
+
+
+def build_social_jetlag(inputs, settings, history=None):
+    nights = inputs["nights"]
+    exclusions = list(inputs["night_exclusions"])
+    travel = travel_night_reasons(inputs, history)
     partitions = defaultdict(list)
     unknown = 0
     night_types = {}
