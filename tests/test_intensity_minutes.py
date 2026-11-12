@@ -211,7 +211,9 @@ def test_overview_current_week_and_statistics_routes(database, monkeypatch, days
         if days == 4:
             assert '<strong>80</strong> из 150' in card
         elif days:
-            assert '<strong>≥ 40</strong>' in card and "данные за 2 из 4 дней" in card
+            assert '<strong class="owner-value-low">≥ 40</strong>' in card
+            assert 'data-coverage-qualifier="2/4"' in card
+            assert "2 из 4 дней" in card
         else:
             assert "нет данных" in card and "<strong>0</strong>" not in card
         for period in ("7", "30"):

@@ -238,6 +238,17 @@ def owner_distance_cell(value: object) -> str:
     return owner_distance(value).removesuffix(" км")
 
 
+def owner_low_coverage(count: int | None, days: int | None) -> bool:
+    """Dim only when both coverage counts are known."""
+    from healthcheck.web.overview_coverage import overview_low_coverage
+
+    return (count is not None and days is not None and days > 0
+            and overview_low_coverage(count, days))
+
+
 def register_owner_filters(env: object) -> None:
+    from healthcheck.web.overview_coverage import OVERVIEW_COVERAGE_THRESHOLD
+
+    env.globals["owner_coverage_threshold"] = OVERVIEW_COVERAGE_THRESHOLD
     env.filters.update({name: value for name, value in globals().items()
                         if name.startswith("owner_") and callable(value)})

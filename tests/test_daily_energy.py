@@ -159,6 +159,11 @@ def test_overview_and_statistics_html(database, days, monkeypatch):
         section = stats.text.split('data-statistics-energy', 1)[1].split('</section>', 1)[0]
         assert '<table>' in section and '<caption>' in section and '<details' in section
         assert section.count('data-energy-date=') == 7
+        if days == 2:
+            assert 'data-coverage-qualifier="2/7"' in section
+            assert 'owner-value-low' in section
+        if days == 7:
+            assert 'data-coverage-qualifier=' not in section
         if days < 7:
             assert 'data-energy-state="missing"' in section and 'нет данных' in section
         if days:

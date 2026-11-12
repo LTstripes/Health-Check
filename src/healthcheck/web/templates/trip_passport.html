@@ -74,24 +74,26 @@
     <section class="passport-tiles" aria-label="Коротко">
       <div class="card passport-tile">
         <h3>Шаги</h3>
-        <p class="passport-figure">{{ passport_mean(p.steps.mean_exact) }}</p>
-        <p class="muted">в среднем за завершённый день · {{ p.steps.counted_day_count }} из {{ p.period.day_count }} {{ p.period.day_count|owner_plural("дня", "дней", "дней") }}</p>
+        <p class="passport-figure{% if p.steps.counted_day_count|owner_low_coverage(p.period.day_count) %} owner-value-low{% endif %}">{{ passport_mean(p.steps.mean_exact) }}</p>
+        <p>{{ owner_ui.value_meta("Garmin", count=p.steps.counted_day_count, days=p.period.day_count) }} · в среднем за завершённый день</p>
         {% if p.steps.total is not none %}<p class="muted">Всего за эти дни: {{ passport_steps(p.steps.total) }}</p>{% endif %}
       </div>
       <div class="card passport-tile">
         <h3>Сон</h3>
         {% for name, provider in p.sleep.providers.items() %}
-        <p><strong>{{ sleep_names.get(name, name) }}</strong>: {{ p.coverage.sleep_nights_with_value[name] }} {{ p.coverage.sleep_nights_with_value[name]|owner_plural("ночь", "ночи", "ночей") }} с данными</p>
+        <p><strong{% if p.coverage.sleep_nights_with_value[name]|owner_low_coverage(p.period.day_count) %} class="owner-value-low"{% endif %}>{{ p.coverage.sleep_nights_with_value[name] }} {{ p.coverage.sleep_nights_with_value[name]|owner_plural("ночь", "ночи", "ночей") }} с данными</strong> {{ owner_ui.value_meta(sleep_names.get(name, name), count=p.coverage.sleep_nights_with_value[name], days=p.period.day_count, noun="nights") }}</p>
         {% else %}<p class="muted">Источник сна не выбран.</p>{% endfor %}
       </div>
       <div class="card passport-tile">
         <h3>Тренировки</h3>
         <p class="passport-figure">{{ p.workouts.session_count if p.workouts.session_count is not none else '—' }}</p>
+        <p>{{ owner_ui.value_meta("Garmin", p.period.start_date|owner_date ~ " — " ~ p.period.end_date|owner_date) }}</p>
         <p class="muted">{% if p.workouts.state != 'complete' %}список может быть неполным{% else %}из сохранённого журнала{% endif %}</p>
       </div>
       <div class="card passport-tile">
         <h3>Комментарии</h3>
         <p class="passport-figure">{{ p.context.rows|length }}</p>
+        <p>{{ owner_ui.value_meta("Health-Check", p.period.start_date|owner_date ~ " — " ~ p.period.end_date|owner_date) }}</p>
         <p class="muted">{% if p.context.state == 'truncated' %}показаны не все: предел {{ p.context.row_limit }}{% else %}в этом периоде{% endif %}</p>
       </div>
     </section>

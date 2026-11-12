@@ -1,7 +1,2 @@
-{# Short visible coverage qualifier: shown only when some, but not all, completed days have a value.
-   Counts come from the existing packets; nothing is recomputed here. #}
-{% macro coverage_qualifier(count, days) -%}
-{% if count is not none and days and 0 < count < days -%}
-<span class="overview-coverage" data-coverage-qualifier="{{ count }}/{{ days }}">{{ count }} из {{ days }} {{ days|owner_plural("дня", "дней", "дней") }}</span>
-{%- endif %}
-{%- endmacro %}
+{% from 'owner_ui.html' import value_meta %}
+{% macro coverage_qualifier(count, days) -%}{{ value_meta(none, count=count, days=days) }}{%- endmacro %}

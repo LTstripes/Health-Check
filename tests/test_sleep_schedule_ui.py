@@ -133,7 +133,8 @@ def test_separate_sources_toggle_table_summary_and_travel(tmp_path):
     assert 'top:0px;' in html and 'top:7px;' in html
     assert 'var(--series-1)' in html and 'var(--series-4)' in html
     assert 'Часовой пояс: Europe/Moscow → Asia/Bangkok' in html
-    assert 'Начало сна: разброс ±0 мин · Окончание: ±0 мин · 7 из 7 ночей' in html
+    assert 'Начало сна: разброс ±0 мин · Окончание: ±0 мин' in html
+    assert 'data-coverage-qualifier="7/7"' not in html
     assert '<details class="owner-details"><summary>Таблица</summary>' in html
     assert 'scope="col">Часовой пояс' in html
     assert 'aria-label="8 окт · Garmin · 23:00 → 07:00 · 8 ч 00 мин' in html
@@ -174,3 +175,11 @@ def test_production_http_packet_and_js_render(tmp_path, days):
     assert result["html"].count('data-schedule-date=') == days
     assert 'data-schedule-bar=' in result["html"]
     assert len(response.content) < 1_000_000
+
+
+def test_schedule_partial_coverage_uses_supplied_policy(tmp_path):
+    data = sleep_timeline_client(_timeline(count=4))
+    [result] = _render(tmp_path, {"data": data, "threshold": {"numerator": 2, "denominator": 3}})
+    assert 'data-coverage-qualifier="4/7"' in result["html"]
+    assert 'class="owner-value-low"' in result["html"]
+    assert '4 из 7 ночей' in result["html"]

@@ -4,6 +4,7 @@
 {% block content %}
 {% if sleep_view == 'timeline' %}
 {% include "sleep_timeline.html" %}
+<span hidden id="sleep-coverage-threshold" data-numerator="{{ owner_coverage_threshold.numerator }}" data-denominator="{{ owner_coverage_threshold.denominator }}"></span>
 {% include "sleep_schedule.html" %}
 {% include "sleep_context.html" %}
 {% else %}

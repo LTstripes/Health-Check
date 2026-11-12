@@ -1,5 +1,5 @@
 {% from 'overview_period_chart.html' import period_chart, period_values with context %}
-{% from 'overview_coverage.html' import coverage_qualifier %}
+{% from 'owner_ui.html' import value_meta %}
 {% set bb = overview.body_battery %}
 {% set selected = bb.selected %}
 {% set reasons = {
@@ -35,9 +35,9 @@
       {% for exclusion in dto.exclusions %}<p>{{ exclusion.source_local_date | owner_date if exclusion.source_local_date else 'Дата неизвестна' }}: {{ reasons.get(exclusion.reason, exclusion.reason) }}</p>{% endfor %}
   {{ period_values(bb.figure, 'Максимумы Body Battery') }}</div></details>{% endif %}
   </div>
-  <p class="overview-source">Среднее дневных максимумов {% if selected and selected.mean_display is not none %}{{ coverage_qualifier(selected.eligible_day_count, selected.requested_day_count) }}{% endif %}</p>
+  <p class="overview-source">{{ value_meta("Garmin", (overview.completed_window.start_date|owner_date ~ " — " ~ overview.completed_window.end_date|owner_date) if not overview.completed_window.empty else none, selected.eligible_day_count if selected and selected.mean_display is not none else none, selected.requested_day_count if selected else none) }}</p>
     <div data-bb-window="selected" data-bb-window-state="{{ selected.state if selected else 'no_completed_days' }}">
-      <strong>{{ selected.mean_display if selected and selected.mean_display is not none else '—' }}</strong>
+      <strong{% if selected and selected.eligible_day_count|owner_low_coverage(selected.requested_day_count) %} class="owner-value-low"{% endif %}>{{ selected.mean_display if selected and selected.mean_display is not none else '—' }}</strong>
       {% if selected and selected.reason %}<p class="muted">{{ reasons.get(selected.reason, selected.reason) }}</p>{% endif %}
     </div>
   {% if bb.figure and bb.figure.points | selectattr('value', 'ne', none) | list %}

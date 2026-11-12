@@ -418,6 +418,9 @@ def test_compact_steps_real_route_preserves_cells_and_exact_observed_day_summary
     html = steps_html(response)
     # Latest correction 7→3, explicit zero included; null/missing/invalid excluded.
     assert 'data-steps-total>20</dd>' in html and 'data-steps-mean>7</dd>' in html
+    assert 'class="owner-value-low"><dt>Сумма' in html
+    assert 'class="owner-value-low"><dt>В среднем' in html
+    assert 'data-coverage-qualifier="3/7"' in html
     assert '3 из 7 дней с данными' not in html
     assert 'data-steps-cursor hidden' in html and 'Выбери день' in html
     assert 'data-steps-info="garmin"' in html

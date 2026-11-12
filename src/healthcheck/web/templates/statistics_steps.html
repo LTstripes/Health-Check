@@ -1,3 +1,4 @@
+{% from 'owner_ui.html' import value_meta %}
 {% from 'statistics_steps_chart.html' import steps_info with context %}
 <section class="statistics-steps" aria-labelledby="statistics-steps-title" data-statistics-steps>
   <h2 id="statistics-steps-title">Шаги</h2>
@@ -56,6 +57,7 @@
   {% if selected_steps_period == 'all_time' %}
     {% include "statistics_steps_all_time.html" %}
   {% else %}
+  {% if garmin_steps_view and garmin_steps_view.assessed %}<p>{{ value_meta(garmin_steps_view.provider, garmin_steps_view.start|owner_date ~ " — " ~ garmin_steps_view.end|owner_date, garmin_steps_view.count, garmin_steps_view.days) }}</p>{% endif %}
   {% if compact_steps %}{% with view=garmin_steps_view %}{% include "statistics_steps_chart.html" %}{% endwith %}{% endif %}
   {% if steps.reason in ['source_selection_required', 'source_not_evidenced', 'source_not_found'] %}
   <p data-steps-selection="required">{% if steps.source_choices %}Выбери источник Garmin для шагов.{% else %}Нет подтверждённого источника Garmin за выбранный период.{% endif %}</p>

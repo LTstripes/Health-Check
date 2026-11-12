@@ -1,3 +1,4 @@
+{% from 'owner_ui.html' import value_meta %}
 <div data-overview-rhr data-rhr-mode="{{ overview.rhr.mode }}">
   {% set reasons = {
     'source_not_found': 'Источник не выбран или сохранённый источник не найден.',
@@ -41,12 +42,13 @@
               </div></details>
       </div>
       {% if dto.mean_display is not none %}
-        <strong>{{ dto.mean_display }} уд/мин</strong>
+        <strong{% if dto.eligible_day_count|owner_low_coverage(dto.requested_day_count) %} class="owner-value-low"{% endif %}>{{ dto.mean_display }} уд/мин</strong>
       {% else %}
         {% if dto.state == 'no_eligible_in_period' %}<p>Нет пригодных наблюдений в выбранном периоде.</p>
         {% elif dto.state == 'search_incomplete' %}<p>Поиск не завершён. {{ reasons.get(dto.reason, dto.reason) }}</p>
         {% else %}<p>{{ reasons.get(dto.reason, 'Среднее недоступно.') }}</p>{% endif %}
       {% endif %}
+      {% if dto.mean_display is not none %}<p>{{ value_meta(item.label, dto.query.requested_start_date|owner_date ~ " — " ~ dto.query.requested_end_date|owner_date, dto.eligible_day_count, dto.requested_day_count) }}</p>{% endif %}
       {% if dto.reason == 'source_selection_required' %}
         <form method="get" action="/brief" class="owner-controls">
           {% for key, value in overview_params.items() if key not in ['garmin_source_id', 'google_rhr_source_id'] %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
