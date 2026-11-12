@@ -78,7 +78,8 @@ def _period_mean(session, settings, *, window, source_id, metric_code, cached_se
         with localcontext() as context:
             context.prec = 40
             mean = Decimal(exact.numerator) / Decimal(exact.denominator)
-    figure = dated_chart(rows, start=start, end=end, zero_axis=metric_code.startswith("sleep"))
+    figure = dated_chart(rows, start=start, end=end, zero_axis=metric_code.startswith("sleep"),
+                         axis_unit=3600 if metric_code == "sleep_duration_seconds" else 1)
     return dict(result, mean_value=mean,
                 mean_display=overview_number(mean) if mean is not None else None,
                 eligible_days=len(eligible), partial_days=sum(

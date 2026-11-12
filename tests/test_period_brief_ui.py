@@ -1679,7 +1679,7 @@ def test_344_sleep_ticks_and_freshness_preserve_existing_evidence(
     assert page.status_code == 200
     sleep = page.context['charts']['sleep']
     control = dated_chart(sleep['points'], start=date.fromisoformat(sleep['start']),
-                          end=date.fromisoformat(sleep['end']), zero_axis=True)
+                          end=date.fromisoformat(sleep['end']), zero_axis=True, axis_unit=3600)
     assert {k: v for k, v in sleep.items() if k != 'hour_ticks'} == control
     assert [tick['label'] for tick in sleep['hour_ticks']] == ['0 ч', '2 ч', '4 ч', '6 ч']
     assert sleep['points'][2]['value'] == 0
