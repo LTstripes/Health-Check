@@ -72,7 +72,7 @@ const git = args => execFileSync('git', args, { cwd: path.join(__dirname, '..'),
       await open('sleep timeline', '/sleep?wake_date=2026-10-10');
       const timeline = page.locator('[data-sleep-timeline]');
       assert.equal(await timeline.count(), 1);
-      assert.equal(await page.locator('.sleep-source-switch [aria-current]').innerText(), 'Динамика');
+      assert.equal(await page.locator('.sleep-source-switch [aria-current]').innerText(), 'Ночь и динамика');
       assert.equal(await timeline.locator('[data-sleep-series-toggle]').count(), 2);
       assert.equal(await timeline.locator('[data-sleep-timeline-cell]').count(), 60);
       assert.equal(await timeline.locator('[data-sleep-timeline-cell="value"]').count(), 48);

@@ -400,7 +400,7 @@ def test_default_date_visible_primary_navigation(ui, monkeypatch):
     response = client.get("/context")
     assert FormParser(response.text).values["event_date"] == "2099-01-02"
     assert 'aria-label="Основные разделы"' in response.text
-    assert response.text.count('href="/context"') == 1
+    assert response.text.count('href="/context"') == 2
     assert 'href="/context" class="active" aria-current="page">Комментарии</a>' in response.text
     assert "Текст сохраняется без перефразирования" in response.text
 

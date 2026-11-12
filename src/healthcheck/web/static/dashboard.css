@@ -699,3 +699,24 @@ main, .legal { max-width: var(--owner-content-width); }
 .statistics-period-control .statistics-info-content { top: 100%; left: 0; right: auto; }
 .statistics-period-control > label { flex: 1; min-width: 0; }
 .statistics-steps-panels .statistics-info-content table { min-width: 30rem; }
+
+main, .legal { margin-inline: auto; }
+.owner-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px; }
+.owner-tabs a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
+.owner-tabs a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+.owner-footer-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 12px; }
+.owner-theme-choices { margin-top: 0; }
+.top .owner-nav a:last-child { margin-top: 8px; border-top: 1px solid var(--line); }
+@media (min-width: 1025px) {
+  .legal .owner-theme { position: fixed; z-index: 6; left: 24px; bottom: 24px; width: calc(var(--owner-rail-width) - 48px); }
+  .owner-rail-end { margin-bottom: 60px; }
+}
+@media (max-width: 1024px) {
+  body { display: block; background: var(--bg); }
+  .top { position: sticky; height: 56px; padding: 6px 16px; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; overflow: hidden; }
+  .brand { flex: none; margin: 0; }
+  .top .owner-nav { display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; width: auto; flex: 1; }
+  .top .owner-nav a:last-child { margin-top: 0; border-top: 0; border-left: 1px solid var(--line); }
+  .owner-rail-end { flex: none; }
+  .legal .owner-theme { max-width: 240px; margin-top: 12px; }
+}

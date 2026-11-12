@@ -1,9 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Лабораторные отчёты — Health-Check{% endblock %}
-{% block styles %}<style>
-.lab-table{width:100%;border-collapse:collapse}.lab-table th,.lab-table td{padding:10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}.lab-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.lab-grid label{display:flex;flex-direction:column;gap:4px}.lab-grid input,.lab-grid select,.lab-grid textarea{width:100%;box-sizing:border-box;min-height:36px}.lab-warning{padding:14px;background:var(--attention-bg);color:var(--attention-ink);margin:16px 0}.lab-section{padding:18px 0;border-bottom:1px solid var(--line)}.lab-section summary{cursor:pointer}.lab-small{font-size:14px;overflow-wrap:anywhere}code{overflow-wrap:anywhere}
-.lab-report-list{display:grid;gap:12px;margin-top:12px}.lab-report-card{margin:0}.lab-report-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px}.lab-report-head h4{margin:0;font-size:1.0625rem;font-weight:600;overflow-wrap:anywhere}.lab-report-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 20px;margin:12px 0 8px}.lab-report-meta dt{color:var(--muted);font-size:.75rem;font-weight:600}.lab-report-meta dd{margin:2px 0 0;overflow-wrap:anywhere}.lab-report-card details{margin-top:8px}.lab-status-accepted{background:var(--accent-soft);color:var(--ink)}.lab-status-staging{background:var(--attention-bg);color:var(--attention-ink);border:1px solid var(--attention-ink)}
-</style>{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/labs.css">{% endblock %}
 {% macro leaf(key, value) %}
 {% set name = key.split('.')[-1] %}
 {% set labels = {'patient_link':'Принадлежность пациенту', 'report_link':'Принадлежность отчёту', 'source_match':'Сверка с оригиналом', 'clinic_source':'Клиника / источник', 'performing_lab':'Выполнившая лаборатория', 'report_label':'Название отчёта', 'incomplete':'Неполный отчёт', 'uncertainty':'Сомнения / неполнота', 'transcription':'Способ транскрипции', 'page':'Страница (если известна)', 'support':'Опора в оригинале (если известна)', 'value':'Дата / время как напечатано', 'precision':'Точность даты', 'label_raw':'Исходное название', 'result_raw':'Исходный результат', 'unit_raw':'Единица', 'reference_raw':'Референс', 'flag_raw':'Флаг', 'value_kind':'Тип значения', 'decimal':'Точная десятичная строка', 'comparator':'Сравнение', 'qualitative':'Качественное значение', 'method_raw':'Метод (если указан)', 'equipment_kit_notes':'Оборудование / набор (отдельно от метода)', 'specimen_raw':'Материал'} %}
@@ -58,10 +55,10 @@
 </form></details></div>
 {% endif %}
 {% if listing is defined %}
-<section class="lab-section"><h3>Показатели</h3>
+<section class="lab-section" id="lab-analytes"><h3>Показатели</h3>
 <ul class="lab-small">{% for item in history_listing.analytes if item.count %}<li><a href="/labs/analytes/{{ item.key }}">{{ item.name }}</a> · {{ item.count }} результатов · {{ item.latest.date_text }}{{ ' (дата печати)' if item.latest.date and item.latest.date_kind == 'printed' else '' }} · <span style="white-space:pre-wrap">{{ item.latest.row.result_raw }} {{ item.latest.row.unit_raw if item.latest.row.unit_raw is not none else 'единица не указана' }}</span></li>{% else %}<li class="muted">Подтверждённых показателей пока нет.</li>{% endfor %}</ul>
 </section>
-<div class="lab-section"><h3>Сохранённые отчёты</h3>
+<div class="lab-section" id="lab-reports"><h3>Сохранённые отчёты</h3>
 {% if not listing.reports %}<p>Отчётов пока нет.</p>{% else %}<p class="muted lab-small">Сначала новые по дате результата (или печати). Поля показаны как в транскрипции; пустое поле — «не указано».</p>{% endif %}
 <div class="lab-report-list">
 {% for entry in report_entries %}{% set card = entry.card %}{% set report = entry.report %}
@@ -87,6 +84,6 @@
 </div>
 {% if listing.more %}<p>Показаны первые 200 отчётов.</p>{% endif %}</div>
 {% endif %}
-<div class="lab-section"><h3>Добавить PDF и транскрипцию</h3><p>Один отчёт одного пациента. PDF до 10 MiB; UTF-8 draft <code>lab-draft-v1</code> до 256 KiB. PDF остаётся неизменным. <a href="/labs/schema">Схема structured draft</a>. Прямой транспорт из чата отдельно не проверен.</p>
+<div class="lab-section" id="lab-add"><h3>Добавить PDF и транскрипцию</h3><p>Один отчёт одного пациента. PDF до 10 MiB; UTF-8 draft <code>lab-draft-v1</code> до 256 KiB. PDF остаётся неизменным. <a href="/labs/schema">Схема structured draft</a>. Прямой транспорт из чата отдельно не проверен.</p>
 <form method="post" action="/labs/stage" enctype="multipart/form-data"><input type="hidden" name="operation_id" value="{{ operation_id }}-stage"><p><label>Исходный PDF <input type="file" name="pdf" accept="application/pdf,.pdf" required></label></p><p><label>Structured draft <input type="file" name="draft" accept="application/json,.json" required></label></p><button type="submit">Загрузить в staging для проверки</button></form></div>
 {% endblock %}

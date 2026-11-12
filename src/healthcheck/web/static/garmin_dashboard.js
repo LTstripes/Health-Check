@@ -28,7 +28,7 @@
     const mode = location.hash === "#training-recovery" ? "training-recovery" : "activity-journal";
     document.querySelectorAll("[data-activity-panel]").forEach(el => { el.hidden = el.id !== mode; });
     document.querySelectorAll("[data-activity-mode]").forEach(el => {
-      const selected = el.dataset.activityMode === mode;
+      const selected = el.dataset.activityMode === (location.hash === "#activity-comparison" ? "activity-comparison" : mode);
       el.classList.toggle("selected", selected);
       if (selected) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current");
     });

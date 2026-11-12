@@ -1102,18 +1102,10 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
         ("/sleep", "Сон"),
         ("/garmin", "Активность"),
         ("/statistics", "Статистика"),
-        ("/imports", "Данные"),
+        ("/labs", "Анализы"),
         ("/context", "Комментарии"),
+        ("/imports", "Данные"),
     ]
-    expected_modes = {
-        "Обзор": None,
-        "Вес": "Вес и состав тела",
-        "Сон": None,
-        "Активность": "Тренировки и восстановление",
-        "Статистика": "Независимые источники за период",
-        "Данные": "Проверка импорта",
-        "Комментарии": None,
-    }
     with TestClient(
         app, base_url="http://127.0.0.1:8120", headers={"Origin": "http://127.0.0.1:8120"}
     ) as client:
@@ -1124,32 +1116,29 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
             parsed = _OwnerShellParser(response.text)
             assert [(attrs["href"], text) for attrs, text in parsed.links] == expected
             assert [text for attrs, text in parsed.links if attrs.get("aria-current")] == [section]
-            assert parsed.headings == [
-                "Комментарии / Контекст" if section == "Комментарии" else section
-            ]
+            assert parsed.headings == [section]
             assert 'href="#owner-main"' in response.text
             assert 'id="owner-main" tabindex="-1"' in response.text
             assert parsed.details and all("open" not in attrs for attrs in parsed.details)
             assert '<html lang="ru"' in response.text
             assert "К содержимому" in response.text
             assert 'aria-label="Основные разделы"' in response.text
-            if expected_modes[section]:
-                assert expected_modes[section] in response.text
-            else:
-                assert 'class="owner-page-mode"' not in response.text
+            assert 'class="owner-page-mode"' not in response.text
             if section == "Сон":
                 switch = response.text.split('aria-label="Источники сна">', 1)[1].split(
                     "</nav>", 1
                 )[0]
-                for view, label in (("timeline", "Динамика"), ("garmin", "Garmin"),
-                                    ("google", "Google"), ("compare", "Сравнить")):
+                for view, label in (("timeline", "Ночь и динамика"), ("garmin", "Garmin"),
+                                    ("google", "Google"), ("compare", "Сравнение источников")):
                     assert f'href="/sleep?view={view}' in switch
                     assert f'>{label}</a>' in switch
-                selected = "Сравнить" if path == "/agreement" else "Динамика"
+                selected = "Сравнение источников" if path == "/agreement" else "Ночь и динамика"
                 assert f'aria-current="page">{selected}</a>' in switch
             # The thematic pages are Russian; legacy import detail stays English.
             if (
-                section in ("Обзор", "Вес", "Сон", "Активность", "Статистика", "Комментарии")
+                section in (
+                    "Обзор", "Вес", "Сон", "Активность", "Статистика", "Комментарии", "Анализы"
+                )
                 or path == "/imports"
             ):
                 assert 'class="owner-page-content" lang="en"' not in response.text
@@ -1322,7 +1311,10 @@ def test_owner_shell_observatory_visual_system(tmp_path):
         assert '<html lang="ru"' in overview
         assert "Обзор" in overview and "За период" in overview
         # Loopback footer names the local mode and never claims a home server.
-        assert '<p data-owner-runtime="loopback">Работает локально на этом компьютере.' in overview
+        assert (
+            '<span data-owner-runtime="loopback">Работает локально на этом компьютере.'
+            in overview
+        )
         assert "Домашний сервер" not in overview
         assert "Потребительский BIA — не клиническое измерение" in overview
         assert "К содержимому" in overview
