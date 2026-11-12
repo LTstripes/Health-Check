@@ -279,7 +279,7 @@ def test_training_overview_chronology_zero_missing_and_units(tmp_path):
 
         page = client.get(f"/garmin?garmin_source_id={source_id}")
         assert page.status_code == 200
-        assert "Тренировки и восстановление" in page.text
+        assert "Нагрузка и восстановление" in page.text
         assert "2099-01-02" in page.text
         assert "Дата запроса не подставляется" in page.text
         assert "· единица не указана" in page.text
@@ -312,7 +312,7 @@ def test_training_overview_source_selection_and_partial_evidence(tmp_path):
         assert empty["status"] == "no_data"
         page = client.get("/garmin")
         assert "Источник Garmin пока не найден" in page.text
-        assert "Тренировки и восстановление" in page.text
+        assert "Нагрузка и восстановление" in page.text
 
     engine = create_sqlite_engine(paths)
     try:
