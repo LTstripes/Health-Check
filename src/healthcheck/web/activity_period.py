@@ -19,12 +19,14 @@ from healthcheck.web.owner_presentation import (
     owner_date,
     owner_distance,
     owner_duration,
+    register_owner_filters,
 )
 from healthcheck.web.pages import _persist_error, render_error
 from healthcheck.web.statistics import METRIC_LABELS
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+register_owner_filters(templates.env)
 templates.env.filters.update(owner_activity_type=owner_activity_type,
                              owner_activity_count=owner_activity_count,
                              owner_activity_types=owner_activity_types)

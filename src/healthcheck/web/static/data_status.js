@@ -316,7 +316,7 @@
     if (knownDates.length && dated.length > knownDates.length) dateText += "; другие временные отметки — в потоках";
     [
       ["Даты сохранённых данных по потокам", dateText + (dated.length < items.length ? "; без даты: " + (items.length - dated.length) : "")],
-      ["Последняя сохранённая попытка обновления", attempts.length ? window.healthcheckOwnerDate(attempts[attempts.length - 1], true) : "Неизвестна"]
+      ["Последняя сохранённая попытка обновления", attempts.length ? window.healthcheckOwnerDate(attempts[attempts.length - 1]) : "Неизвестна"]
     ].forEach(([label, value]) => {
       const row = node("div");
       row.append(node("dt", label), node("dd", value));
@@ -438,7 +438,7 @@
       const payload = validate(await response.json());
       failure = "check_failed";
       render(payload);
-      clock.textContent = "Проверено (UTC): " + window.healthcheckOwnerDate(payload.evaluated_at_utc, true) + ". Локальная дата оценки: " + window.healthcheckOwnerDate(payload.evaluation_local_date) + ".";
+      clock.textContent = "Проверено: " + window.healthcheckOwnerDate(payload.evaluated_at_utc) + ". Локальная дата оценки: " + window.healthcheckOwnerDate(payload.evaluation_local_date) + ".";
       feedback.replaceChildren(node("p", "Проверка сохранённых состояний завершена. Даты данных и обновления показаны отдельно."));
     } catch (_) {
       if (controller.signal.aborted) failure = "timeout";

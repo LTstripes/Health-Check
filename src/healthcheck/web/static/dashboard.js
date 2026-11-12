@@ -57,7 +57,7 @@
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
       return "недоступно";
     }
-    return Number(value).toFixed(digits);
+    return window.healthcheckOwnerFormat.number(Number(value), digits);
   }
 
   function ownerState(available, reason) {
@@ -109,20 +109,19 @@
         " Отсутствующий темп не показан как 0.</p>";
       return;
     }
-    const slope = rate.slope_kg_per_week;
     node.innerHTML =
-      '<p>' + (slope > 0 ? 'Вес в среднем увеличивался' : slope < 0 ? 'Вес в среднем снижался' : 'Направленного изменения веса не обнаружено') + '.</p>' +
+      '<p>Изменение веса за период.</p>' +
       "<p><strong>" +
-      fmt(rate.slope_kg_per_week, 3) +
+      window.healthcheckOwnerFormat.number(rate.slope_kg_per_week, 1, true) +
       " кг/нед.</strong></p>" +
       "<p class=\"muted\">" +
       rate.observation_count +
-      " точек за " +
+      " " + window.healthcheckOwnerFormat.plural(rate.observation_count, "точка", "точки", "точек") + " за " +
       rate.covered_span_days +
-      " дней (" +
-      (rate.window_start_date || "") +
+      " " + window.healthcheckOwnerFormat.plural(rate.covered_span_days, "день", "дня", "дней") + " (" +
+      window.healthcheckOwnerDate(rate.window_start_date) +
       " — " +
-      (rate.window_end_date || "") +
+      window.healthcheckOwnerDate(rate.window_end_date) +
       ").</p>";
   }
 
@@ -265,9 +264,9 @@
       // A small nonzero observation must not look like an explicit source zero.
       if (Number(rounded) === 0 || Math.abs(value) >= 1e21) {
         const parts = value.toExponential(digits).split('e');
-        return trimFraction(parts[0]) + 'e' + parts[1];
+        return trimFraction(parts[0]).replace('.', ',').replace('-', '−') + 'e' + parts[1];
       }
-      return trimFraction(rounded);
+      return window.healthcheckOwnerFormat.number(value, digits);
     }
     const node = document.getElementById('weight-history');
     if (!node) return;
@@ -472,7 +471,7 @@
   }
 
   function readableDate(date) {
-    return new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+    return window.healthcheckOwnerDate(date);
   }
 
   function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit, detailId, host, axisDates) {

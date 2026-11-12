@@ -157,7 +157,7 @@ def test_simplified_export_defaults_bind_existing_full_packet(sleep_profile, mon
             if row["provider"] == "google_health"] == [google_id]
     assert 'id="analysis-export-options" hidden' in page.text
     assert '<input type="hidden" name="steps_view" value="completed">' in page.text
-    assert 'Сохранённые показатели и ваши комментарии' in page.text
+    assert 'Сохранённые показатели и твои комментарии' in page.text
     assert 'Скачайте и приложите' not in page.text and '2 MiB' not in page.text
     capture("export.html", page.text)
     capture("export-sources.json", json.dumps(inventory))
@@ -204,7 +204,7 @@ def test_statistics_steps_keep_exact_values_and_explicit_day_choice(
         view = response.context["garmin_steps_view"]
         assert view["selected"] is None and view["selected_index"] is None
         assert 'data-steps-cursor hidden' in response.text
-        assert '<option value="" selected disabled>Выберите день</option>' in response.text
+        assert '<option value="" selected disabled>Выбери день</option>' in response.text
         assert 'class="steps-tick"' in response.text
         assert all(row["value"] is None or isinstance(row["value"], str)
                    for row in view["rows"])

@@ -97,10 +97,13 @@ def test_weight_reaches_weekly_packet_text_and_presentation_with_provenance(prof
     assert fact["provenance"]["temporal_precision"] == "date"
     assert fact["provenance"]["source_timestamp_utc"] is None
     assert weight["daily_series"]["rows"][0]["observed_date"] == fact["observed_date"]
+    assert weight["daily_series"]["rows"][0]["median_kg"] == 80.0
     assert not weight["measured_facts"]["truncated"]
-    assert "80.0 кг" in packet["text"]
+    assert "80 кг" in packet["text"]
     assert "дневная медиана" in packet["text"]
-    assert any("80.0 кг" in text for text in presentation_checked(packet)["facts"])
+    assert "Даты без измерений не заполнены; темп изменения за неделю не рассчитывался." in (
+        packet["text"])
+    assert any("80 кг" in text for text in presentation_checked(packet)["facts"])
 
 
 def test_weight_missing_is_disclosed_without_zero_or_carry_forward(profile):
@@ -110,7 +113,8 @@ def test_weight_missing_is_disclosed_without_zero_or_carry_forward(profile):
     assert weight["measured_facts"]["rows"] == []
     assert weight["daily_series"]["rows"] == []
     assert "это не нулевой вес" in packet["text"]
-    assert "80.0 кг" not in packet["text"]
+    assert "80 кг" not in packet["text"]
+    assert "0 кг" not in packet["text"]
     assert any("это не нулевой вес" in text for text in presentation_checked(packet)["gaps"])
 
 

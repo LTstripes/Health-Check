@@ -131,7 +131,7 @@ def test_no_silent_winner_or_missing_zero(statistics_ui, case, period):
     assert parsed.values[METRIC_CODE, "left"].strip() == "Недоступно"
     assert "Допустимо: 0" not in text
     assert 'data-session-drilldown="cycling_distance_meters"' not in response.text
-    assert ("Выберите Garmin-источник выше" in text) == (case in {"multiple", "conflict"})
+    assert ("Выбери Garmin-источник выше" in text) == (case in {"multiple", "conflict"})
     if case == "conflict":
         assert "duplicate_current_identity: 2" in parsed.details[METRIC_CODE, "left"]
     assert (METRIC_CODE, "right") not in parsed.cells

@@ -17,8 +17,7 @@
       date.hidden = false;
       panel.querySelector("[data-steps-selected-separator]").hidden = false;
       date.dateTime = row.date;
-      const [year, month, day] = row.date.split("-");
-      date.textContent = `${day}.${month}.${year}`;
+      date.textContent = window.healthcheckOwnerShortDate(row.date);
       panel.querySelector("[data-steps-selected-value]").textContent = row.value === null ? "Нет допустимого значения" : row.display;
       panel.querySelector("[data-steps-selected-unit]").textContent = row.value === null ? "" : "шагов";
       const cursor = panel.querySelector("[data-steps-cursor]");

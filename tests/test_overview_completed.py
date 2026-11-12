@@ -116,7 +116,7 @@ def test_real_readers_average_days_and_nights_not_samples_with_no_writes(databas
     assert not {"insert", "update", "delete", "create", "alter"}.intersection(statements)
     sleep, stress, battery = (result[key] for key in (
         "period_sleep", "period_stress", "body_battery"))
-    assert sleep["duration_display"] == "6 ч 0 мин" and sleep["mean_value"] == 21600
+    assert sleep["duration_display"] == "6 ч 00 мин" and sleep["mean_value"] == 21600
     assert stress["mean_display"] == "10"
     assert sleep["eligible_days"] == stress["eligible_days"] == 2
     assert sleep["days"] == stress["days"] == 7
@@ -222,7 +222,7 @@ def test_route_preserves_requested_packet_and_form_but_shows_completed_card_rang
         assert response.context["packet"]["period"]["end_date"] == "2099-01-08"
         assert 'name="end_date" value="2099-01-08"' in response.text
         assert response.context["overview"]["completed_window"]["end_date"] == "2099-01-07"
-        assert "6 ч 0 мин" in response.text
+        assert "6 ч 00 мин" in response.text
         assert 'data-overview-chart="body-battery"' in response.text
         assert "Максимум за сохранённый день" not in response.text
         assert "Дата окончания выбранного периода" not in response.text

@@ -18,19 +18,19 @@
     <line class="steps-axis" x1="{{ view.left }}" y1="150" x2="880" y2="150" />
     {% for tick in view.ticks %}<line class="steps-grid" x1="{{ view.left }}" y1="{{ tick.y }}" x2="880" y2="{{ tick.y }}"/><text class="steps-tick" x="{{ view.left - 12 }}" y="{{ tick.y + 6 }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}
     {% for segment in view.segments %}<line class="steps-line" x1="{{ segment.x1 }}" y1="{{ segment.y1 }}" x2="{{ segment.x2 }}" y2="{{ segment.y2 }}" />{% endfor %}
-    {% for row in view.rows %}{% if row.y is not none %}<circle class="steps-point" cx="{{ row.x }}" cy="{{ row.y }}" r="4"><title>{{ row.date }}: {{ row.display }} шагов</title></circle>{% else %}<path class="steps-gap" d="M{{ row.x - 3 }} 160 l6 6 m-6 0 l6 -6"><title>{{ row.date }}: нет допустимого значения</title></path>{% endif %}{% endfor %}
+    {% for row in view.rows %}{% if row.y is not none %}<circle class="steps-point" cx="{{ row.x }}" cy="{{ row.y }}" r="4"><title>{{ row.date|owner_short_date }}: {{ row.display }} шагов</title></circle>{% else %}<path class="steps-gap" d="M{{ row.x - 3 }} 160 l6 6 m-6 0 l6 -6"><title>{{ row.date|owner_short_date }}: нет допустимого значения</title></path>{% endif %}{% endfor %}
     <line class="steps-cursor" data-steps-cursor hidden x1="0" x2="0" y1="10" y2="170" />
   </svg>
   <div class="steps-day-controls" data-steps-day-controls hidden>
     <button type="button" data-steps-previous aria-label="Предыдущий день">←</button>
-    <label>День <select data-steps-day aria-label="{{ view.provider }}: выбрать день"><option value="" selected disabled>Выберите день</option>{% for row in view.rows %}<option value="{{ loop.index0 }}">{{ row.date|owner_date }}</option>{% endfor %}</select></label>
+    <label>День <select data-steps-day aria-label="{{ view.provider }}: выбрать день"><option value="" selected disabled>Выбери день</option>{% for row in view.rows %}<option value="{{ loop.index0 }}">{{ row.date|owner_date }}</option>{% endfor %}</select></label>
     <button type="button" data-steps-next aria-label="Следующий день">→</button>
   <span class="steps-selected" aria-live="polite" aria-atomic="true"><time data-steps-selected-date class="visually-hidden" hidden></time><span data-steps-selected-separator class="visually-hidden" hidden>: </span><strong data-steps-selected-value></strong> <span data-steps-selected-unit></span></span>
   </div>
   <script type="application/json" data-steps-chart-data>{{ view.rows|tojson }}</script>
   <noscript><p>Точные даты и значения доступны через значок информации у названия источника.</p></noscript>
   {% endif %}
-  {% else %}<p data-steps-summary-unavailable>Итог по сохранённым дням пока недоступен. Выберите источник или проверьте подробности ниже.</p>{% endif %}
+  {% else %}<p data-steps-summary-unavailable>Итог по сохранённым дням пока недоступен. Выбери источник или проверь подробности ниже.</p>{% endif %}
 
 </div>
 

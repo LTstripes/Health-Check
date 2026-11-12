@@ -25,7 +25,7 @@
       <dt>Текущий подтверждённый вес</dt>
       <dd>
         {% if payload.current.available %}
-          {{ '%.1f'|format(payload.current.value_kg) }} кг
+          {{ payload.current.value_kg|owner_number }} кг
           <span class="muted">на {{ payload.current.observed_date|owner_date }} (источник)</span>
         {% else %}
           {{ owner_ui.state_chip(weight_owner_state(payload.current.available, payload.current.reason)) }}
@@ -37,7 +37,7 @@
       <dt>Цель</dt>
       <dd>
         {% if payload.goal_kg is not none %}
-          {{ '%.1f'|format(payload.goal_kg) }} кг
+          {{ payload.goal_kg|owner_number }} кг
           <span class="muted">Настроенная цель — ориентир, а не оценка «хорошо/плохо».</span>
         {% else %}
           <span class="muted">Не настроена. Настройка цели появится в разделе «Настройки и контекст».</span>

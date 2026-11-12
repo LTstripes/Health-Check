@@ -180,7 +180,7 @@ def test_incomplete_activity_keeps_complete_sleep(statistics_ui, monkeypatch):
     response = client.get("/statistics", params={"period": "calendar_year", "calendar_year": 2099})
     parser = MetricParser(response.text)
     assert parser.values["activity_session_count", "left"].strip() == "Недоступно"
-    assert parser.values[SLEEP_CODE, "left"].strip() == "8 ч 0 мин"
+    assert parser.values[SLEEP_CODE, "left"].strip() == "8 ч 00 мин"
     assert "eligible_saved_nights: 1" in parser.details[SLEEP_CODE, "left"]
     export(response, "independent")
 
@@ -198,7 +198,7 @@ def test_annual_selection_is_explicit_bounded_and_retained(statistics_ui, monkey
     for period in ("trailing365", "calendar_year", "year_to_date"):
         params = {"period": period, "calendar_year": 2099, "end_date": "2099-01-08"}
         response = client.get("/statistics", params=params)
-        assert "8 ч 0 мин" in MetricParser(response.text).cells[SLEEP_CODE, "left"]
+        assert "8 ч 00 мин" in MetricParser(response.text).cells[SLEEP_CODE, "left"]
         export(response, f"ambiguous-{period}")
         params.update(garmin_source_id=garmin.id, google_source_id=google.id)
         response = client.get("/statistics", params=params)
@@ -229,7 +229,7 @@ def test_annual_selection_is_explicit_bounded_and_retained(statistics_ui, monkey
     ({"period": "calendar_year", "calendar_year": 2095, "end_date": "2096-02-29"},
      "1 января 2095 — 31 декабря 2095 · 365 дней"),
     ({"period": "year_to_date", "end_date": "2096-01-01", "calendar_year": 2095},
-     "1 января 2096 — 1 января 2096 · 1 дней"),
+     "1 января 2096 — 1 января 2096 · 1 день"),
 ])
 def test_calendar_and_ytd_controls_use_only_applicable_bounds(statistics_ui, params, bounds):
     session, paths, client = statistics_ui
@@ -241,7 +241,7 @@ def test_calendar_and_ytd_controls_use_only_applicable_bounds(statistics_ui, par
     parser = MetricParser(response.text)
     assert "Источник отсутствует" in parser.cells[SLEEP_CODE, "right"]
     assert parser.values[SLEEP_CODE, "left"].strip() == (
-        "8 ч 0 мин" if params["period"] == "calendar_year" else "Недоступно"
+        "8 ч 00 мин" if params["period"] == "calendar_year" else "Недоступно"
     )
     assert "Google − Garmin:" not in response.text
 

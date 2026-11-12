@@ -19,15 +19,15 @@
   function clock(local) { return (local || "").slice(11, 16); }
   function duration(seconds) {
     if (typeof seconds !== "number" || !Number.isFinite(seconds)) return "нет данных";
-    const minutes = Math.round(seconds / 60);
-    return Math.floor(minutes / 60) + " ч " + minutes % 60 + " мин";
+    return window.healthcheckOwnerFormat.duration(seconds);
   }
-  function zoneLabel(zone) {
+  function zoneLabel(zone, showMoscow = false) {
     if (!zone) return "часовой пояс неизвестен";
-    if (zone.kind === "iana_zone") return zone.zone;
+    if (zone.kind === "iana_zone") return zone.zone === "Europe/Moscow" && !showMoscow ? "" : zone.zone;
     if (zone.kind !== "explicit_fixed_offset" || typeof zone.minutes !== "number") {
       return "часовой пояс неизвестен";
     }
+    if (zone.minutes === 180 && !showMoscow) return "";
     const n = Math.abs(zone.minutes);
     return "UTC" + (zone.minutes < 0 ? "−" : "+") +
       String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
@@ -35,7 +35,7 @@
   function dateLabel(day) {
     const date = new Date(calendar(day) * 86400000);
     return ["вс", "пн", "вт", "ср", "чт", "пт", "сб"][date.getUTCDay()] +
-      " " + day.slice(8, 10) + "." + day.slice(5, 7);
+      " " + window.healthcheckOwnerShortDate(day);
   }
   function rows(data, series) {
     return (data.dates || []).slice().reverse().map(function (day) {
@@ -86,7 +86,7 @@
         return group.start.state === "sufficient" && group.end.state === "sufficient" &&
           group.start.minutes != null && group.end.minutes != null;
       }).map(function (group) {
-        const zone = source.groups.length > 1 ? " · " + zoneLabel(group.partition.local_clock_regime) : "";
+        const zone = source.groups.length > 1 ? " · " + zoneLabel(group.partition.local_clock_regime, true) : "";
         return '<p class="sleep-schedule-summary">' + esc(source.label + zone) +
           " · Начало сна: разброс ±" + esc(group.start.text) + " · Окончание: ±" +
           esc(group.end.text) + " · " + esc(group.nights) + " из " + esc(data.days) + " ночей</p>";
@@ -98,7 +98,7 @@
     if (!result) return '<p class="muted">' + esc(source.label) + ' · Сравнение недоступно.</p>';
     return (result.groups || []).map(function (group, index) {
       const suffix = result.groups.length > 1 ? ' · вариант ' + (index + 1) +
-        ' · ' + zoneLabel(group.partition && group.partition.local_clock_regime) : '';
+        ' · ' + zoneLabel(group.partition && group.partition.local_clock_regime, true) : '';
       return '<p class="sleep-schedule-summary" data-sleep-jetlag="' + esc(source.provider + ':' + source.source_id) + '">' +
         esc(source.label + suffix) + ' · ' + esc(group.text) + '</p>';
     }).join('') + '<details class="owner-details sleep-jetlag-method"><summary>Как считается · ' + esc(source.label) + '</summary>' +
@@ -135,7 +135,7 @@
             '</td><td>' + esc(b ? b.start_local.slice(0, 16).replace("T", " ") : cell.note) +
             '</td><td>' + esc(b ? b.end_local.slice(0, 16).replace("T", " ") : "—") +
             '</td><td>' + esc(duration(cell.point && cell.point.value_seconds)) +
-            '</td><td>' + esc(b ? zoneLabel(b.zone) : "часовой пояс неизвестен") + '</td></tr>';
+            '</td><td>' + esc(b ? zoneLabel(b.zone, true) : "часовой пояс неизвестен") + '</td></tr>';
         }).join("");
       }).join("") + '</tbody></table></div></details>';
   }
@@ -162,7 +162,7 @@
     nights.forEach(function (row) {
       row.cells.forEach(function (cell) {
         if (!cell.bound) return;
-        const id = cell.source.series_id, zone = zoneLabel(cell.bound.zone);
+        const id = cell.source.series_id, zone = zoneLabel(cell.bound.zone, true);
         if (previousZone[id] && previousZone[id] !== zone) {
           html += '<div class="sleep-schedule-divider">' + esc(cell.source.label) +
             ' · Часовой пояс: ' + esc(previousZone[id]) + ' → ' + esc(zone) + '</div>';
@@ -193,7 +193,7 @@
           esc(cell.source.series_id) + '" style="top:' + top + 'px;left:' + percent(cell.start) +
           '%;width:' + (percent(cell.end) - percent(cell.start)) + '%;background:var(--series-' +
           (cell.source.provider === 'garmin' ? '1' : '4') + ')" title="' + esc(label) +
-          '" aria-label="' + esc(row.date + ' · ' + label + ' · ' + zoneLabel(cell.bound.zone)) + '"></button>';
+          '" aria-label="' + esc(window.healthcheckOwnerShortDate(row.date) + ' · ' + label + ' · ' + zoneLabel(cell.bound.zone)) + '"></button>';
         const marker = ((((data.context_events || {}).markers || {})[cell.source.series_id]) || [])
           .find(function (item) { return item.wake_date === row.date &&
             item.record_id === cell.point.record_id; });

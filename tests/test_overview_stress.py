@@ -122,7 +122,7 @@ def assert_stress_html(html, mean):
     root = parse_overview(html)
     stress = root.one(**{"data-overview-stress": None})
     assert stress.attrs["data-stress-state"] == "available"
-    assert stress.one(**{"data-stress-mean": None}).text.strip() == f"{mean} балл."
+    assert stress.one(**{"data-stress-mean": None}).text.strip() == f"{mean}"
     details = stress.one("details", classes={"overview-info"},
                          **{"data-stress-evidence": None})
     assert details.one("summary").attrs.get("aria-label")
@@ -290,7 +290,7 @@ def test_route_mean_uses_selected_period_without_28_day_baseline(
         assert_stress_html(harmless, mean)
         # Exercise the existing extraction parser too; do not replace it for uniformity.
         assert card(SimpleNamespace(text=harmless)) == harmless
-        for mutated in [text.replace(f">{mean} балл.</strong>", ">999 балл.</strong>"),
+        for mutated in [text.replace(f">{mean}</strong>", ">999</strong>"),
                         text + text]:
             assert mutated != text
             with pytest.raises(AssertionError):
@@ -346,7 +346,7 @@ def test_route_requires_choice_with_multiple_garmin_sources(database, evaluation
     acquire(database, D, 99, account="another-synthetic-account")
     response = page(database, None)
     assert response.context["source_selection"]["status"] == "require_selection"
-    assert "Выберите источник Garmin" in card(response)
+    assert "Выбери источник Garmin" in card(response)
     assert response.context["overview"]["period_stress"]["mean_value"] is None
 
 

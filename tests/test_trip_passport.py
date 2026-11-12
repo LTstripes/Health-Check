@@ -609,9 +609,11 @@ def test_both_serializers_must_pass_before_page_or_download(client, profile, mon
     {"start_local": "2026-11-01T01:30:12.123400", "start_precision": "local"},
     {"start_utc": "2026-11-01T05:30:12.123400+00:00", "start_precision": "instant"},
 ])
-def test_workout_display_retains_saved_seconds_and_fraction(item):
-    assert "01:30:12.123400" in web.passport_workout_time(item) or (
-        "05:30:12.123400" in web.passport_workout_time(item))
+def test_workout_display_uses_minutes_without_mutating_saved_precision(item):
+    original = dict(item)
+    expected = "01:30" if item.get("start_local") else "05:30 UTC"
+    assert web.passport_workout_time(item) == expected
+    assert item == original
 
 
 def test_real_sleep_values_and_wake_dates_match_export(profile):

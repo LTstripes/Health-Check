@@ -710,7 +710,7 @@ def test_stage3_notable_comparisons_identify_metric_and_use_exact_fact_unit():
         }
     }
     assert _brief_owner_note(note) == "Длительность сна: отклонение от личной базовой линии."
-    assert _brief_note_value(note, brief) == "5 ч 0 мин"
+    assert _brief_note_value(note, brief) == "5 ч 00 мин"
     assert "единицы доступны" in _brief_note_value(note, {"sections": {}})
     assert _brief_owner_note(
         {"code": "sleep_exploratory_agreement", "metric_code": "sleep_stage_deep_seconds"}
@@ -910,13 +910,13 @@ def test_overview_v2_real_read_is_source_explicit_bounded_and_read_only(tmp_path
         response = client.get("/brief?start_date=2099-01-01&end_date=2099-01-02")
         assert response.status_code == 200
         assert 'data-overview-vitals' not in response.text
-        assert '60.12 мс' in response.text
+        assert '60,12 мс' in response.text
         assert 'HRV Garmin · последнее среднее за неделю' in response.text
         technical = response.context["overview"]["technical"]
         assert any(str(row["value"]) == "60.123456" for row in technical["garmin"])
         assert technical["google"]  # Google evidence remains available to its dedicated UI/backend.
         outside = client.get("/brief?start_date=2099-01-04&end_date=2099-01-05")
-        assert '60.12 мс' not in outside.text
+        assert '60,12 мс' not in outside.text
         assert outside.context["overview"]["garmin"]["hrv_weekly_average_ms"]["value"] is None
     assert "BEGIN" in statements
     assert not any(sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
@@ -964,7 +964,7 @@ def test_overview_v2_custom_period_bounds_only_google_display(tmp_path, days):
     assert page.status_code == 200
     assert page.context["brief"]["period"]["calendar_days"] == days
     primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
-    assert "42.5 мс" not in primary
+    assert "42,5 мс" not in primary
     assert page.context["overview"]["google"]["window_limited"] == (days > 400)
     google_start = start if days == 400 else end - timedelta(days=399)
     for result in page.context["overview"]["technical"]["google"]:
@@ -986,9 +986,9 @@ def test_overview_v2_long_period_keeps_garmin_outside_google_window(tmp_path):
         page = client.get("/brief?start_date=2099-01-01&end_date=2101-01-01")
     assert page.status_code == 200
     primary = page.text.split('class="card owner-details brief-provenance"', 1)[0]
-    assert "60.12 мс" in primary
+    assert "60,12 мс" in primary
     assert page.context["overview"]["garmin"]["resting_heart_rate_bpm"]["value"] == 52
-    assert "42.5 мс" not in primary and "55 уд/мин" not in primary
+    assert "42,5 мс" not in primary and "55 уд/мин" not in primary
     assert not page.context["overview"]["google"]["sources"]
     assert "За выбранный период нет доступных данных" not in primary
 
@@ -1059,7 +1059,7 @@ def test_overview_v2_garmin_collisions_null_units_and_retirement_stay_honest(tmp
         engine.dispose()
 
 
-@pytest.mark.parametrize("value, expected", [(0, "0"), (0.126789, "0.13"), (-0.126789, "-0.13")])
+@pytest.mark.parametrize("value, expected", [(0, "0"), (0.126789, "0,13"), (-0.126789, "−0,13")])
 def test_overview_v2_weight_rate_precision_only_changes_display(value, expected):
     from healthcheck.web.pages import _brief_note_value, _brief_owner_value
 
@@ -1467,12 +1467,12 @@ def test_selected_garmin_missing_rhr_hrv_remains_source_and_date_specific(tmp_pa
         if code == "hrv_weekly_average_ms":
             assert cell["note"] in response.text
     secondary = response.text.split('class="overview-secondary"', 1)[1].split("</section>", 1)[0]
-    assert "52 уд/мин" not in secondary and "60.12 мс" not in secondary
-    assert "42.5 мс" not in secondary and "55 уд/мин" not in secondary
+    assert "52 уд/мин" not in secondary and "60,12 мс" not in secondary
+    assert "42,5 мс" not in secondary and "55 уд/мин" not in secondary
     assert "HRV Garmin · последнее среднее за неделю" in secondary
     if mode != "outside_window":
         # Google daily values remain separate, never fill Garmin's missing cell.
-        assert "42.5 мс" not in secondary
+        assert "42,5 мс" not in secondary
         assert response.context["overview"]["google"]["sources"]
 
 
