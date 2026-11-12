@@ -37,3 +37,7 @@
 {% macro tabs(label, extra_class="") -%}
 <nav class="owner-tabs {{ extra_class }}" aria-label="{{ label }}">{{ caller() }}</nav>
 {%- endmacro %}
+
+{% macro value_meta(source, date_text=none, count=none, days=none, noun='days') -%}
+<span class="owner-meta">{% if source %}<span class="owner-meta-source overview-source"><i class="owner-meta-dot owner-meta-dot--{{ source|lower if source|lower in ['garmin', 'google', 'health-check'] else 'other' }}" aria-hidden="true"></i>{{ source }}</span>{% endif %}{% if date_text %}<span>{{ date_text }}</span>{% endif %}{% if count is not none and days and 0 < count < days %}<span class="overview-coverage owner-meta-coverage" data-coverage-qualifier="{{ count }}/{{ days }}">{{ count }} из {{ days }} {{ days|owner_plural('ночи', 'ночей', 'ночей') if noun == 'nights' else days|owner_plural('дня', 'дней', 'дней') }}</span>{% endif %}</span>
+{%- endmacro %}

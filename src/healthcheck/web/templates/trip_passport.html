@@ -74,7 +74,7 @@
     <section class="passport-tiles" aria-label="Коротко">
       <div class="card passport-tile">
         <h3>Шаги</h3>
-        <p class="passport-figure">{{ passport_mean(p.steps.mean_exact) }}</p>
+        <p class="passport-figure{% if p.steps.counted_day_count|owner_low_coverage(p.period.day_count) %} owner-value-low{% endif %}">{{ passport_mean(p.steps.mean_exact) }}</p>
         <p class="muted">в среднем за завершённый день · {{ p.steps.counted_day_count }} из {{ p.period.day_count }} {{ p.period.day_count|owner_plural("дня", "дней", "дней") }}</p>
         {% if p.steps.total is not none %}<p class="muted">Всего за эти дни: {{ passport_steps(p.steps.total) }}</p>{% endif %}
       </div>

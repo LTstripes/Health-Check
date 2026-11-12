@@ -131,10 +131,11 @@ def test_overview_cards_show_short_coverage_qualifier_only_when_incomplete(
     sleep = dom.one("div", **{"data-overview-period-sleep": None})
     stress = dom.one("div", **{"data-overview-stress": None})
     battery = dom.one("div", **{"data-overview-body-battery": None})
-    for card in (sleep, stress, battery):
+    for card, noun in ((sleep, "ночей"), (stress, "дней"),
+                       (battery, "дней")):
         qualifier = card.one("span", classes=("overview-coverage",))
         assert qualifier.attrs["data-coverage-qualifier"] == "2/7"
-        assert qualifier.text.strip() == "2 из 7 дней"
+        assert qualifier.text.strip() == f"2 из 7 {noun}"
         for detail in card.find("details"):
             if "open" not in detail.attrs:
                 assert qualifier not in detail.find("span", classes=("overview-coverage",))
@@ -225,3 +226,18 @@ def test_google_exercise_keeps_short_unknown_completeness_visible(statistics_ui)
     visible = card.split("<details", 1)[0]
     assert "Полнота истории неизвестна." in visible
     assert "Health Connect" not in visible and "Health Connect" in card
+
+
+def test_value_meta_and_low_coverage_boundary():
+    from healthcheck.web.owner_presentation import owner_low_coverage
+
+    macro = pages.templates.env.get_template("owner_ui.html").module.value_meta
+    partial = str(macro("Google", count=1, days=3))
+    assert 'owner-meta-dot--google' in partial
+    assert 'data-coverage-qualifier="1/3"' in partial
+    assert "1 \u0438\u0437 3 \u0434\u043d\u0435\u0439" in partial
+    assert 'data-coverage-qualifier' not in str(macro("Garmin", count=3, days=3))
+    assert 'data-coverage-qualifier' not in str(macro("Garmin", count=0, days=3))
+    assert owner_low_coverage(1, 3)
+    assert not owner_low_coverage(2, 3)
+    assert not owner_low_coverage(None, 3)

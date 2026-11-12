@@ -9,7 +9,7 @@
   </div></details>
   </div>
   <p class="overview-source">Среднее за период {{ coverage_qualifier(stress.eligible_days, stress.days) }}</p>
-  {% if stress.mean_display is not none %}<strong data-stress-mean>{{ stress.mean_display }}</strong>{% else %}<strong>—</strong>{% endif %}
+  {% if stress.mean_display is not none %}<strong data-stress-mean{% if stress.eligible_days|owner_low_coverage(stress.days) %} class="owner-value-low"{% endif %}>{{ stress.mean_display }}</strong>{% else %}<strong>—</strong>{% endif %}
   {% if stress.reason == 'source_not_selected' %}<p class="muted">Выбери источник Garmin.</p>
   {% elif stress.reason == 'range_exceeds_max' %}<p class="muted">Период длиннее доступного окна чтения (400 дней).</p>
   {% elif stress.reason == 'read_unavailable' %}<p class="muted">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}

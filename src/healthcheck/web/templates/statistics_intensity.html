@@ -1,3 +1,4 @@
+{% from 'owner_ui.html' import value_meta %}
 {% if intensity %}
 <section data-statistics-intensity aria-labelledby="intensity-title">
   <h2 id="intensity-title">Минуты интенсивности (Garmin)</h2>
@@ -6,8 +7,8 @@
   <div class="table-scroll" role="region" tabindex="0" aria-label="Недельные минуты интенсивности Garmin">
     <table><caption>Недели Garmin, мин</caption><thead><tr><th scope="col">Неделя</th><th scope="col">Умеренные</th><th scope="col">Высокие</th><th scope="col">По правилу Garmin</th><th scope="col">Недельная цель</th><th scope="col">Дни с обоими компонентами</th></tr></thead><tbody>
     {% for week in intensity.weeks %}<tr data-intensity-week="{{ week.start }}"><th scope="row">{{ week.start |owner_short_date }} — {{ week.end | owner_date }}</th>
-      {% for key in ['moderate', 'vigorous'] %}<td>{% if week[key] is not none %}{{ '' if week[key ~ '_count'] == week.days else '≥ ' }}{{ week.display[key] }}{% else %}нет данных{% endif %}</td>{% endfor %}
-      <td>{% if week.total is not none %}{{ '' if week.complete else '≥ ' }}{{ week.display.total }}{% else %}нет данных{% endif %}</td>
+      {% for key in ['moderate', 'vigorous'] %}<td>{% if week[key] is not none %}{{ '≥ ' if 0 < week[key ~ '_count'] < week.days else '' }}{{ week.display[key] }} {{ value_meta(none, count=week[key ~ '_count'], days=week.days) }}{% else %}нет данных{% endif %}</td>{% endfor %}
+      <td>{% if week.total is not none %}{{ '≥ ' if 0 < week.count < week.days else '' }}{{ week.display.total }} {{ value_meta(none, count=week.count, days=week.days) }}{% else %}нет данных{% endif %}</td>
       <td>{{ week.display.goal if week.goal is not none else 'нет данных' }}{% if week.goal_date %} · от {{ week.goal_date | owner_date }}{% endif %}</td><td>{{ week.count }} из {{ week.days }}</td></tr>{% endfor %}
     </tbody></table>
   </div>

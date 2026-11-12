@@ -1,13 +1,12 @@
-{% from 'overview_coverage.html' import coverage_qualifier %}
+{% from 'owner_ui.html' import value_meta %}
 {% set energy = overview.energy %}
 <div data-overview-energy>
   <h3>Калории · оценка Garmin</h3>
-  {{ coverage_qualifier(energy.summary.total.count, energy.days) }}
   {% if energy.summary.total.mean_display is not none %}
-  <p>в среднем <strong>{{ energy.summary.total.mean_display }}</strong> ккал/день</p>
+  <p>в среднем <strong{% if energy.summary.total.count|owner_low_coverage(energy.days) %} class="owner-value-low"{% endif %}>{{ energy.summary.total.mean_display }}</strong> ккал/день</p>
   {% else %}<p class="muted">нет данных</p>{% endif %}
   <p class="overview-source">активные {% if energy.summary.active.mean_display is not none %}~{{ energy.summary.active.mean_display }}{% else %}нет данных{% endif %} · базовый обмен {% if energy.summary.bmr.mean_display is not none %}~{{ energy.summary.bmr.mean_display }}{% else %}нет данных{% endif %}</p>
-  <p class="overview-source">по данным Garmin{% if energy.start %} · {{ energy.start | owner_date }} — {{ energy.end | owner_date }}{% endif %}</p>
+  <p>{{ value_meta("Garmin", (energy.start|owner_date ~ " — " ~ energy.end|owner_date) if energy.start else none, energy.summary.total.count, energy.days) }}</p>
   <details class="overview-info"><summary>О данных калорий</summary>
     <p>Оценка Garmin, ккал. Средние рассчитаны отдельно по дням со значением каждого поля; пропуски не равны нулю. Дата Garmin не подтверждает полноту дня.</p>
     <p>Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Компоненты не вычисляются друг из друга.</p>

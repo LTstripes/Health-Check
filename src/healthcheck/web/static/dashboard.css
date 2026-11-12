@@ -720,3 +720,14 @@ main, .legal { margin-inline: auto; }
   .owner-rail-end { flex: none; }
   .legal .owner-theme { max-width: 240px; margin-top: 12px; }
 }
+
+/* Value provenance and incomplete observed-day coverage. */
+.owner-meta { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .6rem; color: var(--muted); }
+.owner-meta-source, .owner-meta-coverage { white-space: nowrap; }
+.owner-meta-dot { display: inline-block; width: .5rem; height: .5rem; margin-right: .35rem; border-radius: 50%; background: var(--series-3); }
+.owner-meta-dot--garmin { background: var(--series-1); }
+.owner-meta-dot--google { background: var(--series-4); }
+.owner-meta-dot--health-check { background: var(--series-2); }
+.owner-value-low { color: var(--muted); }
+
+.owner-meta .overview-coverage::before { content: none; }

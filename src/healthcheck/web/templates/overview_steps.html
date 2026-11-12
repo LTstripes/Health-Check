@@ -1,10 +1,10 @@
-{% from 'overview_coverage.html' import coverage_qualifier %}
+{% from 'owner_ui.html' import value_meta %}
 <div data-overview-steps>
   <h3>Шаги</h3>
   <p class="overview-source">В среднем за период</p>
   {% for item in overview.steps['items'] %}
   <div data-steps-provider="{{ item.provider }}" data-steps-reason="{{ item.reason or '' }}">
-    <div class="overview-metric-heading"><span class="overview-source">{{ item.provider }}</span>{{ coverage_qualifier(item.count, item.days) }}
+    <div class="overview-metric-heading">{{ value_meta(item.provider, count=item.count, days=item.days) }}
       <details class="overview-info"><summary aria-label="Средние шаги · {{ item.provider }}">ⓘ</summary><div>
         <p>Завершённые дни по Москве; текущий день исключён. Пропуски не считаются нулями, сохранённый ноль учитывается. Источники не объединяются.</p>
         {% if not overview.steps.window.empty %}<p>Период: {{ overview.steps.window.start_date | owner_date }} - {{ overview.steps.window.end_date | owner_date }}.</p>{% endif %}
@@ -18,7 +18,7 @@
         {% elif item.reason and item.reason not in ['no_observations', 'no_eligible_observations', 'no_saved_source', 'source_not_evidenced'] %}<p>Среднее недоступно: чтение или пригодность сохранённых данных не подтверждены.</p>{% endif %}
       </div></details>
     </div>
-    {% if item.mean_display is not none %}<strong>{{ item.mean_display }}</strong>
+    {% if item.mean_display is not none %}<strong{% if item.count|owner_low_coverage(item.days) %} class="owner-value-low"{% endif %}>{{ item.mean_display }}</strong>
     {% else %}<p class="muted">{{ 'Недоступно для периода' if item.reason in ['unsupported_google_period', 'unsupported_garmin_period'] else ('Нужен источник' if item.reason in ['source_selection_required', 'source_not_selected'] else 'Нет доступного среднего') }}</p>{% endif %}
   </div>
   {% endfor %}
