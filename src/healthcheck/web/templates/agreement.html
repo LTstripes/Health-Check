@@ -60,10 +60,11 @@
       </details>
     </figure>
     {% else %}<p class="unavailable">График для этого сохранённого результата недоступен; подробности — в данных сравнения.</p>{% endfor %}
+    <p>{{ owner_ui.value_meta('Health-Check', count=group.coverage.metric_valid_nights, days=group.coverage.requested_calendar_nights, noun='nights') }}</p>
     {% if group.accepted_statistics %}
     <dl class="agreement-metrics">
-      <div><dt>Средняя разность · Google − Garmin</dt><dd>{{ comparison_value(group.accepted_statistics.bias, row.unit, signed=true) }}</dd></div>
-      <div><dt>Среднее абсолютное расхождение</dt><dd>{{ comparison_value(group.accepted_statistics.mae, row.unit) }}</dd></div>
+      <div><dt>Средняя разность · Google − Garmin</dt><dd{% if group.coverage.metric_valid_nights|owner_low_coverage(group.coverage.requested_calendar_nights) %} class="owner-value-low"{% endif %}>{{ comparison_value(group.accepted_statistics.bias, row.unit, signed=true) }}</dd></div>
+      <div><dt>Среднее абсолютное расхождение</dt><dd{% if group.coverage.metric_valid_nights|owner_low_coverage(group.coverage.requested_calendar_nights) %} class="owner-value-low"{% endif %}>{{ comparison_value(group.accepted_statistics.mae, row.unit) }}</dd></div>
       <div><dt>Покрытие периода</dt><dd>{% if group.coverage.requested_calendar_nights is not none and group.coverage.metric_valid_nights is not none %}{{ group.coverage.metric_valid_nights }} из {{ group.coverage.requested_calendar_nights }} {{ group.coverage.requested_calendar_nights|owner_plural("ночи", "ночей", "ночей") }}{% else %}Неизвестно{% endif %}</dd></div>
     </dl>
     {% else %}{{ owner_ui.state_chip('insufficient') }}<p>Статистика пока недоступна; осталось пригодных пар: {{ group.progress.remaining_n }}.</p>{% endif %}

@@ -5,7 +5,7 @@
   {% if energy.summary.total.mean_display is not none %}
   <p>в среднем <strong{% if energy.summary.total.count|owner_low_coverage(energy.days) %} class="owner-value-low"{% endif %}>{{ energy.summary.total.mean_display }}</strong> ккал/день</p>
   {% else %}<p class="muted">нет данных</p>{% endif %}
-  <p class="overview-source">активные {% if energy.summary.active.mean_display is not none %}~{{ energy.summary.active.mean_display }}{% else %}нет данных{% endif %} · базовый обмен {% if energy.summary.bmr.mean_display is not none %}~{{ energy.summary.bmr.mean_display }}{% else %}нет данных{% endif %}</p>
+  {% for key, label in [('active', 'активные'), ('bmr', 'базовый обмен')] %}<p class="overview-source">{{ label }} {% if energy.summary[key].mean_display is not none %}<span{% if energy.summary[key].count|owner_low_coverage(energy.days) %} class="owner-value-low"{% endif %}>~{{ energy.summary[key].mean_display }}</span> {{ value_meta(none, count=energy.summary[key].count, days=energy.days) }}{% else %}нет данных{% endif %}</p>{% endfor %}
   <p>{{ value_meta("Garmin", (energy.start|owner_date ~ " — " ~ energy.end|owner_date) if energy.start else none, energy.summary.total.count, energy.days) }}</p>
   <details class="overview-info"><summary>О данных калорий</summary>
     <p>Оценка Garmin, ккал. Средние рассчитаны отдельно по дням со значением каждого поля; пропуски не равны нулю. Дата Garmin не подтверждает полноту дня.</p>

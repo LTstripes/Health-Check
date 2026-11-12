@@ -247,5 +247,8 @@ def owner_low_coverage(count: int | None, days: int | None) -> bool:
 
 
 def register_owner_filters(env: object) -> None:
+    from healthcheck.web.overview_coverage import OVERVIEW_COVERAGE_THRESHOLD
+
+    env.globals["owner_coverage_threshold"] = OVERVIEW_COVERAGE_THRESHOLD
     env.filters.update({name: value for name, value in globals().items()
                         if name.startswith("owner_") and callable(value)})

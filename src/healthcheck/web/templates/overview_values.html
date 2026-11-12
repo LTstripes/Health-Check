@@ -1,3 +1,4 @@
+{% from 'owner_ui.html' import value_meta %}
 <section class="overview-secondary" aria-label="Дополнительные показатели">
   <article>
     <h3>Пульс в покое</h3>
@@ -15,7 +16,7 @@
       {% set unit = 'мс' %}
       {% set cell = overview.garmin.get(code) %}
     <h3{% if code == 'hrv_weekly_average_ms' and cell and cell.date %} title="Последнее сохранённое среднее за неделю · {{ cell.date | owner_date }}" aria-label="HRV Garmin · последнее среднее за неделю · {{ cell.date | owner_date }}"{% endif %}>{{ 'HRV Garmin · последнее среднее за неделю' if code == 'hrv_weekly_average_ms' else 'Пульс в покое' }}</h3>
-    {% if cell and cell.value is not none %}<strong>{{ overview_number(cell.value) }} {{ unit }}</strong>
+    {% if cell and cell.value is not none %}<strong>{{ overview_number(cell.value) }} {{ unit }}</strong><p>{{ value_meta("Garmin", cell.date|owner_date if cell.date else none) }}</p>
     {% elif source_selection.status == 'require_selection' %}<p>Выбери источник Garmin выше.</p>
     {% else %}<p>{{ cell.note if cell and cell.note else "Нет пригодного сохранённого наблюдения." }}</p>{% endif %}
 

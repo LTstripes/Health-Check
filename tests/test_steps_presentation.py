@@ -126,6 +126,9 @@ def test_google_full_observed_grid_still_discloses_unknown_coverage_and_exact_st
     view = google_steps_view(original)
     directory = Path(__file__).parents[1] / "src/healthcheck/web/templates"
     env = Environment(loader=FileSystemLoader(directory), autoescape=select_autoescape())
+    from healthcheck.web.owner_presentation import register_owner_filters
+
+    register_owner_filters(env)
     env.filters["owner_date"] = owner_date
     env.filters["owner_short_date"] = owner_short_date
     html = env.get_template("statistics_steps_chart.html").render(view=view)
@@ -179,6 +182,9 @@ def test_chart_and_selected_day_keep_zero_missing_and_integer_labels(factory):
     )
     directory = Path(__file__).parents[1] / "src/healthcheck/web/templates"
     env = Environment(loader=FileSystemLoader(directory), autoescape=select_autoescape())
+    from healthcheck.web.owner_presentation import register_owner_filters
+
+    register_owner_filters(env)
     env.filters["owner_date"] = owner_date
     env.filters["owner_short_date"] = owner_short_date
     html = env.get_template("statistics_steps_chart.html").render(view=view)

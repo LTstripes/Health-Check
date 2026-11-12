@@ -1,7 +1,12 @@
+{% from 'owner_ui.html' import value_meta %}
 {% if energy %}
 <section class="statistics-energy" data-statistics-energy aria-labelledby="daily-energy-title">
   <h2 id="daily-energy-title">Калории (Garmin)</h2>
   <p class="muted">Оценка, ккал · по данным Garmin · {{ energy.start | owner_date }} — {{ energy.end | owner_date }}</p>
+  {% for key, label in [('total', 'Всего'), ('active', 'Активные'), ('bmr', 'Базовый обмен')] %}
+  {% set metric = energy.summary[key] %}
+  {% if metric.mean_display is not none %}<p>{{ label }}: <strong{% if metric.count|owner_low_coverage(energy.days) %} class="owner-value-low"{% endif %}>{{ metric.mean_display }} ккал/день</strong> {{ value_meta('Garmin', count=metric.count, days=energy.days) }}</p>{% endif %}
+  {% endfor %}
   {% if energy.reason %}<p class="muted">{{ 'Выбери источник Garmin.' if energy.reason == 'source_not_selected' else 'Поиск сохранённых данных не завершён.' }}</p>{% endif %}
   <div class="energy-days" role="list" aria-label="Дневные оценки Garmin">
   {% for row in energy.rows %}

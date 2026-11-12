@@ -235,7 +235,7 @@ class MetricParser(HTMLParser):
             self.cells[self.code, self.side] = ""
             self.values[self.code, self.side] = ""
             self.details[self.code, self.side] = ""
-        if tag == "div" and attrs.get("class") == "statistics-value":
+        if tag == "div" and "statistics-value" in attrs.get("class", "").split():
             self.in_value = True
         if tag == "details" and self.in_article:
             self.in_details = True

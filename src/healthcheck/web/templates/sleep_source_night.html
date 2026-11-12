@@ -37,7 +37,7 @@
   {% for item in source_sleep.sources %}
   <section class="brief-subsection" data-sleep-source="{{ loop.index }}">
     <h3>{{ source_sleep_label(item.source, sleep_view) }} · источник {{ loop.index }}</h3>
-    <p class="muted">Дата пробуждения: {{ wake_date | owner_date }}.</p>
+    <p>{{ owner_ui.value_meta("Google" if sleep_view == "google" else "Garmin", wake_date|owner_date) }}</p>
     {% if item.ambiguous %}
       {{ owner_ui.state_chip('unknown') }}
       <p class="uncertainty-note">Несколько сессий за дату; единая ночь не выбрана. Значения не объединяются.</p>

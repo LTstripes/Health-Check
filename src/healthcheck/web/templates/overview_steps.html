@@ -4,7 +4,7 @@
   <p class="overview-source">В среднем за период</p>
   {% for item in overview.steps['items'] %}
   <div data-steps-provider="{{ item.provider }}" data-steps-reason="{{ item.reason or '' }}">
-    <div class="overview-metric-heading">{{ value_meta(item.provider, count=item.count, days=item.days) }}
+    <div class="overview-metric-heading">{{ value_meta(item.provider, (overview.steps.window.start_date|owner_date ~ " — " ~ overview.steps.window.end_date|owner_date) if not overview.steps.window.empty else none, item.count, item.days) }}
       <details class="overview-info"><summary aria-label="Средние шаги · {{ item.provider }}">ⓘ</summary><div>
         <p>Завершённые дни по Москве; текущий день исключён. Пропуски не считаются нулями, сохранённый ноль учитывается. Источники не объединяются.</p>
         {% if not overview.steps.window.empty %}<p>Период: {{ overview.steps.window.start_date | owner_date }} - {{ overview.steps.window.end_date | owner_date }}.</p>{% endif %}

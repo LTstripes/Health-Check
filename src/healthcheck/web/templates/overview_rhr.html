@@ -48,7 +48,7 @@
         {% elif dto.state == 'search_incomplete' %}<p>Поиск не завершён. {{ reasons.get(dto.reason, dto.reason) }}</p>
         {% else %}<p>{{ reasons.get(dto.reason, 'Среднее недоступно.') }}</p>{% endif %}
       {% endif %}
-      {% if dto.mean_display is not none %}<p>{{ value_meta(item.label, count=dto.eligible_day_count, days=dto.requested_day_count) }}</p>{% endif %}
+      {% if dto.mean_display is not none %}<p>{{ value_meta(item.label, dto.query.requested_start_date|owner_date ~ " — " ~ dto.query.requested_end_date|owner_date, dto.eligible_day_count, dto.requested_day_count) }}</p>{% endif %}
       {% if dto.reason == 'source_selection_required' %}
         <form method="get" action="/brief" class="owner-controls">
           {% for key, value in overview_params.items() if key not in ['garmin_source_id', 'google_rhr_source_id'] %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}

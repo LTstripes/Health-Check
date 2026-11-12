@@ -9,8 +9,8 @@
 <div class="steps-compact" data-steps-chart="{{ view.provider|lower }}">
   {% if view.assessed %}
   <dl class="steps-headlines">
-    <div><dt>Сумма по сохранённым дням</dt><dd data-steps-total>{{ view.total_display if view.total is not none else 'Недоступно' }}</dd></div>
-    <div><dt>В среднем за день с данными</dt><dd data-steps-mean>{{ view.mean_display if view.mean is not none else 'Недоступно' }}</dd></div>
+    <div{% if view.total is not none and view.count|owner_low_coverage(view.days) %} class="owner-value-low"{% endif %}><dt>Сумма по сохранённым дням</dt><dd data-steps-total>{{ view.total_display if view.total is not none else 'Недоступно' }}</dd></div>
+    <div{% if view.mean is not none and view.count|owner_low_coverage(view.days) %} class="owner-value-low"{% endif %}><dt>В среднем за день с данными</dt><dd data-steps-mean>{{ view.mean_display if view.mean is not none else 'Недоступно' }}</dd></div>
   </dl>
   {% if view.invalid_days %}<p role="status">Есть противоречивые или недопустимые наблюдения ({{ view.invalid_days }}); они исключены из итога.</p>{% endif %}
   {% if view.rows %}

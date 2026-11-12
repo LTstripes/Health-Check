@@ -72,7 +72,7 @@
     for (let minute = min; minute <= max; minute += 120) ticks.push(minute);
     return { min: min, max: max, ticks: ticks };
   }
-  function summaries(data, visible) {
+  function summaries(data, visible, threshold) {
     if (!(data.display_series || []).length) {
       return '<p class="muted">' + esc((data.regularity || {}).empty_text ||
         'Недостаточно ночей для сравнения') + '</p>';
@@ -87,9 +87,16 @@
           group.start.minutes != null && group.end.minutes != null;
       }).map(function (group) {
         const zone = source.groups.length > 1 ? " · " + zoneLabel(group.partition.local_clock_regime, true) : "";
-        return '<p class="sleep-schedule-summary">' + esc(source.label + zone) +
-          " · Начало сна: разброс ±" + esc(group.start.text) + " · Окончание: ±" +
-          esc(group.end.text) + " · " + esc(group.nights) + " из " + esc(data.days) + " ночей</p>";
+        const partial = group.nights > 0 && group.nights < data.days;
+        const low = threshold && group.nights * threshold.denominator < data.days * threshold.numerator;
+        const provider = source.provider === "garmin" ? "garmin" : source.provider === "google" ? "google" : "other";
+        const coverage = partial ? '<span class="owner-meta-coverage" data-coverage-qualifier="' +
+          esc(group.nights) + '/' + esc(data.days) + '">' + esc(group.nights) + ' из ' +
+          esc(data.days) + ' ' + esc(window.healthcheckOwnerFormat.plural(data.days, 'ночи', 'ночей', 'ночей')) + '</span>' : '';
+        return '<p class="sleep-schedule-summary"><span' + (low ? ' class="owner-value-low"' : '') +
+          '>Начало сна: разброс ±' + esc(group.start.text) + ' · Окончание: ±' + esc(group.end.text) +
+          '</span> <span class="owner-meta"><span class="owner-meta-source overview-source"><i class="owner-meta-dot owner-meta-dot--' + provider +
+          '" aria-hidden="true"></i>' + esc(source.label + zone) + '</span>' + (data.start_date && data.end_date ? '<span>' + esc(window.healthcheckOwnerShortDate(data.start_date)) + ' — ' + esc(window.healthcheckOwnerShortDate(data.end_date)) + '</span>' : '') + coverage + '</span></p>';
       }).join("") + jetlagSummary(source);
     }).join("");
   }
@@ -139,7 +146,7 @@
         }).join("");
       }).join("") + '</tbody></table></div></details>';
   }
-  function render(data, hidden) {
+  function render(data, hidden, threshold) {
     if (data.read_limit_exceeded || !data.dates) return '<p class="muted">Расписание недоступно для этого периода.</p>';
     const all = (data.display_series || []).slice().sort(function (a, b) {
       return (a.provider === "garmin" ? 0 : 1) - (b.provider === "garmin" ? 0 : 1);
@@ -150,7 +157,7 @@
     const grid = scale.ticks.map(function (n) {
       return '<span class="sleep-schedule-grid" style="left:' + percent(n) + '%"></span>';
     }).join("");
-    let html = summaries(data, visible) + '<div class="' +
+    let html = summaries(data, visible, threshold) + '<div class="' +
       (data.days === 30 ? "sleep-schedule-compact" : "sleep-schedule-rows") + '">' +
       '<div class="sleep-schedule-axis"><span></span><div class="sleep-schedule-clock">' +
       scale.ticks.map(function (n) {
@@ -219,7 +226,10 @@
     document.querySelectorAll("[data-sleep-series-toggle]").forEach(function (toggle) {
       hidden[toggle.getAttribute("data-sleep-series-toggle")] = !toggle.checked;
     });
-    host.innerHTML = render(data, hidden);
+    const policy = document.getElementById("sleep-coverage-threshold");
+    const threshold = policy ? { numerator: Number(policy.dataset.numerator),
+      denominator: Number(policy.dataset.denominator) } : null;
+    host.innerHTML = render(data, hidden, threshold);
   }
   document.querySelectorAll("[data-sleep-series-toggle]").forEach(function (toggle) {
     toggle.addEventListener("change", draw);

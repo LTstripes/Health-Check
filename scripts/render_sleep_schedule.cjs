@@ -11,5 +11,5 @@ const schedule = context.window.healthcheckSleepSchedule;
 const cases = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 process.stdout.write(JSON.stringify(cases.map(item => {
   const rows = schedule.rows(item.data, item.data.display_series || []);
-  return { html: schedule.render(item.data, item.hidden || {}), axis: schedule.axis(rows), rows };
+  return { html: schedule.render(item.data, item.hidden || {}, item.threshold || null), axis: schedule.axis(rows), rows };
 })));
