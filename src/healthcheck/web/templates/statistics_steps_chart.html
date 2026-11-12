@@ -14,13 +14,16 @@
   </dl>
   {% if view.invalid_days %}<p role="status">Есть противоречивые или недопустимые наблюдения ({{ view.invalid_days }}); они исключены из итога.</p>{% endif %}
   {% if view.rows %}
-  <svg class="steps-daily-chart" viewBox="0 0 900 175" role="img" aria-label="{{ view.provider }}: шаги по дням. Пропуски показаны разрывами; точные значения доступны через значок информации у названия источника.">
+  <div class="owner-chart-frame"><div class="owner-chart-y" aria-hidden="true">{% for tick in view.ticks|reverse %}<span class="steps-tick">{{ tick.label }}</span>{% endfor %}</div><div class="owner-chart-plot">
+  <svg class="steps-daily-chart" viewBox="{{ view.left }} 20 {{ 880 - view.left }} 130" preserveAspectRatio="none" role="img" aria-label="{{ view.provider }}: шаги по дням. Пропуски показаны разрывами; точные значения доступны через значок информации у названия источника.">
+    <defs><pattern id="steps-hatch-{{ view.provider|lower }}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--line-strong)" vector-effect="non-scaling-stroke"/></pattern></defs>
     <line class="steps-axis" x1="{{ view.left }}" y1="150" x2="880" y2="150" />
-    {% for tick in view.ticks %}<line class="steps-grid" x1="{{ view.left }}" y1="{{ tick.y }}" x2="880" y2="{{ tick.y }}"/><text class="steps-tick" x="{{ view.left - 12 }}" y="{{ tick.y + 6 }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}
+    {% for tick in view.ticks %}<line class="steps-grid" x1="{{ view.left }}" y1="{{ tick.y }}" x2="880" y2="{{ tick.y }}"/>{% endfor %}
     {% for segment in view.segments %}<line class="steps-line" x1="{{ segment.x1 }}" y1="{{ segment.y1 }}" x2="{{ segment.x2 }}" y2="{{ segment.y2 }}" />{% endfor %}
     {% for row in view.rows %}{% if row.y is not none %}<circle class="steps-point" cx="{{ row.x }}" cy="{{ row.y }}" r="4"><title>{{ row.date|owner_short_date }}: {{ row.display }} шагов</title></circle>{% else %}<path class="steps-gap" d="M{{ row.x - 3 }} 160 l6 6 m-6 0 l6 -6"><title>{{ row.date|owner_short_date }}: нет допустимого значения</title></path>{% endif %}{% endfor %}
     <line class="steps-cursor" data-steps-cursor hidden x1="0" x2="0" y1="10" y2="170" />
-  </svg>
+  </svg></div><div class="owner-chart-x"><span>{{ view.rows[0].date|owner_short_date }}</span><span>{{ view.rows[-1].date|owner_short_date }}</span></div></div>
+  <p class="owner-chart-legend"><span class="owner-chart-hatch" aria-hidden="true"></span> нет данных</p>
   <div class="steps-day-controls" data-steps-day-controls hidden>
     <button type="button" data-steps-previous aria-label="Предыдущий день">←</button>
     <label>День <select data-steps-day aria-label="{{ view.provider }}: выбрать день"><option value="" selected disabled>Выбери день</option>{% for row in view.rows %}<option value="{{ loop.index0 }}">{{ row.date|owner_date }}</option>{% endfor %}</select></label>

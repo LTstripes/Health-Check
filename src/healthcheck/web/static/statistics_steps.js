@@ -42,15 +42,18 @@
       event.preventDefault();
       show(target);
     });
-    svg.addEventListener("click", (event) => {
+    const choosePointer = (event) => {
       const rect = svg.getBoundingClientRect();
-      const x = (event.clientX - rect.left) * 900 / rect.width;
+      const box = svg.viewBox.baseVal;
+      const x = box.x + (event.clientX - rect.left) * box.width / rect.width;
       let nearest = 0;
       for (let index = 1; index < rows.length; index++) {
         if (Math.abs(rows[index].x - x) < Math.abs(rows[nearest].x - x)) nearest = index;
       }
       show(nearest);
-    });
+    };
+    svg.addEventListener("click", choosePointer);
+    svg.addEventListener("pointermove", choosePointer);
     panel.querySelector("[data-steps-day-controls]").hidden = false;
 
   }
