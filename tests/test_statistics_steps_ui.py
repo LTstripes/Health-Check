@@ -50,6 +50,25 @@ def steps_html(response):
     return response.text.split('<section class="statistics-steps"', 1)[1].split("</section>", 1)[0]
 
 
+def test_chart_rounded_axis_preserves_zero_missing_and_source_values():
+    from healthcheck.web.steps_presentation import _chart
+
+    cells = [
+        {"date": DAY, "state": "value", "value": 12345},
+        {"date": DAY + timedelta(days=1), "state": "value", "value": 0},
+        {"date": DAY + timedelta(days=2), "state": "missing", "value": None},
+        {"date": DAY + timedelta(days=3), "state": "value", "value": 17890},
+    ]
+    chart = _chart(cells)
+    assert [row["value"] for row in chart["rows"]] == ["12345", "0", None, "17890"]
+    assert chart["selected"] is None
+    assert chart["plot_top"] == 20000
+    assert [tick["value"] for tick in chart["ticks"]] == ["0", "10000", "20000"]
+    assert len(chart["segments"]) == 1
+    assert chart["segments"][0]["y2"] == 150
+    assert chart["segments"][0]["y1"] == pytest.approx(150 - 12345 * 130 / 20000)
+
+
 def export(response, name):
     root = os.environ.get("HEALTHCHECK_STATISTICS_FIXTURES_DIR")
     if root:

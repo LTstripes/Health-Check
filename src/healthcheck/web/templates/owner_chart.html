@@ -2,7 +2,7 @@
 <div class="owner-chart-frame">
   <div class="owner-chart-y" aria-hidden="true">{% for tick in figure.axis_ticks %}<span>{{ overview_number(tick.value / 3600 if duration else tick.value) }}{{ ' ч' if duration else '' }}</span>{% endfor %}</div>
   <div class="owner-chart-plot"><svg viewBox="{{ viewbox }}" preserveAspectRatio="none" role="img" aria-label="{{ label }}">{{ caller() }}</svg></div>
-  <div class="owner-chart-x"><span>{{ figure.start|owner_short_date }}</span><span>{{ figure.end|owner_short_date }}</span></div>
+  <div class="owner-chart-x" data-chart-start="{{ figure.start }}" data-chart-end="{{ figure.end }}"><span>{{ figure.start|owner_short_date }}</span><span>{{ figure.end|owner_short_date }}</span></div>
 </div>
 <p class="owner-chart-legend"><span class="owner-chart-hatch" aria-hidden="true"></span> нет данных — это не ноль</p>
 <p class="owner-chart-selection" aria-live="polite">Выбери точку на графике</p>
