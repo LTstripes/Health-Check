@@ -2,6 +2,7 @@
 
 from collections import Counter
 from datetime import date, timedelta
+from math import ceil, floor, log10
 from typing import Any
 
 from healthcheck.web.garmin_query import GarminQueryError, GarminQueryService
@@ -10,7 +11,7 @@ from healthcheck.web.sleep_view import nightly_rows
 
 
 def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=False,
-                include_zero=False):
+                include_zero=False, axis_unit=1):
     """Only coordinates: preserve dates, values, missing days and partial states.
 
     A gap is an interval without a supplied observation, never a zero. EWMA lines
@@ -29,6 +30,20 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
     if weight_layout and values:
         padding = max(.2, (max(values) - min(values)) * .15)
         low, high = min(values) - padding, max(values) + padding
+    # Axis geometry only; source values remain untouched.
+    raw_step = (high - low) / axis_unit / 3
+    power = 10 ** floor(log10(raw_step))
+    candidates = (1, 2, 2.5, 5, 10, 20, 25, 50, 100)
+    for factor in candidates:
+        step = factor * power * axis_unit
+        if step < raw_step * axis_unit:
+            continue
+        axis_low, axis_high = floor(low / step) * step, ceil(high / step) * step
+        if round((axis_high - axis_low) / step) <= 3:
+            break
+    low, high = axis_low, axis_high
+    if low == high:
+        high = low + step
     span = max(1, (end - start).days)
 
     def x(day):
@@ -72,6 +87,8 @@ def dated_chart(rows, *, start: date, end: date, zero_axis=False, weight_layout=
                      "x": x(cursor), "width": max(2, x(end) - x(cursor))})
     figure = {"points": points, "gaps": gaps, "segments": segments, "low": low, "high": high,
               "start": start.isoformat(), "end": end.isoformat()}
+    figure["axis_ticks"] = [{"y": y(low + step * i), "value": low + step * i}
+                            for i in range(round((high - low) / step), -1, -1)]
     if include_zero:
         figure["zero_y"] = y(0)
     if weight_layout:
@@ -165,7 +182,8 @@ def read_overview_charts(session, settings, *, packet, selected_id, brief_inputs
         state = "present" if count is not None or complete else "unknown"
         activity_rows.append({"date": day, "value": count if count else (0 if complete else None),
                               "state": state})
-    sleep_figure = dated_chart(sleep_rows, start=sleep_start, end=sleep_end, zero_axis=True)
+    sleep_figure = dated_chart(sleep_rows, start=sleep_start, end=sleep_end,
+                               zero_axis=True, axis_unit=3600)
     # Axis formatting only: coordinates and all source values stay in seconds.
     sleep_hours = sleep_figure["high"] / 3600
     step = 1 if sleep_hours <= 4 else (2 if sleep_hours <= 12 else 4)

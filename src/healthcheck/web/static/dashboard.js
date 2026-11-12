@@ -537,7 +537,7 @@
       svg.querySelectorAll('[data-axis="x"], .weight-time-tick').forEach(function (node) { node.remove(); });
       const days = Math.round((maxX - minX) / dayMs);
       // Date-only points: never invent times or duplicate a day to fill the axis.
-      let count = days ? Math.min(7, days + 1, Math.max(2, Math.floor((width - pad.l - pad.r) / 80) + 1)) : 1;
+      let count = days ? Math.min(5, days + 1, Math.max(2, Math.floor((width - pad.l - pad.r) / 80) + 1)) : 1;
       while (count >= 1) {
         const labels = [];
         for (let index = 0; index < count; index++) {
@@ -546,14 +546,7 @@
           textLabel(x, height - pad.b + 22, '', index === 0 ? 'start' : index === count - 1 ? 'end' : 'middle', 'x');
           const label = svg.lastChild;
           label.setAttribute('data-date', new Date(timestamp).toISOString().slice(0, 10));
-          const date = new Date(timestamp);
-          [date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' }), String(date.getUTCFullYear())].forEach(function (part, row) {
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-            line.setAttribute('x', x);
-            line.setAttribute('dy', row ? '16' : '0');
-            line.textContent = part;
-            label.appendChild(line);
-          });
+          label.textContent = window.healthcheckOwnerShortDate(new Date(timestamp).toISOString().slice(0, 10));
           labels.push(label);
           const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
           tick.setAttribute('class', 'weight-time-tick');

@@ -233,7 +233,7 @@
     leftLine.style.setProperty("stroke", lineColor);
     svgElement.appendChild(leftLine);
     const spacing = width - pad.l - pad.r;
-    let count = Math.min(8, dates.length, Math.max(2, Math.floor(spacing / 90) + 1));
+    let count = Math.min(5, dates.length, Math.max(2, Math.floor(spacing / 90) + 1));
     for (let index = 0; index < count; index += 1) {
       const dateIndex = count === 1 ? 0 : Math.round((dates.length - 1) * index / (count - 1));
       const x = xOf(dateIndex);
@@ -244,19 +244,10 @@
       tick.setAttribute("y2", height - pad.b + 5);
       tick.style.setProperty("stroke", lineColor);
       svgElement.appendChild(tick);
-      const date = new Date(dates[dateIndex] + "T00:00:00Z");
       const anchor = index === 0 ? "start" : index === count - 1 ? "end" : "middle";
       const node = label(x, height - pad.b + 22, "", anchor, "x");
       node.setAttribute("data-date", dates[dateIndex]);
-      [date.toLocaleDateString("ru-RU", {
-        day: "numeric", month: "short", timeZone: "UTC"
-      }), String(date.getUTCFullYear())].forEach(function (part, row) {
-        const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
-        tspan.setAttribute("x", x);
-        tspan.setAttribute("dy", row ? "16" : "0");
-        tspan.textContent = part;
-        node.appendChild(tspan);
-      });
+      node.textContent = window.healthcheckOwnerShortDate(dates[dateIndex]);
     }
     return label(minTickX, pad.t - 6, "ч", "start", "unit");
   }

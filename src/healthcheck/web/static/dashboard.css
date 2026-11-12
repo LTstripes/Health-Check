@@ -731,3 +731,18 @@ main, .legal { margin-inline: auto; }
 .owner-value-low { color: var(--muted); }
 
 .owner-meta .overview-coverage::before { content: none; }
+
+/* Shared owner chart geometry: labels remain HTML at a fixed readable size. */
+.owner-chart-frame { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; color: var(--muted); font-size: 12px; }
+.owner-chart-y { display: flex; flex-direction: column; justify-content: space-between; align-items: end; line-height: 1; }
+.owner-chart-plot { min-width: 0; height: 110px; }
+.owner-chart-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.owner-chart-plot svg line, .owner-chart-plot svg path { vector-effect: non-scaling-stroke; }
+.owner-chart-x { grid-column: 2; display: flex; justify-content: space-between; }
+.owner-chart-legend, .owner-chart-selection { font-size: 12px; color: var(--muted); margin: 4px 0; }
+.owner-chart-hatch { display: inline-block; width: 12px; height: 12px; background: repeating-linear-gradient(45deg, transparent 0 3px, var(--line-strong) 3px 4px); }
+
+.overview-figure .owner-chart-plot svg { height: 100%; }
+
+.owner-chart-y .steps-tick { font-size: 12px; }
+.owner-chart-plot .steps-daily-chart { min-height: 0; }
