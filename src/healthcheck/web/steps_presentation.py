@@ -53,16 +53,23 @@ def _chart(cells: list[dict]) -> dict:
     """Only bounded geometry is numeric in browser data; counts stay strings."""
     maximum = max((c["value"] for c in cells if c["state"] == "value"), default=0)
     scale = max(1, maximum)
+    # Keep row geometry (and embedded JSON) stable; render against a rounded scale.
+    magnitude = 10 ** max(0, len(str(scale)) - 1)
+    step = next(n * magnitude // 10 for n in (10, 20, 25, 50, 100)
+                if n * magnitude // 10 >= (scale + 2) // 3)
+    top = ((scale + step - 1) // step) * step
     ticks = [{"value": str(value), "label": steps_whole_display(value),
-              "y": 150 - value * 130 // scale}
-             for value in sorted({0, scale // 2, scale})]
+              "y": 150 - value * 130 / top}
+             for value in range(0, top + 1, step)]
     # At 20px, reserve a conservative advance for each digit/separator plus
     # padding. The browser verifies actual glyph bounds at supported widths.
-    label_width = max(sum(6 if char == "\u202f" else 13 for char in tick["label"])
-                      for tick in ticks)
+    legacy_labels = [steps_whole_display(value) for value in {0, scale // 2, scale}]
+    label_width = max(sum(6 if char == "\u202f" else 13 for char in label)
+                      for label in legacy_labels)
     left = max(100, label_width + 24)
     rows, segments = [], []
     previous = None
+    previous_plot_y = None
     for index, cell in enumerate(cells):
         value = cell["value"] if cell["state"] == "value" else None
         x = left + index * (880 - left) // max(1, len(cells) - 1)
@@ -74,11 +81,15 @@ def _chart(cells: list[dict]) -> dict:
             "x": x, "y": y, "index": index,
         }
         rows.append(row)
+        plot_y = 150 - value * 130 / top if value is not None else None
         if previous is not None and y is not None:
-            segments.append({"x1": previous["x"], "y1": previous["y"], "x2": x, "y2": y})
+            segments.append({"x1": previous["x"], "y1": previous_plot_y,
+                             "x2": x, "y2": plot_y})
         previous = row if y is not None else None
+        previous_plot_y = plot_y
     return {"rows": rows, "segments": segments, "selected_index": None,
-            "selected": None, "ticks": ticks, "left": left}
+            "selected": None, "ticks": ticks, "left": left,
+            "plot_scale": scale, "plot_top": top}
 
 
 

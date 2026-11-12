@@ -735,3 +735,9 @@ main, .legal { margin-inline: auto; }
 
 .owner-chart-y .steps-tick { font-size: 12px; }
 .owner-chart-plot .steps-daily-chart { min-height: 0; }
+
+/* Fixed-size HTML labels over the dynamic chart geometry. */
+.owner-dynamic-chart { position: relative; }
+.owner-chart-overlay { position: absolute; inset: 0; pointer-events: none; color: var(--muted); font: 12px var(--owner-sans); }
+.owner-chart-overlay-label { position: absolute; white-space: nowrap; }
+.owner-dynamic-chart svg path, .owner-dynamic-chart svg line { vector-effect: non-scaling-stroke; }

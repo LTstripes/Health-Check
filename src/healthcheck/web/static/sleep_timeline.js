@@ -63,11 +63,9 @@
   }
 
   function niceStep(high) {
-    const steps = [0.5, 1, 2, 3, 4, 6, 8, 12, 24];
-    for (let index = 0; index < steps.length; index += 1) {
-      if (high / steps[index] <= 6) return steps[index];
-    }
-    return steps[steps.length - 1];
+    const raw = high / 3;
+    const power = Math.pow(10, Math.floor(Math.log10(raw)));
+    return [1, 2, 2.5, 5, 10].map(n => n * power).find(n => n >= raw);
   }
 
   function seriesFor(element) {
@@ -257,7 +255,7 @@
     const height = 320;
     const pad = { l: 56, r: 16, t: 22, b: 64 };
     const dates = data.dates;
-    const high = (function () {
+    const observedHigh = (function () {
       let top = 0;
       data.display_series.forEach(function (series) {
         series.points.forEach(function (point) {
@@ -266,7 +264,8 @@
       });
       return Math.max(1, top * 1.08);
     })();
-    const step = niceStep(high);
+    const step = niceStep(observedHigh);
+    const high = Math.ceil(observedHigh / step) * step;
     const plotHeight = height - pad.t - pad.b;
     const plotWidth = width - pad.l - pad.r;
     const xOf = function (index) {
@@ -276,11 +275,16 @@
       return pad.t + (1 - hours / high) * plotHeight;
     };
     host.innerHTML = "";
+    host.classList.add("owner-dynamic-chart");
     svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("role", "group");
     svg.setAttribute("aria-label", "Длительность сна, часы по датам пробуждения");
     host.appendChild(svg);
+    const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    defs.innerHTML = '<pattern id="sleep-gap-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--line-strong)" vector-effect="non-scaling-stroke"/></pattern>';
+    svg.appendChild(defs);
     buildAxis(svg, width, height, pad, dates, xOf, pad.l);
     for (let value = 0; value <= high + step / 2; value += step) {
       const y = yOf(value);
@@ -396,12 +400,12 @@
         } else {
           flush();
           const tick = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-          tick.setAttribute("x", x - 1);
-          tick.setAttribute("y", height - pad.b - 6);
-          tick.setAttribute("width", "2");
-          tick.setAttribute("height", "6");
-          tick.style.setProperty("fill", color);
-          tick.setAttribute("opacity", "0.45");
+          const gapWidth = Math.max(2, plotWidth / Math.max(1, dates.length));
+          tick.setAttribute("x", Math.max(pad.l, x - gapWidth / 2));
+          tick.setAttribute("y", pad.t);
+          tick.setAttribute("width", Math.min(gapWidth, width - pad.r - Math.max(pad.l, x - gapWidth / 2)));
+          tick.setAttribute("height", plotHeight);
+          tick.setAttribute("fill", "url(#sleep-gap-hatch)");
           tick.setAttribute("class", "sleep-timeline-gap-tick");
           const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
           title.textContent = readableDate(point.wake_date) + " · " + (point.note || "Нет пригодного значения");
@@ -421,6 +425,7 @@
       if (matches.length) matches[0].focus();
     }
     bindPoints();
+    window.healthcheckChartLabels(host, svg);
   }
 
   function nearestFrom(event) {
@@ -526,6 +531,10 @@
       "Пропуски показаны в таблице ниже и не означают ноль.</p>";
     return;
   }
+  const legend = document.createElement("p");
+  legend.className = "owner-chart-legend";
+  legend.innerHTML = '<span class="owner-chart-hatch" aria-hidden="true"></span> \u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445';
+  host.insertAdjacentElement("afterend", legend);
   bindLegend();
   draw();
   if (host.sleepResizeObserver) host.sleepResizeObserver.disconnect();
