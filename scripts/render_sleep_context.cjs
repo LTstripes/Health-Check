@@ -16,6 +16,7 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
   appendChild(child) { child.parentElement = this; this.children.push(child); return child; }
+  insertAdjacentElement(_position, element) { this.adjacentElement = element; return element; }
   set innerHTML(value) { this.html = value; this.children = []; }
   get innerHTML() { return this.html || ''; }
   addEventListener(name, fn) { (this.events[name] ||= []).push(fn); }
@@ -48,10 +49,11 @@ const document = {
     'sleep-timeline-detail': detail })[id] || null,
   createElementNS: (_namespace, tag) => new Element(tag),
   querySelector: () => null, // This fixture has no server-rendered date-table disclosure.
+  createElement: tag => new Element(tag),
   querySelectorAll: selector => ({ '[data-sleep-series-toggle]': toggles,
     '[data-sleep-context-source]': cells })[selector] || [],
 };
-const context = vm.createContext({ window: {}, document, URLSearchParams,
+const context = vm.createContext({ window: { healthcheckChartLabels() {} }, document, URLSearchParams,
   fetch: () => new Promise(() => {}),
   ResizeObserver: class { observe() {} disconnect() {} },
   DOMPoint: class { constructor(x, y) { this.x = x; this.y = y; } matrixTransform() { return this; } },

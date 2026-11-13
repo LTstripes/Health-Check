@@ -484,8 +484,15 @@
     const low = Math.min.apply(null, values);
     const high = Math.max.apply(null, values);
     const margin = Math.max((high - low) * 0.1, 0.5);
-    const minY = low - margin;
-    const maxY = high + margin;
+    const rawStep = (high - low + 2 * margin) / 3;
+    const power = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    let step, minY, maxY;
+    for (const factor of [1, 2, 2.5, 5, 10, 20, 25, 50]) {
+      step = factor * power;
+      minY = Math.floor((low - margin) / step) * step;
+      maxY = Math.ceil((high + margin) / step) * step;
+      if ((maxY - minY) / step <= 3.000001) break;
+    }
     const spanY = maxY === minY ? 1 : maxY - minY;
     const spanX = maxX === minX ? 1 : maxX - minX;
     const xOf = function (date) {
@@ -496,6 +503,8 @@
     };
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.setAttribute("preserveAspectRatio", "none");
+    host.classList.add("owner-dynamic-chart");
     svg.setAttribute("role", "group");
     svg.setAttribute('aria-label', unit ? 'Состав тела, ' + unit.trim() : 'Вес, кг');
     svg.innerHTML =
@@ -527,9 +536,9 @@
       label.textContent = text;
       svg.appendChild(label);
     }
-    for (let index = 0; index <= 4; index++) {
-      const value = minY + spanY * index / 4;
-      textLabel(pad.l - 8, yOf(value) + 4, fmt(value, 1), 'end', 'y');
+    for (let index = 0; index <= Math.round(spanY / step); index++) {
+      const value = minY + step * index;
+      textLabel(pad.l - 8, yOf(value) + 4, window.healthcheckOwnerFormat.number(value, 3), 'end', 'y');
     }
     textLabel(pad.l, 12, unit ? unit.trim() : 'кг', 'start', 'unit');
     const dayMs = 86400000;
@@ -537,7 +546,7 @@
       svg.querySelectorAll('[data-axis="x"], .weight-time-tick').forEach(function (node) { node.remove(); });
       const days = Math.round((maxX - minX) / dayMs);
       // Date-only points: never invent times or duplicate a day to fill the axis.
-      let count = days ? Math.min(7, days + 1, Math.max(2, Math.floor((width - pad.l - pad.r) / 80) + 1)) : 1;
+      let count = days ? Math.min(5, days + 1, Math.max(2, Math.floor((width - pad.l - pad.r) / 80) + 1)) : 1;
       while (count >= 1) {
         const labels = [];
         for (let index = 0; index < count; index++) {
@@ -546,14 +555,7 @@
           textLabel(x, height - pad.b + 22, '', index === 0 ? 'start' : index === count - 1 ? 'end' : 'middle', 'x');
           const label = svg.lastChild;
           label.setAttribute('data-date', new Date(timestamp).toISOString().slice(0, 10));
-          const date = new Date(timestamp);
-          [date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' }), String(date.getUTCFullYear())].forEach(function (part, row) {
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-            line.setAttribute('x', x);
-            line.setAttribute('dy', row ? '16' : '0');
-            line.textContent = part;
-            label.appendChild(line);
-          });
+          label.textContent = window.healthcheckOwnerShortDate(new Date(timestamp).toISOString().slice(0, 10));
           labels.push(label);
           const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
           tick.setAttribute('class', 'weight-time-tick');
@@ -574,6 +576,41 @@
         svg.querySelectorAll('[data-axis="x"], .weight-time-tick').forEach(function (node) { node.remove(); });
         count--;
       }
+    }
+    const observedDates = new Set(rawPoints.map(point => point.date));
+    const gapGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const hatchId = 'weight-gap-' + Math.random().toString(36).slice(2);
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = '<pattern id="' + hatchId + '" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--line-strong)" vector-effect="non-scaling-stroke"/></pattern>';
+    svg.appendChild(defs);
+    svg.appendChild(gapGroup);
+    function drawGaps() {
+      gapGroup.replaceChildren();
+      const days = Math.round((maxX - minX) / dayMs);
+      const cell = (width - pad.l - pad.r) / Math.max(days, 1);
+      for (let index = 0; index <= days; index++) {
+        const date = new Date(minX + index * dayMs).toISOString().slice(0, 10);
+        if (observedDates.has(date)) continue;
+        const x = xOf(date);
+        const left = Math.max(pad.l, x - cell / 2);
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', left);
+        rect.setAttribute('y', pad.t);
+        rect.setAttribute('width', Math.max(0, Math.min(width - pad.r, x + cell / 2) - left));
+        rect.setAttribute('height', height - pad.t - pad.b);
+        rect.setAttribute('fill', 'url(#' + hatchId + ')');
+        gapGroup.appendChild(rect);
+      }
+    }
+    if (!host.nextElementSibling || !host.nextElementSibling.classList.contains('owner-weight-gap-legend')) {
+      const legend = document.createElement('p');
+      legend.className = 'owner-chart-legend owner-weight-gap-legend';
+      const key = document.createElement('span');
+      key.className = 'owner-chart-hatch';
+      key.setAttribute('aria-hidden', 'true');
+      legend.appendChild(key);
+      legend.append(' нет данных');
+      host.insertAdjacentElement('afterend', legend);
     }
     if (goal !== null && goal !== undefined) {
       const gy = yOf(goal);
@@ -672,6 +709,8 @@
         circle.querySelectorAll('circle').forEach(function (dot) { dot.setAttribute('cx', xOf(rawPoints[index].date)); });
       });
       drawTimeAxis();
+      drawGaps();
+      window.healthcheckChartLabels(host, svg);
     }
     if (host.weightResizeObserver) host.weightResizeObserver.disconnect();
     host.weightResizeObserver = new ResizeObserver(resizeChart);
