@@ -1,6 +1,7 @@
 """Saved packet → exact strings / bounded geometry / accessible compact markup."""
 
 import json
+import re
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -163,14 +164,36 @@ def test_numeric_ticks_share_exact_geometry_and_day_starts_unselected(factory, v
     assert view["selected"] is None and view["selected_index"] is None
     maximum = max(1, *(value for value in values if value is not None))
     assert view["ticks"][0]["value"] == "0" and view["ticks"][0]["y"] == 150
-    assert view["ticks"][-1]["value"] == str(maximum)
+    expected_top = {1: 1, 12345: 20000, 99999999: 100000000,
+                    999999999: 1000000000, 999999999999: 1000000000000,
+                    9223372036854775807: 10000000000000000000}[maximum]
+    assert view["plot_top"] == expected_top
+    assert view["ticks"][-1]["value"] == str(expected_top)
     for tick in view["ticks"]:
-        assert tick["y"] == 150 - int(tick["value"]) * 130 // maximum
+        assert tick["y"] == pytest.approx(150 - int(tick["value"]) * 130 / expected_top)
         assert tick["label"].replace("\u202f", "") == tick["value"]
     for row in view["rows"]:
         if row["value"] is not None:
             assert row["display"].replace("\u202f", "") == row["value"]
             assert row["y"] == 150 - int(row["value"]) * 130 // maximum
+    directory = Path(__file__).parents[1] / "src/healthcheck/web/templates"
+    env = Environment(loader=FileSystemLoader(directory), autoescape=select_autoescape())
+    from healthcheck.web.owner_presentation import register_owner_filters
+
+    register_owner_filters(env)
+    html = env.get_template("statistics_steps_chart.html").render(view=view)
+    rendered = re.findall(r'<circle class="steps-point" cx="([^"]+)" cy="([^"]+)"', html)
+    observed = [row for row in view["rows"] if row["value"] is not None]
+    assert len(rendered) == len(observed)
+    for (x, y), row in zip(rendered, observed, strict=True):
+        assert float(x) == row["x"]
+        assert float(y) == pytest.approx(150 - int(row["value"]) * 130 / expected_top)
+    for segment in view["segments"]:
+        for side in ("1", "2"):
+            row = next(row for row in observed if row["x"] == segment["x" + side])
+            assert segment["y" + side] == pytest.approx(
+                150 - int(row["value"]) * 130 / expected_top
+            )
     assert view["total_display"].replace("\u202f", "") == view["total"]
     assert view["mean_display"].replace("\u202f", "").isdigit()
 
