@@ -571,18 +571,6 @@
     });
   }
 
-  const markerCount = data.display_series.reduce(function (total, series) {
-    return total + markerPoints(series).length;
-  }, 0);
-  if (!markerCount) {
-    host.innerHTML = '<p class="muted">За выбранное окно нет сохранённых значений и спорных дат. ' +
-      "Пропуски показаны в таблице ниже и не означают ноль.</p>";
-    return;
-  }
-  const legend = document.createElement("p");
-  legend.className = "owner-chart-legend";
-  legend.innerHTML = '<span class="owner-chart-hatch" aria-hidden="true"></span> \u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445';
-  host.insertAdjacentElement("afterend", legend);
   detail.addEventListener("click", function (event) {
     const button = event.target.closest("button");
     if (!button || !current) return;
@@ -601,12 +589,25 @@
     const replacement = detail.querySelector(selector);
     if (replacement) replacement.focus({preventScroll: true});
   });
-  const table = document.querySelector("[data-sleep-table]");
-  if (table) table.removeAttribute("open");
+  // Night selection and source controls also apply when the chart has no markers.
   bindLegend();
-  draw();
   const initial = visibleSeries().find(item => item.provider === "garmin") || visibleSeries()[0];
   showPoint(initial, pointAt(initial, data.end_date || data.dates[data.dates.length - 1]));
+  const markerCount = data.display_series.reduce(function (total, series) {
+    return total + markerPoints(series).length;
+  }, 0);
+  if (!markerCount) {
+    host.innerHTML = '<p class="muted">За выбранное окно нет сохранённых значений и спорных дат. ' +
+      "Пропуски показаны в таблице ниже и не означают ноль.</p>";
+    return;
+  }
+  const legend = document.createElement("p");
+  legend.className = "owner-chart-legend";
+  legend.innerHTML = '<span class="owner-chart-hatch" aria-hidden="true"></span> \u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445';
+  host.insertAdjacentElement("afterend", legend);
+  const table = document.querySelector("[data-sleep-table]");
+  if (table) table.removeAttribute("open");
+  draw();
   if (host.sleepResizeObserver) host.sleepResizeObserver.disconnect();
   host.sleepResizeObserver = new ResizeObserver(function () {
     draw();
