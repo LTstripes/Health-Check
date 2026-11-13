@@ -28,7 +28,7 @@
         {% for code, unit in [('duration_seconds', 'seconds'), ('distance_meters', 'meters')] %}
         {% set metric = item.metrics[code] %}<td data-session-metric="{{ code }}" data-metric-state="{{ metric.state }}">{% if metric.displayable and metric.unit == unit %}{{ metric.value|owner_duration if code == "duration_seconds" else metric.value|owner_distance_cell }}{% elif metric.state == 'missing' %}Поле отсутствует{% elif metric.state == 'null' %}Источник передал null{% elif metric.state == 'invalid' or not metric.displayable %}Некорректное значение{% else %}Единица недоступна{% if metric.unit %} ({{ metric.unit }}){% endif %}{% endif %}</td>
         {% endfor %}
-        <td>{% if item.record_status == 'partial' %}<span>Частичная запись</span>{% else %}Сохранена{% endif %}</td>
+        <td>{% if item.record_status == 'partial' %}<span>частичная запись</span>{% else %}Сохранена{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table>
   </div>

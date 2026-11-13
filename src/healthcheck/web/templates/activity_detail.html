@@ -37,7 +37,7 @@
    {% elif card.state == 'invalid' %}
    <p><span class="status-chip owner-state unknown" data-owner-state="unknown">Некорректное значение</span></p>
    {% else %}
-   <p class="activity-metric-value"><span class="unavailable" data-owner-state="unavailable">—</span></p><p class="activity-metric-hint muted">не передан источником</p>
+   <p class="activity-metric-value"><span class="unavailable" data-owner-state="unavailable">—</span></p><p class="activity-metric-hint muted">Не предоставлено: источник не передал значение.</p>
    {% endif %}
   </article>
   {% endfor %}
