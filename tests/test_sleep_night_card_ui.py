@@ -97,8 +97,8 @@ def test_complete_garmin_night_is_compact_and_keeps_detail_collapsed(tmp_path):
     assert "Время в постели 8 ч 37 мин" in legend
     assert "Оценка сна Garmin 88 из 100" in legend
     details = card["session"].split("<details", 1)[1]
-    assert '<details class="owner-details night-card-tech"><summary>ⓘ Данные сессии</summary>' in (
-        "<details" + details)
+    assert ('<details class="owner-details night-card-tech">'
+            '<summary>Интервалы стадий и технические детали</summary>') in ("<details" + details)
     assert " open" not in details.split(">", 1)[0]
     assert "25 октября 2026 г., 22:42 UTC+0300" in details
     assert "26 октября 2026 г., 07:19 UTC+0300" in details
@@ -132,10 +132,9 @@ def test_sparse_session_says_no_data_instead_of_zero(tmp_path):
     )
     [card] = _render(tmp_path, [{"series": GARMIN, "point": POINT, "session": session}])
     text = _text(_main_view(card["session"]))
-    assert "Начало и окончание сна нет данных" in text
-    assert "Стадии сна нет данных" in text
-    assert "Время в постели нет данных" in text
-    assert "Оценка сна Garmin нет данных" in text
+    assert "Сохранена только длительность сна — без стадий и границ." in text
+    assert "Время в постели" not in text and "Оценка сна" not in text
+    assert card["session"].count("<details") == 2
     assert re.search(r"\b0\b", text) is None
 
 
@@ -167,7 +166,7 @@ def test_timeline_script_keeps_session_states_and_loads_card_helpers():
     timeline = (static / "sleep_timeline.js").read_text(encoding="utf-8")
     for state in ("loading", "error", "limited", "missing"):
         assert f'data-sleep-session-state="{state}"' in timeline
-    assert "ⓘ Основание точки" in timeline
+    assert "selectedEvidence(point)" in timeline
     assert 'aria-controls", "sleep-timeline-detail"' in timeline
     template = (REPO / "src/healthcheck/web/templates/sleep.html").read_text(encoding="utf-8")
     card_script = template.index("/static/sleep_night_card.js")
@@ -240,8 +239,9 @@ def test_hypnogram_positions_steps_durations_and_accessible_rows(tmp_path):
     assert 'text-anchor="start">23:00</text>' in graph
     assert 'text-anchor="end">03:00</text>' in graph
     assert "night-hypno-gap" not in graph
-    assert '<summary>Интервалы стадий</summary>' in html
-    assert '<details class="owner-details night-hypno-intervals">' in html
+    assert '<summary>Интервалы стадий и технические детали</summary>' in html
+    assert html.count('<details') == 2
+    assert '<section class="night-hypno-intervals">' in html
     table = _interval_table(html)
     assert table.count('<tr>') == 4
     assert ('<td>2026-10-26 02:00 UTC+03:00</td><td>2026-10-26 03:00 UTC+03:00</td>'
@@ -254,7 +254,7 @@ def test_hypnogram_totals_only_never_invents_an_order(tmp_path):
     html = card["session"]
     assert 'data-hypnogram="totals-only"' in html
     assert "Последовательность стадий не сохранена — показаны только итоги" in html
-    assert 'night-hypno-plot' not in html and 'Интервалы стадий' not in html
+    assert 'night-hypno-plot' not in html and 'night-hypno-intervals' not in html
 
 
 def test_hypnogram_missing_and_unknown_intervals_leave_unconnected_hatched_gaps(tmp_path):

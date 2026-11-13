@@ -178,8 +178,8 @@
   const pad = value => String(value).padStart(2, "0");
 
   function intervalTable(rows, clock) {
-    let html = '<details class="owner-details night-hypno-intervals"><summary>Интервалы стадий</summary>' +
-      '<div class="night-hypno-table"><table><caption>Сохранённые интервалы этой ночи</caption><thead><tr>' +
+    let html = '<section class="night-hypno-intervals"><h4>Интервалы стадий</h4>' +
+      '<div class="table-scroll night-hypno-table"><table><caption>Сохранённые интервалы этой ночи</caption><thead><tr>' +
       '<th scope="col">Начало</th><th scope="col">Окончание</th><th scope="col">Стадия</th>' +
       '<th scope="col">Минуты</th></tr></thead><tbody>';
     rows.forEach(row => {
@@ -192,7 +192,7 @@
         '</td><td>' + esc(row.level < 0 ? "Неизвестная стадия" : LEVELS[row.level][2]) +
         (row.draw ? "" : " (не показан на графике)") + '</td><td>' + esc(duration) + '</td></tr>';
     });
-    return html + '</tbody></table></div></details>';
+    return html + '</tbody></table></div></section>';
   }
 
   function hypnogram(session) {
@@ -203,8 +203,8 @@
     const snapshots = evidence.map(item => item.interval_snapshots || []).find(rows =>
       rows.some(row => row.interval_kind === "sleep_stage")) || [];
     const stages = snapshots.filter(row => row.interval_kind === "sleep_stage");
-    if (!stages.length) return '<p class="night-card-note" data-hypnogram="totals-only">' +
-      'Последовательность стадий не сохранена — показаны только итоги</p>';
+    if (!stages.length) return {details: "", html: '<p class="night-card-note" data-hypnogram="totals-only">' +
+      'Последовательность стадий не сохранена — показаны только итоги</p>'};
 
     const allEvidence = Object.values(metrics).map(cell => cell.evidence || {});
     const temporals = [];
@@ -267,8 +267,8 @@
       row.draw = row.valid && row.level >= 0 && !rows.some(other => other !== row &&
         Number.isFinite(other.a) && Number.isFinite(other.b) && other.a < row.b && other.b > row.a);
     });
-    if (!hasBounds) return '<p class="night-card-note" data-hypnogram="unavailable">' +
-      'Гипнограмма недоступна: границы ночи не подтверждены.</p>' + intervalTable(rows, clock);
+    if (!hasBounds) return {details: intervalTable(rows, clock), html: '<p class="night-card-note" data-hypnogram="unavailable">' +
+      'Гипнограмма недоступна: границы ночи не подтверждены.</p>'};
     const drawn = rows.filter(row => row.draw).sort((a, b) => a.a - b.a);
     let svg = '<svg class="night-hypno-plot" width="100%" height="128" ' +
       'aria-label="Гипнограмма: сохранённые интервалы стадий" role="group">' +
@@ -316,7 +316,7 @@
     html += '</div>' + svg + '</div>';
     if (fixedOffset === null) html += '<p class="night-card-note">Местное время — по сохранённым смещениям; ' +
       'где смещение неизвестно, показано UTC.</p>';
-    return html + '</figure>' + intervalTable(rows, clock);
+    return {html: html + '</figure>', details: intervalTable(rows, clock)};
   }
 
   function notes(session) {
@@ -328,7 +328,8 @@
     return "";
   }
 
-  function technical(session) {
+  function technical(session, intervals, evidence) {
+    session = session || {};
     const metrics = session.metrics || {};
     const rows = [];
     const add = function (label, value) {
@@ -347,16 +348,32 @@
       return !entry[1].eligible && entry[1].reason;
     }).map(function (entry) { return entry[0] + ": " + entry[1].reason; });
     if (withheld.length) add("Не показаны как значение", withheld.join("; "));
-    let html = '<details class="owner-details night-card-tech"><summary>ⓘ Данные сессии</summary>';
+    let html = '<details class="owner-details night-card-tech"><summary>Интервалы стадий и технические детали</summary>';
+    html += (intervals || '') + (evidence || '');
     if (rows.length) html += '<dl class="sleep-timeline-session">' + rows.join("") + "</dl>";
     return html + '<pre class="provenance">' + esc(JSON.stringify(session, null, 2)) + "</pre></details>";
   }
 
-  // Session body: clock window, stages, secondary tiles, short qualifiers, collapsed detail.
-  function sessionBody(series, session) {
-    return windowLine(session) + stagesBlock(session) + hypnogram(session) + tiles(series, session) + notes(session) +
-      technical(session);
+  function disclosures(session, intervals, evidence) {
+    return '<details class="owner-info night-card-help"><summary>ⓘ Как читать ночь</summary>' +
+      '<p>Дата — пробуждение. Длительность, границы и стадии показаны только по сохранённым данным одного источника. ' +
+      'Пропуск не означает ноль; несколько записей не объединяются.</p></details>' +
+      technical(session, intervals, evidence);
   }
 
-  window.healthcheckSleepNightCard = Object.freeze({ head: head, session: sessionBody });
+  function sessionBody(series, session, evidence) {
+    const metrics = session.metrics || {};
+    const hasStages = STAGES.some(item => cellState(metrics[item[0]]) !== "missing" ||
+      (((metrics[item[0]] || {}).evidence || {}).interval_snapshots || []).length);
+    const hasBounds = ENDPOINTS.some(item => (metrics[item[0]] || {}).state === "value");
+    if (!hasStages && !hasBounds) {
+      return '<p class="night-card-note" data-night-sparse>Сохранена только длительность сна — без стадий и границ.</p>' +
+        disclosures(session, "", evidence);
+    }
+    const hypno = hypnogram(session);
+    return windowLine(session) + stagesBlock(session) + hypno.html + tiles(series, session) + notes(session) +
+      disclosures(session, hypno.details, evidence);
+  }
+
+  window.healthcheckSleepNightCard = Object.freeze({ head: head, session: sessionBody, disclosures: disclosures });
 })();

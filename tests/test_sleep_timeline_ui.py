@@ -1221,7 +1221,7 @@ def test_historical_sleep_period_controls_share_existing_snapshot(tmp_path, monk
     assert f'name="days" value="{days}"' in form
     assert '<button type="submit">Показать</button>' in form
     assert f'aria-current="true" href="/sleep?view=timeline&amp;days={days}' in response.text
-    assert f'<strong>{days} дней <span aria-hidden="true">✓</span></strong>' in response.text
+    assert f'<strong>{days} ночей <span aria-hidden="true">✓</span></strong>' in response.text
     assert "data-sleep-export" not in response.text
 
 
@@ -1258,3 +1258,27 @@ def test_historical_sleep_invalid_date_never_substitutes_today(tmp_path, value):
     assert 'invalid_sleep_date' in response.text
     assert 'data-sleep-period-form' not in response.text
     assert value not in response.text
+
+
+def test_t6_night_precedes_chart_and_regularity_with_no_js_table(tmp_path):
+    app, _, paths = _ui(tmp_path)
+    _seed_nights(paths)
+    with client_for(app) as client:
+        response = client.get("/sleep?wake_date=2099-01-07&days=7")
+    html = response.text
+    assert response.status_code == 200
+    assert (html.index('data-sleep-period-form') < html.index('data-sleep-series-toggle=')
+            < html.index('id="sleep-timeline-detail"') < html.index('id="sleep-timeline-chart"')
+            < html.index('data-sleep-regularity>'))
+    assert 'data-sleep-table open' in html
+    assert _timeline_json(html)["end_date"] == "2099-01-07"
+
+
+def test_t6_production_timeline_selection_events():
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(["node", str(root / "scripts/check_sleep_timeline.cjs")],
+                            cwd=root, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
