@@ -23,6 +23,7 @@ from healthcheck.web.overview_completed import completed_overview_window, read_c
 from healthcheck.web.overview_coverage import overview_low_coverage
 from healthcheck.web.overview_rhr import read_overview_rhr
 from healthcheck.web.overview_steps import read_overview_steps
+from overview_html import parse_overview
 from test_body_battery_read import seed_battery
 from test_garmin_completed_steps import acquire as acquire_daily
 from test_garmin_query_dashboard import _ui
@@ -138,6 +139,72 @@ def test_real_route_separates_values_coverage_and_missing_without_writes(compari
     assert len(jsonable_encoder(packet)["items"]) == 10
     assert not {"insert", "update", "delete", "create", "alter"}.intersection(statements)
     assert [item["wake_date"] for item in packet["last_nights"]] == ["2099-02-28"] * 2
+
+
+@pytest.mark.parametrize("current,prior,expected", [
+    (2, 2, "−10 шагов"), (1, 2, "Мало данных в текущем периоде"),
+    (2, 1, "Мало данных в прошлом периоде"), (None, 2, "Недостаточно данных"),
+])
+def test_comparison_strip_coverage_and_missing(
+    comparison_page, monkeypatch, current, prior, expected,
+):
+    app, _, _, source = comparison_page
+    original = pages.read_overview_comparison
+
+    def comparison(*args, **kwargs):
+        packet = original(*args, **kwargs)
+        window = packet["current_window"]
+        previous = packet["previous_window"]
+        row = module._comparison("steps", "garmin", source, "steps", "mean",
+            module._value(0 if current is not None else None, current, window),
+            module._value(10, prior, previous))
+        packet["items"] = [row]
+        return packet
+
+    monkeypatch.setattr(pages, "read_overview_comparison", comparison)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        response = client.get("/brief", params={"start_date": "2099-02-27",
+            "end_date": "2099-03-01", "garmin_source_id": source})
+    row = parse_overview(response.text).one(**{
+        "data-comparison-metric": "steps", "data-comparison-provider": "garmin"})
+    assert expected in row.text
+    assert f"{current if current is not None else '—'} из 3" in row.text
+    assert f"{prior} из 3" in row.text
+    assert "24 февраля 2099" in row.text and "26 февраля 2099" in row.text
+    if current != 2 or prior != 2:
+        assert "−10 шагов" not in row.text
+
+
+def test_last_night_does_not_replace_missing_final_day(comparison_page):
+    app, _, _, source = comparison_page
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief", params={"start_date": "2099-02-27",
+            "end_date": "2099-03-01", "garmin_source_id": source})
+    night = parse_overview(page.text).one(**{"data-overview-last-night": None})
+    assert "за 1 марта 2099 нет данных" in night.text
+    assert "28 февраля" not in night.text and "0 мин" not in night.text
+
+
+def test_last_night_displays_proven_endpoint_zones(comparison_page, monkeypatch):
+    app, _, _, source = comparison_page
+    original = pages.read_overview_comparison
+
+    def comparison(*args, **kwargs):
+        packet = original(*args, **kwargs)
+        night = packet["last_nights"][0]
+        night["start"] = {"local_datetime": "2099-02-27T22:00:00+02:00",
+                          "utc_offset_minutes": 120, "timezone": "+0200"}
+        night["end"] = {"local_datetime": "2099-02-28T07:00:00+01:00",
+                        "utc_offset_minutes": 60, "timezone": "+0100"}
+        return packet
+
+    monkeypatch.setattr(pages, "read_overview_comparison", comparison)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        page = client.get("/brief", params={"start_date": "2099-02-27",
+            "end_date": "2099-02-28", "garmin_source_id": source})
+    night = parse_overview(page.text).one(**{"data-overview-last-night": None})
+    assert "28 февраля 2099" in night.text
+    assert "22:00 → 07:00 (+0200 → +0100)" in night.text
 
 
 def test_latest_night_preserves_midnight_and_each_endpoint_zone_change(projection_database):

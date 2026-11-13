@@ -36,13 +36,11 @@ def assert_period_tooltip(html, *, empty=False):
 
 
 def assert_period_tooltip_elements(document, *, empty=False):
-    tooltip = document.one(id="overview-period-scope")
-    assert tooltip.attrs.get("role") == "tooltip"
-    trigger = document.one("p", classes={"brief-period"})
-    assert trigger.attrs.get("tabindex") == "0"
-    assert "overview-period-scope" in trigger.attrs.get("aria-describedby", "").split()
-    assert trigger.one(id="overview-period-scope") is tooltip
-    spans = [child for child in tooltip.children if getattr(child, "tag", None) == "span"]
+    trigger = document.one("div", classes={"brief-period"})
+    disclosure = trigger.one("details", classes={"overview-info"})
+    assert disclosure.one("summary").attrs.get("aria-label") == "Как читать период"
+    tooltip = disclosure.one("div")
+    spans = [child for child in tooltip.children if getattr(child, "tag", None) == "p"]
     assert len(spans) == 2
     requested_start = "8" if empty else "1"
     assert spans[0].text.strip() == (
@@ -83,32 +81,26 @@ def test_one_period_description_replaces_card_ranges_without_changing_windows(
     assert_period_tooltip(response.text)
     assert_period_tooltip(empty.text, empty=True)
     if mode == "filled":
-        harmless = response.text.replace(
-            'class="overview-period-tooltip" id="overview-period-scope" role="tooltip"',
-            'role="tooltip" class="extra overview-period-tooltip" id="overview-period-scope"')
-        harmless = harmless.replace(
-            'class="brief-period" tabindex="0" aria-describedby="overview-period-scope"',
-            'aria-describedby="overview-period-scope" tabindex="0" class="extra brief-period"')
+        harmless = response.text.replace('class="brief-period"', 'class="extra brief-period"')
         assert_period_tooltip(harmless)
         # Mutate selected elements, independent of source attribute serialization.
         for html in (response.text, harmless):
-            for mutation in ["outside text", "date", "missing aria", "role", "duplicate"]:
+            for mutation in ["outside text", "date", "missing aria", "duplicate"]:
                 document = parse_overview(html)
-                tooltip = document.one(id="overview-period-scope")
-                trigger = document.one("p", classes={"brief-period"})
+                trigger = document.one("div", classes={"brief-period"})
+                disclosure = trigger.one("details", classes={"overview-info"})
+                tooltip = disclosure.one("div")
                 if mutation == "outside text":
                     trigger.children.append(tooltip.text)
                     tooltip.children = []
                 elif mutation == "date":
-                    target, = [span for span in tooltip.find("span")
+                    target, = [span for span in tooltip.find("p")
                                if "7 января 2099" in span.text]
                     target.children = [target.text.replace("7 января 2099", "6 января 2099")]
                 elif mutation == "missing aria":
-                    trigger.attrs.pop("aria-describedby")
-                elif mutation == "role":
-                    tooltip.attrs["role"] = "note"
+                    disclosure.one("summary").attrs.pop("aria-label")
                 else:
-                    document.children.append(tooltip)
+                    trigger.children.append(disclosure)
                 with pytest.raises(AssertionError):
                     assert_period_tooltip_elements(document)
     assert 'data-period-coverage' not in response.text
