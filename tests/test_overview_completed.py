@@ -230,7 +230,7 @@ def test_route_preserves_requested_packet_and_form_but_shows_completed_card_rang
         today = client.get("/brief?start_date=2099-01-08&end_date=2099-01-08")
         assert today.status_code == 200
         assert today.text.count("в выбранном периоде нет завершённых дней по МСК") == 1
-        assert 'aria-describedby="overview-period-scope"' in today.text
+        assert 'aria-label="Как читать период"' in today.text
 
 
 @pytest.mark.parametrize("mode", ["empty", "zero", "partial", "invalid", "withheld"])
@@ -362,7 +362,7 @@ def test_overview_sleep_sessions_and_return_keep_exact_selection(database, monke
         assert overview.status_code == 200
         dom = parse_overview(overview.text)
         frozen_href = dom.one("div", classes=("overview-a-plus",)).attrs["data-overview-href"]
-        links = {"sleep" if "сна" in link.text else "activity": link.attrs["href"]
+        links = {"sleep" if "Ночь и история" in link.text else "activity": link.attrs["href"]
                  for link in dom.find("a", classes=("overview-detail-link",))}
         sleep_query = parse_qs(urlsplit(links["sleep"]).query)
         assert sleep_query["days"] == [str(days)]

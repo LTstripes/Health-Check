@@ -109,14 +109,15 @@
 
 
 
+{% include 'overview_values.html' %}
 {% if overview.comparison is defined and overview.comparison and overview.comparison.get('items') %}
 <section class="overview-comparison" aria-label="Что изменилось"><h2>Что изменилось</h2>
 {% for item in overview.comparison['items'] %}
-<div><strong>{{ {'sleep_duration':'Сон', 'stress':'Стресс', 'body_battery':'Body Battery', 'resting_heart_rate':'Пульс в покое', 'steps':'Шаги', 'daily_calories_garmin_estimate':'Калории · оценка', 'intensity_minutes':'Минуты интенсивности'}.get(item.metric, item.metric) }} · {{ 'Garmin' if item.provider == 'garmin' else 'Google' }}</strong>
+<div data-comparison-metric="{{ item.metric }}" data-comparison-provider="{{ item.provider }}"><strong>{{ {'sleep_duration':'Сон', 'stress':'Стресс', 'body_battery':'Body Battery', 'resting_heart_rate':'Пульс в покое', 'steps':'Шаги', 'daily_calories_garmin_estimate':'Калории · оценка', 'intensity_minutes':'Минуты интенсивности'}.get(item.metric, item.metric) }} · {{ 'Garmin' if item.provider == 'garmin' else 'Google' }}</strong>
 <span>{% if item.difference is not none %}{{ '+' if item.difference > 0 else ('−' if item.difference < 0 else '') }}{{ overview_number(item.difference|abs) }} {{ {'seconds':'с', 'points':'из 100', 'bpm':'уд/мин', 'steps':'шагов', 'kcal':'ккал', 'min':'мин'}.get(item.unit, item.unit) }}{% elif item.reason == 'low_coverage_current' %}Мало данных в текущем периоде{% elif item.reason == 'low_coverage_previous' %}Мало данных в прошлом периоде{% else %}Недостаточно данных{% endif %}</span>
 <small>Текущий: {{ item.current.coverage.count if item.current.coverage.count is not none else '—' }} из {{ item.current.coverage.days }} · {{ item.current.window.start_date|owner_date }} — {{ item.current.window.end_date|owner_date }}<br>Предыдущий: {{ item.previous.coverage.count if item.previous.coverage.count is not none else '—' }} из {{ item.previous.coverage.days }} · {{ item.previous.window.start_date|owner_date }} — {{ item.previous.window.end_date|owner_date }}</small></div>
 {% endfor %}</section>{% endif %}
-{% include 'overview_values.html' %}
+
 
 <div class="brief-grid">
   {% if notable_changes %}<section class="card brief-priority" aria-labelledby="brief-notable-heading">

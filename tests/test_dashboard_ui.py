@@ -1146,7 +1146,7 @@ def test_owner_shell_navigation_hierarchy_and_legacy_routes(tmp_path):
                 assert 'class="owner-page-content" lang="en"' in response.text
         period = client.get("/brief?start_date=2099-02-03&end_date=2099-02-17")
         assert "За период" in period.text
-        assert "3 февраля 2099 → 17 февраля 2099" in period.text
+        assert "3 февраля 2099 — 17 февраля 2099" in period.text
         assert 'name="start_date" value="2099-02-03"' in period.text
         assert 'href="/brief">Health-Check</a>' in period.text
         # Observatory shell: sticky left rail, table-scroll wrappers, no block tables.
