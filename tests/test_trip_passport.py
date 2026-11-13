@@ -298,6 +298,8 @@ def test_sources_are_kept_apart_and_uncertain_sleep_is_a_conflict():
     assert values["garmin"][0]["value"] == 55 and values["google"][0]["value"] == 58
     row = web.passport_rows(passport)[1]
     assert [item["value"] for item in row["recovery"]] == [55, 58, 80]
+    assert [(item["domain"], item["provider"]) for item in row["recovery"]] == [
+        ("rhr", "garmin"), ("rhr", "google"), ("body_battery", "garmin")]
     assert row["sleep"]["garmin"]["value"] == 25200 and row["sleep"]["google"]["value"] == 23400
 
 
@@ -433,6 +435,12 @@ def test_page_and_downloads_carry_the_same_facts_as_the_source_exports(client, p
     assert page.headers["cache-control"] == "no-store"
     assert "Синтетическая поездка" in page.text and "По дням" in page.text
     assert "Технические детали" in page.text
+    assert '<details class="card passport-form">' in page.text
+    assert "Изменить период или событие" in page.text
+    assert "Пульс покоя Garmin, уд/мин" in page.text
+    assert "Пульс покоя Google, уд/мин" in page.text
+    assert "HRV, мс" in page.text and "Body Battery, макс." in page.text
+    assert "Восстановление</th>" not in page.text
     frozen = _page_downloads(page.text)
     shown = json.loads(frozen["json"])
     assert shown["passport"]["passport_hash"] in page.text
@@ -488,6 +496,7 @@ def test_context_event_sets_the_period_and_default_title(client, profile):
     missing = client.get("/passport", params={"event_id": "0" * 36})
     assert missing.status_code == 422
     assert "Комментарий не найден" in missing.text
+    assert '<details class="card passport-form" open>' in missing.text
 
 
 def test_over_cap_period_is_refused_clearly_without_reading(client, profile, monkeypatch):
@@ -544,6 +553,31 @@ def test_activity_cap_is_unknown_count_not_zero_and_preserves_reader_reason(clie
     assert page.status_code == 200
     assert "projected_current_sessions_limit_exceeded" in page.text
     assert 'passport-figure">—</p>' in page.text
+
+
+def test_daily_table_keeps_zero_gap_and_ambiguous_sleep_distinct(client, monkeypatch):
+    current, observed = make_packet(
+        end="2026-11-07", days=7, today="2026-11-30",
+        completed=[_completed_cell("2026-11-01", "value", 0)],
+        sleep={"google": (GOOGLE, {
+            "2026-11-01": ("value", 0, False),
+            "2026-11-02": ("value", 25200, True),
+            "2026-11-03": ("ambiguous", None, False),
+        })})
+    packets = {"current": current, "observed_steps": observed}
+    passport = tp.build_passport(passport_request("2026-11-01", "2026-11-07"), packets)
+    passport["sleep"]["providers"]["google"]["nights"][2]["reason"] = "ambiguous_google_main"
+    monkeypatch.setattr(web, "_read", lambda *_: (packets, passport))
+    page = client.get("/passport", params={
+        "start_date": "2026-11-01", "end_date": "2026-11-07", "title": '<script>bad</script>'})
+    assert page.status_code == 200
+    table = page.text.split('<table class="passport-table">')[1].split("</table>")[0]
+    assert "Сон Garmin" in table and "Сон Google" in table
+    assert "0 мин" in table and "нет данных" in table
+    assert "Роль сна не определена" in table and "Несколько записей" in table
+    assert "7 ч" not in table  # Uncertain duration must not leak into the displayed value.
+    assert "&lt;script&gt;bad&lt;/script&gt;" in page.text
+    assert "<script>bad</script>" not in page.text
 
 
 def test_unknown_zone_days_break_segments():

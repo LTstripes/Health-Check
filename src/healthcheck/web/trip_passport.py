@@ -329,7 +329,8 @@ def passport_rows(passport: dict) -> list[dict]:
             for row in provider["values"]:
                 if row.get("value") is not None:
                     recovery.setdefault(row["date"], []).append(
-                        {"label": label, "value": row["value"], "unit": unit})
+                        {"label": label, "value": row["value"], "unit": unit,
+                         "domain": domain, "provider": name})
     zones = {item["date"]: item for item in passport["zones"]["days"]}
     notes: dict[str, int] = {}
     for row in passport["context"]["rows"]:

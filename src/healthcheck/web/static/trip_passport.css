@@ -1,8 +1,12 @@
 /* Trip/event passport (#463): Observatory tokens only, calm main view. */
-.passport-page { display: grid; gap: 16px; }
+.passport-page { display: grid; gap: 16px; min-width: 0; }
+.passport-page > *, .passport > * { min-width: 0; }
+.passport-form > summary { cursor: pointer; min-height: 44px; padding: 10px 0; overflow-wrap: anywhere; }
+.passport-form[open] > summary { margin-bottom: 12px; }
+.passport-page :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .passport-intro { margin: 0; color: var(--muted); max-width: 72ch; }
 .passport-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 16px; align-items: end; }
-.passport-fields label { display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); }
+.passport-fields label { display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); min-width: 0; }
 .passport-fields input, .passport-fields select { width: 100%; }
 .passport-fields .passport-wide { grid-column: span 2; }
 .passport-fields .passport-check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 1rem; }
@@ -17,8 +21,14 @@
 .passport-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
 .passport-tile h3 { margin: 0 0 6px; font-size: 0.875rem; color: var(--muted); font-weight: 600; }
 .passport-tile p { margin: 2px 0; }
-.passport-figure { font-family: var(--owner-heading-font); font-size: 1.75rem; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--ink); }
-.passport-table { min-width: 760px; }
+.passport-figure { font-family: var(--owner-heading-font); font-size: 2rem; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--ink); }
+.passport-figure.owner-value-low { color: var(--muted); }
+.passport-table { min-width: 880px; }
+.passport-table th, .passport-table td { text-align: left; }
+.passport-table .passport-numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.passport-table td.passport-numeric { white-space: nowrap; }
+.passport-table .status-chip { white-space: normal; max-width: 15ch; }
+.passport-recovery small { display: block; font-size: 0.75rem; white-space: normal; min-width: 10ch; }
 .passport-table th[scope="row"] { white-space: nowrap; font-weight: 500; text-align: left; }
 .passport-table td { vertical-align: top; }
 .passport-steps { font-variant-numeric: tabular-nums; white-space: nowrap; }

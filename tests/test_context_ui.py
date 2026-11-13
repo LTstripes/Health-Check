@@ -261,9 +261,11 @@ def test_retries_conflict_revision_history_and_stale_draft(ui):
     assert conflict.status_code == 409
     older_retry = client.post("/context", data=add)
     assert "более новая актуальная версия" in older_retry.text
-    assert "История исправлений</h2>" not in revised.text
+    assert 'id="context-history">' in revised.text
+    assert revised.text.count('data-revision="') == 1
     history = client.get(f"/context/{row.event_id}?history=1")
-    assert "История исправлений</h2>" in history.text
+    assert 'id="context-history" open>' in history.text
+    assert "История исправлений</summary>" in history.text
     assert "Предыдущая" in history.text
     assert row.original_text in history.text
     assert "Synthetic исправление" in history.text
@@ -403,6 +405,46 @@ def test_default_date_visible_primary_navigation(ui, monkeypatch):
     assert response.text.count('href="/context"') == 2
     assert 'href="/context" class="active" aria-current="page">Комментарии</a>' in response.text
     assert "Текст сохраняется без перефразирования" in response.text
+
+
+def test_compact_feed_preserves_dates_escaping_and_revision_details(ui):
+    client, engine, _ = ui
+    with session_scope(engine) as session:
+        service = ContextService(session)
+        interval = service.add(
+            text='Synthetic <script>alert("x")</script>',
+            temporal=parse_interval("2026-11-05", "2026-11-07"),
+            capture_source="dashboard",
+        )
+        service.revise(interval.event_id, text=interval.original_text)
+        service.add(text="Synthetic earlier", temporal=parse_date_only("2026-10-28"))
+    page = client.get("/context?from_date=2026-10-01&to_date=2026-11-30")
+    assert page.status_code == 200
+    assert page.text.index("Ноябрь 2026") < page.text.index("Октябрь 2026")
+    assert "5–7 ноя" in page.text and "чт–сб · 3 дня" in page.text
+    assert "исправлено · версия 2" in page.text
+    assert "&lt;script&gt;" in page.text and '<script>alert("x")' not in page.text
+    assert 'id="context-extra">' in page.text
+    assert 'from_date=2026-11-01&amp;to_date=2026-11-30' in page.text
+    assert 'from_date=2026-09-02&amp;to_date=2026-11-30' in page.text
+    assert 'from_date=2025-12-01&amp;to_date=2026-11-30' in page.text
+    # Metadata remains available, but only inside the record's native disclosure.
+    for entry in page.text.split('<details class="context-time-details">')[1:]:
+        details, _ = entry.split("</details>", 1)
+        assert "Записано автоматически" in details and "Источник:" in details
+
+
+def test_invalid_or_populated_optional_fields_open_disclosure(ui):
+    client, _, _ = ui
+    invalid = client.post("/context", data=payload(end_time="12:00"))
+    assert invalid.status_code == 422
+    assert 'id="context-extra" open>' in invalid.text
+    assert FormParser(invalid.text).values["end_time"] == "12:00"
+    timed = client.post("/context", data=payload(
+        event_time="19:30", timezone_name="Europe/Moscow"))
+    assert timed.status_code == 200
+    assert 'id="context-extra" open>' in timed.text
+    assert "19:30" in timed.text
 
 
 @pytest.mark.parametrize(

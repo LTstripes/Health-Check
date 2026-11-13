@@ -3,6 +3,18 @@
   const form = document.getElementById('context-form');
   if (!form) return;
   const pending = document.getElementById('context-pending');
+  const extra = document.getElementById('context-extra');
+  const text = form.elements.original_text;
+  const resizeText = () => {
+    text.style.height = 'auto';
+    text.style.height = `${Math.max(44, text.scrollHeight + 2)}px`;
+  };
+  text.addEventListener('input', resizeText);
+  resizeText();
+  // Native validation must be able to focus a field inside a closed disclosure.
+  form.addEventListener('invalid', event => {
+    if (extra.contains(event.target)) extra.open = true;
+  }, true);
   const zone = form.elements.timezone_name;
   const syncZone = () => {
     const timed = Boolean(form.elements.event_time.value);
@@ -38,6 +50,7 @@
     pending.textContent = '';
   });
   document.getElementById('context-now').addEventListener('click', () => {
+    extra.open = true;
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
     form.elements.event_date.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
