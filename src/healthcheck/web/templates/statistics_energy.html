@@ -1,34 +1,56 @@
 {% from 'owner_ui.html' import value_meta %}
 {% if energy %}
 <section class="statistics-energy" data-statistics-energy aria-labelledby="daily-energy-title">
-  <h2 id="daily-energy-title">Калории (Garmin)</h2>
-  <p class="muted">Оценка, ккал · по данным Garmin · {{ energy.start | owner_date }} — {{ energy.end | owner_date }}</p>
-  {% for key, label in [('total', 'Всего'), ('active', 'Активные'), ('bmr', 'Базовый обмен')] %}
-  {% set metric = energy.summary[key] %}
-  {% if metric.mean_display is not none %}<p>{{ label }}: <strong{% if metric.count|owner_low_coverage(energy.days) %} class="owner-value-low"{% endif %}>{{ metric.mean_display }} ккал/день</strong> {{ value_meta('Garmin', count=metric.count, days=energy.days) }}</p>{% endif %}
-  {% endfor %}
-  {% if energy.reason %}<p class="muted">{{ 'Выбери источник Garmin.' if energy.reason == 'source_not_selected' else 'Поиск сохранённых данных не завершён.' }}</p>{% endif %}
-  <div class="energy-days" role="list" aria-label="Дневные оценки Garmin">
-  {% for row in energy.rows %}
-    <div class="energy-day" role="listitem" tabindex="0" title="{{ row.label }}" aria-label="{{ row.label }}" data-energy-date="{{ row.date }}" data-energy-state="{{ 'value' if row.total is not none else 'missing' }}">
-      <span>{{ row.date | owner_date }}</span>
-      <div class="energy-track" aria-hidden="true">
-      {% if row.total is not none %}
-        {% if row.split %}<span class="energy-bmr" style="width: {{ row.widths.bmr }}%"></span><span class="energy-active" style="width: {{ row.widths.active }}%"></span>
-        {% else %}<span class="energy-total" style="width: {{ row.widths.total }}%"></span>{% endif %}
+  <h2 id="daily-energy-title">Калории · оценка Garmin</h2>
+  <div class="statistics-energy-layout">
+    <dl class="statistics-energy-summary">
+      {% if not energy.summary.total.count and not energy.summary.active.count and not energy.summary.bmr.count %}
+      <div><dt>Оценки за период</dt><dd class="statistics-empty">Нет сохранённых оценок Garmin за {{ energy.start|owner_date }} — {{ energy.end|owner_date }}. Это не ноль калорий. <a href="/imports#data-status">Проверь данные →</a></dd></div>
+      {% else %}
+      {% for key, label in [('total', 'В среднем за день с данными'), ('active', 'Активные'), ('bmr', 'Базовый обмен')] %}
+      {% set metric = energy.summary[key] %}
+      <div><dt>{{ label }}</dt><dd{% if metric.mean_value is not none and metric.count|owner_low_coverage(energy.days) %} class="owner-value-low"{% endif %}>{{ metric.mean_display|replace(' ', ' ') if metric.mean_display is not none else '—' }} <small>ккал/день</small></dd>
+        <dd>{{ value_meta('Garmin', energy.start|owner_date ~ ' — ' ~ energy.end|owner_date, metric.count, energy.days) }}</dd></div>
+      {% endfor %}
       {% endif %}
+    </dl>
+    <div>
+      {% if energy.reason %}<p role="status">{{ 'Выбери источник Garmin.' if energy.reason == 'source_not_selected' else 'Поиск сохранённых данных не завершён.' }}</p>{% endif %}
+      {% if energy.rows %}
+      <div class="owner-chart-frame statistics-energy-chart">
+        <div class="owner-chart-y" aria-hidden="true">{% for tick in energy_chart.ticks %}<span>{{ tick|owner_number(0) }}</span>{% endfor %}</div>
+        <div class="owner-chart-plot"><svg viewBox="0 0 {{ energy.rows|length * 12 }} 100" preserveAspectRatio="none" role="group" aria-label="Дневные оценки Garmin, ккал. Стрелки выбирают день.">
+          <defs><pattern id="energy-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" x2="0" y1="0" y2="6" stroke="var(--line-strong)" vector-effect="non-scaling-stroke"/></pattern></defs>
+          {% for tick in energy_chart.ticks %}<line class="steps-grid" x1="0" x2="{{ energy.rows|length * 12 }}" y1="{{ 100 - tick * 100 / energy_chart.ticks[0] }}" y2="{{ 100 - tick * 100 / energy_chart.ticks[0] }}"/>{% endfor %}
+          {% for row in energy.rows %}
+          {% set bar = energy_chart.bars[loop.index0] %}
+          <g class="overview-observed" tabindex="0" data-energy-date="{{ row.date }}" data-energy-state="{{ 'value' if row.total is not none else 'missing' }}" aria-label="{{ row.label }}">
+            <title>{{ row.label }}</title>
+            <rect class="statistics-energy-hit" x="{{ loop.index0 * 12 }}" y="0" width="12" height="100"/>
+            {% if row.total is not none %}
+              {% if row.split %}
+              <rect class="energy-bmr" x="{{ loop.index0 * 12 + 2 }}" y="{{ 100 - bar.bmr }}" width="8" height="{{ bar.bmr }}"/>
+              <rect class="energy-active" x="{{ loop.index0 * 12 + 2 }}" y="{{ 100 - bar.bmr - bar.active }}" width="8" height="{{ bar.active }}"/>
+              {% else %}<rect class="energy-total" x="{{ loop.index0 * 12 + 2 }}" y="{{ 100 - bar.total }}" width="8" height="{{ bar.total }}"/>{% endif %}
+            {% else %}<rect x="{{ loop.index0 * 12 + 2 }}" y="0" width="8" height="100" fill="url(#energy-hatch)"/>{% endif %}
+          </g>
+          {% endfor %}
+        </svg></div>
+        <div class="owner-chart-x" data-chart-start="{{ energy.start }}" data-chart-end="{{ energy.end }}"><span>{{ energy.start|owner_short_date }}</span><span>{{ energy.end|owner_short_date }}</span></div>
       </div>
-      <span>{{ row.display.total ~ ' ккал' if row.total is not none else 'нет данных' }}</span>
-      <span class="energy-tooltip" aria-hidden="true">{{ row.label }}</span>
+      <p class="owner-chart-legend"><span class="statistics-key statistics-key-bmr"></span> базовый обмен · <span class="statistics-key statistics-key-active"></span> активные / только итог · <span class="owner-chart-hatch"></span> нет данных — это не ноль</p>
+      <p class="owner-chart-selection" aria-live="polite">Выбери день на графике</p>
+      {% endif %}
     </div>
-  {% endfor %}
   </div>
-  <p class="muted">Базовый обмен — приглушённый цвет; активные — цвет ряда. Если компонент отсутствует, показан только итог.</p>
-  <details class="statistics-details"><summary>Таблица дневных оценок и данные</summary>
-    <p>Средние и значения не заполняют пропуски. Дата Garmin не подтверждает полный день. Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Текущий контракт r02-garmin-normalization-contract-v4.</p>
-    <table><caption>Дневные оценки Garmin, ккал</caption><thead><tr><th scope="col">Дата</th><th scope="col">Всего</th><th scope="col">Активные</th><th scope="col">BMR</th></tr></thead><tbody>
-    {% for row in energy.rows %}<tr><th scope="row">{{ row.date |owner_short_date }}</th>{% for key in ['total', 'active', 'bmr'] %}<td>{{ row.display[key] if row.display[key] is not none else 'нет данных' }}</td>{% endfor %}</tr>{% endfor %}
-    </tbody></table>
+  <details class="statistics-details"><summary>Таблица по дням и о данных</summary>
+    <p>Средние рассчитаны за дни с данными; пропуски не заполняются. Дата Garmin не подтверждает полный день. Если компонент отсутствует, показан только итог. Компоненты — отдельные оценки Garmin, их сумма не подставляется вместо итога.</p>
+    <div class="table-scroll" role="region" tabindex="0" aria-label="Дневные оценки Garmin">
+      <table><caption>Дневные оценки Garmin, ккал</caption><thead><tr><th scope="col">Дата</th><th scope="col">Всего, ккал</th><th scope="col">Активные, ккал</th><th scope="col">Базовый обмен, ккал</th></tr></thead><tbody>
+      {% for row in energy.rows %}<tr><th scope="row">{{ row.date|owner_short_date }}</th>{% for key in ['total', 'active', 'bmr'] %}<td>{{ row.display[key]|replace(' ', ' ') if row.display[key] is not none else 'нет данных' }}</td>{% endfor %}</tr>{% endfor %}
+      </tbody></table>
+    </div>
+    <p>Поля: $.totalKilocalories, $.activeKilocalories, $.bmrKilocalories. Текущий контракт r02-garmin-normalization-contract-v4.</p>
   </details>
 </section>
 {% endif %}

@@ -1,22 +1,27 @@
 {% from 'owner_ui.html' import value_meta %}
 {% if intensity %}
 <section data-statistics-intensity aria-labelledby="intensity-title">
-  <h2 id="intensity-title">Минуты интенсивности (Garmin)</h2>
-  <p class="muted">По данным Garmin · мин · недели, пересекающие {{ intensity.requested_start | owner_date }} — {{ intensity.end | owner_date }}. Первая неделя показана с понедельника; последняя — до конца выбранного периода.</p>
-  <p class="muted">По правилу Garmin: активные минуты + 2 × интенсивные. ≥ — нижняя граница по дням с данными.</p>
+  <div class="metric-heading"><h2 id="intensity-title">Минуты интенсивности · Garmin</h2>
+    <details class="statistics-info"><summary aria-label="Как читать минуты интенсивности">ⓘ</summary><div class="statistics-info-content">
+      <p>По правилу Garmin: активные минуты + 2 × интенсивные. ≥ — нижняя граница по дням с данными.</p>
+      <p>Первая неделя показана с понедельника; последняя — до конца выбранного периода. Цель — последнее пригодное сообщение Garmin в пределах недели; дата сообщения указана в подсказке. При неполном покрытии полоса показывает нижнюю границу к цели.</p>
+    </div></details>
+  </div>
+  <p class="muted">Garmin · {{ intensity.requested_start|owner_date }} — {{ intensity.end|owner_date }} · недели с понедельника</p>
   <div class="table-scroll" role="region" tabindex="0" aria-label="Недельные минуты интенсивности Garmin">
-    <table><caption>Недели Garmin, мин</caption><thead><tr><th scope="col">Неделя</th><th scope="col">Умеренные</th><th scope="col">Высокие</th><th scope="col">По правилу Garmin</th><th scope="col">Недельная цель</th><th scope="col">Дни с обоими компонентами</th></tr></thead><tbody>
-    {% for week in intensity.weeks %}<tr data-intensity-week="{{ week.start }}"><th scope="row">{{ week.start |owner_short_date }} — {{ week.end | owner_date }}</th>
-      {% for key in ['moderate', 'vigorous'] %}<td>{% if week[key] is not none %}<span{% if week[key ~ '_count']|owner_low_coverage(week.days) %} class="owner-value-low"{% endif %}>{{ '≥ ' if 0 < week[key ~ '_count'] < week.days else '' }}{{ week.display[key] }}</span> {{ value_meta(none, count=week[key ~ '_count'], days=week.days) }}{% else %}нет данных{% endif %}</td>{% endfor %}
-      <td>{% if week.total is not none %}<span{% if week.count|owner_low_coverage(week.days) %} class="owner-value-low"{% endif %}>{{ '≥ ' if 0 < week.count < week.days else '' }}{{ week.display.total }}</span> {{ value_meta(none, count=week.count, days=week.days) }}{% else %}нет данных{% endif %}</td>
-      <td>{{ week.display.goal if week.goal is not none else 'нет данных' }}{% if week.goal_date %} · от {{ week.goal_date | owner_date }}{% endif %}</td><td>{{ week.count }} из {{ week.days }}</td></tr>{% endfor %}
+    <table><caption>Недели Garmin, мин</caption><thead><tr><th scope="col">Неделя</th><th scope="col">К недельной цели</th><th scope="col">Умеренные</th><th scope="col">Высокие</th><th scope="col">По правилу Garmin</th><th scope="col">Недельная цель</th><th scope="col">Дней с данными</th></tr></thead><tbody>
+    {% for week in intensity.weeks %}<tr data-intensity-week="{{ week.start }}"><th scope="row">{{ week.start|owner_short_date }} — {{ week.end|owner_short_date }}</th>
+      <td>{% if week.goal is not none and week.goal > 0 and week.total is not none %}<progress value="{{ week.total }}" max="{{ week.goal }}" aria-label="Сохранённый итог {{ week.display.total }} из цели {{ week.display.goal }} мин; {{ week.count }} из {{ week.days }} дней с данными"></progress>{% else %}—{% endif %}</td>
+      {% for key in ['moderate', 'vigorous'] %}<td>{% if week[key] is not none %}<span{% if week[key ~ '_count']|owner_low_coverage(week.days) %} class="owner-value-low"{% endif %}>{{ '≥ ' if 0 < week[key ~ '_count'] < week.days else '' }}{{ week.display[key]|replace('.', ',') }}</span> {{ value_meta(none, count=week[key ~ '_count'], days=week.days) }}{% else %}нет данных{% endif %}</td>{% endfor %}
+      <td>{% if week.total is not none %}<span{% if week.count|owner_low_coverage(week.days) %} class="owner-value-low"{% endif %}>{{ '≥ ' if 0 < week.count < week.days else '' }}{{ week.display.total|replace('.', ',') }}</span> {{ value_meta(none, count=week.count, days=week.days) }}{% else %}нет данных{% endif %}</td>
+      <td{% if week.goal_date %} title="Цель от {{ week.goal_date|owner_date }}"{% endif %}>{{ week.display.goal|replace('.', ',') if week.goal is not none else '—' }}</td><td>{{ week.count }} из {{ week.days }}</td></tr>{% endfor %}
     </tbody></table>
   </div>
   <details class="statistics-details"><summary>Дневные минуты интенсивности и данные</summary>
     {% include 'intensity_details.html' %}
     <div class="table-scroll" role="region" tabindex="0" aria-label="Дневные минуты интенсивности Garmin">
       <table><caption>Сохранённые дневные минуты Garmin; цель относится к неделе</caption><thead><tr><th scope="col">Дата</th><th scope="col">Умеренные</th><th scope="col">Высокие</th><th scope="col">По правилу Garmin</th><th scope="col">Сообщённая недельная цель</th></tr></thead><tbody>
-      {% for row in intensity.rows %}<tr data-intensity-date="{{ row.date }}"><th scope="row">{{ row.date |owner_short_date }}</th>{% for key in ['moderate', 'vigorous', 'total', 'goal'] %}<td>{{ row.display[key] if row.display[key] is not none else 'нет данных' }}</td>{% endfor %}</tr>{% endfor %}
+      {% for row in intensity.rows %}<tr data-intensity-date="{{ row.date }}"><th scope="row">{{ row.date |owner_short_date }}</th>{% for key in ['moderate', 'vigorous', 'total', 'goal'] %}<td>{{ row.display[key]|replace('.', ',') if row.display[key] is not none else 'нет данных' }}</td>{% endfor %}</tr>{% endfor %}
       </tbody></table>
     </div>
   </details>

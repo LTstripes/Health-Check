@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -97,6 +98,27 @@ def format_statistics_value(code: str, value: int | float | None) -> str:
     if code == "cycling_distance_meters":
         return owner_distance(value)
     return owner_activity_count(value)
+
+
+def statistics_energy_chart(energy: dict | None) -> dict | None:
+    """Round the plot scale only; reported totals and components stay independent."""
+    if not energy or not energy['rows']:
+        return None
+    maximum = Decimal(1)
+    for row in energy['rows']:
+        if row['total'] is not None:
+            maximum = max(maximum, Decimal(str(row['total'])))
+        if row['split']:
+            maximum = max(maximum, Decimal(str(row['bmr'])) + Decimal(str(row['active'])))
+    magnitude = Decimal(10) ** max(0, (maximum / 3).adjusted())
+    step = next(factor * magnitude for factor in map(Decimal, ('1', '2', '2.5', '5', '10'))
+                if factor * magnitude >= maximum / 3)
+    top = (maximum / step).to_integral_value(rounding=ROUND_CEILING) * step
+    return {
+        'ticks': [step * index for index in range(int(top / step), -1, -1)],
+        'bars': [{key: Decimal(str(row[key])) / top * 100 if row[key] is not None else None
+                  for key in ('total', 'bmr', 'active')} for row in energy['rows']],
+    }
 
 
 @router.get("/statistics")
@@ -204,6 +226,7 @@ def statistics(
             "cycling_cell": cycling_cell,
             "steps": steps,
             "energy": energy,
+            "energy_chart": statistics_energy_chart(energy),
             "intensity": intensity,
             "google_steps": google_steps,
             "compact_steps": selected_period in {"7", "30"} and steps_period == "window",

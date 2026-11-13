@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "owner_ui.html" as owner_ui %}
 {% block title %}Статистика — Health-Check{% endblock %}
-{% block styles %}<link rel="stylesheet" href="/static/owner_compact.css">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/owner_compact.css"><link rel="stylesheet" href="/static/statistics.css">{% endblock %}
 {% macro identity(source) -%}
 {{ source_labels[source.source_id] }}
 {%- endmacro %}
@@ -9,11 +9,14 @@
 <section class="statistics-page" aria-label="Статистика по источникам">
   <form id="statistics-controls" class="statistics-controls" method="get" action="/statistics" autocomplete="off">
     {% if selected_google_steps_source_id %}<input type="hidden" name="google_steps_source_id" value="{{ selected_google_steps_source_id }}">{% endif %}
-    <div class="metric-heading statistics-period-control"><label>Период
-      <select name="period" aria-label="Период" aria-describedby="statistics-period-help">
-        {% for value, label in period_labels.items() %}<option value="{{ value }}"{% if selected_period == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select>
-    </label><details class="statistics-info"><summary aria-label="О выбранном периоде">ⓘ</summary><div class="statistics-info-content">
+    <div class="metric-heading statistics-period-control">
+      <nav class="statistics-segments" aria-label="Период">
+        {% for value, label in [('7', '7 дней'), ('30', '30 дней'), ('trailing365', '365 дней'), ('calendar_year', 'Год'), ('year_to_date', 'С начала года')] %}
+        <a href="{{ request.url.remove_query_params('days').include_query_params(period=value) }}"{% if selected_period == value %} aria-current="true"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <input type="hidden" name="period" value="{{ selected_period }}">
+    <details class="statistics-info"><summary aria-label="О выбранном периоде">ⓘ</summary><div class="statistics-info-content">
   <p id="statistics-period-help" class="muted">Календарный год: с 1 января по 31 декабря выбранного года; дата окончания не применяется. Остальные периоды заканчиваются выбранной датой; «С начала года» начинается 1 января её года. Для годовых периодов при нескольких источниках выбери точный источник.</p>
   <p id="steps-period-help" class="muted">«Вся сохранённая история» относится только к шагам Garmin до выбранной даты, не позднее вчера по МСК. Для этого режима выбери точный источник Garmin. Период остальных показателей не меняется.</p>
   <p>Garmin и Google показаны отдельно. Пропуски не равны нулю; сохранённые данные не подтверждают свежесть обновления.</p>
@@ -21,14 +24,8 @@
     <p>{{ packet.requested_window.start_date }} — {{ packet.requested_window.end_date }}</p>
     {% for side in packet.sides %}<p>{{ 'Garmin' if side.position == 'left' else 'Google' }}: {{ side.requested_dates.start_date }} — {{ side.requested_dates.end_date }}</p>{% endfor %}
   <p>Дневные калории Garmin — оценка поставщика. Калории тренировок пока недоступны. Неподдерживаемые Google-показатели не занимают пустые карточки; это не нулевые значения.</p></div></details></div>
-    <label>Период шагов
-      <select name="steps_period" aria-label="Период шагов" aria-describedby="steps-period-help">
-        <option value="window"{% if selected_steps_period == 'window' %} selected{% endif %}>Выбранный период</option>
-        <option value="all_time"{% if selected_steps_period == 'all_time' %} selected{% endif %}>Вся сохранённая история</option>
-      </select>
-    </label>
     <label>По дату включительно <input type="date" name="end_date" value="{{ control_end_date }}" required></label>
-    <label>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
+    <label{% if selected_period != 'calendar_year' %} hidden{% endif %}>Календарный год <input type="number" name="calendar_year" min="1" max="9998" value="{{ selected_year }}" required></label>
     <button type="submit">Показать</button>
   </form>
   <p class="statistics-window">{{ packet.requested_window.start_date|owner_date }} — {{ packet.requested_window.end_date|owner_date }} · {{ packet.requested_window.inclusive_days }} {{ packet.requested_window.inclusive_days|owner_plural("день", "дня", "дней") }} включительно, по локальным датам источника.</p>
@@ -69,111 +66,12 @@
   {% include "statistics_steps.html" %}
   {% include "statistics_energy.html" %}
   {% include "statistics_intensity.html" %}
-  <div class="statistics-metrics">
-  {% for code, label in metric_labels.items() if code != 'activity_type_counts' %}
-  <section class="statistics-metric" data-statistics-metric="{{ code }}" aria-labelledby="metric-{{ code }}">
-    <h2 id="metric-{{ code }}">{{ label }}</h2>
-    {% if code == 'activity_session_count' %}<span id="metric-activity_type_counts"></span>{% endif %}
-    <div class="statistics-pair">
-      {% for side in packet.sides %}
-      {% set cell = cycling_cell if code == 'cycling_distance_meters' and side.position == 'left' else side.metrics[code] %}
-      {% set cell_source = cell.source_identity if cell.source_identity is defined else side.source_identity %}
-      {% set value = cell.aggregation.value %}
-      {% set incomplete = cell.state == 'search_incomplete' %}
-      {% set unevaluated = cell.state in ['source_missing', 'selection_required', 'not_collected', 'search_incomplete'] or ((cell.source_selection is defined or cell.cycling_selection is defined) and cell_source is none) %}
-      {% if side.position != "right" or cell.state != "not_collected" %}
-      <article data-statistics-side="{{ side.position }}">
-        <div class="metric-heading"><h3>{{ 'Garmin' if side.position == 'left' else 'Google' }}</h3>
-          <details class="statistics-info statistics-details"><summary aria-label="Данные и исключения · {{ 'Garmin' if side.position == 'left' else 'Google' }} · {{ label }}">ⓘ</summary><div class="statistics-info-content">
-
-        {% if code == 'sleep_duration_asleep_seconds' and cell.session_bound_validation is defined and cell.session_bound_validation.unverified_count %}
-        <p class="muted">Границы не проверены: {{ cell.session_bound_validation.unverified_count }} {{ cell.session_bound_validation.unverified_count|owner_plural("ночь", "ночи", "ночей") }}.</p>
-        {% endif %}
-          {% if code == 'activity_session_count' %}<pre class="provenance" data-activity-type-evidence="{{ side.position }}">{{ side.metrics.activity_type_counts | tojson(indent=2) }}</pre>{% if code in session_links %}<p><a href="{{ session_links.activity_type_counts }}">Записи по видам активности</a></p>{% endif %}{% endif %}
-          {% if incomplete %}<p>Официальный итог и знаменатель недоступны; пропуски и полнота сбора неизвестны.</p>
-          {% elif unevaluated %}<p>Наблюдения и знаменатель не оценены; это не ноль событий.</p>
-          {% else %}<p>Допустимо: {{ cell.aggregation.eligible_count }}; без наблюдений {{ cell.missing_day_count }} {{ cell.missing_day_count|owner_plural("день", "дня", "дней") }}.</p>
-          <p>Наблюдений: {{ cell.observed_count }}; дат с наблюдениями: {{ cell.observed_day_count }}.</p>{% endif %}
-          {% if cell.source_selection is defined %}
-          {% set explicit_sleep = selected_sleep_source_ids[side.position] %}
-          <label>{{ 'Garmin' if side.position == 'left' else 'Google' }}: источник сна
-            <select form="statistics-controls" name="{{ 'garmin' if side.position == 'left' else 'google' }}_sleep_source_id" aria-label="{{ 'Garmin' if side.position == 'left' else 'Google' }}: источник сна">
-              <option value=""{% if not explicit_sleep %} selected{% endif %}>{{ 'Источник выбран выше' if cell.source_selection.mode == 'explicit' and not explicit_sleep else 'Автоматически для периода' }}</option>
-              {% if explicit_sleep %}<option value="{{ explicit_sleep }}" selected>{{ identity(cell_source) if cell_source else 'Выбранный источник' }}</option>{% endif %}
-              {% for source in sleep_source_choices[side.position] %}
-              {% if source.source_id != explicit_sleep %}<option value="{{ source.source_id }}">{{ identity(source) }}</option>{% endif %}
-              {% endfor %}
-            </select>
-          </label>
-          <button form="statistics-controls" type="submit">Применить источник сна</button>
-          {% endif %}
-          <dl>
-            {% if cell.cycling_selection is defined %}
-            <dt>Выбор источника велодистанции</dt><dd>{{ cell.cycling_selection.mode }} · {{ cell.cycling_selection.state }}</dd>
-            {% if cell.cycling_selection.mode == 'automatic' %}
-            <dt>Кандидаты в периоде</dt><dd>{% for option in cell.cycling_selection.options %}{{ identity(option.source_identity) }}: {{ option.source_identity.source_id }} · допустимых сессий {{ option.summary.aggregation.eligible_count }}; неоднозначных записей {{ option.eligibility.ambiguous_record_count }}{% for reason in option.summary.exclusions %}; {{ reason.reason_code }}: {{ reason.count }}{% endfor %}{% if not loop.last %}<br>{% endif %}{% else %}Нет завершённой оценки кандидатов с пригодной велодистанцией.{% endfor %}</dd>
-            {% endif %}
-            {% endif %}
-            {% if cell.search is defined %}<dt>Поиск сохранённых данных</dt><dd>{{ 'Завершён в выбранном периоде; это не подтверждает полноту сбора или покрытие устройства.' if cell.search.complete else 'Не завершён: ' ~ cell.search.reason }}</dd>{% endif %}
-            <dt>Источник / поле</dt><dd>{{ cell_source.source_id if cell_source else state_labels[cell.state] }} / {{ cell.source_metric_code }}</dd>
-            {% if cell.source_selection is defined %}
-            <dt>Выбор источника сна</dt><dd>{{ cell.source_selection.mode }} · {{ cell.source_selection.search.scope }} · {{ cell.source_selection.state }}</dd>
-            {% if cell_source %}<dt>Точная идентичность сна</dt><dd>{{ cell_source.source_kind }} · {{ cell_source.source_instance_id }} · {{ cell_source.device_attribution_basis }}</dd>{% endif %}
-            <dt>Кандидаты в периоде</dt><dd>{% for option in cell.source_selection.options %}{{ identity(option.source_identity) }}: {{ option.source_identity.source_id }} · допустимых ночей {{ option.eligible_count }}; неоднозначных записей {{ option.ambiguous_record_count }}{% for reason in option.exclusions %}; {{ reason.reason_code }}: {{ reason.count }}{% endfor %}{% if not loop.last %}<br>{% endif %}{% else %}Нет завершённой оценки кандидатов.{% endfor %}</dd>
-            {% endif %}
-            <dt>Единицы и преобразование</dt><dd>{{ cell.source_unit }} → {{ cell.unit }} · {{ cell.conversion }}</dd>
-            <dt>Точное значение / числитель</dt><dd>{{ value if value is not none else 'Недоступно' }} / {{ cell.aggregation.numerator if cell.aggregation.numerator is not none else 'Недоступно' }} · {{ cell.unit }}</dd>
-            {% if incomplete %}
-            <dt>Официальный знаменатель / покрытие / исключения</dt><dd>Недоступны. Наблюдения и пропуски неизвестны до завершения поиска.</dd>
-            {% elif unevaluated %}
-            <dt>Покрытие / знаменатель / исключения</dt><dd>{{ state_labels[cell.state] }}. Счётчики, даты наблюдений и пропуски не оценены; это не ноль событий.</dd>
-            {% else %}
-            <dt>Агрегация / знаменатель</dt><dd>{{ cell.aggregation.kind }} / {{ cell.aggregation.denominator }}: {{ cell.aggregation.eligible_count }}</dd>
-            <dt>Даты допустимых значений</dt><dd>{{ cell.effective_dates.min_observed or 'нет' }} — {{ cell.effective_dates.max_observed or 'нет' }}</dd>
-            <dt>Состояние покрытия</dt><dd>{{ cell.coverage.state }} · {% for state, count in cell.coverage.status_counts.items() %}{{ state }}: {{ count }}{% if not loop.last %}; {% endif %}{% endfor %}</dd>
-            <dt>Состояния записей</dt><dd>Частичные: {{ cell.availability_counts.partial }}; неопределённые: {{ cell.availability_counts.uncertain }}; отсутствующее поле: {{ cell.availability_counts.missing }}; null: {{ cell.availability_counts.null }}; недопустимые: {{ cell.availability_counts.invalid }}; явный ноль: {{ cell.availability_counts.zero }}; выведенные из актуальных: {{ cell.availability_counts.retired }}.</dd>
-            <dt>Исключения ({{ cell.aggregation.excluded_count }})</dt><dd>{% for reason in cell.exclusions %}{{ reason.reason_code }}: {{ reason.count }}{% if not loop.last %}; {% endif %}{% else %}Нет{% endfor %}</dd>
-            <dt>Даты без наблюдений</dt><dd>{{ cell.missing_dates|join(', ') or 'Нет' }}. Отсутствие наблюдения не доказывает отсутствие событий.</dd>
-            <dt>Повторы сохранённых снимков</dt><dd>{{ cell.snapshot_evidence.duplicate_payload_observation_count }}; версии нормализации: {{ cell.snapshot_evidence.normalization_versions|join(', ') or 'нет' }}</dd>
-            {% endif %}
-          </dl>
-                  {% if packet.deltas[code].value is none %}<p>Числовая разница недоступна: совместимость не подтверждена. <small>{{ packet.deltas[code].reason }}</small></p>{% endif %}
-          </div></details>
-        </div>
-        {% if cell.cycling_selection is defined %}
-        {% if cell.state in ['selection_required', 'search_incomplete'] %}
-        <p class="statistics-source-warning" role="status" data-cycling-source-attention>{{ 'Несколько пригодных источников или неоднозначные записи. Выбери Garmin-источник выше.' if cell.state == 'selection_required' else 'Поиск велодистанции не завершён; единственный пригодный источник не установлен.' }}</p>
-        {% endif %}
-        {% endif %}
-        {% if cell.source_selection is defined %}
-        {% if cell.state in ['selection_required', 'search_incomplete'] %}
-        <p class="statistics-source-warning" role="status" data-sleep-source-attention>{{ 'Выбери источник сна.' if cell.state == 'selection_required' else 'Поиск сна не завершён.' }}</p>
-        {% endif %}
-        {% endif %}
-        <div class="statistics-value{% if code == 'sleep_duration_asleep_seconds' and value is not none and not unevaluated and not incomplete and cell.aggregation.eligible_count == cell.eligible_dates|length and cell.aggregation.eligible_count|owner_low_coverage(packet.requested_window.inclusive_days) %} owner-value-low{% endif %}">
-          {% if value is none %}<span>Недоступно</span>
-          {% elif value is mapping %}
-            {% if value %}<ul>{% for type, count in value.items() %}<li>{{ type | owner_activity_type }}: {{ format_value(code, count) }}</li>{% endfor %}</ul>{% else %}{{ format_value(code, 0) }}{% endif %}
-          {% else %}{{ format_value(code, value) }}{% if code == 'activity_session_count' and side.metrics.activity_type_counts.aggregation.value is mapping %}: {{ side.metrics.activity_type_counts.aggregation.value | owner_activity_types }}{% endif %}{% endif %}
-        </div>
-        {% if code == 'sleep_duration_asleep_seconds' and value is not none and not unevaluated and not incomplete %}
-        <p>{{ owner_ui.value_meta('Garmin' if side.position == 'left' else 'Google', packet.requested_window.start_date|owner_date ~ ' — ' ~ packet.requested_window.end_date|owner_date, cell.aggregation.eligible_count if cell.aggregation.eligible_count == cell.eligible_dates|length else none, packet.requested_window.inclusive_days, 'nights') }}</p>
-        {% endif %}
-        {% if value is none %}<p>{{ state_labels[cell.state] }}</p>{% endif %}
-        {% if side.position == 'left' and code in session_links %}<p><a href="{{ session_links[code] }}" data-session-drilldown="{{ code }}">Сессии за выбранный период</a></p>{% endif %}
-        {% if incomplete %}<p class="statistics-denominator">Поиск не завершён; итог недоступен.</p>
-
-        {% endif %}
-
-      </article>
-      {% endif %}
-      {% endfor %}
-    </div>
-    {% if packet.deltas[code].value is not none %}<p class="statistics-comparison">Google − Garmin: {{ packet.deltas[code].value|owner_signed_number(2) }} {{ unit_labels[packet.sides[0].metrics[code].unit] }}</p>
-    {% endif %}
-  </section>
-  {% endfor %}
+  <div class="statistics-bottom">
+    <div>{% with displayed_metric_codes=['sleep_duration_asleep_seconds'] %}{% include 'statistics_metric.html' %}{% endwith %}</div>
+    {% include 'statistics_training.html' %}
   </div>
+  {% include 'statistics_training_details.html' %}
+
 </section>
 {% endblock %}
 

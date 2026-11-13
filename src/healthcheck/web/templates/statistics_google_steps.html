@@ -50,6 +50,7 @@
   <p data-google-steps-reason="unsupported_window">Сохранённые наблюдения Google доступны для выбранного периода 7 или 30 дней. Вся история и длинные периоды здесь не поддерживаются.</p>
   {% else %}
   {% if google_steps_view and google_steps_view.assessed %}<p>{{ value_meta(google_steps_view.provider, google_steps_view.start|owner_date ~ " — " ~ google_steps_view.end|owner_date, google_steps_view.count, google_steps_view.days) }}</p>{% endif %}
+  <p class="statistics-unknown">Полнота дня не подтверждена</p>
   {% with view=google_steps_view %}{% include "statistics_steps_chart.html" %}{% endwith %}
   {% if google_steps.source_choices and google_steps.reason in ['source_selection_required', 'source_not_found', 'source_not_evidenced'] %}
 

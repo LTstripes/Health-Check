@@ -19,6 +19,7 @@ from healthcheck.garmin.normalization import (
 from healthcheck.garmin.reprocess import run_garmin_reprocess
 from healthcheck.web.statistics import templates as statistics_templates
 from healthcheck.web.ui_app import create_ui_app
+from overview_html import parse_overview
 from test_garmin_completed_steps import acquire
 from test_overview_completed import NOW
 from test_stress_baseline import database as database
@@ -222,7 +223,7 @@ def test_overview_current_week_and_statistics_routes(database, monkeypatch, days
             assert response.status_code == 200, response.text
             section = response.text.split('data-statistics-intensity', 1)[1]
             section = section.split('</section>', 1)[0]
-            assert "Минуты интенсивности (Garmin)" in section
+            assert "Минуты интенсивности · Garmin" in section
             assert '<details' in section and '<caption>' in section and 'scope="col"' in section
             assert "нет данных" in section
             missing = section.split('data-intensity-date="2099-01-04"', 1)[1].split('</tr>', 1)[0]
@@ -260,3 +261,26 @@ def test_zero_minutes_and_goal_render_as_values_beside_missing_days(database):
     html = statistics_templates.env.get_template("overview_intensity.html").render(
         overview={"intensity": read(database, source, end=MONDAY)})
     assert '<strong>0</strong> из 0' in html
+
+
+@pytest.mark.parametrize('goal', [None, 0, 150])
+def test_statistics_progress_preserves_goal_and_partial_coverage(database, goal):
+    source = seed(database, days=2, extra={
+        'moderateIntensityMinutes': 10, 'vigorousIntensityMinutes': 5,
+        'intensityMinutesGoal': goal,
+    })
+    packet = read(database, source)
+    html = statistics_templates.env.get_template('statistics_intensity.html').render(
+        intensity=packet)
+    doc = parse_overview(html)
+    row = doc.one('tr', **{'data-intensity-week': str(MONDAY)})
+    assert '2 из 7' in row.text and '≥ 40' in row.text
+    progress = row.find('progress')
+    if goal:
+        assert len(progress) == 1
+        assert Decimal(progress[0].attrs['value']) == 40
+        assert Decimal(progress[0].attrs['max']) == 150
+        assert '2 из 7' in progress[0].attrs['aria-label']
+    else:
+        assert not progress
+        assert row.find('td')[0].text.strip() == '—'
