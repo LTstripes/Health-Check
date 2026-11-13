@@ -751,4 +751,51 @@ main, .legal { margin-inline: auto; }
 .owner-dynamic-chart { position: relative; }
 .owner-chart-overlay { position: absolute; inset: 0; pointer-events: none; color: var(--muted); font: 12px var(--owner-sans); }
 .owner-chart-overlay-label { position: absolute; white-space: nowrap; }
+
+/* Source-local sleep schedule: fixed HTML type, shared chart legend/hatching. */
+.sleep-schedule { --schedule-label: 104px; display: grid; grid-template-columns: 1fr 1fr 2fr; column-gap: 12px; padding: 8px 12px; font-size: 12px; line-height: 1.25; }
+.sleep-schedule h2 { grid-column: 1 / -1; margin: 0; }
+.sleep-schedule-caption { grid-column: 1 / -1; margin: 2px 0 4px; }
+#sleep-schedule { display: contents; }
+#sleep-schedule > :not(details) { grid-column: 1 / -1; min-width: 0; }
+.sleep-schedule-rows.owner-chart-frame { display: block; }
+.sleep-schedule-axis, .sleep-schedule-row { display: grid; grid-template-columns: var(--schedule-label) minmax(0, 1fr); gap: 8px; }
+.sleep-schedule-axis { height: 18px; color: var(--muted); font-size: 12px; }
+.sleep-schedule-clock, .sleep-schedule-track { position: relative; }
+.sleep-schedule-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.sleep-schedule-tick:first-child { transform: none; }
+.sleep-schedule-tick:last-child { transform: translateX(-100%); }
+.sleep-schedule-row { min-height: 20px; }
+.sleep-schedule-row-free { background: var(--sunken); }
+.sleep-schedule-row.is-selected { outline: 1px solid var(--accent); outline-offset: -1px; }
+.sleep-schedule-date { color: var(--muted); font: inherit; line-height: 20px; white-space: nowrap; min-width: 0; min-height: 20px; height: 20px; padding: 0; border: 0; border-radius: 0; background: transparent; text-align: left; }
+.sleep-schedule-date:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.sleep-schedule-track { border-bottom: 1px solid var(--line); }
+.sleep-schedule-grid { position: absolute; inset-block: 0; border-left: 1px solid var(--line); pointer-events: none; }
+.sleep-schedule-bar { position: absolute; display: block; height: 7px; min-width: 1px; padding: 0; border: 0; border-radius: 2px; cursor: pointer; }
+.sleep-schedule-bar:hover { outline: 1px solid var(--ink); }
+.sleep-schedule-unavailable { position: absolute; font-size: 12px; line-height: 12px; }
+.sleep-schedule-unbounded { border-radius: 0; }
+.sleep-schedule-empty { color: var(--muted); font-size: 12px; line-height: 20px; position: relative; }
+.sleep-schedule-divider { border-top: 1px solid var(--line-strong); color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.sleep-schedule-summary { margin: 0 0 4px; table-layout: fixed; font-size: 12px; line-height: 14px; }
+.sleep-schedule-summary th, .sleep-schedule-summary td { padding: 2px 6px; white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+.sleep-schedule-summary th:first-child { width: 14%; white-space: nowrap; }
+.sleep-schedule-summary th:nth-child(2), .sleep-schedule-summary th:nth-child(3) { width: 14%; }
+.sleep-schedule-summary th:nth-child(4) { width: 43%; }
+.sleep-schedule-summary th:nth-child(5) { width: 15%; }
+.sleep-schedule-summary .owner-meta-source { display: inline; }
+.sleep-schedule-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; line-height: 14px; }
+.sleep-schedule-legend > span { display: inline-flex; align-items: center; gap: 3px; }
+.sleep-schedule-legend .owner-chart-hatch, .sleep-schedule-free-key { width: 12px; height: 12px; display: inline-block; }
+.sleep-schedule-free-key { background: var(--sunken); border: 1px solid var(--line-strong); }
+.sleep-schedule-free { font-size: 12px; margin-left: 3px; }
+.sleep-schedule-detail { font-size: 12px; margin: 2px 0; min-height: 15px; }
+.sleep-schedule-event { position: absolute; font-size: 12px; line-height: 9px; }
+.sleep-schedule-expand { display: flex; gap: 4px; align-items: center; }
+.sleep-schedule details > summary { box-sizing: border-box; font-size: 12px; min-height: 44px; padding: 8px 0; }
+.sleep-schedule details[open] { grid-column: 1 / -1; }
+.sleep-day-settings { min-width: 0; }
+.sleep-day-settings fieldset { display: flex; flex-wrap: wrap; gap: 8px; border: 0; padding: 0; }
+.sleep-day-settings fieldset label { display: inline-flex; align-items: center; min-height: 44px; }
 .owner-dynamic-chart svg path, .owner-dynamic-chart svg line { vector-effect: non-scaling-stroke; }

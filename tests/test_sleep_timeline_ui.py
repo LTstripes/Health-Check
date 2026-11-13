@@ -1155,12 +1155,14 @@ def test_sleep_regularity_production_http_packet_and_period_switch(tmp_path, day
     assert all(row["groups"][0]["start"]["state"] == "sufficient" for row in rows)
     assert 'data-sleep-regularity' in response.text
     primary = response.text.split('data-sleep-regularity>', 1)[1].split('<details', 1)[0]
-    assert 'Засыпание' in primary and 'Подъём' in primary
+    assert 'Разброс начала' in primary and 'Разброс окончания' in primary
     assert 'circular_sd' not in primary and 'complete_stage_boundary' not in primary
     assert 'social_jetlag' not in json.dumps(packet["regularity"])
     assert packet["start_date"] == (END - timedelta(days=days - 1)).isoformat()
     assert 'aria-label="Регулярность сна по источникам"' in primary
-    assert primary.count("Засыпание") == 1 and primary.count("Подъём") == 1
+    assert primary.count("Разброс начала") == 1 and primary.count("Разброс окончания") == 1
+    assert response.text.index('id="sleep-schedule-title"') < response.text.index(
+        'data-sleep-regularity>')
 
 
 def test_sleep_regularity_sparse_table_collapses_identical_states(tmp_path, monkeypatch):
@@ -1175,7 +1177,9 @@ def test_sleep_regularity_sparse_table_collapses_identical_states(tmp_path, monk
         response = client.get("/sleep?days=7&wake_date=2026-10-08")
     assert response.status_code == 200
     primary = response.text.split('data-sleep-regularity>', 1)[1].split('<details', 1)[0]
-    assert primary.count("Недостаточно ночей") == 1
+    assert 'Недостаточно ночей' in primary
+    assert 'Недостаточно ночей для сравнения' in primary
+    assert '± 0 мин' not in primary
     assert 'colspan="2"' in primary
     snapshot = _timeline_json(response.text)
     google = next(row for row in snapshot["regularity"]["sources"]

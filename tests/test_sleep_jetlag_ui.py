@@ -203,6 +203,8 @@ def test_sources_remain_separate_toggle_and_free_day_ticks(tmp_path):
         assert "Минимум 2" in result["html"]
         assert "1440/(2π)" in result["html"]  # Circular mean is expressed in minutes.
         assert 'sleep-jetlag-method" open' not in result["html"]
+    assert "03:00 → 03:00 · сдвиг 0 мин" in garmin["html"]
+    assert "03:00 → 05:00 · сдвиг +120 мин" in google["html"]
     for source in data["regularity"]["sources"]:
         for day in ("2026-10-03", "2026-10-04"):
             source["jetlag"]["night_types"][day] = {
@@ -215,7 +217,8 @@ def test_empty_http_page_has_insufficient_text_and_no_zero_result(tmp_path):
     app, _, _ = _ui(tmp_path)
     with client_for(app) as client:
         response = client.get("/sleep?days=7&wake_date=2026-10-08")
-    schedule = response.text.split('id="sleep-schedule">', 1)[1].split('</div>', 1)[0]
+    schedule = response.text.split('id="sleep-schedule">', 1)[1].split(
+        '<details class="owner-details sleep-day-settings">', 1)[0]
     assert "Недостаточно ночей для сравнения" in schedule
     assert "0 мин" not in schedule
 
@@ -225,7 +228,7 @@ def test_insufficient_html_has_no_numeric_jetlag(tmp_path, count):
     data = sleep_timeline_client(_timeline(count=count))
     rendered, = _render(tmp_path, {"data": data})
     assert "Недостаточно ночей для сравнения" in rendered["html"]
-    summaries = re.findall(r'<p[^>]*data-sleep-jetlag="[^"]*"[^>]*>(.*?)</p>',
+    summaries = re.findall(r'<td[^>]*data-sleep-jetlag="[^"]*"[^>]*>(.*?)</td>',
                            rendered["html"])
     assert len(summaries) == len(data["regularity"]["sources"]) > 0
     assert all("сдвиг " not in text and "0 мин" not in text for text in summaries)
