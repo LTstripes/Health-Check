@@ -369,3 +369,69 @@ def test_30_day_query_budget_with_both_windows_populated(comparison_page):
     row = candidate.context["overview"]["comparison"]["items"][0]
     assert row["current"]["coverage"] == row["previous"]["coverage"] == {"count": 30, "days": 30}
     assert row["difference"] == 0
+
+
+@pytest.mark.parametrize("differences", [
+    (None, None, None), (Decimal("-10"), None, None),
+    (Decimal("-10"), Decimal("0"), Decimal("10")),
+])
+def test_comparison_collapses_only_rows_without_difference(
+    comparison_page, monkeypatch, differences,
+):
+    app, _, _, source = comparison_page
+    original = pages.read_overview_comparison
+
+    def comparison(*args, **kwargs):
+        packet = original(*args, **kwargs)
+        rows = []
+        for index, difference in enumerate(differences):
+            count = 1 if difference is None else 2
+            row = module._comparison(
+                "steps", "google" if index == 1 else "garmin", source, "steps", "mean",
+                module._value(0, count, packet["current_window"]),
+                module._value(10, 2, packet["previous_window"]),
+            )
+            row["difference"] = difference
+            rows.append(row)
+        packet["items"] = rows
+        return packet
+
+    monkeypatch.setattr(pages, "read_overview_comparison", comparison)
+    with TestClient(app, base_url="http://127.0.0.1:8120") as client:
+        response = client.get("/brief", params={
+            "start_date": "2099-02-27", "end_date": "2099-03-01",
+            "garmin_source_id": source,
+        })
+    assert response.status_code == 200
+    strip = parse_overview(response.text).one(classes=("overview-comparison",))
+    missing = differences.count(None)
+    grids = strip.find(classes=("overview-comparison-rows",))
+    assert len(grids) == int(missing < len(differences))
+    if grids:
+        rows = grids[0].find("strong")
+        assert len(rows) == len(differences) - missing
+        assert "−10 шагов" in grids[0].text
+        if not missing:
+            assert "0 шагов" in grids[0].text and "+10 шагов" in grids[0].text
+    if missing:
+        line = strip.one("p", classes=("overview-comparison-unavailable",))
+        assert line.text == (
+            f"Нет сравнения для {missing} показателей: "
+            "мало данных за текущий или прошлый период"
+        )
+        details = strip.one("details")
+        assert "open" not in details.attrs
+        assert details.one("summary").text == "Подробнее"
+        items = details.find("li")
+        assert len(items) == missing
+        for item in items:
+            assert "Шаги · " in item.text
+            assert "Мало данных в текущем периоде" in item.text
+            assert "Текущий: 1 из 3" in item.text
+            assert "Предыдущий: 2 из 3" in item.text
+        assert "Google" in details.text
+        if missing == 3:
+            assert "Garmin" in details.text
+    else:
+        assert not strip.find("details")
+        assert not strip.find(classes=("overview-comparison-unavailable",))

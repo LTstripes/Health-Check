@@ -112,11 +112,25 @@
 {% include 'overview_values.html' %}
 {% if overview.comparison is defined and overview.comparison and overview.comparison.get('items') %}
 <section class="overview-comparison" aria-label="Что изменилось"><h2>Что изменилось</h2>
-{% for item in overview.comparison['items'] %}
+{% macro comparison_row(item) %}
 <div data-comparison-metric="{{ item.metric }}" data-comparison-provider="{{ item.provider }}"><strong>{{ {'sleep_duration':'Сон', 'stress':'Стресс', 'body_battery':'Body Battery', 'resting_heart_rate':'Пульс в покое', 'steps':'Шаги', 'daily_calories_garmin_estimate':'Калории · оценка', 'intensity_minutes':'Минуты интенсивности'}.get(item.metric, item.metric) }} · {{ 'Garmin' if item.provider == 'garmin' else 'Google' }}</strong>
 <span>{% if item.difference is not none %}{{ '+' if item.difference > 0 else ('−' if item.difference < 0 else '') }}{{ overview_number(item.difference|abs) }} {{ {'seconds':'с', 'points':'из 100', 'bpm':'уд/мин', 'steps':'шагов', 'kcal':'ккал', 'min':'мин'}.get(item.unit, item.unit) }}{% elif item.reason == 'low_coverage_current' %}Мало данных в текущем периоде{% elif item.reason == 'low_coverage_previous' %}Мало данных в прошлом периоде{% else %}Недостаточно данных{% endif %}</span>
 <small>Текущий: {{ item.current.coverage.count if item.current.coverage.count is not none else '—' }} из {{ item.current.coverage.days }} · {{ item.current.window.start_date|owner_date }} — {{ item.current.window.end_date|owner_date }}<br>Предыдущий: {{ item.previous.coverage.count if item.previous.coverage.count is not none else '—' }} из {{ item.previous.coverage.days }} · {{ item.previous.window.start_date|owner_date }} — {{ item.previous.window.end_date|owner_date }}</small></div>
-{% endfor %}</section>{% endif %}
+{% endmacro %}
+{% set comparable = overview.comparison['items']|rejectattr('difference', 'none')|list %}
+{% set unavailable = overview.comparison['items']|selectattr('difference', 'none')|list %}
+{% if comparable %}
+<div class="overview-comparison-rows">
+{% for item in comparable %}{{ comparison_row(item) }}{% endfor %}
+</div>
+{% endif %}
+{% if unavailable %}
+<p class="overview-comparison-unavailable">Нет сравнения для {{ unavailable|length }} показателей: мало данных за текущий или прошлый период</p>
+<details class="overview-comparison-details"><summary>Подробнее</summary>
+<ul>{% for item in unavailable %}<li>{{ comparison_row(item) }}</li>{% endfor %}</ul>
+</details>
+{% endif %}
+</section>{% endif %}
 
 
 <div class="brief-grid">
