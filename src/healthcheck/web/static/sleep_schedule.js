@@ -196,14 +196,17 @@
         previousZone[id] = zone;
       });
       const free = row.cells.some(c => c.day_type === 'free');
+      const eventSpace = row.cells.some(cell =>
+        (((data.context_events || {}).markers || {})[cell.source.series_id] || [])
+          .some(item => item.wake_date === row.date && cell.point && item.record_id === cell.point.record_id)) ? 12 : 0;
       html += '<div class="sleep-schedule-row' + (free ? ' sleep-schedule-row-free' : '') + '" data-schedule-date="' + esc(row.date) + '">' +
         '<button type="button" class="sleep-schedule-date" data-schedule-select aria-label="Выбрать ночь на ' + esc(window.healthcheckOwnerShortDate(row.date)) +
         '">' + esc(dateLabel(row.date)) + (free ? '<span class="sleep-schedule-free" title="Свободный день">св</span>' : '') +
-        '</button><div class="sleep-schedule-track" style="min-height:' + Math.max(20, row.cells.length * 9 + 2) + 'px">' + grid;
+        '</button><div class="sleep-schedule-track" style="min-height:' + Math.max(20, row.cells.length * 9 + 2 + eventSpace) + 'px">' + grid;
       if (!row.cells.length || row.cells.every(c => !c.point || c.point.state === 'no_records')) {
         html += '<span class="sleep-schedule-empty">' + (all.length && !visible.length ? 'Источники скрыты' : 'нет данных') + '</span>';
       } else row.cells.forEach(function (cell, lane) {
-        const top = lane * 9 + 2;
+        const top = lane * 9 + 2 + eventSpace;
         const label = cell.source.label + ' · ' + (cell.bound ? clock(cell.bound.start_local) + ' → ' + clock(cell.bound.end_local) +
           ' · ' + duration(cell.point.value_seconds) : cell.note);
         // The hatch means a saved value without confirmed bounds, never zero or an inferred interval.
@@ -221,14 +224,14 @@
           .find(item => item.wake_date === row.date && cell.point && item.record_id === cell.point.record_id);
         if (marker) html += '<span class="sleep-context-marker sleep-schedule-event" data-schedule-bar="' +
           esc(cell.source.series_id) + '" style="top:' + top + 'px;left:' +
-          (cell.bound ? Math.min(97, percent(cell.end)) : 97) + '%" title="' + esc(marker.text) + '" aria-label="' + esc(marker.text) + '">●</span>';
+          (cell.bound ? percent(cell.start) : 0) + '%" tabindex="0" role="img" title="' + esc(marker.text) + '" aria-label="' + esc(marker.text) + '">⚑</span>';
       });
       html += '</div></div>';
     });
     html += '</div><div class="owner-chart-legend sleep-schedule-legend">' +
       '<span><i class="swatch sleep-series-garmin"></i>Garmin</span><span><i class="swatch sleep-series-google"></i>Google</span>' +
       '<span><i class="owner-chart-hatch"></i>длительность есть, границы не сохранены</span>' +
-      '<span><i class="sleep-schedule-free-key"></i>св — свободный день</span><span>● комментарий накануне</span>' +
+      '<span><i class="sleep-schedule-free-key"></i>св — свободный день</span><span>⚑ событие перед сном</span>' +
       '<span>? нет пригодных границ</span></div>';
     if (nights.length > 14) html += '<div class="sleep-schedule-expand">Показаны ' + shown.length + ' из ' + nights.length +
       ' ночей · <button type="button" data-schedule-expand aria-expanded="' + expanded + '">' +

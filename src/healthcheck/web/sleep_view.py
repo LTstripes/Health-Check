@@ -22,7 +22,7 @@ from healthcheck.google.daily_vitals import (
     GoogleDailyVitalSource,
     GoogleDailyVitalsResult,
 )
-from healthcheck.web.owner_presentation import owner_date, owner_duration, owner_number
+from healthcheck.web.owner_presentation import owner_date, owner_duration, owner_number, owner_time
 
 SLEEP_METRICS = {
     "sleep_duration_seconds": ("Длительность сна", "с"),
@@ -303,6 +303,7 @@ def source_sleep_note(cell: Mapping[str, Any]) -> str:
 
 def source_sleep_value(
     cell: Mapping[str, Any], session: Mapping[str, Any] | None = None, code: str | None = None,
+    *, compact: bool = False,
 ) -> str:
     if not cell["eligible"]:
         return "—"
@@ -310,11 +311,12 @@ def source_sleep_value(
         return metric_value("sleep_duration_seconds", cell["value"])
     if cell["unit"] == "points":
         return metric_value("sleep_score", cell["value"])
-    return sleep_endpoint_text(cell, session or {}, code)
+    return sleep_endpoint_text(cell, session or {}, code, compact=compact)
 
 
 def sleep_endpoint_text(
     cell: Mapping[str, Any], session: Mapping[str, Any], code: str | None,
+    *, compact: bool = False,
 ) -> str:
     """An eligible endpoint's own retained offset only; never today's/host/start offset.
 
@@ -364,7 +366,7 @@ def sleep_endpoint_text(
             instant = instant.astimezone(UTC)
     else:
         instant = instant.astimezone(UTC)
-    return owner_date(instant)
+    return owner_time(instant) if compact else owner_date(instant)
 
 
 def source_night_metric(view: Mapping[str, Any] | None, code: str) -> dict[str, Any]:

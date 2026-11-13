@@ -130,7 +130,7 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
         assert "История сна" in primary and "Точность устройств" not in primary
         assert "Точность устройств" in technical
         assert page.text.count("<summary>Технические детали</summary>") == 1
-        assert primary.count("data-night-row") == 1
+        assert primary.count("data-source-night-card") == 1
         assert 'href="/imports"' in primary
         assert "r03-01" not in primary and "result_hash" not in primary
         assert all(body["result_hash"] in technical for body in direct.values())
@@ -149,7 +149,7 @@ def test_sleep_page_reads_existing_results_without_mutation(tmp_path):
             assert result == body
         missing = client.get("/sleep?view=garmin&wake_date=2099-01-03")
         hero = missing.text.split("<summary>История сна</summary>", 1)[0]
-        assert "нет пригодного значения" in hero
+        assert "Нет пригодного значения" in hero
         assert "28800" not in hero and "82 из 100" not in hero
     assert "BEGIN" in statements
     assert not any(

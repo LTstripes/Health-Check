@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "owner_ui.html" as owner_ui %}
+{% import "sleep_night_card.html" as night with context %}
 {% block title %}Сон — Health-Check{% endblock %}
 {% block content %}
 {% if sleep_view == 'timeline' %}
@@ -22,7 +23,7 @@
       <select name="garmin_source_id" required>
         <option value="">Выбери источник</option>
         {% for source in selection.sources %}
-        <option value="{{ source.id }}"{% if source.id == selection.selected_source_id %} selected{% endif %}>{{ source_label(source) }} · источник {{ loop.index }}</option>
+        <option value="{{ source.id }}"{% if source.id == selection.selected_source_id %} selected{% endif %}>{{ source_label(source) }}</option>
         {% endfor %}
       </select>
     </label>
@@ -40,15 +41,10 @@
 {% if sleep_view == 'garmin' %}
 <section class="card sleep-night">
   <h2>Выбранная ночь</h2>
-  <p class="muted">{{ source_label(selection.selected_source) if selection.selected_source else "Garmin" }} · дата пробуждения</p>
   {% if selection.status != 'selected' %}
     {{ owner_ui.state_chip('unknown' if selection.status == 'require_selection' else 'unavailable') }}
     <p>{% if selection.status == 'require_selection' %}Найдено несколько источников Garmin. Выбери один.{% elif selection.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного источника Garmin.{% endif %}</p>
   {% else %}
-  <div class="table-scroll sleep-night-table"><table>
-    <thead><tr><th>Пробуждение</th><th>Длительность сна</th><th>Оценка Garmin</th></tr></thead>
-    <tbody>{{ night_row(wake_date, {'sleep_duration_seconds': source_night_metric(source_sleep, 'sleep_duration_seconds'), 'sleep_score': source_night_metric(source_sleep, 'sleep_score')}) }}</tbody>
-  </table></div>
   {% include "sleep_source_night.html" %}
   {% endif %}
   <p><a href="/imports">Проверить источники</a></p>
@@ -77,35 +73,28 @@
     {{ owner_ui.state_chip('unavailable') }}
     <p>Локальное хранилище данных не готово.</p>
   {% else %}
-    <form method="get" action="/sleep" class="inline-edit owner-controls">
-      <input type="hidden" name="view" value="google">
-      <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
-      {% if sleep_return_href %}<input type="hidden" name="return_to" value="{{ sleep_return_href }}">{% endif %}
-      {% if request.query_params.get('google_sleep_source_id') %}<input type="hidden" name="google_sleep_source_id" value="{{ request.query_params.get('google_sleep_source_id') }}">{% endif %}
-      <input type="hidden" name="wake_date" value="{{ wake_date }}">
-      {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
-      <label>Период Google
-        <select name="vitals_window">
-          {% for days in google_vitals_windows %}<option value="{{ days }}"{% if days == google_vitals_window_days %} selected{% endif %}>{{ days }} дней</option>{% endfor %}
-        </select>
-      </label>
-      <button type="submit">Показать</button>
-    </form>
+    <nav class="preset-links" aria-label="Период дневных показателей Google">
+      {% for days in google_vitals_windows %}
+      <a class="button-link{% if days == google_vitals_window_days %} selected{% endif %}"{% if days == google_vitals_window_days %} aria-current="true"{% endif %} href="{{ request.url.include_query_params(view='google', wake_date=wake_date, vitals_window=days) }}">{{ days }} дней</a>
+      {% endfor %}
+    </nav>
     <p class="muted">{{ google_vitals.start_date | owner_date }} → {{ google_vitals.end_date | owner_date }}</p>
     {% if google_vitals.sources %}
       {% for item in google_vitals.sources %}
       <section class="brief-subsection" data-google-source="{{ loop.index }}">
-        <h3>{{ google_vital_source_label(item.source) }}</h3>
-        <div class="grid">
+        <h3>{{ night.display_source(google_vital_source_label(item.source)) }}</h3>
+        {% call owner_ui.info_details('Об источнике') %}<p>{{ google_vital_source_label(item.source) }}</p>{% endcall %}
+        <div class="google-vitals-tiles">
           {% for metric_code, label, unit_label in google_vitals_metrics %}
           {% set cell = item.metrics.get(metric_code) %}
           {% set point = cell.latest if cell else none %}
           {% set newest = cell.newest if cell else none %}
-          <section data-google-metric="{{ loop.index }}">
+          <section class="night-card-tile" data-google-metric="{{ loop.index }}">
             <h4>{{ label }}</h4>
             {{ owner_ui.state_chip(google_vital_cell_state(cell), false) }}
             {% if point and point.eligible %}
-            <dl class="current"><dt>{{ point.source_local_date | owner_date }}</dt><dd>{{ google_vital_value_text(point) }} {{ unit_label }}</dd></dl>
+            <p class="google-vital-value">{{ google_vital_value_text(point) }} {{ unit_label }}</p>
+            {{ owner_ui.value_meta('Google', point.source_local_date|owner_date) }}
             {% if point.is_zero %}<p class="muted">Источник вернул явный ноль. Ноль — это значение, а не пропуск.</p>{% endif %}
             {% if newest and newest.source_local_date > point.source_local_date %}<p class="muted">Более свежая дата ({{ newest.source_local_date | owner_date }}) не использована; причина — в технических деталях.</p>{% endif %}
             {% elif newest and newest.state == 'ambiguous' %}
@@ -131,6 +120,7 @@
 {% call owner_ui.technical_details('sleep-technical') %}
   <h2>Сессии выбранной даты</h2>
   <pre class="provenance">{{ source_sleep | tojson(indent=2) }}</pre>
+  <script id="sleep-source-night-data" type="application/json">{{ source_sleep | tojson }}</script>
   <h2>Garmin</h2>
   <p>Оценка сна Garmin относится к одной сессии, а не к восстановлению. Точность устройств здесь не оценивается. Длительность и оценка разрешаются независимо; несколько записей за дату не объединяются. Пропуски не заполняются.</p>
   <pre class="provenance">{{ {'source_selection': selection, 'series': results} | tojson(indent=2) }}</pre>
@@ -142,4 +132,4 @@
 {% endcall %}
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if sleep_view == 'timeline' %}<script src="/static/sleep_night_card.js"></script><script src="/static/sleep_timeline.js"></script>{% endif %}{% endblock %}
+{% block scripts %}<script src="/static/sleep_night_card.js"></script>{% if sleep_view == 'timeline' %}<script src="/static/sleep_timeline.js"></script>{% else %}<script src="/static/sleep_source_night.js"></script>{% endif %}{% endblock %}

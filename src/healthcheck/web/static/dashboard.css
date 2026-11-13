@@ -818,7 +818,26 @@ main, .legal { margin-inline: auto; }
 .sleep-schedule-free-key { background: var(--sunken); border: 1px solid var(--line-strong); }
 .sleep-schedule-free { font-size: 12px; margin-left: 3px; }
 .sleep-schedule-detail { font-size: 12px; margin: 2px 0; min-height: 15px; }
-.sleep-schedule-event { position: absolute; font-size: 12px; line-height: 9px; }
+.sleep-schedule-event { position: absolute; transform: translateY(-100%); font-size: 12px; line-height: 12px; }
+.sleep-context th { font-weight: 400; text-align: left; }
+.sleep-context-table { min-width: 800px; table-layout: fixed; }
+.sleep-context-table th:first-child { width: 24%; }
+.sleep-context-table th:nth-child(2) { width: 19%; }
+.sleep-context-table th:nth-child(3), .sleep-context-table th:nth-child(4) { width: 14%; }
+.sleep-context-table th:last-child { width: 29%; }
+.sleep-context-table th, .sleep-context-table td { overflow-wrap: anywhere; vertical-align: top; }
+.sleep-context-text { overflow-wrap: anywhere; }
+.sleep-context-number { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sleep-context [hidden] { display: none; }
+.sleep-context-marker { color: var(--muted); background: transparent; border: 0; padding: 0 3px; font-size: 12px; cursor: help; }
+.sleep-context-marker:focus-visible { outline: 3px solid var(--ink); border-radius: 3px; }
+.source-night-card { color: var(--ink); }
+.source-night-card .night-card { min-width: 0; }
+.source-night-card .night-stage-legend dd { margin: 0; }
+.google-vitals-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.google-vitals-tiles > section { min-width: 0; overflow-wrap: anywhere; }
+.google-vitals-tiles h4 { margin: 0; color: var(--muted); font-size: 12px; }
+.google-vital-value { font: 300 32px/1.2 var(--owner-heading-font); font-variant-numeric: tabular-nums; }
 .sleep-schedule-expand { display: flex; gap: 4px; align-items: center; }
 .sleep-schedule details > summary { box-sizing: border-box; font-size: 12px; min-height: 44px; padding: 8px 0; }
 .sleep-schedule details[open] { grid-column: 1 / -1; }

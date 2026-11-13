@@ -19,11 +19,11 @@
   <p class="muted">{{ start_date | owner_date }} → {{ wake_date | owner_date }} · сохранённые пары</p>
   <a href="/agreement">Все сохранённые периоды</a>
   {% else %}<p class="muted">Сохранённые пары · периоды указаны у показателей</p>{% endif %}
-  {% if not payload.available %}
-    <p role="status">{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% else %}Нет доступного сохранённого сравнения.{% endif %}</p>
+  {% if not payload.available or not comparison.useful %}
+    <div role="status" data-comparison-empty><p>{% if payload.reason == 'database_unavailable' %}Локальное хранилище данных не готово.{% elif not payload.available %}Нет доступного сохранённого сравнения.{% else %}Сохранённого сравнения для показа пока нет.{% endif %}</p>
+    <p>Garmin и Google · {% if wake_date %}{{ start_date|owner_date }} — {{ wake_date|owner_date }}{% else %}сохранённые периоды{% endif %}. Отсутствие сравнения — это не ноль. <a href="/imports">Проверить источники</a></p></div>
   {% endif %}
   {% if comparison.useful and payload.available and payload.pairing_exclusions %}<p class="muted">Часть ночей не сопоставлена.</p>{% endif %}
-  {% if payload.available and not comparison.useful %}<p data-comparison-empty>Сохранённого сравнения для показа пока нет.</p>{% endif %}
   {% call owner_ui.info_details("О сохранённом сравнении") %}
   {% if payload.pairing_exclusions %}<p>Причины исключения ночей — в технических деталях.</p>{% endif %}
   {% for fact in payload.source_data_quality if fact.state != 'usable' %}
@@ -39,19 +39,20 @@
   {% set charts = comparison_charts(group, comparison_details.get(group.run_id, {})) %}
   {% if charts or group.accepted_statistics %}
   <section class="card agreement-group" data-comparison-group>
-    <header><h2>{{ row.label }}</h2><span>{{ owner_cohort(group.source_attribution.cohort_label) }}</span></header>
+    <header><h2>{{ row.label }}</h2><span>{{ {'device_pair': 'Garmin и Google · устройства', 'family_pair': 'Garmin и Google · группа устройств', 'uncertain_account_cohort': 'Garmin и Google · принадлежность записей неизвестна'}.get(group.cohort, 'Garmin и Google · отдельные наблюдения') }}</span></header>
+    {% call owner_ui.info_details('О группе сравнения') %}<p>{{ owner_cohort(group.source_attribution.cohort_label) }}</p><p>{{ group.source_attribution.cohort_label }}</p>{% endcall %}
     <p class="muted">{{ row.variant }} · {{ group.n }} пригодных пар</p>
     {% for run in payload.runs if run.run_id == group.run_id %}
     <p class="muted">Сохранённый период: {{ run.requested_start_date | owner_date if run.requested_start_date else 'Начало неизвестно' }} → {{ run.requested_end_date | owner_date if run.requested_end_date else 'Окончание неизвестно' }}.</p>
     {% endfor %}
     {% if group.uncertainty_notice or group.exploratory_label_required %}<p class="uncertainty-note" role="note">Принадлежность устройству и роль записи сна могут быть неизвестны. Это отдельные наблюдения, а не сравнение устройств; выбор основного источника недоступен.</p>{% endif %}
-    {% if group.cohort == 'family_pair' %}<p class="uncertainty-note">Google: семейство устройств; конкретное устройство может быть неизвестно.</p>{% endif %}
+    {% if group.cohort == 'family_pair' %}<p class="uncertainty-note">Google: конкретное устройство может быть неизвестно.</p>{% endif %}
     {% if group.exclusions %}<p class="uncertainty-note">Часть данных исключена из этого сравнения.</p>{% endif %}
     {% if group.coverage.gaps %}<p class="uncertainty-note">Есть пропуски сопоставимых ночей.</p>{% endif %}
     {% for chart in charts %}
     <figure class="sleep-comparison-chart">
       <figcaption>Пара источников {{ loop.index }} · {% if row.variant == 'За день' %}одна календарная дата{% else %}дата пробуждения{% endif %} · {{ chart.axis_unit }}</figcaption>
-      <p class="legend"><span><i class="swatch raw"></i>Garmin</span><span><i class="swatch trend"></i>Google{% if group.cohort == 'family_pair' %} · семейство устройств{% endif %}</span></p>
+      <p class="legend"><span><i class="swatch raw"></i>Garmin</span><span><i class="swatch trend"></i>Google{% if group.cohort == 'family_pair' %} · группа устройств{% endif %}</span></p>
       <div class="sleep-comparison-plot"><svg data-sleep-comparison="{{ chart | tojson | forceescape }}" viewBox="0 0 900 240" role="img" aria-label="{{ row.label }}: Garmin и Google"></svg></div>
       <details class="owner-details sleep-chart-values"><summary>Значения по датам</summary>
         <div class="table-scroll"><table><thead><tr><th>Дата</th><th>Garmin</th><th>Google</th></tr></thead><tbody>

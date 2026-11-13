@@ -560,11 +560,13 @@ def test_garmin_primary_table_respects_source_view_gate(tmp_path, monkeypatch, f
         response = client.get("/sleep?view=garmin&wake_date=2099-01-02")
     assert response.status_code == 200
     primary = response.text.split('<details class="card owner-details sleep-technical"')[0]
-    assert "data-night-row" in primary
+    assert "data-source-night-card" in primary
     assert "8 ч 00 мин" not in primary
     assert "82 баллы" not in primary
     assert "0 ч 15 мин" not in primary
-    assert primary.count('data-owner-state="unavailable"') >= 3
+    assert primary.count('data-source-sleep-empty') == 1
+    assert 'data-owner-state="unavailable"' in primary
+    assert "Это не ноль" in primary
 
 
 def test_unpaired_garmin_has_native_naps_and_independent_timing_and_stages(projection_database):
@@ -875,7 +877,9 @@ def test_google_source_page_has_unpaired_sleep_and_separate_dated_vitals(tmp_pat
     primary, technical = response.text.split('<details class="card owner-details sleep-technical"')
     sleep, vitals = primary.split('<section class="card brief-controls" data-google-vitals>')
     assert "6 ч 50 мин" in sleep
-    assert "2 января 2099, 01:00" in sleep
+    assert "Ночь на 2 января 2099" in sleep
+    assert ">01:00</span>" in sleep
+    assert "UTC+0300" not in sleep
     assert "2099-01-01T22:00:00Z" not in sleep
     assert "2099-01-01T22:00:00Z" in technical
     assert "42.5" not in sleep
@@ -884,6 +888,33 @@ def test_google_source_page_has_unpaired_sleep_and_separate_dated_vitals(tmp_pat
     assert "Совместимой оценки сна Google нет" in sleep
     assert "За эту дату нет сохранённых сессий Google" in missing.text
     assert "6 ч 50 мин" not in missing.text.split('data-google-vitals>')[0]
+
+
+def test_google_source_page_shows_each_competing_session_without_a_winner(tmp_path):
+    from overview_html import parse_overview
+
+    app, _settings, paths = _ui(tmp_path)
+    engine = create_sqlite_engine(paths)
+    try:
+        with session_scope(engine) as session:
+            for name in ("first", "second"):
+                _persist_google(session, paths, payload=_google_sleep_payload(name=name))
+    finally:
+        engine.dispose()
+    with client_for(app) as client:
+        response = client.get("/sleep?view=google&wake_date=2099-01-02")
+    assert response.status_code == 200
+    primary = response.text.split('<details class="card owner-details sleep-technical"')[0]
+    dom = parse_overview(primary)
+    assert len(dom.find("div", **{"data-source-night-card": None})) == 2
+    assert "2 записи за дату" in dom.text
+    assert "единая ночь не выбрана" in dom.text
+    assert "Значения не объединяются" in dom.text
+    assert primary.count("6 ч 50 мин") == 2  # Each record, never an aggregate/winner.
+    for card in dom.find("section", **{"data-sleep-session": "1"}) + dom.find(
+            "section", **{"data-sleep-session": "2"}):
+        assert card.text.count("Сохранённых данных недостаточно для этого показателя") <= 1
+    assert response.context["source_sleep"]["sources"][0]["ambiguous"] is True
 
 
 def _range(session, provider="google", wake_date=WAKE_DATE, days=7, **kwargs):
