@@ -9,13 +9,22 @@
  'max_heart_rate_bpm': 'Максимальный пульс Garmin', 'anaerobic_training_effect': 'Анаэробный эффект Garmin',
  'power_watts': 'Средняя мощность', 'cadence_rpm': 'Средний каденс', 'training_effect': 'Эффект тренировки Garmin', 'acute_training_load': 'Нагрузка сессии Garmin'
 } %}
-{% macro field_value(field, numeric=true, scale=none) -%}
+{% macro field_value(field, scale=none) -%}
  {% if field and field.state in ['zero', 'value'] %}
-  {% if numeric %}<span data-owner-state="present">{{ field.value | owner_number }}{% if scale %} из {{ scale }}{% endif %}</span>{% else %}<span>Передано Garmin; расшифровка в технических деталях</span>{% endif %}
+  <span data-owner-state="present">{{ field.value | owner_number }}{% if scale %} из {{ scale }}{% endif %}</span>
  {% elif field and field.state == 'invalid' %}<span class="status-chip owner-state unknown" data-owner-state="unknown">Некорректное значение</span>
  {% else %}<span class="unavailable" data-owner-state="unavailable">Не предоставлено</span>{% endif %}
 {%- endmacro %}
 {% macro dated(block) -%}<p class="muted">Дата данных: {{ (block.source_timestamp_utc or block.source_date) | owner_date }}.</p>{%- endmacro %}
+{% macro training_tile(label, block, code, scale=none) -%}
+<article class="activity-metric-card"><h3>{{ label }}</h3><p class="activity-training-value">{{ field_value(block.fields[code] if block else none, scale=scale) }}</p>{{ owner.value_meta('Garmin', (block.source_timestamp_utc or block.source_date) | owner_date if block else 'Дата не указана') }}</article>
+{%- endmacro %}
+{% macro journal_table(activities, sel, query) -%}
+<div class="table-scroll" tabindex="0" role="region" aria-label="Сессии Garmin"><table class="garmin-table activity-journal-table"><thead><tr><th scope="col">Дата</th><th scope="col">Вид</th><th scope="col">Длительность</th><th scope="col">Дистанция, км</th><th scope="col"><span data-activity-checkbox-ui hidden>Сравнить</span></th></tr></thead><tbody>
+{% for activity in activities %}<tr><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_short_date }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ query }}">{{ activity.activity_type | owner_activity_type }}</a></td><td aria-label="Длительность недоступна в журнале">—</td><td aria-label="Дистанция недоступна в журнале">—</td><td><label class="activity-compare-choice" data-activity-checkbox-ui hidden><input type="checkbox" data-activity-compare="{{ activity.record_id }}"> сравнить<span class="visually-hidden">: {{ activity.activity_type | owner_activity_type }} · {{ activity.source_local_date | owner_short_date }}</span></label></td></tr>{% endfor %}
+</tbody></table></div>
+{%- endmacro %}
+{% macro compare_button() -%}<button type="button" data-compare-selected hidden disabled>Сравнить выбранные (0)</button>{%- endmacro %}
 {% block title %}Активность — Health-Check{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/activity_comparison.css"><link rel="stylesheet" href="/static/activity_owner.css"><link rel="stylesheet" href="/static/owner_compact.css">{% endblock %}
 {% block content %}
@@ -33,7 +42,7 @@
  {% if payload.unavailable_reason == 'database_unavailable' %}{{ owner.state_chip('unavailable') }}<p>Хранилище недоступно. Наличие сессий неизвестно.</p>
  {% elif sel.status == 'no_data' %}{{ owner.state_chip('unavailable') }}<p>Источник Garmin пока не найден. Это не означает отсутствие тренировок.</p>
  {% elif sel.status == 'require_selection' %}{{ owner.state_chip('unknown') }}<p>Выбери источник Garmin. Данные разных источников не объединяются.</p>
- {% else %}<p class="muted">Garmin · {{ sel.selected_source.device_model or "Учётная запись" }}</p>{% endif %}
+ {% else %}<p class="muted">Garmin{% if sel.selected_source.device_model %} · {{ sel.selected_source.device_model }}{% endif %}</p>{% endif %}
  </div>
 </section>
 
@@ -47,45 +56,43 @@
     <details class="owner-details"><summary>ⓘ Состав журнала</summary><ul class="activity-type-counts" aria-label="Виды сохранённых сессий">{% for label, count in types[:3] %}<li>{{ label }} <strong>{{ count }}</strong></li>{% endfor %}{% if types | length > 3 %}<li>Другие виды <strong>{{ types[3:] | sum(attribute='1') }}</strong></li>{% endif %}</ul></details>
    </div>
    <div class="activity-recent"><h2>Последние сессии</h2>
-    <div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Вид активности</th><th>Дата / время</th></tr></thead><tbody>
-    {% for activity in payload.activities[:5] %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity.activity_type | owner_activity_type }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) |owner_short_date }}</td></tr>{% endfor %}
-    </tbody></table></div>
+    {{ journal_table(payload.activities[:5], sel, session_query.value) }}
+    {{ compare_button() }}
    </div>
   </div>
   {% else %}<h2>Последние сессии</h2><p data-owner-state="unavailable" class="unavailable">Список сессий недоступен или не содержит сохранённых записей. Нагрузка не считается нулевой.</p>{% endif %}
   <p class="muted activity-journal-context">Журнал: до 50 записей, вне периода аналитики. Полнота тренировок по дням неизвестна.</p>
+  {% call owner.info_details('Состав журнала и «—»') %}<p>«—» — значение недоступно в журнале; это не ноль. Длительность и дистанция доступны в сохранённой сессии, если источник их передал. Журнал не подтверждает отсутствие тренировок в другие дни.</p><p>Первая выбранная сессия — A, вторая — B. Разница — B минус A.</p>{% endcall %}
  </section>
- {% if google_exercise is not none %}{% include "google_exercise.html" %}{% else %}
- <section class="card" id="google-exercise"><h2>Тренировки Google / Fitbit</h2><p class="unavailable">Сохранённые тренировки недоступны.</p></section>
- {% endif %}
- <section id="activity-comparison" class="card activity-comparison"><h2>Сравнить сессии</h2>
-  <form id="activity-form" class="inline-edit"><label>Сессия A<select id="activity-a" aria-describedby="activity-selection-hint"></select></label><label>Сессия B<select id="activity-b" aria-describedby="activity-selection-hint"></select></label><button type="submit" disabled>Сравнить A и B</button></form>
+ <details class="card owner-details activity-history"><summary>Полный журнал · до 50 последних записей{% if payload.activities %} · {{ payload.activities | length }} сохранено{% endif %}</summary>
+  {% if payload.activities %}{{ journal_table(payload.activities, sel, session_query.value) }}{{ compare_button() }}{% else %}<p class="unavailable">Сохранённые сессии недоступны. Это не подтверждает отсутствие тренировок.</p>{% endif %}
+ </details>
+</div>
+ <section id="activity-comparison" class="card activity-comparison" data-activity-panel><h2>Сравнить сессии</h2>
+  <form id="activity-form" class="inline-edit">{% for side in ['a', 'b'] %}<label>Сессия {{ side | upper }}<select id="activity-{{ side }}" aria-describedby="activity-selection-hint"><option value="">Выбери сессию</option>{% for activity in payload.activities %}<option value="{{ activity.record_id }}">{{ activity.activity_type | owner_activity_type }} · {{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) | owner_date }} · {{ loop.index }}</option>{% endfor %}</select></label>{% endfor %}<button type="submit" disabled>Сравнить A и B</button></form>
+  <noscript><p>Списки сохранённых сессий доступны выше. Для загрузки сравнения включи JavaScript.</p></noscript>
   <p id="activity-selection-hint" aria-live="polite">Выбери две разные сохранённые сессии Garmin.</p>
   <div id="activity-result" aria-live="polite" aria-busy="false"></div>
   <details class="owner-details"><summary>Как читать сравнение</summary><p>Разница — B минус A; процент — относительно A. Плюс означает больше, минус — меньше, а не лучше или хуже. Пропуски не заменяются нулём.</p><p>Эффект и нагрузка Garmin относятся к сессии. «Не предоставлено» означает отсутствие пригодного значения; «Не вычисляется» — разницу или процент получить нельзя. Мощность и каденс показаны, если хотя бы в одной сессии есть пригодное значение. Все показатели, состояния и точные секунды доступны в технических деталях.</p></details>
  </section>
- <details class="card owner-details activity-history"><summary>Полный журнал · до 50 последних записей{% if payload.activities %} · {{ payload.activities | length }} сохранено{% endif %}</summary>
-  {% if payload.activities %}<div class="table-scroll"><table class="garmin-table"><thead><tr><th>Сессия</th><th>Вид активности</th><th>Дата / время</th></tr></thead><tbody>
-  {% for activity in payload.activities %}<tr><td>{{ loop.index }}</td><td><a class="activity-session-link" href="/garmin/session?garmin_source_id={{ sel.selected_source_id | urlencode }}&amp;record_id={{ activity.record_id | urlencode }}{{ session_query.value }}">{{ activity.activity_type | owner_activity_type }}</a></td><td>{{ (activity.source_local_date or activity.local_wall_time or activity.measured_at_utc) |owner_date }}</td></tr>{% endfor %}
-  </tbody></table></div>{% else %}<p class="unavailable">Сохранённые сессии недоступны. Это не подтверждает отсутствие тренировок.</p>{% endif %}
- </details>
-</div>
 <div id="training-recovery" data-activity-panel>
  <section class="card"><h2>Нагрузка и восстановление Garmin</h2>
-  {% call owner.info_details("О показателях Garmin") %}<p>Последние снимки Garmin. Даты блоков могут различаться; это не оценка на сегодня или за выбранный период.</p><p>Производитель каждой метрики не подтверждён. Готовность и эффект сессии — разные показатели Garmin.</p>{% endcall %}
+  {% call owner.info_details("О показателях Garmin") %}<p>Последние снимки Garmin. Даты блоков могут различаться; это не оценка на сегодня или за выбранный период.</p><p>Производитель каждой метрики не подтверждён. Готовность и эффект сессии — разные показатели Garmin. Нагрузка Garmin и отношение ACWR — безразмерные значения источника.</p>{% endcall %}
   {% if overview.status != 'available' %}{{ owner.state_chip('unknown' if overview.status == 'require_selection' else 'unavailable') }}<p>{% if overview.status == 'require_selection' %}Выбери источник Garmin выше.{% elif overview.status == 'no_training_evidence' %}Для этого источника пока нет сохранённых показателей тренировок и восстановления.{% else %}Показатели Garmin недоступны.{% endif %} Отсутствие данных не означает нулевую нагрузку.</p>
   {% else %}
-  <div class="brief-grid"><section><h3>Тренировочная нагрузка</h3>
-   {% if overview.training_status %}{% set status = overview.training_status %}{{ dated(status) }}
-   <dl class="brief-statistics"><dt>Острая нагрузка Garmin</dt><dd>{{ field_value(status.fields.dailyTrainingLoadAcute) }}</dd><dt>Хроническая нагрузка Garmin</dt><dd>{{ field_value(status.fields.dailyTrainingLoadChronic) }}</dd><dt>Отношение острой нагрузки к хронической (ACWR)</dt><dd>{{ field_value(status.fields.dailyAcuteChronicWorkloadRatio) }}</dd><dt>ACWR, %</dt><dd>{{ field_value(status.fields.acwrPercent) }}</dd></dl>
-   <p>Статус Garmin: {{ field_value(status.fields.trainingStatus, false) }}.</p><p>Статус ACWR: {{ field_value(status.fields.acwrStatus, false) }}.</p>
-   {% else %}<p class="unavailable">Статус тренировок не предоставлен</p>{% endif %}
-  </section><section><h3>Готовность и восстановление</h3>
-   {% if overview.readiness %}{% set ready = overview.readiness %}{{ dated(ready) }}
-   <dl class="brief-statistics"><dt>Оценка готовности Garmin</dt><dd>{{ field_value(ready.fields.score, scale=100) }}</dd><dt>Время восстановления Garmin</dt><dd data-recovery-time>{{ field_value(ready.fields.recoveryTime) }}{% if ready.fields.recoveryTime and ready.fields.recoveryTime.state in ['value', 'zero'] and ready.fields.recoveryTime.value is not none %} <span class="muted">· единица не указана</span>{% endif %}</dd><dt>Острая нагрузка в снимке готовности</dt><dd>{{ field_value(ready.fields.acuteLoad) }}</dd></dl>
-   <details class="owner-details"><summary>Снимки готовности</summary><p>{{ ready.snapshot_count }} {{ ready.snapshot_count|owner_plural("снимок", "снимка", "снимков") }}. Предыдущие снимки не усредняются.</p></details>
+  {% set status = overview.training_status %}{% set ready = overview.readiness %}
+  <div class="activity-training-grid">
+   {{ training_tile('Острая нагрузка Garmin', status, 'dailyTrainingLoadAcute') }}
+   {{ training_tile('Хроническая нагрузка Garmin', status, 'dailyTrainingLoadChronic') }}
+   {{ training_tile('Острая / хроническая (ACWR)', status, 'dailyAcuteChronicWorkloadRatio') }}
+   {{ training_tile('Оценка готовности Garmin', ready, 'score', scale=100) }}
+  </div>
+  <details class="owner-details"><summary>Снимки готовности</summary>
+   {% if ready %}{{ dated(ready) }}<p>{{ ready.snapshot_count }} {{ ready.snapshot_count|owner_plural("снимок", "снимка", "снимков") }}. Предыдущие снимки не усредняются.</p>
+   <dl class="brief-statistics"><dt>Время восстановления Garmin</dt><dd data-recovery-time>{{ field_value(ready.fields.recoveryTime) }}{% if ready.fields.recoveryTime and ready.fields.recoveryTime.state in ['value', 'zero'] and ready.fields.recoveryTime.value is not none %} <span class="muted">· единица не указана</span>{% endif %}</dd><dt>Острая нагрузка в снимке готовности</dt><dd>{{ field_value(ready.fields.acuteLoad) }}</dd></dl>
    {% else %}<p class="unavailable">Готовность не предоставлена</p>{% endif %}
-  </section></div>
+  </details>
+  {% if status %}<details class="owner-details"><summary>Отношение нагрузки, %</summary>{{ dated(status) }}<p>ACWR: {{ field_value(status.fields.acwrPercent) }} %</p></details>{% endif %}
   <details class="owner-details"><summary>Распределение нагрузки</summary>
   {% if overview.load_focus %}{% set focus = overview.load_focus %}{% if focus.dated %}{{ dated(focus) }}{% else %}<p class="uncertainty-note">Дата не указана. Дата запроса не подставляется вместо даты данных.</p>{% endif %}
   <p class="muted">Границы диапазонов переданы Garmin и служат ориентиром, а не нашей оценкой здоровья.</p>
@@ -100,7 +107,7 @@
  </section>
  <section class="card"><h2>Показатель за период</h2>
   <form id="series-form" class="inline-edit"><label>Показатель<select id="metric-code" name="metric_code">{% for metric in payload.scalar_metrics %}<option value="{{ metric.metric_code }}" {% if payload.defaults.metric_code == metric.metric_code %}selected{% endif %}>{{ metric_names.get(metric.metric_code, 'Другой показатель') }}</option>{% endfor %}</select></label><label>С<input type="date" id="series-start" name="start_date" value="{{ payload.defaults.start_date or '' }}"></label><label>По<input type="date" id="series-end" name="end_date" value="{{ payload.defaults.end_date or '' }}"></label><button type="submit">Показать период</button></form>
-  <p id="metric-wording" class="muted"></p><div id="series-result" aria-live="polite"><p id="series-context" class="muted"></p><div id="series-chart" class="chart" aria-label="Показатель Garmin за период"></div><div id="series-summary"></div></div>
+  <p id="metric-wording" class="muted"></p><div id="series-result" aria-live="polite"><div id="series-summary"></div><p id="series-context" class="muted"></p><div id="series-chart" class="chart" aria-label="Показатель Garmin за период"></div><details class="owner-info"><summary>ⓘ О значениях за период</summary><div id="series-counts"></div></details></div>
  </section>
  <details class="card owner-details activity-lags"><summary>Связь показателей со сдвигом</summary><p>Исследовательское сравнение: связь не доказывает причину. Нет ранжирования «лучшего» сдвига, прогноза или рекомендаций.</p>
   <form id="lag-form" class="inline-edit"><label>Показатель X<select id="x-metric-code">{% for metric in payload.lag_eligible_metrics %}<option value="{{ metric.metric_code }}">{{ metric_names.get(metric.metric_code, 'Другой показатель') }}</option>{% endfor %}</select></label><label>Показатель Y<select id="y-metric-code">{% for metric in payload.lag_eligible_metrics %}<option value="{{ metric.metric_code }}" {% if loop.index0 == 1 %}selected{% endif %}>{{ metric_names.get(metric.metric_code, 'Другой показатель') }}</option>{% endfor %}</select></label><label>С<input type="date" id="lag-start" value="{{ payload.defaults.start_date or '' }}"></label><label>По<input type="date" id="lag-end" value="{{ payload.defaults.end_date or '' }}"></label><label>Сдвиги в днях (0–14, через запятую)<input type="text" id="lag-days" value="{{ payload.defaults.lag_days | join(',') }}"></label><button type="submit">Показать связи</button></form>

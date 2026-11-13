@@ -17,7 +17,7 @@
 .activity-metric-card h3 { margin: 0 0 8px; font-size: .95rem; }
 .activity-metric-value {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 2rem;
   font-variant-numeric: tabular-nums;
 }
 .activity-metric-unit { font-size: .9rem; }

@@ -18,6 +18,7 @@
 
   bindForms();
   populateActivities(state.activities);
+  bindJournalComparison();
   renderMetricWording();
   showMode();
   window.addEventListener("hashchange", showMode);
@@ -25,10 +26,10 @@
   else renderNoSeries(payload.unavailable_reason || (payload.source_selection || {}).reason || "no_data");
 
   function showMode() {
-    const mode = location.hash === "#training-recovery" ? "training-recovery" : "activity-journal";
+    const mode = ["#training-recovery", "#activity-comparison"].includes(location.hash) ? location.hash.slice(1) : "activity-journal";
     document.querySelectorAll("[data-activity-panel]").forEach(el => { el.hidden = el.id !== mode; });
     document.querySelectorAll("[data-activity-mode]").forEach(el => {
-      const selected = el.dataset.activityMode === (location.hash === "#activity-comparison" ? "activity-comparison" : mode);
+      const selected = el.dataset.activityMode === mode;
       el.classList.toggle("selected", selected);
       if (selected) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current");
     });
@@ -58,6 +59,7 @@
       setHtml("activity-result", "");
       setText("result-identity", "Пара сессий изменена; сравнение ещё не выполнено");
       updateActivitySelection();
+      syncJournalComparison();
     }));
     document.getElementById("lag-form").addEventListener("submit", event => { event.preventDefault(); loadLaggedAssociation(); });
   }
@@ -76,7 +78,7 @@
     state.tickets[panel] = ticket;
     const target = panel === "series" ? "series-chart" : panel + "-result";
     setHtml(target, chip("loading") + "<p>" + escapeHtml(context) + "</p>");
-    if (panel === "series") { setHtml("series-summary", ""); setHtml("series-coverage", ""); setText("series-context", context); }
+    if (panel === "series") { setHtml("series-summary", ""); setHtml("series-counts", ""); setHtml("series-coverage", ""); setText("series-context", context); }
     setText(panel + "-evidence", "");
     setText("result-identity", "Загрузка нового результата");
     const node = document.getElementById(panel + "-result");
@@ -98,7 +100,7 @@
     let sourceId;
     try { sourceId = requireSourceId(); } catch (err) { renderNoSeries(err.message); return; }
     const params = new URLSearchParams({ garmin_source_id: sourceId, metric_code: value("metric-code"), start_date: value("series-start"), end_date: value("series-end") });
-    const context = metricName(value("metric-code")) + " · " + ownerDate(value("series-start")) + " — " + ownerDate(value("series-end"));
+    const context = "Garmin · " + metricName(value("metric-code")) + " · " + ownerDate(value("series-start")) + " — " + ownerDate(value("series-end"));
     request("series", "/api/garmin/series", params, context, renderSeries);
   }
   function loadActivityComparison() {
@@ -129,7 +131,7 @@
     state.tickets[panel] = (state.tickets[panel] || 0) + 1;
     document.getElementById(panel + "-result").setAttribute("aria-busy", "false");
     setText(panel + "-evidence", "");
-    if (panel === "series") { setHtml("series-summary", ""); setHtml("series-coverage", ""); }
+    if (panel === "series") { setHtml("series-summary", ""); setHtml("series-counts", ""); setHtml("series-coverage", ""); }
   }
   function activityLabel(activity, index) {
     return "Сессия " + (index + 1) + " · " + (activity.activity_type == null ? "Вид активности не указан" : (Object.hasOwn(activityNames, activity.activity_type) ? activityNames[activity.activity_type] : "Другой вид активности")) + " · " + ownerDate(activity.source_local_date || activity.local_wall_time || activity.measured_at_utc);
@@ -137,8 +139,7 @@
   function populateActivities(activities) {
     ["activity-a", "activity-b"].forEach(id => {
       const select = document.getElementById(id);
-      select.add(new Option("Выбери сессию", ""));
-      activities.forEach((activity, index) => select.add(new Option(activityLabel(activity, index), activity.record_id)));
+      activities.forEach((activity, index) => { select.options[index + 1].textContent = activityLabel(activity, index); });
       select.disabled = activities.length < 2;
     });
     updateActivitySelection();
@@ -152,6 +153,35 @@
       !a ? "Выбери сессию A — основу сравнения." : !b ? "Теперь выбери другую сессию B." :
       "Нажми «Сравнить A и B».");
   }
+  function syncJournalComparison() {
+    const selected = [value("activity-a"), value("activity-b")].filter(Boolean);
+    const count = new Set(selected).size;
+    document.querySelectorAll("[data-activity-compare]").forEach(input => {
+      input.checked = selected.includes(input.dataset.activityCompare);
+      input.disabled = state.activities.length < 2 || (count >= 2 && !input.checked);
+    });
+    document.querySelectorAll("[data-compare-selected]").forEach(button => {
+      button.disabled = count !== 2;
+      button.textContent = "Сравнить выбранные (" + count + ")";
+    });
+  }
+  function bindJournalComparison() {
+    document.querySelectorAll("[data-activity-checkbox-ui], [data-compare-selected]").forEach(el => { el.hidden = false; });
+    document.querySelectorAll("[data-activity-compare]").forEach(input => input.addEventListener("change", () => {
+      const id = input.dataset.activityCompare;
+      const selected = [...new Set([value("activity-a"), value("activity-b")].filter(Boolean))];
+      const next = input.checked ? selected.includes(id) ? selected : [...selected, id].slice(0, 2) : selected.filter(item => item !== id);
+      document.getElementById("activity-a").value = next[0] || "";
+      document.getElementById("activity-b").value = next[1] || "";
+      document.getElementById("activity-b").dispatchEvent(new Event("change"));
+    }));
+    document.querySelectorAll("[data-compare-selected]").forEach(button => button.addEventListener("click", () => {
+      location.hash = "activity-comparison";
+      showMode();
+      document.getElementById("activity-form").requestSubmit();
+    }));
+    syncJournalComparison();
+  }
   function renderMetricWording() {
     const code = value("metric-code");
     setText("metric-wording", code === "sleep_score" ? "Оценка сна Garmin не доказывает полноту длительности, стадий или дневного сна и не является оценкой восстановления." :
@@ -159,7 +189,7 @@
   }
   function renderNoSeries(reason) {
     setHtml("series-chart", unavailable("Нет пригодного ряда. Пропущенные значения не показаны как 0."));
-    setHtml("series-summary", ""); setHtml("series-coverage", ""); setText("series-context", "Результат за период недоступен");
+    setHtml("series-summary", ""); setHtml("series-counts", ""); setHtml("series-coverage", ""); setText("series-context", "Результат за период недоступен");
     setText("series-evidence", JSON.stringify({ reason }, null, 2)); setText("result-identity", "Нет результата ряда");
   }
   function renderSeries(series) {
@@ -187,16 +217,19 @@
       chart.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '" role="img" aria-label="Значения Garmin; пропуски разрывают линию"><path d="' + path + '" fill="none" stroke="var(--series-1)" stroke-width="2"/>' + circles + '</svg>';
     }
     const code = (series.metric_definition || {}).metric_code;
-    setText("series-context", metricName(code) + " · " + ownerDate((series.query || {}).start_date) + " — " + ownerDate((series.query || {}).end_date));
+    setText("series-context", "Garmin · " + metricName(code) + " · " + ownerDate((series.query || {}).start_date) + " — " + ownerDate((series.query || {}).end_date));
     const a = series.availability || {}, b = series.baseline || {}, t = series.trend || {}, p = series.personal_percentile || {}, d = series.deviation || {};
     const missing = [a.missing_count, a.null_count, a.invalid_count, a.partial_count, a.not_computable_count, a.excluded_count].some(n => n > 0);
-    let html = chip(!plottable.length ? "unavailable" : missing ? "partial" : "present");
-    html += "<p>" + escapeHtml(metricName(code)) + " · единица: " + escapeHtml(duration ? "часы / минуты" : units[(series.metric_definition || {}).unit] || "не предоставлена") + "</p>";
-    html += "<p>Пригодных значений: " + fmt(a.usable_count, 0) + "; явных нулей: " + fmt(a.zero_count, 0) + "; исключено: " + fmt(a.excluded_count, 0) + ".</p>";
+    const unit = scale ? "" : units[(series.metric_definition || {}).unit];
+    const metricDisplay = value => display(value) + (duration || scale || unit === "" ? "" : " " + (unit || "· единица не предоставлена"));
+    let html = '<p class="activity-series-label">Среднее в личном окне</p><p class="activity-series-value">' + available(b, () => metricDisplay(b.mean)) + '</p>';
+    html += chip(!plottable.length ? "unavailable" : missing ? "partial" : "present");
+    let counts = "<p>Пригодных значений: " + fmt(a.usable_count, 0) + "; явных нулей: " + fmt(a.zero_count, 0) + "; исключено: " + fmt(a.excluded_count, 0) + ".</p>";
     if (missing) html += '<p class="uncertainty-note">Есть пропуски, исключения или неполные значения. Ряд не описывает весь период; неоднозначные дневные значения не объединяются.</p>';
-    html += "<ul><li>Среднее в личном окне: " + available(b, () => display(b.mean)) + "</li><li>Медиана: " + available(b, () => display(b.median)) + "</li><li>Изменение в день: " + available(t, () => duration ? humanDuration(t.slope_per_day, true) + "/день" : fmt(t.slope_per_day, 3)) + "</li><li>Процентиль в личном окне: " + available(p, () => fmt(p.value)) + "</li></ul>";
-    html += "<p>Отклонение от личного окна: " + available(d, () => d.personal_baseline_deviation === true ? "выделено алгоритмом" : d.personal_baseline_deviation === false ? "не выделено алгоритмом" : "не определено") + ". Это не медицинский порог.</p>";
+    counts += "<ul><li>Медиана: " + available(b, () => metricDisplay(b.median)) + "</li><li>Изменение в день: " + available(t, () => duration ? humanDuration(t.slope_per_day, true) + "/день" : metricDisplay(t.slope_per_day) + "/день") + "</li><li>Процентиль в личном окне: " + available(p, () => fmt(p.value)) + "</li></ul>";
+    counts += "<p>Отклонение от личного окна: " + available(d, () => d.personal_baseline_deviation === true ? "выделено алгоритмом" : d.personal_baseline_deviation === false ? "не выделено алгоритмом" : "не определено") + ". Это не медицинский порог.</p>";
     setHtml("series-summary", html);
+    setHtml("series-counts", counts);
     // Exact availability.exclusions, excluded_count, ambiguous_daily_aggregate,
     // statuses and statistics remain in the untouched response disclosure.
     setText("series-evidence", JSON.stringify(series, null, 2));

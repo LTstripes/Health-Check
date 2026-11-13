@@ -17,8 +17,8 @@
 {% set session = detail.session %}{% set sel = detail.source %}
 <section class="card activity-session-detail" aria-label="Сохранённая сессия Garmin">
  <p class="muted activity-session-back"><a href="{{ back_href }}">{{ back_label }}</a></p>
- <h2>{{ session.activity_type | owner_activity_type }}</h2>
- <p class="muted">Сохранённая сессия Garmin{% if sel %} · {{ sel.device_model or 'Учётная запись' }}{% endif %} · {{ (session.source_local_date or session.local_wall_time or session.measured_at_utc) | owner_date }}</p>
+ <h2>{{ session.activity_type | owner_activity_type }} · {{ (session.source_local_date or session.local_wall_time or session.measured_at_utc) | owner_date }}</h2>
+ <p class="muted">{{ owner.value_meta('Garmin', sel.device_model if sel and sel.device_model else none) }}</p>
  <details class="owner-info"><summary>ⓘ О показателях тренировки</summary><p>Эффект Garmin: шкала от 0 до 5. Нагрузка Garmin — безразмерное значение источника. Средний и максимальный пульс — разные поля Garmin. Пропуски не заменяются нулём. Точные значения, единицы и происхождение — в технических деталях.</p><p>Если источник не сохранил пригодное значение, показатель остаётся отсутствующим, а не нулевым.</p></details>
  <div class="activity-detail-grid">
   {% for card in detail.cards %}
@@ -37,7 +37,7 @@
    {% elif card.state == 'invalid' %}
    <p><span class="status-chip owner-state unknown" data-owner-state="unknown">Некорректное значение</span></p>
    {% else %}
-   <p><span class="unavailable" data-owner-state="unavailable">Не предоставлено</span></p>
+   <p class="activity-metric-value"><span class="unavailable" data-owner-state="unavailable">—</span></p><p class="activity-metric-hint muted">не передан источником</p>
    {% endif %}
   </article>
   {% endfor %}

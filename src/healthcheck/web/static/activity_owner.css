@@ -11,8 +11,8 @@
 .activity-owner-summary h2 { margin: 0 0 8px; }
 .activity-owner-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
 }
 .activity-owner-grid > * { min-width: 0; }
 .activity-owner-grid h3, .activity-saved-summary p { margin-top: 0; }
@@ -24,9 +24,39 @@
 .activity-owner-summary th, .activity-owner-summary td,
 .activity-history th, .activity-history td { white-space: normal; overflow-wrap: anywhere; }
 .activity-owner-summary .garmin-table th, .activity-owner-summary .garmin-table td { padding: 4px 8px; }
-.activity-owner-summary .garmin-table th:last-child { width: 45%; }
 .activity-journal-context { margin: 8px 0 0; font-size: .875rem; }
 .activity-session-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .activity-session-link:hover, .activity-session-link:focus-visible { text-decoration-thickness: 2px; }
 #activity-comparison > .muted { margin: 8px 0; font-size: .875rem; }
 #activity-comparison { scroll-margin-top: 100px; }
+
+/* Keep the bounded journal in source order, with scrolling inside the table. */
+.activity-journal-table th:first-child, .activity-journal-table td:first-child,
+.activity-period-table th:first-child, .activity-period-table td:first-child { white-space: nowrap; }
+.activity-journal-table th:nth-child(n+3), .activity-journal-table td:nth-child(n+3),
+.activity-period-table th:nth-child(3), .activity-period-table td:nth-child(3),
+.activity-period-table th:nth-child(4), .activity-period-table td:nth-child(4) { text-align: right; }
+.activity-journal-table .activity-compare-choice { display: inline-flex; align-items: center; justify-content: end; min-height: 44px; gap: 8px; white-space: nowrap; cursor: pointer; }
+.activity-journal-table input[type="checkbox"] { width: 20px; height: 20px; margin: 0; }
+[data-activity-checkbox-ui][hidden], [data-compare-selected][hidden] { display: none; }
+.activity-journal-table .activity-session-link, .activity-period-table a { display: inline-flex; align-items: center; min-height: 44px; }
+.activity-recent > button, .activity-history > button { margin: 8px 0; }
+.activity-owner-summary .garmin-table, .activity-history .garmin-table { min-width: 640px; }
+.activity-journal-table th, .activity-journal-table td { font-variant-numeric: tabular-nums; }
+.activity-period-table { min-width: 640px; }
+.activity-period-table td:last-child { font-size: .8125rem; }
+.activity-owner-summary .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.activity-history .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.activity-training-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.activity-training-grid .activity-metric-card { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); min-width: 0; }
+.activity-training-grid h3 { margin: 0 0 8px; font-size: .875rem; }
+.activity-training-value, .activity-series-value { margin: 4px 0; font-size: 2rem; font-variant-numeric: tabular-nums; }
+.activity-training-value .unavailable, .activity-training-value .status-chip { font-size: .875rem; }
+#series-result { min-width: 0; }
+#series-chart { max-width: 100%; overflow-x: auto; }
+#series-counts { font-size: .875rem; }
+@media (max-width: 1280px) {
+  .activity-training-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .activity-comparison #activity-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .activity-comparison #activity-form button { grid-column: 1 / -1; justify-self: start; }
+}
