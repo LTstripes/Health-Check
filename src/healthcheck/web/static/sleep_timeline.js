@@ -19,7 +19,7 @@
   const unresolvedColor = "var(--series-3)";
   const lineColor = "var(--line-strong)";
   let svg = null;
-  let hidden = {};
+  const hidden = {};
   let focusables = [];
   let current = null;
 
@@ -151,13 +151,60 @@
     return '<h4>Основание точки</h4><dl class="sleep-timeline-session">' + rows.join("") + "</dl>";
   }
 
+  function visibleSeries() {
+    return data.display_series.filter(item => !hidden[item.series_id]);
+  }
+
+  function pointAt(series, date) {
+    return series.points.find(item => item.wake_date === date);
+  }
+
+  function navigation(series) {
+    let html = '<nav class="night-card-navigation" aria-label="Выбор ночи">' +
+      '<button type="button" data-night-step="-1"' + (markerPoints(series).length ? "" : " disabled") + '>← предыдущая</button>' +
+      '<button type="button" data-night-step="1"' + (markerPoints(series).length ? "" : " disabled") + '>следующая →</button>' +
+      '<span class="night-card-sources" role="group" aria-label="Источник ночи">';
+    visibleSeries().forEach(item => {
+      html += '<button type="button" data-night-source="' + esc(item.series_id) +
+        '" aria-pressed="' + (item === series) + '">' + esc(item.label) + '</button>';
+    });
+    return html + '</span></nav>';
+  }
+
+  function moveNight(step, focusGraph) {
+    if (!current) return;
+    const series = current.series;
+    const points = markerPoints(series);
+    if (!points.length) return;
+    const dateNow = current.point.wake_date;
+    const next = step > 0 ? points.find(item => item.wake_date > dateNow) || points[0] :
+      points.slice().reverse().find(item => item.wake_date < dateNow) || points[points.length - 1];
+    const date = next.wake_date;
+    showPoint(series, pointAt(series, date));
+    if (focusGraph) {
+      const node = focusables.find(item => item.getAttribute("data-sleep-series-id") === series.series_id &&
+        item.getAttribute("data-wake-date") === date);
+      if (node) node.focus({preventScroll: true});
+    }
+  }
+
+  function syncSelection() {
+    focusables.forEach(node => node.setAttribute("aria-pressed", String(Boolean(current &&
+      node.getAttribute("data-sleep-series-id") === current.series.series_id &&
+      node.getAttribute("data-wake-date") === current.point.wake_date))));
+  }
+
+  function selectedEvidence(point) {
+    return pointEvidence(point) + '<pre class="provenance">' + esc(JSON.stringify(point, null, 2)) + '</pre>';
+  }
+
   function showPoint(series, point) {
     if (!detail) return;
     current = { series: series, point: point };
     const pending = point.state === "value" && cachedNight(series, point) === undefined
       ? loadNight(series, point) : null;
     let html = '<article class="night-card" data-night-card="' + esc(point.state) + '">' +
-      nightCard.head(series, point);
+      navigation(series) + nightCard.head(series, point);
     const eventMarker = contextMarker(series, point);
     if (eventMarker) html += '<p class="sleep-context-note">' + esc(eventMarker.text) + '</p>';
     if (point.state === "value") {
@@ -167,14 +214,25 @@
       }
       html += '<div class="night-card-body" data-sleep-session-slot>' + sessionSlot(series, point) + "</div>";
     } else if (point.state === "ambiguous") {
-      html += '<p class="uncertainty-note">' + esc(point.note) +
-        " Значения не объединяются и не усредняются.</p>";
+      html += '<p class="uncertainty-note">Несколько записей за дату; значение не выбрано. ' +
+        'Значения не объединяются и не усредняются.</p>';
     } else {
-      html += "<p>" + esc(point.note || "Нет пригодного значения.") + "</p>";
+      const dateText = new Date(point.wake_date + "T00:00:00Z").toLocaleDateString("ru-RU", {
+        day: "numeric", month: "long", timeZone: "UTC"
+      });
+      html += '<p data-night-empty>За ночь на ' + esc(dateText) + ' у ' + esc(series.label) +
+        (point.state === "no_records" ? ' нет записи. Это не „0 часов“.' :
+          ' нет пригодного значения. Это не „0 часов“. ' + esc(point.note || "")) + '</p>';
+      const latest = series.points.filter(item => item.state === "value").slice(-1)[0];
+      if (latest) html += '<button type="button" class="button-link" data-night-latest="' + esc(latest.wake_date) +
+        '">Показать ' + esc(new Date(latest.wake_date + "T00:00:00Z").toLocaleDateString("ru-RU", {
+          day: "numeric", month: "long", timeZone: "UTC"
+        })) + '</button>';
+      else html += '<p><a href="/imports#data-status">Проверить источники →</a></p>';
     }
-    html += '<details class="owner-details night-card-tech"><summary>ⓘ Основание точки</summary>' + pointEvidence(point) +
-      '<pre class="provenance">' + esc(JSON.stringify(point, null, 2)) + '</pre></details></article>';
-    detail.innerHTML = html;
+    if (point.state !== "value") html += nightCard.disclosures(null, "", selectedEvidence(point));
+    detail.innerHTML = html + '</article>';
+    syncSelection();
     if (pending) pending.then(fillSlot, fillSlot);
 
     function fillSlot() {
@@ -186,24 +244,26 @@
   }
 
   function sessionSlot(series, point) {
+    const evidence = selectedEvidence(point);
+    const fallback = nightCard.disclosures(null, "", evidence);
     const key = nightKey(series, point);
     const night = cachedNight(series, point);
     if (night === undefined) {
-      return nightCache.has(key)
+      return (nightCache.has(key)
         ? '<p class="muted" data-sleep-session-state="loading">Загружаю данные сессии…</p>'
         : '<p class="muted" data-sleep-session-state="error">Не удалось загрузить данные сессии. ' +
-          "Длительность выше взята из сохранённой точки; выберите точку ещё раз, чтобы повторить.</p>";
+          "Длительность выше взята из сохранённой точки; выбери точку ещё раз, чтобы повторить.</p>") + fallback;
     }
     if (night.state === "read_limit_exceeded") {
       return '<p class="muted" data-sleep-session-state="limited">За эту дату слишком много ' +
-        "сохранённых записей; данные сессии не показаны.</p>";
+        "сохранённых записей; данные сессии не показаны.</p>" + fallback;
     }
     const session = sessionFor(series, point, night);
     if (!session) {
       return '<p class="muted" data-sleep-session-state="missing">Сессия этой точки не найдена ' +
-        "в текущих сохранённых данных: возможно, они обновились. Обновите страницу.</p>";
+        "в текущих сохранённых данных: возможно, они обновились. Обнови страницу.</p>" + fallback;
     }
-    return nightCard.session(series, session);
+    return nightCard.session(series, session, evidence);
   }
 
   function buildAxis(svgElement, width, height, pad, dates, xOf, minTickX) {
@@ -422,13 +482,7 @@
       if (hidden[series.series_id]) group.classList.add("is-hidden");
       svg.appendChild(group);
     });
-    if (current && !hidden[current.series.series_id]) {
-      const matches = focusables.filter(function (node) {
-        return node.getAttribute("data-sleep-series-id") === current.series.series_id &&
-          node.getAttribute("data-wake-date") === current.point.wake_date;
-      });
-      if (matches.length) matches[0].focus();
-    }
+    syncSelection();
     bindPoints();
   }
 
@@ -475,14 +529,7 @@
         }
         if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
           event.preventDefault();
-          const same = focusables.filter(function (item) {
-            const seriesId = item.getAttribute("data-sleep-series-id");
-            return seriesId === series.series_id && !hidden[seriesId];
-          });
-          if (!same.length) return;
-          const index = same.indexOf(node);
-          const next = (index + (event.key === "ArrowRight" ? 1 : -1) + same.length) % same.length;
-          same[next].focus();
+          moveNight(event.key === "ArrowRight" ? 1 : -1, true);
         }
       });
     });
@@ -505,17 +552,18 @@
         const label = toggle.closest("label");
         if (label) label.classList.toggle("is-hidden-series", !toggle.checked);
         if (!toggle.checked && current && current.series.series_id === id) {
-          // The selected point hid with its series: clear its detail, not the table.
+          const date = current.point.wake_date;
+          const next = visibleSeries()[0];
           current = null;
-          if (detail) {
-            detail.textContent = "Выбери точку на графике, чтобы увидеть подробности ночи.";
-          }
-          const active = document.activeElement;
-          if (active && active.getAttribute &&
-              active.getAttribute("data-sleep-series-id") === id) {
-            active.blur();
-          }
+          if (next) showPoint(next, pointAt(next, date));
+          else if (detail) detail.textContent = "Выбери источник, чтобы увидеть ночь.";
+        } else if (current) {
+          showPoint(current.series, current.point);
+        } else if (visibleSeries().length) {
+          const next = visibleSeries()[0];
+          showPoint(next, pointAt(next, data.end_date || data.dates[data.dates.length - 1]));
         }
+        syncSelection();
         if (!svg) return;
         const groups = svg.querySelectorAll("[data-sleep-series-group]");
         Array.prototype.forEach.call(groups, function (group) {
@@ -527,16 +575,30 @@
     });
   }
 
-  const markerCount = data.display_series.reduce(function (total, series) {
-    return total + markerPoints(series).length;
-  }, 0);
-  if (!markerCount) {
-    host.innerHTML = '<p class="muted">За выбранное окно нет сохранённых значений и спорных дат. ' +
-      "Пропуски показаны в таблице ниже и не означают ноль.</p>";
-    return;
-  }
+  detail.addEventListener("click", function (event) {
+    const button = event.target.closest("button");
+    if (!button || !current) return;
+    const step = button.getAttribute("data-night-step");
+    const source = button.getAttribute("data-night-source");
+    const latest = button.getAttribute("data-night-latest");
+    if (step) moveNight(Number(step), false);
+    if (source) {
+      const series = visibleSeries().find(item => item.series_id === source);
+      if (series) showPoint(series, pointAt(series, current.point.wake_date));
+    }
+    if (latest) showPoint(current.series, pointAt(current.series, latest));
+    // Replacing the card must not drop keyboard focus to the document body.
+    const selector = step ? '[data-night-step="' + step + '"]' : source ?
+      '[data-night-source="' + source + '"]' : '[data-night-step="-1"]';
+    const replacement = detail.querySelector(selector);
+    if (replacement) replacement.focus({preventScroll: true});
+  });
+  const table = document.querySelector("[data-sleep-table]");
+  if (table) table.removeAttribute("open");
   bindLegend();
   draw();
+  const initial = visibleSeries().find(item => item.provider === "garmin") || visibleSeries()[0];
+  showPoint(initial, pointAt(initial, data.end_date || data.dates[data.dates.length - 1]));
   if (host.sleepResizeObserver) host.sleepResizeObserver.disconnect();
   host.sleepResizeObserver = new ResizeObserver(function () {
     draw();

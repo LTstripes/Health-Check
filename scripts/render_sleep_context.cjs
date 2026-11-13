@@ -47,6 +47,7 @@ const document = {
   getElementById: id => ({ 'sleep-timeline-data': node, 'sleep-timeline-chart': host,
     'sleep-timeline-detail': detail })[id] || null,
   createElementNS: (_namespace, tag) => new Element(tag),
+  querySelector: () => null, // This fixture has no server-rendered date-table disclosure.
   querySelectorAll: selector => ({ '[data-sleep-series-toggle]': toggles,
     '[data-sleep-context-source]': cells })[selector] || [],
 };

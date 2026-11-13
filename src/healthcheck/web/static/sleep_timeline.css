@@ -1,0 +1,16 @@
+/* T6: selected night stays ahead of the chart; shared tokens only. */
+.sleep-timeline { min-width: 0; }
+.sleep-timeline .sleep-period-toolbar { margin-top: 0; }
+.night-card-navigation, .night-card-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.night-card-navigation { margin-bottom: 12px; }
+.night-card-sources { margin-inline-start: auto; }
+.night-card-navigation button { min-height: 44px; min-width: 44px; }
+.night-card-sources [aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.sleep-timeline-point[aria-pressed="true"] .sleep-timeline-dot { stroke: var(--accent); stroke-width: 4px; }
+.sleep-timeline-point[aria-pressed="true"] .sleep-timeline-diamond { stroke: var(--accent); stroke-width: 3px; }
+.sleep-timeline-detail:has([data-night-sparse]) .night-card-duration { grid-column: 1 / -1; }
+.night-card-help, .night-card-tech { min-width: 0; }
+.night-card-tech .table-scroll { max-width: 100%; }
+@container (min-width: 720px) {
+  .sleep-timeline .night-card-tiles { grid-row: 2 / span 3; }
+}

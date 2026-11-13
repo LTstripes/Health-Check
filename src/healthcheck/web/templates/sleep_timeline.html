@@ -8,9 +8,9 @@
 {{ point.note or 'Нет пригодного значения' }}
 {%- endif -%}
 {%- endmacro %}
+<link rel="stylesheet" href="/static/sleep_timeline.css">
 <section class="card sleep-timeline" data-sleep-timeline>
-  <h2>Длительность сна по датам</h2>
-  {% call owner_ui.info_details("О графике") %}<p>Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p>{% endcall %}
+
   <div class="sleep-period-toolbar">
   <form method="get" action="/sleep" class="inline-edit owner-controls" data-sleep-period-form>
     <label>По дату включительно <input type="date" name="wake_date" value="{{ wake_date }}" required></label>
@@ -23,11 +23,88 @@
   </form>
   <div class="preset-links" aria-label="Окно истории сна">
     {% for window in (7, 30) %}
-    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if selection.status == 'selected' %}&amp;garmin_source_id={{ selection.selected_source_id|urlencode }}{% endif %}{% if sleep_return_href %}&amp;return_to={{ sleep_return_href|urlencode }}{% endif %}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{% if window == sleep_timeline_days %}<strong>{{ window }} дней <span aria-hidden="true">✓</span></strong>{% else %}{{ window }} дней{% endif %}</a>
+    <a class="button-link{% if window == sleep_timeline_days %} selected{% endif %}"{% if window == sleep_timeline_days %} aria-current="true"{% endif %} href="/sleep?view=timeline&amp;days={{ window }}&amp;wake_date={{ wake_date }}{% if selection.status == 'selected' %}&amp;garmin_source_id={{ selection.selected_source_id|urlencode }}{% endif %}{% if sleep_return_href %}&amp;return_to={{ sleep_return_href|urlencode }}{% endif %}{% if timeline and timeline.google_selection.status == 'explicit' %}&amp;google_sleep_source_id={{ timeline.google_selection.selected_source_id | urlencode }}{% endif %}">{% if window == sleep_timeline_days %}<strong>{{ window }} ночей <span aria-hidden="true">✓</span></strong>{% else %}{{ window }} ночей{% endif %}</a>
     {% endfor %}
   </div>
   </div>
-  <p data-sleep-period>Период: <strong>{{ start_date | owner_date }} — {{ wake_date | owner_date }}</strong> · {{ sleep_timeline_days }} дней, включительно</p>
+  <p data-sleep-period>Период: <strong>{{ start_date | owner_date }} — {{ wake_date | owner_date }}</strong> · {{ sleep_timeline_days }} ночей, включительно</p>
+  <p class="legend sleep-timeline-legend" data-sleep-timeline-legend>
+    {% for series in timeline.display_series %}
+    <label class="sleep-series-toggle"><input type="checkbox" checked data-sleep-series-toggle="{{ series.series_id }}"><span class="swatch sleep-series-{{ series.provider }}"></span>{{ series.label }}</label>
+    {% endfor %}
+  </p>
+  <div id="sleep-timeline-detail" class="sleep-timeline-detail" role="region" aria-label="Выбранная ночь" aria-live="polite" aria-atomic="true"><p>Карточка ночи требует JavaScript. Даты и состояния доступны в таблице ниже.</p></div>
+  <h2>Длительность сна по датам</h2>
+  {% if timeline is none %}
+  {{ owner_ui.state_chip('unavailable') }}
+  <p>Локальное хранилище данных не готово. Сохранённая история сна не читается.</p>
+  {% elif timeline.read_limit_exceeded %}
+  {{ owner_ui.state_chip('unknown') }}
+  <p>За выбранное окно слишком много сохранённых записей; график не построен, полнота не оценивается. Сузь окно до 7 дней или открой «Сравнить».</p>
+  {% elif not timeline.series and timeline.undated_records %}
+  {{ owner_ui.state_chip('unknown') }}
+  <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} есть сохранённые записи, но у них нет пригодной даты пробуждения. Точная дата не подставляется; график не построен.</p>
+  <p class="muted">Без пригодной даты: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Идентификаторы записей — в технических деталях.</p>
+  {% elif not timeline.series %}
+  {{ owner_ui.state_chip('confirmed_empty') }}
+  <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} нет текущих сохранённых ночей Garmin или Google. Это не доказывает, что сна не было.</p>
+  {% else %}
+  <div class="chart" id="sleep-timeline-chart" role="group" aria-labelledby="sleep-timeline-chart-title" aria-describedby="sleep-timeline-chart-desc">
+    <p class="muted" data-sleep-timeline-fallback>График требует JavaScript. Полная таблица дат и состояний — ниже.</p>
+  </div>
+  <p class="visually-hidden" id="sleep-timeline-chart-title">График длительности сна: часы по датам пробуждения</p>
+  <p class="visually-hidden" id="sleep-timeline-chart-desc">Каждый ряд — отдельный сохранённый источник. Пропуски не соединяются линией; несколько записей за дату отмечены отдельно.</p>
+  {% call owner_ui.info_details("О графике") %}<p>Garmin и Google показаны каждый своим рядом, по точным сохранённым источникам. Дата — пробуждение. Линия не проходит через пропуски; значения из пропусков не подставляются.</p><p>Наведи, кликни или выбери точку клавишей Tab; стрелки ← → переключают ночи окна. Переключатели ряда меняют только график — таблица остаётся полной.</p>{% endcall %}
+  <details class="owner-details sleep-timeline-table" data-sleep-table open>
+    <summary>Таблица дат и состояний</summary>
+    <div class="table-scroll" role="region" tabindex="0" aria-label="Длительность сна по датам и источникам">
+      <table>
+        <thead><tr><th>Дата пробуждения</th>{% for series in timeline.series %}<th>{{ series.label }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in timeline.table_rows %}
+          <tr><th scope="row">{{ row.date |owner_short_date }}</th>
+          {% for point in row.cells %}<td data-sleep-timeline-cell="{{ point.state }}">{{ timeline_cell(point) }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Таблица содержит все даты окна независимо от переключателей графика. Явный ноль источника — значение, а не пропуск.</p>
+  </details>
+  {% if timeline.undated_records %}
+  <p class="muted">Часть сохранённых записей без пригодной даты пробуждения не показана: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Дата не подставляется; записи остаются в технических деталях.</p>
+  {% endif %}
+  {% endif %}
+  {% if timeline and not timeline.read_limit_exceeded %}
+  {% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %}
+  <p class="uncertainty-note" data-sleep-source-choice>Google: выбери источник сна для этого окна. Несколько независимых источников не объединяются; автоматический выбор не сделан.</p>
+  {% elif timeline.google_selection.status == 'no_eligible_series' %}
+  <p class="muted">Google: в этом окне нет пригодного значения длительности сна. Сохранённые источники доступны в деталях.</p>
+  {% endif %}
+  {% if timeline.google_selection.options %}
+  <details class="owner-details" data-sleep-alternate-sources{% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %} open{% endif %}>
+    <summary>ⓘ Источник Google{% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %} · нужен выбор{% endif %}</summary>
+    <form method="get" action="/sleep" class="inline-edit owner-controls">
+      <input type="hidden" name="wake_date" value="{{ wake_date }}">
+      <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
+      <input type="hidden" name="view" value="timeline">
+    {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
+    {% if sleep_return_href %}<input type="hidden" name="return_to" value="{{ sleep_return_href }}">{% endif %}
+      <label>Источник сна Google
+        <select name="google_sleep_source_id">
+          <option value="">Автоматически, если источник единственный</option>
+          {% for item in timeline.google_selection.options %}
+          <option value="{{ item.source_id }}"{% if item.source_id == timeline.google_selection.selected_source_id %} selected{% endif %}{% if not item.selectable %} disabled{% endif %}>{{ item.label }} — {{ item.value_dates }} ночей с длительностью{% if item.ambiguous_dates %}, {{ item.ambiguous_dates }} неоднозначных{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Показать</button>
+    </form>
+    <p class="muted">Выбор меняет только отображение. Исключённые записи, пропуски, неопределённая роль сна и точная идентичность сохранены в таблице и технических деталях.</p>
+    {% if timeline.google_source_inventory.truncated %}<p>Список идентичностей ограничен 200 источниками; полный статус доступен в разделе данных.</p>{% endif %}
+    <ul>{% for item in timeline.google_selection.options %}<li>{{ item.label }}: {{ item.value_dates }} ночей с длительностью, {{ item.ambiguous_dates }} неоднозначных.{% if item.wake_date_missing_count %} Записи без пригодной даты пробуждения: {{ item.wake_date_missing_count }}; на график не нанесены.{% endif %}{% if not item.has_sleep_records %} Нет записей сна в этом окне.{% elif not item.selectable %} Нет пригодной длительности в этом окне.{% endif %}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% endif %}
   <section class="brief-subsection" data-sleep-regularity>
     <h3>Регулярность сна</h3>
     <p class="muted">Разброс времени</p>
@@ -64,82 +141,6 @@
     {% endfor %}{% endif %}
     {% endcall %}
   </section>
-  {% if timeline and not timeline.read_limit_exceeded %}
-  {% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %}
-  <p class="uncertainty-note" data-sleep-source-choice>Google: выбери источник сна для этого окна. Несколько независимых источников не объединяются; автоматический выбор не сделан.</p>
-  {% elif timeline.google_selection.status == 'no_eligible_series' %}
-  <p class="muted">Google: в этом окне нет пригодного значения длительности сна. Сохранённые источники доступны в деталях.</p>
-  {% endif %}
-  {% if timeline.google_selection.options %}
-  <details class="owner-details" data-sleep-alternate-sources{% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %} open{% endif %}>
-    <summary>ⓘ Источник Google{% if timeline.google_selection.status in ('require_selection', 'invalid_selection') %} · нужен выбор{% endif %}</summary>
-    <form method="get" action="/sleep" class="inline-edit owner-controls">
-      <input type="hidden" name="wake_date" value="{{ wake_date }}">
-      <input type="hidden" name="days" value="{{ sleep_timeline_days }}">
-      <input type="hidden" name="view" value="timeline">
-    {% if selection.status == 'selected' %}<input type="hidden" name="garmin_source_id" value="{{ selection.selected_source_id }}">{% endif %}
-    {% if sleep_return_href %}<input type="hidden" name="return_to" value="{{ sleep_return_href }}">{% endif %}
-      <label>Источник сна Google
-        <select name="google_sleep_source_id">
-          <option value="">Автоматически, если источник единственный</option>
-          {% for item in timeline.google_selection.options %}
-          <option value="{{ item.source_id }}"{% if item.source_id == timeline.google_selection.selected_source_id %} selected{% endif %}{% if not item.selectable %} disabled{% endif %}>{{ item.label }} — {{ item.value_dates }} ночей с длительностью{% if item.ambiguous_dates %}, {{ item.ambiguous_dates }} неоднозначных{% endif %}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button type="submit">Показать</button>
-    </form>
-    <p class="muted">Выбор меняет только отображение. Исключённые записи, пропуски, неопределённая роль сна и точная идентичность сохранены в таблице и технических деталях.</p>
-    {% if timeline.google_source_inventory.truncated %}<p>Список идентичностей ограничен 200 источниками; полный статус доступен в разделе данных.</p>{% endif %}
-    <ul>{% for item in timeline.google_selection.options %}<li>{{ item.label }}: {{ item.value_dates }} ночей с длительностью, {{ item.ambiguous_dates }} неоднозначных.{% if item.wake_date_missing_count %} Записи без пригодной даты пробуждения: {{ item.wake_date_missing_count }}; на график не нанесены.{% endif %}{% if not item.has_sleep_records %} Нет записей сна в этом окне.{% elif not item.selectable %} Нет пригодной длительности в этом окне.{% endif %}</li>{% endfor %}</ul>
-  </details>
-  {% endif %}
-  {% endif %}
-  {% if timeline is none %}
-  {{ owner_ui.state_chip('unavailable') }}
-  <p>Локальное хранилище данных не готово. Сохранённая история сна не читается.</p>
-  {% elif timeline.read_limit_exceeded %}
-  {{ owner_ui.state_chip('unknown') }}
-  <p>За выбранное окно слишком много сохранённых записей; график не построен, полнота не оценивается. Сузьте окно до 7 дней или открой «Сравнить».</p>
-  {% elif not timeline.series and timeline.undated_records %}
-  {{ owner_ui.state_chip('unknown') }}
-  <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} есть сохранённые записи, но у них нет пригодной даты пробуждения. Точная дата не подставляется; график не построен.</p>
-  <p class="muted">Без пригодной даты: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Идентификаторы записей — в технических деталях.</p>
-  {% elif not timeline.series %}
-  {{ owner_ui.state_chip('confirmed_empty') }}
-  <p>В окне {{ timeline.start_date | owner_date }} → {{ timeline.end_date | owner_date }} нет текущих сохранённых ночей Garmin или Google. Это не доказывает, что сна не было.</p>
-  {% else %}
-  <p class="legend sleep-timeline-legend" data-sleep-timeline-legend>
-    {% for series in timeline.display_series %}
-    <label class="sleep-series-toggle"><input type="checkbox" checked data-sleep-series-toggle="{{ series.series_id }}"><span class="swatch sleep-series-{{ series.provider }}"></span>{{ series.label }}</label>
-    {% endfor %}
-  </p>
-  <div class="chart" id="sleep-timeline-chart" role="group" aria-labelledby="sleep-timeline-chart-title" aria-describedby="sleep-timeline-chart-desc">
-    <p class="muted" data-sleep-timeline-fallback>График требует JavaScript. Полная таблица дат и состояний — ниже.</p>
-  </div>
-  <p class="visually-hidden" id="sleep-timeline-chart-title">График длительности сна: часы по датам пробуждения</p>
-  <p class="visually-hidden" id="sleep-timeline-chart-desc">Каждый ряд — отдельный сохранённый источник. Пропуски не соединяются линией; несколько записей за дату отмечены отдельно.</p>
-  <p class="muted">Наведи, кликни или выбери точку клавишей Tab; стрелки ← → переключают точки. Переключатели ряда меняют только график — таблица остаётся полной.</p>
-  <div id="sleep-timeline-detail" class="sleep-timeline-detail" role="status" aria-live="polite" aria-atomic="true">Выбери точку на графике, чтобы увидеть подробности ночи.</div>
-  <details class="owner-details sleep-timeline-table">
-    <summary>Таблица дат и состояний</summary>
-    <div class="table-scroll" role="region" tabindex="0" aria-label="Длительность сна по датам и источникам">
-      <table>
-        <thead><tr><th>Дата пробуждения</th>{% for series in timeline.series %}<th>{{ series.label }}</th>{% endfor %}</tr></thead>
-        <tbody>
-          {% for row in timeline.table_rows %}
-          <tr><th scope="row">{{ row.date |owner_short_date }}</th>
-          {% for point in row.cells %}<td data-sleep-timeline-cell="{{ point.state }}">{{ timeline_cell(point) }}</td>{% endfor %}</tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <p class="muted">Таблица содержит все даты окна независимо от переключателей графика. Явный ноль источника — значение, а не пропуск.</p>
-  </details>
-  {% if timeline.undated_records %}
-  <p class="muted">Часть сохранённых записей без пригодной даты пробуждения не показана: {% for item in timeline.undated_records %}{{ item.provider_label }} — {{ item.count }}{% if not loop.last %}, {% endif %}{% endfor %}. Дата не подставляется; записи остаются в технических деталях.</p>
-  {% endif %}
-  {% endif %}
   <details class="owner-info sleep-source-status" data-sleep-freshness><summary>ⓘ Обновления источников</summary>
   {% if timeline_freshness %}{% for item in timeline_freshness %}<p>{{ item.provider_label }}: {{ item.state_text }}{% if item.reason_text %} · {{ item.reason_text }}{% endif %}</p>{% endfor %}
   {% else %}<p>Состояние свежести источников недоступно.</p>{% endif %}
