@@ -223,7 +223,7 @@ def test_detail_route_binds_source_cards_and_exact_evidence(tmp_path):
         assert 'data-owner-state="present">10</span>' in load
         # Provider did not save a distance value; null stays unavailable, never zero.
         assert (
-            'data-owner-state="unavailable">Не предоставлено</span>'
+            'data-owner-state="unavailable">—</span>'
             in _card(page.text, "distance_meters")
         )
 

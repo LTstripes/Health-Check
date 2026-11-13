@@ -331,7 +331,7 @@ def test_reader_bound_returns_incomplete_without_prefix(database, monkeypatch):
     assert packet["reason"] == "session_search_incomplete"
 
 
-@pytest.mark.parametrize("path", ["/google/exercise", "/garmin"])
+@pytest.mark.parametrize("path", ["/google/exercise"])
 @pytest.mark.parametrize(
     "exercise_type,label",
     [
@@ -431,7 +431,10 @@ def test_activity_hook_keeps_garmin_and_ambiguous_google_sources_separate(tmp_pa
             assert empty.status_code == 200
             original = garmin_packet(empty.text)
             assert original["activities"]
-            assert "Сохранённых тренировок для этого выбора пока нет." in empty.text
+            assert 'href="/google/exercise"' in empty.text
+            assert 'id="google-exercise"' not in empty.text
+            google = client.get("/google/exercise")
+            assert "Сохранённых тренировок для этого выбора пока нет." in google.text
             with session_scope(engine) as session:
                 persist_exercise_page(
                     session,
@@ -441,9 +444,11 @@ def test_activity_hook_keeps_garmin_and_ambiguous_google_sources_separate(tmp_pa
             single = client.get(url)
             assert single.status_code == 200
             assert garmin_packet(single.text) == original
-            assert single.text.count('data-google-exercise="') == 1
-            assert "3 января 2099, 01:45" in single.text
-            assert "999" not in visible_exercise_text(single.text)
+            assert 'data-google-exercise="' not in single.text
+            google = client.get("/google/exercise")
+            assert google.text.count('data-google-exercise="') == 1
+            assert "3 января 2099, 01:45" in google.text
+            assert "999" not in visible_exercise_text(google.text)
             other = payload(name="other-google-source")
             other["dataPoints"][0]["dataSource"]["name"] = "users/me/dataSources/synthetic-other"
             with session_scope(engine) as session:
@@ -456,7 +461,10 @@ def test_activity_hook_keeps_garmin_and_ambiguous_google_sources_separate(tmp_pa
             ambiguous = client.get(url)
             assert ambiguous.status_code == 200
             assert garmin_packet(ambiguous.text) == original
-            assert "Выбери источник Google." in ambiguous.text
+            assert 'id="google-exercise"' not in ambiguous.text
+            google = client.get("/google/exercise")
+            assert "Выбери источник Google." in google.text
+            assert 'data-google-exercise="' not in google.text
             assert 'data-google-exercise="' not in ambiguous.text
             for source in sources:
                 selected = client.get("/google/exercise", params={"source_id": source["source_id"]})

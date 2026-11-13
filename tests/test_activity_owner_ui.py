@@ -22,6 +22,20 @@ from healthcheck.web.owner_presentation import owner_activity_count, owner_numbe
 from test_garmin_training_owner_view import _seed_training, _ui
 
 
+def test_activity_journal_comparison_uses_existing_request():
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["node", str(repo / "scripts/check_activity_journal.cjs")],
+        cwd=repo, check=True, capture_output=True, text=True, timeout=15,
+    )
+    assert (
+        "Activity journal selection/source/order/duplicate rows/fallback/reset/API PASS"
+        in result.stdout
+    )
+
+
 def seed_activity(paths):
     """Shared disposable seed for focused tests and the narrow browser smoke."""
     engine = create_sqlite_engine(paths)
@@ -220,8 +234,8 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         assert 'id="source-form"' not in primary
         assert 'id="garmin-source-id"' not in primary
         assert "Сохранённые сессии Garmin и Google / Fitbit показаны раздельно" in primary
-        assert 'id="google-exercise"' in primary
-        assert "Сохранённых тренировок для этого выбора пока нет." in primary
+        assert 'href="/google/exercise"' in primary
+        assert 'id="google-exercise"' not in primary
         assert 'id="activity-a"' in primary and 'id="activity-b"' in primary
         assert 'id="activity-ids"' not in primary and " multiple " not in primary
         assert "B минус A" in primary and "относительно A" in primary
@@ -238,6 +252,7 @@ def test_activity_owner_surface_disclosure_and_read_parity(tmp_path):
         visible_primary = re.sub(r'<option value="[^"]+"', "<option", primary)
         # Journal links carry the source/record query identity; only visible text must stay clean.
         visible_primary = re.sub(r'href="[^"]*"', 'href=""', visible_primary)
+        visible_primary = re.sub(r'data-activity-compare="[^"]*"', '', visible_primary)
         for internal in (
             "result_hash",
             "dailyTrainingLoadAcute",
@@ -392,7 +407,7 @@ def test_activity_field_does_not_invent_zero_or_units(tmp_path, monkeypatch, fie
     with client_for(app) as client:
         rendered = client.get("/garmin").text
         primary = rendered.split('<details class="card owner-details activity-technical', 1)[0]
-    recovery = primary.split("<h3>Готовность и восстановление</h3>", 1)[1].split("</section>", 1)[0]
+    recovery = primary.split("<summary>Снимки готовности</summary>", 1)[1].split("</details>", 1)[0]
     assert ">0</span>" not in recovery
     state = "unknown" if field_state == "invalid" else "unavailable"
     assert f'data-owner-state="{state}"' in recovery
@@ -418,7 +433,8 @@ def test_activity_empty_is_unavailable_and_no_fabricated_sessions(tmp_path):
 
 @pytest.mark.parametrize("count", [0, 1, 5, 50, 55])
 def test_compact_journal_preserves_bounded_source_records_and_period_independence(tmp_path, count):
-    from healthcheck.web.owner_presentation import owner_date
+    from healthcheck.web.owner_presentation import owner_short_date
+    from overview_html import parse_overview
 
     app, _, paths = _ui(tmp_path)
     source = seed_activity_journal(paths, count)
@@ -437,17 +453,19 @@ def test_compact_journal_preserves_bounded_source_records_and_period_independenc
             assert len(records) == min(count, 50)
             assert payload["source_selection"]["selected_source_id"] == source
             assert len({item["record_id"] for item in records}) == len(records)
-            recent = page.text.split('<div class="activity-recent">', 1)[-1].split(
-                '<section id="activity-comparison"', 1
-            )[0]
+            tree = parse_overview(page.text)
+            recent = tree.one("div", id="activity-journal")
             history = re.search(
                 r'<details class="card owner-details activity-history">(.*?)</details>',
                 page.text,
                 re.S,
             )
             assert history is not None  # No open attribute: native keyboard disclosure.
-            assert recent.count("<tr><td>") == min(count, 5)
-            assert history.group(1).count("<tr><td>") == min(count, 50)
+            recent_rows = (tree.one("div", classes=("activity-recent",)).find("tbody")[0].find("tr")
+                           if count else [])
+            history_rows = parse_overview(history.group(1)).find("tr")[1:] if count else []
+            assert len(recent_rows) == min(count, 5)
+            assert len(history_rows) == min(count, 50)
             names = {"tennis_v2": "Теннис", "cycling": "Велосипед", "walking": "Ходьба"}
             context_query = "&amp;start_date=2098-01-01&amp;end_date=2098-01-02"
             for index, record in enumerate(records):
@@ -457,15 +475,16 @@ def test_compact_journal_preserves_bounded_source_records_and_period_independenc
                     f"&amp;record_id={record['record_id']}{context_query}\">"
                     f"{names[record['activity_type']]}</a>"
                 )
-                expected_row = (
-                    f"<tr><td>{index + 1}</td><td>{session_link}</td>"
-                    f"<td>{owner_date(record['source_local_date'])}</td></tr>"
-                )
-                assert expected_row in history.group(1)
-                from healthcheck.web.owner_presentation import owner_short_date
-                recent_row = expected_row.replace(owner_date(record["source_local_date"]),
-                                                  owner_short_date(record["source_local_date"]))
-                assert (recent_row in recent) == (index < 5)
+                assert session_link in history.group(1)
+                row = history_rows[index]
+                cells = row.find("td")
+                assert cells[0].text == owner_short_date(record["source_local_date"])
+                assert cells[1].text == names[record['activity_type']]
+                # The journal DTO has no metrics: never fabricate values from other packets.
+                assert [cell.text for cell in cells[2:4]] == ["—", "—"]
+                assert row.one("input").attrs["data-activity-compare"] == record["record_id"]
+                if index < 5:
+                    assert recent_rows[index].one("a").attrs == row.one("a").attrs
             if count:
                 summary = page.text.split('<div class="activity-saved-summary">', 1)[1].split(
                     '<div class="activity-recent">', 1
@@ -478,7 +497,7 @@ def test_compact_journal_preserves_bounded_source_records_and_period_independenc
                     if expected_count:
                         assert f"{name} <strong>{expected_count}</strong>" in summary
             else:
-                assert "Нагрузка не считается нулевой" in recent
+                assert "Нагрузка не считается нулевой" in recent.text
                 assert 'class="activity-saved-summary"' not in page.text
             assert "Полнота тренировок по дням неизвестна" in page.text
             assert "Журнал: до 50 записей, вне периода аналитики" in page.text
@@ -577,6 +596,11 @@ def test_recovery_unit_adjoins_actual_number_without_api_change(tmp_path, monkey
     assert 'data-owner-state="present"' in cell
     assert f">{owner_number(value)}</span>" in cell
     assert "· единица не указана" in cell
+    snapshot = re.search(
+        r'<details class="owner-details"><summary>Снимки готовности</summary>(.*?)</details>',
+        page.text, re.S,
+    )[1]
+    assert cell in snapshot
     assert not any(word in cell for word in ("час", "мин", "не нужно", "восстановлен"))
     assert json.dumps(payload, sort_keys=True) == expected
     if target := os.environ.get("HEALTHCHECK_WEEKLY_PREVIEW_DIR"):

@@ -268,7 +268,10 @@ def test_activity_comparison_keeps_sign_convention_in_reading_guide(statistics_u
 
 def test_google_exercise_keeps_short_unknown_completeness_visible(statistics_ui):
     _session, _paths, client = statistics_ui
-    page = client.get("/garmin")
+    activity = client.get("/garmin")
+    assert 'href="/google/exercise"' in activity.text
+    assert 'id="google-exercise"' not in activity.text
+    page = client.get("/google/exercise")
     card = page.text.split('id="google-exercise"', 1)[1].split("</section>", 1)[0]
     visible = card.split("<details", 1)[0]
     assert "Полнота истории неизвестна." in visible
