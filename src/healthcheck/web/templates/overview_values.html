@@ -1,16 +1,11 @@
 {% from 'owner_ui.html' import value_meta %}
-<section class="overview-secondary" aria-label="Дополнительные показатели">
-  <article>
-    <h3>Пульс в покое</h3>
-    {% include 'overview_rhr.html' %}
-  </article>
-  <article>
-    {% include 'overview_steps.html' %}
-    {% include 'overview_energy.html' %}
-    {% include 'overview_intensity.html' %}
-  </article>
-  <article>
-    {% include 'overview_stress.html' %}
+{% from 'overview_primary.html' import primary_card with context %}
+<section class="overview-secondary overview-band" aria-label="Сон и восстановление">
+  <h2 class="overview-band-title">Сон и восстановление</h2>
+  {{ primary_card('Сон', sleep, '/sleep', 'sleep') }}
+  <article>{% include 'overview_body_battery.html' %}</article>
+  <article><h3>Пульс в покое</h3>{% include 'overview_rhr.html' %}</article>
+  <article>{% include 'overview_stress.html' %}
     <div class="overview-hrv" data-overview-hrv>
       {% set code = 'hrv_weekly_average_ms' %}
       {% set unit = 'мс' %}
@@ -22,7 +17,11 @@
 
     </div>
   </article>
-  <article>
-    {% include 'overview_body_battery.html' %}
-  </article>
+</section>
+<section class="overview-secondary overview-band" aria-label="Активность и тело">
+  <h2 class="overview-band-title">Активность и тело</h2>
+  <article>{% include 'overview_steps.html' %}</article>
+  {{ primary_card('Сохранённые тренировки', activity, '/garmin', 'activity') }}
+  <article>{% include 'overview_energy.html' %}</article>
+  {{ primary_card('Вес', weight, '/weight', 'weight') }}
 </section>

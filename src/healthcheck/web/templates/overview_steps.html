@@ -19,7 +19,7 @@
       </div></details>
     </div>
     {% if item.mean_display is not none %}<strong{% if item.count|owner_low_coverage(item.days) %} class="owner-value-low"{% endif %}>{{ item.mean_display }}</strong>
-    {% else %}<p class="muted">{{ 'Недоступно для периода' if item.reason in ['unsupported_google_period', 'unsupported_garmin_period'] else ('Нужен источник' if item.reason in ['source_selection_required', 'source_not_selected'] else 'Нет доступного среднего') }}</p>{% endif %}
+    {% else %}<p class="muted">{{ ('Недоступно для периода в ' ~ item.days ~ ' дней') if item.reason in ['unsupported_google_period', 'unsupported_garmin_period'] else ('Нужен источник' if item.reason in ['source_selection_required', 'source_not_selected'] else 'Нет доступного среднего') }}</p>{% endif %}
   </div>
   {% endfor %}
 </div>
