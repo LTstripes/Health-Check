@@ -1,22 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Данные — Health-Check{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/data.css">{% endblock %}
 {% block content %}
-<p><a class="button-link" href="/labs">Лабораторные отчёты — PDF и проверка транскрипции</a></p>
-<section class="card data-purpose" aria-labelledby="data-purpose-heading">
-  <h2 id="data-purpose-heading">Добавить, проверить или скачать данные</h2>
-  <p>Здесь — загрузки, проверка сохранённых источников и файлы для анализа. Сами показатели смотри в Обзоре и разделах истории.</p>
-  <nav class="data-primary-actions" aria-label="Действия с данными"><a class="button-link" href="#analysis-export">Скачать данные</a><a class="button-link" href="#import-queue">Добавить измерения</a><a class="button-link" href="#data-status">Проверить источники</a></nav>
-</section>
 {% macro import_table(rows, label) %}
 <div class="table-scroll" tabindex="0" role="region" aria-label="{{ label }}, прокрутка таблицы">
   <table class="data-import-table">
-    <thead><tr><th>Начало</th><th>Состояние</th><th>Получено</th><th>Распознано</th><th>Сохранено</th><th>Ошибки</th><th>Действие</th></tr></thead>
+    <thead><tr><th>Когда</th><th>Что</th><th class="data-count">Кандидатов</th><th>Состояние</th><th>Открыть</th></tr></thead>
     <tbody>
       {% for row in rows %}{% set batch = row.batch %}
       <tr>
-        <td><time class="import-started" {% if row.started_at %}datetime="{{ row.started_at.isoformat() }}"{% endif %}>{{ row.started_at|owner_date }}</time></td>
-        <td>{% if row.pending %}Ожидают проверки: {{ row.pending }}{% else %}{{ {'pending-confirmation': 'Проверка загрузки', 'received': 'Получена', 'parsed': 'Распознана', 'committed': 'Сохранена', 'rejected': 'Отклонена', 'duplicate': 'Повторная загрузка', 'failed': 'Не завершена'}.get(batch.status, 'Состояние не определено') }}{% endif %}</td>
-        {% for count in [batch.received_count, batch.parsed_count, batch.committed_count, batch.failed_count] %}<td>{{ count if count is not none else 'Неизвестно' }}</td>{% endfor %}
+        <td><time class="import-started" {% if row.started_at %}datetime="{{ row.started_at.isoformat() }}"{% endif %}>{{ row.started_at|owner_short_date(true) }}, {{ row.started_at|owner_time|replace(' UTC', ' +00:00') }}</time></td>
+        <td>{{ 'Снимки весов' if batch.batch_kind == 'photo' else 'Загрузка данных' }}{% if batch.received_count is not none %} · {{ batch.received_count }} {{ batch.received_count|owner_plural('файл', 'файла', 'файлов') }}{% endif %}</td>
+        <td class="data-count">{{ row.pending }} к проверке</td>
+        <td>{% if row.pending %}Ожидают проверки: {{ row.pending }}{% else %}{{ {'pending-confirmation': 'Проверка загрузки', 'received': 'Получена', 'parsed': 'Распознана', 'committed': 'Сохранена', 'rejected': 'Отклонена', 'duplicate': 'Повторная загрузка', 'failed': 'Не завершена'}.get(batch.status, 'Состояние не определено') }}{% endif %}{% if batch.failed_count is none %} · Число ошибок неизвестно{% elif batch.failed_count %} · Ошибок: {{ batch.failed_count }}{% endif %}</td>
         <td><a class="button-link" href="/imports/{{ batch.id }}">{{ 'Проверить измерения' if row.pending else 'Открыть детали' }}</a></td>
       </tr>
       {% endfor %}
@@ -24,18 +20,52 @@
   </table>
 </div>
 {% endmacro %}
-{% include "analysis_export.html" %}
-<section class="card" aria-labelledby="queue-heading" id="import-queue">
-  <h2 id="queue-heading">Проверка импорта</h2>
+<section class="data-status-section" aria-labelledby="sources-heading" id="data-status">
+  <div class="section-heading">
+    <h2 id="sources-heading">Источники и свежесть данных</h2>
+    <button type="button" id="data-refresh" hidden>Проверить состояние</button>
+  </div>
+  {% call owner_ui.info_details('О проверке источников') %}
+  <p>Состояние сохранённых источников. Проверка не запускает синхронизацию.</p>
+  <p>Проверка читает сохранённые факты и receipts, не проверяет подключение к Garmin или Google в этой сессии. Ошибка обновления не удаляет историю; даты относятся к измерениям и попыткам обновления, возраст снимка отдельно не определяется.</p>
+  {% endcall %}
+  <p id="data-clock" class="muted"></p>
+  <div id="data-feedback" role="status" aria-live="polite">{{ owner_ui.state_chip('not_requested') }} Для проверки состояния нужен JavaScript.</div>
+  <div id="data-results" aria-busy="false"></div>
+  <noscript><p class="uncertainty-note">Свежесть источников не проверена. Очередь импорта ниже доступна без JavaScript.</p></noscript>
+</section>
+<section class="card data-add-section" aria-labelledby="queue-heading" id="import-queue">
+  <h2 id="queue-heading">Добавить</h2>
+  <div class="data-add-grid"><div>
+  <h3>Снимки весов Xiaomi S400</h3>
+  {% call owner_ui.info_details('Как проходит проверка') %}
   <p class="muted">Очередь показана на момент открытия страницы. <a class="button-link" href="/imports">Обновить очередь</a></p>
   <p class="muted">Загрузка только извлекает кандидатов. Они становятся подтверждёнными данными после твоей проверки и подтверждения выбранных строк.</p>
+  <ol>
+    <li>Загрузи снимок или фотографию измерений.</li>
+    <li>Проверь распознанные значения и дату на открывшейся странице; при необходимости исправь их.</li>
+    <li>Выбери строки и нажми «Подтвердить выбранные». Ошибочные строки можно отклонить. До подтверждения они не попадают в измерения.</li>
+  </ol>
+  {% endcall %}
+  {% if photo_extraction_configured %}
+  {% call owner_ui.info_details('О распознавании снимков') %}
+  <p id="photo-extraction-status" data-configured="true">Распознавание фото настроено. Результат зависит от снимка и доступности сервиса; каждую строку нужно проверить. Работа на твоих снимках здесь не подтверждена.</p>
+  {% endcall %}
+  {% else %}
+  <p id="photo-extraction-status" class="uncertainty-note" data-configured="false">Распознавание фото не настроено. Загрузка через браузер пока не сможет извлечь измерения.</p>
+  {% endif %}
+  <form class="upload" action="/imports/photos" method="post" enctype="multipart/form-data">
+    <label for="import-files">Снимки или фотографии</label>
+    <input id="import-files" type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required {% if not photo_extraction_configured or not queue_available %}disabled{% endif %}>
+    <button type="submit" {% if not photo_extraction_configured or not queue_available %}disabled{% endif %}>Загрузить и открыть проверку</button>
+  </form>
   {% if queue_available %}
   {% if queue.pending_candidate_count %}
   <p class="uncertainty-note">Ожидают проверки: <strong>{{ queue.pending_candidate_count }}</strong>. Открой загрузку в истории и проверь измерения.</p>
   {% else %}
   <p>{{ owner_ui.state_chip('confirmed_empty') }} В последних загрузках нет кандидатов, ожидающих проверки.</p>
   {% endif %}
-  <p class="muted">Очередь и счётчики относятся к последним {{ queue.batch_count }} загрузкам (не более 50), а не ко всей истории измерений.</p>
+  <p class="muted">Счётчики по {{ queue.batch_count|owner_plural('последней', 'последним', 'последним') }} {{ queue.batch_count }} {{ queue.batch_count|owner_plural('загрузке', 'загрузкам', 'загрузкам') }} · не более 50</p>
   <dl class="current data-queue-facts">
     <div><dt>Ожидают проверки</dt><dd>{{ queue.pending_candidate_count }}</dd></div>
     <div><dt>Подтверждены</dt><dd>{{ queue.confirmed_candidate_count }}</dd></div>
@@ -44,37 +74,13 @@
   {% else %}
   <p class="uncertainty-note">{{ owner_ui.state_chip('unavailable') }} Очередь импорта недоступна: локальное хранилище не готово. Число кандидатов неизвестно.</p>
   {% endif %}
-  <h3>Загрузить снимки Xiaomi S400</h3>
-  <ol>
-    <li>Загрузи снимок или фотографию измерений.</li>
-    <li>Проверь распознанные значения и дату на открывшейся странице; при необходимости исправь их.</li>
-    <li>Выбери строки и нажми «Подтвердить выбранные». Ошибочные строки можно отклонить. До подтверждения они не попадают в измерения.</li>
-  </ol>
-  {% if photo_extraction_configured %}
-  <p id="photo-extraction-status" data-configured="true">Распознавание фото настроено. Результат зависит от снимка и доступности сервиса; каждую строку нужно проверить. Работа на твоих снимках здесь не подтверждена.</p>
-  {% else %}
-  <p id="photo-extraction-status" class="uncertainty-note" data-configured="false">Распознавание фото не настроено. Загрузка через браузер пока не сможет извлечь измерения. Для настройки используй существующий локальный процесс; ранее созданные кандидаты можно проверить ниже.</p>
-  {% endif %}
-  <form class="upload" action="/imports/photos" method="post" enctype="multipart/form-data">
-    <label for="import-files">Снимки или фотографии</label>
-    <input id="import-files" type="file" name="files" accept="image/png,image/jpeg,image/webp" multiple required {% if not photo_extraction_configured or not queue_available %}disabled{% endif %}>
-    <button type="submit" {% if not photo_extraction_configured or not queue_available %}disabled{% endif %}>Загрузить и открыть проверку</button>
-  </form>
+  </div><aside class="data-labs-card" aria-labelledby="data-labs-heading">
+    <h3 id="data-labs-heading">Анализы</h3>
+    <p class="muted">PDF отчёта и проверка расшифровки.</p>
+    <a class="button-link" href="/labs">Открыть «Анализы» →</a>
+  </aside></div>
 </section>
-<section class="card" aria-labelledby="sources-heading" id="data-status">
-  <div class="section-heading">
-    <h2 id="sources-heading">Источники и свежесть данных</h2>
-    <button type="button" id="data-refresh" hidden>Проверить состояние</button>
-  </div>
-  <p class="muted">Состояние сохранённых источников. Проверка не запускает синхронизацию.</p>
-  {% call owner_ui.info_details('О проверке источников') %}
-  <p>Проверка читает сохранённые факты и receipts, не проверяет подключение к Garmin или Google в этой сессии. Ошибка обновления не удаляет историю; даты относятся к измерениям и попыткам обновления, возраст снимка отдельно не определяется.</p>
-  {% endcall %}
-  <p id="data-clock" class="muted"></p>
-  <div id="data-feedback" role="status" aria-live="polite">{{ owner_ui.state_chip('not_requested') }} Для проверки состояния нужен JavaScript.</div>
-  <div id="data-results" aria-busy="false"></div>
-  <noscript><p class="uncertainty-note">Свежесть источников не проверена. Очередь импорта ниже доступна без JavaScript.</p></noscript>
-</section>
+{% include "analysis_export.html" %}
 <details class="owner-details data-saved-diagnostics"><summary>Дополнительные сохранённые показатели</summary>
 <section class="card" aria-labelledby="saved-rhr-heading" id="saved-rhr">
   <div class="section-heading">
@@ -102,13 +108,22 @@
 
 <section class="card" aria-labelledby="history-heading">
   <h2 id="history-heading">История загрузок</h2>
-  <p class="muted">Показаны последние 100 загрузок. Сначала — кандидаты для проверки и загрузки, требующие внимания. Даты показаны с часовым поясом; без JavaScript используется UTC.</p>
+  <p class="muted">Последние 100 загрузок · сначала требующие внимания.</p>
+  {% call owner_ui.info_details('О счётчиках загрузок') %}
+  <p>В колонке «Кандидатов» — только строки, ожидающие проверки. Общее число кандидатов в истории не прочитано; распознанные файлы не равны числу измерений.</p>
+  {% endcall %}
   {% if not queue_available %}
   <p class="unavailable">История загрузок недоступна.</p>
   {% elif batches %}
   {% if action_imports %}
   <h3>Требуют внимания</h3>
-  {{ import_table(action_imports, 'История загрузок') }}
+  {{ import_table(action_imports[:3], 'История загрузок') }}
+  {% if action_imports|length > 3 %}
+  <details class="owner-details" id="remaining-imports">
+    <summary>Остальные требующие внимания: {{ action_imports|length - 3 }}</summary>
+    {{ import_table(action_imports[3:], 'Остальные загрузки, требующие внимания') }}
+  </details>
+  {% endif %}
   {% else %}<p>В показанной истории нет загрузок, требующих внимания.</p>{% endif %}
   {% if completed_imports %}
   <details class="owner-details" id="completed-imports">

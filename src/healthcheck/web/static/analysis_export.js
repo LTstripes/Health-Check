@@ -23,10 +23,10 @@
     const valid = [7, 30].includes(days) && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
       Number.isFinite(end.getTime()) && end.toISOString().slice(0, 10) === value &&
       start.getUTCFullYear() >= 1 && value < "9999-12-31";
-    form.elements.end_date.setCustomValidity(valid ? "" : "Укажите корректную дату для выбранного периода.");
+    form.elements.end_date.setCustomValidity(valid ? "" : "Укажи корректную дату для выбранного периода.");
     document.getElementById("analysis-export-preview").textContent = valid
       ? `Период: ${window.healthcheckOwnerDate(start.toISOString().slice(0, 10))} — ${window.healthcheckOwnerDate(value)} (включительно).`
-      : "Укажите корректную дату и период 7 или 30 дней для скачивания.";
+      : "Укажи корректную дату и период 7 или 30 дней для скачивания.";
     return valid;
   }
 
@@ -48,7 +48,7 @@
 
   form.addEventListener("input", () => {
     clear();
-    status.textContent = "Параметры изменены. Нажмите «Скачать».";
+    status.textContent = "Параметры изменены. Нажми «Скачать».";
   });
 
   function showSummary(details) {
@@ -120,16 +120,26 @@
       const data = await response.json();
       const garminRows = data.sources.filter((row) => row.provider === "garmin_connect");
       const googleRows = data.sources.filter((row) => row.provider === "google_health");
-      garmin.replaceChildren(new Option("Выберите источник", ""));
+      garmin.replaceChildren(new Option("Выбери источник", ""));
       google.replaceChildren(new Option("Не включать", ""));
-      garminRows.forEach((row) => garmin.add(new Option(row.label, row.id)));
-      googleRows.forEach((row) => google.add(new Option(row.label, row.id)));
+      function sourceOptions(rows, control, provider) {
+        const labels = rows.map(row => row.label.replace(/ · [^·]+$/, "").replace(/^Garmin Connect/, "Garmin"));
+        rows.forEach((row, index) => {
+          const label = labels[index] || provider;
+          const duplicate = labels.filter(value => value === label).length > 1;
+          const option = new Option(label + (duplicate ? " · вариант " + (index + 1) : ""), row.id);
+          option.title = row.id.slice(0, 8);
+          control.add(option);
+        });
+      }
+      sourceOptions(garminRows, garmin, "Garmin");
+      sourceOptions(googleRows, google, "Google");
       if (garminRows.length === 1) garmin.value = garminRows[0].id;
       if (googleRows.length === 1) google.value = googleRows[0].id;
       // A sole saved identity is only a selector default. The existing reader,
       // not inventory size, determines metric eligibility and missing states.
       options.hidden = garminRows.length <= 1 && googleRows.length <= 1;
-      options.open = !options.hidden;
+      options.open = garminRows.length > 1 && !garmin.value;
       form.querySelector('[data-export-garmin-choice]').hidden = garminRows.length <= 1;
       form.querySelector('[data-export-google-choice]').hidden = googleRows.length <= 1;
       sourcesReady = true;
@@ -137,11 +147,11 @@
       google.disabled = false;
       submit.disabled = !garmin.value || !updateRange();
       status.textContent = !garminRows.length
-        ? "Сохранённых источников Garmin нет. Проверьте источники в разделе «Данные»."
-        : garmin.value ? (googleRows.length > 1 ? "Google HRV: выберите источник, чтобы включить его в файл." : "") : "Выберите источник Garmin.";
+        ? "Сохранённых источников Garmin нет. Проверь источники в разделе «Данные»."
+        : garmin.value ? (googleRows.length > 1 ? "Google HRV не включён. Источник можно выбрать в «Источниках файла»." : "") : "Выбери источник Garmin.";
     } catch (_) {
       options.hidden = true;
-      status.textContent = "Источники недоступны. Проверьте локальные данные и повторите загрузку.";
+      status.textContent = "Источники недоступны. Проверь локальные данные и повтори загрузку.";
       reload.hidden = false;
     }
   }
@@ -168,8 +178,8 @@
       if (current !== generation) return;
       if (!response.ok) {
         status.textContent = data.code === "output_exceeds_byte_limit"
-          ? "Превышен лимит 2 MiB. Выберите 7 дней. Частичная выгрузка не создана."
-          : "Не удалось сформировать файлы: проверьте дату и источники. Возможен предел поиска или объёма; попробуйте 7 дней. Частичная выгрузка не создана.";
+          ? "Превышен лимит 2 MiB. Выбери 7 дней. Частичная выгрузка не создана."
+          : "Не удалось сформировать файлы: проверь дату и источники. Возможен предел поиска или объёма; попробуй 7 дней. Частичная выгрузка не создана.";
         return;
       }
       const sizes = [];
@@ -192,7 +202,7 @@
     } catch (error) {
       if (current !== generation || error.name === "AbortError") return;
       clear();
-      status.textContent = "Не удалось скачать файл. Проверьте локальный интерфейс и повторите скачивание.";
+      status.textContent = "Не удалось скачать файл. Проверь локальный интерфейс и повтори скачивание.";
     } finally {
       if (current === generation) {
         controller = null;
@@ -203,7 +213,7 @@
   reload.addEventListener("click", loadSources);
   window.addEventListener("pagehide", () => {
     clear();
-    status.textContent = "Скачайте файл заново.";
+    status.textContent = "Скачай файл заново.";
   });
   loadSources();
 })();
