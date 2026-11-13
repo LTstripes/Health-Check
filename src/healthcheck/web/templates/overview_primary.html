@@ -33,11 +33,8 @@
 
 {% from 'overview_period_chart.html' import period_chart, period_values with context %}
 {% from 'owner_ui.html' import value_meta %}
-<section class="brief-overview" aria-labelledby="brief-overview-heading">
-  <h2 id="brief-overview-heading" class="overview-section-label">Главное за период</h2>
-  <ul class="brief-overview-list">
-{% for name, section, url, kind in [('Вес', weight, '/weight', 'weight'), ('Сон', sleep, '/sleep', 'sleep'), ('Сохранённые тренировки', activity, '/garmin', 'activity')] %}
-    <li>
+{% macro primary_card(name, section, url, kind) %}
+    <article class="overview-primary-card">
       <div class="overview-metric-heading"><h3>{% set detail_href = url if kind == 'weight' else overview_detail_links[kind] %}{% if detail_href %}<a href="{{ detail_href }}">{% endif %}{{ "Последнее измерение веса" if kind == "weight" else name }}{% if detail_href %}</a>{% endif %}</h3>
       <details class="overview-info"><summary aria-label="Как читать {{ name }}">ⓘ</summary><div>
         {% if kind == 'weight' %}<p>Последнее подтверждённое измерение{% if charts.weight_current and charts.weight_current.value_kg is not none %} · {{ charts.weight_current.observed_date | owner_date }}{% endif %}. На графике дневные медианы и тренд EWMA с периодом полураспада 21 день. Обводка — последний день с измерениями. Штрих — нет наблюдений, это не ноль. Тонкая линия соединяет измерения; пунктир — дни без наблюдений. Значения между точками не вычисляются. Линия тренда только между соседними днями.</p>
@@ -66,7 +63,9 @@
         {% elif period_sleep.reason == 'range_exceeds_max' %}<p class="overview-qualifier">Период длиннее доступного окна чтения (400 дней).</p>
         {% elif period_sleep.reason == 'read_unavailable' %}<p class="overview-qualifier">Среднее недоступно: данные прочитаны не полностью.</p>{% endif %}
         {{ period_chart(period_sleep.figure, 'sleep', 'История сна', true) }}
-        {% if overview_detail_links.sleep %}<a class="overview-detail-link" href="{{ overview_detail_links.sleep }}">История и детали сна →</a>{% elif not overview.completed_window.empty and overview.completed_window.calendar_days not in [7, 30] %}<p class="overview-qualifier">Детали сна доступны для окна 7 или 30 завершённых дней. Выбери такой период в обзоре.</p>{% endif %}
+        {% set night = (overview.comparison.last_nights | selectattr('provider', 'equalto', 'garmin') | list | first) if overview.comparison is defined and overview.comparison and overview.comparison.get('last_nights') else none %}
+        <p>Прошлая ночь: {% if night and night.duration_seconds is not none %}{{ metric_value('sleep_duration_seconds', night.duration_seconds) }} · {{ night.wake_date|owner_date }}{% if night.start and night.end and night.start.local_datetime and night.end.local_datetime %} · {{ night.start.local_datetime[11:16] }} → {{ night.end.local_datetime[11:16] }}{% if night.start.utc_offset_minutes != night.end.utc_offset_minutes %} ({{ night.start.timezone }} → {{ night.end.timezone }}){% elif night.start.utc_offset_minutes != 180 %} ({{ night.start.timezone }}){% endif %}{% endif %}{% else %}нет данных{% endif %}</p>
+        {% if overview_detail_links.sleep %}<a class="overview-detail-link" href="{{ overview_detail_links.sleep }}">Ночь и история →</a>{% elif not overview.completed_window.empty and overview.completed_window.calendar_days not in [7, 30] %}<p class="overview-qualifier">Недоступно для периода в {{ overview.completed_window.calendar_days }} дней.</p>{% endif %}
         </div>
       {% else %}
         <p class="overview-value">{{ activity.get("coverage", {}).get("sessions_in_period") | owner_activity_count if activity.get("coverage", {}).get("sessions_in_period") or charts.activity_complete else '—' }}</p>
@@ -75,9 +74,8 @@
         {{ freshness_note('garmin:activities') }}
         {{ chart(charts.activity, kind, 'Активность по дням', '') }}
 
+        {% include 'overview_intensity.html' %}
         {% if overview_detail_links.activity %}<a class="overview-detail-link" href="{{ overview_detail_links.activity }}">Детали активности →</a>{% elif not source_selection.selected_source_id %}<p class="overview-qualifier">Выбери источник Garmin для списка сессий.</p>{% else %}<p class="overview-qualifier">Список сессий доступен для периода до 366 дней.</p>{% endif %}
       {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-</section>
+    </article>
+{% endmacro %}
