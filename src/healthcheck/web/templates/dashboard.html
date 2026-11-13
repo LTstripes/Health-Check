@@ -15,80 +15,97 @@
 </section>
 {% endif %}
 
-<section class="hero">
-  <div>
-    <h2>Текущий вес и цель</h2>
-    <p class="muted">Подтверждённые измерения источника видны как есть. Тренд — 21-дневное взвешенное среднее, а не замена наблюдениям.</p>
-  </div>
+<section class="hero" aria-label="Последнее измерение, изменение и состав тела">
+  <div class="weight-headline">
+  <article>
+    <h2>Последнее измерение</h2>
   <dl class="current">
     <div>
       <dt>Текущий подтверждённый вес</dt>
       <dd>
         {% if payload.current.available %}
           {{ payload.current.value_kg|owner_number }} кг
-          <span class="muted">на {{ payload.current.observed_date|owner_date }} (источник)</span>
+          <span class="muted">Весы · {{ payload.current.observed_date|owner_date }}</span>
+          <span id="weight-age" class="muted"></span>
         {% else %}
           {{ owner_ui.state_chip(weight_owner_state(payload.current.available, payload.current.reason)) }}
           <span class="muted">{{ weight_owner_reason(payload.current.reason) }} Это не означает ноль.</span>
         {% endif %}
       </dd>
     </div>
-    <div>
-      <dt>Цель</dt>
-      <dd>
-        {% if payload.goal_kg is not none %}
-          {{ payload.goal_kg|owner_number }} кг
-          <span class="muted">Настроенная цель — ориентир, а не оценка «хорошо/плохо».</span>
-        {% else %}
-          <span class="muted">Не настроена. Настройка цели появится в разделе «Настройки и контекст».</span>
-        {% endif %}
-      </dd>
-    </div>
-    {% if payload.imports.pending_candidate_count %}<div>
-      <dt>Проверка импорта</dt>
-      <dd>
-          <a href="/imports">{{ payload.imports.pending_candidate_count }} на проверке</a>
-          <span class="muted">Открой загрузку и проверь измерения.</span>
-      </dd>
-    </div>{% endif %}
   </dl>
+  <details class="weight-info"><summary>ⓘ Как читать вес</summary><p>Подтверждённые измерения источника видны как есть. Тренд — 21-дневное взвешенное среднее, а не замена наблюдениям.</p></details>
+  </article>
+  <article>
+    <h2>Изменение за 90 дней</h2>
+    <div id="rate-panel"></div>
+    <details class="weight-info"><summary>ⓘ Как считается изменение</summary><p>Темп рассчитан по подтверждённым измерениям за последние 90 дней. Отсутствующий показатель не показан как 0.</p></details>
+  </article>
+  <article>
+    <h2>Состав тела</h2>
+    {% set latest = namespace(points=[]) %}
+    {% for group in payload.series.composition_by_group.values() %}
+      {% for point in group %}
+        {% if payload.current.available and point.weight_measurement_id == payload.current.evidence_id %}
+          {% set latest.points = latest.points + [point] %}
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+    <p class="muted">Последнее измерение · {{ payload.current.observed_date|owner_date }}</p>
+    {% for point in latest.points %}
+    {% if latest.points|length > 1 %}<p class="muted">Метод {{ loop.index }}</p>{% endif %}
+    <dl class="weight-composition-values weight-latest-composition">
+      {% for label, value, unit, origin in [
+        ('Жир', point.body_fat_pct, '%', 'весы'),
+        ('Жир', point.estimated_fat_mass_kg, 'кг', 'расчёт'),
+        ('Без жира', point.estimated_lean_mass_kg, 'кг', 'расчёт'),
+        ('Мышцы', point.source_muscle_mass_kg, 'кг', 'весы')
+      ] %}
+      <div><dt>{{ label }} · {{ origin }}</dt><dd>{% if value is not none %}{{ value|owner_number }} {{ unit }}{% else %}—{% endif %}</dd></div>
+      {% endfor %}
+    </dl>
+    {% else %}<p class="muted">Нет состава тела для последнего измерения. Это не означает ноль.</p>{% endfor %}
+    <p class="muted">Бытовой биоимпеданс — не клиническое измерение.</p>
+    <details class="weight-info"><summary>ⓘ Как читать состав тела</summary><p>Процент жира — оценка весов. Жир и масса без жира — расчёт Health-Check из веса и процента жира одного измерения. Мышцы источника — отдельная оценка, а не остаток веса.</p></details>
+  </article>
+  </div>
+  {% if payload.imports.pending_candidate_count %}<p class="weight-pending">Проверка импорта · <a href="/imports">{{ payload.imports.pending_candidate_count }} на проверке</a></p>{% endif %}
 </section>
 
 <section class="card">
-  <h2>Ряд веса</h2>
+  <div class="weight-chart-heading"><h2>Ряд веса</h2>
+    <div class="weight-window" role="group" aria-label="Период графика веса">
+      <button type="button" data-weight-window="90" aria-pressed="false">90 дней</button>
+      <button type="button" data-weight-window="365" aria-pressed="false">Год</button>
+      <button type="button" data-weight-window="all" aria-pressed="true">Всё</button>
+    </div>
+  </div>
+  <p id="weight-chart-period" class="muted" aria-live="polite"></p>
   <p class="legend">
-    <span><span class="swatch raw"></span> Подтверждённый вес (источник)</span>
-    <span><span class="swatch trend"></span> Тренд 21 день (расчёт Health-Check)</span>
-    {% if payload.goal_kg is not none %}<span><span class="swatch goal"></span> Настроенная цель</span>{% endif %}
+    <span><span class="swatch raw"></span> Подтверждённый вес · весы</span>
+    <span><span class="swatch trend"></span> Тренд 21 день · расчёт Health-Check</span>
+    <span class="muted">Наведи на точку или выбери её клавишей Tab. Стрелки ← → переключают наблюдения.</span>
   </p>
   <div id="weight-chart" class="chart" aria-label="График веса"></div>
-  <p class="muted">Наведи на точку или выбери её клавишей Tab. Стрелки ← → переключают наблюдения.</p>
   <div id="observation-detail" class="weight-observation" role="status" aria-live="polite" aria-atomic="true"></div>
   <p id="trend-status" class="muted"></p>
 </section>
 
 <section class="card">
-    <h2>Изменение за последнее время</h2>
-    <p class="muted">Направление изменения за последние 90 дней. Отсутствующий показатель не показан как 0.</p>
-    <div id="rate-panel"></div>
-</section>
-
-<section class="card">
-  <h2>История веса и состава тела</h2>
-  <p class="muted">Вся сохранённая история по дате измерения. Одинаковая дата не объединяет разные измерения. Состав связан с весом только по принятому идентификатору измерения.</p>
-  <div id="weight-history"></div>
-</section>
-
-<section class="card">
   <h2>Состав тела во времени</h2>
-  <p class="muted">Процент жира — оценка источника. Оценки жира и сухой массы — расчёт Health-Check из веса и процента жира одной сессии. Мышцы источника — отдельная оценка, а не остаток веса.</p>
-  <p class="muted">Один график выбранного показателя за всю историю. Каждый цвет и подпись обозначают отдельную группу совместимых методов. У групп свои даты измерений; их реальные периоды указаны в легенде. Точки не соединяются линией: пропуски и границы методов не заполняются. Точные значения и происхождение доступны в общей таблице выше.</p>
+  <details class="weight-info"><summary>ⓘ Как читать график состава</summary><p>Один график выбранного показателя за всю историю. Каждый цвет и подпись обозначают отдельную группу совместимых методов. У групп свои даты измерений; их реальные периоды указаны в легенде. Точки не соединяются линией: пропуски и границы методов не заполняются. Точные значения и происхождение доступны в общей таблице ниже.</p></details>
   <div id="composition-groups"></div>
   <details class="weight-caveat">
     <summary>Как читать оценки состава тела</summary>
     <p>Потребительский биоимпеданс (BIA) — не клиническое измерение и чувствителен к методике. Страница не ставит диагнозы, не утверждает причины и не сообщает точные изменения тканей. Небольшие колебания BIA могут отражать воду, гликоген или погрешность метода.</p>
     <p>Расчётные жир и сухая масса дополняют друг друга до веса. Сухая масса включает всё, кроме жира; она не равна мышцам источника. Мышцы и жир источника нельзя складывать как полный состав тела.</p>
   </details>
+</section>
+
+<section class="card">
+  <h2>История веса и состава тела</h2>
+  <details class="weight-info"><summary>ⓘ Как читать историю</summary><p>Вся сохранённая история по дате измерения. Одинаковая дата не объединяет разные измерения. Состав связан с весом только по принятому идентификатору измерения. Процент жира и мышцы — весы; жир и масса без жира в кг — расчёт Health-Check. — означает отсутствие значения.</p></details>
+  <div id="weight-history"></div>
 </section>
 
 {% if payload.summary.similar_weight.available %}

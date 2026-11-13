@@ -43,7 +43,8 @@
   function renderDashboard(payload) {
     const series = payload.series || {};
     const summary = payload.summary || {};
-    drawWeightChart(series);
+    bindWeightWindows(series);
+    renderWeightAge(payload.current || series.current || {});
     renderTrendStatus(series);
     renderRate(summary.rate || {});
     renderCoverage(summary.coverage);
@@ -51,6 +52,42 @@
     const history = weightHistory(series);
     renderWeightHistory(history);
     renderCompositionGroups(series.composition_by_group || {}, history);
+  }
+
+  function renderWeightAge(current) {
+    const node = document.getElementById('weight-age');
+    if (!node || !current.available) return;
+    // Source-local calendar date, compared with today's Moscow calendar date.
+    const today = Math.floor((Date.now() + 3 * 3600000) / 86400000);
+    const observed = Date.parse(current.observed_date) / 86400000;
+    const days = today - observed;
+    if (!Number.isInteger(days) || days < 0) return;
+    node.textContent = days === 0 ? 'Сегодня' : days + ' ' +
+      window.healthcheckOwnerFormat.plural(days, 'день', 'дня', 'дней') + ' назад';
+  }
+
+  function bindWeightWindows(series) {
+    const buttons = Array.from(document.querySelectorAll('[data-weight-window]'));
+    // The window ends at the latest loaded date, including historical/filtered pages.
+    // Filter existing values only: never recompute a trend on the truncated series.
+    const dates = (series.raw_points || []).concat(series.trend_points || [])
+      .map(point => point.observed_date).sort();
+    const end = dates[dates.length - 1];
+    function draw(value) {
+      const start = value === 'all' || !end ? null :
+        new Date(Date.parse(end) - (Number(value) - 1) * 86400000).toISOString().slice(0, 10);
+      const keep = point => !start || point.observed_date >= start;
+      const filtered = Object.assign({}, series, {
+        raw_points: (series.raw_points || []).filter(keep),
+        trend_points: (series.trend_points || []).filter(keep)
+      });
+      buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.weightWindow === value)));
+      const period = document.getElementById('weight-chart-period');
+      if (period) period.textContent = end ? readableDate(start || dates[0]) + ' — ' + readableDate(end) : 'Нет дат измерений';
+      drawWeightChart(filtered);
+    }
+    buttons.forEach(button => button.addEventListener('click', () => draw(button.dataset.weightWindow)));
+    draw('all');
   }
 
   function fmt(value, digits) {
@@ -109,20 +146,18 @@
         " Отсутствующий темп не показан как 0.</p>";
       return;
     }
+    let change = window.healthcheckOwnerFormat.number(rate.slope_kg_per_week, 1, true);
+    if (!change.includes(',')) change += ',0';
     node.innerHTML =
-      '<p>Изменение веса за период.</p>' +
-      "<p><strong>" +
-      window.healthcheckOwnerFormat.number(rate.slope_kg_per_week, 1, true) +
-      " кг/нед.</strong></p>" +
-      "<p class=\"muted\">" +
+      '<p class="weight-rate-value">' + change +
+      ' <span>кг в неделю</span></p>' +
+      '<p class="muted">Расчёт Health-Check · ' +
       rate.observation_count +
-      " " + window.healthcheckOwnerFormat.plural(rate.observation_count, "точка", "точки", "точек") + " за " +
-      rate.covered_span_days +
-      " " + window.healthcheckOwnerFormat.plural(rate.covered_span_days, "день", "дня", "дней") + " (" +
+      " " + window.healthcheckOwnerFormat.plural(rate.observation_count, "измерение", "измерения", "измерений") + " · " +
       window.healthcheckOwnerDate(rate.window_start_date) +
       " — " +
       window.healthcheckOwnerDate(rate.window_end_date) +
-      ").</p>";
+      "</p>";
   }
 
   function renderCoverage(coverage) {
@@ -196,7 +231,7 @@
       fmt(item.earlier_body_fat_pct, 1) +
       " → " +
       fmt(item.later_body_fat_pct, 1) +
-      "% (источник)</p>" +
+      " % · весы</p>" +
       "<p class=\"muted\">Один метод расчёта. Не утверждение о реальном росте мышц или потере жира.</p>";
   }
 
@@ -275,12 +310,6 @@
       node.innerHTML = '<p class="muted">Нет подтверждённых измерений. Это не означает ноль.</p>';
       return;
     }
-    const details = document.createElement('details');
-    details.open = rows.length <= 12;
-    const summary = document.createElement('summary');
-    summary.textContent = 'Все измерения / детали · ' + rows.length + ' · ' + readableDate(rows[0].date) +
-      ' — ' + readableDate(rows[rows.length - 1].date);
-    details.appendChild(summary);
     const scroller = document.createElement('div');
     scroller.className = 'table-scroll weight-history-table';
     scroller.tabIndex = 0;
@@ -288,12 +317,13 @@
     scroller.setAttribute('aria-label', 'История веса и состава тела, прокрутка таблицы');
     const table = document.createElement('table');
     const caption = document.createElement('caption');
-    caption.textContent = 'Вся сохранённая история · по дате измерения · — означает отсутствие значения';
+    caption.textContent = rows.length + ' ' + window.healthcheckOwnerFormat.plural(rows.length, 'измерение', 'измерения', 'измерений') +
+      ' · ' + readableDate(rows[0].date) + ' — ' + readableDate(rows[rows.length - 1].date);
     table.appendChild(caption);
     const head = document.createElement('thead');
     const headings = document.createElement('tr');
-    ['Дата измерения', 'Вес кг', 'Жир % (источник)', 'Жир кг (расчёт)', 'Безжировая масса кг (расчёт)',
-      'Мышцы кг (источник)', 'Источник/метод'].forEach(function (label) {
+    ['Дата', 'Вес, кг', 'Жир, %', 'Жир, кг', 'Без жира, кг',
+      'Мышцы, кг', 'Источник/метод'].forEach(function (label) {
       const cell = document.createElement('th');
       cell.scope = 'col';
       cell.textContent = label;
@@ -302,10 +332,11 @@
     head.appendChild(headings);
     table.appendChild(head);
     const body = document.createElement('tbody');
-    rows.forEach(function (row) {
+    rows.slice().reverse().forEach(function (row, index) {
       const tr = document.createElement('tr');
+      tr.hidden = index >= 5;
       const point = row.composition || {};
-      [readableDate(row.date), displayNumber(row.weight, 1), displayNumber(point.body_fat_pct, 1),
+      [window.healthcheckOwnerShortDate(row.date), displayNumber(row.weight, 1), displayNumber(point.body_fat_pct, 1),
         displayNumber(point.estimated_fat_mass_kg, 2), displayNumber(point.estimated_lean_mass_kg, 2),
         displayNumber(point.source_muscle_mass_kg, 1)].forEach(function (value) {
         const cell = document.createElement('td');
@@ -331,8 +362,23 @@
     });
     table.appendChild(body);
     scroller.appendChild(table);
-    details.appendChild(scroller);
-    node.appendChild(details);
+    node.appendChild(scroller);
+    if (rows.length > 5) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-expanded', 'false');
+      button.setAttribute('aria-controls', 'weight-history-rows');
+      body.id = 'weight-history-rows';
+      const label = 'Показать все · ' + rows.length;
+      button.textContent = label;
+      button.addEventListener('click', function () {
+        const expanded = button.getAttribute('aria-expanded') !== 'true';
+        Array.from(body.rows).forEach((row, index) => { row.hidden = !expanded && index >= 5; });
+        button.setAttribute('aria-expanded', String(expanded));
+        button.textContent = expanded ? 'Показать первые 5' : label;
+      });
+      node.appendChild(button);
+    }
   }
 
   function renderCompositionGroups(groups, history) {
@@ -365,10 +411,10 @@
     label.textContent = 'Показатель ';
     const select = document.createElement('select');
     const metrics = [
-      ['body_fat_pct', 'Жир % (источник)', '%'],
-      ['estimated_fat_mass_kg', 'Оценка жира кг (Health-Check)', ' кг'],
-      ['estimated_lean_mass_kg', 'Безжировая масса кг (расчёт Health-Check)', ' кг'],
-      ['source_muscle_mass_kg', 'Мышцы кг (источник, отдельная оценка)', ' кг']
+      ['body_fat_pct', 'Жир, %', '%'],
+      ['estimated_fat_mass_kg', 'Жир, кг', ' кг'],
+      ['estimated_lean_mass_kg', 'Без жира, кг', ' кг'],
+      ['source_muscle_mass_kg', 'Мышцы, кг', ' кг']
     ];
     metrics.forEach(function (metric) {
       const option = document.createElement('option');
@@ -415,10 +461,9 @@
       return { date: item.observed_date, value: item.trend_kg, kind: "trend" };
     });
     const allValues = points.concat(trendPoints).map(function (item) { return item.value; });
-    if (series.goal_kg !== null && series.goal_kg !== undefined) allValues.push(series.goal_kg);
     host.innerHTML = "";
     host.appendChild(
-      svgSeries(points, trendPoints, series.goal_kg, allValues, function (point) {
+      svgSeries(points, trendPoints, null, allValues, function (point) {
         showObservation(point);
       }, null, null, host)
     );
@@ -448,7 +493,7 @@
   function showObservation(point, detailNode) {
     const node = detailNode || document.getElementById('observation-detail');
     if (!node) return;
-    let html = '<h3>Наблюдение · ' + escapeHtml(readableDate(point.date)) + '</h3><p>Вес ' + fmt(point.value, 1) + ' кг (источник)</p>';
+    let html = '<h3>Наблюдение · ' + escapeHtml(readableDate(point.date)) + '</h3><p>Вес ' + fmt(point.value, 1) + ' кг · весы</p>';
     if (point.method) html += '<p>' + escapeHtml(point.method) + '</p>';
     const items = point.composition || [];
     if (!items.length) html += '<p class="muted">Состав тела для этого наблюдения недоступен. Это не означает ноль.</p>';
@@ -456,10 +501,10 @@
       if (items.length > 1) html += '<h4>Ряд состава ' + (index + 1) + '</h4>';
       html += '<dl class="weight-composition-values">';
       [
-        ['Жир (источник)', item.body_fat_pct, '%'],
-        ['Оценка жировой массы (Health-Check)', item.estimated_fat_mass_kg, ' кг'],
-        ['Оценка сухой массы (Health-Check)', item.estimated_lean_mass_kg, ' кг'],
-        ['Мышцы (источник, отдельная оценка)', item.source_muscle_mass_kg, ' кг']
+        ['Жир · весы', item.body_fat_pct, ' %'],
+        ['Жир · расчёт', item.estimated_fat_mass_kg, ' кг'],
+        ['Без жира · расчёт', item.estimated_lean_mass_kg, ' кг'],
+        ['Мышцы · весы', item.source_muscle_mass_kg, ' кг']
       ].forEach(function (metric) {
         html += '<div><dt>' + metric[0] + '</dt><dd>' + (metric[1] === null || metric[1] === undefined ? 'недоступно' : fmt(metric[1], 1) + metric[2]) + '</dd></div>';
       });
@@ -476,7 +521,7 @@
 
   function svgSeries(rawPoints, trendPoints, goal, values, onClick, unit, detailId, host, axisDates) {
     let width = Math.max(260, host.clientWidth);
-    const height = 280;
+    const height = unit ? 200 : 240;
     const pad = { l: 48, r: 16, t: 16, b: 52 };
     const dates = axisDates ? axisDates.map(Date.parse) : rawPoints.concat(trendPoints).map(function (item) { return Date.parse(item.date); });
     const minX = Math.min.apply(null, dates);
